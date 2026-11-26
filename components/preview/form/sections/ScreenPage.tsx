@@ -18,17 +18,20 @@
  */
 "use client";
 import { motion, useReducedMotion } from "motion/react";
-import { Fragment, useEffect, useId, useRef } from "react";
+import { useEffect, useId, useRef } from "react";
 import { useBuilderLanguage } from "@/components/builder/localization/BuilderLocalizationProvider";
+import { useFieldTextForm } from "@/lib/doc/hooks/useFieldTextForm";
 import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
 import type { Uuid } from "@/lib/domain";
 import { formRootName } from "@/lib/domain/formAnswerRoot";
+import { labelShowsAsTyped } from "@/lib/domain/plainText";
 import { referenceNames } from "@/lib/domain/referenceNames";
 import type { FormScreenPage } from "@/lib/preview/engine/formEngine";
 import { rebaseOntoContext } from "@/lib/preview/engine/instancePaths";
 import { useEngineStateAt } from "@/lib/preview/hooks/useEngineState";
 import { usePresentationSelector } from "@/lib/preview/hooks/usePresentationDocument";
 import { usePresentationField } from "@/lib/preview/hooks/useVisibleFieldOrder";
+import { presentedLabelText } from "@/lib/preview/labelPresentation";
 import { runtimeMessage } from "@/lib/preview/runtimeMessages";
 import { FormScreenScopeContext } from "../FormScreenScope";
 import { InteractiveFormRenderer } from "../InteractiveFormRenderer";
@@ -82,7 +85,10 @@ function headerParts(
 	}
 	for (const uuid of parents) {
 		const field = doc.fields[uuid];
-		if ((field?.kind !== "group" && field?.kind !== "repeat") || !field.label)
+		if (
+			(field?.kind !== "group" && field?.kind !== "repeat") ||
+			(!field.label && !field.extended_text)
+		)
 			continue;
 		const steps = names.fieldPathSegments(uuid);
 		if (steps === undefined) continue;
@@ -106,15 +112,20 @@ function HeaderPartText({ part }: { readonly part: HeaderPart }) {
 	const field = usePresentationField(part.uuid);
 	const state = useEngineStateAt(part.uuid, part.path);
 	const projectProse = useProseProjection();
-	const label =
-		field !== undefined && "label" in field && field.label
-			? (state.resolvedLabel ?? projectProse(field.label))
-			: "";
+	const textForm = useFieldTextForm(part.uuid);
+	const title = presentedLabelText(
+		field,
+		labelShowsAsTyped(textForm, field && "plainLabel" in field ? field : {}),
+		state,
+	);
+	const label = title ? (title.resolved ?? projectProse(title.template)) : "";
+	if (label.trim() === "") return null;
 	return (
-		<>
+		<span className="[&:first-child>span]:hidden">
+			<span aria-hidden="true"> &gt; </span>
 			{label}
 			{part.position !== undefined ? ` (${part.position})` : null}
-		</>
+		</span>
 	);
 }
 
@@ -169,16 +180,14 @@ export function ScreenPage({
 							: "sr-only"
 					}
 				>
-					{parts.length > 0
-						? parts.map((part, position) => (
-								<Fragment key={part.path}>
-									{position > 0 ? " > " : null}
-									<HeaderPartText part={part} />
-								</Fragment>
-							))
-						: runtimeMessage(language, "questionPosition", {
-								position: index + 1,
-							})}
+					{parts.map((part) => (
+						<HeaderPartText key={part.path} part={part} />
+					))}
+					<span className="hidden only-child:block only-child:sr-only">
+						{runtimeMessage(language, "questionPosition", {
+							position: index + 1,
+						})}
+					</span>
 				</h2>
 			</div>
 			<QuestionBanners uuid={page.uuid} path={page.path} />

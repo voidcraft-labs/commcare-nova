@@ -17,6 +17,7 @@ import type {
 	Uuid,
 } from "@/lib/domain";
 import { NEW_APP_SETTINGS } from "@/lib/domain/blueprint";
+import { formExpressionFacts } from "@/lib/domain/expression/context";
 import type { Expression } from "@/lib/domain/expression/types";
 import { walkExpression } from "@/lib/domain/expression/walk";
 import { isContainerKindName } from "@/lib/domain/fields";
@@ -50,6 +51,7 @@ import {
 } from "./expressions/findings";
 import { slotForm, suiteReadSources } from "./expressions/readExpression";
 import {
+	formSearchAnswerClass,
 	instanceIdsRead,
 	unreadDeclarationUse,
 } from "./expressions/surfaceUses";
@@ -272,6 +274,12 @@ function documentFromDrafts(ctx: ReadContext): BlueprintDoc {
 			: { localization: draft.localization }),
 		appSettings: {
 			...draft.appSettings,
+			...(draft.appSettings.projectSearches && {
+				projectSearches: draft.appSettings.projectSearches,
+			}),
+			...(draft.appSettings.installationProfiles && {
+				installationProfiles: draft.appSettings.installationProfiles,
+			}),
 			showSavedForms:
 				draft.appSettings.showSavedForms ?? NEW_APP_SETTINGS.showSavedForms,
 			showIncompleteForms:
@@ -572,6 +580,40 @@ function claimDeclarations(ctx: ReadContext, reading: ExpressionReading): void {
 						);
 					if (claim.entryId === UNSERVED_MAYBE) droppedFixtures.push([id, src]);
 					continue;
+				}
+				// One expression can read both its own and a parent's prompt. Its XPath site
+				// claims the first use of the shared scheme, but each distinct declaration
+				// belongs to the query that actually supplies that input.
+				if (key === "instance-source:jr://instance/search-input") {
+					const canonical = classifiedInstanceId(id, src);
+					const formClass =
+						canonical === undefined
+							? undefined
+							: formSearchAnswerClass(
+									canonical,
+									formExpressionFacts(reading.doc, form.uuid),
+								);
+					const claim =
+						formClass === "child-menu-of-inline-search-form"
+							? EXPRESSION_CLAIMS[
+									"search-input-read-in-the-forms-of-a-child-menu-of-an-inline-search-menu"
+								]
+							: formClass === "inline-search-form"
+								? EXPRESSION_CLAIMS[
+										"search-input-read-in-form-expressions-of-an-inline-search-module"
+									]
+								: undefined;
+					if (claim !== undefined) {
+						for (const one of declarationSites(declaration.element, key))
+							claimExpressionEntry(
+								ctx,
+								one.site,
+								claim.entry,
+								one.key,
+								form.place,
+							);
+						continue;
+					}
 				}
 				const scheme = classifiedInstanceId(id, src)?.split(":")[0];
 				// Several fixtures can appear in one expression. Each declaration takes

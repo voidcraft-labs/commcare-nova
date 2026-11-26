@@ -8,10 +8,7 @@ import {
 	useParseFormExpression,
 } from "@/lib/doc/hooks/useXPathSlots";
 import type { CommitOutcome, Uuid } from "@/lib/domain";
-import type {
-	Expression,
-	FieldExpressionSlotRef,
-} from "@/lib/domain/expression/types";
+import type { Expression } from "@/lib/domain/expression/types";
 import type {
 	ConnectActivity,
 	ConnectActivityField,
@@ -33,7 +30,7 @@ function ActivityExpression({
 	save,
 }: {
 	uuid: Uuid;
-	slotName: FieldExpressionSlotRef["slot"];
+	slotName: "assessment_user_score" | (typeof deliveryValues)[number][1];
 	label: string;
 	value: Expression | undefined;
 	save: (value: Expression | undefined) => CommitOutcome;

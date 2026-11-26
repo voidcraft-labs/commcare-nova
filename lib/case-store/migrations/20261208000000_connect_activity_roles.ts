@@ -75,8 +75,8 @@ function foldSnapshotSelect(
 			FROM public.apps AS app WHERE app.id = ${appId}`;
 }
 
-export async function readReleasedFoldSnapshot(
-	db: Kysely<unknown>,
+export async function readReleasedFoldSnapshot<Database>(
+	db: Kysely<Database>,
 	appId: string,
 ) {
 	const selection = foldSnapshotSelect(

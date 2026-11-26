@@ -77,6 +77,7 @@ import { finishText } from "./xform/prose";
 
 export { knownCaseTypesOf } from "./caseManagement/knownCaseTypes";
 export { knownFormOpenings } from "./caseManagement/openingAssignments";
+export { knownPositionedCaseOperationIdsOf } from "./caseManagement/operationOrder";
 export { knownLanguageCodesOf } from "./languages";
 export type * from "./types";
 

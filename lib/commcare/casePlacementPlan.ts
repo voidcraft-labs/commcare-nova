@@ -82,7 +82,10 @@ import {
 	type AttachmentUrlTarget,
 	captureUrlNodePath,
 } from "./xform/captureUrlNode";
-import { collectFieldLocations } from "./xform/caseOps";
+import {
+	authoredCaseChangePaths,
+	collectFieldLocations,
+} from "./xform/caseOps";
 import { datetimeCaseValuePath } from "./xform/datetimeCaseValue";
 import { FormPath } from "./xform/formPath";
 import {
@@ -116,6 +119,7 @@ export interface SaveToCaseBlock {
 	/** Element names from the scope to the block. */
 	readonly path: readonly [string, ...string[]];
 	readonly held: boolean;
+	readonly authoredPath?: FormPath;
 }
 
 /** A new case HQ gives a session datum, which other forms and links read. */
@@ -971,6 +975,7 @@ export function saveToCaseBlocks(
 	moduleKind?: "basic",
 ): readonly SaveToCaseBlock[] {
 	const blocks: SaveToCaseBlock[] = [];
+	const authored = authoredCaseChangePaths(doc, formUuid);
 	const { placements } = planPlacements(
 		doc,
 		formUuid,
@@ -987,6 +992,10 @@ export function saveToCaseBlocks(
 				? { kind: "own-close" }
 				: { kind: "operation", operationUuid: key };
 		const repeat = planned.placement.repeat;
+		const authoredPath =
+			subject.kind === "operation"
+				? authored.get(subject.operationUuid)?.path
+				: undefined;
 		blocks.push({
 			subject,
 			scope:
@@ -996,6 +1005,7 @@ export function saveToCaseBlocks(
 						FormPath.root(doc.forms[formUuid]?.dataRootName)),
 			path: planned.placement.path,
 			held: planned.held,
+			...(authoredPath !== undefined && { authoredPath }),
 		});
 	}
 	return blocks;

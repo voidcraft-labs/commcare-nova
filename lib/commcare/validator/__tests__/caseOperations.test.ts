@@ -1,7 +1,7 @@
 import { Immer } from "immer";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import { addFixtureField, buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { expectAdmittedDoc } from "@/lib/agent/__tests__/admittedFixture";
 import { planFieldCaseWrite } from "@/lib/doc/fieldCaseWriteMutations";
 import {
@@ -23,6 +23,7 @@ import {
 	type TargetedCaseOperation,
 	type Uuid,
 } from "@/lib/domain";
+import { authoredCaseIdPrefix } from "@/lib/domain/caseOperationIdentity";
 import {
 	concat,
 	count,
@@ -67,6 +68,7 @@ const REPEAT_CHILD = testUuid("cccccccc-cccc-4ccc-8ccc-cccccccccccc");
 const REPEAT_CHILD_TEXT = testUuid("dddddddd-dddd-4ddd-8ddd-dddddddddddd");
 const REPEAT_SIBLING = testUuid("eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee");
 const REPEAT_SIBLING_TEXT = testUuid("ffffffff-ffff-4fff-8fff-ffffffffffff");
+const CASE_POSITION = testUuid("test-case-change-position");
 const LOOKUP_TABLE = lookupTableIdSchema.parse(
 	"00000000-0000-7000-8000-0000000000a1",
 );
@@ -107,6 +109,94 @@ function validateCandidate(
 	if (errors.length === 0) expectAdmittedDoc(candidate, context);
 	return errors;
 }
+
+it("admits disjoint authored and HQ-managed writes and refuses the order-sensitive alias", () => {
+	const { doc, formUuid } = fixture();
+	const form = doc.forms[formUuid];
+	const own = form.caseOperations?.find(
+		(operation) => operation.action === "own",
+	);
+	if (!own) throw new Error("Expected the form's own managed operation.");
+	const positioned = (property: string): CaseOperation => ({
+		uuid: SECOND,
+		id: "at_position",
+		action: "update",
+		caseType: "patient",
+		target: { kind: "expression", expr: term(literal("possible-same-case")) },
+		writes: [{ property, value: term(literal("from positioned block")) }],
+	});
+	addFixtureField(doc, formUuid, {
+		uuid: CASE_POSITION,
+		id: "at_position",
+		kind: "case_change",
+		operationUuid: SECOND,
+	});
+	const managed: CaseOperation = {
+		...own,
+		placement: { kind: "basic", slot: "own" },
+		writes: [{ property: "nickname", value: term(formField(TEXT)) }],
+	};
+	form.caseOperations = [managed, positioned("mixed")];
+	expect(validateCandidate(doc)).toEqual([]);
+	form.caseOperations = [managed, positioned("nickname")];
+	expect(validateCandidate(doc)).toEqual([
+		expect.objectContaining({
+			code: "CASE_CHANGE_POSITION_INVALID",
+			location: expect.objectContaining({ fieldUuid: CASE_POSITION }),
+			details: expect.objectContaining({
+				reason: "managed-order",
+				operationUuid: SECOND,
+				otherOperationUuid: own.uuid,
+			}),
+		}),
+	]);
+
+	// An invalid question name cannot prevent the position rule from reporting
+	// the same operation conflict in the candidate.
+	doc.fields[TEXT] = { ...doc.fields[TEXT], id: "first.name" };
+	const faults = validateCandidate(doc);
+	expect(faults.map(({ code }) => code)).toEqual([
+		"CASE_CHANGE_POSITION_INVALID",
+		"INVALID_FIELD_ID",
+	]);
+});
+
+it("admits one action for a closing block that only saves case properties", () => {
+	const { doc, formUuid } = fixture();
+	const form = doc.forms[formUuid];
+	const own = form.caseOperations ?? [];
+	const common = {
+		uuid: SECOND,
+		id: "close_after_note",
+		caseType: "patient",
+		target: {
+			kind: "expression",
+			expr: term(literal("other-person")),
+		} as const,
+		writes: [
+			{ property: "nickname", value: term(literal("Saved before close")) },
+		],
+	};
+	form.caseOperations = [...own, { ...common, action: "close" }];
+	expect(validateCandidate(doc)).toEqual([]);
+	form.caseOperations = [
+		...own,
+		{ ...common, action: "update", closeAfter: true },
+	];
+	expect(validateCandidate(doc)).toEqual([
+		expect.objectContaining({ code: "CASE_OPERATION_CLOSE_ACTION_REQUIRED" }),
+	]);
+	form.caseOperations = [
+		...own,
+		{
+			...common,
+			action: "update",
+			closeAfter: true,
+			rename: term(literal("Updated name")),
+		},
+	];
+	expect(validateCandidate(doc)).toEqual([]);
+});
 
 interface Fixture {
 	readonly doc: BlueprintDoc;
@@ -583,7 +673,7 @@ describe("case-operation activation and identity", () => {
 		expect(codesFor([linked("Close")])).toEqual(codesFor([linked("parent")]));
 	});
 
-	it("accepts underscores, rejects hyphens and dots in operation ids and links, and dots in written properties", () => {
+	it("keeps hyphens in link identifiers and preserves the separate operation and property rules", () => {
 		expect(codesFor([update({ id: "_update_patient2" })])).toEqual([]);
 		for (const id of ["update-patient", "update.patient"]) {
 			const error = errorsFor([update({ id })]).find(
@@ -603,23 +693,22 @@ describe("case-operation activation and identity", () => {
 			);
 			expect(error?.message).toContain(CASE_OPERATION_PROPERTY_FORMAT_MESSAGE);
 		}
-		for (const identifier of ["parent-link", "parent.link"]) {
-			const error = errorsFor([
-				update({
-					links: [
-						{
-							identifier,
-							targetType: "visit",
-							target: null,
-							relationship: "child",
-						},
-					],
-				}),
-			]).find((candidate) => candidate.code === "CASE_OPERATION_LINK_INVALID");
-			expect(error?.message).toContain(
-				CASE_OPERATION_IDENTIFIER_FORMAT_MESSAGE,
-			);
-		}
+		const updateWithLink = (identifier: string) =>
+			update({
+				links: [
+					{
+						identifier,
+						targetType: "visit",
+						target: null,
+						relationship: "child",
+					},
+				],
+			});
+		expect(codesFor([updateWithLink("parent-link")])).toEqual([]);
+		const error = errorsFor([updateWithLink("parent.link")]).find(
+			(candidate) => candidate.code === "CASE_OPERATION_LINK_INVALID",
+		);
+		expect(error?.message).toContain("requires an Advanced open action");
 	});
 
 	it("keeps repeated operations on an explicit in-form repeat", () => {
@@ -671,8 +760,40 @@ describe("case-operation activation and identity", () => {
 			}),
 		]);
 
-		// The raw key cannot equal Nova's namespaced derived case id, so a
-		// same-repeat operation targeting that raw answer is order-independent.
+		// Another row's raw key can equal the prefixed id of this row.
+		expectCode("CASE_OPERATION_EXECUTION_ORDER", [
+			create({
+				forEach: { repeat: REPEAT_A },
+				target: { kind: "new", idFrom: REPEAT_A_TEXT },
+			}),
+			update({
+				caseType: "visit",
+				target: {
+					kind: "expression",
+					expr: term(formField(REPEAT_A_TEXT)),
+				},
+				forEach: { repeat: REPEAT_A },
+			}),
+		]);
+	});
+});
+
+describe("distinct targets of keyed creates", () => {
+	it("keeps a later keyed create after an update of a disjoint literal or its own root key", () => {
+		for (const expr of [
+			term(literal("existing-visit")),
+			term(formField(TEXT)),
+		]) {
+			expect(
+				codesFor([
+					update({ caseType: "visit", target: { kind: "expression", expr } }),
+					create({ target: { kind: "new", idFrom: TEXT } }),
+				]),
+			).toEqual([]);
+		}
+	});
+
+	it("keeps otherwise overlapping repeat effects on separate identities", () => {
 		expect(
 			codesFor([
 				create({
@@ -681,15 +802,48 @@ describe("case-operation activation and identity", () => {
 				}),
 				update({
 					caseType: "visit",
-					target: {
-						kind: "expression",
-						expr: term(formField(REPEAT_A_TEXT)),
-					},
+					target: { kind: "expression", expr: term(literal("existing-visit")) },
 					forEach: { repeat: REPEAT_A },
 				}),
 			]),
 		).toEqual([]);
+	});
 
+	it("holds an update of a disjoint property on the same existing keyed case", () => {
+		const keyed = create({ target: { kind: "new", idFrom: TEXT } });
+		const { doc, formUuid } = fixture();
+		const prefix = authoredCaseIdPrefix({
+			appId: doc.appId,
+			formUuid,
+			operationUuid: keyed.uuid,
+			caseType: keyed.caseType,
+		});
+		const caseId = `${prefix}the same answer`;
+		const previous = update({
+			caseType: "visit",
+			target: {
+				kind: "expression",
+				expr: term(literal(caseId)),
+			},
+			writes: [
+				{ property: "source_id", value: term(literal("before create")) },
+			],
+		});
+		expect(codesFor([previous, keyed])).toEqual([]);
+		expectCode("CASE_OPERATION_EXECUTION_ORDER", [
+			previous,
+			{
+				...keyed,
+				writes: [{ property: "source_id", value: term(literal("create")) }],
+			},
+		]);
+		expectCode("CASE_OPERATION_EXECUTION_ORDER", [
+			{ ...previous, rename: term(literal("before create")) },
+			keyed,
+		]);
+	});
+
+	it("distinguishes sibling repeat sequences from interleaved nested repeat effects", () => {
 		const siblingScopes = fixture();
 		siblingScopes.doc.forms[siblingScopes.formUuid].caseOperations = [
 			...ownArms(siblingScopes.doc.forms[siblingScopes.formUuid]),

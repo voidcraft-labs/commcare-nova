@@ -24,7 +24,11 @@ import {
 	bindCarriesConstraint,
 	constraintMessageNeedsProtection,
 } from "./constraintMessage";
-import { behaviorWireIds, ordinaryFormItextUnits } from "./itextIds";
+import {
+	additionalItextUnitIds,
+	behaviorWireIds,
+	ordinaryFormItextUnits,
+} from "./itextIds";
 
 /** Presence is tested after HQ fills translations and normalizes equal text
  * groups (`XForm.normalize_itext` keeps the lexically first id of each group
@@ -36,6 +40,9 @@ export function formBehaviorTextIssue(
 ): FormBehaviorTextIssue | undefined {
 	const form = doc.forms[formUuid];
 	if (!form || !formBehaviorRoles.some((role) => form[role])) return undefined;
+	for (const role of ["activityTitleText", "activityWindowText"] as const)
+		if (form[role] && !form.activityKeyText)
+			return { reason: "activity-without-key", role };
 	const structure = formStructure(doc, formUuid);
 	if (!structure) return undefined;
 	const ordinary = ordinaryFormItextUnits(structure);
@@ -73,7 +80,16 @@ export function formBehaviorTextIssue(
 		const values = localization.languages.map((code) =>
 			localization.prose(code, key),
 		);
+		const additional = additionalItextUnitIds(field, unit).map(
+			({ form, id }) => ({
+				form,
+				values: localization.languages.map((code) =>
+					localization.prose(code, id),
+				),
+			}),
+		);
 		if (
+			additional.length === 0 &&
 			!option &&
 			!media?.image &&
 			!media?.audio &&
@@ -99,11 +115,15 @@ export function formBehaviorTextIssue(
 						!helpShowsAsTyped(form, "plainHelp" in field ? field : {});
 		return {
 			values,
+			additional,
 			media: [media?.image, media?.audio, media?.video],
 			markdown,
 			protectedId:
 				unit.role === "field-validation-message" &&
-				constraintMessageNeedsProtection(values)
+				constraintMessageNeedsProtection(
+					additional.find((entry) => entry.form === "extended_text")?.values ??
+						values,
+				)
 					? id
 					: undefined,
 		};
@@ -206,9 +226,28 @@ export function formBehaviorTextChoices(
 				questionLabel:
 					unit.role === "field-label" &&
 					field.kind !== "group" &&
-					field.kind !== "repeat",
+					field.kind !== "repeat" &&
+					field.kind !== "section",
 				label: `${text.trim()} · ${CHOICE_ROLE_WORDS[unit.role]} of ${field.id}`,
 			},
 		];
 	});
+}
+
+/** The HQ Case List editor finds this pragma by the control's label ref.
+ * A behavior carried only by a hint, choice or container is outside its offer. */
+export function formSubmitsOnOpenFromAQuestionLabel(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+): boolean {
+	const automatic = doc.forms[formUuid]?.automaticSubmissionText;
+	if (!automatic) return false;
+	const ids = new Set(
+		[automatic.carrier, ...(automatic.alsoUsedBy ?? [])].map(
+			itextUnitTranslationId,
+		),
+	);
+	return formBehaviorTextChoices(doc, formUuid).some(
+		(choice) => choice.questionLabel && ids.has(choice.key),
+	);
 }

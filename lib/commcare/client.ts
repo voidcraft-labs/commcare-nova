@@ -1,3 +1,4 @@
+import { nativeInstallationKey } from "./hq/installationKey";
 import { mediaUploadStream } from "./hq/uploadStream";
 /**
  * CommCare HQ REST API client — server-side only.
@@ -278,7 +279,11 @@ export async function probeHqProjectSpaceCompatibility(
 	const allPlans = [...plan.capabilities, ...plan.advisories];
 	const privateFlags = new Map<string, HqPrivateFeatureFlagRequirement>();
 	for (const item of allPlans) {
-		for (const flag of [...item.featureFlags, ...item.featureFlagsOff]) {
+		for (const flag of [
+			...item.featureFlags,
+			...item.featureFlagsOff,
+			...(item.featureFlagsAny ?? []),
+		]) {
 			privateFlags.set(flag.id, flag);
 		}
 	}
@@ -507,6 +512,18 @@ function aggregatePrivateProbeState(
 				: state === "missing"
 					? "available"
 					: "unverified",
+		);
+	}
+	if (plan.featureFlagsAny?.length) {
+		const alternatives = plan.featureFlagsAny.map(
+			(flag) => flagResults.get(flag.id) ?? "unverified",
+		);
+		states.push(
+			alternatives.includes("available")
+				? "available"
+				: alternatives.includes("unverified")
+					? "unverified"
+					: "missing",
 		);
 	}
 	if (plan.runtimeProbes.includes("case-search")) {
@@ -1527,20 +1544,46 @@ export async function probeBuildProfile(
 }
 
 /** Read an exact BUILD resource. Never resolves working apps or follows redirects. */
-export async function readBuildXml(
+export function readBuildXml(
 	creds: CommCareCredentials,
 	domain: string,
 	buildId: string,
 	resource: "profile.ccpr" | "suite.xml",
+) {
+	return readInstallationXml(creds, domain, buildId, resource);
+}
+
+/** The working app's named suite reaches download_suite, whose form-version
+ * calculation only updates the request's in-memory form objects. A working
+ * profile or restore URL can create a new build and is never requested. */
+export function readWorkingInstallationSuite(
+	creds: CommCareCredentials,
+	domain: string,
+	appId: string,
+	profileKey?: string,
+) {
+	return readInstallationXml(creds, domain, appId, "suite.xml", profileKey);
+}
+
+async function readInstallationXml(
+	creds: CommCareCredentials,
+	domain: string,
+	buildId: string,
+	resource: "profile.ccpr" | "suite.xml",
+	profileKey?: string,
 ): Promise<{ readonly xml: string } | CommCareApiError> {
-	if (!isValidDomainSlug(domain) || !/^[\w-]+$/.test(buildId))
+	if (
+		!isValidDomainSlug(domain) ||
+		!/^[\w-]+$/.test(buildId) ||
+		(profileKey !== undefined && !nativeInstallationKey(profileKey))
+	)
 		return { success: false, status: 400 };
 	const controller = new AbortController();
 	const timer = setTimeout(() => controller.abort(), 30_000);
 	const send = () =>
 		sendHq(
 			creds,
-			`${hqDomainPath(domain)}/apps/download/${encodeURIComponent(buildId)}/${resource}`,
+			`${hqDomainPath(domain)}/apps/download/${encodeURIComponent(buildId)}/${resource}${profileKey ? `?profile=${encodeURIComponent(profileKey)}` : ""}`,
 			{ accept: "application/xml", noStore: true, signal: controller.signal },
 		);
 	try {

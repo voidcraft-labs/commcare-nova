@@ -242,7 +242,7 @@ function summarizeCaseList(mod: Module): string | undefined {
 		lines.push("      Details layout: tile in Web Apps, rows on Android");
 	if (config.selection !== undefined) {
 		lines.push(
-			`      selection: workers choose up to ${config.selection.maximum} ${config.selection.maximum === 1 ? "case" : "cases"} before continuing`,
+			`      selection: ${config.selection.autoSelect ? "automatically chooses up to" : "workers choose up to"} ${config.selection.maximum} ${config.selection.maximum === 1 ? "case" : "cases"} before continuing`,
 		);
 	}
 	if (config.tile !== undefined) {
@@ -409,7 +409,11 @@ function summarizeCaseList(mod: Module): string | undefined {
 				`        - ${filter.uuid}: ${
 					"target" in filter
 						? searchFilterTargetText(filter.target)
-						: `order ${filter.order.map(orderTermText).join(", then ")}`
+						: filter.kind === "order"
+							? `order ${filter.order.map(orderTermText).join(", then ")}`
+							: filter.kind === "request-record-type"
+								? `request records of type ${filter.caseType}`
+								: `follow the record ID in ${filter.property}`
 				}`,
 			);
 	}
@@ -444,6 +448,8 @@ function searchFilterTargetText(target: SearchFilterTarget): string {
 				: "owners left out of the online matches (default filter)";
 		case "project-space":
 			return "the project space";
+		case "include-related-records":
+			return "include related records when the result is nonempty";
 		case "link":
 			return `the record linked as ${target.identifier}`;
 	}
@@ -506,7 +512,9 @@ function formatSearchInput(input: SearchInputDef): string {
 	const body =
 		input.kind === "simple"
 			? `(simple) ${input.name} → ${input.property} (${input.type}, "${input.label}")`
-			: `(advanced) ${input.name} (${input.type}, "${input.label}")`;
+			: input.kind === "parameter"
+				? `(project search) ${input.name} (${input.type}, "${input.label}", ${input.sendAnswer ? "sent with the request" : "used by other values"})`
+				: `(advanced) ${input.name} (${input.type}, "${input.label}")`;
 	const markers: string[] = [];
 	if (input.hint !== undefined) markers.push("hint");
 	if (input.required !== undefined) {
@@ -548,7 +556,10 @@ function formatSearchInput(input: SearchInputDef): string {
  * names it, followed by `forms read it` when the menu's forms read the
  * search. The one-liner stays at a fixed width to keep the prompt cheap.
  */
-function summarizeCaseSearch(mod: Module): string | undefined {
+function summarizeCaseSearch(
+	doc: BlueprintDoc,
+	mod: Module,
+): string | undefined {
 	const config = mod.caseSearchConfig;
 	if (config === undefined) return undefined;
 	if (isOwnerOnlyCaseSearchConfig(config)) {
@@ -572,7 +583,11 @@ function summarizeCaseSearch(mod: Module): string | undefined {
 	];
 	const advancedSummary = `advanced={${advancedSlots.length === 0 ? "none" : advancedSlots.join(", ")}}`;
 	const workflowSummary = `workflow=${searchWorkflow(config)}${config.formsReadSearch === true ? ", forms read it" : ""}${config.searchOnClear ? ", clearing runs a new search on desktop Web Apps" : ""}`;
-	return `    case_search: ${displaySummary} ${advancedSummary} ${workflowSummary}`;
+	const service = config.projectSearch;
+	const source = service
+		? ` supplied by ${doc.appSettings.projectSearches?.[service.searchUuid]?.name ?? "project space"} (${service.searchUuid}), named values ${service.defaults.map((row) => row.name + " (" + row.uuid + ")").join(", ") || "none"}`
+		: "";
+	return `    case_search: ${displaySummary} ${advancedSummary} ${workflowSummary}${source}`;
 }
 
 /**
@@ -662,7 +677,7 @@ function summarizeModule(
 	const sections: string[] = [header];
 	const caseList = summarizeCaseList(mod);
 	if (caseList) sections.push(indentBlock(caseList, indent));
-	const caseSearch = summarizeCaseSearch(mod);
+	const caseSearch = summarizeCaseSearch(doc, mod);
 	if (caseSearch) sections.push(indentBlock(caseSearch, indent));
 	const registration = summarizeCaseListRegistration(doc, moduleUuid, mod);
 	if (registration) sections.push(indentBlock(registration, indent));

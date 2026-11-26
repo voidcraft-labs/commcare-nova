@@ -1,7 +1,8 @@
 import { ownedFormSelections } from "@/lib/domain/formEntryCases";
 import type { BlueprintDoc } from "./blueprint";
 import { caseMappingRowUuid } from "./caseMappingRows";
-import type { Uuid } from "./uuid";
+import { projectSearchOf } from "./modules";
+import { asUuid, type Uuid } from "./uuid";
 
 export const BLUEPRINT_AUTHORED_IDENTITY_KINDS = [
 	"module",
@@ -13,13 +14,17 @@ export const BLUEPRINT_AUTHORED_IDENTITY_KINDS = [
 	"caseListSort",
 	"caseDetailTab",
 	"searchInput",
+	"searchInputGroup",
 	"searchFilter",
+	"projectSearch",
+	"projectSearchParameter",
 	"caseOperation",
 	"formSelection",
 	"entryValue",
 	"openingAssignment",
 	"formLink",
 	"entryPoint",
+	"installationProfile",
 	"userProperty",
 	"userType",
 	"persona",
@@ -56,9 +61,22 @@ export interface BlueprintAuthoredIdentity {
 export function authoredBlueprintIdentities(
 	doc: BlueprintDoc,
 ): BlueprintAuthoredIdentity[] {
-	const identities: BlueprintAuthoredIdentity[] = [];
+	const identities: BlueprintAuthoredIdentity[] = Object.keys(
+		doc.appSettings.projectSearches ?? {},
+	).map((key) => ({ uuid: asUuid(key), kind: "projectSearch" }));
+	for (const profile of Object.values(
+		doc.appSettings.installationProfiles ?? {},
+	)) {
+		identities.push({ uuid: profile.uuid, kind: "installationProfile" });
+	}
 	for (const module of Object.values(doc.modules)) {
 		identities.push({ uuid: module.uuid, kind: "module" });
+		for (const parameter of projectSearchOf(module)?.defaults ?? [])
+			identities.push({
+				uuid: parameter.uuid,
+				kind: "projectSearchParameter",
+				ownerUuid: module.uuid,
+			});
 		for (const entryPoint of [
 			module.entryPoint,
 			module.caseListEntryPoint,
@@ -120,6 +138,12 @@ export function authoredBlueprintIdentities(
 			identities.push({
 				uuid: filter.uuid,
 				kind: "searchFilter",
+				ownerUuid: module.uuid,
+			});
+		for (const group of module.caseListConfig?.searchInputGroups ?? [])
+			identities.push({
+				uuid: group.uuid,
+				kind: "searchInputGroup",
 				ownerUuid: module.uuid,
 			});
 		for (const input of module.caseListConfig?.searchInputs ?? []) {

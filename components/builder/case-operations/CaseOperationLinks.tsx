@@ -260,13 +260,24 @@ function LinkRow({
 							value={link.identifier}
 							ariaLabel="Name of this connection"
 							onCommit={(next) => {
-								const verdict = caseOperationLinkIdentifierVerdict(next, taken);
+								const verdict = caseOperationLinkIdentifierVerdict(
+									next,
+									taken,
+									"free-here",
+									true,
+								);
 								if (!verdict.ok) {
 									setRejection(verdict.userMessage);
 									return;
 								}
+								const candidate = { ...link, identifier: next.trim() };
+								const result = linkVerdict(candidate);
+								if (!result.ok) {
+									setRejection(result.reason);
+									return;
+								}
 								setRejection(undefined);
-								onChange({ ...link, identifier: next.trim() });
+								onChange(candidate);
 							}}
 						/>
 					) : (

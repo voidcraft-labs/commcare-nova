@@ -28,6 +28,11 @@ import { log } from "@/lib/logger";
 import { canonicalJsonText } from "@/lib/utils/canonicalJsonText";
 import { HQ_APP_SOURCE_MAX_BYTES } from "./bounds";
 import {
+	type HqBuildProfile,
+	readBuildProfiles,
+	unusableBuildProfileKey,
+} from "./buildProfiles";
+import {
 	type CommCareApiError,
 	type CommCareCredentials,
 	HQ_MALFORMED_ANSWER,
@@ -43,6 +48,11 @@ import {
 import { readHqJson } from "./readJson";
 
 export { HQ_APP_SOURCE_MAX_BYTES } from "./bounds";
+export {
+	type HqBuildProfile,
+	readBuildProfiles,
+	unusableBuildProfileKey,
+} from "./buildProfiles";
 export {
 	HQ_MEDIA_TYPES,
 	type HqMediaMapItem,
@@ -66,16 +76,6 @@ export interface HqAppSourceForm {
 	readonly shadowParentReadId: string | null;
 	/** The XForm under this read's `<form id>.xml`, or null when absent. */
 	readonly attachment: string | null;
-}
-
-/** One entry of `build_profiles`. */
-export interface HqBuildProfile {
-	/** The profile's key in `build_profiles`. */
-	readonly id: string;
-	/** `name`; `""` where HQ holds no string. */
-	readonly name: string;
-	/** `langs`: the profile's language codes, its default first. */
-	readonly langs: readonly string[];
 }
 
 export interface HqAppSourceModule {
@@ -297,6 +297,8 @@ export async function readHqAppSource(
 			? malformed(domain, appId, "multimedia_map")
 			: parsed;
 	}
+	if (parsed.key === "build_profiles.unusable-key")
+		return { ...HQ_MALFORMED_ANSWER, installationProfileKeyUnusable: true };
 	if (parsed.key === "build_profiles") {
 		log.error("[commcare] build profiles are malformed", undefined, {
 			domain,
@@ -378,8 +380,22 @@ export function parseHqAppSource(
 	if (logoRefs !== undefined && !isRecord(logoRefs)) {
 		return refuse("logo_refs");
 	}
-	const buildProfiles = readBuildProfiles(body.build_profiles);
-	if (buildProfiles === null) return refuse("build_profiles");
+	const ordinaryLanguages = new Set(langs);
+	const buildProfiles = readBuildProfiles(
+		body.build_profiles,
+		ordinaryLanguages,
+		modules.length,
+	);
+	if (buildProfiles === null)
+		return refuse(
+			unusableBuildProfileKey(
+				body.build_profiles,
+				ordinaryLanguages,
+				modules.length,
+			)
+				? "build_profiles.unusable-key"
+				: "build_profiles",
+		);
 
 	const parsedModules: HqAppSourceModule[] = [];
 	for (const module of modules) {
@@ -488,30 +504,6 @@ function textOrNull(
 function docTypeOf(value: unknown, admitAny: boolean): string | null {
 	if (typeof value === "string") return value;
 	return admitAny ? null : "";
-}
-
-/**
- * `build_profiles`, `models/applications.py::ApplicationBase.build_profiles`,
- * a `SchemaDictProperty(BuildProfile)` HQ serializes on every app: an object
- * whose every value holds a `langs` list of strings. Null where it is not.
- */
-function readBuildProfiles(value: unknown): readonly HqBuildProfile[] | null {
-	if (!isRecord(value)) return null;
-	const profiles: HqBuildProfile[] = [];
-	for (const [id, profile] of Object.entries(value)) {
-		if (
-			!isRecord(profile) ||
-			!Array.isArray(profile.langs) ||
-			!profile.langs.every((lang) => typeof lang === "string")
-		)
-			return null;
-		profiles.push({
-			id,
-			name: typeof profile.name === "string" ? profile.name : "",
-			langs: profile.langs as string[],
-		});
-	}
-	return profiles;
 }
 
 /**

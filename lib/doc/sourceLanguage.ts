@@ -21,6 +21,7 @@ import {
 } from "@/lib/domain/localization";
 import { recordFromEntries } from "@/lib/domain/records";
 import {
+	EXTENDED_FIELD_TEXT_SLOT_OF_ROLE,
 	hasGeneratedWording,
 	LABEL_TEXT_SLOT_OF_ROLE,
 	snapshotTranslationUnits,
@@ -121,6 +122,9 @@ export function sourceSlotWriter(
 		case "field-first-add-label":
 		case "field-add-label":
 		case "field-validation-message":
+		case "field-extended-hint":
+		case "field-extended-help":
+		case "field-extended-validation-message":
 		case "field-extended-text":
 		case "field-qr-code":
 		case "field-spoken-text": {
@@ -129,6 +133,7 @@ export function sourceSlotWriter(
 				"field-hint": "hint",
 				"field-help": "help",
 				"field-validation-message": "validate_msg",
+				...EXTENDED_FIELD_TEXT_SLOT_OF_ROLE,
 				...LABEL_TEXT_SLOT_OF_ROLE,
 				"field-first-add-label": "addFirstLabel",
 				"field-add-label": "addLabel",
@@ -143,6 +148,7 @@ export function sourceSlotWriter(
 				: undefined;
 		}
 		case "select-option-label":
+		case "select-option-extended-text":
 			return owner.kind === "select-option"
 				? (draft, value) => {
 						const field = draft.fields[owner.fieldUuid];
@@ -156,7 +162,9 @@ export function sourceSlotWriter(
 							(one) => one.uuid === owner.optionUuid,
 						);
 						if (option !== undefined)
-							option.label = value as typeof option.label;
+							option[
+								unit.role === "select-option-label" ? "label" : "extended_text"
+							] = value as typeof option.label;
 					}
 				: undefined;
 		case "case-detail-tab-title":
@@ -251,13 +259,17 @@ export function sourceSlotWriter(
 					: undefined;
 		case "case-list-empty-text":
 		case "case-list-select-text":
+		case "case-list-lookup-result-heading":
 			return owner.kind === "module"
 				? (draft, value) => {
 						const list = draft.modules[owner.moduleUuid]?.caseListConfig;
 						if (list === undefined) return;
 						if (unit.role === "case-list-empty-text")
 							list.emptyText = text(value);
-						else list.selectButtonText = text(value);
+						else if (unit.role === "case-list-select-text")
+							list.selectButtonText = text(value);
+						else if (list.deviceLookup?.resultHeading !== undefined)
+							list.deviceLookup.resultHeading = text(value);
 					}
 				: undefined;
 		case "case-property-option-label":
@@ -271,6 +283,17 @@ export function sourceSlotWriter(
 						];
 						if (option !== undefined)
 							option.label = value as typeof option.label;
+					}
+				: undefined;
+		case "search-input-group-label":
+			return owner.kind === "search-input-group"
+				? (draft, value) => {
+						const group = draft.modules[
+							owner.moduleUuid
+						]?.caseListConfig?.searchInputGroups?.find(
+							(one) => one.uuid === owner.groupUuid,
+						);
+						if (group) group.label = text(value);
 					}
 				: undefined;
 		case "search-input-label":

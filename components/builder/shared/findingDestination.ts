@@ -140,6 +140,7 @@ export function mediaLocationOpenAction(
 			return () => navigate.openModule(location.moduleUuid);
 		case "case_list_icon":
 		case "case_list_audio_label":
+		case "case_list_lookup_icon":
 		case "case_list_registration_icon":
 		case "case_list_registration_audio_label":
 		case "image_map_mapping":
@@ -162,6 +163,7 @@ export function mediaLocationTargetName(location: MediaRefLocation): string {
 		case "module_audio_label":
 		case "case_list_icon":
 		case "case_list_audio_label":
+		case "case_list_lookup_icon":
 		case "case_list_registration_icon":
 		case "case_list_registration_audio_label":
 		case "image_map_mapping":

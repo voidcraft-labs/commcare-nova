@@ -53,6 +53,7 @@ import {
 	caseTypeCatalogMutations,
 	listedFormVisibilityMutation,
 } from "@/lib/doc/scaffolds";
+import { offerSearchNameMutations } from "@/lib/doc/searchResultsNaming";
 import {
 	changeListedMenuSource,
 	withListedMenuHierarchy,
@@ -71,6 +72,7 @@ import {
 } from "@/lib/domain";
 import { conditionSchema } from "@/lib/domain/expression";
 import { menuBadgeSchema } from "@/lib/domain/menuBadge";
+import { searchResultsNameSchema } from "@/lib/domain/modules";
 import { updateModuleMutations } from "../blueprintHelpers";
 import type { ToolInvocationContext } from "../workspace/types";
 import {
@@ -120,6 +122,12 @@ export const updateModuleInputSchema = moduleAddressSchema
 			.optional()
 			.describe(
 				"Show or hide one form in a menu listing another menu’s forms. Edits to the form are shared. Its deep link pauses while it is hidden.",
+			),
+		searchResultsName: searchResultsNameSchema
+			.nullable()
+			.optional()
+			.describe(
+				"The name used to keep this menu’s search answers and results distinct from a parent search. Omit to keep its name, or use null for the default. Naming the search does not turn it on.",
 			),
 		parentCaseModuleUuid: uuidSchema
 			.nullable()
@@ -239,6 +247,7 @@ export const updateModuleTool = {
 			parentCaseModuleUuid,
 			menu_layout,
 			auto_select_single,
+			searchResultsName,
 			forms_in_menu_above,
 			case_list_menu_item,
 			register_from_case_list,
@@ -255,6 +264,7 @@ export const updateModuleTool = {
 				parentCaseModuleUuid === undefined &&
 				menu_layout === undefined &&
 				auto_select_single === undefined &&
+				searchResultsName === undefined &&
 				forms_in_menu_above === undefined &&
 				case_list_menu_item === undefined &&
 				register_from_case_list === undefined
@@ -449,6 +459,13 @@ export const updateModuleTool = {
 				...(badge === undefined
 					? []
 					: [updateModuleMutation(moduleUuid, { badge })]),
+				...(searchResultsName === undefined &&
+				parentCaseModuleUuid !== undefined
+					? offerSearchNameMutations(doc, moduleUuid, { parentCaseModuleUuid })
+					: []),
+				...(searchResultsName === undefined
+					? []
+					: [updateModuleMutation(moduleUuid, { searchResultsName })]),
 				...(parentCaseModuleUuid === undefined
 					? []
 					: [updateModuleMutation(moduleUuid, { parentCaseModuleUuid })]),

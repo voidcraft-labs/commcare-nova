@@ -126,6 +126,9 @@ export interface PreviewPlatformRules {
 	 *  as it opens, skips its sync, or rechecks only changed answers. CommCare
 	 *  Android reads none of these texts. */
 	readonly webAppsFormPragmas: boolean;
+	/** Formplayer's case-list field exposes the link target. CommCare Android
+	 *  shows the stored media path as plain text. */
+	readonly caseListIconActions: boolean;
 	/** Android's markdown arm is on the case detail only
 	 *  (`views/EntityDetailView.java`, `FORM_MARKDOWN`). */
 	readonly linkColumnInList: "link" | "raw-text";
@@ -143,6 +146,8 @@ export interface PreviewPlatformRules {
 	 *  `case-search/title-label-lang-non-empty`, `description-lang-markdown`,
 	 *  `hint-lang`, which Android ignores). */
 	readonly searchScreenText: boolean;
+	readonly searchAddressPicker: boolean;
+	readonly searchFieldGroups: boolean;
 	/** The pinned case tile above the search screen. Formplayer sets it on
 	 *  every response, a search's included
 	 *  (`MenuSessionRunnerService.getNextMenu`, `setPersistentCaseTile`);
@@ -421,6 +426,9 @@ export interface PreviewPlatformRules {
 	/** Web Apps `entries.js::getEntry` (a barcode question falls through to
 	 *  `FreeTextEntry`); manifest `questions/barcode-barcode`. */
 	readonly barcodeQuestion: "text" | "scan-or-text";
+	/** Android WidgetFactory opens an intent in place of the input. Web Apps
+	 *  keeps the ordinary auxiliary input and cannot open the owner. */
+	readonly androidAppAnswers: boolean;
 	/** A Text question with a number keypad. Web Apps `form_entry/entries.js::PhoneEntry` stores an
 	 *  answer only where it matches its pattern; Android `views/widgets/StringNumberWidget.java` limits
 	 *  the keys and stores what its key listener leaves in the box: a + or - only as its first
@@ -600,10 +608,13 @@ export const PREVIEW_PLATFORM_RULES = {
 		tileBorderShading: true,
 		tileVerticalAlign: "as-authored",
 		webAppsFormPragmas: true,
+		caseListIconActions: true,
 		linkColumnInList: "link",
 		detailTile: "laid-out",
 		searchOnlyTileCell: "hidden",
 		searchScreenText: true,
+		searchAddressPicker: true,
+		searchFieldGroups: true,
 		searchScreenCaseTile: true,
 		caseDetailsCaseTile: false,
 		searchFieldChecks: true,
@@ -661,6 +672,7 @@ export const PREVIEW_PLATFORM_RULES = {
 		labelSpeech: "ignored",
 		locationQuestion: "map",
 		barcodeQuestion: "text",
+		androidAppAnswers: false,
 		numberKeypad: "pattern",
 		capture: "attach",
 		submitLabel: "submit",
@@ -703,10 +715,13 @@ export const PREVIEW_PLATFORM_RULES = {
 		tileBorderShading: false,
 		tileVerticalAlign: "middle-only",
 		webAppsFormPragmas: false,
+		caseListIconActions: false,
 		linkColumnInList: "raw-text",
 		detailTile: "rows",
 		searchOnlyTileCell: "drawn",
 		searchScreenText: false,
+		searchAddressPicker: false,
+		searchFieldGroups: false,
 		searchScreenCaseTile: false,
 		caseDetailsCaseTile: true,
 		searchFieldChecks: false,
@@ -764,6 +779,7 @@ export const PREVIEW_PLATFORM_RULES = {
 		labelSpeech: "button",
 		locationQuestion: "record-location",
 		barcodeQuestion: "scan-or-text",
+		androidAppAnswers: true,
 		numberKeypad: "keys",
 		capture: "device",
 		submitLabel: "finish",

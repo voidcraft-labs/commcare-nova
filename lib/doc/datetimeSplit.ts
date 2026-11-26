@@ -20,6 +20,7 @@ import { produce } from "immer";
 import {
 	type BlueprintDoc,
 	collectTranslationUnits,
+	effectiveCaseTypes,
 	type Field,
 	type Form,
 	fieldCaseWriteViews,
@@ -67,7 +68,8 @@ export interface DatetimeSplit {
 
 export type DatetimeSplitRefusal =
 	| "not-a-date-and-time-question"
-	| "self-read-through-a-filter";
+	| "self-read-through-a-filter"
+	| "saves-straight-to-date";
 
 export type DatetimeSplitPlan =
 	| ({
@@ -101,6 +103,8 @@ export const DATETIME_SPLIT_REFUSAL_MESSAGES: Readonly<
 		"Nova can split only a date-and-time question, and this question asks for something else.",
 	"self-read-through-a-filter":
 		"This question's own rule reads it through a filtered repeat, which Nova can't move onto the time question. You can simplify that rule and try again.",
+	"saves-straight-to-date":
+		"This question saves its calendar day to a case. To split it, you can first save the day with a separate date calculation.",
 };
 
 /** A time of day as Core's `TimeData.cast` reads it back. */
@@ -295,6 +299,20 @@ export function planDatetimeSplit(
 	)
 		return refusal("self-read-through-a-filter");
 
+	const writes = fieldCaseWriteViews(doc, fieldUuid);
+	if (
+		writes.some(
+			({ caseType, property, slot }) =>
+				slot === "write" &&
+				effectiveCaseTypes(doc)
+					.find(({ name }) => name === caseType)
+					?.properties.some(
+						({ name, data_type }) => name === property && data_type === "date",
+					),
+		)
+	)
+		return refusal("saves-straight-to-date");
+
 	const { parentUuid, formUuid } = where;
 	const { dateUuid, timeUuid } = freeIdentities(doc, fieldUuid);
 	const taken = takenIds(doc, parentUuid);
@@ -314,7 +332,7 @@ export function planDatetimeSplit(
 	const preload = fieldPreload(original);
 	const preloaded =
 		preload !== undefined &&
-		fieldCaseWriteViews(doc, fieldUuid).some(
+		writes.some(
 			(view) =>
 				view.via === undefined &&
 				view.caseType === preload.caseType &&

@@ -12,6 +12,7 @@ export const EMISSION_REWRITE_IDS = [
 	"instant-comparison",
 	"empty-rows-guard",
 	"absent-session-value-guard",
+	"lookup-count-singleton-index",
 	"row-predicate-current",
 	"default-reads-current",
 	"search-value-guards",
@@ -36,6 +37,9 @@ export const EMISSION_REWRITES: Readonly<
 	/** `fromExpression.ts::term` (`session-context`) and `::lowerExpression`
 	 *  (`case-list-search-text`): a session value that can be absent reads blank there. */
 	"absent-session-value-guard": { behavior: "changes" },
+	/** `fromExpression.ts::lowerExpression`: under an exact singleton guard,
+	 *  the whole count nodeset and its first node have the same numeric value. */
+	"lookup-count-singleton-index": { behavior: "none" },
 	/** `formReads.ts::formReadToWire`, and a Save to Case block's binding
 	 *  (`formReads.ts::placeBindingWithheld`): a row filter inside a repeat
 	 *  reads this entry's answer. Also a block's read, inside a row filter, of

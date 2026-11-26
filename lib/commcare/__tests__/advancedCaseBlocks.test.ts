@@ -328,45 +328,51 @@ describe("addAdvancedCaseBlocks", () => {
 		]);
 	});
 
-	it("names each index by its reference id, its case type, an extension's relationship, and the load's own datum", () => {
-		const { data, binds } = inject(
-			{
-				load_update_cases: [load("load_household0")],
-				open_cases: [
-					open("open_visit_0", {
-						case_indices: [index("load_household0", "extension", "host")],
-					}),
-					open("open_member_1", {
-						case_type: "member",
-						case_indices: [
-							index("load_household0", "child"),
-							index("open_visit_0", "child", "visit"),
-						],
-					}),
-				],
-			},
-			new Map([["load_household0", "case_id_aligned"]]),
-		);
-		const hostIndex = at(data, "case_open_visit_0", "case", "index");
-		expect(hostIndex.children.map((c) => [c.name, c.attributes])).toEqual([
-			["host", { case_type: "household", relationship: "extension" }],
-		]);
-		const memberCase = at(data, "case_open_member_1", "case");
-		expect(names(memberCase)).toEqual(["create", "index"]);
-		expect(
-			find(memberCase, "index").children.map((c) => [c.name, c.attributes]),
-		).toEqual([
-			["parent", { case_type: "household" }],
-			["visit", { case_type: "visit" }],
-		]);
-		// An index to a load reads the load's own datum, before alignment.
-		expect(
-			binds.get("/data/case_open_member_1/case/index/parent")?.calculate,
-		).toBe("instance('commcaresession')/session/data/case_id_load_household0");
-		expect(
-			binds.get("/data/case_open_member_1/case/index/visit")?.calculate,
-		).toBe("/data/case_open_visit_0/case/@case_id");
-	});
+	it.each(["parent", "my-parent", "my.parent"])(
+		"keeps the %s index, the target's case type and relationship, and the load's own datum",
+		(identifier) => {
+			const { data, binds } = inject(
+				{
+					load_update_cases: [load("load_household0")],
+					open_cases: [
+						open("open_visit_0", {
+							case_indices: [index("load_household0", "extension", "host")],
+						}),
+						open("open_member_1", {
+							case_type: "member",
+							case_indices: [
+								index("load_household0", "child", identifier),
+								index("open_visit_0", "child", "visit"),
+							],
+						}),
+					],
+				},
+				new Map([["load_household0", "case_id_aligned"]]),
+			);
+			const hostIndex = at(data, "case_open_visit_0", "case", "index");
+			expect(hostIndex.children.map((c) => [c.name, c.attributes])).toEqual([
+				["host", { case_type: "household", relationship: "extension" }],
+			]);
+			const memberCase = at(data, "case_open_member_1", "case");
+			expect(names(memberCase)).toEqual(["create", "index"]);
+			expect(
+				find(memberCase, "index").children.map((c) => [c.name, c.attributes]),
+			).toEqual([
+				[identifier, { case_type: "household" }],
+				["visit", { case_type: "visit" }],
+			]);
+			// An index to a load reads the load's own datum, before alignment.
+			expect(
+				binds.get(`/data/case_open_member_1/case/index/${identifier}`)
+					?.calculate,
+			).toBe(
+				"instance('commcaresession')/session/data/case_id_load_household0",
+			);
+			expect(
+				binds.get("/data/case_open_member_1/case/index/visit")?.calculate,
+			).toBe("/data/case_open_visit_0/case/@case_id");
+		},
+	);
 
 	it("writes a repeat's one open action as the first child of its row, its id a uuid()", () => {
 		const { data, binds, setvalues } = inject({

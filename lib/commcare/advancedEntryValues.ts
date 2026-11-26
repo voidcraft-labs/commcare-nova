@@ -8,6 +8,7 @@ import type {
 	FormCaseSelection,
 	Uuid,
 } from "@/lib/domain";
+import { formCaseSelections } from "@/lib/domain/advancedEntryDatums";
 import { userPropertySlugsByUuid } from "@/lib/domain/users";
 import { requireExpressionContext } from "./expressionContext";
 import type { LookupWireNaming } from "./lookup/naming";
@@ -225,7 +226,7 @@ export function automaticCase(
 			},
 		);
 	} else {
-		const earlier = doc.forms[formUuid]?.caseSelections?.find(
+		const earlier = formCaseSelections(doc, formUuid).find(
 			(row) => row.uuid === source.selection,
 		);
 		if (!earlier)

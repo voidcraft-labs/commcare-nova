@@ -28,6 +28,7 @@ export const multiSelectFieldSchema = inputFieldBaseSchema.extend({
 	choiceLayout: multiChoiceLayoutSchema.optional(),
 	validate: formLogicSchema.optional(),
 	validate_msg: proseTemplateSchema.optional(),
+	extended_validate_msg: proseTemplateSchema.optional(),
 	default_value: formLogicSchema.optional(),
 });
 

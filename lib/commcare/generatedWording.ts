@@ -17,6 +17,8 @@ import {
 	type GeneratedWordingRole,
 	generatedWordingId,
 } from "@/lib/domain/generatedWording";
+import { menuWithInheritedCaseSettings } from "@/lib/domain/listedForms";
+import { searchInputRequestKey } from "@/lib/domain/modules";
 import { ownRecordValue, recordFromEntries } from "@/lib/domain/records";
 import type { EmissionPlan } from "./emissionPlan";
 import type { ExpandOptions } from "./expander";
@@ -68,9 +70,9 @@ export function generatedWordingKeys(
 	register("cchq.case", "app", "caseTitle");
 	for (const [key, unit] of appNameWordingKeys(authored)) keys.set(key, unit);
 	// The archive and reader are already walking every detail. For an HQ
-	// import file, only derive those fields (and search checks) whose
+	// import file, only derive details (and search checks) whose
 	// overrides actually need a wire key.
-	const columnModules = new Set<string>(),
+	const detailModules = new Set<string>(),
 		searchModules = new Set<string>();
 	if (projection && authored.localization) {
 		const loc = authored.localization;
@@ -81,8 +83,14 @@ export function generatedWordingKeys(
 			for (const id of Object.keys(entries ?? {})) {
 				const unit = units.get(id);
 				if (!unit?.generated) continue;
-				if (unit.owner.kind === "case-list-column")
-					columnModules.add(unit.owner.moduleUuid);
+				if (
+					unit.owner.kind === "case-list-column" ||
+					(unit.owner.kind === "module" &&
+						(unit.generated.role === "caseDetailTabTitle" ||
+							unit.generated.role === "searchDetailTabTitle" ||
+							unit.generated.role === "lookupResultHeading"))
+				)
+					detailModules.add(unit.owner.moduleUuid);
 				if (
 					unit.generated.role === "promptValidation" &&
 					unit.owner.kind === "search-input"
@@ -93,14 +101,15 @@ export function generatedWordingKeys(
 	}
 	const doc = plan.doc;
 	for (const [m, moduleUuid] of projectedModulePreorder(doc).entries()) {
-		const mod = doc.modules[moduleUuid];
+		const mod = menuWithInheritedCaseSettings(doc, moduleUuid);
+		if (!mod) throw new Error("The menu or its source is missing.");
 		const menu = `m${m}`;
 		const hidden = plan.synthetic.get(moduleUuid);
 		if (hidden)
 			register(`modules.${menu}`, hidden.formUuid, "registrationMenuTitle");
 		if (
 			projection &&
-			columnModules.has(moduleUuid) &&
+			detailModules.has(moduleUuid) &&
 			!hidden &&
 			mod.caseType &&
 			mod.caseListConfig
@@ -127,6 +136,7 @@ export function generatedWordingKeys(
 		}
 		if (!hidden) {
 			register(`modules.${menu}`, moduleUuid, "menuTitle");
+			register(`modules.${menu}.badge`, moduleUuid, "menuBadgeText");
 			register(`case_list_form.${menu}`, moduleUuid, "registerButton");
 			register(`case_lists.${menu}`, moduleUuid, "caseListEntry");
 			register(selectTextLocaleId(m), moduleUuid, "selectCase");
@@ -145,7 +155,7 @@ export function generatedWordingKeys(
 					? generatedSearchChecks(authored, moduleUuid, projection.lookupNaming)
 					: undefined;
 			for (const input of mod.caseListConfig?.searchInputs ?? []) {
-				const prefix = `search_property.${menu}.${input.name}`;
+				const prefix = `search_property.${menu}.${searchInputRequestKey(input)}`;
 				register(prefix, input.uuid, "promptLabel");
 				register(`${prefix}.hint`, input.uuid, "promptHint");
 				register(`${prefix}.required.text`, input.uuid, "promptRequired");
@@ -159,6 +169,9 @@ export function generatedWordingKeys(
 		}
 		for (const [f, formUuid] of orderedFormUuids(doc, moduleUuid).entries()) {
 			register(`forms.${menu}f${f}`, formUuid, "formTitle");
+			// Listed routes reuse the source form's locale under their own command IDs.
+			if (!hidden)
+				register(`forms.${menu}f${f}.badge`, formUuid, "formBadgeText");
 			register(formSubmitLabelLocaleId(m, f), formUuid, "submitButton");
 		}
 	}
