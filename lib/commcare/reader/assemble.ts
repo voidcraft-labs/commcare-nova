@@ -443,7 +443,11 @@ export const READER_CANONICAL_CHOICES: readonly ReaderCanonicalChoice[] = [
 		apply: (doc) =>
 			withCandidate(doc, (draft) => {
 				for (const formUuid of Object.keys(draft.forms) as Uuid[]) {
-					const roots = draft.fieldOrder[formUuid] ?? [];
+					// A root Connect activity keeps its own submitted place beside
+					// the pages (`xform/containers.ts`).
+					const roots = (draft.fieldOrder[formUuid] ?? []).filter(
+						(uuid) => doc.fields[uuid]?.kind !== "connect_activity",
+					);
 					const lists = roots.every((uuid) => {
 						const field = doc.fields[uuid];
 						return (
