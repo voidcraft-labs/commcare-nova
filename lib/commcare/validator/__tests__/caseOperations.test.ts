@@ -23,6 +23,7 @@ import {
 	type TargetedCaseOperation,
 	type Uuid,
 } from "@/lib/domain";
+import { authoredCaseIdPrefix } from "@/lib/domain/caseOperationIdentity";
 import {
 	concat,
 	count,
@@ -718,6 +719,40 @@ describe("distinct targets of keyed creates", () => {
 				}),
 			]),
 		).toEqual([]);
+	});
+
+	it("holds an update of a disjoint property on the same existing keyed case", () => {
+		const keyed = create({ target: { kind: "new", idFrom: TEXT } });
+		const { doc, formUuid } = fixture();
+		const prefix = authoredCaseIdPrefix({
+			appId: doc.appId,
+			formUuid,
+			operationUuid: keyed.uuid,
+			caseType: keyed.caseType,
+		});
+		const caseId = `${prefix}the same answer`;
+		const previous = update({
+			caseType: "visit",
+			target: {
+				kind: "expression",
+				expr: term(literal(caseId)),
+			},
+			writes: [
+				{ property: "source_id", value: term(literal("before create")) },
+			],
+		});
+		expect(codesFor([previous, keyed])).toEqual([]);
+		expectCode("CASE_OPERATION_EXECUTION_ORDER", [
+			previous,
+			{
+				...keyed,
+				writes: [{ property: "source_id", value: term(literal("create")) }],
+			},
+		]);
+		expectCode("CASE_OPERATION_EXECUTION_ORDER", [
+			{ ...previous, rename: term(literal("before create")) },
+			keyed,
+		]);
 	});
 
 	it("distinguishes sibling repeat sequences from interleaved nested repeat effects", () => {

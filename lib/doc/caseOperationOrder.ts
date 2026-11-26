@@ -12,6 +12,7 @@ import {
 } from "@/lib/domain";
 import { type Expression, walkExpressionNodes } from "@/lib/domain/expression";
 import { firstModuleListingForm } from "@/lib/domain/formMembership";
+import { CASE_SCALAR_PROPERTY_NAMES } from "@/lib/domain/standardCaseProperties";
 import { deepEqual } from "./deepEqual";
 import { orderedFieldUuids } from "./fieldWalk";
 
@@ -229,7 +230,7 @@ export function caseOperationWireOrderViolationDetails(
 	);
 	const repeatedAncestors = repeatedOperationScopeAncestors(doc, formUuid);
 	const createsByUuid = registrationOwnCreates(doc, formUuid, operations);
-	const repeatedAuthoredCreates: CaseOperation[] = [];
+	const repeatedAuthoredCreates: TargetedCaseOperation[] = [];
 	const earlierNonCreates: TargetedCaseOperation[] = [];
 	let furthestRank = -1;
 	const broken: CaseOperationWireOrderViolation[] = [];
@@ -246,8 +247,8 @@ export function caseOperationWireOrderViolationDetails(
 		// HQ sorts blocks for one case create-first while Core follows document
 		// order. A generated uuid is fresh, but a namespaced authored key is a
 		// deterministic upsert identity and may already exist from an earlier
-		// submission; therefore its create cannot appear after a non-create block
-		// whose runtime id might resolve to that same case.
+		// submission. A non-create block before it matters only when the two
+		// processors can disagree about their shared case.
 		if (operation.action === "create") {
 			createsByUuid.set(operation.uuid, operation);
 			if (
@@ -257,7 +258,7 @@ export function caseOperationWireOrderViolationDetails(
 				continue;
 			if (
 				earlierNonCreates.some((earlier) =>
-					mayChangeCreatedCase(operation.uuid, earlier, createsByUuid),
+					keyedCreateOrderMatters(operation, earlier, createsByUuid),
 				)
 			) {
 				broken.push({
@@ -277,7 +278,7 @@ export function caseOperationWireOrderViolationDetails(
 					producer.forEach?.repeat,
 					operation.forEach?.repeat,
 				) ||
-				!mayChangeCreatedCase(producer.uuid, operation, createsByUuid)
+				!keyedCreateOrderMatters(producer, operation, createsByUuid)
 			) {
 				continue;
 			}
@@ -285,8 +286,8 @@ export function caseOperationWireOrderViolationDetails(
 			// while HQ groups blocks by concrete case id and stable-sorts every
 			// create before non-create effects. Duplicate authored keys make
 			// C1,U1,C2,U2 one case and HQ turns that into C1,C2,U1,U2. If
-			// producer and consumer share any repeated execution ancestor,
-			// Nova cannot promise the two processors the same result.
+			// effects of the producer and consumer are order-sensitive
+			// and they share a repeated execution ancestor, the results may differ.
 			broken.push({
 				operationUuid: operation.uuid,
 				kind: "repeated-authored-key-alias",
@@ -304,22 +305,48 @@ export function caseOperationWireOrderViolationDetails(
 	];
 }
 
-/** A write through an index changes the reached case in its own block.
- * Proving the operation's direct target distinct says nothing about that block.
- */
-function mayChangeCreatedCase(
-	createUuid: Uuid,
+/** An earlier update of a distinct row or of disjoint ordinary properties
+ * commutes with the keyed create. Update targets come from the entry casedb
+ * or an earlier create's correlated row, so this never relies on the later
+ * create to supply a case that the device could not update. */
+function keyedCreateOrderMatters(
+	create: TargetedCaseOperation,
 	operation: TargetedCaseOperation,
 	creates: ReadonlyMap<Uuid, CaseOperation>,
 ): boolean {
-	return (
-		operation.target.kind !== "new" &&
-		((operation.writes ?? []).some((write) => (write.via?.length ?? 0) > 0) ||
-			!caseOperationTargetsProvablyDistinct(
-				{ kind: "op", opUuid: createUuid },
-				operation.target,
-				creates,
-			))
+	if (operation.target.kind === "new") return false;
+	const writes = operation.writes ?? [];
+	// An index write to an ancestor has a separate target and block.
+	if (writes.some((write) => (write.via?.length ?? 0) > 0)) return true;
+	if (
+		caseOperationTargetsProvablyDistinct(
+			{ kind: "op", opUuid: create.uuid },
+			operation.target,
+			creates,
+		)
+	)
+		return false;
+
+	if (
+		operation.action !== "update" ||
+		operation.caseType !== create.caseType ||
+		operation.rename !== undefined ||
+		operation.owner !== undefined ||
+		operation.retype !== undefined ||
+		(operation.links?.length ?? 0) > 0 ||
+		writes.length === 0 ||
+		create.writes?.some((write) => (write.via?.length ?? 0) > 0)
+	)
+		return true;
+	const createdProperties = new Set(
+		create.writes?.map((write) => write.property),
+	);
+	return writes.some(
+		({ property }) =>
+			createdProperties.has(property) ||
+			CASE_SCALAR_PROPERTY_NAMES.has(property) ||
+			property === "name" ||
+			property === "hq_user_id",
 	);
 }
 
