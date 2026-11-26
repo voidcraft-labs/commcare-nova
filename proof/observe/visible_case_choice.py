@@ -11,8 +11,10 @@ DOCUMENT = "targeted-case-choice-reopen"
 NODESET = "instance('casedb')/casedb/case"
 
 
-def nodeset(open_only):
-    return NODESET + ("[@status = 'open']" if open_only else "")
+def nodeset(status):
+    return NODESET if status is None else f"{NODESET}[@status = '{status}']"
+
+
 STAMP = "2025-12-01T08:00:00.000Z"
 EXPECTED = {
     "known-clinic": "Known clinic",
@@ -20,6 +22,14 @@ EXPECTED = {
     "worker-profile": "Worker profile",
     "closed-host": "Closed host",
 }
+
+
+def expected_choices(status):
+    if status == "closed":
+        return {"closed-host": EXPECTED["closed-host"]}
+    if status == "open":
+        return {key: label for key, label in EXPECTED.items() if key != "closed-host"}
+    return EXPECTED
 
 
 def _case(case_id, case_type, label, owner=casedata.USER_ID, indices=()):
@@ -39,22 +49,22 @@ def database():
     ))
 
 
-def source_with_lifecycle(source, open_only):
+def source_with_lifecycle(source, status):
     form = etree.fromstring(source.encode() if isinstance(source, str) else source)
     (itemset,) = form.xpath("//*[local-name()='select1' and @ref='/data/clinic']/*[local-name()='itemset']")
     assert itemset.get("nodeset").startswith(NODESET + "[@case_type")
     assert itemset.xpath("./*[local-name()='label']/@ref") == ["case_name"]
     assert itemset.xpath("./*[local-name()='value']/@ref") == ["@case_id"]
-    itemset.set("nodeset", nodeset(open_only))
+    itemset.set("nodeset", nodeset(status))
     return etree.tostring(form, encoding="unicode")
 
 
-def release_with_lifecycle(holder, open_only):
+def release_with_lifecycle(holder, status):
     """Write the exact retained itemset expression and close the host and unreferenced record in HQ."""
     from casexml.apps.case.mock import CaseBlock
     from corehq.apps.hqcase.utils import submit_case_blocks
 
-    write = apps.form_written(holder, {"0.0": lambda source: source_with_lifecycle(source, open_only)})
+    write = apps.form_written(holder, {"0.0": lambda source: source_with_lifecycle(source, status)})
 
     def change(stored):
         blocks = [
