@@ -153,6 +153,7 @@ import {
 const Q = "questions";
 const F = "forms-and-case-writes";
 const MUG = "mug:SaveToCase";
+const ROLE = "vellum-markup:model/instance//*@vellum:role";
 
 /** A Save to Case expression outside the typed vocabulary of its slot, the
  *  expression stage's entry. */
@@ -172,9 +173,9 @@ export const SAVE_TO_CASE_CLAIMS = defineClaims("caseManagement.saveToCase", {
 	),
 	linkActionOnSave: refuse(
 		`${Q}/savetocase-link-name-changes-actions-on-save`,
-		MUG,
+		ROLE,
 	),
-	linkBindLost: refuse(`${Q}/savetocase-link-bind-lost-on-save`, MUG),
+	linkBindLost: refuse(`${Q}/savetocase-link-bind-lost-on-save`, ROLE),
 	caseTypeXPath: refuse(`${Q}/savetocase-case-type-given-as-an-xpath`, MUG),
 	authoredCreateId: refuse(
 		`${Q}/savetocase-create-with-an-authored-non-uuid-case-id-xpath-inside`,
