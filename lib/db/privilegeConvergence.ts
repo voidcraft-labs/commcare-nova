@@ -308,6 +308,8 @@ const RUNTIME_INSERT_DELETE_TABLES = [
 	"app_deployment_column_field_words",
 	"worker_group_members",
 	"lookup_row_assignments",
+	"app_deployment_installation_profiles",
+	"app_deployment_installation_reviews",
 ] as const;
 
 /** Only a migration writes these, as the migration role: fold baselines,

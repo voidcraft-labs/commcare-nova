@@ -89,6 +89,7 @@ function triggerBlobDownload(blob: Blob, filename: string): void {
  * where, so the toast shows those lines rather than a generic "failed".
  */
 async function downloadArtifact(opts: {
+	installationProfileUuid?: string;
 	appId: string;
 	server?: CommCareServer;
 	/** The project space a CCZ is made for; the import file takes none. */
@@ -115,6 +116,9 @@ async function downloadArtifact(opts: {
 			// project space.
 			body: JSON.stringify({
 				appId: opts.appId,
+				...(opts.installationProfileUuid && {
+					installationProfileUuid: opts.installationProfileUuid,
+				}),
 				...(opts.server ? { server: opts.server } : {}),
 				...(opts.domain ? { domain: opts.domain } : {}),
 				...(opts.privateData && { privateData: true }),
@@ -328,6 +332,7 @@ export const PublishPanel = memo(function PublishPanel() {
 
 	const handleDownloadCcz = useCallback(
 		async (target: {
+			readonly installationProfileUuid?: string;
 			readonly server: CommCareServer;
 			readonly domain: string;
 		}): Promise<PublishDownloadOutcome> => {
@@ -340,6 +345,7 @@ export const PublishPanel = memo(function PublishPanel() {
 				appId: s.appId,
 				server: target.server,
 				domain: target.domain,
+				installationProfileUuid: target.installationProfileUuid,
 				endpoint: "/api/compile",
 				fileLabel: "the .ccz file",
 				filename: `${s.appName || "app"}.ccz`,

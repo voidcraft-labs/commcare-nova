@@ -71,6 +71,8 @@ export const HQ_PLAN_PRIVILEGE_IDS = [
 	"data_forwarding",
 	"app_dependencies",
 	"geocoder",
+	"build_profiles",
+	"practice_mobile_workers",
 ] as const;
 export type HqPlanPrivilegeId = (typeof HQ_PLAN_PRIVILEGE_IDS)[number];
 
@@ -95,6 +97,8 @@ export interface PlanPrivilegePushes {
 	readonly lookupTables: boolean;
 	/** The publish sends at least one place. */
 	readonly places: boolean;
+	/** Existing installation profiles that need an authorized edit on this target. */
+	readonly hasTargetProfiles?: boolean;
 }
 
 /**
@@ -124,6 +128,8 @@ export const PLAN_FEATURE_FOR_PRIVILEGE = {
 	data_forwarding: "data-forwarding",
 	app_dependencies: "required-android-apps",
 	geocoder: "geocoder",
+	build_profiles: "installation-profiles",
+	practice_mobile_workers: "practice-workers",
 } as const satisfies Record<HqPlanPrivilegeId, PlanFeatureId>;
 
 /** A form named as every reason names it: its name, trimmed, or its id. */
@@ -457,6 +463,28 @@ export function requiredPlanPrivileges(
 		),
 	);
 
+	const profiles = Object.values(doc.appSettings.installationProfiles ?? {});
+	add(
+		"build_profiles",
+		profiles.length
+			? [
+					`Workers can choose from ${profiles.length} named installation${profiles.length === 1 ? "" : "s"}.`,
+				]
+			: pushes.hasTargetProfiles
+				? ["Update the named installations already on this project space."]
+				: [],
+	);
+	const practice = profiles.filter(
+		(profile) => profile.requiresPracticeWorker,
+	).length;
+	add(
+		"practice_mobile_workers",
+		practice
+			? [
+					`${practice} named installation${practice === 1 ? " uses" : "s use"} a practice worker from this project space.`,
+				]
+			: [],
+	);
 	return uses;
 }
 

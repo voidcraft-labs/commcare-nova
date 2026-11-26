@@ -1,3 +1,4 @@
+import { INSTALLATION_REVIEW_TOKEN } from "@/lib/publish/installationReviewToken";
 // lib/deployment/types.ts
 //
 // The public shapes of a deployment: one app, published to one CommCare HQ
@@ -268,6 +269,7 @@ export const DEPLOYMENT_FAILURE_CODES = [
 	 * publish's content was sent.
 	 */
 	"hq_build_profile_language_missing",
+	"hq_installation_profile_review",
 	/**
 	 * CommCare HQ made the new app with Web Apps off, which it does where the
 	 * plan has no Web Apps, for an app that runs in Web Apps. Only the empty
@@ -304,6 +306,12 @@ export type DeploymentFailureCode = (typeof DEPLOYMENT_FAILURE_CODES)[number];
  */
 export interface DeploymentFailure {
 	readonly code: DeploymentFailureCode;
+	readonly installationProfileConfirmation?: string;
+	readonly installationProfileChoices?: readonly {
+		readonly label: string;
+		readonly confirmation: string;
+	}[];
+	readonly installationProfileReviewUrl?: string;
 	readonly message: string;
 	readonly details: readonly string[];
 }
@@ -971,6 +979,20 @@ export const deploymentResourceOwnershipSchema = z.enum(
 
 export const deploymentFailureSchema = z.strictObject({
 	code: z.enum(DEPLOYMENT_FAILURE_CODES),
+	installationProfileConfirmation: z
+		.string()
+		.regex(/^[a-f0-9]{64}$/)
+		.optional(),
+	installationProfileReviewUrl: z.url().optional(),
+	installationProfileChoices: z
+		.array(
+			z.strictObject({
+				label: z.string(),
+				confirmation: z.string().regex(INSTALLATION_REVIEW_TOKEN),
+			}),
+		)
+		.readonly()
+		.optional(),
 	message: z.string().min(1),
 	details: z.array(z.string()).readonly(),
 });

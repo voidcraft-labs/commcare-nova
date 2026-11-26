@@ -2,7 +2,9 @@
 import type { Client } from "@modelcontextprotocol/client";
 import { sql } from "kysely";
 import { expect, it, vi } from "vitest";
+import { testUuid as profileUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
+import { buildAppStateMessage } from "@/lib/agent/prompts";
 import { SHARED_TOOL_REGISTRY } from "@/lib/agent/sharedToolRegistry";
 import { withProjectContext } from "@/lib/case-store";
 import { getCaseStoreDatabase } from "@/lib/case-store/postgres/connection";
@@ -21,6 +23,7 @@ import { sectionEntryDoc } from "@/lib/preview/engine/__tests__/fixtures/section
 import { registerSharedTool } from "../adapters/sharedToolAdapter";
 import { MAX_RESULT_SIZE_CHARS } from "../resultSize";
 import { SCOPES } from "../scopes";
+import { registerGetApp } from "../tools/getApp";
 import { registerWorkTools } from "../tools/work";
 import type { ToolContext } from "../types";
 import { withMcpClient } from "./client";
@@ -920,3 +923,96 @@ it("reads every destination and ordered rule through bounded MCP pages, and refu
 		},
 	);
 });
+
+it("pages the entire admitted installation inventory through the shared read and keeps get_app and the SA prompt compact", async () => {
+	const doc = promptDoc();
+	const count = 13_108;
+	const installations = Array.from({ length: count }, (_, i) => ({
+		uuid: profileUuid(`large-install-${i}`),
+		name: i === 0 ? 'Visit🩺"'.repeat(19_000) : `Team ${i}`,
+		languages: ["eng"],
+		requiresPracticeWorker: i % 2 === 0,
+	}));
+	doc.appSettings.installationProfiles = Object.fromEntries(
+		installations.map((p) => [p.uuid, p]),
+	);
+	await h.seedAppWithBlueprint(doc, {
+		id: doc.appId,
+		owner: "creator",
+		projectId: PROJECT,
+	});
+	await h.seedProjectMember(ACTOR, PROJECT, "editor");
+	const prompt = JSON.stringify(buildAppStateMessage(doc));
+	expect(prompt.length).toBeLessThan(20_000);
+	expect(prompt).not.toContain("Team 13107");
+	await withMcpClient(
+		(server) => {
+			register(server);
+			registerGetApp(server, context);
+		},
+		async (client) => {
+			const overview = await call(client, "get_app", { app_id: doc.appId });
+			expect(overview.app.settings.installationProfiles).toEqual({ count });
+			expect(JSON.stringify(overview).length).toBeLessThan(20_000);
+			const recovered = new Map<
+				string,
+				{ uuid: string; name: string; languages: unknown[] }
+			>();
+			let cursor: string | null = null;
+			let firstContinuation: string | null = null;
+			let text = "",
+				parts = 0;
+			do {
+				const result = await client.callTool({
+					name: "get_languages",
+					arguments: {
+						app_id: doc.appId,
+						installations: cursor ? { cursor } : {},
+					},
+				});
+				expect(result.isError).not.toBe(true);
+				expect(JSON.stringify(result).length).toBeLessThan(13_000);
+				const data = JSON.parse(resultContentText(result));
+				expect(data.total).toBe(count);
+				for (const item of data.installations) {
+					if ("part" in item) {
+						expect(item.part).toBe(++parts);
+						text += item.text;
+						if (item.part < item.parts) continue;
+						const whole = JSON.parse(text);
+						recovered.set(whole.uuid, whole);
+						text = "";
+						parts = 0;
+					} else recovered.set(item.uuid, item);
+				}
+				cursor = data.nextCursor;
+				firstContinuation ??= cursor;
+			} while (cursor);
+			expect(recovered.size).toBe(count);
+			for (const profile of installations)
+				expect(recovered.get(profile.uuid)).toEqual({
+					...profile,
+					languages: [{ language: "eng" }],
+				});
+			const { work_id } = await begin(client, doc.appId);
+			const tail = installations[count - 1];
+			await call(client, "update_app", {
+				work_id,
+				request_id: "tail-profile",
+				installation_profile: {
+					operation: "update",
+					uuid: tail.uuid,
+					patch: { name: "Tail team", languages: [{ language: "eng" }] },
+				},
+			});
+			expect(firstContinuation).toBeTruthy();
+			const stale = await client.callTool({
+				name: "get_languages",
+				arguments: { work_id, installations: { cursor: firstContinuation } },
+			});
+			expect(resultContentText(stale)).toContain(
+				"installations or the page changed",
+			);
+		},
+	);
+}, 180_000);

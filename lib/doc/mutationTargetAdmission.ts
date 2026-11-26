@@ -475,6 +475,9 @@ export function mutationTargetsInvalid(
 	const initialLocalization = effectiveAppLocalization(doc.localization);
 	let sourceLanguage = initialLocalization.sourceLanguage;
 	let languages = [...initialLocalization.languageOrder];
+	const profiles = new Set(
+		Object.keys(doc.appSettings.installationProfiles ?? {}),
+	);
 	const wireCodes = new Map<string, string>(
 		Object.entries(initialLocalization.wireCodes),
 	);
@@ -1351,8 +1354,18 @@ export function mutationTargetsInvalid(
 			case "setAppName":
 			case "setConnectType":
 			case "setAppLogo":
-			case "setAppSettings":
 				break;
+			case "setAppSettings": {
+				const change = m.settings.installationProfile;
+				if (!change) break;
+				if (change.operation === "remove") {
+					if (!profiles.delete(change.uuid)) return true;
+				} else if (change.operation === "add") {
+					if (profiles.has(change.profile.uuid)) return true;
+					profiles.add(change.profile.uuid);
+				} else if (!profiles.has(change.uuid)) return true;
+				break;
+			}
 			case "relabelSourceLanguage": {
 				if (languages.length !== 1) return true;
 				const tag = languageTag(m.language);

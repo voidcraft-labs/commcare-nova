@@ -1,3 +1,4 @@
+import type { InstallationProfileBinding } from "@/lib/commcare/wireIdentity";
 /**
  * The corpus's documents and where each comes from.
  *
@@ -134,6 +135,7 @@ export interface HqAuthoredFacts {
 	 * its local archive print the column under. Empty where A holds none.
 	 */
 	readonly columnWords: readonly ColumnFieldWordRow[];
+	readonly installationProfiles?: readonly InstallationProfileBinding[];
 	/**
 	 * Absolute path of the base's retained directory (`proof/hq-apps/<base>/`),
 	 * whose files the entry writer copies into the document's `authored/` and
@@ -346,6 +348,7 @@ export interface HqSideSaveKinds extends HqSideContentSaves {
 	>;
 	readonly appAttributes?: Readonly<Record<string, boolean | string>>;
 	readonly buildProfiles?: readonly {
+		readonly practice_worker_id?: string;
 		readonly id: string;
 		readonly name: string;
 		readonly langs: readonly string[];
@@ -412,7 +415,7 @@ export interface HqFormPlace {
  * - `moduleLayout`: a menu's own display style (`display_style`, the menu
  *   settings page's Menu Display, shown where the app's form menus are set
  *   per menu), posted to `views/modules.py::edit_module_attr`;
- * - `moduleDetail`: a column added at the end of a menu's case list, posted
+ * - `moduleDetail`: columns added to a case list or tabs added to a case detail, posted
  *   as the Case List page posts its columns
  *   (`views/modules.py::edit_module_detail_screens`, `type` `case`, every
  *   column and the list's own settings as HQ holds them, then `column`);
@@ -454,11 +457,16 @@ export interface HqSideContentSaves {
 		readonly module: number;
 		readonly displayStyle: "grid" | "list";
 	};
-	readonly moduleDetail?: {
-		readonly module: number;
-		/** The column as the Case List page posts it, every key HQ stores of it. */
-		readonly column: Readonly<Record<string, unknown>>;
-	};
+	readonly moduleDetail?: { readonly module: number } & (
+		| {
+				/** Columns appended as the Case List page posts them. */
+				readonly columns: readonly Readonly<Record<string, unknown>>[];
+		  }
+		| {
+				/** Tabs replacing the case detail's original tabs. */
+				readonly tabs: readonly Readonly<Record<string, unknown>>[];
+		  }
+	);
 	readonly formsAddedAndRemoved?: {
 		readonly module: number;
 		/** The place of the form deleted, before anything is added. */

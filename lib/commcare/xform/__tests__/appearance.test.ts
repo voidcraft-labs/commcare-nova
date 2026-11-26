@@ -27,7 +27,10 @@ import { blueprintDocArbitrary } from "../../__tests__/xformDocArbitrary";
 import { expandDoc } from "../../expander";
 import { parseXml } from "../../xmlParse";
 import { fieldAppearance, writeFieldAppearance } from "../appearance";
-import { readFieldAppearance } from "../readDisplaySettings";
+import {
+	fieldDisplayProblem,
+	readFieldAppearance,
+} from "../readDisplaySettings";
 
 /** A field of `kind` with the slots its writer reads, and `extra` beside them. */
 function fieldOf(kind: FieldKind, extra: Record<string, unknown> = {}): Field {
@@ -185,6 +188,17 @@ describe("fieldAppearance", () => {
 			expect(settings && writeFieldAppearance(kind, settings)).toBe(canonical);
 		},
 	);
+});
+
+it("admits the legacy filename receiver and prints its canonical spelling", () => {
+	const field = fieldOf("text", {
+		receiveFrom: { channel: "document", field: "indexed" },
+	});
+	expect(fieldDisplayProblem(field)).toBeUndefined();
+	expect(fieldAppearance(field)).toBe("receive-document-filename");
+	expect(readFieldAppearance("text", "receive-document-indexed")).toEqual({
+		receiveFrom: { channel: "document", field: "filename" },
+	});
 });
 
 /** Every element below `root`, in document order. */

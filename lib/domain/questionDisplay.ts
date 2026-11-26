@@ -3,6 +3,12 @@ import { fieldDisplaySettingsFor } from "./fieldDisplay";
 import type { Field, MultiSelectField, SingleSelectField } from "./fields";
 import type { Platform } from "./platforms";
 
+/** Web Apps treats the legacy receiver field as the attachment filename.
+ * Its alias applies to the complete returned field, before any choice fallback. */
+export function questionReceiverProperty(field: string): string {
+	return field === "indexed" ? "filename" : field;
+}
+
 /** Settings that a reader recognizes only when they are the control's
  * complete presentation, including its ordinary group-screen setting. */
 export function hasOtherDisplay(field: Field, key: string): boolean {

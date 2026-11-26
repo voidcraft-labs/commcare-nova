@@ -73,7 +73,9 @@ describe("hqImportApplication", () => {
 		const { application, ownership } = hqImportApplication(shell(doc));
 		// `case_sharing` is there only for an app that shares cases.
 		expect(Object.keys(application)).toEqual(
-			APP_SHELL_KEYS.filter((key) => key !== "case_sharing"),
+			APP_SHELL_KEYS.filter(
+				(key) => key !== "case_sharing" && key !== "build_profiles",
+			),
 		);
 		expect(ownership).toEqual({
 			addOns: [],
@@ -84,7 +86,7 @@ describe("hqImportApplication", () => {
 		if (connect === undefined) throw new Error("Missing the Connect fixture.");
 		const connectShell = hqImportApplication(shell(connect));
 		expect(Object.keys(connectShell.application)).toEqual(
-			APP_SHELL_KEYS.filter((key) => key !== "case_sharing"),
+			APP_SHELL_KEYS.filter((key) => key !== "build_profiles"),
 		);
 		expect(connectShell.ownership.autoGpsCapture).toBe(true);
 		const sharing = buildDoc({

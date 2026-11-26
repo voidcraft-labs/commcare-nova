@@ -1,3 +1,4 @@
+import { INSTALLATION_REVIEW_TOKEN } from "@/lib/publish/installationReviewToken";
 /**
  * Publish an app to CommCare HQ: POST /api/commcare/upload.
  *
@@ -76,6 +77,7 @@ import {
 	landedFirstPublish,
 	publishAppToHq,
 } from "@/lib/deployment/service";
+import { sessionManagementGrant } from "@/lib/deployment/sessionManagementGrant";
 import {
 	type DeploymentConfirmationKey,
 	deploymentConfirmationKeySchema,
@@ -243,6 +245,7 @@ export async function POST(req: NextRequest) {
 			discard_remote_changes?: unknown;
 			confirm?: unknown;
 			confirmWebApps?: unknown;
+			confirmInstallationProfiles?: unknown;
 			acceptPlacementMoves?: unknown;
 			viewer?: unknown;
 		} | null;
@@ -309,6 +312,10 @@ export async function POST(req: NextRequest) {
 			projectId: access.projectId,
 			role: access.role,
 			actorUserId: session.user.id,
+			requireInstallationManagement: sessionManagementGrant(
+				session.user.id,
+				session.session.id,
+			),
 		};
 		const doc = hydratePersistedBlueprint(app.blueprint as PersistableDoc);
 		const appId = body.appId;
@@ -336,6 +343,10 @@ export async function POST(req: NextRequest) {
 			discardRemoteChanges,
 			confirm,
 			...(confirmWebApps !== undefined && { confirmWebApps }),
+			...(typeof body.confirmInstallationProfiles === "string" &&
+				INSTALLATION_REVIEW_TOKEN.test(body.confirmInstallationProfiles) && {
+					confirmInstallationProfiles: body.confirmInstallationProfiles,
+				}),
 			...(driftDate !== undefined && { driftDate }),
 		});
 

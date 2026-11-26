@@ -212,6 +212,32 @@ def test_a_saved_choice_and_its_label_show_in_default_order(
     assert image_cells[0]["alt"] == "Assigned to east bank"
 
 
+def test_reached_choice_columns_show_both_paths_in_each_web_apps_language(
+    hq, core_runner, formplayer_runner, editor_driver, webapps_documents, evidence
+):
+    document = webapps_documents["targeted-reached-choice-columns"]
+    database = casedata.database_of_restore((document.root / "restore.xml").read_bytes())
+    with webapps_hq.project(document) as project:
+        with project.released(formplayer_runner, database=database) as release:
+            run = Session(release, editor_driver).run([
+                *steps.open_app("Related areas"),
+                *steps.choose("Members"),
+                steps.SCREEN,
+                *steps.choose_language("fr", steps.arrive(any_screen=True)),
+                steps.SCREEN,
+            ])
+    assert run.page_errors == []
+    observations = [
+        [[cell["text"] for cell in row["cells"]] for row in screen["list"]["rows"]]
+        for screen in run.screens
+    ]
+    evidence("web-apps-reached-choice-columns", observations)
+    assert observations == [
+        [["Ada", "East bank", "West bank", "Hello!"], ["Bea", "", "", "Hello!"]],
+        [["Ada", "East bank", "West bank", "Bonjour!"], ["Bea", "", "", "Bonjour!"]],
+    ]
+
+
 def test_web_apps_shows_signed_relative_case_dates(
     hq, core_runner, formplayer_runner, editor_driver, webapps_documents, evidence
 ):

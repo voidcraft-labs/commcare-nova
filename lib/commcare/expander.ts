@@ -118,6 +118,7 @@ import {
 	hqXPath,
 	serializeHqApplication,
 } from "./hqJson/xpath";
+import { wireBuildProfiles } from "./installationProfiles";
 import { hqMenuBadges, projectMenuBadge } from "./menuBadge";
 import { emittedModuleKind } from "./moduleKind";
 import { buildXFormSource } from "./xform/builder";
@@ -184,6 +185,8 @@ export function toHqFormLink(
  * logo reaches an app built on CommCare HQ when a person adds it there.
  */
 export interface ExpandOptions {
+	/** Device builds may install an ordered subset of the app languages. */
+	readonly installationProfileUuid?: Uuid;
 	readonly runtimeTarget?: RuntimeTarget;
 	/**
 	 * The ids every menu and form takes. Absent means the derivation; a
@@ -256,7 +259,10 @@ export function* expandDocSteps(
 	const doc = plan.doc;
 	const attachments: Record<string, string> = {};
 	const assets = opts.assets;
-	const localization = commCareLocalization(authoredDoc);
+	const localization = commCareLocalization(
+		authoredDoc,
+		opts.installationProfileUuid,
+	);
 	const identity = opts.identity ?? DERIVED_WIRE_IDENTITY;
 
 	// `moduleOrder` and each `formOrder` array are the canonical display
@@ -373,6 +379,7 @@ export function* expandDocSteps(
 				ownCaseDatum?.maxSelectValue !== undefined ? ownCaseDatum : undefined;
 
 			const source = buildXFormSource(doc, formUuid, {
+				installationProfileUuid: opts.installationProfileUuid,
 				xmlns,
 				expressionDoc: authoredDoc,
 				datumId: entryDatumIdResolver(
@@ -906,8 +913,10 @@ export function* expandDocSteps(
 		_attachments: printedAttachments,
 		...app
 	} = serialized;
+	const profiles = wireBuildProfiles(authoredDoc, identity);
 	return {
 		...app,
+		...(profiles && { build_profiles: profiles }),
 		...(addOns.length === 0
 			? {}
 			: { add_ons: Object.fromEntries(addOns.map((slug) => [slug, true])) }),
@@ -1025,6 +1034,7 @@ function appLevelValues(
  * reaches the shell only where this list names it.
  */
 export const APP_SHELL_KEYS = [
+	"build_profiles",
 	"doc_type",
 	"application_version",
 	"name",
@@ -1051,7 +1061,10 @@ export type HqAppShell = Pick<HqApplication, AppShellKey>;
  * (`helpers/validators.py::ApplicationValidator._check_modules`), so no
  * build can hold an id the update did not write.
  */
-export function expandAppShell(doc: BlueprintDoc): HqAppShell {
+export function expandAppShell(
+	doc: BlueprintDoc,
+	identity?: WireIdentity,
+): HqAppShell {
 	const app = serializeHqApplication(
 		applicationShell(
 			doc.appName,
@@ -1068,5 +1081,7 @@ export function expandAppShell(doc: BlueprintDoc): HqAppShell {
 	for (const key of APP_SHELL_KEYS) {
 		if (Object.hasOwn(app, key)) shell[key] = app[key];
 	}
+	const profiles = wireBuildProfiles(doc, identity);
+	if (profiles) shell.build_profiles = profiles;
 	return shell as HqAppShell;
 }

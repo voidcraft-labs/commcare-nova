@@ -548,7 +548,9 @@ export function adoptedAppBaselineWrite(input: {
  * The plan features the app's source already uses, recorded as confirmed at
  * adoption: every feature the document needs when the publish sends no table
  * and no place, except Web Apps where CommCare HQ holds the app's setting off
- * and Save to Case where the source holds no Save to Case block. The first
+ * and Save to Case where the source holds no Save to Case block. Named installations and
+ * their practice workers always need separate destination confirmation: HQ retains their
+ * configuration even where the plan cannot prepare and serve that installation. The first
  * publish leaves each of these as the source has it, so asking would change
  * nothing a person could decide.
  *
@@ -572,7 +574,7 @@ export function adoptionPlanFeatureConfirmations(input: {
 		attachmentUrlTarget(input.target),
 	)
 		.filter((feature) =>
-			feature.id === "web-apps"
+			feature.id === "installation-profiles" || feature.id === "web-apps"
 				? input.sourceWebAppsOn
 				: feature.id === "advanced-case-actions"
 					? input.sourceHoldsSaveToCase

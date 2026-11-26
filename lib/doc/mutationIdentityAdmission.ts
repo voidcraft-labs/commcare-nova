@@ -392,8 +392,8 @@ function identitiesClaimedBy(mutation: Mutation): MutationIdentityClaim[] {
 					ownerUuid: mutation.moduleUuid,
 				},
 			]);
-		case "setCaseListMeta":
-			return (mutation.patch.detailTabs ?? []).map((tab) => ({
+		case "setCaseListMeta": {
+			const tabs = (mutation.patch.detailTabs ?? []).map((tab) => ({
 				identity: {
 					uuid: tab.uuid,
 					kind: "caseDetailTab",
@@ -401,6 +401,19 @@ function identitiesClaimedBy(mutation: Mutation): MutationIdentityClaim[] {
 				},
 				preserveIfOwnedBy: mutation.uuid,
 			}));
+			const edit = mutation.patch.searchFilterEdit;
+			const filters =
+				edit?.operation === "add"
+					? createClaims([
+							{
+								uuid: edit.filter.uuid,
+								kind: "searchFilter",
+								ownerUuid: mutation.uuid,
+							},
+						])
+					: [];
+			return [...tabs, ...filters];
+		}
 		case "addColumn":
 			return createClaims([
 				{
@@ -488,18 +501,16 @@ function identitiesClaimedBy(mutation: Mutation): MutationIdentityClaim[] {
 						},
 					])
 				: [];
-		case "setCaseListMeta": {
-			const edit = mutation.patch.searchFilterEdit;
-			return edit?.operation === "add"
+
+		case "setAppSettings":
+			return mutation.settings.installationProfile?.operation === "add"
 				? createClaims([
 						{
-							uuid: edit.filter.uuid,
-							kind: "searchFilter",
-							ownerUuid: mutation.uuid,
+							uuid: mutation.settings.installationProfile.profile.uuid,
+							kind: "installationProfile",
 						},
 					])
 				: [];
-		}
 		case "removeModule":
 		case "moveModule":
 		case "renameModule":
@@ -541,7 +552,6 @@ function identitiesClaimedBy(mutation: Mutation): MutationIdentityClaim[] {
 		case "setAppName":
 		case "setConnectType":
 		case "setAppLogo":
-		case "setAppSettings":
 		case "relabelSourceLanguage":
 		case "addLanguage":
 		case "removeLanguage":
