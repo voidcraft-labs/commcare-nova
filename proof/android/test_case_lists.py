@@ -174,6 +174,29 @@ def test_a_tile_cell_takes_only_middle_vertical_alignment(android_documents, hq)
         }, (name, gravities)
 
 
+def _step_summary(step):
+    """One step of a walk, as a failure names it: its screen, the session's command and datum, and what it chose."""
+    session = step.get("session") or {}
+    listing = step.get("list") or {}
+    detail = listing.get("detail") if isinstance(listing, dict) else None
+    return (
+        step.get("screen"),
+        session.get("command"),
+        session.get("datum"),
+        step.get("chose") or (listing.get("chose") if isinstance(listing, dict) else None),
+        bool(detail),
+    )
+
+
+def _sent_summary(instance):
+    """A sent form, as a failure names it: its root and the case ids its blocks change."""
+    from lxml import etree
+
+    root = etree.fromstring(instance, etree.XMLParser(resolve_entities=False, no_network=True))
+    blocks = root.iter("{http://commcarehq.org/case/transaction/v2}case")
+    return (etree.QName(root).localname, root.get("name"), sorted(block.get("case_id") or "" for block in blocks))
+
+
 def test_standalone_advanced_list_includes_cases_the_forms_two_choices_exclude(android_documents, hq):
     from lxml import etree
 
@@ -220,6 +243,11 @@ def test_standalone_advanced_list_includes_cases_the_forms_two_choices_exclude(a
             assert last_list(own) == expected | {only.case_id, excluded.case_id}, name
             assert last_list(first) == chosen, name
             assert last_list(second) == chosen, name
+            # Every form the walks sent, by its root and the cases it changed, where more than one came.
+            assert len(sent) == 1, (name, [_sent_summary(one) for one in sent], {
+                "/".join(path): [_step_summary(step) for step in navs["path:" + "/".join(path)]["steps"]]
+                for path in (own, first, second, completed)
+            })
             (instance,) = sent
             submitted = etree.fromstring(instance, etree.XMLParser(resolve_entities=False, no_network=True))
             assert [submitted.findtext("{*}" + node) for node in ("earlier_value", "first_record", "starting_record")] == [
@@ -270,7 +298,10 @@ def test_three_commands_open_the_same_shared_visit_with_their_own_lists(android_
                 walk = navs["path:" + "/".join(path)]
                 assert "raised" not in walk, walk
                 steps = walk["steps"]
-                assert len([step for step in steps if step["screen"] == LIST]) == len(picked), (path, steps)
+                assert len([step for step in steps if step["screen"] == LIST]) == len(picked), (
+                    path,
+                    [_step_summary(step) for step in steps],
+                )
                 opened = next(step for step in steps if step["screen"] == "FormEntryActivity")
                 assert opened["session"]["command"] == command, (path, opened)
                 assert opened["form"]["loaded"] and opened["form"]["alert"] is None, (path, opened)
