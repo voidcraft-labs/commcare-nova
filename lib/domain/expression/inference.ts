@@ -727,11 +727,16 @@ class Inference {
 									doc.caseTypes ?? [],
 								);
 					if (!destination.ok) continue;
+					// The owner of a case above is its owner, as the operation's
+					// own owner facet is, never a property of its type; its name
+					// is the name the case's type holds as text.
+					if (write.via !== undefined && write.property === "owner_id")
+						continue;
 					writes.push({
 						property: write.property,
 						value: write.value,
 						caseType: destination.caseType,
-						name: false,
+						name: write.via !== undefined && write.property === "case_name",
 					});
 				}
 				for (const write of writes) {

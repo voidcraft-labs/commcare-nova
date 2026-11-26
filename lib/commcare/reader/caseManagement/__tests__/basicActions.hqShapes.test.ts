@@ -720,12 +720,15 @@ describe("CommCare HQ's spellings of a basic form's case actions", () => {
 			);
 		});
 
-		it("refuses the name and the owner of the case above, which HQ's build writes as that case's own", async () => {
+		it("reads the name and the owner of the case above as writes of its `case_name` and `owner_id` through the link", async () => {
 			// HQ's build writes `parent/name` as the parent's `case_name` and
 			// `parent/owner_id` as its owner (`XFormCaseBlock.add_case_updates`), and
-			// `case-reserved-words.json` holds neither; Nova renames and gives an
-			// owner only to an operation's own case.
-			for (const property of ["name", "owner_id"]) {
+			// `case-reserved-words.json` holds neither; Nova holds each as a write
+			// through `via` (`CASE_FACETS_THROUGH_INDEX`).
+			for (const [key, property] of [
+				["name", "case_name"],
+				["owner_id", "owner_id"],
+			] as const) {
 				const reading = await readCases(app([visit], [household]), {
 					edit: (json) => {
 						withChild(json);
@@ -733,23 +736,21 @@ describe("CommCare HQ's spellings of a basic form's case actions", () => {
 							string,
 							unknown
 						>;
-						update[`parent/${property}`] = { question_path: "/data/other" };
+						update[`parent/${key}`] = { question_path: "/data/other" };
 					},
 				});
-				const found = reading.findings.filter(
-					(one) =>
-						one.code ===
-						`${F}/update-key-name-or-owner-id-through-an-index-segment`,
+				expect(codes(reading), key).not.toContain(
+					`${F}/update-key-name-or-owner-id-through-an-index-segment`,
 				);
-				expect(found, property).toHaveLength(1);
-				expect(found[0]?.detail?.name, property).toBe(`parent/${property}`);
-				expect(
-					ownWrites(reading).some((one) => one.via !== undefined),
-					property,
-				).toBe(false);
-				expect(codes(reading), property).not.toContain(
+				expect(codes(reading), key).not.toContain(
 					`${F}/update-key-failing-hq-s-grammar-or-in-case-reserved-words-json`,
 				);
+				expect(
+					ownWrites(reading)
+						.filter((one) => one.via !== undefined)
+						.map((one) => one.property),
+					key,
+				).toEqual([property]);
 			}
 		});
 	});

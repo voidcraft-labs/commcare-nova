@@ -330,7 +330,7 @@ export const ADVANCED_CLAIMS = defineClaims("caseManagement.advancedActions", {
 		`${F}/loadupdateaction-case-properties-key-with-on-a-load-with-no-case`,
 		"schema:LoadUpdateAction.case_properties",
 	),
-	loadViaFacet: refuse(
+	loadViaFacet: take(
 		`${F}/update-key-name-or-owner-id-through-an-index-segment`,
 		"schema:LoadUpdateAction.case_properties",
 	),
@@ -963,13 +963,6 @@ function readProperties(
 				refuseKey(ADVANCED_CLAIMS.loadViaElsewhere);
 				continue;
 			}
-			// The case above's name and owner: HQ's build writes `name` as the
-			// block's `case_name` (`XFormCaseBlock.add_case_updates`), and Nova
-			// renames and gives an owner only to the operation's own case.
-			if (property === "name" || property === "owner_id") {
-				refuseKey(ADVANCED_CLAIMS.loadViaFacet);
-				continue;
-			}
 			const steps = ancestorSteps(r.ctx, slashes.caseType, indices);
 			if (steps === undefined) {
 				refuseKey(ADVANCED_CLAIMS.loadViaUnknown);
@@ -977,10 +970,16 @@ function readProperties(
 			}
 			via = steps.steps as CaseWriteVia;
 		}
+		// The case above's name and owner: HQ's build writes `name` as the
+		// block's `case_name` (`XFormCaseBlock.add_case_updates`) and `owner_id`
+		// as its owner, which Nova holds as a write of `case_name` or `owner_id`
+		// through `via` (`CASE_FACETS_THROUGH_INDEX`).
+		const viaFacet =
+			via !== undefined && (property === "name" || property === "owner_id");
 		// `name` and `owner_id` are the case's name and owner; every other key is a
 		// property, which Nova's grammar must name.
 		const named =
-			via === undefined && (key === "name" || key === "owner_id")
+			(via === undefined && (key === "name" || key === "owner_id")) || viaFacet
 				? undefined
 				: propertyNameClass(property);
 		if (named === "too-long") {
@@ -1065,8 +1064,13 @@ function readProperties(
 			out.refused = true;
 			continue;
 		}
+		if (viaFacet) cursor.holdMapEntry(ADVANCED_CLAIMS.loadViaFacet);
 		if (via !== undefined)
-			out.writes.push({ property, value: read.value, via });
+			out.writes.push({
+				property: viaFacet && property === "name" ? "case_name" : property,
+				value: read.value,
+				via,
+			});
 		else if (key === "name") out.name = read.value;
 		else if (key === "owner_id") out.owner = read.value;
 		else out.writes.push({ property: key, value: read.value });

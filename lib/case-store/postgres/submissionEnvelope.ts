@@ -59,6 +59,7 @@ import {
 	caseOperationRunsPerSelectedCase,
 	casePropertyDataTypes,
 	deriveAuthoredCaseId,
+	isFacetWriteThroughIndex,
 	prepareCaseScalarTextValue,
 	type TargetedCaseOperation,
 	USERCASE_BUILT_IN_KEYS,
@@ -2036,7 +2037,17 @@ async function resolveOperationProgram(
 				});
 			}
 			let value: JsonValue | undefined;
-			if (isScalarColumnWrite(write.property)) {
+			if (isFacetWriteThroughIndex(write)) {
+				// The name or owner of the case above, prepared as the
+				// operation's own rename and owner are: CommCare HQ writes the
+				// key into that case's block as its `case_name` or `owner_id`.
+				const raw = evaluatedText(bag?.writes.get(writeIndex));
+				if (instance.envelope.blankSavesNothing && blankText(raw)) continue;
+				value = prepareText(
+					write.property === "case_name" ? "rename" : "owner",
+					raw,
+				);
+			} else if (isScalarColumnWrite(write.property)) {
 				const prepared = prepareCaseScalarTextValue(
 					evaluatedText(bag?.writes.get(writeIndex)),
 					"allow",
@@ -2421,9 +2432,13 @@ async function applyOperationEffects(
 		}
 		for (const [caseId, writes] of byCase) {
 			const named = writes.findLast((write) => write.property === "case_name");
+			const owned = writes.findLast((write) => write.property === "owner_id");
 			const part = partitionWrites(
 				writes
-					.filter((write) => write.property !== "case_name")
+					.filter(
+						(write) =>
+							write.property !== "case_name" && write.property !== "owner_id",
+					)
 					.map((write) => ({ property: write.property, value: write.value })),
 			);
 			const { patch, removals, scalars } = part;
@@ -2447,6 +2462,8 @@ async function applyOperationEffects(
 			}
 			if (removals.length > 0)
 				await removeProperties(trx, host, appId, caseId, removals);
+			if (owned !== undefined)
+				await setOwner(trx, host, appId, caseId, storedText(owned.value));
 		}
 	}
 }

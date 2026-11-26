@@ -240,7 +240,7 @@ export const BASIC_CLAIMS = defineClaims("caseManagement.basicActions", {
 		`${F}/index-path-through-a-case-type-the-app-does-not-fix`,
 		"schema:UpdateCaseAction.update",
 	),
-	viaFacet: refuse(
+	viaFacet: take(
 		`${F}/update-key-name-or-owner-id-through-an-index-segment`,
 		"schema:UpdateCaseAction.update",
 	),
@@ -1540,14 +1540,6 @@ function readUpdateMap(
 				continue;
 			}
 			via = steps.steps as CaseWriteVia;
-			// The case above's name and owner: HQ's build writes `name` as that
-			// case's `case_name` (`xform.py::XFormCaseBlock.add_case_updates`) and
-			// `owner_id` as its owner, and Nova renames and gives an owner only to
-			// the operation's own case.
-			if (property === "name" || property === "owner_id") {
-				refuseEntry(cursor, BASIC_CLAIMS.viaFacet, key);
-				continue;
-			}
 		}
 		// `location_id` and `hq_user_id` are read as any other key: HQ's server
 		// keeps the first as the case's location column and copies the second
@@ -1557,8 +1549,14 @@ function readUpdateMap(
 		// `postgres/submissionEnvelope.ts::partitionWrites`).
 		const facet =
 			indices.length === 0 && (property === "name" || property === "owner_id");
+		// The case above's name and owner: HQ's build writes `name` as that
+		// case's `case_name` (`xform.py::XFormCaseBlock.add_case_updates`) and
+		// `owner_id` as its owner, which Nova holds as a write of `case_name`
+		// or `owner_id` through `via` (`CASE_FACETS_THROUGH_INDEX`).
+		const viaFacet =
+			via !== undefined && (property === "name" || property === "owner_id");
 		const categoryOrState = property === "category" || property === "state";
-		if (!facet && !categoryOrState) {
+		if (!facet && !viaFacet && !categoryOrState) {
 			const named = propertyNameFinding(property, false);
 			if (named === "unrecognized") {
 				unrecognizedEntry(r, cursor, "schema:UpdateCaseAction.update");
@@ -1586,8 +1584,9 @@ function readUpdateMap(
 		const ownWrite = slot === "own" && loads && !facet && via === undefined;
 		// The rows the own case's `update` names by its key: a key through the
 		// cases above the loaded one is its own row's.
-		const keyClaim =
-			via !== undefined
+		const keyClaim = viaFacet
+			? BASIC_CLAIMS.viaFacet
+			: via !== undefined
 				? BASIC_CLAIMS.viaOnLoad
 				: slot !== "own" || indices.length > 0
 					? undefined
@@ -1642,7 +1641,7 @@ function readUpdateMap(
 			continue;
 		}
 		out.writes.push({
-			property,
+			property: viaFacet && property === "name" ? "case_name" : property,
 			value: read.value,
 			...(via !== undefined && { via }),
 			...(read.onlyIfChanged !== undefined && {

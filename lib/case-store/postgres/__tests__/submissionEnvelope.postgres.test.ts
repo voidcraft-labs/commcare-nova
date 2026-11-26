@@ -3374,6 +3374,95 @@ describe("the form's own case", () => {
 		});
 	});
 
+	it("saves the name and the owner of the case its index reaches as that case's, and refuses a blank name", async () => {
+		// HQ's build writes `parent/name` and `parent/owner_id` into the parent's
+		// block as its `case_name` and `owner_id` (`XFormCaseBlock.add_case_updates`),
+		// which Core and HQ's server set as the case's name and owner.
+		const store = makeStore();
+		const HOUSEHOLD_ID = "00000000-0000-7000-8000-00000000dde1";
+		await seedPatient(store, HOUSEHOLD_ID, "The household", {});
+		await seedSessionPatient(store);
+		await submit(store, {
+			appId: APP_ID,
+			ordinary: { kind: "none" },
+			operations: rootProgram([
+				envOp(
+					operation({
+						uuid: OP_A,
+						id: "index_household",
+						action: "update",
+						caseType: "patient",
+						target: { kind: "session" },
+						links: [
+							{
+								identifier: "parent",
+								targetType: "patient",
+								target: {
+									kind: "expression",
+									expr: term(literal(HOUSEHOLD_ID)),
+								},
+								relationship: "child",
+							},
+						],
+					}),
+					{ expressionSnapshotTypes: { links: new Map([[0, "patient"]]) } },
+				),
+			]),
+		});
+		const facets = (name: string, owner: string) =>
+			ownProgram("followup", [
+				{
+					...ownOp({
+						writes: [
+							{
+								property: "case_name",
+								value: term(literal(name)),
+								via: [{ identifier: "parent" }],
+							},
+							{
+								property: "owner_id",
+								value: term(literal(owner)),
+								via: [{ identifier: "parent" }],
+							},
+						],
+					}),
+					viaCaseTypes: new Map([
+						[0, "patient"],
+						[1, "patient"],
+					]),
+				},
+			]);
+		// A blank name is refused as every case name is, and nothing lands.
+		expect(
+			(
+				await rejection(
+					submit(store, {
+						appId: APP_ID,
+						ordinary: followupOrdinary(),
+						operations: facets("   ", "group-a"),
+					}),
+				)
+			).rejection,
+		).toMatchObject({ kind: "text-value", facet: "rename" });
+		expect((await patientRow(store, HOUSEHOLD_ID))?.case_name).toBe(
+			"The household",
+		);
+
+		await submit(store, {
+			appId: APP_ID,
+			ordinary: followupOrdinary(),
+			operations: facets("  Renamed household ", "group-a"),
+		});
+		const household = await patientRow(store, HOUSEHOLD_ID);
+		expect(household?.case_name).toBe("Renamed household");
+		expect(household?.owner_id).toBe("group-a");
+		expect(household?.properties).not.toHaveProperty("case_name");
+		expect(household?.properties).not.toHaveProperty("owner_id");
+		const own = await patientRow(store, SESSION_CASE_ID);
+		expect(own?.case_name).not.toBe("Renamed household");
+		expect(own?.owner_id).toBe(ACTOR);
+	});
+
 	it("compares edited answers with the opening leaf and writes to the original authorized parent after a relink", async () => {
 		const store = makeStore();
 		const first = "00000000-0000-7000-8000-000000001001";

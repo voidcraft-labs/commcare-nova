@@ -71,6 +71,12 @@ Leaving the question blank then clears the case's value on submit. The
 question's Saves to row says so, and offers to open it with the case's current
 value, or says which kind of question could open on it.
 
+A question on a follow-up or close form can also save to a case above the one
+the form opened, such as the household of the member it visits, through
+**Cases above it** in its Saves to list. That includes the case's name and its
+owner, so a visit can rename the household or hand it to another worker. A name
+saved this way is checked as every case name is: it can't be blank.
+
 Nova also points out any starting value of a whole-number question that could
 be a decimal, and you can start it on the whole part with `int(...)`.
 

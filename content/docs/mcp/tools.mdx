@@ -1230,7 +1230,7 @@ registration plus a second create.
 
 | Tool | What it does |
 |---|---|
-The `own` arm, which only `update_case_operation` takes, is `{ action: "own", name?, owner?, writes?, links? }`. Its case type is the menu's, its open and close conditions are `update_form`'s, and `name` is required on a registration. On a follow-up or close form, each of its `writes` can carry `via`, one link identifier per step such as `[{ "identifier": "parent" }]`, to save to a case above this form's case instead, and `onlyIfChanged: true`, to save only when the worker changed the answer from the case's value. `onlyIfChanged` is refused where CommCare HQ keeps this form's case change in a Save to Case block. The other arms take neither. An update can target the worker's own record with `target: { kind: "worker-record" }`, for an update of `commcare-user` only; it takes no condition, links, owner, rename, retype or `forEach`.
+The `own` arm, which only `update_case_operation` takes, is `{ action: "own", name?, owner?, writes?, links? }`. Its case type is the menu's, its open and close conditions are `update_form`'s, and `name` is required on a registration. On a follow-up or close form, each of its `writes` can carry `via`, one link identifier per step such as `[{ "identifier": "parent" }]`, to save to a case above this form's case instead (with `property` `case_name` or `owner_id`, that case's name or owner), and `onlyIfChanged: true`, to save only when the worker changed the answer from the case's value. `onlyIfChanged` is refused where CommCare HQ keeps this form's case change in a Save to Case block. The other arms take neither. An update can target the worker's own record with `target: { kind: "worker-record" }`, for an update of `commcare-user` only; it takes no condition, links, owner, rename, retype or `forEach`.
 
 `get_case_operations` gives each change its `placement`, where CommCare HQ keeps it: `case management` (the form's Case Management settings), `case actions` (an advanced menu's case actions) or `save to case` (a Save to Case block in the form), with `placementKept: true` where a published app keeps it there. A form whose own close has a block of its own also carries `ownClose`, in the same shape.
 
@@ -1292,7 +1292,8 @@ type saves it to a new child case, which needs a question saving its
 `case_name`; `commcare-user` saves it to the worker's own record. On a
 follow-up or close form, `via` saves to a case above this form's case instead,
 one link identifier per step such as `[{ "identifier": "parent" }]`, and
-`caseType` is then the type it reaches; `onlyIfChanged: true` saves only when the
+`caseType` is then the type it reaches, where `case_name` and `owner_id` save
+that case's name and owner; `onlyIfChanged: true` saves only when the
 worker changed the answer from the case's value, and is refused where CommCare
 HQ keeps that change in a Save to Case block. On a follow-up or close form that
 opens one case, a question saving to this form's case is given a `default_value`

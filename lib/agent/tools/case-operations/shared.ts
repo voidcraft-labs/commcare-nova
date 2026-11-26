@@ -17,6 +17,7 @@ import {
 	type CaseOperation,
 	type CaseWriteVia,
 	caseOperationSchema,
+	isReservedCaseOperationWrite,
 	type OwnCaseOperation,
 	orderedCaseOperations,
 	RESERVED_CASE_OPERATION_TYPES,
@@ -102,7 +103,9 @@ const propertyInputSchema = z
 	.string()
 	.regex(CASE_OPERATION_PROPERTY_REGEX, CASE_OPERATION_PROPERTY_FORMAT_MESSAGE)
 	.superRefine((value, ctx) => {
-		const verdict = caseOperationWritePropertyVerdict(value, new Set());
+		// The name and owner of a case above are writes through `via`; whether
+		// this write walks one is its object's to say (`facetNeedsVia`).
+		const verdict = caseOperationWritePropertyVerdict(value, new Set(), true);
 		if (verdict.ok) return;
 		ctx.addIssue({ code: "custom", message: verdict.userMessage });
 	});
@@ -197,28 +200,55 @@ export function toCaseWriteVia(via: readonly RelationStep[]): CaseWriteVia {
 	return [first, ...rest];
 }
 
-const writeInputSchema = z.strictObject({
+const writeInputShape = {
 	property: propertyInputSchema,
 	value: valueSchema,
 	condition: conditionSchema.optional(),
-});
+};
+
+/** A write of `case_name` or `owner_id` saves the name or owner of the case
+ *  its `via` reaches; with none, the operation's own name and owner are its
+ *  facets (`standardCaseProperties.ts::isReservedCaseOperationWrite`). */
+function facetNeedsVia(
+	write: {
+		readonly property: string;
+		readonly via?: readonly RelationStep[];
+	},
+	ctx: z.RefinementCtx,
+): void {
+	if (!isReservedCaseOperationWrite(write)) return;
+	const verdict = caseOperationWritePropertyVerdict(write.property, new Set());
+	if (verdict.ok) return;
+	ctx.addIssue({
+		code: "custom",
+		path: ["property"],
+		message: verdict.userMessage,
+	});
+}
+
+const writeInputSchema = z
+	.strictObject(writeInputShape)
+	.superRefine(facetNeedsVia);
 
 /** A write of this form's own case, which alone can save to a case above
  *  it or save only a changed answer; every other arm's writes
  *  keep `writeInputSchema`, whose strict shape refuses both. */
-const ownWriteInputSchema = writeInputSchema.extend({
-	via: caseWriteViaInputSchema
-		.optional()
-		.describe(
-			'Save to a case above this form\'s case instead, one link identifier per step, parent or host, such as [{"identifier":"parent"}]. Only on a follow-up or close form.',
-		),
-	onlyIfChanged: z
-		.literal(true)
-		.optional()
-		.describe(
-			"true saves only when the worker changed the answer from the case's value. Only on a follow-up or close form, and refused where CommCare HQ keeps this form's case change in Save to Case.",
-		),
-});
+const ownWriteInputSchema = z
+	.strictObject({
+		...writeInputShape,
+		via: caseWriteViaInputSchema
+			.optional()
+			.describe(
+				'Save to a case above this form\'s case instead, one link identifier per step, parent or host, such as [{"identifier":"parent"}]. Only on a follow-up or close form.',
+			),
+		onlyIfChanged: z
+			.literal(true)
+			.optional()
+			.describe(
+				"true saves only when the worker changed the answer from the case's value. Only on a follow-up or close form, and refused where CommCare HQ keeps this form's case change in Save to Case.",
+			),
+	})
+	.superRefine(facetNeedsVia);
 
 const linkInputSchema = z.strictObject({
 	identifier: linkIdInputSchema,

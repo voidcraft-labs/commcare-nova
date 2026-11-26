@@ -49,6 +49,7 @@ import {
 	type FormReferenceSlot,
 } from "../referenceSlots";
 import {
+	isFacetWriteThroughIndex,
 	STANDARD_CASE_LIST_PROPERTY_DATA_TYPES,
 	standardCasePropertyDisplayLabel,
 } from "../standardCaseProperties";
@@ -991,7 +992,12 @@ export function slotContext(
 					: viaDestination.ok
 						? viaDestination.caseType
 						: undefined;
-			const destinations: CasePropertyDataType[] = !("property" in member)
+			// A facet, and the name or owner of a case above saved through
+			// `via`, take an identifier's text.
+			const facetText =
+				!("property" in member) ||
+				(write !== undefined && isFacetWriteThroughIndex(write));
+			const destinations: CasePropertyDataType[] = facetText
 				? ["text"]
 				: destinationType === undefined
 					? []
@@ -1019,7 +1025,7 @@ export function slotContext(
 					: {
 							kind: "assignment",
 							destinations,
-							...(!("property" in member) && {
+							...(facetText && {
 								identifierText: true as const,
 							}),
 						},

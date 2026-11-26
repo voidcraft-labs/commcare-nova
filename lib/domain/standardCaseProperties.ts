@@ -290,6 +290,44 @@ export const FORBIDDEN_CASE_WRITE_PROPERTIES: ReadonlySet<string> = new Set([
 export const FORBIDDEN_CASE_OPERATION_WRITE_PROPERTIES: ReadonlySet<string> =
 	new Set([...FORBIDDEN_CASE_WRITE_PROPERTIES, "case_name"]);
 
+/**
+ * The name and the owner of a case above the operation's own, which a write
+ * through `via` saves: an operation renames and gives an owner to its own
+ * case through its facets, and to the case its links reach through a write
+ * of `case_name` or `owner_id`. CommCare HQ's build writes such a key into
+ * the reached case's block, mapping `name` to its `case_name`
+ * (`xform.py::XFormCaseBlock.add_case_updates`), where Core sets the case's
+ * name and owner (`CaseXmlParser.updateCase`) and HQ's server its name and
+ * known `owner_id` (`update_strategy.py::_apply_update_action`).
+ */
+export const CASE_FACETS_THROUGH_INDEX: ReadonlySet<string> = new Set([
+	"case_name",
+	"owner_id",
+]);
+
+/** Whether a write saves the name or the owner of a case above its
+ *  operation's own (`CASE_FACETS_THROUGH_INDEX`). */
+export function isFacetWriteThroughIndex(write: {
+	readonly property: string;
+	readonly via?: readonly unknown[];
+}): boolean {
+	return (
+		write.via !== undefined && CASE_FACETS_THROUGH_INDEX.has(write.property)
+	);
+}
+
+/** Whether an operation's write of `property` is refused as one of its own
+ *  facets: always, but for the name and owner of a case above it. */
+export function isReservedCaseOperationWrite(write: {
+	readonly property: string;
+	readonly via?: readonly unknown[];
+}): boolean {
+	return (
+		FORBIDDEN_CASE_OPERATION_WRITE_PROPERTIES.has(write.property) &&
+		!isFacetWriteThroughIndex(write)
+	);
+}
+
 export type WritableStandardCaseProperty =
 	| "case_name"
 	| "external_id"

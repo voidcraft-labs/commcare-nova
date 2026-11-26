@@ -39,12 +39,13 @@ import {
 	caseWriteKeyOf,
 	concreteCasePropertyWriterTypes,
 	effectiveCaseTypes,
-	FORBIDDEN_CASE_OPERATION_WRITE_PROPERTIES,
 	type Form,
 	formFieldCanKeyCreate,
 	formFieldCorrelatesWithCreate,
 	isCaseOperationIdentifier,
 	isCaseOperationProperty,
+	isFacetWriteThroughIndex,
+	isReservedCaseOperationWrite,
 	isWritableStandardCaseProperty,
 	MAX_CASE_SCALAR_TEXT_LENGTH,
 	type Module,
@@ -90,10 +91,7 @@ import {
 	caseOperationNameSentence,
 	freeCaseOperationName,
 } from "@/lib/domain/questionId";
-import {
-	WRITABLE_STANDARD_CASE_PROPERTY_WORDS,
-	type WritableStandardCaseProperty,
-} from "@/lib/domain/standardCaseProperties";
+import { WRITABLE_STANDARD_CASE_PROPERTY_WORDS } from "@/lib/domain/standardCaseProperties";
 import { addressesWorkerRecord } from "@/lib/domain/workerRecordRequirements";
 import {
 	entryDatumIdResolver,
@@ -789,10 +787,12 @@ function captureStandardPropertyError(
 	ctx: OperationRuleContext,
 	operation: CaseOperation,
 	fieldUuid: Uuid,
-	property: WritableStandardCaseProperty,
+	property: string,
 ): ValidationError {
 	const fieldId = ctx.doc.fields[fieldUuid]?.id ?? "a capture question";
-	const what = WRITABLE_STANDARD_CASE_PROPERTY_WORDS[property];
+	const what = isWritableStandardCaseProperty(property)
+		? WRITABLE_STANDARD_CASE_PROPERTY_WORDS[property]
+		: "owner";
 	return opError(
 		ctx,
 		operation,
@@ -842,7 +842,7 @@ function validateWrites(
 		seenWrites.push(write);
 		if (workerRecord)
 			validateWorkerRecordProperty(ctx, operation, write, errors);
-		else if (reached !== undefined)
+		else if (reached !== undefined && !isFacetWriteThroughIndex(write))
 			validateWriteProperty(
 				ctx,
 				operation,
@@ -855,10 +855,10 @@ function validateWrites(
 				caseWriteValueField(write.value) !== undefined,
 				errors,
 			);
-		if (
-			!workerRecord &&
-			FORBIDDEN_CASE_OPERATION_WRITE_PROPERTIES.has(write.property)
-		) {
+		// The name and owner of a case above are writes through `via`
+		// (`standardCaseProperties.ts::CASE_FACETS_THROUGH_INDEX`); the own
+		// case's are the operation's facets.
+		if (!workerRecord && isReservedCaseOperationWrite(write)) {
 			errors.push(
 				opError(
 					ctx,
@@ -869,7 +869,11 @@ function validateWrites(
 			);
 		}
 		const read = caseWriteValueField(write.value);
-		if (read?.link === true && isWritableStandardCaseProperty(write.property))
+		if (
+			read?.link === true &&
+			(isWritableStandardCaseProperty(write.property) ||
+				isFacetWriteThroughIndex(write))
+		)
 			errors.push(
 				captureStandardPropertyError(
 					ctx,

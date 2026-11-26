@@ -44,6 +44,7 @@ import {
 	formConnectIds,
 	isCaseOperationIdentifier,
 	isCaseOperationProperty,
+	isReservedCaseOperationWrite,
 	type Uuid,
 } from "@/lib/domain";
 import {
@@ -498,11 +499,14 @@ const CASE_OPERATION_PROPERTY_OK: CaseOperationPropertyVerdict = { ok: true };
  * source, so the names HQ's form builder can't keep there are refused too:
  * the three it can't open a form with, and `close`, which it reads as
  * closing the case. `alreadyWritten` is the set this operation already
- * writes: one operation may not write the same property twice.
+ * writes: one operation may not write the same property twice. A write
+ * `throughIndex` saves to a case above the operation's own, whose name and
+ * owner it may save (`CASE_FACETS_THROUGH_INDEX`).
  */
 export function caseOperationWritePropertyVerdict(
 	property: string,
 	alreadyWritten: ReadonlySet<string>,
+	throughIndex = false,
 ): CaseOperationPropertyVerdict {
 	const trimmed = property.trim();
 	if (trimmed.length === 0) {
@@ -532,7 +536,12 @@ export function caseOperationWritePropertyVerdict(
 			userMessage: `Keep it to ${MAX_CASE_PROPERTY_LENGTH} characters or fewer.`,
 		};
 	}
-	if (FORBIDDEN_CASE_OPERATION_WRITE_PROPERTIES.has(trimmed)) {
+	if (
+		isReservedCaseOperationWrite({
+			property: trimmed,
+			...(throughIndex && { via: [] }),
+		})
+	) {
 		return {
 			ok: false,
 			code: "reserved",
