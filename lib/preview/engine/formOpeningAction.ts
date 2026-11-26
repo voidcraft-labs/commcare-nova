@@ -16,7 +16,10 @@ import {
 	ownFormSelectionIndex,
 } from "@/lib/domain/advancedEntryDatums";
 import { formStructure } from "@/lib/domain/expression/formStructure";
-import { entrySelectionSettings } from "@/lib/domain/formEntryCases";
+import {
+	entrySelectionSettings,
+	formContentUuid,
+} from "@/lib/domain/formEntryCases";
 import { moduleUuidOfForm } from "@/lib/domain/postSubmit";
 import { uuidSchema } from "@/lib/domain/uuid";
 import { getLookupDefinitions } from "@/lib/lookup/service";
@@ -84,15 +87,27 @@ const requestSchema = z.strictObject({
 });
 
 function tablesForOpening(doc: BlueprintDoc, form: Uuid) {
-	const record = doc.forms[form];
+	const entry = doc.forms[form];
+	const contentUuid = formContentUuid(doc, form);
+	const content = doc.forms[contentUuid];
+	// Shared entries supply their own choices and computed values. The
+	// questions and writes still run from the original form.
 	const carriers = [
 		form,
-		...(formStructure(doc, form)?.fields.keys() ?? []),
-		...(record.caseOperations ?? []).map((op) => op.uuid),
-		...(record.caseSelections ?? []).map((row) => row.uuid),
-		...(record.computedDatums ?? []).map((row) => row.uuid),
+		...(formStructure(doc, contentUuid)?.fields.keys() ?? []),
+		...(content.caseOperations ?? []).map((op) => op.uuid),
+		...(entry.caseSelections ?? []).map((row) => row.uuid),
+		...(entry.computedDatums ?? []).map((row) => row.uuid),
 	];
 	const tables = new Set(caseOperationProgramLookupTableIds(doc, carriers));
+	if (form !== contentUuid)
+		for (const id of collectConfigLookupTableIds(
+			undefined,
+			[content.openCondition, content.closeCondition].filter(
+				(condition) => condition !== undefined,
+			),
+		))
+			tables.add(id);
 	for (const { source } of formCaseSelections(doc, form)) {
 		if (source.kind === "table") tables.add(source.table);
 		if (source.kind === "choose")

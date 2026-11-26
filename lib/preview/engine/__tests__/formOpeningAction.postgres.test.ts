@@ -8,6 +8,7 @@ import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
 import { reclaimExpiredFormOpeningData } from "@/lib/db/formOpeningData";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import { createBlueprintDocStore } from "@/lib/doc/store";
+import type { FormSelectionSource } from "@/lib/domain";
 import { matchAll, tableLookup } from "@/lib/domain/expression";
 import {
 	lookupColumnIdSchema,
@@ -827,6 +828,180 @@ it("saves the rich lookup value from the signed opening after its live row chang
 		[app],
 	);
 	expect(saved.rows).toEqual([{ note: "At form opening" }]);
+});
+
+it("pins the original form's write with each entry's own lookup choice", async () => {
+	const scope = { projectId: project, actorId: member.id, role: "owner" };
+	const shared = testUuid("shared-lookup-entry");
+	const tableIds: string[] = [];
+	const { pool, device, request, first, app, doc, module } =
+		await openPracticeForm(3, async (blueprint) => {
+			const { tables } = await h
+				.db()
+				.transaction()
+				.execute(async (tx) =>
+					applyLookupAuthoringBatchInTransaction(
+						tx,
+						await authorizeLookupWriteInTransaction(tx, scope, "edit"),
+						{
+							createTables: [
+								["write", "Pinned write"],
+								["original", "training-1"],
+								["shared", "training-3"],
+							].map(([key, value]) => ({
+								key,
+								name: key,
+								tag: key,
+								columns: [
+									{
+										key: "value",
+										wireName: "value",
+										label: "Value",
+										dataType: "text",
+									},
+								],
+								rows: [{ key: "row", cells: [{ columnKey: "value", value }] }],
+							})),
+						},
+					),
+				);
+			const definitions = await Promise.all(
+				tables.map(({ tableId }) => getLookupTable(scope, tableId)),
+			);
+			const [writeTable, originalTable, sharedTable] = definitions;
+			tableIds.push(...definitions.map((table) => table.id));
+			const uses = (table: typeof originalTable): FormSelectionSource => ({
+				kind: "table",
+				table: table.id,
+				column: table.columns[0].id,
+			});
+			const visit = Object.values(blueprint.forms).find(
+				(form) => form.name === "Visit two people",
+			);
+			const choices = visit?.caseSelections;
+			const firstPerson = choices?.find((row) => row.tag === "first");
+			const write = visit?.caseOperations?.[0].writes?.[0];
+			if (!visit || !choices || !firstPerson || !write)
+				throw new Error("Missing the form shared by both lookup routes.");
+			firstPerson.source = uses(originalTable);
+			write.value = tableLookup(
+				writeTable.id,
+				writeTable.columns[0].id,
+				matchAll(),
+			);
+			blueprint.forms[shared] = {
+				uuid: shared,
+				name: "Shared visits",
+				id: "shared_visits",
+				type: visit.type,
+				shadowOf: {
+					form: visit.uuid,
+					selections: choices.map((row) => ({
+						kind: "replace",
+						selection: row.uuid,
+						caseType: row.caseType,
+						source: row === firstPerson ? uses(sharedTable) : row.source,
+					})),
+				},
+			};
+			blueprint.formOrder[blueprint.moduleOrder[0]].push(shared);
+		});
+	const sharedRequest = {
+		...request,
+		form: shared,
+		entry: testUuid("the-shared-lookup-visit"),
+	};
+	const sharedOpening = await readFormOpeningAction(sharedRequest, device);
+	if (sharedOpening.kind !== "opening")
+		throw new Error(`Could not open the shared form: ${sharedOpening.kind}`);
+	const note = Object.values(doc.fields).find((field) => field.id === "note");
+	if (!note) throw new Error("Missing the shared form's original question.");
+	const [writeTableId, originalTableId, sharedTableId] = tableIds;
+	const firstSelection = doc.forms[request.form].caseSelections?.find(
+		(row) => row.tag === "first",
+	);
+	if (!firstSelection) throw new Error("Missing the route's automatic choice.");
+	let originalEvidence: typeof first.evidence | undefined;
+	for (const [launch, opening, routeTable, firstCase, ownCase, answer] of [
+		[
+			request,
+			first,
+			originalTableId,
+			"training-1",
+			"training-2",
+			"Original route",
+		],
+		[
+			sharedRequest,
+			sharedOpening,
+			sharedTableId,
+			"training-3",
+			"training-1",
+			"Shared route",
+		],
+	] as const) {
+		expect(Object.keys(opening.projection.lookup.rowsByTable).sort()).toEqual(
+			[writeTableId, routeTable].sort(),
+		);
+		if (!opening.next) throw new Error("Missing the remaining manual choice.");
+		const completed = await readFormOpeningAction(
+			{
+				...launch,
+				previous: opening.evidence,
+				choice: { selection: opening.next.selectionUuid, caseId: ownCase },
+			},
+			device,
+		);
+		if (completed.kind !== "opening" || completed.next)
+			throw new Error("Could not complete the form's route.");
+		expect(completed.projection.resolvedEntries[firstSelection.uuid]).toBe(
+			firstCase,
+		);
+		const submit = (evidence: typeof completed.evidence) =>
+			submitFormAction(
+				{
+					kind: "followup",
+					caseIds: [ownCase],
+					entryKey: launch.entry,
+					formUuid: launch.form,
+					attachmentRefs: [],
+					formOpening: { run: launch.run, module, evidence },
+					operationAnswers: {
+						root: [{ fieldUuid: note.uuid, value: answer }],
+						repeats: [],
+					},
+				},
+				app,
+				launch.blueprintDigest,
+				undefined,
+				undefined,
+				undefined,
+				device,
+			);
+		if (originalEvidence)
+			expect(await submit(originalEvidence)).toEqual({
+				kind: "error",
+				message:
+					"This form's opening records could not be verified. Reopen the form to load them again.",
+			});
+		expect(await submit(completed.evidence)).toMatchObject({
+			kind: "followup",
+		});
+		originalEvidence = completed.evidence;
+	}
+	const saved = await pool.query(
+		`SELECT case_id, properties->>'first_note' AS first, properties->>'second_note' AS second
+		FROM cases WHERE app_id=$1 AND case_id IN ('training-1','training-2','training-3')
+		ORDER BY case_id`,
+		[app],
+	);
+	expect(saved.rows.map((row) => [row.case_id, row.second])).toEqual([
+		["training-1", "Pinned write"],
+		["training-2", "Pinned write"],
+		["training-3", null],
+	]);
+	expect(saved.rows[0].first).toBe("Original route");
+	expect(saved.rows[2].first).toBe("Shared route");
 });
 
 it("opens the next form on the device its submission left, a case the restore no longer holds among it", async () => {
