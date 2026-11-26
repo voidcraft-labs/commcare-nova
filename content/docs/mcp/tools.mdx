@@ -1368,7 +1368,9 @@ the complete list is checked and saved atomically.
 
 Operation ids and link identifiers contain letters, numbers, and underscores
 and start with a letter or underscore. Link identifiers can also include
-hyphens. Write-property names start with a letter and can include hyphens.
+hyphens. When HQ keeps the change as an Advanced open action, its link
+identifier can also have complete parts separated by a period, such as
+`my.parent`. Write-property names start with a letter and can include hyphens.
 Three names are taken, because CommCare HQ's form builder can't open a form that
 holds them: `instance`, `bind` and `parsererror`. A Save to Case change can
 use the link identifier `close` or `create` when the same change already
@@ -1408,7 +1410,16 @@ registration plus a second create.
 |---|---|
 An update with an explicit `owner` can also take `ownerCondition`. If the condition is false, the current owner stays and the other effects of the change still run.
 
-The `own` arm, which only `update_case_operation` takes, is `{ action: "own", name?, nameOnlyIfChanged?, owner?, ownerOnlyIfChanged?, writes?, links? }`. Its case type is the menu's, its open and close conditions are `update_form`'s, and `name` is required on a registration. On a follow-up or close form, each of its `writes` can carry `via`, one link identifier per step such as `[{ "identifier": "parent" }]`, to save to a case above this form's case instead (with `property` `case_name` or `owner_id`, that case's name or owner); the other arms' writes take no `via`. Every arm's writes take `onlyIfChanged: true`, to save only when the answer differs from the case's value (on a case the change creates, only an answer the worker gives). `nameOnlyIfChanged` (the own arm on a follow-up or close form) and `renameOnlyIfChanged` (an update) save a new name only when it differs from the case's name; `ownerOnlyIfChanged` (the own arm, a create or an update) saves the owner only when the answer is not blank, since a case keeps its owner apart from the values it compares, so a blank answer leaves the owner as it is, or a new case with no owner, and it is refused on an owner that is the worker or `unowned`. Each is refused where CommCare HQ keeps the change in a Save to Case block. An update can target the worker's own record with `target: { kind: "worker-record" }`, for an update of `commcare-user` only; it takes no condition, links, owner, rename, retype or `forEach`.
+The `own` arm, which only `update_case_operation` takes, is `{ action: "own", name?, nameOnlyIfChanged?, owner?, ownerOnlyIfChanged?, writes?, links? }`. Its case type is the menu's, its open and close conditions are `update_form`'s, and `name` is required on a registration. On a follow-up or close form, each of its `writes` can carry `via`, one link identifier per step such as `[{ "identifier": "parent" }]`, to save to a case above this form's case instead (with `property` `case_name` or `owner_id`, that case's name or owner); the other arms' writes take no `via`. Every arm's writes take `onlyIfChanged: true`, to save only when the answer differs from the case's value (on a case the change creates, only an answer the worker gives). `nameOnlyIfChanged` (the own arm on a follow-up or close form) and `renameOnlyIfChanged` (an update) save a new name only when it differs from the case's name; `ownerOnlyIfChanged` (the own arm, a create or an update) saves the owner only when the answer is not blank, since a case keeps its owner apart from the values it compares, so a blank answer leaves the owner as it is, or a new case with no owner, and it is refused on an owner that is the worker or `unowned`. Each is refused where CommCare HQ keeps the change in a Save to Case block.
+
+Use `target: { kind: "worker-record" }` to update declared properties on the
+worker's `commcare-user` record. A form-level update can have a condition. To
+save for each entry in one ordinary repeat, pass `forEach: { repeat }` with
+the repeat field's UUID. The form needs a single worker-record update and the
+repeated change runs without a condition. Its rows update the same record in
+order. An irrelevant answer leaves the property unchanged, and a relevant
+blank clears it. The update cannot change the record's links, owner, name or
+type.
 
 On a basic follow-up that opens one case, the own change can save an answer
 through `via: [{ "identifier": "parent" }, { "identifier": "user" }]`. Both
