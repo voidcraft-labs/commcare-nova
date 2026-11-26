@@ -90,7 +90,7 @@ def test_current_case_list_editor_keeps_large_selection_maxima(hq, editor_driver
             assert held.multi_select and not held.auto_select and held.max_select_value == maximum
 
             suite = etree.fromstring(compare.build(state, app_id, record).files["suite.xml"])
-            built = suite.xpath("//*[local-name()='datum']/@max-select-value")
+            built = suite.xpath("//*[local-name()='instance-datum']/@max-select-value")
             assert set(built) == {str(maximum)}, built
             evidence.append({"edited": edited, "reopened": maximum, "stored": held.max_select_value, "built": built})
             prior = maximum
