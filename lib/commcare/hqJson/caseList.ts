@@ -1668,6 +1668,7 @@ export function projectCaseListForHq(
 	pair.short.filter = filter;
 	if (caseListConfig?.selection?.kind === "multiple") {
 		pair.short.multi_select = true;
+		pair.short.auto_select = caseListConfig.selection.autoSelect === true;
 		pair.short.max_select_value = caseListConfig.selection.maximum;
 	}
 	// The list's own texts, which HQ's build writes as `m<N>_no_items_text`

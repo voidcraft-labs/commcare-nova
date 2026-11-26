@@ -414,6 +414,8 @@ type RunningCaseReadArgs = {
 	caseTypes?: readonly CaseType[];
 	/** Bounded Results window. Omitted by the current unpaged form-selection caller. */
 	page?: { offset: number; limit: number };
+	/** Native automatic selection reads the whole datum, never a page. */
+	automaticSelection?: true;
 	/**
 	 * The viewer's IANA timezone — drives `format-date` rendering in
 	 * calculated columns (device-local parity). Omitted falls back to UTC.
@@ -792,7 +794,20 @@ export async function loadCasesAction(
 	try {
 		const prepared = await prepareRunningCaseRead(args);
 		if (prepared.kind !== "read") return prepared;
-		return await readCases(prepared.store, prepared.read);
+		if (!args.automaticSelection)
+			return await readCases(prepared.store, prepared.read);
+		const selection = prepared.read.caseListConfig?.selection;
+		if (selection?.autoSelect !== true)
+			return {
+				kind: "error",
+				message: "This list no longer chooses cases automatically.",
+			};
+		return await readCases(prepared.store, {
+			...prepared.read,
+			page: undefined,
+			datumOrder: true,
+			cap: selection.maximum + 1,
+		});
 	} catch (err) {
 		// A Project-membership denial (`resolveAppScope` → `AppAccessError`)
 		// is expected, not a fault: collapse it to the IDOR-safe not-found

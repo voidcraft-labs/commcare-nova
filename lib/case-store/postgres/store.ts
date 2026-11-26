@@ -1196,11 +1196,13 @@ export class PostgresCaseStore implements CaseStore {
 			// The worker's datum excludes every returned case marked related.
 			// A primary hit can itself carry an author-written property of
 			// that name. Core unpacks its text and converts it to boolean.
-			const qb = device.qb
+			let qb = device.qb
 				.where(sql<boolean>`c.case_id = any(${ids}::text[])`)
 				.where(
 					sql<boolean>`coalesce(c.properties ->> 'commcare_is_related_case', '') = ''`,
 				);
+			if (args.datumOrder)
+				qb = qb.orderBy(sql`array_position(${ids}::text[], c.case_id)`);
 			return read({ ...device, qb }, tx, ids.length);
 		};
 		return transaction === undefined
@@ -1456,7 +1458,7 @@ export class PostgresCaseStore implements CaseStore {
 					qb = qb.orderBy(part.expression, part.direction);
 				}
 			}
-		} else {
+		} else if (!args.datumOrder || !args.searchPopulation?.request) {
 			// The durable default ordering fact: creation time, then the
 			// id purely as a deterministic total-order key. Authored
 			// opaque ids carry no timestamp, so heap order and id order

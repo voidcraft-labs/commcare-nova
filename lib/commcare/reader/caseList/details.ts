@@ -177,7 +177,7 @@ export const DETAIL_CLAIMS = defineClaims("caseList.details", {
 		`${A}multi-select-auto-select-or-max-select-value-on-an-advanced-or`,
 		"schema:Detail.max_select_value",
 	),
-	autoSelectMulti: refuse(
+	autoSelectMulti: take(
 		`${A}detail-auto-select-multi-select`,
 		"schema:Detail.auto_select",
 	),
@@ -1229,11 +1229,11 @@ function readDetailKeys(
 		detail.drop("multi_select", D.multiSelectAdvanced);
 		detail.drop("max_select_value", D.maxSelectAdvanced);
 		detail.drop("auto_select", D.autoSelectAdvanced);
-	} else if (detail.peek("auto_select") === true) {
-		detail.refuse(
-			"auto_select",
-			multi ? D.autoSelectMulti : D.autoSelectSingle,
-		);
+	} else if (
+		detail.peek("auto_select") === true &&
+		(screen !== "short" || !multi)
+	) {
+		detail.refuse("auto_select", D.autoSelectSingle);
 		ok = false;
 	}
 	for (const [key, claim] of [
@@ -1379,6 +1379,16 @@ function readSelection(
 		return { ok: true };
 	}
 	short.take("multi_select", D.multiSelect, Boolean).value;
+	const automatic =
+		short.peek("auto_select") === true
+			? {
+					autoSelect: short.take(
+						"auto_select",
+						D.autoSelectMulti,
+						() => true as const,
+					).value,
+				}
+			: {};
 	// A null is HQ's model's `None`, for which HQ's build writes no `max-select-value`
 	// (`suite_xml/xml_models.py`, an `IntegerField`, which leaves out `None`), and Core then
 	// takes 100 (`SessionDatumParser.DEFAULT_MAX_SELECT_VAL`), Nova's own maximum.
@@ -1390,7 +1400,10 @@ function readSelection(
 			`${short.pointer}/max_select_value`,
 			"list-settings-respelled",
 		);
-		return { ok: true, selection: { kind: "multiple", maximum: 100 } };
+		return {
+			ok: true,
+			selection: { kind: "multiple", maximum: 100, ...automatic },
+		};
 	}
 	// Any other value that is no number is one HQ's model refuses as it wraps the app
 	// (`IntegerProperty`, an `AssertTypeProperty`), so no source HQ serves holds it: no entry
@@ -1414,7 +1427,11 @@ function readSelection(
 		);
 	return {
 		ok: true,
-		selection: { kind: "multiple", maximum: maximum === -1 ? 100 : maximum },
+		selection: {
+			kind: "multiple",
+			maximum: maximum === -1 ? 100 : maximum,
+			...automatic,
+		},
 	};
 }
 

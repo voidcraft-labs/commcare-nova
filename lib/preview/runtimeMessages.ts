@@ -74,6 +74,10 @@ const english = {
 	chooseCaseTask: "Choose what to do with this case",
 	chooseCasesForm: "Choose the form to run for these cases",
 	chooseCases: "Choose the cases this form should work with",
+	automaticSelectionTooMany:
+		"{count} cases match. This list can continue with up to {maximum}.",
+	automaticSelectionUnavailable:
+		"Go back, or narrow your search and try again.",
 	chooseAllShown: "Choose all cases shown",
 	reviewSelectedCases: "Review selected cases",
 	selectedCases: "Selected cases",

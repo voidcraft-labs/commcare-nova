@@ -561,6 +561,8 @@ export async function readCases(
 		excludedOwnerIds?: readonly string[];
 		authoredExcludedOwnerIds?: readonly string[];
 		page?: { offset: number; limit: number };
+		/** Read in the device's datum order and skip screen-only calculations. */
+		datumOrder?: true;
 		/** For an unpaged read, the most rows to return, in the read's order.
 		 * A read that reaches the cap also counts every match, as
 		 * `totalCount`. */
@@ -611,9 +613,13 @@ export async function readCases(
 		const found = await store.querySearchResults(
 			{
 				...caseReadCore(args, composedQuery.predicate),
-				sort: buildCaseStoreSortKeys(args.order, args.caseType),
-				calculated: runtimeCalculatedColumns(args.caseListConfig),
-				related: runtimeRelatedReads(args.caseListConfig, args.caseType),
+				...(args.datumOrder
+					? { datumOrder: true as const }
+					: {
+							sort: buildCaseStoreSortKeys(args.order, args.caseType),
+							calculated: runtimeCalculatedColumns(args.caseListConfig),
+							related: runtimeRelatedReads(args.caseListConfig, args.caseType),
+						}),
 				offset: page?.offset,
 				limit: page?.limit ?? args.cap,
 			},
@@ -698,12 +704,16 @@ export async function readCases(
 	const queryAtOffset = (offset: number) =>
 		store.query({
 			...caseReadCore(args, composedQuery.predicate),
-			sort: buildCaseStoreSortKeys(args.order, args.caseType),
-			calculated: runtimeCalculatedColumns(
-				args.caseListConfig,
-				args.order?.locale,
-			),
-			related: runtimeRelatedReads(args.caseListConfig, args.caseType),
+			...(args.datumOrder
+				? { datumOrder: true as const }
+				: {
+						sort: buildCaseStoreSortKeys(args.order, args.caseType),
+						calculated: runtimeCalculatedColumns(
+							args.caseListConfig,
+							args.order?.locale,
+						),
+						related: runtimeRelatedReads(args.caseListConfig, args.caseType),
+					}),
 			limit: page?.limit ?? cap,
 			offset: page === undefined ? undefined : offset,
 		});

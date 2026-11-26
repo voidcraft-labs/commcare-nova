@@ -29422,16 +29422,17 @@
 		"id": "hq-plain/auto-select-on-a-multi-select-list",
 		"base": "hq-plain",
 		"entry": "menus-and-case-lists/detail-auto-select-multi-select",
-		"standing": "not-yet",
-		"place": {
-			"kind": "case-list",
-			"menu": 0,
-			"name": "Households"
-		},
 		"change": {
 			"op": "named",
 			"name": "auto_select_on_a_multi_select_list"
-		}
+		},
+		"holds": [
+			{
+				"key": ["module", { "$menu": 0 }],
+				"pointer": "/caseListConfig/selection",
+				"value": { "kind": "multiple", "maximum": 100, "autoSelect": true }
+			}
+		]
 	},
 	{
 		"id": "hq-plain/bare-string-update",

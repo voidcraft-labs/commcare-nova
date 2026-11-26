@@ -2362,6 +2362,7 @@ export const NON_REFERENCE_MODULE_PATHS: Readonly<
 	"caseListConfig.detailColumnOrder[]": "identity",
 	"caseListConfig.selection.kind": "discriminator",
 	"caseListConfig.selection.maximum": "config",
+	"caseListConfig.selection.autoSelect": "config",
 	"caseListConfig.emptyText": "display-text",
 	"caseListConfig.selectButtonText": "display-text",
 	"caseListConfig.optimizations": "config",
