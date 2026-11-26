@@ -229,12 +229,15 @@ it("upgrades the installed schema, preserves old history and records complete mu
 		provider: { getMigrations: async () => caseStoreMigrations },
 	}).migrateToLatest();
 	if (result.error) throw result.error;
-	// The app was saved before `apps.app_settings` existed, so the column is
-	// NULL and the projection leaves the root out until the HQ round trip's
-	// cutover writes it, as its `app-settings` step does here.
-	const { appSettings, ...withoutAppSettings } = old;
-	expect(await snapshot(old.appId)).toEqual(withoutAppSettings);
-	await sql`UPDATE apps SET app_settings = ${JSON.stringify(appSettings)}::jsonb WHERE id = ${old.appId}`.execute(
+	// The app was saved before `apps.app_settings` and `apps.connect_roles`
+	// existed, so both columns are NULL: the projection leaves the settings
+	// out and holds the released Connect type until the HQ round trip's
+	// cutover writes both, as its `app-settings` step and the Connect
+	// conversion of an app with no Connect role do here.
+	const { appSettings, connectRoles, ...released } = old;
+	expect(connectRoles).toEqual([]);
+	expect(await snapshot(old.appId)).toEqual({ ...released, connectType: null });
+	await sql`UPDATE apps SET app_settings = ${JSON.stringify(appSettings)}::jsonb, connect_roles = '{}' WHERE id = ${old.appId}`.execute(
 		db,
 	);
 	expect(await snapshot(old.appId)).toEqual(old);

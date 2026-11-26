@@ -88,7 +88,12 @@ export async function scanConnectActivities(
 				let snapshot: unknown;
 				try {
 					snapshot = convert(
-						JSON.parse(await readReleasedFoldSnapshot(tx, row.id)),
+						JSON.parse(
+							await readReleasedFoldSnapshot(
+								tx as unknown as Kysely<unknown>,
+								row.id,
+							),
+						),
 						{},
 						{ appId: row.id },
 					);

@@ -306,6 +306,7 @@ describe("case parent relationship scan-then-migrate", () => {
 		await db
 			.updateTable("apps")
 			.set({
+				connect_roles: [],
 				case_types: JSON.stringify(blueprint.caseTypes),
 				app_settings: JSON.stringify(blueprint.appSettings),
 			})

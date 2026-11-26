@@ -5,7 +5,7 @@ import { type Kysely, type RawBuilder, sql } from "kysely";
 
 export async function up(db: Kysely<unknown>): Promise<void> {
 	await sql`
-		ALTER TABLE public.apps ADD COLUMN connect_roles text[]
+		ALTER TABLE public.apps ADD COLUMN IF NOT EXISTS connect_roles text[]
 			CHECK (connect_roles IS NULL OR connect_roles IN (
 				ARRAY[]::text[], ARRAY['learn']::text[], ARRAY['deliver']::text[],
 				ARRAY['learn','deliver']::text[]

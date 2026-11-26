@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
@@ -40,9 +40,9 @@ export async function withReleasedFoldReader(
 				],
 				{ timeout: 180_000, maxBuffer: 2 * 1024 * 1024 },
 			);
-		const converter = join(folder, "identity.mjs");
-		const identity = `export const sourceRevision="${sourceRevision}";export const convert=(doc)=>doc;\n`;
-		await writeFile(converter, identity);
+		// The release changes one stored shape: an app's Connect type becomes
+		// its Connect roles. The converter is the one the release selects.
+		const converter = resolve("lib/db/releasedConnectShape.mjs");
 		const migration = await openDeploymentFoldMigration({
 			sourceRevision,
 			sourceTree,
@@ -50,12 +50,36 @@ export async function withReleasedFoldReader(
 			reader: { path, sha256: readerSha256 },
 			converter: {
 				path: converter,
-				sha256: createHash("sha256").update(identity).digest("hex"),
+				sha256: createHash("sha256")
+					.update(await readFile(converter))
+					.digest("hex"),
 			},
 			settings: {},
 		});
-		await run(migration);
+		// These rehearsals write their apps with today's code, in the roles
+		// representation. An app with no Connect role is the same app the
+		// released code stored with no Connect type, so the released decoder
+		// reads it back in that spelling.
+		await run({
+			...migration,
+			readHead: (text) => migration.readHead(releasedSpelling(text)),
+			readReference: (head, evidence) =>
+				migration.readReference(releasedSpelling(head), evidence),
+		});
 	} finally {
 		await rm(folder, { recursive: true, force: true });
 	}
+}
+
+/** A snapshot of an app with no Connect role, as the released code spelled it. */
+function releasedSpelling(text: string): string {
+	const doc = JSON.parse(text) as Record<string, unknown>;
+	const roles = doc.connectRoles;
+	if (!Array.isArray(roles)) return text;
+	if (roles.length > 0)
+		throw new Error(
+			"A rehearsal app with a Connect role has no released spelling here.",
+		);
+	const { connectRoles: _roles, ...rest } = doc;
+	return JSON.stringify({ ...rest, connectType: null });
 }
