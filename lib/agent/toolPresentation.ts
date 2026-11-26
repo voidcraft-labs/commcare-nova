@@ -193,6 +193,7 @@ export const SHARED_TOOL_PRESENTATION = {
 	),
 	moveCaseOperation: change("Moving case operation", "Moved case operation"),
 	addFormLinks: change("Adding after-submit links", "Added after-submit links"),
+	editFormEntry: change("Updating form opening", "Updated form opening"),
 	getEntryPoints: read("Reading deep links", "Read deep links"),
 	addEntryPoint: change("Adding deep link", "Added deep link"),
 	updateEntryPoint: change("Updating deep link", "Updated deep link"),

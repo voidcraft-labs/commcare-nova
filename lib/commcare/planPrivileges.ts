@@ -316,6 +316,11 @@ export function requiredPlanPrivileges(
 	 * (`callcenter/sync_usercase.py::_iter_sync_usercase_helpers`), so every
 	 * value a form reads from it is blank. */
 	add("user_case", [
+		...doc.moduleOrder.flatMap((uuid) =>
+			doc.modules[uuid]?.caseType === "commcare-user"
+				? [`${doc.modules[uuid].name} lists worker records.`]
+				: [],
+		),
 		...formsUsingWorkerRecord(doc, connect).map(
 			(form) =>
 				`${form.name} ${
@@ -516,7 +521,9 @@ export function formEntrySyncReasons(doc: BlueprintDoc): string[] {
 		const form = doc.forms[formUuid];
 		if (
 			effectiveCaseSearchConfig(module) === undefined ||
-			!CASE_LOADING_FORM_TYPES.has(form.type)
+			!(form.caseSelections === undefined
+				? CASE_LOADING_FORM_TYPES.has(form.type)
+				: form.caseSelections.some((row) => row.source.kind === "choose"))
 		) {
 			return [];
 		}

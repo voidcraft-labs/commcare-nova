@@ -57,8 +57,9 @@ or path it names.
 ``read_variant`` makes one row of ``variants.json`` in a fork of the base's
 state and reads it as the row's own answers: its application resource,
 source, version and project space lists, and each file its media map names
-(a change may attach one the base does not hold), beside the base's lookup
-table, level and place answers. A set-json value is served where HQ's source
+(a change may attach one the base does not hold), and the project space's
+lookup table, level and place answers as the fork holds them then (a change
+may make a table the base does not hold). A set-json value is served where HQ's source
 read holds what the row set (``holds``), each menu or form the value names by
 position read as the id the source read serves for it (``served_ids``). It
 retains nothing; it returns what the row is held to.
@@ -686,17 +687,32 @@ def served_ids(base_source, source):
     return resolve
 
 
-def hold_key(key, base_source) -> str:
+def hold_key(key, base_source, application=None) -> str:
     """A ``holds`` fragment's key as the bundle reads it, the external key's text (``identity.ts::externalKeyText``,
     ``JSON.stringify`` of ``[kind, ...parts]``): text as written, or a list whose menu references
-    (``{"$menu": m}``) are the id HQ keeps for the base's menu at that position and whose ``xmlns`` references
+    (``{"$menu": m}``) are the id HQ keeps for the base's menu at that position, whose ``xmlns`` references
     (``{"$xmlns": [m, f]}``) the ``xmlns`` of the base's form there, so the key names the same entity however often
-    the base is authored again."""
-    from proof.matrix.ops import ids_at, resolve_references
+    the base is authored again, and whose form references (``{"$form": [m, f]}``) the real id the variant's own
+    application resource (``application``) serves for the form at that position. A shared entry holds no
+    ``xmlns`` of its own, so the reader keys it by that id (``appReading.ts::HqAlignedForm.uniqueId``), which an
+    authoring mints anew; the position is the variant's, since such a form may exist only after its change."""
+    from proof.matrix.ops import ValueNotSet, ids_at, resolve_references
 
     if isinstance(key, str):
         return key
-    return json.dumps(resolve_references(key, ids_at(base_source)), separators=(",", ":"), ensure_ascii=False)
+    base = ids_at(base_source)
+
+    def resolve(kind, position):
+        if kind != "form":
+            return base(kind, position)
+        if application is None:
+            raise ValueNotSet(
+                f"The form at {list(position)} in a holds key is read where the variant's application resource is in"
+                " hand."
+            )
+        return ids_at(application)(kind, position)
+
+    return json.dumps(resolve_references(key, resolve), separators=(",", ":"), ensure_ascii=False)
 
 
 def hold_value(value, app_id, files):
@@ -729,9 +745,10 @@ def make_change(authoring, app_id, change):
 
 def read_variant(authoring, base, app_id, credential, variant, kept) -> VariantOutcome:
     """The row ``variant`` made over the base's state (the caller's fork), read through HQ's API and by the reader
-    bundle: the app's answers and each file its media map names are the variant's own (a change may attach a file
-    the base does not hold), the project space's other answers the base's. HQ raising while the change is made is
-    the outcome itself (``raised``); nothing is read then."""
+    bundle: the app's answers, the project space's lookup tables, levels and places, and each file its media map
+    names are the variant's own, read once its changes are made (a change may attach a file, or make a table, the
+    base does not hold). HQ raising while the change is made is the outcome itself (``raised``); nothing is read
+    then."""
     from proof.matrix.ops import MatrixChangeRefused, SourceNotHeld, ValueNotSet
 
     base_source = json.loads(kept.answers["source"].body)
@@ -776,8 +793,9 @@ def read_variant(authoring, base, app_id, credential, variant, kept) -> VariantO
         "mode": "first-read",
         "input": reading_input(answers, project_answers, media, base, claims="full"),
     }
+    application = json.loads(answers["application"].body) if answers["application"].status == 200 else {}
     held = [
-        {**hold, "key": hold_key(hold["key"], base_source), "value": hold_value(hold["value"], base.id, media)}
+        {**hold, "key": hold_key(hold["key"], base_source, application), "value": hold_value(hold["value"], base.id, media)}
         for hold in variant.holds
     ]
     if held:

@@ -18,6 +18,7 @@ import {
 import type { BlueprintDoc } from "@/lib/domain/blueprint";
 import { entryDatumSupplies } from "@/lib/domain/entryDatumSupplies";
 import { datumRefKey } from "@/lib/domain/expression/types";
+import { implicitFormSelectionId } from "@/lib/domain/formEntryCases";
 import type { CaseOperation } from "@/lib/domain/forms";
 
 const HOUSEHOLDS = "advanced-entry-households";
@@ -149,6 +150,10 @@ describe("the entry of a registration emitted advanced", () => {
 			}).refs.map(({ ref }) => datumRefKey(ref)),
 		).toEqual([
 			datumRefKey({ kind: "selected-case", module: testUuid(PATIENTS) }),
+			datumRefKey({
+				kind: "form-selection",
+				selection: implicitFormSelectionId(testUuid(VISIT), testUuid(PATIENTS)),
+			}),
 		]);
 	});
 });

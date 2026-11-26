@@ -1,3 +1,4 @@
+import { namedEntrySupplyRead } from "@/lib/domain/advancedEntryDatums";
 import { slotContext } from "@/lib/domain/expression/context";
 import { formFieldPath } from "@/lib/domain/expression/formStructure";
 import type { FormPrintContext } from "@/lib/domain/expression/print";
@@ -76,6 +77,11 @@ export function formPrintContext(
 				? values
 				: undefined;
 		},
+		...(form &&
+			!scope.reading && {
+				namedEntrySupply: (ref) =>
+					namedEntrySupplyRead(scope.doc, form.formUuid, ref),
+			}),
 		datumId,
 		selectedCasesId: (module) =>
 			datums.find(
