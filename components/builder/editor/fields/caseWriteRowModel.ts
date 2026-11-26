@@ -79,9 +79,18 @@ const MISFIT_LINES: Record<StartingValueMisfit["kind"], string> = {
 export const SAVE_ONLY_IF_CHANGED_LABEL = "Save only if changed";
 export const SAVE_ONLY_IF_CHANGED_LINE =
 	"Saves this answer only when the worker changes it.";
-/** Why the switch is off on a registration's own case. */
-export const NEW_CASE_NO_EARLIER_VALUE_REASON =
-	"A new case has no earlier value to compare with.";
+/** The switch's line on a case the form creates, which holds no earlier
+ *  value: the answer differs from nothing unless it is blank. */
+export const SAVE_ONLY_IF_ANSWERED_LINE =
+	"A new case has no earlier value, so this saves the answer only when the worker gives one.";
+/** The switch's line on a case's owner: a case holds its owner apart from its
+ *  values, so the answer is compared with nothing and saved whenever the
+ *  worker gives one (`CaseFacetOnlyIfChanged`). */
+export const SAVE_OWNER_ONLY_IF_ANSWERED_LINE =
+	"Saves the owner only when the worker gives one, so a blank answer leaves the owner as it is.";
+/** The owner switch's line on a case the form creates. */
+export const SAVE_NEW_OWNER_ONLY_IF_ANSWERED_LINE =
+	"Saves the owner only when the worker gives one, so a blank answer leaves the new case with no owner.";
 /** Why the switch is off while CommCare HQ keeps the own change in Save to
  *  Case, whose block has no such setting. */
 export const KEPT_IN_SAVE_TO_CASE_REASON =
@@ -220,33 +229,58 @@ export function onlyIfChangedDestination(
 	};
 }
 
+/** The destinations whose writes CommCare HQ can save only when changed:
+ *  every update map its build writes (`XFormCaseBlock.add_case_updates`). */
+const SWITCHED_DESTINATIONS: ReadonlySet<FieldCaseWriteView["destination"]> =
+	new Set(["own", "ancestor", "child", "worker-record"]);
+
 /**
- * The switch of a write to this form's case or to a case above it. Turning
- * it off is always admitted; turning it on is refused on a registration,
- * whose new case has nothing to compare with, and while CommCare HQ keeps
- * the own change in Save to Case; otherwise the planner's and the gate's
- * verdict over the switch's destination decides.
+ * The switch of a write to this form's case, a case above it, a child case
+ * it creates or the worker's record. Turning it off is always admitted;
+ * turning it on is refused while CommCare HQ keeps the own change in Save to
+ * Case; otherwise the planner's and the gate's verdict over the switch's
+ * destination decides. On a case the form creates it saves only an answer
+ * the worker gives, and its line says so.
  */
 function onlyIfChangedSwitch(
 	input: CaseWriteRowInput,
 ): CaseWriteOnlyIfChangedSwitch | undefined {
 	const { view, form } = input;
+	if (!SWITCHED_DESTINATIONS.has(view.destination)) return undefined;
+	const createsCase =
+		view.destination === "child" ||
+		(view.destination === "own" && form.type === "registration");
+	// A case's name and owner are saved only when changed too
+	// (`CaseFacetOnlyIfChanged`): a rename of this form's case, and the owner
+	// of this form's case or of a case it creates. A new case's name has no
+	// earlier value to compare with.
+	if (view.slot === "name" && (createsCase || view.destination !== "own"))
+		return undefined;
 	if (
-		view.slot !== "write" ||
-		(view.destination !== "own" && view.destination !== "ancestor")
+		view.slot === "owner" &&
+		view.destination !== "own" &&
+		view.destination !== "child"
 	)
 		return undefined;
 	const base = {
 		label: SAVE_ONLY_IF_CHANGED_LABEL,
-		line: SAVE_ONLY_IF_CHANGED_LINE,
+		line:
+			view.slot === "owner"
+				? createsCase
+					? SAVE_NEW_OWNER_ONLY_IF_ANSWERED_LINE
+					: SAVE_OWNER_ONLY_IF_ANSWERED_LINE
+				: createsCase
+					? SAVE_ONLY_IF_ANSWERED_LINE
+					: SAVE_ONLY_IF_CHANGED_LINE,
 		on: view.onlyIfChanged,
 		destination: onlyIfChangedDestination(view),
 	};
 	if (view.onlyIfChanged) return base;
 	let disabledReason: string | undefined;
-	if (form.type === "registration")
-		disabledReason = NEW_CASE_NO_EARLIER_VALUE_REASON;
-	else if (input.placement?.own?.home === "save-to-case")
+	if (
+		(view.destination === "own" || view.destination === "ancestor") &&
+		input.placement?.own?.home === "save-to-case"
+	)
 		disabledReason = KEPT_IN_SAVE_TO_CASE_REASON;
 	else if (input.onlyIfChangedVerdict?.ok === false)
 		disabledReason = input.onlyIfChangedVerdict.reason;

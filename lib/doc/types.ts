@@ -94,11 +94,13 @@ import {
 import { conditionSchema } from "@/lib/domain/expression/types";
 import { detailTileSchema } from "@/lib/domain/modules";
 import {
+	advancedTagSchema,
 	casePlacementSchema,
 	ownClosePlacementSchema,
 } from "@/lib/domain/placements";
 import { proseTemplateSchema } from "@/lib/domain/prose";
 import { queryRepeatPlacementSchema } from "@/lib/domain/queryRepeatPlacement";
+import { formEntryChangeSchema } from "./formEntryMutations";
 
 /**
  * The two field message slots a `Media` bundle attaches to: the ones a
@@ -226,9 +228,15 @@ function caseOperationPatchSchemaFor(
 	// Identity and destination action are represented once on the outer update
 	// arm. Writes and links have their own keyed merge units. The own arm's
 	// case type, target, condition and repeat are the form's, so only its name
-	// and owner are scalar slots of its own.
+	// and owner, and whether each is saved only when changed, are scalar slots
+	// of its own.
 	const ownOperationPatchSchema = clearablePartialPatch(arms.own)
-		.pick({ name: true, owner: true })
+		.pick({
+			name: true,
+			nameOnlyIfChanged: true,
+			owner: true,
+			ownerOnlyIfChanged: true,
+		})
 		.strict();
 	const createOperationPatchSchema = clearablePartialPatch(arms.create)
 		.omit({ action: true, writes: true, links: true })
@@ -532,10 +540,16 @@ const canonicalModuleUpdatePatchSchema = clearablePartialPatch(moduleSchema)
 		caseSearchConfig: z.null().optional(),
 	});
 const canonicalFormUpdatePatchSchema = clearablePartialPatch(formSchema).omit({
+	caseSelections: true,
+	shadowOf: true,
+	computedDatums: true,
 	entryPoint: true,
 	id: true,
 	name: true,
 	caseOperations: true,
+	// Starting values are entities with their own four entry changes; a
+	// whole-array replacement would drop a concurrent add.
+	openingAssignments: true,
 	// Links are entities with their own four kinds below; a whole-array
 	// replacement would erase identity and never survives the wire.
 	formLinks: true,
@@ -547,6 +561,10 @@ const canonicalFormUpdatePatchSchema = clearablePartialPatch(formSchema).omit({
 	// Where a published app keeps the own close is held by `holdPlacements`
 	// alone; no form patch writes it.
 	ownClosePlacement: true,
+	heldSelectionTags: true,
+	// That an adopted basic form keeps its own record's starting values in
+	// HQ's case settings slot is held by `holdPlacements` alone.
+	heldBasicOpening: true,
 });
 
 /**
@@ -556,10 +574,14 @@ const canonicalFormUpdatePatchSchema = clearablePartialPatch(formSchema).omit({
  */
 function formHoldsPlacement(form: {
 	readonly ownClosePlacement?: unknown;
+	readonly heldSelectionTags?: unknown;
+	readonly heldBasicOpening?: unknown;
 	readonly caseOperations?: readonly { readonly placement?: unknown }[];
 }): boolean {
 	return (
+		form.heldSelectionTags !== undefined ||
 		form.ownClosePlacement !== undefined ||
+		form.heldBasicOpening !== undefined ||
 		(form.caseOperations ?? []).some(
 			(operation) => operation.placement !== undefined,
 		)
@@ -567,7 +589,7 @@ function formHoldsPlacement(form: {
 }
 
 const HELD_FORM_PLACEMENT_MESSAGE =
-	"A new form can't hold where a published app keeps its case changes, since no edit chooses that. Leave out `ownClosePlacement` and each case change's `placement`, and the form takes the placements its shape gives.";
+	"A new form can't hold where a published app keeps its case changes, since no edit chooses that. Leave out `heldSelectionTags`, `ownClosePlacement`, `heldBasicOpening` and each case change's `placement`, and the form takes the placements its shape gives.";
 
 /**
  * `addModule`'s module: any module, holding no kind. Whether CommCare HQ
@@ -862,6 +884,16 @@ function reportHeldPlacementInPayload(
 				"This form update also sets where a published app keeps the form's own close. No edit chooses that, so leave `ownClosePlacement` out of the patch.",
 		});
 	}
+	if (
+		isPlainRecord(value.patch) &&
+		Object.hasOwn(value.patch, "heldSelectionTags")
+	)
+		ctx.addIssue({
+			code: "custom",
+			path: ["patch", "heldSelectionTags"],
+			message:
+				"A publish records the saved names of a form’s opening records. You can edit a record choice to change its name.",
+		});
 	const change = value.caseOperationChange;
 	if (
 		isPlainRecord(change) &&
@@ -936,6 +968,17 @@ function prevalidateRawMutationInput<Schema extends z.ZodType>(
 /** One held placement, set or cleared. `null` clears the target's held slot. */
 export const placementHoldSchema = z.discriminatedUnion("target", [
 	z.strictObject({
+		target: z.literal("form-selection"),
+		formUuid: uuidSchema,
+		selectionUuid: uuidSchema,
+		placement: z
+			.strictObject({
+				kind: z.literal("selection-tag"),
+				tag: advancedTagSchema,
+			})
+			.nullable(),
+	}),
+	z.strictObject({
 		target: z.literal("case-operation"),
 		formUuid: uuidSchema,
 		operationUuid: uuidSchema,
@@ -956,6 +999,11 @@ export const placementHoldSchema = z.discriminatedUnion("target", [
 		moduleUuid: uuidSchema,
 		placement: z.literal("advanced").nullable(),
 	}),
+	z.strictObject({
+		target: z.literal("basic-opening"),
+		formUuid: uuidSchema,
+		placement: z.literal(true).nullable(),
+	}),
 ]);
 export type PlacementHoldEntry = z.infer<typeof placementHoldSchema>;
 
@@ -972,19 +1020,29 @@ export function placementTargetKey(
 				readonly formUuid: string;
 				readonly operationUuid: string;
 		  }
+		| {
+				readonly target: "form-selection";
+				readonly formUuid: string;
+				readonly selectionUuid: string;
+		  }
 		| { readonly target: "own-close"; readonly formUuid: string }
 		| { readonly target: "query-repeat"; readonly fieldUuid: string }
-		| { readonly target: "module-kind"; readonly moduleUuid: string },
+		| { readonly target: "module-kind"; readonly moduleUuid: string }
+		| { readonly target: "basic-opening"; readonly formUuid: string },
 ): string {
 	switch (target.target) {
 		case "case-operation":
 			return `case-operation:${target.formUuid}:${target.operationUuid}`;
+		case "form-selection":
+			return `form-selection:${target.formUuid}:${target.selectionUuid}`;
 		case "own-close":
 			return `own-close:${target.formUuid}`;
 		case "query-repeat":
 			return `query-repeat:${target.fieldUuid}`;
 		case "module-kind":
 			return `module-kind:${target.moduleUuid}`;
+		case "basic-opening":
+			return `basic-opening:${target.formUuid}`;
 	}
 }
 
@@ -1224,13 +1282,17 @@ function createMutationSchema({
 				kind: z.literal("updateForm"),
 				uuid: uuidSchema,
 				patch: mutationFormUpdatePatchSchema,
+				entryChange: formEntryChangeSchema.optional(),
 				caseOperationChange: mutationCaseOperationChangeSchema.optional(),
 				caseOperationPatch: mutationCaseOperationPatchSchema.optional(),
 			})
 			.superRefine((mutation, ctx) => {
 				if (
-					mutation.caseOperationChange !== undefined &&
-					mutation.caseOperationPatch !== undefined
+					[
+						mutation.caseOperationChange,
+						mutation.caseOperationPatch,
+						mutation.entryChange,
+					].filter((value) => value !== undefined).length > 1
 				) {
 					ctx.addIssue({
 						code: "custom",

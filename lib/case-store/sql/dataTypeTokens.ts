@@ -99,8 +99,8 @@ export interface ReservedScalarColumn {
  * **Shadowing:** these names are also syntactically valid property
  * identifiers, but no case operation writes one as a property — the
  * validator's `CASE_OPERATION_RESERVED_PROPERTY` rule rejects every entry
- * here except `external_id` (`case_name` is saved through an operation's
- * `name` or `rename`) — so the scalar read can never shadow authored case
+ * here except `external_id` and `location_id` (`case_name` is saved through
+ * an operation's `name` or `rename`) — so the scalar read can never shadow authored case
  * data; the compilers trust that rejection upstream.
  */
 export const RESERVED_SCALAR_COLUMN_BY_PROPERTY: ReadonlyMap<
@@ -113,6 +113,7 @@ export const RESERVED_SCALAR_COLUMN_BY_PROPERTY: ReadonlyMap<
 	["status", { column: "status", blankable: true }],
 	["case_name", { column: "case_name", blankable: true }],
 	["external_id", { column: "external_id", blankable: true }],
+	["location_id", { column: "location_id", blankable: true }],
 	["date_opened", { column: "opened_on", blankable: false }],
 	["last_modified", { column: "modified_on", blankable: false }],
 ]);

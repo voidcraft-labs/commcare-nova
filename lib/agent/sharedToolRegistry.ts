@@ -49,6 +49,7 @@ import { configureConnectTool } from "@/lib/agent/tools/configureConnect";
 import { createFormTool } from "@/lib/agent/tools/createForm";
 import { createModuleTool } from "@/lib/agent/tools/createModule";
 import { editFieldTool } from "@/lib/agent/tools/editField";
+import { editFormEntryTool } from "@/lib/agent/tools/editFormEntry";
 import {
 	addEntryPointTool,
 	getEntryPointsTool,
@@ -707,6 +708,13 @@ export const SHARED_TOOL_REGISTRY = [
 		saName: "removeEntryPoint",
 		mcpName: "remove_entry_point",
 		tool: removeEntryPointTool,
+		requires: "edit",
+		policy: BLUEPRINT_WRITE_POLICY,
+	},
+	{
+		saName: "editFormEntry",
+		mcpName: "edit_form_entry",
+		tool: editFormEntryTool,
 		requires: "edit",
 		policy: BLUEPRINT_WRITE_POLICY,
 	},

@@ -25,7 +25,7 @@
 
 import type { z } from "zod";
 import { planCaseListRegistrationDependentsOnRemove } from "@/lib/doc/caseListRegistrationDependents";
-import { planFormLinkDependentsOnRemove } from "@/lib/doc/formLinkDependents";
+import { planFormDependentsOnRemove } from "@/lib/doc/sharedFormDependents";
 import type { Mutation } from "@/lib/doc/types";
 import { removeFormMutations } from "../blueprintHelpers";
 import type { ToolInvocationContext } from "../workspace/types";
@@ -81,7 +81,7 @@ export const removeFormTool = {
 			 * destinations and otherwise links alike, would dangle. The shared planner refuses and names every link and the
 			 * repair (`lib/doc/formLinkDependents.ts`) — the builder's remove
 			 * flow consults the same planner, so both surfaces refuse alike. */
-			const dependents = planFormLinkDependentsOnRemove(doc, {
+			const dependents = planFormDependentsOnRemove(doc, {
 				kind: "form",
 				formUuid,
 			});

@@ -327,6 +327,7 @@ function namedElement(element: unknown, ref: SlotContextRef): boolean {
 	const item = element as Holder;
 	const member = ref.member as Holder;
 	for (const key of [
+		"supplyUuid",
 		"linkUuid",
 		"operationUuid",
 		"columnUuid",
