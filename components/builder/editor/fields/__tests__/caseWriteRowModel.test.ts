@@ -9,7 +9,13 @@
 import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
+import {
+	addFixtureField,
+	buildDoc,
+	caseListConfig,
+	f,
+} from "@/lib/__tests__/docHelpers";
+import { parentUserWriteFixture } from "@/lib/__tests__/parentUserWriteFixture";
 import { formCasePlacementView } from "@/lib/doc/casePlacements";
 import { caseWriteChoiceVerdict } from "@/lib/doc/caseWriteChoices";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
@@ -548,6 +554,136 @@ function committed(doc: BlueprintDoc, mutations: readonly unknown[]) {
 }
 
 describe("the cases above it", () => {
+	it("offers the declared parent then user route through the Builder gate", () => {
+		const { doc, form, mode, note, via } = parentUserWriteFixture(
+			undefined,
+			false,
+		);
+		const placement = formCasePlacementView(doc, form).own?.placement.kind;
+		expect(placement).toBe("basic");
+		const choices = ancestorCaseWriteChoices(
+			doc.caseTypes ?? [],
+			"person",
+			"followup",
+			placement === "basic",
+		);
+		expect(choices).toContainEqual({
+			caseType: "household",
+			via,
+			label: "household (parent, then user)",
+		});
+		const verdict = caseWriteChoiceVerdict(
+			doc,
+			note,
+			{
+				destination: { caseType: "household", property: "linked_note", via },
+			},
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
+		if (!verdict.ok) throw new Error(verdict.reason);
+		const saved = committed(doc, verdict.mutations);
+		expect(rowWith(saved, note).destination).toBe(
+			"Household linked through parent, then user · Linked note",
+		);
+		const unqualified = via.map(({ identifier }) => ({
+			identifier,
+		})) as typeof via;
+		expect(
+			caseWriteChoiceVerdict(
+				saved,
+				mode,
+				{
+					destination: {
+						caseType: "household",
+						property: "linked_note",
+						via: unqualified,
+					},
+				},
+				LOOKUP_CONTEXT_UNAVAILABLE,
+			).ok,
+		).toBe(false);
+
+		const ambiguous = produce(doc, (draft) => {
+			draft.caseTypes
+				?.find(({ name }) => name === "family")
+				?.relations?.push({
+					identifier: "user",
+					targetType: "person",
+					relationship: "child",
+				});
+		});
+		expect(
+			ancestorCaseWriteChoices(
+				ambiguous.caseTypes ?? [],
+				"person",
+				"followup",
+				true,
+			),
+		).not.toContainEqual(expect.objectContaining({ via }));
+		expect(
+			caseWriteChoiceVerdict(
+				ambiguous,
+				note,
+				{
+					destination: { caseType: "household", property: "linked_note", via },
+				},
+				LOOKUP_CONTEXT_UNAVAILABLE,
+			).ok,
+		).toBe(false);
+	});
+
+	it("keeps attachments outside the typed parent then user write", () => {
+		const { doc, form, via } = parentUserWriteFixture(undefined, false);
+		const photo = testUuid("two-hop-user-attachment");
+		const source = buildDoc({
+			modules: [
+				{
+					name: "Capture",
+					forms: [
+						{
+							name: "Photograph",
+							type: "survey",
+							fields: [f({ kind: "image", uuid: photo, id: "photograph" })],
+						},
+					],
+				},
+			],
+		});
+		const withPhoto = produce(doc, (draft) =>
+			addFixtureField(draft, form, source.fields[photo]),
+		);
+		const verdict = caseWriteChoiceVerdict(
+			withPhoto,
+			photo,
+			{
+				destination: { caseType: "household", property: "linked_note", via },
+			},
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
+		expect(verdict.ok).toBe(false);
+		const attempted = produce(withPhoto, (draft) => {
+			draft.forms[form].caseOperations?.[0].writes?.push({
+				property: "linked_note",
+				value: { kind: "term", term: { kind: "capture-link", field: photo } },
+				via,
+			});
+		});
+		const blocked = mutationCommitVerdict(
+			attempted,
+			[],
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
+		expect(blocked.ok ? [] : blocked.findings).toContainEqual(
+			expect.objectContaining({
+				code: "CASE_WRITE_VIA_INVALID",
+				message: expect.stringContaining(
+					"A separate case change can save attachments",
+				),
+				details: expect.objectContaining({ property: "linked_note" }),
+			}),
+		);
+	});
+
 	it("lists one choice per chain of links, walking an extension as parent and as host", () => {
 		const doc = aboveFixture("followup");
 		const choices = ancestorCaseWriteChoices(
@@ -575,6 +711,55 @@ describe("the cases above it", () => {
 				label: "village (parent, then host)",
 			},
 		]);
+	});
+
+	it("offers an unambiguous basic user connection and saves it through the current gate", () => {
+		const doc = produce(aboveFixture("followup"), (draft) => {
+			const member = draft.caseTypes?.find(({ name }) => name === "member");
+			if (member === undefined)
+				throw new Error("The fixture needs a member type.");
+			member.relations = [
+				{ identifier: "user", targetType: "household", relationship: "child" },
+			];
+		});
+		const caseTypes = doc.caseTypes ?? [];
+		const view = fieldCaseWriteViews(doc, ABOVE_NOTE)[0];
+		if (view === undefined) throw new Error("The note saves nowhere.");
+		const basic = formCasePlacementView(doc, view.formUuid).own?.placement.kind;
+		expect(basic).toBe("basic");
+		const choice = ancestorCaseWriteChoices(
+			caseTypes,
+			"member",
+			"followup",
+			true,
+		).find(({ via }) => via[0].identifier === "user");
+		expect(choice?.via).toEqual([
+			{ identifier: "user", throughCaseType: "household" },
+		]);
+		if (choice === undefined)
+			throw new Error("The user connection should be offered.");
+		const verdict = caseWriteChoiceVerdict(
+			doc,
+			ABOVE_NOTE,
+			{
+				destination: {
+					caseType: choice.caseType,
+					property: "note",
+					via: choice.via,
+				},
+				replace: fieldCaseWriteViewKey(view),
+			},
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
+		expect(verdict).toMatchObject({ ok: true });
+		if (verdict.ok) {
+			const row = rowWith(committed(doc, verdict.mutations), ABOVE_NOTE);
+			expect(row.destination).toBe("Household linked through user · Note");
+			expect(row.readOnly).toBe(false);
+		}
+		expect(
+			ancestorCaseWriteChoices(caseTypes, "member", "followup"),
+		).not.toContainEqual(choice);
 	});
 
 	it("lists an extension's host from a menu over the extension", () => {

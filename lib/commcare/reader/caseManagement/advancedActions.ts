@@ -13,6 +13,7 @@
  */
 
 import {
+	ADVANCED_CASE_INDEX_IDENTIFIER_REGEX,
 	type CaseOperation,
 	type CaseOperationLink,
 	type CaseOperationWrite,
@@ -37,7 +38,6 @@ import {
 	term,
 	unowned,
 } from "@/lib/domain/expression/builders";
-import { XML_ELEMENT_NAME_PATTERN } from "@/lib/domain/expression/types";
 import { implicitFormSelectionId } from "@/lib/domain/formEntryCases";
 import { NO_ENTRIES, recordFromEntries } from "@/lib/domain/records";
 import {
@@ -534,6 +534,10 @@ export const ADVANCED_CLAIMS = defineClaims("caseManagement.advancedActions", {
 	openIndices: take(
 		`${F}/advancedopencaseaction-case-indices-child-extension-one-or-many`,
 		"schema:AdvancedOpenCaseAction.case_indices",
+	),
+	dottedOpenIndexReference: take(
+		`${F}/advancedopencaseaction-case-indices-child-extension-one-or-many`,
+		"schema:CaseIndex.reference_id",
 	),
 	openIndexOwnOrLater: refuse(
 		`${F}/advancedopencaseaction-case-indices-naming-its-own-or-a-later`,
@@ -2416,7 +2420,7 @@ function readOrdinaryAdvancedActions(
 				const namesOpen = openIndex !== undefined && loadIndex === undefined;
 				const earlierOpenIndex = afterOpenIndex;
 				if (namesOpen) afterOpenIndex = true;
-				if (!XML_ELEMENT_NAME_PATTERN.test(identifier)) {
+				if (!ADVANCED_CASE_INDEX_IDENTIFIER_REGEX.test(identifier)) {
 					I.refuseWhole(ADVANCED_CLAIMS.openIndexName, { name: identifier });
 					r.ok = false;
 					return;
@@ -2536,9 +2540,20 @@ function readOrdinaryAdvancedActions(
 						parentType: read.targetType,
 						relationship,
 					});
-				for (const key of ["reference_id", "relationship"])
-					if (I.used(key))
-						consume(I.take(key, ADVANCED_CLAIMS.openIndices, (value) => value));
+				if (I.used("reference_id")) {
+					const claim = identifier.includes(".")
+						? ADVANCED_CLAIMS.dottedOpenIndexReference
+						: ADVANCED_CLAIMS.openIndices;
+					consume(I.take("reference_id", claim, (value) => value));
+				}
+				if (I.used("relationship"))
+					consume(
+						I.take(
+							"relationship",
+							ADVANCED_CLAIMS.openIndices,
+							(value) => value,
+						),
+					);
 			});
 		}
 		// HQ's build refuses an open action with no name (`case_name required`,
@@ -4278,5 +4293,12 @@ export function settleSharedEntry(
 	if (!entry?.shadowOf) return;
 	const context = formLinkProjectionContext(doc, { entryMetadataOnly: true });
 	const missing = sharedFormDependencies(doc, entry, menu, context);
-	if (missing.length) ctx.accounting.finding(SHARED.missingSupply, form.place);
+	if (missing.length)
+		ctx.accounting.findingAt(
+			SHARED.missingSupply,
+			form.place,
+			`${form.json.pointer}/extra_actions`,
+			undefined,
+			{ atDefault: !form.json.used("extra_actions") },
+		);
 }

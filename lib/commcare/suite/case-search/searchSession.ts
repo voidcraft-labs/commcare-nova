@@ -31,6 +31,7 @@ import {
 import type { DatumRef } from "@/lib/domain/expression/types";
 import {
 	isDedicatedOwnerFilter,
+	menuRecordTypes,
 	searchOwnerOverride,
 } from "@/lib/domain/modules";
 import type { ModuleExpressionContexts } from "../../expressionContext";
@@ -39,7 +40,12 @@ import type { LookupWireNaming } from "../../lookup/naming";
 import { emitNormalizedExcludedOwnerIdsExpression } from "../case-list/nodesetFilter";
 import { SEARCH_SELECTED_CASES_ID } from "./claim";
 import { emitSearchRequestValue, searchRequestKey } from "./nativeFilters";
-import { searchNeedsSupportingCases } from "./relatedCaseProjection";
+import {
+	projectSearchResults,
+	projectSearchValues,
+	requiredProjectSearchId,
+} from "./projectSearch";
+import { includeSearchHierarchy } from "./relatedCaseProjection";
 import { requestOrderText } from "./requestOrder";
 import { buildSearchPrompts } from "./searchPrompts";
 import {
@@ -121,6 +127,7 @@ export interface SearchQueryEmission {
 }
 
 export interface SearchQueryArgs {
+	readonly projectSearchId?: number;
 	readonly runtimeTarget?: RuntimeTarget;
 	readonly caseListConfig: CaseListConfig;
 	readonly caseSearchConfig: OrdinaryCaseSearchConfig;
@@ -164,7 +171,12 @@ export function buildSearchSession(
 	// (`m{N}_search_short` / `m{N}_search_long`) — distinct from the
 	// `m{N}_case_short` / `m{N}_case_long` ids the local case-list
 	// entry uses.
-	const datumNodeset = composeDatumNodeset(storageInstance, caseType);
+	const datumNodeset = args.caseSearchConfig.projectSearch
+		? projectSearchResults(storageInstance)
+		: composeDatumNodeset(
+				storageInstance,
+				menuRecordTypes(caseType, caseListConfig),
+			);
 	const selection = caseListConfig.selection;
 	const multiple = selection?.kind === "multiple";
 	const datumEl = xel(
@@ -178,6 +190,7 @@ export function buildSearchSession(
 				"detail-select": `${moduleId}_search_short`,
 				...(selection !== undefined && {
 					"max-select-value": String(selection.maximum),
+					...(selection.autoSelect === true && { autoselect: "true" }),
 				}),
 			},
 			xpath: {
@@ -248,16 +261,18 @@ export function buildSearchQuery(args: SearchQueryArgs): SearchQueryEmission {
 	// quoted literal flows raw into the `ref` attribute; the
 	// serializer escapes the surrounding `'` characters once at render
 	// time (`&apos;`).
-	dataElements.push(
-		xel(
-			"data",
-			{
-				attributes: { key: "case_type" },
-				xpath: { ref: w.str(caseType) },
-			},
-			context,
-		),
-	);
+	for (const type of menuRecordTypes(caseType, caseListConfig)) {
+		dataElements.push(
+			xel(
+				"data",
+				{
+					attributes: { key: "case_type" },
+					xpath: { ref: w.str(validateCaseType(type)) },
+				},
+				context,
+			),
+		);
+	}
 
 	// `_xpath_query` — one `<data>` element per composed clause: the
 	// unified filter's top-level conjuncts, every advanced-arm search
@@ -278,15 +293,20 @@ export function buildSearchQuery(args: SearchQueryArgs): SearchQueryEmission {
 	// would resolve to the empty string at evaluation time AND silently
 	// add a server-side property filter against case data that matches
 	// no cases.
-	const xpathQueryEmission = composeXPathQueryEmission(
-		caseListConfig,
-		caseType,
-		args.expressions,
-		args.lookupNaming,
-		searchInputInstanceId(wire),
-		args.datumId,
-	);
-	for (const filter of caseListConfig.searchFilters ?? []) {
+	const projectSearch = caseSearchConfig.projectSearch;
+	const xpathQueryEmission = projectSearch
+		? undefined
+		: composeXPathQueryEmission(
+				caseListConfig,
+				caseType,
+				args.expressions,
+				args.lookupNaming,
+				searchInputInstanceId(wire),
+				args.datumId,
+			);
+	for (const filter of projectSearch
+		? []
+		: (caseListConfig.searchFilters ?? [])) {
 		// The dedicated owner exclusion goes out after the default filters,
 		// where HQ writes `blacklisted_owner_ids_expression`.
 		if (isDedicatedOwnerFilter(filter)) continue;
@@ -311,15 +331,23 @@ export function buildSearchQuery(args: SearchQueryArgs): SearchQueryEmission {
 	}
 	// A search with no input and no clause sends the zero-input sentinel,
 	// as HQ's build of the same search does.
-	for (const value of xpathQueryRequestValues(
-		caseListConfig,
-		xpathQueryEmission,
-	)) {
+	const parameters = projectSearch
+		? projectSearchValues(
+				projectSearch,
+				args.expressions,
+				args.lookupNaming,
+				searchInputInstanceId(wire),
+				args.datumId,
+			)
+		: xpathQueryRequestValues(caseListConfig, xpathQueryEmission).map(
+				(value) => ({ name: XPATH_QUERY_KEY, value }),
+			);
+	for (const { name, value } of parameters) {
 		dataElements.push(
 			xel(
 				"data",
 				{
-					attributes: { key: XPATH_QUERY_KEY },
+					attributes: { key: name },
 					xpath: { ref: value },
 				},
 				context,
@@ -381,7 +409,26 @@ export function buildSearchQuery(args: SearchQueryArgs): SearchQueryEmission {
 		);
 	}
 
-	if (searchNeedsSupportingCases(caseListConfig, args.expressions)) {
+	if (!projectSearch && caseSearchConfig.relatedRecordIdProperty) {
+		dataElements.push(
+			xel(
+				"data",
+				{
+					attributes: { key: "x_commcare_custom_related_case_property" },
+					xpath: { ref: w.str(caseSearchConfig.relatedRecordIdProperty) },
+				},
+				context,
+			),
+		);
+	}
+	if (
+		!projectSearch &&
+		includeSearchHierarchy(
+			caseListConfig,
+			args.expressions,
+			caseSearchConfig.relatedRecords,
+		)
+	) {
 		dataElements.push(
 			xel(
 				"data",
@@ -404,6 +451,21 @@ export function buildSearchQuery(args: SearchQueryArgs): SearchQueryEmission {
 					attributes: { key: "commcare_sort" },
 					xpath: {
 						ref: w.str(requestOrderText(caseSearchConfig.requestOrder)),
+					},
+				},
+				context,
+			),
+		);
+	}
+
+	if (projectSearch) {
+		dataElements.push(
+			xel(
+				"data",
+				{
+					attributes: { key: "x_commcare_endpoint_id" },
+					xpath: {
+						ref: w.str(String(requiredProjectSearchId(args.projectSearchId))),
 					},
 				},
 				context,
@@ -439,6 +501,7 @@ export function buildSearchQuery(args: SearchQueryArgs): SearchQueryEmission {
 		args.expressions,
 		args.lookupNaming,
 		searchInputInstanceId(wire),
+		caseListConfig.searchInputGroups,
 	);
 	instances.add(promptEmission.instances);
 
@@ -475,9 +538,10 @@ export function buildSearchQuery(args: SearchQueryArgs): SearchQueryEmission {
 	const subtitleDisplay = caseSearchConfig.searchScreenSubtitle ?? "";
 	const descriptionLocaleId = `case_search.${moduleId}.description`;
 
-	// `<query>` children in canonical order: title → description →
+	// `<query>` children in canonical order: groups → title → description →
 	// data → prompts. The serializer preserves child insertion order.
 	const queryChildren: Element[] = [
+		...promptEmission.groups,
 		el("title", {}, [el("text", {}, [el("locale", { id: titleLocaleId })])]),
 		el("description", {}, [
 			el("text", {}, [el("locale", { id: descriptionLocaleId })]),
@@ -495,7 +559,10 @@ export function buildSearchQuery(args: SearchQueryArgs): SearchQueryEmission {
 		{
 			url: runtimeUrls(args.runtimeTarget).search,
 			default_search: wire.defaultSearch ? "true" : "false",
-			...(caseSearchConfig.searchOnClear && { search_on_clear: "true" }),
+			...(caseSearchConfig.searchOnClear &&
+				caseListConfig.selection?.autoSelect !== true && {
+					search_on_clear: "true",
+				}),
 			"storage-instance": storageInstance,
 			template: "case",
 		},
@@ -529,8 +596,8 @@ export function buildSearchQuery(args: SearchQueryArgs): SearchQueryEmission {
  * once at render time so the wire reads `instance(&apos;…&apos;)`.
  */
 function composeDatumNodeset(
-	storageInstance: "results" | "results:inline",
-	caseType: string,
+	storageInstance: "results" | `results:${string}`,
+	caseTypes: readonly string[],
 ): WireExpr {
 	// CCHQ pins the path segment to `/results/case` regardless of
 	// instance id — the instance discriminator is the colon suffix
@@ -538,7 +605,11 @@ function composeDatumNodeset(
 	return w.instance(resultsInstance(storageInstance), [
 		w.step("results"),
 		w.step("case", [
-			w.eq(w.context([w.attr("case_type")]), w.str(caseType)),
+			w.or(
+				...caseTypes.map((type) =>
+					w.eq(w.context([w.attr("case_type")]), w.str(validateCaseType(type))),
+				),
+			),
 			w.not(
 				w.eq(
 					w.context([w.step("commcare_is_related_case")]),

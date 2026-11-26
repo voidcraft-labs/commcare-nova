@@ -60,6 +60,9 @@ function fieldProseSlot(
 			slot === "hint" ||
 			slot === "help" ||
 			slot === "extended_text" ||
+			slot === "extended_hint" ||
+			slot === "extended_help" ||
+			slot === "extended_validate_msg" ||
 			slot === "qr_code" ||
 			slot === "spoken_text"
 		)
@@ -73,7 +76,7 @@ function fieldProseSlot(
 		local.length === depth + 2 &&
 		optionsPath.every((step, index) => local[index] === step) &&
 		typeof local[depth] === "number" &&
-		local[depth + 1] === "label"
+		(local[depth + 1] === "label" || local[depth + 1] === "extended_text")
 	) {
 		const optionUuid = uuidAt(optionsInput, [local[depth], "optionUuid"]);
 		return optionUuid === undefined
@@ -81,7 +84,10 @@ function fieldProseSlot(
 			: {
 					entity: "field",
 					uuid: fieldUuid,
-					slot: "option_label",
+					slot:
+						local[depth + 1] === "label"
+							? "option_label"
+							: "option_extended_text",
 					member: { optionUuid },
 				};
 	}

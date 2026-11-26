@@ -38,8 +38,11 @@ import {
 	fieldCaseWriteViewKey,
 	fieldPreload,
 	humanizeId,
+	isParentUserWritePath,
 	type Module,
 	ownSaveOpensOneCase,
+	parentUserWriteCaseTypes,
+	RESERVED_CASE_OPERATION_TYPES,
 	type RelationStep,
 	saveOffersPreload,
 } from "@/lib/domain";
@@ -165,6 +168,9 @@ function caseTypeWords(caseType: string): string {
 /** The case a `via` reaches, as the row names it. */
 function aboveWords(caseType: string, via: CaseWriteVia): string {
 	const label = humanizeId(caseType) || caseType;
+	if (via[0].identifier === "user") return `${label} linked through user`;
+	if (isParentUserWritePath(via))
+		return `${label} linked through parent, then user`;
 	return via.length === 1 ? `${label} it belongs to` : `${label} above it`;
 }
 
@@ -309,12 +315,14 @@ const LOADS_ITS_CASE: ReadonlySet<Form["type"]> = new Set([
  * walked as `host`, the index CommCare HQ names an extension's host by,
  * with the type it reaches stated on the step. A chain stops where a type
  * repeats. Offered only on a follow-up or close form, the only forms whose
- * own case can save to a case above it.
+ * own case can save to a case above it. Basic case management also offers
+ * one direct user link and a bounded parent then user route on follow-up.
  */
 export function ancestorCaseWriteChoices(
 	caseTypes: readonly CaseType[],
 	moduleCaseType: string | undefined,
 	formType: Form["type"],
+	offersUserConnection = false,
 ): readonly AncestorCaseWriteChoice[] {
 	if (moduleCaseType === undefined || !LOADS_ITS_CASE.has(formType)) return [];
 	const choices: AncestorCaseWriteChoice[] = [];
@@ -347,6 +355,44 @@ export function ancestorCaseWriteChoices(
 		}
 	};
 	walk(moduleCaseType, undefined, new Set([moduleCaseType]));
+	if (
+		offersUserConnection &&
+		!RESERVED_CASE_OPERATION_TYPES.has(moduleCaseType)
+	) {
+		const reached = resolveRelationDestination(
+			{ kind: "ancestor", via: [{ identifier: "user" }] },
+			moduleCaseType,
+			caseTypes,
+		);
+		if (reached.ok && !RESERVED_CASE_OPERATION_TYPES.has(reached.caseType)) {
+			const via: CaseWriteVia = [
+				{ identifier: "user", throughCaseType: reached.caseType },
+			];
+			choices.push({
+				caseType: reached.caseType,
+				via,
+				label: chainLabel(reached.caseType, via),
+			});
+		}
+		if (formType === "followup") {
+			const types = parentUserWriteCaseTypes(
+				[{ identifier: "parent" }, { identifier: "user" }],
+				moduleCaseType,
+				caseTypes,
+			);
+			if (types) {
+				const via: CaseWriteVia = [
+					{ identifier: "parent", throughCaseType: types[0] },
+					{ identifier: "user", throughCaseType: types[1] },
+				];
+				choices.push({
+					caseType: types[1],
+					via,
+					label: chainLabel(types[1], via),
+				});
+			}
+		}
+	}
 	return choices;
 }
 

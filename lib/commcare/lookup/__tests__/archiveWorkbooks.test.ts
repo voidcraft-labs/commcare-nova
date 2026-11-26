@@ -5,9 +5,18 @@ import type {
 	StreamingLookupTable,
 } from "@/lib/lookup/archiveRows";
 import { planLargeWorkbooks } from "../archiveWorkbooks";
-import { buildLookupFixtures } from "../fixtures";
+import {
+	buildLookupFixtures,
+	lookupFixtureBudgetExcess,
+	MAX_LOOKUP_FIXTURE_BYTES,
+	MAX_LOOKUP_FIXTURE_CELLS,
+} from "../fixtures";
 import { lookupWireNaming } from "../naming";
-import { suiteWithStreamedRows } from "../streamSuite";
+import {
+	measureStreamedLookupFixtures,
+	plannedLookupFixtureBudget,
+	suiteWithStreamedRows,
+} from "../streamSuite";
 import { wireRow, wireTable } from "./lookupWireCorpus";
 
 function data(tag: string, value: string): StreamingLookupTable {
@@ -59,11 +68,18 @@ it("emits complete text-only workbook sheets and a suite fixture read by indepen
 			[two.definition.id, []],
 		]),
 	);
-	const suite =
-		"<suite>" + empty.fixtures.map((f) => f.xml).join("") + "</suite>";
+	const suite = `<suite>${empty.fixtures.map((fixture) => fixture.xml).join("")}</suite>`;
 	const chunks = [];
 	for await (const part of suiteWithStreamedRows(suite, [two, one]).open())
 		chunks.push(part);
+	const measured = await measureStreamedLookupFixtures(empty, [two, one]);
+	expect(measured.incomplete).toBe(false);
+	expect(measured.budget).toMatchObject({
+		totalRows: 2,
+		totalCells: 2,
+		totalBytes:
+			Buffer.concat(chunks).byteLength - Buffer.byteLength("<suite></suite>"),
+	});
 	const parse = spawnSync(
 		"python3",
 		[
@@ -74,6 +90,32 @@ it("emits complete text-only workbook sheets and a suite fixture read by indepen
 	);
 	expect(parse.status, parse.stderr.toString()).toBe(0);
 	expect(JSON.parse(parse.stdout.toString())).toEqual(["<007>", "李 & María"]);
+});
+
+it("keeps the native string limit separate from aggregate fixture and workbook limits", async () => {
+	const accepted = data("valid", "s".repeat(65_535));
+	// This cell fits Excel, but its Java modified UTF-8 representation does not.
+	const refused = data("too_long", "🌱".repeat(10_923));
+	const naming = lookupWireNaming([accepted.definition, refused.definition]);
+	const empty = buildLookupFixtures(
+		naming,
+		new Map([
+			[accepted.definition.id, []],
+			[refused.definition.id, []],
+		]),
+	);
+	expect(
+		await measureStreamedLookupFixtures(empty, [accepted], true),
+	).toMatchObject({ incomplete: false });
+	expect(
+		await measureStreamedLookupFixtures(empty, [accepted, refused], true),
+	).toMatchObject({
+		incomplete: true,
+		runtimeValueTable: { id: refused.definition.id },
+	});
+	const workbook = await planLargeWorkbooks([refused]);
+	expect(workbook.files).toEqual([]);
+	expect(workbook.alternatives).toMatchObject([{ runtimeValueTooLong: true }]);
 });
 
 it("retains the exact reason when a destination workbook would change a row", async () => {
@@ -143,4 +185,66 @@ it("keeps assigned or indexed tables on their verified destination when the work
 		expect(plan.files).toEqual([]);
 		expect(plan.alternatives[0].carrier.kind).toBe("source-reference");
 	}
+});
+
+it("stops measuring streamed fixtures as soon as cells or escaped XML cross the device limit", async () => {
+	const inline = data("inline", "existing");
+	const streamed = data("paged", "placeholder");
+	const naming = lookupWireNaming([inline.definition, streamed.definition]);
+	const empty = buildLookupFixtures(
+		naming,
+		new Map([
+			[inline.definition.id, []],
+			[streamed.definition.id, []],
+		]),
+	);
+	const planned = plannedLookupFixtureBudget(
+		empty,
+		new Map([[streamed.definition.id, { rowCount: streamed.count }]]),
+	);
+	const beforeStream = planned.fixtures.map((fixture) =>
+		fixture.tableId === inline.definition.id
+			? { ...fixture, cellCount: MAX_LOOKUP_FIXTURE_CELLS }
+			: fixture,
+	);
+	const cells = await measureStreamedLookupFixtures(
+		{
+			...planned,
+			fixtures: beforeStream,
+			totalCells: MAX_LOOKUP_FIXTURE_CELLS,
+		},
+		[streamed],
+	);
+	expect(cells.incomplete).toBe(true);
+	expect(lookupFixtureBudgetExcess(cells.budget)).toMatchObject([
+		{ axis: "cells", actual: MAX_LOOKUP_FIXTURE_CELLS + 1 },
+	]);
+
+	let consumed = 0;
+	const chunk = Buffer.alloc(16_384, "&");
+	const page = {
+		...streamed,
+		reader: {
+			...streamed.reader,
+			async *rows() {
+				for await (const item of streamed.reader.rows()) {
+					yield {
+						...item,
+						async *read() {
+							for (let i = 0; i < 400; i++) {
+								consumed += chunk.byteLength;
+								yield chunk;
+							}
+						},
+					};
+				}
+			},
+		},
+	};
+	const bytes = await measureStreamedLookupFixtures(planned, [page]);
+	expect(bytes.incomplete).toBe(true);
+	expect(lookupFixtureBudgetExcess(bytes.budget)).toMatchObject([
+		{ axis: "bytes", allowed: MAX_LOOKUP_FIXTURE_BYTES },
+	]);
+	expect(consumed).toBeLessThan(400 * chunk.byteLength);
 });

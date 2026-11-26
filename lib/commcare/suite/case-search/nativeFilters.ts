@@ -27,6 +27,8 @@ const keyToAttribute = new Map<string, Attribute>(
 /** The native request key decides both the matcher and the grouping of values. */
 export function searchFilterKey(target: SearchFilterTarget): string {
 	switch (target.kind) {
+		case "include-related-records":
+			return "x_commcare_include_all_related_cases";
 		case "record-id":
 			return "case_id";
 		case "record-name":
@@ -56,13 +58,23 @@ export function searchFilterKey(target: SearchFilterTarget): string {
 
 /** The request key a filter sends: an order is HQ's `commcare_sort`. */
 export function searchRequestKey(filter: SearchFilter): string {
-	return "target" in filter ? searchFilterKey(filter.target) : "commcare_sort";
+	if ("target" in filter) return searchFilterKey(filter.target);
+	switch (filter.kind) {
+		case "order":
+			return "commcare_sort";
+		case "request-record-type":
+			return "case_type";
+		case "related-record-id":
+			return "x_commcare_custom_related_case_property";
+	}
 }
 
 export function readSearchFilterTarget(
 	key: string,
 ): SearchFilterTarget | undefined {
 	switch (key) {
+		case "x_commcare_include_all_related_cases":
+			return { kind: "include-related-records" };
 		case "case_id":
 			return { kind: "record-id" };
 		case "name":
@@ -144,5 +156,11 @@ export function emitSearchRequestValue(
 				naming,
 				datumId,
 			)
-		: w.str(requestOrderText(filter.order));
+		: w.str(
+				filter.kind === "order"
+					? requestOrderText(filter.order)
+					: filter.kind === "request-record-type"
+						? filter.caseType
+						: filter.property,
+			);
 }

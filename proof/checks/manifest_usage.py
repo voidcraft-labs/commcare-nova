@@ -255,6 +255,7 @@ from proof.checks.compare.app_strings import (
 )
 from proof.checks.differences import Difference, pointer_token
 from proof.checks.manifest_value_classes import (
+    POSITIVE_VALUE_CLASSES,
     VALUE_CLASSES,
     VARIANTS,
     App,
@@ -338,7 +339,7 @@ class Manifest:
     parsers: dict = field(default_factory=dict)  # parser name -> its item (children, elements)
     entries: dict = field(default_factory=dict)  # surface key -> (Entry, ...): the inventory entries naming it
     # Each value class's reader by its entry's id (proof.checks.manifest_value_classes.VALUE_CLASSES).
-    readers: dict = field(default_factory=lambda: VALUE_CLASSES)
+    readers: dict = field(default_factory=lambda: VALUE_CLASSES | POSITIVE_VALUE_CLASSES)
     # The readers of the parts a REFUSED class holds apart, by its entry's id (``VARIANTS``).
     variants: dict = field(default_factory=lambda: VARIANTS)
 
@@ -2376,7 +2377,9 @@ def standing(manifest: Manifest, use: Use):
       whose class the check cannot rule out: a value Nova does not hold yet,
       whatever allowing class names its key; a reader that does not say leaves
       the use to the steps below;
-    - else a use an allowing entry names is ``HELD``;
+    - else a use an unconditional allowing entry names is ``HELD``;
+    - else a use a positive HELD reader proves is ``HELD``; a use the reader
+      cannot determine is ``UNDECIDED`` for that entry;
     - else, in a local archive, a use some source-refused entry's class
       takes is ``SOURCE``, and one some such class may take, its reader not
       saying, ``UNDECIDED``;
@@ -2445,6 +2448,7 @@ class _Plan:
     static: tuple | None
     judged: tuple = ()  # ((Entry, reader's place), ...)
     bar: tuple = ()  # (Entry, ...)
+    positive: tuple = ()  # ((Entry, reader's place or None), ...) for HELD rows requiring affirmative evidence
 
 
 class _NeedsReader(Exception):
@@ -2482,6 +2486,17 @@ def _evaluate(plan, read):
         return HELD_NEW, tuple(entry for entry in plan.new if entry in taken or entry not in judged)
     if plan.allowed:
         return HELD, ()
+    proven, unsure = [], []
+    for entry, place in plan.positive:
+        verdict = _verdict(entry, place, read)
+        if verdict is True:
+            proven.append(entry)
+        elif verdict is None:
+            unsure.append(entry)
+    if proven:
+        return HELD, tuple(proven)
+    if unsure:
+        return UNDECIDED, tuple(unsure)
     taken, unsure = [], []
     for entry, place in plan.source:
         verdict = _verdict(entry, place, read)
@@ -2508,7 +2523,7 @@ def _standing_plan(manifest, key, built):
         return None
     if all(entry.disposition == "REFUSED" and entry.refused_by_hq_build() for entry in entries):
         return _Plan(entries, (), False, (), (), (), (BAR, entries))
-    refusing, source, new, judged, readers, bar = [], [], [], [], [], []
+    refusing, source, new, judged, readers, bar, positive = [], [], [], [], [], [], []
     allowed = False
     for entry in entries:
         if entry.disposition == "HELD-NEW":
@@ -2516,6 +2531,12 @@ def _standing_plan(manifest, key, built):
             reader = manifest.readers.get(entry.id) if entry.value_class is not None else None
             if reader is not None:
                 judged.append((entry, len(readers)))
+                readers.append(reader)
+            continue
+        if entry.disposition == "HELD" and entry.id in POSITIVE_VALUE_CLASSES:
+            reader = manifest.readers.get(entry.id)
+            positive.append((entry, None if reader is None else len(readers)))
+            if reader is not None:
                 readers.append(reader)
             continue
         if entry.disposition != "REFUSED":
@@ -2530,13 +2551,13 @@ def _standing_plan(manifest, key, built):
         if reader is not None:
             readers.append(reader)
     plan = _Plan(
-        entries, tuple(refusing), allowed, tuple(new), tuple(source), tuple(readers), None, tuple(judged), tuple(bar)
+        entries, tuple(refusing), allowed, tuple(new), tuple(source), tuple(readers), None, tuple(judged), tuple(bar), tuple(positive)
     )
     try:
         static = _evaluate(plan, _no_reader)
     except _NeedsReader:
         return plan
-    return _Plan(entries, plan.refusing, allowed, plan.new, plan.source, (), static, plan.judged, plan.bar)
+    return _Plan(entries, plan.refusing, allowed, plan.new, plan.source, (), static, plan.judged, plan.bar, plan.positive)
 
 
 @cache

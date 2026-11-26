@@ -13,7 +13,10 @@ import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import { updateCaseOperationMutations } from "@/lib/doc/caseOperationMutations";
+import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { rebuildFieldParent } from "@/lib/doc/fieldParent";
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import {
 	type BlueprintDoc,
 	type CaseOperation,
@@ -21,7 +24,12 @@ import {
 	type Uuid,
 } from "@/lib/domain";
 import { formCaseSelections } from "@/lib/domain/advancedEntryDatums";
-import { formField, term, unowned } from "@/lib/domain/expression/builders";
+import {
+	formField,
+	literal,
+	term,
+	unowned,
+} from "@/lib/domain/expression/builders";
 import {
 	advancedFixture,
 	chosen,
@@ -34,6 +42,7 @@ import {
 	VISITS,
 } from "../../../__tests__/advancedPlacementFixture";
 import { planFormCaseWire } from "../../../casePlacementPlan";
+import { expandDoc } from "../../../expander";
 import { namingFromHqPages } from "../../__tests__/hqPageNames";
 import {
 	codesOf,
@@ -238,7 +247,205 @@ describe("an advanced form's tags", () => {
 });
 
 describe("an advanced form's loads and open actions", () => {
-	it("refuses an open action's index named outside an XML element name", async () => {
+	it.each(["my-parent", "my.parent"])(
+		"keeps the exact %s connection on an explicit case list and its automatic lookup",
+		async (identifier) => {
+			const { doc } = advancedFixture({
+				formType: "registration",
+				heldKind: true,
+				operations: () => [
+					{
+						uuid: OP("own"),
+						id: "household",
+						action: "own",
+						name: read("name"),
+					},
+					{
+						...kid,
+						links: [{ ...(kid.links ?? [])[0], identifier }],
+					},
+				],
+				configure: (built) => {
+					built.modules[MEMBERS] = {
+						...built.modules[MEMBERS],
+						heldKind: "advanced",
+					};
+				},
+			});
+			const reading = await readMenusOf(doc, (app) => {
+				const memberForm = app.modules[1].forms[0];
+				const actions = memberForm.actions as {
+					load_update_cases: Record<string, unknown>[];
+				};
+				const [household, member] = actions.load_update_cases;
+				member.case_index = {
+					...(member.case_index as object),
+					reference_id: identifier,
+					relationship: "extension",
+				};
+				actions.load_update_cases.push({
+					...household,
+					case_tag: "related_household",
+					details_module: "",
+					preload: {},
+					case_properties: {},
+					auto_select: {
+						doc_type: "AutoSelectCase",
+						mode: "case",
+						value_source: member.case_tag,
+						value_key: identifier,
+					},
+				});
+			});
+			expect(codesOf(reading)).toEqual([]);
+			if (reading.doc === undefined)
+				throw new Error("Expected the retained app");
+			const entries = Object.values(reading.doc.forms).flatMap((form) =>
+				(form.caseSelections ?? []).map((row) => row.source),
+			);
+			expect(entries).toContainEqual(
+				expect.objectContaining({
+					kind: "choose",
+					under: expect.objectContaining({
+						identifier,
+						relationship: "extension",
+					}),
+				}),
+			);
+			expect(entries).toContainEqual(
+				expect.objectContaining({ kind: "index", identifier }),
+			);
+			const built = expandDoc(reading.doc);
+			const actions = built.modules
+				.filter((menu) => menu.doc_type === "AdvancedModule")
+				.flatMap((menu) => menu.forms)
+				.flatMap((form) =>
+					form.doc_type === "AdvancedForm"
+						? form.actions.load_update_cases
+						: [],
+				);
+			expect(actions).toContainEqual(
+				expect.objectContaining({
+					case_index: expect.objectContaining({ reference_id: identifier }),
+				}),
+			);
+			expect(actions).toContainEqual(
+				expect.objectContaining({
+					auto_select: expect.objectContaining({
+						mode: "case",
+						value_key: identifier,
+					}),
+				}),
+			);
+		},
+	);
+
+	it.each(["my-parent", "my.parent"])(
+		"retains the %s open index through import and advanced Case Management emission",
+		async (identifier) => {
+			const { doc } = registration([kid]);
+			const reading = await readCases(doc, {
+				edit: (app) => {
+					const opens = actionsOf(app).open_cases;
+					const indices = (
+						opens[1] as { case_indices: Record<string, unknown>[] }
+					).case_indices;
+					(indices[0] as Record<string, unknown>).reference_id = identifier;
+				},
+			});
+			if (reading.whole?.kind !== "read")
+				throw new Error(JSON.stringify(findingCodes(reading)));
+			const exactReferenceClaims = [
+				...reading.ctx.close().claims.records(),
+			].filter(
+				(record) =>
+					record.key === "schema:CaseIndex.reference_id" &&
+					record.where.endsWith("/open_cases/1/case_indices/0/reference_id"),
+			);
+			expect(exactReferenceClaims).toMatchObject(
+				identifier.includes(".")
+					? [
+							{
+								entry: `${F}/advancedopencaseaction-case-indices-child-extension-one-or-many`,
+								standing: "held",
+							},
+						]
+					: [],
+			);
+			const held = reading.whole.draft.doc;
+			const form = formNamed(held, "Under test");
+			const opened = form.caseOperations?.find((operation) =>
+				operation.links?.some((link) => link.identifier === identifier),
+			);
+			expect(opened?.links).toEqual([
+				expect.objectContaining({
+					identifier,
+					relationship: "child",
+				}),
+			]);
+			const wire = planFormCaseWire(held, form.uuid);
+			if (wire.kind !== "advanced")
+				throw new Error("Expected advanced Case Management");
+			expect(wire.actions.open_cases[1]?.case_indices).toEqual([
+				expect.objectContaining({
+					reference_id: identifier,
+					relationship: "child",
+				}),
+			]);
+			if (opened === undefined)
+				throw new Error("Expected the indexed operation");
+			// A calculated name or a new target outside the entry's selected
+			// cases makes this operation fall back to Save to Case.
+			const candidateOperations: CaseOperation[] = [
+				{
+					...opened,
+					name: term(literal("Named by a calculation")),
+				},
+				{
+					...opened,
+					links: opened.links?.map((link) => ({
+						...link,
+						target: {
+							kind: "expression",
+							expr: term(literal("a-case-outside-this-entry")),
+						},
+					})),
+				},
+			];
+			for (const edited of candidateOperations) {
+				const verdict = mutationCommitVerdict(
+					held,
+					updateCaseOperationMutations(held, form.uuid, edited),
+					LOOKUP_CONTEXT_UNAVAILABLE,
+				);
+				const findings = verdict.ok ? [] : verdict.findings;
+				if (identifier.includes(".")) {
+					expect(findings).toContainEqual(
+						expect.objectContaining({
+							code: "CASE_OPERATION_LINK_INVALID",
+							details: expect.objectContaining({
+								operationUuid: opened.uuid,
+								linkIdentifier: identifier,
+							}),
+						}),
+					);
+				} else {
+					expect(findings.map((finding) => finding.code)).not.toContain(
+						"CASE_OPERATION_LINK_INVALID",
+					);
+				}
+			}
+		},
+	);
+
+	it.each([
+		"my/parent",
+		".parent",
+		"my.",
+		"my..parent",
+		"my:parent",
+		"my.2parent",
+	])("refuses the unsupported open index %s", async (identifier) => {
 		const { doc } = registration([kid]);
 		const reading = await readCases(doc, {
 			edit: (app) => {
@@ -246,7 +453,7 @@ describe("an advanced form's loads and open actions", () => {
 				const indices = (
 					opens[1] as { case_indices: Record<string, unknown>[] }
 				).case_indices;
-				(indices[0] as Record<string, unknown>).reference_id = "my-parent";
+				(indices[0] as Record<string, unknown>).reference_id = identifier;
 			},
 		});
 		expect(findingCodes(reading)).toContain(

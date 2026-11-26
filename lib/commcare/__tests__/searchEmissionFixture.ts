@@ -19,6 +19,7 @@ import {
 } from "@/lib/domain";
 import {
 	ancestorPath,
+	concat,
 	eq,
 	type FormLinkDatumName,
 	input,
@@ -243,11 +244,99 @@ export function parentSelectDoc(): BlueprintDoc {
 	return doc;
 }
 
+/** Each selection loads a differently named search. The two prompts share a name
+ * on purpose, so using the last query for both changes the form's answer. */
+export function namedParentSearchDoc() {
+	const doc = parentSelectDoc();
+	const [child, parent] = doc.moduleOrder;
+	const parentInput = simpleSearchInputDef(
+		testUuid("00000000-0000-4000-8000-0000000a0011"),
+		"first_name",
+		"Name",
+		"text",
+		"case_name",
+	);
+	doc.modules[child].searchResultsName = "MemberLookup";
+	doc.modules[parent].searchResultsName = "FamilyLookup";
+	doc.modules[parent].caseSearchConfig = { formsReadSearch: true };
+	const parentList = doc.modules[parent].caseListConfig;
+	if (!parentList) throw new Error("The family search needs a case list.");
+	parentList.searchInputs = [parentInput];
+	const field = doc.fields[doc.fieldOrder[doc.formOrder[child][0]][0]];
+	if (field.kind !== "text")
+		throw new Error("The child form needs a text question");
+	field.default_value = concat(
+		term({ ...input(parentInput.uuid), supplier: parent }),
+		term(literal("/")),
+		term(input(NAME_INPUT)),
+	);
+	return doc;
+}
+
+/** The search returns referrals to its form and offers only patients and households for selection. */
+function mixedRecordSearchDoc() {
+	const config = caseListConfig([{ field: "case_name", header: "Name" }]);
+	config.additionalCaseTypes = ["household"];
+	config.searchFilters = [
+		{
+			uuid: testUuid("mixed-record-type"),
+			kind: "request-record-type",
+			caseType: "referral",
+		},
+		{
+			uuid: testUuid("mixed-include-related"),
+			target: { kind: "include-related-records" },
+			value: term(literal("false")),
+		},
+	];
+	config.searchInputs = [nameInput()];
+	return buildDoc({
+		appName: "Outreach",
+		appSettings: WEB_APPS_ONLY,
+		caseTypes: [
+			{
+				name: "patient",
+				properties: [
+					{ name: "first_name", label: proseText("First name") },
+					{ name: "care_record", label: proseText("Care record") },
+				],
+			},
+			{ name: "household", properties: [] },
+			{ name: "referral", properties: [] },
+		],
+		modules: [
+			{
+				name: "Outreach visits",
+				caseType: "patient",
+				caseListConfig: config,
+				caseSearchConfig: {
+					formsReadSearch: true,
+					relatedRecordIdProperty: "care_record",
+				},
+				forms: [{ name: "Visit", type: "followup", fields: [question1()] }],
+			},
+			{
+				name: "Households",
+				caseType: "household",
+				caseListMenuItem: {},
+				caseListConfig: caseListConfig([
+					{ field: "case_name", header: "Name" },
+				]),
+			},
+		],
+	});
+}
+
 export const searchEmissionScenarios = [
 	"inline",
 	"browse",
 	"multiple",
 	"parent",
+	"named-parent",
+	"mixed-records",
+	"grouped-prompts",
+	"remote-grouped-prompts",
+	"remote-address-picker",
 	"registration-link",
 	"hidden-link",
 	"automatic",
@@ -262,6 +351,8 @@ export function searchEmissionFixture(
 	scenario: SearchEmissionScenario,
 ): BlueprintDoc {
 	if (scenario === "parent") return parentSelectDoc();
+	if (scenario === "named-parent") return namedParentSearchDoc();
+	if (scenario === "mixed-records") return mixedRecordSearchDoc();
 	if (scenario === "registration-link") return registrationLinkDoc();
 	if (scenario === "hidden-link")
 		return registrationLinkDoc({
@@ -288,6 +379,46 @@ export function searchEmissionFixture(
 	const module = doc.modules[doc.moduleOrder[0]];
 	const config = module.caseListConfig;
 	if (!config) throw new Error("Fixture has a case list");
+	if (scenario === "grouped-prompts" || scenario === "remote-grouped-prompts") {
+		const first = testUuid("grouped-search-name");
+		const second = testUuid("grouped-search-place");
+		config.searchInputGroups = [
+			{ uuid: first, label: "Personal details" },
+			{ uuid: second, label: "Case details" },
+		];
+		config.searchInputs = [
+			{ ...nameInput(), group: first },
+			{
+				...simpleSearchInputDef(
+					testUuid("grouped-search-case-name"),
+					"case_name",
+					"Record name",
+					"text",
+					"case_name",
+				),
+				group: second,
+			},
+		];
+	}
+
+	if (scenario === "remote-address-picker") {
+		const source = testUuid("remote-search-address");
+		config.searchInputs = [
+			{
+				kind: "address",
+				type: "address",
+				uuid: source,
+				name: "home",
+				label: "Find an address",
+				excludeFromRequest: true,
+			},
+			{
+				...nameInput(),
+				addressReceiver: { kind: "address", source, parts: ["city"] },
+			},
+		];
+	}
+
 	if (scenario.startsWith("remote")) {
 		module.caseSearchConfig = {};
 		// A search that shows the list first runs on both platforms; choosing

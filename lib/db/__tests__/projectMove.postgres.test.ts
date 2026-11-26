@@ -36,6 +36,10 @@ import {
 	BlueprintCommitRejectedError,
 	CommitReauthError,
 } from "../commitGuard";
+import {
+	initializeWebActivityRestore,
+	recordWebFormActivity,
+} from "../previewWebActivity";
 import { mergeThreadTurnMessages } from "../threads";
 import { setupAppStateTestDb } from "./appStateTestDb";
 import { createPerTestAppDb } from "./perTestAppDb";
@@ -1379,6 +1383,63 @@ describe("atomic Project move", () => {
 				from_project_id: SOURCE,
 				to_project_id: DESTINATION,
 			},
+		]);
+	});
+
+	it("retires only the moved app's Preview activity and restore watermark", async () => {
+		const moved = await seedMoveableApp({ id: "app-move-activity" });
+		const retained = await seedMoveableApp({ id: "app-held-activity" });
+		await h.seedProjectMember(ACTOR, DESTINATION, "owner");
+		await h.withTransaction(async (tx) => {
+			for (const appId of [moved, retained]) {
+				const scope = {
+					appId,
+					projectId: SOURCE,
+					actorId: ACTOR,
+					workerId: ACTOR,
+				};
+				await initializeWebActivityRestore(tx, scope, new Date());
+				await recordWebFormActivity(
+					tx,
+					scope,
+					appId,
+					{
+						digest: canonicalJsonDigest(appId),
+						workerName: "Worker",
+						title: "Visit",
+						windowSeconds: 300,
+						caseIds: [],
+					},
+					"opened",
+				);
+			}
+		});
+		const scopedRows = async () => {
+			const { rows } = await h
+				.pool()
+				.query<{ app_id: string; project_id: string }>(`
+				SELECT app_id, project_id FROM preview_form_activity
+				UNION ALL SELECT app_id, project_id FROM preview_web_restores
+				ORDER BY app_id, project_id
+			`);
+			return rows.map((row) => [row.app_id, row.project_id]);
+		};
+		await h
+			.db()
+			.updateTable("apps")
+			.set({ project_id: SOURCE })
+			.where("id", "=", moved)
+			.execute();
+		expect(await scopedRows()).toEqual([
+			[retained, SOURCE],
+			[retained, SOURCE],
+			[moved, SOURCE],
+			[moved, SOURCE],
+		]);
+		await expect(commitMove(moved)).resolves.toEqual({ kind: "moved" });
+		expect(await scopedRows()).toEqual([
+			[retained, SOURCE],
+			[retained, SOURCE],
 		]);
 	});
 });

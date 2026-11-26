@@ -9,6 +9,10 @@ import {
 } from "@/lib/domain/forms";
 
 export type FormBehaviorTextIssue =
+	| {
+			readonly reason: "activity-without-key";
+			readonly role: "activityTitleText" | "activityWindowText";
+	  }
 	/** The same text is chosen twice for one setting. */
 	| {
 			readonly reason: "chosen-twice";
@@ -48,6 +52,8 @@ const roleName = (role: FormBehaviorRole): string =>
 
 export function formBehaviorTextSentence(issue: FormBehaviorTextIssue): string {
 	switch (issue.reason) {
+		case "activity-without-key":
+			return `The ${roleName(issue.role)} needs an activity notice key. Choose a key or remove the ${roleName(issue.role)}.`;
 		case "chosen-twice":
 			return `"${issue.text}" already uses ${roleName(issue.role)}. Choose it once.`;
 		case "held-by-another":
@@ -81,6 +87,10 @@ export function formBehaviorTextIssueFromDetails(
 	const { reason, role, heldBy, text, carrier, formName } = details;
 	if (!isRole(role)) return undefined;
 	switch (reason) {
+		case "activity-without-key":
+			return role === "activityTitleText" || role === "activityWindowText"
+				? { reason, role }
+				: undefined;
 		case "chosen-twice":
 			return text === undefined ? undefined : { reason, role, text };
 		case "held-by-another":

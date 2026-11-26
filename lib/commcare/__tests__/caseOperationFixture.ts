@@ -306,6 +306,17 @@ export function caseOperationFixture(scenario: OperationScenario) {
 								},
 							]
 						: []),
+					...(scenario === "retype"
+						? [
+								{
+									name: "seen_on",
+									label: proseText("Seen on"),
+									data_type: (name === "patient" ? "date" : "text") as
+										| "date"
+										| "text",
+								},
+							]
+						: []),
 					...(scenario === "sequence"
 						? [
 								"occurred_at",

@@ -188,6 +188,8 @@ export function advancedKindBlockerSentence(
 			return "This menu has its own grid layout, which CommCare HQ keeps on a basic menu.";
 		case "several-cases":
 			return "It now lets workers choose several cases, which an advanced menu can't do.";
+		case "several-record-types":
+			return "A case selection now offers several record types. CommCare HQ keeps that selection in an ordinary menu.";
 		case "forms-read-search":
 			return "Its forms now read the search, which an advanced menu can't do.";
 		case "case-list-menu-item-narrowed":

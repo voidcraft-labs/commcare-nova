@@ -106,3 +106,21 @@ stage-write phases with fixed Sentry spans. Database child spans therefore retai
 a source operation even when SQL text is filtered. These spans collect no work
 identities, tool arguments, mutations, SQL, or parameter values; the owning MCP
 request carries its separate safe diagnostic context.
+
+## Resuming an open workspace across the completion horizon
+
+An app edit whose base was the saved head moves to that head's converted
+sequence. An edit that already trailed the head keeps its earlier converted
+base and still receives the stale-base outcome when it tries to save. Genesis
+reconstructs the canonical empty base for its proposed app ID. The workspace
+keeps the same owner, session, request identities and revision.
+
+The operator records the conversion of each open workspace in
+`authoring_workspace_folds`. Only a trailing edit needs a stored base
+snapshot there. `authoring_step_folds` holds instructions whose representation
+changed and the lengths needed to locate their stages. Runtime can read these
+two tables. Original steps, stages and request receipts stay in their original
+ledgers so retrieving a prior request returns its original answer. New
+instructions follow the ordinary authoring path. The checker reopens every
+converted workspace and compares its candidate digest with a replay by the
+released decoder before the conversion transaction commits.

@@ -481,11 +481,11 @@ describe("a callout, by the decisive cause its intent names", () => {
 			body: `${OTHER.body}<input ref="/data/code" appearance="intent:scan"><label ref="jr:itext('code-label')"/></input>`,
 		});
 
-	it("refuses a callout as a callout, its label's itext with it", async () => {
+	it("refuses a callout whose action and question IDs disagree, including its label text", async () => {
 		expect(
 			account(await readWhole(callout('class="org.example.SCAN"'))),
 		).toEqual([
-			`${Q("android-app-callout-input-appearance-intent-id-bind-type-intent")} @question:code`,
+			`${Q("android-app-callout-that-cannot-be-recreated")} @question:code`,
 		]);
 	});
 
