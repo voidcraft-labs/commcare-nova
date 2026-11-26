@@ -15,7 +15,11 @@ def test_formplayer_preserves_the_hidden_stamp_and_writes_its_day(hq, formplayer
         with formplayer.serve(
             state, None, app_id, runner=formplayer_runner, database=hidden_day_database(), label="hidden-day",
         ) as served:
-            trace = replace(Walk.of(served, runner=formplayer_runner), clock=CLOCK).run()
+            formplayer_runner.set_clock(CLOCK)
+            try:
+                trace = replace(Walk.of(served, runner=formplayer_runner), clock=CLOCK).run()
+            finally:
+                formplayer_runner.set_clock()
             submissions = [
                 sent["instance"].encode()
                 for run in trace["runs"]
