@@ -94,12 +94,17 @@ export function formsReadSearchUniqueInstance(
 		parentUuid === undefined || parentUuid === null
 			? undefined
 			: doc.modules[parentUuid];
-	if (parent !== undefined && moduleFormsReadSearch(parent)) {
+	const name = mod.searchResultsName ?? "inline";
+	if (
+		parent !== undefined &&
+		moduleFormsReadSearch(parent) &&
+		(parent.searchResultsName ?? "inline") === name
+	) {
 		errors.push(
 			validationError(
 				"FORMS_READ_SEARCH_UNIQUE_INSTANCE",
 				"module",
-				`Module "${mod.name}" is a submenu under "${parent.name}", whose forms read the search. CommCare gives both menus the same search results and can't tell them apart. You can move "${mod.name}" to the top level, or turn off Forms read the search on "${parent.name}".`,
+				`Module "${mod.name}" is a submenu under "${parent.name}", whose forms read the search. CommCare gives both menus the same search results and can't tell them apart. Give one menu a different search results name in Module settings.`,
 				{ moduleUuid, moduleName: mod.name },
 				{ parentModuleUuid: parentUuid as string },
 			),
@@ -107,7 +112,9 @@ export function formsReadSearchUniqueInstance(
 	}
 	if (
 		moduleFormsReadSearch(mod) &&
-		childModuleUuids(doc, moduleUuid).length > 0
+		childModuleUuids(doc, moduleUuid).some(
+			(child) => (doc.modules[child].searchResultsName ?? "inline") === name,
+		)
 	) {
 		// Reported on the root too, so turning Forms read the search on with
 		// existing submenus is refused at the module the author is editing.
@@ -115,7 +122,7 @@ export function formsReadSearchUniqueInstance(
 			validationError(
 				"FORMS_READ_SEARCH_UNIQUE_INSTANCE",
 				"module",
-				`Module "${mod.name}" has its forms read the search and has submenus. CommCare gives a submenu the same search results as its parent and can't tell them apart. You can move the submenus to the top level, or turn off Forms read the search.`,
+				`Module "${mod.name}" has its forms read the search and has submenus. CommCare gives a submenu the same search results as its parent and can't tell them apart. Give the matching menus different search results names in Module settings.`,
 				{ moduleUuid, moduleName: mod.name },
 			),
 		);
@@ -125,13 +132,14 @@ export function formsReadSearchUniqueInstance(
 		selectsFrom === undefined ? undefined : doc.modules[selectsFrom];
 	if (
 		selectsFromModule !== undefined &&
-		moduleFormsReadSearch(selectsFromModule)
+		moduleFormsReadSearch(selectsFromModule) &&
+		(selectsFromModule.searchResultsName ?? "inline") === name
 	) {
 		errors.push(
 			validationError(
 				"FORMS_READ_SEARCH_UNIQUE_INSTANCE",
 				"module",
-				`Module "${mod.name}" chooses a parent case from "${selectsFromModule.name}" first, and "${selectsFromModule.name}"'s forms read the search. CommCare gives both choices the same search results and can't tell them apart. You can turn off Forms read the search on "${selectsFromModule.name}", or choose the parent case from another menu or a flat list.`,
+				`Module "${mod.name}" chooses a parent case from "${selectsFromModule.name}" first, and "${selectsFromModule.name}"'s forms read the search. CommCare gives both choices the same search results and can't tell them apart. Give either menu a different search results name in Module settings.`,
 				{ moduleUuid, moduleName: mod.name },
 				{ parentSelectModuleUuid: selectsFrom as string },
 			),

@@ -142,6 +142,26 @@ export interface PreparedLookupWire {
 	readonly fixtures: CompiledLookupFixtureSet;
 }
 
+/** The same counts serve a compiled fixture and a measured streamed fixture. */
+export type LookupFixtureMeasure = Pick<
+	CompiledLookupFixture,
+	"tableId" | "tag" | "rowCount" | "cellCount" | "bytes"
+>;
+export type LookupFixtureBudget = Omit<CompiledLookupFixtureSet, "fixtures"> & {
+	readonly fixtures: readonly LookupFixtureMeasure[];
+};
+
+export function lookupFixtureBudget(
+	fixtures: readonly LookupFixtureMeasure[],
+): LookupFixtureBudget {
+	return {
+		fixtures,
+		totalRows: fixtures.reduce((sum, fixture) => sum + fixture.rowCount, 0),
+		totalCells: fixtures.reduce((sum, fixture) => sum + fixture.cellCount, 0),
+		totalBytes: fixtures.reduce((sum, fixture) => sum + fixture.bytes, 0),
+	};
+}
+
 export interface LookupFixtureBudgetAxis {
 	readonly axis: "rows" | "cells" | "bytes";
 	readonly actual: number;
@@ -159,11 +179,11 @@ export interface LookupFixtureBudgetAxis {
  * tables an author would actually shrink.
  */
 export function lookupFixtureBudgetExcess(
-	set: CompiledLookupFixtureSet,
+	set: LookupFixtureBudget,
 ): readonly LookupFixtureBudgetAxis[] | null {
 	const axes: LookupFixtureBudgetAxis[] = [];
 	const contributors = (
-		amount: (fixture: CompiledLookupFixture) => number,
+		amount: (fixture: LookupFixtureMeasure) => number,
 	): LookupFixtureBudgetAxis["largestTables"] =>
 		[...set.fixtures]
 			.sort((left, right) => amount(right) - amount(left))

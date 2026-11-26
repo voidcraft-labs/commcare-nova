@@ -2268,18 +2268,22 @@ describe("a build profile that names a language the app no longer has", () => {
 	/** The stop where the app on HQ still lists it, so its Languages tab can take it out. */
 	const ONE_ON_LANGUAGES_TAB = `An application profile of the app on “clinic” includes a language this app no longer has, so Nova stopped before sending anything. ${ON_PROFILES_TAB} ${TAB} On any plan, you can instead remove the language on the Languages tab of the app's settings there, which takes it out of every profile. Nova may then show you that change before it publishes. ${LEFT}`;
 
-	it("lets an update over a profile naming a language the app has land, and sends no build_profiles", async () => {
+	it("offers to bring in an unbound profile with compatible languages before sending the app", async () => {
 		const doc = await seed(bilingualDocument());
-		const bodies: ImportBody[] = [];
 		await withPeer(async (peer) => {
 			await firstPublish(peer, doc);
+			const before = requests(peer).length;
 			serve(peer, "source-live", withProfile("Field team", ["fra"]));
-			accepted(peer, 200, bodies);
-			serve(peer, "source-live");
-			expect(landed(await publish(doc)).hqAppAction).toBe("updated");
+			expect(refusal(await publish(doc))).toMatchObject({
+				phase: "preflight",
+				failure: {
+					code: "hq_installation_profile_review",
+					details: ["“Field team” · fra"],
+					installationProfileReviewUrl: `${HQ_APP_URL}releases/`,
+				},
+			});
+			expect(requests(peer).slice(before)).toEqual([`GET ${SOURCE}`]);
 		});
-		expect(bodies).toHaveLength(1);
-		expect(bodies[0]?.app).not.toHaveProperty("build_profiles");
 	});
 
 	it("stops after a language is removed, before any write, names the profile and the language, and changes no record", async () => {
@@ -2316,12 +2320,9 @@ describe("a build profile that names a language the app no longer has", () => {
 			expect(requests(peer).slice(before)).toEqual([`GET ${SOURCE}`]);
 			expect(await readDeployment(SCOPE, TARGET)).toEqual(record);
 
-			/* The profile changed on HQ's tab: the next publish lands, and the
-			 * change to the profile is no change to anything Nova writes. */
-			serve(peer, "source-live", (source) => {
-				bilingual(source);
-				withProfile("Field team", ["en"])(source);
-			});
+			/* Removing the unbound profile on HQ's Releases page restores the
+			 * all-language installation. This retry can send the app. */
+			serve(peer, "source-live", bilingual);
 			accepted(peer, 200);
 			serve(peer, "source-live");
 			const passed = landed(await publish(removed));
@@ -2378,6 +2379,31 @@ describe("a build profile that names a language the app no longer has", () => {
 					message: `An application profile of the app on “clinic” includes a language this app no longer has, which Nova found after it published this app's lookup tables and places, so it stopped before sending the app's content. ${ON_PROFILES_TAB} ${TAB} ${LEFT}`,
 					details: ["A profile with no name: French (fra)"],
 				},
+			});
+			const sent = requests(peer).slice(before);
+			expect(sent).toContain(`POST ${WORKBOOK}`);
+			expect(sent).not.toContain(`POST ${IMPORT}`);
+		});
+	});
+
+	it("holds unrelated HQ changes first when the second source also introduces a profile language gap", async () => {
+		const doc = await seed(await lookupDocument());
+		await withPeer(async (peer) => {
+			await firstLookupPublish(peer, doc);
+			const before = requests(peer).length;
+			tablesWithOurs(peer);
+			tableRows(peer);
+			serve(peer, "source-live");
+			workbookTaken(peer);
+			tablesWithOurs(peer);
+			tableRows(peer);
+			serve(peer, "source-live", (source) => {
+				webApps(false)(source);
+				withProfile("Field team", ["en", "fra"])(source);
+			});
+			expect(refusal(await publish(doc, [LOOKUP]))).toMatchObject({
+				phase: "upload",
+				failure: { code: "hq_changed" },
 			});
 			const sent = requests(peer).slice(before);
 			expect(sent).toContain(`POST ${WORKBOOK}`);

@@ -49,6 +49,49 @@ async function openWorkflowSetting(page: Page, route: string) {
 	};
 }
 
+test("a Search availability condition can switch from a date to a count of device cases", {
+	tag: "@seed:workspace",
+}, async ({ scenario, page }) => {
+	const seed = seedFor(scenario, "workspace");
+	await openWorkflowSetting(page, seed.caseWorkspace.routes.search);
+	const inspector = page
+		.locator('[data-builder-secondary-header="inspector"]')
+		.locator("..");
+	await inspector.getByRole("button", { name: "More settings" }).click();
+	await inspector.getByRole("button", { name: "Add condition" }).click();
+
+	await page.getByRole("button", { name: "Condition Always match" }).click();
+	await page.getByRole("menuitem", { name: /^is Exactly this value/ }).click();
+	await page.getByRole("button", { name: "Edit today's date" }).click();
+	await page
+		.getByRole("button", { name: "Change value type", exact: true })
+		.click();
+	const count = page.getByRole("menuitem", {
+		name: /^Count cases on this device/,
+	});
+	await expect(count).toBeEnabled();
+	await count.click();
+	const saved = page.waitForResponse(
+		(response) =>
+			response.ok() &&
+			Boolean(response.request().postData()?.includes('"source":"casedb"')) &&
+			Boolean(
+				response
+					.request()
+					.postData()
+					?.includes('"searchButtonDisplayCondition"'),
+			),
+	);
+	await page
+		.getByRole("alertdialog")
+		.getByRole("button", { name: "Replace", exact: true })
+		.click();
+	await expect(
+		page.getByRole("combobox", { name: "Records to count" }),
+	).toContainText("All cases on this device");
+	await saved;
+});
+
 test("an app on both platforms offers Search first and Results first, and choosing Results first saves it", {
 	tag: "@seed:workspace",
 }, async ({ scenario, page }) => {

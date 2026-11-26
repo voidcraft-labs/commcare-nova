@@ -18,7 +18,8 @@
 
 import AdmZip from "adm-zip";
 import { describe, expect, it } from "vitest";
-import { testMediaAssetId } from "@/__tests__/helpers/uuid";
+import { testMediaAssetId, testUuid } from "@/__tests__/helpers/uuid";
+import { localizationWireFixture } from "@/lib/commcare/__tests__/localizationWireFixture";
 import {
 	mediaIds,
 	mediaWireFixture,
@@ -28,6 +29,8 @@ import { lookupWireCorpus } from "@/lib/commcare/lookup/__tests__/lookupWireCorp
 import { lookupWireNaming } from "@/lib/commcare/lookup/naming";
 import { buildLookupWorkbook } from "@/lib/commcare/lookup/workbook";
 import {
+	decodeManualImportGuide,
+	encodeManualImportGuide,
 	manualImportStepKey,
 	renderManualImportGuide,
 } from "@/lib/publish/manualImportGuide";
@@ -470,4 +473,63 @@ describe("the HQ app file's tables managed in CommCare HQ", () => {
 				.sort(),
 		).toEqual([...alike].sort());
 	});
+});
+
+it("carries per-installation worker setup in the manual-import archive and encoded browser guide", () => {
+	const uuid = testUuid("practice-install");
+	const other = testUuid("regular-install");
+	const base = localizationWireFixture("bilingual");
+	const blueprint = {
+		...base,
+		appSettings: {
+			...base.appSettings,
+			installationProfiles: {
+				[uuid]: {
+					uuid,
+					name: "Practice visits",
+					languages: ["eng"],
+					requiresPracticeWorker: true,
+				},
+				[other]: {
+					uuid: other,
+					name: "Regular visits",
+					languages: ["eng"],
+					requiresPracticeWorker: false,
+				},
+			},
+		},
+	};
+	const guide = hqImportFileGuide({
+		appName: "Team",
+		doc: blueprint,
+		assets: NO_MEDIA,
+		lookupWorkbook: undefined,
+		managedLookupWorkbooks: [],
+		managedLookupTables: [],
+		attachmentTarget: null,
+		lookupNaming: undefined,
+	});
+	const setup = guide.find((s) => s.kind === "practice-installations");
+	expect(setup?.lines.join(" ")).toMatch(
+		/Practice visits.*Application Profile.*CommCare_vN.ccz/,
+	);
+	expect(setup?.lines.join(" ")).not.toContain("Regular visits");
+	expect(decodeManualImportGuide(encodeManualImportGuide(guide))).toEqual(
+		guide,
+	);
+	const exported = expandDoc(blueprint, { assets: NO_MEDIA });
+	expect(
+		exported.build_profiles?.[uuid.replaceAll("-", "")],
+	).not.toHaveProperty("practice_mobile_worker_id");
+	const archive = buildHqJsonExportArchive(
+		"Team",
+		blueprint,
+		exported,
+		NO_MEDIA,
+		undefined,
+		[],
+		renderManualImportGuide(guide),
+	);
+	expect(readme(archive)).toContain("Practice visits");
+	expect(readme(archive)).toContain("CommCare_vN.ccz");
 });

@@ -18,6 +18,64 @@ const PHONE_COLUMN = testUuid("configure-case-list-phone-column");
 const NAME_SEARCH = testUuid("configure-case-list-name-search");
 
 describe("configureCaseList", () => {
+	it("commits the Android lookup as one setting and leaves invalid drafts out", async () => {
+		const h = makeCaseListFixture();
+		const deviceLookup = {
+			action: "org.nova.proof.CASE_LOOKUP",
+			label: "Find a visit",
+			extras: [
+				{ name: "mode", value: "followup" },
+				{
+					name: "worker",
+					expression: {
+						kind: "term",
+						term: { kind: "session-context", field: "username" },
+					},
+				},
+			],
+			responses: ["primary", "backup"],
+		};
+		const before = h.currentDoc().modules[MOD_A].caseListConfig;
+		const added = await h.runTool(configureCaseListTool, {
+			moduleUuid: MOD_A,
+			deviceLookup,
+		});
+		expect(added.mutations).toEqual([
+			{ kind: "setCaseListMeta", uuid: MOD_A, patch: { deviceLookup } },
+		]);
+		expect(h.currentDoc().modules[MOD_A].caseListConfig?.deviceLookup).toEqual(
+			deviceLookup,
+		);
+		expect(
+			configureCaseListInputSchema.safeParse({
+				moduleUuid: MOD_A,
+				deviceLookup: { ...deviceLookup, responses: [] },
+			}).success,
+		).toBe(false);
+		expect(
+			configureCaseListInputSchema.safeParse({
+				moduleUuid: MOD_A,
+				deviceLookup: {
+					...deviceLookup,
+					extras: [
+						{
+							name: "unsupported",
+							expression: {
+								kind: "term",
+								term: { kind: "session-context", field: "deviceid" },
+							},
+						},
+					],
+				},
+			}).success,
+		).toBe(false);
+		await h.runTool(configureCaseListTool, {
+			moduleUuid: MOD_A,
+			deviceLookup: null,
+		});
+		expect(h.currentDoc().modules[MOD_A].caseListConfig).toEqual(before);
+	});
+
 	it("keeps an independent order calculation out of Results and preserves its identity across edits", async () => {
 		const h = makeCaseListFixture();
 		const original = h.currentDoc().modules[MOD_A].caseListConfig;
@@ -162,6 +220,64 @@ describe("configureCaseList", () => {
 		if ("error" in off.result) throw new Error(off.result.error);
 		expect(list()?.optimizations).toBeUndefined();
 		expect(list()?.columns.some((one) => "loadBehavior" in one)).toBe(false);
+	});
+
+	it("commits Search headings, moves their fields, and removes the grouping without removing answers", async () => {
+		const h = makeCaseListFixture();
+		const group = "87a78526-307d-4739-906f-b65bae608863";
+		const other = "e464ccdc-b2d2-4abf-891b-f687232c3e6a";
+		const result = await h.runTool(configureCaseListTool, {
+			moduleUuid: MOD_A,
+			searchInputs: [
+				{
+					searchInputUuid: NAME_SEARCH,
+					kind: "simple",
+					name: "patient_name",
+					label: "Name",
+					type: "text",
+					property: "case_name",
+				},
+			],
+			searchGroups: [
+				{
+					groupUuid: group,
+					label: "Personal details",
+					searchInputUuids: [NAME_SEARCH],
+				},
+				{ groupUuid: other, label: "Other details", searchInputUuids: [] },
+			],
+		});
+		if ("error" in result.result) throw new Error(result.result.error);
+		expect(result.result.searchGroupUuids).toEqual([group, other]);
+		expect(h.recordMutations).toHaveBeenCalledTimes(1);
+		const layout = () => h.currentDoc().modules[MOD_A].caseListConfig;
+		expect(layout()?.searchInputs[0]?.group).toBe(group);
+		const moved = await h.runTool(configureCaseListTool, {
+			moduleUuid: MOD_A,
+			searchGroups: [
+				{
+					groupUuid: other,
+					label: "Other details",
+					searchInputUuids: [NAME_SEARCH],
+				},
+			],
+		});
+		if ("error" in moved.result) throw new Error(moved.result.error);
+		expect(layout()?.searchInputs[0]?.group).toBe(other);
+		expect(layout()?.searchInputGroups).toEqual([
+			{ uuid: other, label: "Other details" },
+		]);
+		const flat = await h.runTool(configureCaseListTool, {
+			moduleUuid: MOD_A,
+			searchGroups: [],
+		});
+		if ("error" in flat.result) throw new Error(flat.result.error);
+		expect(layout()?.searchInputGroups).toBeUndefined();
+		expect(layout()?.searchInputs[0]).toMatchObject({
+			uuid: NAME_SEARCH,
+			name: "patient_name",
+		});
+		expect(layout()?.searchInputs[0]?.group).toBeUndefined();
 	});
 
 	it("lands one coherent configuration as granular mutations", async () => {

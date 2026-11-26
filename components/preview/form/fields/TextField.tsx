@@ -36,6 +36,7 @@ export function TextField({
 		!(rules.secretKeypad === "visible" && numberKeypad)
 			? "password"
 			: "text";
+	const hint = field.extended_hint ?? field.hint;
 	const showError = state.touched && !state.valid;
 
 	return (
@@ -52,8 +53,8 @@ export function TextField({
 				placeholder={
 					rules.hintPlacement === "as-authored" &&
 					field.hintPlacement === "placeholder" &&
-					field.hint
-						? (state.resolvedHint ?? project(field.hint))
+					hint
+						? (state.resolvedHint ?? project(hint))
 						: undefined
 				}
 				autoComplete="off"

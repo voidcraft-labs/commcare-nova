@@ -44,6 +44,7 @@ vi.mock("@better-auth/mcp", () => ({
 			return inner(req, {
 				sub: "test-user",
 				azp: "test-client",
+				exp: Math.floor(Date.now() / 1000) + 300,
 				iat: Math.floor(Date.now() / 1000),
 				scope: "nova.read nova.write",
 			});
@@ -184,6 +185,13 @@ describe("POST /api/mcp (JWT path)", () => {
 			userId: "test-user",
 			scopes: ["nova.read", "nova.write"],
 			authKind: "oauth",
+			grant: {
+				kind: "oauth",
+				clientId: "test-client",
+				issuedAt: expect.any(Number),
+				expiresAt: expect.any(Number),
+				scopes: ["nova.read", "nova.write"],
+			},
 		});
 	});
 });

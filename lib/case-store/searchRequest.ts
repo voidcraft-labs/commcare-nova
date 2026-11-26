@@ -27,6 +27,11 @@ export interface CaseSearchRequest {
 	readonly unsentPrompts?: readonly string[];
 	/** The relationship paths the requested types' Search details ask HQ to deliver. */
 	readonly relatedPaths?: readonly (readonly string[])[];
+	/** Additional types searched by the server, including request-only records. */
+	readonly additionalRequestTypes?: readonly string[];
+	readonly relatedRecordProperty?: string;
+	readonly relatedChildTypes?: readonly string[];
+	readonly includeRelatedHierarchy?: boolean;
 	readonly configuration?: SearchConfigurationSelection;
 	/** Independent of the detail's sort. Exact indexed strings use binary
 	 * ordering, with missing first ascending and last descending. Each key is
@@ -49,9 +54,13 @@ export interface CaseSearchRequest {
 /** Values sent under the same request key are matched together, in source order. */
 export interface CaseSearchParameter {
 	readonly field: string;
-	readonly target: SearchFilterTarget;
+	readonly target: Exclude<
+		SearchFilterTarget,
+		{ kind: "include-related-records" }
+	>;
 	readonly key: string;
 	readonly readsAnswers?: boolean;
+	readonly parentPathPrompt?: true;
 	readonly values: readonly string[];
 }
 
@@ -62,7 +71,10 @@ export type NativeSearchUnavailableReason =
 				| "project-space-unavailable"
 				| "indexed-value-unavailable"
 				| "search-range-unavailable"
-				| "query-value-invalid";
+				| "query-value-invalid"
+				| "parent-value-unavailable"
+				| "parent-fuzzy-unavailable"
+				| "parent-lookup-limit";
 			readonly field: string;
 	  }
 	| {
@@ -155,6 +167,12 @@ export function searchUnavailableMessage(
 			return `This search needs the indexed value of “${reason.field}” from the project space.`;
 		case "search-range-unavailable":
 			return `This search needs the indexed date range for “${reason.field}”.`;
+		case "parent-value-unavailable":
+			return `Preview needs the records on the parent path to match “${reason.field}”.`;
+		case "parent-fuzzy-unavailable":
+			return `Only CommCare HQ can match similar words for the parent property “${reason.field}” in this search.`;
+		case "parent-lookup-limit":
+			return `“${reason.field}” matches too many related records. Try a more specific search.`;
 		case "query-value-invalid":
 			return `The project space cannot search with this combination of values for “${reason.field}”.`;
 		case "project-zone-unavailable":

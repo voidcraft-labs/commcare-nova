@@ -197,6 +197,7 @@ describe("database privilege convergence contract", () => {
 			"app_deployment_media_paths",
 			"app_deployment_keyed_case_ids",
 			"app_deployment_column_field_words",
+			"app_deployment_search_bindings",
 		]) {
 			expect(runtimeTableCapability(table)).toBe("insert-delete");
 			expect(classifyPublicTable(table)).toBe("application");

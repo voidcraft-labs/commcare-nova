@@ -21,7 +21,8 @@ import {
 	type FormFieldEntryWithAncestors,
 	formFieldEntriesFor,
 } from "../formFieldEntries";
-import { useBlueprintDocShallow } from "./useBlueprintDoc";
+import { findContainingForm } from "../mutations/helpers";
+import { useBlueprintDoc, useBlueprintDocShallow } from "./useBlueprintDoc";
 
 export type {
 	FormFieldEntry,
@@ -32,15 +33,42 @@ export type {
 export function useFormFieldEntries(
 	formUuid: Uuid,
 ): readonly FormFieldEntryWithAncestors[] {
-	const source = useBlueprintDocShallow((state) => ({
+	const source = useFormFieldEntrySource();
+	return useMemo(
+		() => formFieldEntriesFor(source, formUuid),
+		[source, formUuid],
+	);
+}
+
+function useFormFieldEntrySource() {
+	return useBlueprintDocShallow((state) => ({
 		fields: state.fields,
 		fieldOrder: state.fieldOrder,
 		forms: state.forms,
 		fieldParent: state.fieldParent,
 		userProperties: state.userProperties,
 	}));
+}
+
+/** Answer and destination choices for an Android app belong to the form
+ * containing its question, including while the question is nested. */
+export function useAndroidAppQuestionEntries(fieldUuid: Uuid) {
+	const formUuid = useBlueprintDoc((state) =>
+		findContainingForm(state, fieldUuid),
+	);
+	const source = useFormFieldEntrySource();
 	return useMemo(
-		() => formFieldEntriesFor(source, formUuid),
+		() =>
+			formUuid
+				? formFieldEntriesFor(source, formUuid).map((entry) => {
+						const field = source.fields[entry.uuid];
+						return {
+							...entry,
+							app:
+								field && "androidApp" in field ? field.androidApp : undefined,
+						};
+					})
+				: [],
 		[source, formUuid],
 	);
 }

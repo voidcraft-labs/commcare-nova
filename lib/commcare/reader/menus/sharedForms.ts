@@ -54,7 +54,10 @@ function realForms(
 	for (const form of owner.forms) {
 		const source = aligned.forms[form.index];
 		if (source?.xmlns !== form.xmlns) continue;
-		found.set(source.uniqueId, found.has(source.uniqueId) ? null : form);
+		const id = ctx.input.listedFormsUseReadIds
+			? source.source.readUniqueId
+			: source.uniqueId;
+		found.set(id, found.has(id) ? null : form);
 	}
 	return found;
 }

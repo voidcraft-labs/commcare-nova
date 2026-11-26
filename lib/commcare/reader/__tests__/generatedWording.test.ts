@@ -6,6 +6,10 @@ import { expect, it } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { manifestFor } from "@/lib/commcare/__tests__/compilerEvidence";
 import { localizationWireFixture } from "@/lib/commcare/__tests__/localizationWireFixture";
+import {
+	ROUTE,
+	twoMenus,
+} from "@/lib/commcare/__tests__/menuFormRoutesFixture";
 import { TEST_RUNTIME_TARGET } from "@/lib/commcare/__tests__/runtimeTargetFixture";
 import { localAppStringTable } from "@/lib/commcare/appStrings";
 import { compileCcz } from "@/lib/commcare/compiler";
@@ -29,15 +33,21 @@ import {
 	makeTranslationUnitId,
 	snapshotTranslationUnits,
 } from "@/lib/domain";
-import { generatedWordingId } from "@/lib/domain/generatedWording";
+import {
+	detailTabWordingId,
+	generatedWordingId,
+} from "@/lib/domain/generatedWording";
 import {
 	imageMapColumn,
 	imageMapEntry,
 	plainColumn,
 } from "@/lib/domain/modules";
 import type { MediaAssetId } from "@/lib/domain/multimedia";
+import { EMPTY_AFTER_SUBMIT_STACK } from "@/lib/preview/afterSubmitStack";
+import { bindAppTestAction } from "@/lib/preview/app-tests/addresses";
 import { projectColumnDisplay } from "@/lib/preview/columnDisplay";
 import { columnOutputWording } from "@/lib/preview/localizedCaseProperties";
+import { workerDetailTabTitle } from "@/lib/preview/workerModule";
 import { patients, uuid } from "../caseList/__tests__/fixtures";
 import { readHqApp } from "../index";
 import { exportedBody, inputFor } from "./novaExport";
@@ -100,6 +110,189 @@ it("keeps source and secondary wording on the exact generated output", async () 
 		[submit]: "Guardar visita",
 		[header]: "Age",
 	});
+});
+
+it("keeps separate tab wording through adoption, a source change and publishing", async () => {
+	const source = patients(
+		[
+			plainColumn(uuid(1), "case_name", "Name"),
+			plainColumn(uuid(2), "notes", "Notes"),
+		],
+		{
+			search: {},
+			list: {
+				detailTabs: [
+					{ uuid: uuid(41), title: "Patient", startColumnUuid: uuid(1) },
+					{ uuid: uuid(42), title: "History", startColumnUuid: uuid(2) },
+				],
+			},
+		},
+	);
+	source.localization = {
+		sourceLanguage: "eng",
+		defaultLanguage: "eng",
+		languageOrder: ["eng", "spa"],
+		wireCodes: { eng: "en", spa: "es" },
+		translations: { spa: {} },
+	};
+	const sourceBody = exportedBody(source);
+	const modules = sourceBody.modules as ReturnType<typeof expandDoc>["modules"];
+	if (!modules?.[0]) throw new Error("The source needs a menu.");
+	const detail = modules[0].case_details.long;
+	const firstTab = detail.tabs?.[0];
+	if (!firstTab) throw new Error("The source needs a tab.");
+	firstTab.header = { en: "Patient", es: "Paciente" };
+	const caseKey = "m0.case_long.tab.1.title";
+	const searchKey = "m0.search_long.tab.1.title";
+	const sourceEntries = sourceBody.translations as Record<
+		string,
+		Record<string, string>
+	>;
+	sourceEntries.en[caseKey] = "Patient details";
+	sourceEntries.es[searchKey] = "Resultado del paciente";
+	const read = async (body: ReturnType<typeof exportedBody>) => {
+		const result = readHqApp(
+			await inputFor(body, {
+				appStrings: (doc) => localAppStringTable(doc, []),
+			}),
+			{ claims: "full" },
+		);
+		if (result.kind !== "read")
+			throw new Error(JSON.stringify(result.findings));
+		return result.draft.doc;
+	};
+	const adopted = await read(sourceBody);
+	const tab =
+		adopted.modules[adopted.moduleOrder[0]].caseListConfig?.detailTabs?.[0];
+	if (!tab) throw new Error("The reader lost the detail tab.");
+	expect(tab.title).toBe("Patient");
+	const caseTitle = detailTabWordingId(tab.uuid, false);
+	const searchTitle = detailTabWordingId(tab.uuid, true);
+	const checkOutputs = (doc: BlueprintDoc) => {
+		const tab = doc.modules[doc.moduleOrder[0]].caseListConfig?.detailTabs?.[0];
+		if (!tab) throw new Error("The document needs its first detail tab.");
+		const wire = expandDoc(doc);
+		const strings = localAppStringTable(doc, []).languages;
+		expect(wire.modules[0].case_details.long.tabs?.[0]?.header).toEqual(
+			firstTab.header,
+		);
+		expect(wire.translations?.en[caseKey]).toBe("Patient details");
+		expect(wire.translations?.es[searchKey]).toBe("Resultado del paciente");
+		expect(wire.translations?.en[searchKey]).toBeUndefined();
+		expect(wire.translations?.es[caseKey]).toBeUndefined();
+		expect(strings.en[caseKey]).toBe("Patient details");
+		expect(strings.en[searchKey]).toBe("Patient");
+		expect(strings.es[caseKey]).toBe("Paciente");
+		expect(strings.es[searchKey]).toBe("Resultado del paciente");
+		for (const [language, code] of [
+			["eng", "en"],
+			["spa", "es"],
+		] as const) {
+			const values = workerLocalizedValues(doc, language);
+			const base = values.get(
+				makeTranslationUnitId("detail-tab", tab.uuid, "title"),
+			);
+			if (typeof base !== "string")
+				throw new Error("The locale lost the tab header.");
+			expect(workerDetailTabTitle({ ...tab, title: base }, false, values)).toBe(
+				strings[code][caseKey],
+			);
+			expect(workerDetailTabTitle({ ...tab, title: base }, true, values)).toBe(
+				strings[code][searchKey],
+			);
+			for (const [search, key] of [
+				[false, caseKey],
+				[true, searchKey],
+			] as const) {
+				const moduleUuid = doc.moduleOrder[0];
+				expect(
+					bindAppTestAction(
+						doc,
+						{
+							language,
+							platform: "web-apps",
+							androidDeviceId: "tab-wording-proof",
+							personaUuid: null,
+							screen: {
+								kind: "details",
+								moduleUuid,
+								caseId: "patient-1",
+								source: {
+									kind: "records",
+									moduleUuid,
+									...(search && { searchAnswers: [] }),
+								},
+							},
+							history: [],
+							selections: {},
+							deviceCases: { rows: [], indices: [] },
+							afterSubmitStack: EMPTY_AFTER_SUBMIT_STACK,
+						},
+						{ kind: "detailTab", tabUuid: strings[code][key] },
+					),
+				).toMatchObject({ tabUuid: tab.uuid });
+			}
+		}
+	};
+	checkOutputs(adopted);
+	const rebased = mutationCommitVerdict(
+		adopted,
+		[{ kind: "rebaseSourceLanguage", from: "eng", to: "spa" }],
+		LOOKUP_CONTEXT_UNAVAILABLE,
+	);
+	if (!rebased.ok) throw new Error(JSON.stringify(rebased.findings));
+	expect(rebased.nextDoc.localization?.sourceLanguage).toBe("spa");
+	expect(
+		rebased.nextDoc.localization?.generatedSourceWording?.[searchTitle]?.value,
+	).toBe("Resultado del paciente");
+	expect(
+		rebased.nextDoc.localization?.translations.eng?.[caseTitle]?.value,
+	).toBe("Patient details");
+	checkOutputs(rebased.nextDoc);
+	checkOutputs(await read(exportedBody(adopted)));
+});
+
+it("publishes the title on a listed-form menu with its own details", () => {
+	const doc = twoMenus();
+	const route = doc.modules[ROUTE];
+	const config = route.caseListConfig;
+	if (!config) throw new Error("The listed-form route needs a case list.");
+	const tab = {
+		uuid: uuid(43),
+		title: "Clinic patient",
+		startColumnUuid: config.columns[0].uuid,
+	};
+	config.detailTabs = [tab];
+	const id = detailTabWordingId(tab.uuid, false);
+	const unit = snapshotTranslationUnits(doc).get(id);
+	if (!unit)
+		throw new Error("The route needs its detail tab translation unit.");
+	const changed = mutationCommitVerdict(
+		doc,
+		[
+			{
+				kind: "setTranslation",
+				language: "eng",
+				unitId: id,
+				entry: {
+					value: "Clinic details",
+					origin: "human",
+					review: "reviewed",
+					sourceFingerprint: unit.sourceFingerprint,
+					translatedFrom: "eng",
+				},
+			},
+		],
+		LOOKUP_CONTEXT_UNAVAILABLE,
+	);
+	if (!changed.ok) throw new Error(JSON.stringify(changed.findings));
+	const key = "m0.case_long.tab.1.title";
+	expect(localAppStringTable(changed.nextDoc, []).languages.en[key]).toBe(
+		"Clinic details",
+	);
+	expect(expandDoc(changed.nextDoc).translations?.en[key]).toBe(
+		"Clinic details",
+	);
 });
 
 it("moves an override with the form and forgets it when that form is removed", () => {

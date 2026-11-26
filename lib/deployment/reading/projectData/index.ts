@@ -786,11 +786,19 @@ function tableChoicesUnusable(
 	for (const error of lookupSelectSourceRowFindings(doc, snapshot)) {
 		const tableId = error.details?.tableId as LookupTableId;
 		if (named.has(tableId)) continue;
-		named.add(tableId);
 		const table = byId.get(tableId);
 		if (table === undefined) {
 			throw new Error("A choices finding named a table its snapshot lacks.");
 		}
+		// Bring-in binds an assigned source without importing a worker's rows.
+		// Preview and delivery acquire and validate a scoped projection.
+		if (
+			error.code === "LOOKUP_WORKER_SOURCE_UNAVAILABLE" &&
+			table.hq?.managedBy === "commcare-hq" &&
+			table.hq.source?.distribution === "assigned"
+		)
+			continue;
+		named.add(tableId);
 		if (unreadable.has(table.tag)) {
 			findings.push(
 				circumstanceFinding(

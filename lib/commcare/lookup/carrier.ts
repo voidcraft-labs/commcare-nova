@@ -46,10 +46,8 @@ export function alternativeLookupCarrier(
  * sentence names the direct publish (`file`). A direct publish keeps a table
  * the Project already put on its project space by a workbook in a workbook
  * (`workbook-there`), since the JSON resources cannot take over rows that
- * carry no Nova identity; a new export tag makes it a new table there. And
- * the JSON resources carry only a table held whole in one snapshot, so a
- * larger one (`too-large`, on either mode) is named as what Nova can't carry
- * yet.
+ * carry no Nova identity; a new export tag makes it a new table there. The workbook-only or over-budget
+ * cases name the file's own delivery boundary.
  */
 export function describeLookupCarrierAlternative(
 	name: string,
@@ -64,6 +62,6 @@ export function describeLookupCarrierAlternative(
 		case "workbook-there":
 			return `“${name}” is on this project space through a workbook, which can't carry its rows exactly any more. ${alternative.reason} You can change those rows in Project data, or give the table a new export tag so it goes there as a new table.`;
 		case "too-large":
-			return `Nova can't carry “${name}” exactly to CommCare HQ yet: it is larger than Nova sends through CommCare HQ's table resources in one publish. ${alternative.reason} You can keep it smaller in Project data.`;
+			return `“${name}” can't travel in this HQ app file. ${alternative.reason} You can publish supported paged tables directly from Nova, or prepare the table in the destination project space.`;
 	}
 }

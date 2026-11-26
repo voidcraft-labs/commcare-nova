@@ -6,6 +6,8 @@ import {
 } from "./localization";
 import type { Uuid } from "./uuid";
 
+export const DEFAULT_FORM_SUBMIT_LABEL = "Submit";
+
 /** The form's ordinary action before an app-wide UI translation can override it.
  * A language with no configured value generates Submit. A configured blank
  * leaves its locale key absent and inherits the default file, whose value is
@@ -24,7 +26,7 @@ export function formSubmitWording(
 			tag === localization.sourceLanguage
 				? label.text
 				: localization.translations[tag]?.[unit]?.value;
-		return typeof raw === "string" ? raw : "Submit";
+		return typeof raw === "string" ? raw : DEFAULT_FORM_SUBMIT_LABEL;
 	};
 	return (
 		ordinary(language) ||

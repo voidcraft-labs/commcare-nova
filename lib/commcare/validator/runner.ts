@@ -395,11 +395,7 @@ function runDeepValidation(
 		(deep): ValidationError => {
 			switch (deep.kind) {
 				case "field-xpath":
-					return presentFormLogicFinding(
-						doc,
-						{ entity: "field", uuid: deep.fieldUuid, slot: deep.surface },
-						deep.error,
-					);
+					return presentFormLogicFinding(doc, deep.ref, deep.error);
 				case "field-prose":
 					if (deep.error.slot !== undefined)
 						return presentFormLogicFinding(doc, deep.error.slot, deep.error);
@@ -552,6 +548,10 @@ const PROSE_SURFACE_LABELS: Record<ProseSurface, string> = {
 	help: "help text",
 	validate_msg: "validation message",
 	extended_text: "extended text",
+	extended_hint: "extended hint",
+	extended_help: "extended help",
+	extended_validate_msg: "extended validation message",
+	option_extended_text: "extended choice text",
 	qr_code: "QR code",
 	spoken_text: "spoken text",
 	addFirstLabel: "first entry button",

@@ -14,7 +14,8 @@ import { effectiveCaseTypes } from "./effectiveCaseTypes";
 import type { ItextUnit, ProseSlotRef } from "./expression/types";
 import { FIELD_ITEXT_SLOTS } from "./expression/types";
 import type { Field } from "./fields";
-import { isContainer } from "./fields";
+import { isContainer, isDeviceCaseOptionsSource } from "./fields";
+import { DEFAULT_FORM_SUBMIT_LABEL } from "./formSubmitLabel";
 import {
 	type GeneratedWording,
 	generatedWordingUnits,
@@ -66,11 +67,15 @@ export const translationUnitRoles = [
 	"field-help",
 	"field-validation-message",
 	"field-extended-text",
+	"field-extended-hint",
+	"field-extended-help",
+	"field-extended-validation-message",
 	"field-qr-code",
 	"field-spoken-text",
 	"field-first-add-label",
 	"field-add-label",
 	"select-option-label",
+	"select-option-extended-text",
 	"case-detail-tab-title",
 	"case-list-header",
 	"case-list-sort-label",
@@ -80,7 +85,9 @@ export const translationUnitRoles = [
 	"case-list-interval-text",
 	"case-list-empty-text",
 	"case-list-select-text",
+	"case-list-lookup-result-heading",
 	"search-input-label",
+	"search-input-group-label",
 	"search-input-hint",
 	"search-input-required-message",
 	"search-input-validation-message",
@@ -109,13 +116,30 @@ export const LABEL_TEXT_SLOT_OF_ROLE: Readonly<
 	"field-spoken-text": "spoken_text",
 };
 
-/** The unit of a case list's own empty-list text (`"empty"`) or Continue
- *  label (`"select"`): the module's, since the list has no identity of its own. */
+export const EXTENDED_FIELD_TEXT_ROLES = {
+	extended_hint: "field-extended-hint",
+	extended_help: "field-extended-help",
+	extended_validate_msg: "field-extended-validation-message",
+} as const;
+
+export const EXTENDED_FIELD_TEXT_SLOT_OF_ROLE = {
+	"field-extended-hint": "extended_hint",
+	"field-extended-help": "extended_help",
+	"field-extended-validation-message": "extended_validate_msg",
+} as const;
+type ExtendedFieldTextRole = keyof typeof EXTENDED_FIELD_TEXT_SLOT_OF_ROLE;
+
+/** A case list's wording unit for empty text, the Continue label or the
+ *  lookup confidence heading. The module supplies the identity. */
 export function caseListWordingUnitId(
 	moduleUuid: Uuid,
-	slot: "empty" | "select",
+	slot: "empty" | "select" | "lookup",
 ): TranslationUnitId {
 	return makeTranslationUnitId("module", moduleUuid, `list-${slot}-text`);
+}
+
+export function searchInputGroupLabelUnitId(uuid: Uuid): TranslationUnitId {
+	return makeTranslationUnitId("search-input-group", uuid, "label");
 }
 
 export const translationUnitOwnerKinds = [
@@ -126,6 +150,7 @@ export const translationUnitOwnerKinds = [
 	"select-option",
 	"case-list-column",
 	"search-input",
+	"search-input-group",
 	"case-property-option",
 ] as const;
 export type TranslationUnitOwnerKind =
@@ -161,6 +186,11 @@ export type TranslationUnitOwner =
 			readonly kind: "search-input";
 			readonly moduleUuid: Uuid;
 			readonly searchInputUuid: Uuid;
+	  }
+	| {
+			readonly kind: "search-input-group";
+			readonly moduleUuid: Uuid;
+			readonly groupUuid: Uuid;
 	  }
 	| {
 			readonly kind: "case-property-option";
@@ -215,9 +245,11 @@ const NONBLANK_TRANSLATION_ROLES: ReadonlySet<TranslationUnitRole> = new Set([
 	"case-list-sort-label",
 	"case-list-empty-text",
 	"case-list-select-text",
+	"case-list-lookup-result-heading",
 	"search-screen-title",
 	"search-screen-subtitle",
 	"search-input-label",
+	"search-input-group-label",
 	"search-input-required-message",
 	"search-input-validation-message",
 	"search-runtime-validation-message",
@@ -300,7 +332,9 @@ export function collectTranslationCoverageDiagnostics(
 		});
 	}
 	const caseChoices = Object.values(doc.fields).filter(
-		(field) => "optionsSource" in field && field.optionsSource.kind === "cases",
+		(field) =>
+			"optionsSource" in field &&
+			isDeviceCaseOptionsSource(field.optionsSource),
 	).length;
 	if (caseChoices > 0)
 		diagnostics.push({
@@ -425,6 +459,7 @@ function fieldUnits(
 				| "field-first-add-label"
 				| "field-add-label"
 				| LabelTextRole
+				| ExtendedFieldTextRole
 			>,
 			slot: string,
 			value: ProseTemplate | undefined,
@@ -453,6 +488,23 @@ function fieldUnits(
 		addProse("field-hint", "hint", "hint" in field ? field.hint : undefined);
 		addProse("field-help", "help", "help" in field ? field.help : undefined);
 		addProse(
+			"field-extended-hint",
+			"extended_hint",
+			"extended_hint" in field ? field.extended_hint : undefined,
+		);
+		addProse(
+			"field-extended-help",
+			"extended_help",
+			"extended_help" in field ? field.extended_help : undefined,
+		);
+		addProse(
+			"field-extended-validation-message",
+			"extended_validate_msg",
+			"extended_validate_msg" in field
+				? field.extended_validate_msg
+				: undefined,
+		);
+		addProse(
 			"field-validation-message",
 			"validate_msg",
 			"validate_msg" in field ? field.validate_msg : undefined,
@@ -465,28 +517,34 @@ function fieldUnits(
 
 		if ("optionsSource" in field && field.optionsSource.kind === "inline") {
 			for (const option of field.optionsSource.options) {
-				out.push(
-					unit({
-						id: makeTranslationUnitId(
-							"field",
-							fieldUuid,
-							"option",
-							option.uuid,
-						),
-						valueKind: "prose",
-						role: "select-option-label",
-						source: option.label,
-						owner: {
-							kind: "select-option",
-							moduleUuid: context.module.uuid,
-							formUuid: context.formUuid,
-							fieldUuid,
-							optionUuid: option.uuid,
-						},
-						breadcrumb: [...breadcrumb, option.value],
-						context: { ...baseContext, optionValue: option.value },
-					}),
-				);
+				const terms = [
+					["option", "select-option-label", option.label],
+					[
+						"option_extended_text",
+						"select-option-extended-text",
+						option.extended_text,
+					],
+				] as const;
+				for (const [slot, role, source] of terms) {
+					if (source === undefined) continue;
+					out.push(
+						unit({
+							id: makeTranslationUnitId("field", fieldUuid, slot, option.uuid),
+							valueKind: "prose",
+							role,
+							source,
+							owner: {
+								kind: "select-option",
+								moduleUuid: context.module.uuid,
+								formUuid: context.formUuid,
+								fieldUuid,
+								optionUuid: option.uuid,
+							},
+							breadcrumb: [...breadcrumb, option.value],
+							context: { ...baseContext, optionValue: option.value },
+						}),
+					);
+				}
 			}
 		}
 
@@ -724,7 +782,7 @@ export function collectTranslationUnits(
 						id: makeTranslationUnitId("form", formUuid, "submit-label"),
 						valueKind: "text",
 						role: "form-submit-label",
-						source: form.submitLabel.text ?? "Submit",
+						source: form.submitLabel.text ?? DEFAULT_FORM_SUBMIT_LABEL,
 						owner: { kind: "form", moduleUuid, formUuid },
 						breadcrumb: [...moduleBreadcrumb, form.name, "Submit button"],
 						context: { moduleName: module.name, formName: form.name },
@@ -771,6 +829,12 @@ export function collectTranslationUnits(
 				"case-list-select-text",
 				list?.selectButtonText,
 				"Continue button",
+			],
+			[
+				"lookup",
+				"case-list-lookup-result-heading",
+				list?.deviceLookup?.resultHeading,
+				"Lookup confidence column",
 			],
 		] as const) {
 			if (source === undefined) continue;
@@ -975,6 +1039,23 @@ export function collectTranslationUnits(
 			}
 		}
 
+		for (const group of list?.searchInputGroups ?? []) {
+			out.push(
+				unit({
+					id: searchInputGroupLabelUnitId(group.uuid),
+					valueKind: "text",
+					role: "search-input-group-label",
+					source: group.label,
+					owner: {
+						kind: "search-input-group",
+						moduleUuid,
+						groupUuid: group.uuid,
+					},
+					breadcrumb: [...moduleBreadcrumb, "Search", group.label],
+					context: { moduleName: module.name },
+				}),
+			);
+		}
 		for (const input of list?.searchInputs ?? []) {
 			hasSearchInputs = true;
 			out.push(
@@ -1313,7 +1394,10 @@ export function translationUnitProseSlot(
 		return {
 			entity: "field",
 			uuid: owner.fieldUuid,
-			slot: "option_label",
+			slot:
+				unit.role === "select-option-extended-text"
+					? "option_extended_text"
+					: "option_label",
 			member: { optionUuid: owner.optionUuid },
 		};
 	if (owner.kind !== "field") return undefined;
@@ -1331,6 +1415,14 @@ export function translationUnitProseSlot(
 				entity: "field",
 				uuid: owner.fieldUuid,
 				slot: FIELD_ITEXT_SLOTS[unit.role],
+			};
+		case "field-extended-hint":
+		case "field-extended-help":
+		case "field-extended-validation-message":
+			return {
+				entity: "field",
+				uuid: owner.fieldUuid,
+				slot: EXTENDED_FIELD_TEXT_SLOT_OF_ROLE[unit.role],
 			};
 		case "field-extended-text":
 		case "field-qr-code":
@@ -1489,6 +1581,11 @@ export function defaultWording(
 	language: LanguageTag,
 	unit: TranslationUnit,
 ): LocalizedValue {
+	if (
+		unit.role === "form-submit-label" &&
+		language !== effectiveAppLocalization(doc.localization).sourceLanguage
+	)
+		return DEFAULT_FORM_SUBMIT_LABEL;
 	const base =
 		unit.generated?.base &&
 		snapshotTranslationUnits(doc).get(unit.generated.base);
@@ -1525,7 +1622,7 @@ function storedTranslation(
 			};
 		}
 		return {
-			effective: unitValue.source,
+			effective: defaultWording(doc, language, unitValue),
 			status:
 				isSource ||
 				(unitValue.role === "search-screen-title" && unitValue.source === "")

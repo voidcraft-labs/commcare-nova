@@ -1,5 +1,11 @@
 import { expect, it } from "vitest";
+import { requestOrderText } from "@/lib/commcare/suite/case-search/requestOrder";
+import { runValidation } from "@/lib/commcare/validator/runner";
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
+import { effectiveCaseTypes } from "@/lib/domain";
 import { literal, term } from "@/lib/domain/expression/builders";
+import { plainColumn } from "@/lib/domain/modules";
+import { proseText } from "@/lib/domain/prose";
 import { patients, uuid } from "../../caseList/__tests__/fixtures";
 import {
 	closedCodes,
@@ -215,6 +221,82 @@ it("keeps a default filter's order text as it arrived, defaults left implicit", 
 	]);
 });
 
+it("reads repeated direction signs by their first sign and records the exact source rewrite", async () => {
+	const original = "'++notes:numeric,-+-phone:exact,name'";
+	const reading = await readLists(patients([], { search: {} }), {
+		edit: (app) => {
+			app.modules[0].search_config.default_properties = [
+				{ property: "commcare_sort", defaultValue: original },
+			];
+		},
+	});
+	expect(closedCodes(reading), JSON.stringify(reading.findings)).toEqual([]);
+	const filter = listOf(reading).searchFilters?.[0];
+	expect(filter).toMatchObject({ kind: "order" });
+	if (filter === undefined || !("order" in filter))
+		throw new Error("Missing Search order");
+	expect(requestOrderText(filter.order)).toBe(
+		"+notes:numeric,-phone:exact,name",
+	);
+	expect(filter.order.map((term) => term.direction)).toEqual([
+		"ascending",
+		"descending",
+		"ascending",
+	]);
+	expect(reading.ctx.facts.sameStateRewrites).toContainEqual(
+		expect.objectContaining({
+			path: "/modules/0/search_config/default_properties/0/defaultValue",
+			register: "search-order-direction-signs-respelled",
+		}),
+	);
+	const canonical = await readLists(
+		patients([], {
+			search: {},
+			list: { searchFilters: [filter] },
+		}),
+	);
+	expect(closedCodes(canonical)).toEqual([]);
+	expect(canonical.app.modules[0].search_config.default_properties).toEqual([
+		{
+			property: "commcare_sort",
+			defaultValue: "'+notes:numeric,-phone:exact,name'",
+		},
+	]);
+	expect(
+		canonical.ctx.facts.sameStateRewrites.map((row) => row.register),
+	).not.toContain("search-order-direction-signs-respelled");
+});
+
+it.each([
+	[
+		"'++priority:unknown'",
+		"case-search/default-properties-entry-keyed-commcare-sort-x-commcare-custom",
+	],
+	[
+		"'--status:exact'",
+		"case-search/a-server-order-naming-a-property-nova-reserves",
+	],
+	[
+		"'+-location_id:exact'",
+		"case-search/a-server-order-naming-a-property-only-devices-hold",
+	],
+])(
+	"keeps the refusal for %s even with repeated signs",
+	async (defaultValue, finding) => {
+		const reading = await readLists(patients([], { search: {} }), {
+			edit: (app) => {
+				app.modules[0].search_config.default_properties = [
+					{ property: "commcare_sort", defaultValue },
+				];
+			},
+		});
+		expect(closedCodes(reading)).toEqual([finding]);
+		expect(
+			reading.ctx.facts.sameStateRewrites.map((row) => row.register),
+		).not.toContain("search-order-direction-signs-respelled");
+	},
+);
+
 // HQ reads `@case_type` as the record's own type (`requestOrder.ts`'s
 // attribute keys), so an order on it names no property the catalog gains.
 it("adds no catalog property for an order on the record's own type", async () => {
@@ -265,5 +347,132 @@ it.each([null, ""])(
 				{ property: "date_opened", comparison: "date", direction: "ascending" },
 			],
 		});
+	},
+);
+
+it("keeps an order bound to the requested record type that declares its property", async () => {
+	const order = [
+		{ property: "priority", comparison: "number", direction: "descending" },
+	] as const;
+	const input = patients([], {
+		search: { requestOrder: [...order] },
+		list: {
+			searchFilters: [
+				{ uuid: uuid(33), kind: "request-record-type", caseType: "visit" },
+			],
+		},
+	});
+	input.caseTypes = [
+		...effectiveCaseTypes(input),
+		{
+			name: "visit",
+			properties: [
+				{ name: "priority", label: proseText("Priority"), data_type: "int" },
+			],
+		},
+	];
+	const reading = await readLists(input);
+	expect(closedCodes(reading), JSON.stringify(reading.findings)).toEqual([]);
+	expect(searchOf(reading)).toMatchObject({ requestOrder: order });
+	const catalog = reading.ctx.doc?.caseTypes;
+	expect(
+		catalog
+			?.find((type) => type.name === "patient")
+			?.properties.map((property) => property.name),
+	).not.toContain("priority");
+	expect(
+		catalog?.find((type) => type.name === "visit")?.properties,
+	).toMatchObject([{ name: "priority", data_type: "int" }]);
+});
+
+const deviceOnlyOrderCode =
+	"case-search/a-server-order-naming-a-property-only-devices-hold";
+
+it.each(["default filter", "dedicated setting"] as const)(
+	"refuses a device-only property and keeps an indexed worker property in the %s",
+	async (carrier) => {
+		const useDefault = carrier === "default filter";
+		const readOrder = (property: string) =>
+			readLists(patients([], { search: {} }), {
+				edit: (app) => {
+					const config = app.modules[0].search_config;
+					if (useDefault) {
+						config.default_properties = [
+							{
+								property: "commcare_sort",
+								defaultValue: `'+${property}:exact'`,
+							},
+						];
+					} else {
+						config.custom_sort_properties = [
+							{
+								doc_type: "CaseSearchCustomSortProperty",
+								property_name: property,
+								sort_type: "exact",
+								direction: "ascending",
+							},
+						];
+					}
+				},
+			});
+		const location = await readOrder("location_id");
+		expect(closedCodes(location), JSON.stringify(location.findings)).toEqual([
+			deviceOnlyOrderCode,
+		]);
+		const worker = await readOrder("hq_user_id");
+		expect(closedCodes(worker), JSON.stringify(worker.findings)).toEqual([]);
+		const order = [
+			{ property: "hq_user_id", comparison: "text", direction: "ascending" },
+		];
+		if (useDefault) {
+			expect(listOf(worker).searchFilters).toMatchObject([
+				{ kind: "order", order },
+			]);
+		} else {
+			expect(searchOf(worker)).toMatchObject({ requestOrder: order });
+		}
+
+		const authoredFindings = (property: string) => {
+			const term = {
+				property,
+				comparison: "text",
+				direction: "ascending",
+			} as const;
+			const columns = [plainColumn(uuid(1), "hq_user_id", "Linked worker")];
+			const doc = useDefault
+				? patients(columns, {
+						search: {},
+						list: {
+							searchFilters: [{ uuid: uuid(34), kind: "order", order: [term] }],
+						},
+					})
+				: patients(columns, { search: { requestOrder: [term] } });
+			const caseTypes = [
+				...(doc.caseTypes ?? []).filter((type) => type.name !== "patient"),
+				{
+					name: "patient",
+					properties: [
+						{
+							name: "hq_user_id",
+							label: proseText("Linked worker"),
+							data_type: "text" as const,
+						},
+						{
+							name: "location_id",
+							label: proseText("Location"),
+							data_type: "text" as const,
+						},
+					],
+				},
+			];
+			return runValidation({ ...doc, caseTypes }, LOOKUP_CONTEXT_UNAVAILABLE);
+		};
+		expect(authoredFindings("location_id")).toEqual([
+			expect.objectContaining({
+				code: "CASE_SEARCH_FILTER_INVALID",
+				details: { reason: "order-device-only", property: "location_id" },
+			}),
+		]);
+		expect(authoredFindings("hq_user_id")).toEqual([]);
 	},
 );

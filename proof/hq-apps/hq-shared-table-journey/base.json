@@ -1,0 +1,19 @@
+{
+	"id": "hq-shared-table-journey",
+	"configuration": {
+		"flags": [],
+		"namedPrivileges": [
+			"CLOUDCARE",
+			"LOOKUP_TABLES"
+		],
+		"commcareVersion": "2.57.0",
+		"commtrack": false,
+		"syncCasesOnFormEntry": false,
+		"caseSearchEnabled": false
+	},
+	"declaration": "preselected",
+	"exhibits": [
+		"application-and-settings/langs-order-langs-0-default",
+		"questions/lookup-table-select-selectdynamic-mselectdynamic-itemset-nodeset"
+	]
+}
