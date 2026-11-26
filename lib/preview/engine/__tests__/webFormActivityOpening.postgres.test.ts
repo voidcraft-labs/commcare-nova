@@ -4,9 +4,11 @@ import { afterEach, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc } from "@/lib/__tests__/docHelpers";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
+import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import { submitFormAction } from "../caseDataBinding";
 import { blueprintRevisionDigest } from "../caseDataBindingClient";
 import { readFormOpeningAction } from "../formOpeningAction";
+import { resolveAuthorizedPreviewContext } from "../previewAuthorization";
 import { androidDevice, webAppsDevice } from "./fixtures/previewDevices";
 
 const member = vi.hoisted(() => ({ id: "activity-first" }));
@@ -93,8 +95,19 @@ it("shows a submission only to a worker with an earlier restore and keeps receip
 		activityWindowText: { carrier: { field: window, role: "field-label" } },
 	};
 	const app = await h.seedAppWithBlueprint(doc, { owner: first, projectId });
-	const blueprintDigest = await blueprintRevisionDigest(doc);
 	const web = webAppsDevice();
+	member.id = first;
+	const context = await resolveAuthorizedPreviewContext({
+		appId: app,
+		device: web,
+		loadBlueprint: true,
+		required: "view",
+	});
+	if (context.kind !== "ready" || !context.blueprint)
+		throw new Error("The synthetic Project could not load its activity form");
+	const blueprintDigest = await blueprintRevisionDigest(
+		hydratePersistedBlueprint(context.blueprint),
+	);
 	const android = androidDevice();
 	const open = async (actor: string, entry: string, device = web) => {
 		member.id = actor;
