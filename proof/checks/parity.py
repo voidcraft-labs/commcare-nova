@@ -374,21 +374,29 @@ def _generated_search_group_heading(use, held):
                 break
             names.add(name)
             if row.get("is_group") is True:
-                current = f"group_header_{index}"
+                current = name
                 labels = row.get("label")
-                if (name != current or row.get("group_key") != current or not isinstance(labels, dict)
+                if (row.get("group_key") != current or not isinstance(labels, dict)
                         or not any(isinstance(text, str) and text.strip() for text in labels.values())):
                     break
-                headings[current] = labels
+                headings[current] = labels, f"group_header_{index}"
             elif current is None or row.get("group_key") != current:
                 break
             else:
                 members.add(current)
         else:
-            for group_key, labels in headings.items():
+            for group_key, (labels, current_group) in headings.items():
                 if group_key not in members:
                     continue
                 key = f"search_property.m{module_index}.{group_key}"
+                if group_key != current_group:
+                    target = f"search_property.m{module_index}.{current_group}"
+                    if (not re.fullmatch(r"[A-Za-z][A-Za-z0-9_-]*", group_key)
+                            or re.fullmatch(r"group_header_[0-9]+", group_key)
+                            or any(isinstance(values, dict) and target in values for values in translations.values())
+                            or any(not isinstance(labels.get(code), str) or not labels[code].strip()
+                                   or labels[code] != labels[code].strip() for code in langs if isinstance(code, str))):
+                        continue
                 for code in langs:
                     if not isinstance(code, str) or not isinstance(translations.get(code), dict):
                         continue

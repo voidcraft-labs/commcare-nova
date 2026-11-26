@@ -315,6 +315,105 @@ it("keeps Search group worker wording on the route’s group when menus and grou
 	);
 });
 
+it("rekeys only a unique live legacy Search heading and records both source positions", async () => {
+	const oldKey = "search_property.m0.g";
+	const currentKey = "search_property.m0.group_header_0";
+	const changes = "legacy-search-group-wording-rekeyed";
+	const source = searchEmissionFixture("grouped-prompts");
+	const body = exportedBody(source);
+	const menus = body.modules as ReturnType<typeof expandDoc>["modules"];
+	menus[0].search_config.properties[0].name = "g";
+	menus[0].search_config.properties[0].group_key = "g";
+	menus[0].search_config.properties[1].group_key = "g";
+	body.translations = { en: { [oldKey]: "Find a client" } };
+	const read = async () =>
+		readHqApp(
+			await inputFor(body, {
+				appStrings: (doc) => localAppStringTable(doc, []),
+			}),
+			{ claims: "full" },
+		);
+	const before = await read();
+	if (before.kind !== "read") throw Error(JSON.stringify(before.findings));
+	const printed = expandDoc(before.draft.doc);
+	expect(printed.translations?.en[oldKey]).toBeUndefined();
+	expect(printed.translations?.en[currentKey]).toBe("Find a client");
+	expect(printed.modules[0].search_config.properties[0].label).toEqual({
+		en: "Personal details",
+	});
+	expect(
+		localAppStringTable(before.draft.doc, []).languages.en[currentKey],
+	).toBe("Find a client");
+	expect(
+		before.draft.facts.sameStateRewrites
+			.filter((item) => item.register === changes)
+			.map((item) => item.path),
+	).toEqual([
+		"/modules/0/search_config/properties/0/group_key",
+		`/translations/en/${oldKey}`,
+		`/translations/en/${currentKey}`,
+	]);
+	const canonical = readHqApp(
+		await inputFor(exportedBody(before.draft.doc), {
+			appStrings: (doc) => localAppStringTable(doc, []),
+		}),
+		{ claims: "full" },
+	);
+	if (canonical.kind !== "read")
+		throw Error(JSON.stringify(canonical.findings));
+	expect(
+		canonical.draft.facts.sameStateRewrites.some(
+			(row) => row.register === changes,
+		),
+	).toBe(false);
+	expect(
+		localAppStringTable(canonical.draft.doc, []).languages.en[currentKey],
+	).toBe("Find a client");
+	(body.translations as Record<string, Record<string, string>>).en[currentKey] =
+		"Other saved words";
+	const conflict = await read();
+	if (conflict.kind !== "account")
+		throw Error("Two stored values need a placed finding");
+	expect(conflict.findings).toContainEqual(
+		expect.objectContaining({
+			code: "application-and-settings/translations-generated-key-anything-else",
+			detail: { name: oldKey },
+		}),
+	);
+	body.langs = ["en", "es"];
+	body.build_langs = ["en", "es"];
+	body.translations = { en: { [oldKey]: "Find a client" } };
+	const incomplete = await read();
+	if (incomplete.kind !== "account")
+		throw Error("An absent ordinary locale needs its own fallback review");
+	expect(incomplete.findings).toContainEqual(
+		expect.objectContaining({
+			code: "application-and-settings/translations-generated-key-anything-else",
+			detail: { name: oldKey },
+		}),
+	);
+
+	menus[0].search_config.properties[0].label.es = "Datos personales";
+	const bilingual = await read();
+	if (bilingual.kind !== "read")
+		throw Error(JSON.stringify(bilingual.findings));
+	const table = localAppStringTable(bilingual.draft.doc, []);
+	expect(table.languages.en[currentKey]).toBe("Find a client");
+	expect(table.languages.es[currentKey]).toBe("Datos personales");
+	menus[0].search_config.properties.splice(1, 1);
+	const orphan = await read();
+	if (orphan.kind !== "account")
+		throw Error(
+			"An unoccupied heading cannot establish active generated wording",
+		);
+	expect(orphan.findings).toContainEqual(
+		expect.objectContaining({
+			code: "application-and-settings/translations-generated-key-anything-else",
+			detail: { name: oldKey },
+		}),
+	);
+});
+
 it("refuses a Search heading with a hidden-only group when a different prompt shares its displayed key", async () => {
 	const body = exportedBody(searchEmissionFixture("grouped-prompts"));
 	const menus = body.modules as ReturnType<typeof expandDoc>["modules"];

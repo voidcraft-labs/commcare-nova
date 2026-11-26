@@ -152,6 +152,10 @@ OWNED_PROFILE_SETTINGS = ("/profile/properties/cc-show-saved", "/profile/propert
 CASE_SCALAR_TRIM = "".join(chr(unit) for unit in range(0x21))
 UNSHOWN_MEDIA = "unshown-form-media-removed"
 LEGACY_RELATED_CASE_TEXT = "legacy-related-case-text-rekeyed"
+LEGACY_SEARCH_GROUP_WORDING = "legacy-search-group-wording-rekeyed"
+SEARCH_GROUP_WORDING_PATH = "/translations/*/search_group_heading"
+LEGACY_SEARCH_GROUP_KEY = re.compile(r"[A-Za-z][A-Za-z0-9_-]*")
+POSITIONAL_SEARCH_GROUP_KEY = re.compile(r"group_header_([0-9]+)")
 # The kinds of place (``lib/deployment/reading/firstPublishPlaces.ts::FIRST_PUBLISH_PLACE_KINDS``).
 APP_WIDE = "app-wide"
 PLACE_KINDS = frozenset({APP_WIDE, "app", "menu", "form", "form-node", "form-part", "case"})
@@ -882,6 +886,68 @@ def _legacy_text_is_unchanged(d, owner, siblings) -> bool:
     return bool(before) and sorted(before) == sorted(after)
 
 
+
+def _search_group_wording_pair(difference, places, siblings) -> bool:
+    """Require both exact locale places and the captured owner of the normalized group."""
+    if difference.check != "source" or difference.path != SEARCH_GROUP_WORDING_PATH:
+        return False
+
+    def locale(row):
+        if (row.check, row.document, row.artifact, row.path) != (
+            difference.check, difference.document, difference.artifact, difference.path
+        ):
+            return None
+        parts = unescaped(row.at)
+        if len(parts) != 3 or parts[0] != "translations":
+            return None
+        key = re.fullmatch(r"search_property\.m([0-9]+)\.([A-Za-z][A-Za-z0-9_-]*)", parts[2])
+        if key:
+            return parts[1], *key.groups()
+        return None
+
+    found = locale(difference)
+    if found is None:
+        return False
+    language, menu, _ = found
+    owned = {tuple(unescaped(place)) for place in places}
+    for counterpart in siblings:
+        if counterpart.kind == difference.kind:
+            continue
+        other = locale(counterpart)
+        if other is None or other[:2] != (language, menu):
+            continue
+        removed, added = (
+            (difference, counterpart) if difference.kind == "removed" else (counterpart, difference)
+        )
+        if (
+            removed.kind != "removed" or added.kind != "added"
+            or removed.after is not None or added.before is not None
+            or not isinstance(removed.before, str) or not removed.before.strip()
+            or removed.before != added.after
+        ):
+            continue
+        old, new = locale(removed)[2], locale(added)[2]
+        at = POSITIONAL_SEARCH_GROUP_KEY.fullmatch(new)
+        if at is None or POSITIONAL_SEARCH_GROUP_KEY.fullmatch(old):
+            continue
+        index = at[1]
+        if not {
+            ("app", *unescaped(removed.at)),
+            ("app", *unescaped(added.at)),
+            ("menu", menu, "search_config", "properties", index, "group_key"),
+        } <= owned:
+            continue
+        row = f"/modules/{menu}/search_config/properties/{index}"
+        if all(
+            any(other.check == "source" and other.document == difference.document
+                and other.artifact == difference.artifact and other.at == f"{row}/{key}"
+                and other.kind == "changed" and other.before == old and other.after == new
+                for other in siblings)
+            for key in ("name", "group_key")
+        ):
+            return True
+    return False
+
 def _build_location(difference, sites: Sites) -> tuple[str, ...]:
     """A proof 2 difference's location, by the ids of its build's own vocabulary its pointer carries (a menu's,
     a detail's, a command's: each holds the menu's and the form's positions), the app string key, the form's
@@ -1194,7 +1260,7 @@ def placed(document, register) -> dict[str, tuple[str, ...]]:
     """The changes that apply on ``document``, each with the places it stands at: on a document made in HQ, those
     its reading says the first publish makes (``corpus.Document.first_publish_places``), each held to its entry's
     kinds; on a corpus document whose saves in CommCare HQ are brought in, the changes of the next publish Nova's
-    review of them lists (``corpus.Document.next_publish``). Unshown form media and legacy related case text use
+    review of them lists (``corpus.Document.next_publish``). Unshown form media, legacy related case text and legacy Search wording use
     places from the current reading. The other next-publish changes stand everywhere. None applies on any other document or control."""
     if getattr(document, "hq_authored", False):
         listed = dict(document.first_publish_places)
@@ -1229,6 +1295,7 @@ def placed(document, register) -> dict[str, tuple[str, ...]]:
     exact_places = {
         UNSHOWN_MEDIA: "unshown_media_places",
         LEGACY_RELATED_CASE_TEXT: "legacy_related_case_text_places",
+        LEGACY_SEARCH_GROUP_WORDING: "legacy_search_group_wording_places",
     }
     return {
         change_id: tuple(getattr(document, exact_places[change_id])) if change_id in exact_places else EVERYWHERE
@@ -1315,6 +1382,11 @@ def holders(
             score = (
                 len(owner) - 1 if owner is not None and owner[-1] == field
                 and any(tuple(unescaped(place)) == owner[:-1] for place in where) else None
+            )
+        elif change.change == LEGACY_SEARCH_GROUP_WORDING:
+            score = (
+                1 + len(unescaped(difference.at))
+                if _search_group_wording_pair(difference, where, siblings) else None
             )
         elif change.change == LEGACY_RELATED_CASE_TEXT:
             owner = _legacy_related_case_text_location(difference)
@@ -1681,7 +1753,9 @@ def _placed_in(output: Path, document: str) -> dict[str, tuple[str, ...]]:
     if isinstance(saves, dict) and saves.get("republish") == "brings-in":
         for change_id in saves.get("publishChanges") or ():
             # Older replay evidence without exact places cannot authorize removing any source's media.
-            applying[change_id] = () if change_id == UNSHOWN_MEDIA else EVERYWHERE
+            applying[change_id] = (
+                () if change_id in (UNSHOWN_MEDIA, LEGACY_SEARCH_GROUP_WORDING) else EVERYWHERE
+            )
     return applying
 
 

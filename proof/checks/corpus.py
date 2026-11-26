@@ -461,7 +461,9 @@ BROUGHT_IN_KEYS = frozenset(
     {"review", "taken", "discarded", "mutations", "identities", "again", "assumedSummary", "document"}
 )
 BROUGHT_IN_READING = "reading"
-BROUGHT_IN_EXACT_PLACES = ("unshownMediaPlaces", "legacyRelatedCaseTextPlaces")
+BROUGHT_IN_EXACT_PLACES = (
+    "unshownMediaPlaces", "legacyRelatedCaseTextPlaces", "legacySearchGroupWordingPlaces",
+)
 
 
 @dataclass(frozen=True)
@@ -485,6 +487,7 @@ class BroughtIn:
     reading: dict | None = None
     unshown_media_places: tuple[str, ...] = ()
     legacy_related_case_text_places: tuple[str, ...] = ()
+    legacy_search_group_wording_places: tuple[str, ...] = ()
 
     @classmethod
     def from_json(cls, value, where):
@@ -532,6 +535,7 @@ class BroughtIn:
             reading=reading,
             unshown_media_places=exact.get("unshownMediaPlaces", ()),
             legacy_related_case_text_places=exact.get("legacyRelatedCaseTextPlaces", ()),
+            legacy_search_group_wording_places=exact.get("legacySearchGroupWordingPlaces", ()),
         )
 
     @property
@@ -1179,6 +1183,11 @@ class Document:
     def legacy_related_case_text_places(self):
         """The related columns the review names agree across publication carriers."""
         return self._next_publish_exact_places("legacy_related_case_text_places")
+
+    @property
+    def legacy_search_group_wording_places(self):
+        """The current reading's exact locale keys and owning Search rows."""
+        return self._next_publish_exact_places("legacy_search_group_wording_places")
 
     def _next_publish_exact_places(self, key):
         records = (export.brought_in for export in self.exports.values())
