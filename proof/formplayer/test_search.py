@@ -297,10 +297,8 @@ def test_formplayer_runs_the_default_search_unless_search_again_forces_its_scree
     assert _carries(sent_when_searched[1], TYPED)
 
 
-def _register_from_an_empty_search(web, served, *, prefilled):
-    """Search for a name no case holds, take the list's one action into "Register patient", submit it under another
-    name, and return the case HQ's receiver created and the screen Formplayer answers the submission with. Where
-    ``prefilled``, the form's Name starts as the name searched for."""
+def _open_registration_from_an_empty_search(web, *, prefilled):
+    """Find no case and enter the one form its Results offers."""
     search = web.navigate(SEARCH)
     assert screen_kind(search) == "query", search
     given = "Empty search patient"
@@ -313,8 +311,22 @@ def _register_from_an_empty_search(web, served, *, prefilled):
     (name,) = [node for node in form["tree"] if node.get("caption") == "Name"]
     if prefilled:
         assert name.get("answer") == given, name
+    return form, name
+
+
+def _creation_choice(form, answer):
+    (choice,) = [node for node in form["tree"] if node.get("caption") == "Create a patient record?"]
+    return {choice["ix"]: str(choice["choices"].index(answer) + 1)}
+
+
+def _register_from_an_empty_search(web, served, *, prefilled, conditional=False):
+    """Submit the registration and return the case HQ processed and the screen Formplayer shows."""
+    form, name = _open_registration_from_an_empty_search(web, prefilled=prefilled)
     corrected = "Name on the case"
-    submitted = web.submit(form["session_id"], {name["ix"]: corrected})
+    answers = {name["ix"]: corrected}
+    if conditional:
+        answers.update(_creation_choice(form, "Yes"))
+    submitted = web.submit(form["session_id"], answers)
     assert submitted["status"] == "success", submitted
     (receipt,) = served.hq.submissions
     case_ns = "{http://commcarehq.org/case/transaction/v2}"
@@ -338,7 +350,9 @@ def test_empty_search_registration_returns_to_its_results_or_selects_its_created
     with apps.published(formplayer_documents[f"no-matches-{scenario}"], core_runner) as published:
         with apps.served(published, formplayer_runner) as served, served.run("empty-search"):
             web = apps.web(formplayer_runner, served)
-            case_id, next_screen = _register_from_an_empty_search(web, served, prefilled=True)
+            case_id, next_screen = _register_from_an_empty_search(
+                web, served, prefilled=True, conditional=scenario == "new-case"
+            )
             # Every request Formplayer made of HQ in the run, with the status HQ answered, so a landing that
             # differs says what the return frame asked (the case fixture keyed to the created case).
             landed = f"{json.dumps(next_screen)[:1500]}\nFormplayer asked HQ:\n{_asked(served)}"
@@ -355,6 +369,30 @@ def test_empty_search_registration_returns_to_its_results_or_selects_its_created
             fixture_reads = [asked.status for asked in served.hq.exchanges if asked.url_name == "case_fixture"]
             assert fixture_reads and all(status == 200 for status in fixture_reads), fixture_reads
             evidence("registered-case", {"case": case_id, "landing": landing, "caseFixture": fixture_reads})
+
+
+
+def test_empty_search_registration_without_a_created_case_offers_registration_again(
+    hq, core_runner, formplayer_runner, formplayer_documents, evidence
+):
+    """The new-case return's guard falls through when a real form saves without opening the case."""
+    with apps.published(formplayer_documents["no-matches-new-case"], core_runner) as published:
+        with apps.served(published, formplayer_runner) as served, served.run("empty-search-no-create"):
+            web = apps.web(formplayer_runner, served)
+            form, name = _open_registration_from_an_empty_search(web, prefilled=True)
+            submitted = web.submit(
+                form["session_id"], {name["ix"]: "Consultation only", **_creation_choice(form, "No")}
+            )
+            assert submitted["status"] == "success", submitted
+            (receipt,) = served.hq.submissions
+            case_ns = "{http://commcarehq.org/case/transaction/v2}"
+            assert list(etree.fromstring(receipt.instance).iter(f"{case_ns}create")) == []
+            landed = submitted["nextScreen"]
+            asked = _asked(served)
+            evidence("not-created", {"landing": landed, "asked": asked})
+            assert screen_kind(landed) == "entities", (landed, asked)
+            assert landed["entities"] == [], landed
+            assert len(landed["actions"]) == 1, landed
 
 
 def _landing(screen):
