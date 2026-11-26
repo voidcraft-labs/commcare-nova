@@ -803,7 +803,7 @@ def test_android_sorts_filtered_case_choices_by_text_and_keeps_ties(android_docu
     database = casedata.CaseDatabase(casedata.USER_ID, casedata.USERNAME, (), tuple(
         casedata.CaseRecord(
             case_id, "clinic", name, casedata.USER_ID,
-            "2025-12-01T08:00:00Z", "2025-12-01T08:00:00Z", None,
+            "2025-12-01T08:00:00.000Z", "2025-12-01T08:00:00.000Z", None,
             (("region", region), ("rank", rank)),
         )
         for case_id, name, region, rank in rows
