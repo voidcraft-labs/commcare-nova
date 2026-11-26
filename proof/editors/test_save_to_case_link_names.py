@@ -114,24 +114,19 @@ def test_period_in_save_to_case_link_cannot_keep_its_calculation(
 def test_unicode_save_to_case_link_cannot_keep_its_calculation(
     hq, core_runner, editor_driver, name,
 ):
-    run, path = _save_with_link(editor_driver, name, expect_load=False)
-    label = f"save-to-case-unicode-index-{name}"
-    if not run.loaded:
-        assert run.load_error, run
-        write_evidence(label, {"name": name, "loaded": False, "refusal": run.load_error})
-        return
-    if not run.saved:
-        assert run.save_refusal, run
-        write_evidence(label, {"name": name, "saved": False, "refusal": str(run.save_refusal)})
-        return
+    run, path = _save_with_link(editor_driver, name)
+    assert run.saved, run.save_refusal
     root = etree.fromstring(run.stored_source.encode())
     bindings = [
         bind.get("calculate")
         for bind in root.iter(f"{{{XFORMS}}}bind")
         if bind.get("nodeset") == path
     ]
-    assert "'household-123'" not in bindings
-    write_evidence(label, {"name": name, "saved": True, "exactLinks": len(list(root.iter(f"{{{CASE}}}{name}"))), "bindings": bindings})
+    assert bindings == [None]
+    assert len(list(root.iter(f"{{{CASE}}}{name}"))) == 1
+    write_evidence(f"save-to-case-unicode-index-{name}", {
+        "name": name, "saved": True, "exactLinks": 1, "bindings": bindings,
+    })
 
 
 @pytest.mark.parametrize("name", ["instance", "parsererror"])

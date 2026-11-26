@@ -123,6 +123,17 @@ def test_unicode_index_identifiers_keep_their_exact_case_target(hq, core_runner)
                 child = CommCareCase.objects.get_case("c-child", state.domain)
                 assert {(index.identifier, index.referenced_type, index.referenced_id)
                         for index in child.indices} == {(name, "person", "c-parent") for name in identifiers}
+                submit_case_blocks(
+                    [_case("c-child", '<index><parént case_type="person" relationship="child"/></index>')],
+                    state.domain,
+                    user_id="u-1",
+                    device_id="proof",
+                )
+                updated = CommCareCase.objects.get_case("c-child", state.domain)
+                assert {(index.identifier, index.referenced_type, index.referenced_id)
+                        for index in updated.indices} == {
+                    (name, "person", "c-parent") for name in identifiers if name != "parént"
+                }
 
 
 def test_a_date_modified_that_is_not_a_date_is_refused(hq, core_runner):
