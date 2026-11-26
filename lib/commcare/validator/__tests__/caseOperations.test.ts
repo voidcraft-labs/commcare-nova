@@ -13,6 +13,7 @@ import { userFacingError } from "@/lib/doc/userFacingErrors";
 import {
 	type BlueprintDoc,
 	CASE_OPERATION_IDENTIFIER_FORMAT_MESSAGE,
+	CASE_OPERATION_LINK_IDENTIFIER_FORMAT_MESSAGE,
 	CASE_OPERATION_PROPERTY_FORMAT_MESSAGE,
 	type CaseOperation,
 	effectiveCaseTypes,
@@ -583,7 +584,7 @@ describe("case-operation activation and identity", () => {
 		expect(codesFor([linked("Close")])).toEqual(codesFor([linked("parent")]));
 	});
 
-	it("accepts underscores, rejects hyphens and dots in operation ids and links, and dots in written properties", () => {
+	it("keeps hyphens in link identifiers and preserves the separate operation and property rules", () => {
 		expect(codesFor([update({ id: "_update_patient2" })])).toEqual([]);
 		for (const id of ["update-patient", "update.patient"]) {
 			const error = errorsFor([update({ id })]).find(
@@ -603,23 +604,24 @@ describe("case-operation activation and identity", () => {
 			);
 			expect(error?.message).toContain(CASE_OPERATION_PROPERTY_FORMAT_MESSAGE);
 		}
-		for (const identifier of ["parent-link", "parent.link"]) {
-			const error = errorsFor([
-				update({
-					links: [
-						{
-							identifier,
-							targetType: "visit",
-							target: null,
-							relationship: "child",
-						},
-					],
-				}),
-			]).find((candidate) => candidate.code === "CASE_OPERATION_LINK_INVALID");
-			expect(error?.message).toContain(
-				CASE_OPERATION_IDENTIFIER_FORMAT_MESSAGE,
-			);
-		}
+		const updateWithLink = (identifier: string) =>
+			update({
+				links: [
+					{
+						identifier,
+						targetType: "visit",
+						target: null,
+						relationship: "child",
+					},
+				],
+			});
+		expect(codesFor([updateWithLink("parent-link")])).toEqual([]);
+		const error = errorsFor([updateWithLink("parent.link")]).find(
+			(candidate) => candidate.code === "CASE_OPERATION_LINK_INVALID",
+		);
+		expect(error?.message).toContain(
+			CASE_OPERATION_LINK_IDENTIFIER_FORMAT_MESSAGE,
+		);
 	});
 
 	it("keeps repeated operations on an explicit in-form repeat", () => {
