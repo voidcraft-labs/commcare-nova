@@ -51,6 +51,8 @@ const OPERATION_PATCH_KEYS = [
 	"caseType",
 	"target",
 	"condition",
+	"closeCondition",
+	"closeAfter",
 	"forEach",
 	"name",
 	"nameOnlyIfChanged",
@@ -136,6 +138,9 @@ function scalarOperationUpdate(
 				...(!deepEqual(before.condition, after.condition)
 					? { condition: clearable(after.condition) }
 					: {}),
+				...(!deepEqual(before.closeCondition, after.closeCondition)
+					? { closeCondition: clearable(after.closeCondition) }
+					: {}),
 				...(!deepEqual(before.forEach, after.forEach)
 					? { forEach: clearable(after.forEach) }
 					: {}),
@@ -149,6 +154,9 @@ function scalarOperationUpdate(
 					? { owner: clearable(after.owner) }
 					: {}),
 				...flagPatch("ownerOnlyIfChanged", before, after),
+				...(!deepEqual(before.closeAfter, after.closeAfter)
+					? { closeAfter: after.closeAfter ?? null }
+					: {}),
 				...(before.rename !== undefined ? { rename: null } : {}),
 				...(before.renameOnlyIfChanged !== undefined
 					? { renameOnlyIfChanged: null }
@@ -174,6 +182,9 @@ function scalarOperationUpdate(
 				...(!deepEqual(before.condition, after.condition)
 					? { condition: clearable(after.condition) }
 					: {}),
+				...(!deepEqual(before.closeCondition, after.closeCondition)
+					? { closeCondition: clearable(after.closeCondition) }
+					: {}),
 				...(!deepEqual(before.forEach, after.forEach)
 					? { forEach: clearable(after.forEach) }
 					: {}),
@@ -185,6 +196,9 @@ function scalarOperationUpdate(
 					? { owner: clearable(after.owner) }
 					: {}),
 				...flagPatch("ownerOnlyIfChanged", before, after),
+				...(!deepEqual(before.closeAfter, after.closeAfter)
+					? { closeAfter: after.closeAfter ?? null }
+					: {}),
 				...(!deepEqual(before.rename, after.rename)
 					? { rename: clearable(after.rename) }
 					: {}),
@@ -211,6 +225,9 @@ function scalarOperationUpdate(
 					: {}),
 				...(!deepEqual(before.condition, after.condition)
 					? { condition: clearable(after.condition) }
+					: {}),
+				...(!deepEqual(before.closeCondition, after.closeCondition)
+					? { closeCondition: clearable(after.closeCondition) }
 					: {}),
 				...(!deepEqual(before.forEach, after.forEach)
 					? { forEach: clearable(after.forEach) }

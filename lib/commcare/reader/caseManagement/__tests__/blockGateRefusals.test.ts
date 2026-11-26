@@ -748,3 +748,37 @@ it("holds a case update between the same submitted questions after HQ read-back"
 		outcome.draft.doc.forms[FORM].caseOperations?.map((entry) => entry.uuid),
 	).toEqual([change.uuid]);
 });
+
+it.each(["close", "update", "create"] as const)(
+	"keeps the %s block's close condition separate from its own relevance",
+	async (action) => {
+		const change =
+			action === "create"
+				? visitCreate({ closeAfter: true, closeCondition: onYes })
+				: update({
+						action,
+						target: { kind: "expression", expr: term(literal("patient-01")) },
+						closeCondition: onYes,
+						...(action === "update" && {
+							closeAfter: true,
+							writes: [{ property: "outcome", value: answer }],
+						}),
+					});
+		const doc = produce(app("survey", [change]), (draft) => {
+			delete draft.modules[draft.moduleOrder[0]].caseType;
+		});
+		expect(gateCodes(doc)).toEqual([]);
+		const outcome = await readBack(doc);
+		expect(outcome.defects).toEqual([]);
+		if (outcome.kind !== "read")
+			throw new Error(JSON.stringify(outcome.findings));
+		const [read] = outcome.draft.doc.forms[FORM].caseOperations ?? [];
+		expect(read).toMatchObject({
+			uuid: change.uuid,
+			action,
+			closeCondition: onYes,
+		});
+		expect(read.condition).toBeUndefined();
+		expect(read.closeAfter).toBe(action === "close" ? undefined : true);
+	},
+);

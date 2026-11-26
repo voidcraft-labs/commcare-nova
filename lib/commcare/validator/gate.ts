@@ -406,6 +406,7 @@ export const VALIDITY_CLASS_BY_CODE = {
 	// A root field and a Connect block of one form would be two elements of
 	// one name in the form's data root.
 	CASE_OPERATION_DUPLICATE_UUID: "soundness",
+	CASE_OPERATION_CLOSE_CONDITION_INVALID: "soundness",
 	CASE_CHANGE_POSITION_INVALID: "soundness",
 	CASE_OPERATION_INVALID_ID: "soundness",
 	CASE_OPERATION_DUPLICATE_ID: "soundness",

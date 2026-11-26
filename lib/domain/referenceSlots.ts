@@ -620,6 +620,13 @@ export const FORM_REFERENCE_SLOTS = [
 	},
 	{
 		entity: "form",
+		slot: "case_operation_close_condition",
+		path: "caseOperations[].closeCondition",
+		kind: "expression",
+		formTypes: FORM_TYPES,
+	},
+	{
+		entity: "form",
 		slot: "case_operation_name",
 		path: "caseOperations[].name",
 		kind: "expression",
@@ -1377,6 +1384,7 @@ function expressionRefForEntry(
 		}
 		case "case_operation_target_expression":
 		case "case_operation_condition":
+		case "case_operation_close_condition":
 		case "case_operation_name":
 		case "case_operation_owner":
 		case "case_operation_rename": {
@@ -2176,6 +2184,7 @@ export const NON_REFERENCE_FORM_PATHS: Readonly<
 	"caseOperations[].uuid": "identity",
 	"caseOperations[].id": "declaration",
 	"caseOperations[].action": "discriminator",
+	"caseOperations[].closeAfter": "config",
 	"caseOperations[].target.kind": "discriminator",
 	"caseOperations[].links[].identifier": "wire-token",
 	"caseOperations[].links[].target.kind": "discriminator",

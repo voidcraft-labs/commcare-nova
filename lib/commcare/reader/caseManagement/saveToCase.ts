@@ -180,14 +180,6 @@ export const SAVE_TO_CASE_CLAIMS = defineClaims("caseManagement.saveToCase", {
 		"xform:model/bind@calculate",
 	),
 	ownerCondition: refuse(`${Q}/savetocase-owner-id-condition`, MUG),
-	closeOnlyCondition: refuse(
-		`${Q}/a-close-only-savetocase-block-with-a-close-condition`,
-		MUG,
-	),
-	writeAndClose: refuse(
-		`${Q}/a-savetocase-block-that-creates-or-updates-and-also-closes-under`,
-		MUG,
-	),
 	blockRelevance: refuse(
 		`${Q}/relevance-bound-on-the-savetocase-node-itself`,
 		"xform:model/bind@relevant",
@@ -1976,7 +1968,6 @@ function readBlock(
 			text: closeRelevant,
 			site: site("case/close", "relevant"),
 		};
-	if (closes && creates) return fail(SAVE_TO_CASE_CLAIMS.writeAndClose);
 
 	// The shared update's group is present while some row is, or always
 	// where the block links.
@@ -2002,7 +1993,16 @@ function readBlock(
 	return {
 		ok: true,
 		proposal: {
-			kind: creates ? "create" : closes ? "close" : "update",
+			kind: creates
+				? "create"
+				: closes &&
+						writes.length === 0 &&
+						rename === undefined &&
+						retype === undefined &&
+						owner === undefined &&
+						links.length === 0
+					? "close"
+					: "update",
 			caseType,
 			block,
 			segments,
@@ -2704,24 +2704,6 @@ export function readSaveToCaseBlocks(
 			MUG,
 		);
 		if (uuid === undefined) continue;
-		// Only the own arm's block carries a condition on its `case/close`;
-		// every other close condition Nova writes is a group's relevance, the
-		// own close's in a block of its own included.
-		if (!own && read.closeCondition !== undefined) {
-			const closeOnly =
-				read.writes.length === 0 &&
-				read.rename === undefined &&
-				read.owner === undefined &&
-				read.links.length === 0;
-			reading.failed.push({
-				block: read.block,
-				place: read.place,
-				claim: closeOnly
-					? SAVE_TO_CASE_CLAIMS.closeOnlyCondition
-					: SAVE_TO_CASE_CLAIMS.writeAndClose,
-			});
-			continue;
-		}
 		// The own arm's rows of an answer as it is lead with its presence.
 		const writes = own
 			? read.writes.map(({ answerAsIs, condition, ...row }) =>
@@ -3357,6 +3339,7 @@ function caseSlot(
 		| "case_operation_owner"
 		| "case_operation_rename"
 		| "case_operation_condition"
+		| "case_operation_close_condition"
 		| "case_operation_target_expression",
 	operationUuid: Uuid,
 ): SlotContextRef {
@@ -3451,14 +3434,16 @@ function registerTexts(
 				one.place,
 				CALC,
 			);
-		if (one.action === "own" && one.closeCondition !== undefined)
+		if (one.closeCondition !== undefined)
 			register(
 				`${op} close`,
-				{
-					entity: "form",
-					uuid: form.uuid,
-					slot: "form_close_condition",
-				} as SlotContextRef,
+				one.action === "own"
+					? ({
+							entity: "form",
+							uuid: form.uuid,
+							slot: "form_close_condition",
+						} as SlotContextRef)
+					: caseSlot(form.uuid, "case_operation_close_condition", op),
 				one.closeCondition.text,
 				one.closeCondition.site,
 				one.place,
@@ -3666,6 +3651,12 @@ function operationOf(
 		id: one.id,
 		...(writes.length > 0 && { writes }),
 		...(one.name?.answer === undefined && { placement }),
+		...(one.action !== "own" &&
+			one.closeCondition !== undefined && {
+				closeCondition: placeholder("condition"),
+			}),
+		...((one.action === "create" || one.action === "update") &&
+			one.closes && { closeAfter: true as const }),
 	};
 	if (one.action === "own") {
 		// A registration's own arm names the case it creates; any other renames it.

@@ -621,6 +621,7 @@ function collectFormSlotReferences(
 					);
 					break;
 				case "case_operation_condition":
+				case "case_operation_close_condition":
 					out.push(
 						sameRef(
 							`${operationLabel} in ${where} has a condition using "${caseType}"`,

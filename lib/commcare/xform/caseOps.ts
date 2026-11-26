@@ -1214,6 +1214,7 @@ export function buildCaseOperations(
 			slot:
 				| "case_operation_target_expression"
 				| "case_operation_condition"
+				| "case_operation_close_condition"
 				| "case_operation_name"
 				| "case_operation_owner"
 				| "case_operation_rename",
@@ -1275,6 +1276,7 @@ export function buildCaseOperations(
 			: operation.rename;
 		const closesHere =
 			operation.action === "close" ||
+			operation.closeAfter === true ||
 			(own &&
 				ownClose?.sharesWith === operation.uuid &&
 				placements.get(operation.uuid)?.placement.kind === "save-to-case");
@@ -1311,8 +1313,14 @@ export function buildCaseOperations(
 				]),
 			);
 		}
+		// A close guarded at its own leaf can leave a childless case
+		// transaction. Do not turn that outcome into a device update.
+		const closeOnly =
+			operation.action === "close" &&
+			operation.closeCondition !== undefined &&
+			updateChildren.length === 0;
 		const needsUpdate =
-			!create ||
+			(!create && !closeOnly) ||
 			writes.length > 0 ||
 			rename !== undefined ||
 			operation.retype !== undefined;
@@ -1322,7 +1330,8 @@ export function buildCaseOperations(
 		// case_type assignment instead: Core loads the case before applying it,
 		// closing the index-only missing-case NPE, and both runtimes retain the
 		// declared type while classifying every non-create block as update-first.
-		const usesTypeOrderingGuard = !create && updateChildren.length === 0;
+		const usesTypeOrderingGuard =
+			needsUpdate && !create && updateChildren.length === 0;
 		if (usesTypeOrderingGuard) updateChildren.push(el("case_type", {}));
 		if (needsUpdate) {
 			caseChildren.push(el("update", {}, updateChildren));
@@ -1612,8 +1621,8 @@ export function buildCaseOperations(
 				blockBinds.push(xel("bind", { xpath: attributes }, context));
 			}
 		}
-		if (closesHere && own) {
-			const condition = ownCloseCondition();
+		if (closesHere) {
+			const condition = own ? ownCloseCondition() : operation.closeCondition;
 			if (condition !== undefined) {
 				const closePath = casePath.child("close");
 				blockBinds.push(
@@ -1622,10 +1631,13 @@ export function buildCaseOperations(
 						{
 							xpath: {
 								nodeset: closePath.toWire(),
-								relevant: printOwnClose(
-									condition,
-									operationBindings(closePath),
-								),
+								relevant: own
+									? printOwnClose(condition, operationBindings(closePath))
+									: emitExpression(
+											condition,
+											closePath,
+											ownSlot("case_operation_close_condition"),
+										),
 							},
 						},
 						context,

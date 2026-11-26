@@ -544,6 +544,8 @@ const caseOperationCommonShape = {
 	id: z.string(),
 	caseType: z.string(),
 	condition: conditionSchema.optional(),
+	/** The close leaf is conditional independently of the block. */
+	closeCondition: conditionSchema.optional(),
 	forEach: z.strictObject({ repeat: uuidSchema }).optional(),
 	writes: z.array(caseOperationWriteSchema).optional(),
 	placement: casePlacementSchema.optional(),
@@ -577,6 +579,8 @@ export const ownCaseOperationSchema = z.strictObject({
 	caseType: z.never().optional(),
 	target: z.never().optional(),
 	condition: z.never().optional(),
+	closeCondition: z.never().optional(),
+	closeAfter: z.never().optional(),
 	forEach: z.never().optional(),
 	rename: z.never().optional(),
 	renameOnlyIfChanged: z.never().optional(),
@@ -588,6 +592,7 @@ export const caseOperationSchema = z.discriminatedUnion("action", [
 	z.strictObject({
 		...caseOperationCommonShape,
 		action: z.literal("create"),
+		closeAfter: z.literal(true).optional(),
 		target: newCaseTargetSchema,
 		name: valueSchema,
 		nameOnlyIfChanged: z.never().optional(),
@@ -601,6 +606,7 @@ export const caseOperationSchema = z.discriminatedUnion("action", [
 	z.strictObject({
 		...caseOperationCommonShape,
 		action: z.literal("update"),
+		closeAfter: z.literal(true).optional(),
 		target: updateCaseTargetSchema,
 		name: z.never().optional(),
 		nameOnlyIfChanged: z.never().optional(),
@@ -614,6 +620,7 @@ export const caseOperationSchema = z.discriminatedUnion("action", [
 	z.strictObject({
 		...caseOperationCommonShape,
 		action: z.literal("close"),
+		closeAfter: z.never().optional(),
 		target: existingCaseTargetSchema,
 		name: z.never().optional(),
 		nameOnlyIfChanged: z.never().optional(),
@@ -691,6 +698,8 @@ export type OwnCaseOperation = CaseOperationFacets & {
 	caseType?: undefined;
 	target?: undefined;
 	condition?: undefined;
+	closeCondition?: undefined;
+	closeAfter?: undefined;
 	forEach?: undefined;
 	rename?: undefined;
 	renameOnlyIfChanged?: undefined;
@@ -703,6 +712,8 @@ export type TargetedCaseOperation = CaseOperationFacets & {
 	caseType: string;
 	target: CaseTarget;
 	condition?: Expression;
+	closeCondition?: Expression;
+	closeAfter?: true;
 	forEach?: { repeat: Uuid };
 	rename?: Expression;
 	renameOnlyIfChanged?: true;

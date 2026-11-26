@@ -546,13 +546,14 @@ export function sharingCloses(
 ): ReadonlyMap<Uuid, CaseOperation> {
 	const sharers = new Map<Uuid, CaseOperation>();
 	f.operations.forEach((create, index) => {
-		if (create.action !== "create") return;
+		if (create.action !== "create" || create.closeAfter === true) return;
 		const next = f.operations
 			.slice(index + 1)
 			.find((op) => namesCase(op, create.uuid));
 		if (
 			next === undefined ||
 			next.action !== "close" ||
+			next.closeCondition !== undefined ||
 			!changesCase(next, create.uuid) ||
 			next.forEach?.repeat !== create.forEach?.repeat ||
 			next.placement?.kind === "save-to-case" ||

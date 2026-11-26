@@ -588,6 +588,24 @@ function validateOperation(
 		operationSlot(ctx, operation, "case_operation_condition"),
 		errors,
 	);
+	if (operation.closeCondition !== undefined) {
+		if (operation.action !== "close" && operation.closeAfter !== true)
+			errors.push(
+				opError(
+					ctx,
+					operation,
+					"CASE_OPERATION_CLOSE_CONDITION_INVALID",
+					"Choose to close the case before setting when it closes.",
+				),
+			);
+		validatePredicateSlot(
+			ctx,
+			operation,
+			operation.closeCondition,
+			operationSlot(ctx, operation, "case_operation_close_condition"),
+			errors,
+		);
+	}
 	validateNameExpression(ctx, operation, operation.name, "create name", errors);
 	validateTextExpression(
 		ctx,
@@ -1618,6 +1636,7 @@ function validateTarget(
 type OperationScalarSlot =
 	| "case_operation_target_expression"
 	| "case_operation_condition"
+	| "case_operation_close_condition"
 	| "case_operation_name"
 	| "case_operation_owner"
 	| "case_operation_rename";

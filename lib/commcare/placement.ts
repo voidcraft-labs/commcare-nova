@@ -1004,6 +1004,13 @@ function corePlan(
 		exclude: new Set([
 			...exclude,
 			...authoredCaseChangePaths(doc, formUuid).keys(),
+			...f.operations
+				.filter(
+					(operation) =>
+						operation.closeAfter === true ||
+						operation.closeCondition !== undefined,
+				)
+				.map((operation) => operation.uuid),
 		]),
 		carried: new Set(carriedCreates(doc, formUuid).keys()),
 		...(forceBasic !== undefined && { forceBasic }),

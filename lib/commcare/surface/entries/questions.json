@@ -3902,15 +3902,15 @@
 		"item": "a close-only SaveToCase block with a Close Condition",
 		"surfaceKeys": [
 			"mug:SaveToCase",
+			"xform:model/bind@relevant",
 			"vellum-plugin:saveToCase",
 			"jr-type:dateTime",
 			"vellum-markup:model/instance//*@vellum:role"
 		],
 		"valueClass": "savetocase-close-only",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: two operations sharing the block: an update with no writes, which touches the case (a transaction and a new `modified_on`) on every submission that reaches the block, and a close under the Close Condition, since Vellum puts it on `…/case/close` alone (`saveToCase.js`; HQ processes a case block with no action, `form_processor/backends/sql/update_strategy.py`); Nova's close condition gates the whole block today",
-		"subject": "save-to-case",
-		"owner": "xform",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: a close condition on the close leaf. A false condition leaves a childless transaction, which contributes HQ history without changing the case before sync.",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -3934,10 +3934,9 @@
 		"item": "a SaveToCase block that creates or updates and also closes (under its own Close Condition) or closes and links",
 		"surfaceKeys": ["mug:SaveToCase"],
 		"valueClass": "write-and-close",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: two operations sharing the block, the create or update and a close of the same case under the block's Close Condition (Vellum makes only create and update exclusive, `saveToCase.js`, and puts the Close Condition on `…/case/close` alone; Nova's close arm today gates the whole operation and takes no links)",
-		"subject": "save-to-case",
-		"owner": "xform",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: one change with a create or update and a close of the same case. Its close condition applies to the close leaf.",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
