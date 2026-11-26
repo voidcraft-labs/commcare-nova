@@ -4956,14 +4956,8 @@
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: The menu editor can save only record types used by menus in this app.",
 		"platforms": {
-			"kind": "each",
-			"cell": "RUNS / RUNS",
-			"webApps": {
-				"reading": "runs"
-			},
-			"android": {
-				"reading": "runs"
-			}
+			"kind": "none",
+			"cell": "—"
 		},
 		"emission": {
 			"cell": "list; CASE_SEARCH_ADVANCED (results nodeset build-gated on it)",

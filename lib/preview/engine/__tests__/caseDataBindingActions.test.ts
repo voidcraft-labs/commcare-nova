@@ -3583,7 +3583,15 @@ describe("claimSearchedCasesAction", () => {
 					caseListConfig: caseListConfig([
 						{ field: "case_name", header: "Name" },
 					]),
-					forms: [{ name: "Visit", type: "followup", fields: [] }],
+					forms: [
+						{
+							name: "Visit",
+							type: "followup",
+							fields: [
+								f({ kind: "text", id: "visit_note", label: "Visit note" }),
+							],
+						},
+					],
 				},
 			],
 		});

@@ -1,6 +1,6 @@
 import {
 	type BlueprintDoc,
-	columnPropertyCaseType,
+	columnPropertyBindings,
 	effectiveCaseTypes,
 	type Module,
 	type RelationPath,
@@ -50,10 +50,13 @@ export function* moduleCaseProperties(
 		);
 	for (const column of list?.columns ?? []) {
 		if (column.kind === "calculated") continue;
-		const types = columnCaseScopes(doc, mod, column).flatMap((type) => {
-			const owner = columnPropertyCaseType(column, type, catalog);
-			return owner ? [owner] : [];
-		});
+		const types = [
+			...new Set(
+				columnCaseScopes(doc, mod, column).flatMap((type) =>
+					column.via ? columnPropertyBindings(column, type, catalog) : [type],
+				),
+			),
+		];
 		yield {
 			slot: "case_list_column_field",
 			name: column.field,
