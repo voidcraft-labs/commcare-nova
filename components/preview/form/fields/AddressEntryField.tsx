@@ -65,10 +65,7 @@ interface AddressEntryFieldProps {
 	field: TextFieldEntity | SecretField | BarcodeField;
 	state: FieldState;
 	labelledBy?: string;
-	onCommit: (
-		value: string,
-		message?: QuestionMessage,
-	) => boolean | Promise<boolean>;
+	onCommit: (value: string, message?: QuestionMessage) => Promise<boolean>;
 	onBlur: () => void;
 }
 

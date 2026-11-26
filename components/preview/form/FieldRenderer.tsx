@@ -50,7 +50,10 @@ interface FieldRendererProps {
 	onBlurAt?: ((path: string) => void) | undefined;
 	onCommitCapture?: CaptureAnswerCommit;
 	/** Sends a Web Apps address choice, or its clearing, to the question's channels. */
-	onCommitAddress?: (value: string, message?: QuestionMessage) => boolean;
+	onCommitAddress?: (
+		value: string,
+		message?: QuestionMessage,
+	) => Promise<boolean>;
 }
 
 /**

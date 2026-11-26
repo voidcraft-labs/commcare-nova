@@ -557,9 +557,14 @@ const InteractiveField = memo(function InteractiveField({
 					return applied;
 				}}
 				onBlur={() => controller.touchAtAsync(path)}
-				onCommitAddress={(value, message) =>
-					controller.entryKey === entryKey &&
-					controller.stageAddressAnswerAt(path, value, message)
+				onCommitAddress={async (value, message) =>
+					entryKey !== undefined &&
+					controller.commitAddressAnswer(
+						entryKey,
+						{ fieldUuid: field.uuid, repeatInstances },
+						value,
+						message,
+					)
 				}
 				onChangeAt={(targetPath, value) =>
 					controller.setValueAtAsync(targetPath, value)
