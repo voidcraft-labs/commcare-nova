@@ -58,6 +58,7 @@ it("carries an inactive adopted search by retained menu identity and stops a sta
 		{ menu: birth.moduleUuid, uniqueId: "a".repeat(32), name: "Région2" },
 	]);
 	const old = {
+		appId,
 		modules: {
 			[birth.moduleUuid]: { name: "Current title" },
 			unrelated: { name: "Former title" },

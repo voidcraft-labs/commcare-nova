@@ -17,6 +17,11 @@ import {
 	scanMenuLayoutAdoptions,
 } from "./menuLayoutAdoptionScan";
 
+import {
+	checkSearchResultsSourceFacts,
+	searchResultsSourceFacts,
+} from "./searchResultsAdoption";
+
 const releasedLayoutDoc = z.object({
 	appSettings: z
 		.object({
@@ -68,8 +73,10 @@ export async function freezeCompletionSettings(
 				undefined,
 				releasedLayoutHeads(tx, migration),
 			);
+			const searchResults = await searchResultsSourceFacts(tx);
 			return completionSettingsSchema.parse({
 				locationCapture,
+				searchResults,
 				menuLayouts: { decisions, digest },
 			});
 		});
@@ -82,6 +89,7 @@ export const step7CompletionStorage: CompletionStorage = {
 	async checkSourceFacts(tx, migration) {
 		const frozen = completionSettingsSchema.parse(migration.conversionSettings);
 		await checkLocationSourceFacts(tx, frozen.locationCapture);
+		await checkSearchResultsSourceFacts(tx, frozen.searchResults);
 		await checkMenuLayoutSourceFacts(
 			tx,
 			frozen.menuLayouts,
