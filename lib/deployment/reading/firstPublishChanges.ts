@@ -341,6 +341,8 @@ export type FirstPublishChangeAt =
 	  }
 	| { readonly appWide: string };
 
+const LOOKUP_IMAGE_PATH = "/modules/*/case_details/short/lookup_image";
+
 /** The pointers a media reference lives under in CommCare HQ's stored app. */
 export const MEDIA_REFERENCE_PATHS: readonly string[] = [
 	"/_attachments/*",
@@ -353,7 +355,7 @@ export const MEDIA_REFERENCE_PATHS: readonly string[] = [
 	"/modules/*/forms/*/media_image/*",
 	"/modules/*/forms/*/media_audio/*",
 	"/modules/*/case_details/*/columns/*/enum/*/value/*",
-	"/modules/*/case_details/short/lookup_image",
+	LOOKUP_IMAGE_PATH,
 	"/logo_refs/*",
 ];
 
@@ -1819,7 +1821,11 @@ export const FIRST_PUBLISH_CHANGES: Readonly<
 			kinds: ["app", "menu", "form", "form-node"],
 			places: (facts) => leftOutMediaPlaces(facts, true),
 		},
-		paths: [...MEDIA_REFERENCE_PATHS, "/multimedia_map/*"],
+		paths: [
+			// The reader refuses an unavailable lookup icon on Android.
+			...MEDIA_REFERENCE_PATHS.filter((path) => path !== LOOKUP_IMAGE_PATH),
+			"/multimedia_map/*",
+		],
 	},
 	"unshown-form-media-removed": {
 		touchesWorkers: false,

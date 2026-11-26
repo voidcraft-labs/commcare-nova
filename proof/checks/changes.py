@@ -620,6 +620,11 @@ def _suite_location(artifact: str, steps: list[str], sites: Sites) -> tuple[str,
         return (*menu, BELOW) if menu else NOWHERE
     if name == "detail":
         detail = detail_place(_identity(top))
+        if (
+            detail and detail[-1] == "short" and len(rest) == 2
+            and _without_position(rest[0]) == "lookup" and rest[1] == "@image"
+        ):
+            return (*detail, "lookup_image")
         return (*detail, BELOW) if detail else NOWHERE
     if name == "xform":
         form = _site(sites.builds, (artifact, top))

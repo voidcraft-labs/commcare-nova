@@ -884,6 +884,117 @@ describe("where each change stands", () => {
 		);
 	});
 
+	describe("a case list lookup icon's first publish", () => {
+		const icon = "jr://file/commcare/image/visit-lookup.png";
+		const kept = "jr://file/commcare/image/lookup.png";
+		const place = "/menu/0/case_details/short/lookup_image";
+
+		const read = (path: string, mediaFiles: readonly AdoptedMediaFile[]) =>
+			readAs(
+				patients([plainColumn(uuid(1), "case_name", "Name")]),
+				{
+					...onMenu((menu) => {
+						Object.assign(menu.case_details.short, {
+							lookup_enabled: true,
+							lookup_action: "org.example.LOOKUP",
+							lookup_name: "Find a visit",
+							lookup_extras: [{ key: "mode", value: "'visit'" }],
+							lookup_responses: [{ key: "first" }],
+							lookup_image: path,
+						});
+						if (mediaFiles.some((one) => one.hqPath === kept))
+							menu.media_image = { en: kept };
+					}),
+					root: {
+						multimedia_map: Object.fromEntries(
+							mediaFiles.map((one, index) => [
+								one.hqPath,
+								mediaMapItem(String(index + 1)),
+							]),
+						),
+					},
+				},
+				{
+					media: {
+						resolve: (key) => {
+							const asset = mediaFiles.find((one) => one.hqPath === key);
+							return asset === undefined
+								? { kind: "no-entry" }
+								: { kind: "asset", assetId: asset.assetId, mediaKind: "image" };
+						},
+					},
+				},
+			);
+		const image = (
+			facts: FirstPublishFacts,
+			mediaFiles: readonly AdoptedMediaFile[],
+		) =>
+			(firstPublishBody(facts, { mediaFiles }).modules as StoredMenu[])[0]
+				.case_details.short.lookup_image;
+
+		it("joins two paths for one image and preserves paths for different images", async () => {
+			const files = [
+				file(icon, HASH_A, "lookup-icon"),
+				file(kept, HASH_A, "lookup-icon"),
+			];
+			const joined = factsOf(await read(icon, files), { mediaFiles: files });
+			expect(applies("media-paths-joined", joined)).toBe(true);
+			expect(
+				firstPublishChangePlaces(joined, ["media-paths-joined"])[0].places,
+			).toContain(place);
+			expect(image(joined, files)).toBe(kept);
+
+			const distinct = [files[0], file(kept, HASH_B, "other-icon")];
+			const reread = factsOf(await read(icon, distinct), {
+				mediaFiles: distinct,
+			});
+			expect(applies("media-paths-joined", reread)).toBe(false);
+			expect(image(reread, distinct)).toBe(icon);
+		});
+
+		it("renames an icon whose content does not match its derived path", async () => {
+			const old = `jr://file/commcare/${HASH_B}.png`;
+			const files = [file(old, HASH_A, "lookup-icon")];
+			const renamed = factsOf(await read(old, files), { mediaFiles: files });
+			expect(
+				firstPublishChangePlaces(renamed, ["media-files-renamed"])[0].places,
+			).toContain(place);
+			expect(image(renamed, files)).toBe(
+				`jr://file/${wirePathFor(HASH_A, ".png")}`,
+			);
+		});
+
+		it("omits an unmapped icon only when the app runs in Web Apps alone", async () => {
+			const reading = await read(icon, []);
+			const references = hqMediaReferencesOf(reading.draft.facts);
+			const plan = (runsOn: readonly ("web-apps" | "android")[]) =>
+				planHqMedia({
+					references,
+					multimediaMap: [],
+					runsOn,
+					contentValid: null,
+					lazyLoadVideos: false,
+				});
+			expect(references).toMatchObject([{ slot: "lookup-action", path: icon }]);
+			const web = plan(["web-apps"]);
+			expect(web.findings).toEqual([]);
+			expect(web.claims).toMatchObject([{ brokenPicture: false }]);
+			expect(plan(["android"]).findings).toHaveLength(1);
+			expect(plan(["android"]).claims).toEqual([]);
+			const choice = choicesOf(reading).find(
+				(one) => one.runsOnlyOn === "web-apps",
+			);
+			expect(choice).toBeDefined();
+			const omitted = factsOf(reading, { choice, mediaClaims: web.claims });
+			expect(
+				firstPublishChangePlaces(omitted, [
+					"media-references-with-no-file-removed",
+				])[0].places,
+			).toContain(place);
+			expect(image(omitted, [])).toBeNull();
+		});
+	});
+
 	it.each(["date_opened", "external-id"])(
 		"records the added hidden ordering column when HQ uses the other word for %s",
 		async (field) => {

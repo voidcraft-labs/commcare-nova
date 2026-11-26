@@ -223,3 +223,71 @@ def test_a_fallback_confidence_heading_builds_as_its_explicit_translation(hq, ed
     assert build_differences == []
     assert compare.first_difference(*traces) is None
     assert all(compare.listed_cases(trace) == {"lookup-juniper"} for trace in traces)
+
+
+def test_the_lookup_icon_can_move_to_another_path_for_the_same_image(hq, editor_driver, core_runner):
+    """Both paths are real HQ media, and the Case List save keeps the exact new lookup image path."""
+    from lxml import etree
+
+    from proof.checks.compare.xml_tree import compare_xml
+    from proof.checks.source import compare_sources
+    from proof.editors import compare
+    from proof.matrix.authoring import Authoring
+    from proof.matrix.bases import _pages
+
+    alias = "jr://file/commcare/image/visit-lookup.png"
+    kept = "jr://file/commcare/image/lookup.png"
+    configuration = Configuration(privileges={"CLOUDCARE"}, flags={"CASE_LIST_LOOKUP"})
+    with hq_check(configuration) as (state, record):
+        app_id, module_id = _lookup_case_list(
+            state, editor_driver, icon=alias,
+            extras=[{"key": "visit_mode", "value": "'followup'"}],
+        )
+        authoring = Authoring(state, {}, "lookup-icon-path", operation=state.operation)
+        _pages.upload_picture(authoring, app_id, kept)
+        _pages.attach_media(authoring, app_id, alias, like=kept)
+        _pages.save_menu_media(authoring, app_id, 0, image=kept)
+        saved = pages.fresh_section_save(editor_driver, state, pages.CASE_LIST, app_id, module_id)
+        assert saved.save and saved.save.status == 200 and not saved.refused, saved.alerts
+        source = operations.app_source(state, app_id)
+        before = compare.build(state, app_id, record)
+
+        fields = dict(parse_qsl(saved.save.body.decode("utf-8"), keep_blank_values=True))
+        lookup = json.loads(fields["case_list_lookup"])
+        assert lookup["lookup_image"] == alias
+        lookup["lookup_image"] = kept
+        data = [(name, fields[name]) for name in (
+            "type", "short", "multi_select", "auto_select", "max_select_value",
+        ) if name in fields]
+        _hq(
+            state, "edit_module_detail_screens", app_id, module_id,
+            data=[*data, ("case_list_lookup", json.dumps(lookup))],
+        )
+        published = operations.app_source(state, app_id)
+        after = compare.build(state, app_id, record, version=before.app.version)
+
+    diff = [
+        item.as_json() for item in compare_sources("lookup-icon-path", source, published)
+        if item.at.endswith("/lookup_image")
+    ]
+    suites = [build.files["suite.xml"] for build in (before, after)]
+    built = [etree.fromstring(suite).find(".//lookup").get("image") for suite in suites]
+    suite_diff = [
+        item.as_json() for item in compare_xml(*suites, check="proof2", document="lookup-icon-path", artifact="suite.xml")
+        if "lookup" in item.at
+    ]
+    restore = compare.case_restore([("lookup-juniper", "visit", "Juniper", {})])
+    traces = [compare.core_trace(core_runner, build, restore) for build in (before, after)]
+    write_evidence("lookup-icon-source-path", {
+        "sourceDifferences": diff,
+        "suiteDifferences": suite_diff,
+        "buildDifferences": compare.differences(before.files, after.files),
+        "coreDifference": compare.first_difference(*traces),
+        "listedCases": [sorted(compare.listed_cases(trace)) for trace in traces],
+    })
+    assert [(item["at"], item["before"], item["after"]) for item in diff] == [
+        ("/modules/0/case_details/short/lookup_image", alias, kept),
+    ]
+    assert built == [alias, kept]
+    assert compare.first_difference(*traces) is None
+    assert all(compare.listed_cases(trace) == {"lookup-juniper"} for trace in traces)

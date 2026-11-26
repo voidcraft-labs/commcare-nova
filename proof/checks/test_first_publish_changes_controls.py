@@ -1615,3 +1615,25 @@ def test_legacy_related_case_text_allows_only_the_same_stored_projection():
         differences = source.compare_sources("legacy", stored(before), stored(damaged))
         assert any(changes.held(d) for d in differences)
         assert all(not changes.holders(d, register, apply, siblings=differences) for d in differences)
+
+
+@pytest.mark.parametrize("change", ["media-paths-joined", "media-files-renamed"])
+def test_the_built_lookup_image_move_is_bound_to_the_stored_icon(change):
+    place = "/menu/0/case_details/short/lookup_image"
+    document = _document(RESIDUE, (change, [place]))
+
+    def suite(menu, path):
+        return f'<suite><detail id="m{menu}_case_short"><lookup image="{path}"/></detail></suite>'
+
+    def difference(menu):
+        found, = compare_xml(
+            suite(menu, "jr://file/b.png"), suite(menu, "jr://file/a.png"),
+            check="proof2", document="hq-planted", artifact="suite.xml",
+        )
+        return found
+
+    assert _held_by(document, difference(0)) == {change}
+    assert _held_by(document, difference(1)) == frozenset()
+    unrelated = _document(RESIDUE, (change, ["/menu/0/case_details/short/columns/0/header"]))
+    assert _held_by(unrelated, difference(0)) == frozenset()
+    assert _held_by(document, replace(difference(0), kind="removed", after=None)) == frozenset()

@@ -2123,6 +2123,11 @@
 			{
 				"check": "source",
 				"artifact": "app.json",
+				"path": "/modules/*/case_details/short/lookup_image"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
 				"path": "/logo_refs/*"
 			},
 			{
@@ -2154,6 +2159,12 @@
 				"artifact": "app.json",
 				"path": "/modules/*/forms/*/media/*",
 				"kind": "added"
+			},
+			{
+				"check": "proof2",
+				"artifact": "suite.xml",
+				"path": "/suite/detail[@id=*]/lookup[*]/@image",
+				"kind": "changed"
 			},
 			{
 				"check": "proof2",
@@ -2225,6 +2236,11 @@
 			{
 				"check": "source",
 				"artifact": "app.json",
+				"path": "/modules/*/case_details/short/lookup_image"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
 				"path": "/logo_refs/*"
 			},
 			{
@@ -2255,6 +2271,12 @@
 				"check": "proof2",
 				"artifact": "form:0.0",
 				"path": "/html/head[*]/model[*]/itext[*]/translation[@lang=*]/text[@id=*]/value[@form=image]/text()",
+				"kind": "changed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "suite.xml",
+				"path": "/suite/detail[@id=*]/lookup[*]/@image",
 				"kind": "changed"
 			},
 			{
@@ -2366,6 +2388,11 @@
 				"check": "source",
 				"artifact": "app.json",
 				"path": "/modules/*/case_details/*/columns/*/enum/*/value/*"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/case_details/short/lookup_image"
 			},
 			{
 				"check": "source",
