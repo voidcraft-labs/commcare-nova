@@ -49,7 +49,7 @@ import {
 	HQ_CHANGES_NOTHING_TAKEN_LINE,
 	hqChangesMovedLine,
 } from "@/lib/publish/hqChangesCopy";
-import { toolWriteGrant } from "../credentialWriteGrant";
+import { credentialWriteGrant, toolWriteGrant } from "../credentialWriteGrant";
 import {
 	BringInToolError,
 	type McpToolErrorResult,
@@ -66,6 +66,7 @@ import {
 } from "../paging";
 import { LARGE_RESULT_META } from "../resultSize";
 import { registerScopedTool } from "../scopedTool";
+import { SCOPES } from "../scopes";
 import type { ToolContext } from "../types";
 import {
 	type DeploymentProjection,
@@ -373,6 +374,11 @@ export function registerBringInHqChanges(
 						{
 							...call.scope,
 							requireOperation: toolWriteGrant(ctx, "bring_in_hq_changes"),
+							requireInstallationManagement: credentialWriteGrant(
+								ctx,
+								"bring_in_hq_changes",
+								[SCOPES.hqImport, SCOPES.hqWrite],
+							),
 						},
 						call.target,
 						{

@@ -1,7 +1,7 @@
 import type { inspectProjectSearchDestination } from "@/lib/deployment/store";
-import { lineParts } from "@/lib/utils/jsonTextParts";
 import {
 	fitsReviewResult,
+	lineParts,
 	PIECE_MAX_CHARS,
 	reviewedPageDigest,
 } from "../paging";

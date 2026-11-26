@@ -51,6 +51,7 @@ export const EXTERNAL_ENTITY_KINDS = [
 	"caseOperation",
 	"formLink",
 	"entryPoint",
+	"installationProfile",
 	"userProperty",
 	"organizationLevel",
 	"locationProperty",
@@ -114,6 +115,9 @@ export type EntryPointOwnerKey =
  *   counting `formLinks` in order and then the `otherwise` link.
  */
 export const externalKey = {
+	installationProfile(key: string): ExternalKey {
+		return { kind: "installationProfile", parts: [key] };
+	},
 	module(uniqueId: string): ExternalKey {
 		return { kind: "module", parts: [uniqueId] };
 	},

@@ -53,20 +53,20 @@ export function resolveCurrentPage(
 
 /**
  * For a jump from `from` to `to`: the visible screens that must be valid
- * first, `from` included and `to` excluded, in order. Empty for a jump
- * backward or to the same screen: anything behind the worker is reachable
- * without a check, the way Back never validates.
+ * first, `from` included if still visible and `to` excluded, in order. The
+ * full screen list anchors a page that emptied when the worker left it.
+ * A jump backward or to the same screen has no checks, like Back.
  */
 export function pagesToValidate(
-	visible: ReadonlyArray<FormScreenPage>,
+	pages: ReadonlyArray<FormScreenPage>,
 	from: string,
 	to: string,
 	identify: Identify = byPath,
 ): ReadonlyArray<FormScreenPage> {
-	const start = visible.findIndex((page) => identify(page) === from);
-	const end = visible.findIndex((page) => identify(page) === to);
-	if (start === -1 || end === -1 || end <= start) return [];
-	return visible.slice(start, end);
+	const start = pages.findIndex((page) => identify(page) === from);
+	const end = pages.findIndex((page) => identify(page) === to);
+	if (start === -1 || end <= start) return [];
+	return availablePages(pages.slice(start, end));
 }
 
 /**

@@ -41,8 +41,9 @@ async function lockActiveUser(
 	return user.rows.length === 1;
 }
 
-/** Hold current user, credential, consent and scopes until the consuming
- * operation commits. Immediate management writes do not retain grant epochs. */
+/** Immediate writes hold the verified credential but do not retain a grant
+ * epoch. Both the session and its current acting account must survive the
+ * consuming write. */
 export async function lockCurrentProjectGrant(
 	tx: Transaction<AppDatabase>,
 	userId: string,
@@ -105,7 +106,7 @@ export async function lockCurrentProjectGrant(
 	];
 }
 
-/** Resumable private-data operations additionally bind the API-key grant epoch. */
+/** Resumable reads also bind the API-key grant epoch. */
 export async function lockProjectDataGrant(
 	tx: Transaction<AppDatabase>,
 	userId: string,
@@ -118,12 +119,9 @@ export async function lockProjectDataGrant(
 		grant,
 		requiredScopes,
 	);
-	if (!identity) return dataAccessLost();
+	if (identity === null) return dataAccessLost();
 	if (grant.kind !== "api-key") return identity;
-	const epoch = await sql<{
-		epoch: string;
-	}>`SELECT epoch::text AS epoch FROM auth_apikey_grant_epoch WHERE key_id=${grant.keyId}`.execute(
-		tx,
-	);
+	const epoch = await sql<{ epoch: string }>`SELECT epoch::text AS epoch
+		FROM auth_apikey_grant_epoch WHERE key_id=${grant.keyId}`.execute(tx);
 	return [...identity, epoch.rows[0]?.epoch ?? ""];
 }

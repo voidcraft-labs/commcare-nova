@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { testUuid } from "@/__tests__/helpers/uuid";
+import { testMediaAssetId, testUuid } from "@/__tests__/helpers/uuid";
 import {
 	REGISTER,
 	ROUTE,
@@ -10,14 +10,24 @@ import {
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { diffDocsToMutations } from "@/lib/doc/diffDocsToMutations";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
-import { caseListModuleMutations } from "@/lib/doc/scaffolds";
+import {
+	caseListModuleMutations,
+	listedFormMenuMutations,
+} from "@/lib/doc/scaffolds";
 import { sharedChildUuid } from "@/lib/doc/sharedFormChildren";
 import {
 	changeListedMenuSource,
 	withListedMenuHierarchy,
 } from "@/lib/doc/sharedMenuHierarchy";
 import type { BlueprintDoc, Mutation } from "@/lib/doc/types";
+import {
+	makeTranslationUnitId,
+	resolveTranslationUnitValue,
+	translationUnitsById,
+} from "@/lib/domain";
 import { literal, term } from "@/lib/domain/expression";
+import { effectiveAppLocalization } from "@/lib/domain/localization";
+import { navigationFilesInLanguage } from "@/lib/domain/navigationMedia";
 
 function apply(doc: BlueprintDoc, mutations: readonly Mutation[]) {
 	const verdict = mutationCommitVerdict(
@@ -179,6 +189,156 @@ it.each([
 		scaffold.moduleUuid,
 	);
 	expect(after.modules[child]?.badge).toEqual(badge);
+});
+
+it("starts a listed child with its source child's localized navigation files", () => {
+	const before = twoMenus();
+	before.localization = {
+		sourceLanguage: "eng",
+		defaultLanguage: "eng",
+		languageOrder: ["eng", "fra"],
+		wireCodes: { eng: "en", fra: "fr" },
+		translations: { fra: {} },
+	};
+	const scaffold = caseListModuleMutations(before, {
+		caseType: "patient",
+		name: "Neighborhood",
+		parentModuleUuid: SOURCE,
+	});
+	const icon = testMediaAssetId("neighborhood-icon");
+	const audioLabel = testMediaAssetId("neighborhood-audio");
+	const formerlyUsed = testMediaAssetId("neighborhood-former-icon");
+	const born = scaffold.mutations.map((mutation) =>
+		mutation.kind === "addModule" &&
+		mutation.module.uuid === scaffold.moduleUuid
+			? {
+					...mutation,
+					module: {
+						...mutation.module,
+						icon: testMediaAssetId("neighborhood-shared-icon"),
+						audioLabel: testMediaAssetId("neighborhood-shared-audio"),
+						mediaByLanguage: {
+							fra: { icon, audioLabel },
+							eng: { icon: "blank" as const },
+						},
+						mediaByFormerCode: { fre: { icon: formerlyUsed } },
+					},
+				}
+			: mutation,
+	);
+	const after = apply(before, withListedMenuHierarchy(before, born));
+	const child = after.modules[sharedChildUuid(ROUTE, scaffold.moduleUuid)];
+	expect(child.mediaByLanguage?.eng?.icon).toBe("blank");
+	expect(child.mediaByFormerCode?.fre?.icon).toBe(formerlyUsed);
+	expect(
+		navigationFilesInLanguage(
+			child,
+			"fra",
+			effectiveAppLocalization(after.localization),
+		),
+	).toEqual({ icon, audioLabel });
+});
+
+it("keeps reviewed wording, stale drafts and active worker fallbacks distinct in a listed child", () => {
+	const before = twoMenus();
+	before.localization = {
+		sourceLanguage: "eng",
+		defaultLanguage: "eng",
+		languageOrder: ["eng", "fra"],
+		wireCodes: { eng: "en", fra: "fr" },
+		translations: { fra: {} },
+	};
+	const ordinary = apply(before, [{ kind: "removeModule", uuid: ROUTE }]);
+	const scaffold = caseListModuleMutations(ordinary, {
+		caseType: "patient",
+		name: "Visits today",
+		parentModuleUuid: SOURCE,
+	});
+	const { moduleUuid } = scaffold;
+	const source = apply(ordinary, [
+		...scaffold.mutations,
+		{
+			kind: "updateModule",
+			uuid: moduleUuid,
+			patch: { badge: { kind: "text", text: "Soon" } },
+		},
+	]);
+	const column = source.modules[moduleUuid].caseListConfig?.columns[0];
+	if (!column) throw new Error("The child needs a column.");
+	const units = translationUnitsById(source);
+	const name = units.get(makeTranslationUnitId("module", moduleUuid, "name"));
+	const badge = units.get(makeTranslationUnitId("module", moduleUuid, "badge"));
+	const header = units.get(
+		makeTranslationUnitId("column", column.uuid, "header"),
+	);
+	if (!name || !badge || !header)
+		throw new Error("The child needs its wording units.");
+	const french = (value: string, sourceFingerprint: string) => ({
+		value,
+		sourceFingerprint,
+		origin: "human" as const,
+		review: "reviewed" as const,
+		translatedFrom: "eng",
+	});
+	const savedName = french("Visites aujourd’hui", name.sourceFingerprint);
+	const savedHeader = french("Nom", header.sourceFingerprint);
+	const savedBadge = {
+		...french("À venir", name.sourceFingerprint),
+		review: "needs-review" as const,
+		workerFallback: {
+			value: "Prochainement",
+			sourceFingerprint: badge.sourceFingerprint,
+		},
+	};
+	const titled = apply(source, [
+		{
+			kind: "setTranslation",
+			language: "fra",
+			unitId: name.id,
+			entry: savedName,
+		},
+		{
+			kind: "setTranslation",
+			language: "fra",
+			unitId: header.id,
+			entry: savedHeader,
+		},
+		{
+			kind: "setTranslation",
+			language: "fra",
+			unitId: badge.id,
+			entry: savedBadge,
+			restoreAgainst: {
+				sourceFingerprint: badge.sourceFingerprint,
+				previous: null,
+			},
+		},
+		{ kind: "renameModule", uuid: moduleUuid, newId: "Upcoming visits" },
+	]);
+	const listing = listedFormMenuMutations(titled, { menuUuid: SOURCE });
+	if (!listing.ok) throw new Error(listing.message);
+	const result = apply(titled, listing.mutations);
+	const childId = sharedChildUuid(listing.moduleUuid, moduleUuid);
+	const childColumn = result.modules[childId].caseListConfig?.columns[0];
+	if (!childColumn) throw new Error("The listed child needs a column.");
+	const childName = makeTranslationUnitId("module", childId, "name");
+	const childBadge = makeTranslationUnitId("module", childId, "badge");
+	const childHeader = makeTranslationUnitId(
+		"column",
+		childColumn.uuid,
+		"header",
+	);
+	const stored = result.localization?.translations.fra;
+	expect(stored?.[childName]).toEqual(savedName);
+	expect(stored?.[childBadge]).toEqual(savedBadge);
+	expect(stored?.[childHeader]).toEqual(savedHeader);
+	expect(resolveTranslationUnitValue(result, "fra", childName)).toBe(
+		"Upcoming visits",
+	);
+	expect(resolveTranslationUnitValue(result, "fra", childBadge)).toBe(
+		"Prochainement",
+	);
+	expect(resolveTranslationUnitValue(result, "fra", childHeader)).toBe("Nom");
 });
 
 it("requires an explicit decision about active and paused form links before changing the menu that supplies forms", () => {

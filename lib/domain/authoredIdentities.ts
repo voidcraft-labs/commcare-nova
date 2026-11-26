@@ -19,6 +19,7 @@ export const BLUEPRINT_AUTHORED_IDENTITY_KINDS = [
 	"caseOperation",
 	"formLink",
 	"entryPoint",
+	"installationProfile",
 	"userProperty",
 	"userType",
 	"persona",
@@ -58,6 +59,11 @@ export function authoredBlueprintIdentities(
 	const identities: BlueprintAuthoredIdentity[] = Object.keys(
 		doc.appSettings.projectSearches ?? {},
 	).map((key) => ({ uuid: asUuid(key), kind: "projectSearch" }));
+	for (const profile of Object.values(
+		doc.appSettings.installationProfiles ?? {},
+	)) {
+		identities.push({ uuid: profile.uuid, kind: "installationProfile" });
+	}
 	for (const module of Object.values(doc.modules)) {
 		identities.push({ uuid: module.uuid, kind: "module" });
 		for (const parameter of projectSearchOf(module)?.defaults ?? [])

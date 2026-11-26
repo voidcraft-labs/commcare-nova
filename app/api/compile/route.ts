@@ -56,6 +56,7 @@ export async function POST(req: NextRequest) {
 			download.runtimeTarget,
 			download.identity,
 			{
+				installationProfileUuid: prepared.installationProfileUuid,
 				emptyCaseListText: download.target.emptyCaseListText,
 				earlierHqApps: download.target.earlierHqApps,
 				adopted: download.target.adopted,

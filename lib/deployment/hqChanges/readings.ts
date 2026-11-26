@@ -325,7 +325,12 @@ export function* makeHqChangeReadingsSteps(
 			appId,
 			externalIdentityMap(
 				reference.identityDoc,
-				targetWireIdentity(target.entities, target.columnWords, bindings),
+				targetWireIdentity(
+					target.entities,
+					target.columnWords,
+					bindings,
+					target.installationProfiles,
+				),
 				lookupWireNaming(lookup.definitions),
 			),
 			reserved,
@@ -335,7 +340,12 @@ export function* makeHqChangeReadingsSteps(
 	const publishedBindings = baselineSearchBindings(
 		reference.doc,
 		baseSource,
-		targetWireIdentity(target.entities, target.columnWords),
+		targetWireIdentity(
+			target.entities,
+			target.columnWords,
+			[],
+			target.installationProfiles,
+		),
 		target.projectSearches ?? [],
 	);
 	const resolver = resolverWith(publishedBindings);

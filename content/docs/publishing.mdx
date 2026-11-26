@@ -139,24 +139,35 @@ more slowly, or a persona may be missing worker information that CommCare HQ
 will ask for later. Read [Project-space compatibility](/docs/project-space-compatibility)
 for the complete check.
 
-#### Application profiles
+#### Installation profiles
 
-In CommCare HQ, an app can have application profiles, each a set of the app's languages for one
-group of phones. Nova keeps them as they are and can't change them. If you remove a language in
-Nova that a profile there still includes, the next publish to that project space stops before
-it sends anything and names the profile and the language. You can take the language out of the
-profile, or remove the profile, on the Application Profiles tab of the app's Releases page in
-CommCare HQ, then publish again. That tab shows only where the project space's plan includes
-application profiles. On any plan, removing the language on the Languages tab of the app's
-settings in CommCare HQ takes it out of every profile too, and the next publish may show you that
-change before it sends anything. A language you add in Nova joins no profile until you add it
-there.
+An installation profile gives one team a particular set of app languages. You can create it in **App setup → Languages** and choose it in Preview or when downloading the mobile app file. [Working with languages](/docs/languages#choose-the-languages-a-team-installs)
 
-If someone added the language in CommCare HQ since Nova's last publish, the publish first shows
-you that as a [change made in CommCare HQ](#changes-made-in-commcare-hq). Publishing over it takes
-the language out of the app there, so the profile is then held to the app's languages too.
+When you bring an app in, Nova shows each installation’s name, ID, language order and practice worker for this project space, along with the plan features to confirm before its first publish. CommCare HQ can keep a profile and its selected practice worker after a plan changes. Check that the project space has **Build Profiles** and, if the installation uses a practice worker, **Practice mode for mobile workers**.
 
-### Data in place
+If someone changes an installation in CommCare HQ, **Bring in changes** shows its previous and current name, languages and worker. If you removed the installation in Nova, accepting a worker change records the worker that restoring it would use. An external client needs both **HQ Import** and **HQ Write** to adopt an installation or accept its changes.
+
+A new installation profile belongs to your app. Its practice worker, if you choose to use one, belongs to the project space. When publishing to another space you can choose a practice worker who is active there.
+
+For a custom language order, Nova lists the defaults to select in CommCare HQ. Set each default in turn, saving after each one. Keep the selected languages as they are between saves.
+
+CommCare HQ keeps the existing profiles on an app when Nova updates its content. If the names, language orders or worker bindings need to change, Nova shows the profiles to keep on the destination. Open the app’s **Releases → Application Profiles** tab in CommCare HQ, make those changes and publish again in Nova. Nova checks what the project space now holds before continuing.
+
+On a first publish with a practice worker, Nova sends the app and its resources once the project-space worker is confirmed. The publish stays open while you prepare its installation. If your changes need a different order for the secondary languages, the review lists the defaults to select and save, in order. Leave the language selection as it is between saves.
+
+For a new practice worker, Nova asks you to prepare the named installation on the **Releases** page. For the version Nova identifies, choose **Deploy → Download to Android → Offline Installation**. Under **Application Profile**, choose the named installation and download its **CommCare_vN.ccz** file. Return to Nova and publish again. If you prepare several profiles over more than one visit, Nova remembers the workers it has verified and shows the profiles still waiting. If the version was already prepared before this review, save the installation profiles and make a new version first. Nova checks which worker that version names and whether CommCare HQ prepared their restore. The restore stays with CommCare HQ.
+
+If someone removes the original profile in CommCare HQ, you can keep its place in Nova. Create a replacement on the project space’s **Releases → Application Profiles** page with the requested name, languages and practice setting. When you publish again, choose its exact new ID from Nova’s review. If more than one profile matches, Nova lists each HQ ID and the Nova installation it can be used for. Choose the pair you want. The same choice is available if the app changed while you were editing in HQ. For profiles already on an older app, **Bring in changes** shows the installations the project space holds so you can adopt them first.
+
+Changes from HQ show the previous and proposed name, starting language, language order and practice worker for each affected installation. You can accept or leave the change, including when only the worker changes.
+
+When importing an HQ app file by hand, its guide lists each installation that needs a practice worker. Select an active worker in that project space for each listed profile and prepare its offline installation before giving it to the team.
+
+A later edit can reuse that proof for the same installation and worker. It shows what CommCare HQ prepared for that version. Your API key does not report the current practice-worker subscription. Deployment status checks the files already stored on your released version. If an installation is waiting for files, downloading that version’s offline installation prepares them.
+
+If several installations match, choose the installation in Nova first. Browse the matching installations in the project space, check the ID, languages and practice worker, then choose the one to use. Long reviews show the details a page at a time. After the final page, you can confirm the workers or choose the numbered destination. A new save in CommCare HQ can ask you to review that choice again.
+
+## Data in place
 
 Two things go on the project space before the app's content does, because the
 app reaches for them by name while somebody is using it. Content that arrived

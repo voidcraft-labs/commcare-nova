@@ -6,6 +6,7 @@ import { type AppDatabase, withAppTx } from "@/lib/db/pg";
 import {
 	assertScope,
 	McpCredentialInactiveError,
+	McpScopeError,
 	requiredToolScopes,
 	type Scope,
 	type ScopedToolName,
@@ -29,9 +30,26 @@ export function credentialWriteGrant(
 		)
 			throw new McpCredentialInactiveError(ctx.authKind);
 	};
-	return (tx?: Transaction<AppDatabase>) => (tx ? check(tx) : withAppTx(check));
+	return async (
+		tx?: Transaction<AppDatabase>,
+		afterInstallationImport = false,
+	) => {
+		try {
+			if (tx) await check(tx);
+			else await withAppTx(check);
+		} catch (error) {
+			if (
+				afterInstallationImport &&
+				(error instanceof McpScopeError ||
+					error instanceof McpCredentialInactiveError)
+			)
+				error.message =
+					"CommCare HQ received the app. Nova needs your publishing access to finish confirming the installation. " +
+					error.message;
+			throw error;
+		}
+	};
 }
-
 /** The same scopes the request preflight required, checked when the write lands. */
 export function toolWriteGrant(
 	ctx: ToolContext,

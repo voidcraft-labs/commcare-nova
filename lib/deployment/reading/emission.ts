@@ -24,6 +24,7 @@ import type {
 	HqAppSourceForm,
 	HqAppSourceModule,
 } from "@/lib/commcare/hq/appSource";
+import { readBuildProfiles } from "@/lib/commcare/hq/appSource";
 import { parseHqJsonText } from "@/lib/commcare/hq/jsonText";
 import { lookupWireNaming } from "@/lib/commcare/lookup/naming";
 import type {
@@ -172,6 +173,7 @@ export function readingEmissionOptions(
 			overrides,
 			identities.columnFieldWords,
 			identities.projectSearches,
+			identities.installationProfiles,
 		),
 		attachmentTarget: {
 			origin: input.reader.target.origin,
@@ -315,7 +317,12 @@ function sourceFromServed(
 		name: text(body.name),
 		lastModified: null,
 		multimediaMap: source.multimediaMap,
-		buildProfiles: [],
+		buildProfiles:
+			readBuildProfiles(
+				raw.build_profiles ?? NO_ENTRIES,
+				new Set(Array.isArray(body.langs) ? body.langs : []),
+				servedModules(body).length,
+			) ?? [],
 	};
 }
 

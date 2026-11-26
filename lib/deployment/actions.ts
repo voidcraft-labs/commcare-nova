@@ -182,6 +182,7 @@ async function resolveScope(
 ): Promise<
 	| {
 			readonly ok: true;
+			readonly sessionId: string;
 			readonly scope: DeploymentScope & {
 				readonly requireOperation: HqManagementGrant;
 			};
@@ -203,12 +204,17 @@ async function resolveScope(
 		const access = await resolveAppScope(appId, session.user.id, capability);
 		return {
 			ok: true,
+			sessionId: session.session.id,
 			scope: {
 				appId,
 				projectId: access.projectId,
 				role: access.role,
 				actorUserId: session.user.id,
 				requireOperation: sessionManagementGrant(
+					session.user.id,
+					session.session.id,
+				),
+				requireInstallationManagement: sessionManagementGrant(
 					session.user.id,
 					session.session.id,
 				),

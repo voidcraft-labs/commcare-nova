@@ -551,7 +551,8 @@ function mutationFootprint(
 			case "setAppSettings":
 				if (
 					mutation.settings.runsOnlyOn !== undefined ||
-					mutation.settings.projectSearch
+					mutation.settings.projectSearch ||
+					mutation.settings.installationProfile !== undefined
 				)
 					return undefined;
 				break;

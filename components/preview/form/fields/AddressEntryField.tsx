@@ -180,13 +180,18 @@ export function AddressEntryField({
 
 	async function choose(suggestion: Suggestion) {
 		const reqId = ++detailsReqRef.current;
+		reqRef.current += 1;
+		if (debounceRef.current) clearTimeout(debounceRef.current);
+		setLoading(false);
+		// The selected prediction already owns this session token. New input
+		// needs a separate token even while this selection waits for details.
+		tokenRef.current = null;
 		try {
 			const place = suggestion.prediction.toPlace();
 			await place.fetchFields({
 				fields: ["formattedAddress", "location", "addressComponents"],
 			});
 			if (reqId !== detailsReqRef.current) return;
-			tokenRef.current = null;
 			const location = place.location;
 			if (!location) return;
 			const found: FoundAddress = {
@@ -203,8 +208,9 @@ export function AddressEntryField({
 			setQuery(found.full);
 			setEditing(false);
 			setChoiceNeeded(false);
-			await onChange(JSON.stringify(message));
-			await onDisplayMessage(message);
+			const applied = await onChange(JSON.stringify(message));
+			if (reqId === detailsReqRef.current && applied !== false)
+				await onDisplayMessage(message);
 		} catch {
 			/* The place's details didn't arrive: nothing was chosen. */
 		}
@@ -212,13 +218,17 @@ export function AddressEntryField({
 
 	async function clear() {
 		reqRef.current += 1;
-		detailsReqRef.current += 1;
+		const reqId = ++detailsReqRef.current;
+		if (debounceRef.current) clearTimeout(debounceRef.current);
+		tokenRef.current = null;
+		setLoading(false);
 		setQuery("");
 		setResults([]);
 		setEditing(true);
 		setChoiceNeeded(false);
-		await onChange("");
-		await onDisplayMessage(null);
+		const applied = await onChange("");
+		if (reqId === detailsReqRef.current && applied !== false)
+			await onDisplayMessage(null);
 	}
 
 	const showError = state.touched && !state.valid;
@@ -243,6 +253,7 @@ export function AddressEntryField({
 							if (picked) void choose(picked);
 							return;
 						}
+						detailsReqRef.current += 1;
 						setQuery(next);
 						/* Typing over a chosen address lets the answer go until the
 						 * worker chooses again, and sends nothing

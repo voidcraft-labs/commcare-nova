@@ -641,6 +641,7 @@ export async function hqAuthoredDocument(
 		...(reading.projectSearches.length && {
 			projectSearches: reading.projectSearches,
 		}),
+		installationProfiles: reading.installationProfiles,
 		retained: app.directory,
 		hand,
 	};

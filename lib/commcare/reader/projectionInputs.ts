@@ -47,6 +47,7 @@ import type { AttachmentUrlTarget } from "../xform/captureUrlNode";
 import type { ReadContext } from "./context";
 import { readProjectSearchBindings } from "./context";
 import type { ProjectionFacts } from "./heldExpansions";
+import { readInstallationBindings } from "./installationBindings";
 import type { ReadMediaReference } from "./types";
 
 export interface ReadProjectionInputs {
@@ -72,6 +73,7 @@ interface Built {
 	/** How many media references the reading held when these were built. */
 	readonly references: number;
 	readonly projectSearchCount: number;
+	readonly profiles: ReadContext["draft"]["appSettings"]["installationProfiles"];
 }
 
 const BUILT = new WeakMap<ReadContext, Built>();
@@ -195,7 +197,8 @@ function built(ctx: ReadContext): Built {
 	if (
 		known !== undefined &&
 		known.references === ctx.facts.mediaReferences.length &&
-		known.projectSearchCount === ctx.draft.projectSearches.size
+		known.projectSearchCount === ctx.draft.projectSearches.size &&
+		known.profiles === ctx.draft.appSettings.installationProfiles
 	)
 		return known;
 	const overrides: WireIdentityOverride[] = [];
@@ -236,8 +239,9 @@ function built(ctx: ReadContext): Built {
 	};
 	const naming = readerLookupNamingDefinitions(ctx.input.lookup);
 	const projectSearches = readProjectSearchBindings(ctx);
+	const profiles = readInstallationBindings(ctx);
 	const inputs: ReadProjectionInputs = {
-		identity: targetWireIdentity(overrides, [], projectSearches),
+		identity: targetWireIdentity(overrides, [], projectSearches, profiles),
 		attachmentTarget,
 		lookupNaming: lookupWireNaming(naming),
 		assets: assets as AssetManifest,
@@ -246,6 +250,7 @@ function built(ctx: ReadContext): Built {
 		inputs,
 		facts: {
 			projectSearches,
+			profiles,
 			overrides: overrides.map((one) => ({ ...one })),
 			attachmentTarget: { ...attachmentTarget },
 			naming: structuredClone(naming),
@@ -256,6 +261,7 @@ function built(ctx: ReadContext): Built {
 		),
 		references: ctx.facts.mediaReferences.length,
 		projectSearchCount: projectSearches.length,
+		profiles: ctx.draft.appSettings.installationProfiles,
 	};
 	BUILT.set(ctx, result);
 	return result;

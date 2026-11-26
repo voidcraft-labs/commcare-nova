@@ -164,3 +164,39 @@ export function replyRetained(
 		headers: { ...answer.headers },
 	});
 }
+
+/** A synthetic complete default build as ApplicationResource serves it with extras. */
+export function ordinaryInstallationBuild(
+	workingId: string,
+	id: string,
+	domain: string,
+	version: number,
+) {
+	const files = [
+		"profile.xml",
+		"profile.ccpr",
+		"media_profile.xml",
+		"media_profile.ccpr",
+		"suite.xml",
+		"media_suite.xml",
+		"default/app_strings.txt",
+		"en/app_strings.txt",
+		"modules-0/forms-0.xml",
+	];
+	return {
+		id,
+		_id: id,
+		domain,
+		doc_type: "Application",
+		version,
+		copy_of: workingId,
+		built_from_app_id: workingId,
+		is_released: true,
+		langs: ["en"],
+		modules: [{ forms: [{ unique_id: "visit" }] }],
+		build_profiles: {},
+		external_blobs: Object.fromEntries(
+			files.map((file) => [`files/${file}`, { content_length: 12 }]),
+		),
+	};
+}

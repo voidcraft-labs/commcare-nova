@@ -134,6 +134,7 @@ export class BirthRoleChangedError extends Error {}
 export interface AdoptionBirth {
 	readonly reviewedRole: string;
 	readonly requireOperation?: HqManagementGrant;
+	readonly requireInstallationManagement?: HqManagementGrant;
 	readonly actorUserId: string;
 	/** Attribution only: an adoption holds no run. Minted outside the transaction. */
 	readonly runId: string;
@@ -166,17 +167,22 @@ export async function adoptHqAppInTransaction(
 	tx: Transaction<AppDatabase>,
 	birth: AdoptionBirth,
 ): Promise<AdoptionOutcome> {
-	await birth.requireOperation?.(tx);
 	const { candidate, actorUserId, projectData, at } = birth;
 	const { appId, projectId } = candidate;
 	try {
-		await claimHqAppInTransaction(tx, birth.hqApp);
+		await claimHqAppInTransaction(
+			tx,
+			birth.hqApp,
+			birth.requireInstallationManagement,
+		);
 	} catch (error) {
 		if (
 			error instanceof HqAppAlreadyClaimedError &&
 			error.holder?.appId === appId
-		)
+		) {
+			await birth.requireOperation?.(tx);
 			return { kind: "replay" };
+		}
 		throw error;
 	}
 	await writePreparedGenesisInTransaction(tx, {
@@ -185,6 +191,9 @@ export async function adoptHqAppInTransaction(
 		runId: birth.runId,
 		status: "complete",
 		afterAppInsert: async (inner) => {
+			await birth.requireOperation?.(inner);
+			if (birth.deployment.targetIdentity.installationProfiles?.length)
+				await birth.requireInstallationManagement?.(inner);
 			await writeBroughtInLookupTablesInTransaction(
 				inner,
 				{ projectId, actorUserId, appId },

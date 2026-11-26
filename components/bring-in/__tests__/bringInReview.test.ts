@@ -721,7 +721,6 @@ describe("the review's places, files and recorded features", () => {
 describe("what a create that did not create says on the review", () => {
 	it("places each refusal at the name, above the footer, or on the refused screen", () => {
 		const at: Record<ReadingRefusal, "name" | "footer" | null> = {
-			session_ended: "footer",
 			name_missing: "name",
 			choice_not_offered: "footer",
 			choice_missing: "footer",
@@ -729,6 +728,7 @@ describe("what a create that did not create says on the review", () => {
 			no_project_access: null,
 			invalid_input: null,
 			app_unavailable: null,
+			session_ended: null,
 			/* The review stands while another app's publish finishes. */
 			publish_in_flight: "footer",
 		};

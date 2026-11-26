@@ -1,3 +1,4 @@
+import type { HqManagementGrant } from "../store";
 import "server-only";
 import { lookupBindingNames } from "./projectData/lookupTables";
 
@@ -31,6 +32,7 @@ import {
 import {
 	HqAppAlreadyClaimedError,
 	HqAppWriteInFlightError,
+	lockDisplacedInstallationClaim,
 } from "@/lib/db/hqAppClaims";
 import { loadAssetsByIds } from "@/lib/db/mediaAssets";
 import { getAppDb, withAppTx } from "@/lib/db/pg";
@@ -203,7 +205,10 @@ function heldFileCount(gathered: Gathered): number {
 export function createFromReview(
 	actor: BringInActor,
 	input: BringInInput,
-	options: { readonly onEvent: (event: ReadingEvent) => void },
+	options: {
+		readonly onEvent: (event: ReadingEvent) => void;
+		readonly requireInstallationManagement?: HqManagementGrant;
+	},
 ): Promise<CreateAnswer> {
 	return withBringInRoom(
 		"create",
@@ -223,7 +228,10 @@ export function createFromReview(
 async function createInRoom(
 	actor: BringInActor,
 	input: BringInInput,
-	options: { readonly onEvent: (event: ReadingEvent) => void },
+	options: {
+		readonly onEvent: (event: ReadingEvent) => void;
+		readonly requireInstallationManagement?: HqManagementGrant;
+	},
 	room: BringInRoom,
 	staging: MediaStaging,
 ): Promise<CreateAnswer> {
@@ -405,6 +413,10 @@ async function createInRoom(
 
 	/* 7. Publish: the first write any surface lists, so the room stops nothing from here on. */
 	await actor.requireOperation?.();
+	const managesSourceInstallations =
+		!!gathered.targetIdentity.installationProfiles?.length;
+	if (managesSourceInstallations)
+		await options.requireInstallationManagement?.();
 	room.beginWrites();
 	let plan = gathered.media;
 	const held = heldFileCount(gathered);
@@ -413,6 +425,18 @@ async function createInRoom(
 		onEvent({ type: "files", done: 0, total: held });
 		try {
 			plan = await publishStagedReadingMedia({
+				authorizePublication: managesSourceInstallations
+					? async (tx) => {
+							await actor.requireOperation?.(tx);
+							await options.requireInstallationManagement?.(tx);
+						}
+					: options.requireInstallationManagement
+						? {
+								lockSource: (tx) => lockDisplacedInstallationClaim(tx, key),
+								operation: actor.requireOperation,
+								grant: options.requireInstallationManagement,
+							}
+						: actor.requireOperation,
 				projectId: key.projectId,
 				actorUserId: actor.userId,
 				plan,
@@ -524,6 +548,7 @@ async function createInRoom(
 			adoptHqAppInTransaction(tx, {
 				reviewedRole: actor.role,
 				requireOperation: actor.requireOperation,
+				requireInstallationManagement: options.requireInstallationManagement,
 				actorUserId: actor.userId,
 				runId,
 				candidate,

@@ -1,4 +1,7 @@
 import { v7 } from "uuid";
+import { installationCredential } from "@/__tests__/helpers/installationCredential";
+import { withInstallationRuntimeRole } from "@/__tests__/helpers/installationRuntimeRole";
+import { serveWorkingInstallationInventory } from "@/__tests__/helpers/workingInstallationInventory";
 import { withAppTx } from "@/lib/db/pg";
 import { publishFromSession as publishAppToHq } from "@/lib/deployment/__tests__/publishWithGrant";
 import {
@@ -10,7 +13,7 @@ import { applyLookupAuthoringBatchInTransaction } from "@/lib/lookup/authoringBa
 import { getLookupTable } from "@/lib/lookup/service";
 import type { LookupAuthoringRowOperation } from "@/lib/lookup/types";
 import { authorizeLookupWriteInTransaction } from "@/lib/lookup/writerTransaction";
-
+import { credentialWriteGrant } from "@/lib/mcp/credentialWriteGrant";
 /**
  * The publish sequence: the requests `publishAppToHq` sends, what it
  * records, and what it refuses, over real Postgres and a peer standing in
@@ -50,14 +53,17 @@ import {
 	retainedBodyText,
 	retainedPublishRead,
 } from "@/__tests__/helpers/retainedHqReads";
-import { testMediaAssetId } from "@/__tests__/helpers/uuid";
+import {
+	testUuid as installationUuid,
+	testMediaAssetId,
+} from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig } from "@/lib/__tests__/docHelpers";
 import { caseOperationFixture } from "@/lib/commcare/__tests__/caseOperationFixture";
 import { readXmlEvidence } from "@/lib/commcare/__tests__/xmlEvidence";
 import { compileCcz } from "@/lib/commcare/compiler";
 import { decrypt } from "@/lib/commcare/encryption";
 import { APP_SHELL_KEYS, expandDoc } from "@/lib/commcare/expander";
-import { readHqAppSource } from "@/lib/commcare/hq/appSource";
+import { parseHqAppSource, readHqAppSource } from "@/lib/commcare/hq/appSource";
 import type { AssetManifest } from "@/lib/commcare/multimedia/assetWirePath";
 import {
 	derivedFormXmlns,
@@ -75,6 +81,7 @@ import {
 	removeKid,
 } from "@/lib/db/__tests__/heldPlacementApp";
 import { openRemoteWrite } from "@/lib/db/openRemoteWrite";
+import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import { readPlacementHolds } from "@/lib/doc/placementHolds";
 import type { Mutation } from "@/lib/doc/types";
 import {
@@ -96,6 +103,7 @@ import { attachmentUrlTarget } from "../attachmentTarget";
 import { resolveDownloadTarget } from "../downloadTarget";
 import { getEntryPointLink } from "../entryPointLinks";
 import { ABSENT_RESOURCE_DIGEST } from "../hqResourceBaseline";
+import { checkInstallationPublish } from "../installationProfilePublish";
 import {
 	previewProjectSpaceFor,
 	readPreviewDeploymentAnswer,
@@ -128,9 +136,11 @@ import {
 	readAppBaseline,
 	readDeployment,
 	readDeploymentNovaRevisions,
+	readEntryPointEvidence,
 	readSiblingLookupMappings,
 	readTargetFacts,
 	readTargetIdentity,
+	recordPushedResources,
 } from "../store";
 import type { DeploymentConfirmationKey, RemoteChangeDiscard } from "../types";
 import { servePlaceInventory } from "./placeInventoryPeer";
@@ -222,9 +232,12 @@ const CONFIRM_ALL: readonly DeploymentConfirmationKey[] = [
 function publish(
 	doc: BlueprintDoc,
 	discardRemoteChanges?: readonly RemoteChangeDiscard[],
+	requireHqImport: (() => void) | null = null,
+	confirmInstallationProfiles?: string,
 ): Promise<PublishOutcome> {
 	return publishAppToHq({
-		requireHqImport: null,
+		requireHqImport,
+		confirmInstallationProfiles,
 		scope: SCOPE,
 		...TARGET,
 		doc,
@@ -234,6 +247,39 @@ function publish(
 		confirm: CONFIRM_ALL,
 		...(discardRemoteChanges && { discardRemoteChanges }),
 	});
+}
+
+async function managedPublisher(doc: BlueprintDoc) {
+	const ctx = await installationCredential(h.db(), ACTOR, [
+		"nova.read",
+		"nova.write",
+		"nova.hq.write",
+		"nova.hq.import",
+	]);
+	if (ctx.grant?.kind !== "api-key") throw new Error("Expected an API key");
+	const { keyId } = ctx.grant;
+	const grant = credentialWriteGrant(ctx, "upload_app_to_hq", [
+		"nova.hq.write",
+		"nova.hq.import",
+	]);
+	return {
+		revoke: () =>
+			sql`UPDATE auth_apikey SET enabled=false WHERE id=${keyId}`.execute(
+				h.db(),
+			),
+		publish: (confirmInstallationProfiles?: string, compiledAtSeq = 0) =>
+			publishAppToHq({
+				confirmInstallationProfiles,
+				requireHqImport: null,
+				scope: { ...SCOPE, requireInstallationManagement: grant },
+				...TARGET,
+				doc,
+				compiledAtSeq,
+				reloadHead: reloadHeadFor(APP, ACTOR),
+				appName: doc.appName,
+				confirm: CONFIRM_ALL,
+			}),
+	};
 }
 
 function request(peer: MockAgent, path: string, method = "GET") {
@@ -252,6 +298,7 @@ function accepted(
 	status: 200 | 201,
 	appId = HQ_APP,
 	bodies?: unknown[],
+	onReply?: () => Promise<void>,
 ) {
 	request(peer, IMPORT, "POST").reply(async (opts) => {
 		if (bodies !== undefined) {
@@ -264,6 +311,7 @@ function accepted(
 			});
 		}
 		if (status === 201) saves.create(appId);
+		await onReply?.();
 		return {
 			statusCode: status,
 			data: JSON.stringify({
@@ -567,7 +615,9 @@ describe("a first publish", () => {
 		// `add_ons` and `profile` arrive with the update over the shell's read.
 		// HQ keeps its own `build_spec`, so no body names one.
 		expect(Object.keys(shell.app)).toEqual(
-			APP_SHELL_KEYS.filter((key) => key !== "case_sharing"),
+			APP_SHELL_KEYS.filter(
+				(key) => key !== "case_sharing" && key !== "build_profiles",
+			),
 		);
 		expect(shell.app).toMatchObject({
 			modules: [],
@@ -1980,6 +2030,216 @@ describe("changes made in CommCare HQ", () => {
 				landed: true,
 				appPreviewNote: APP_PREVIEW_NOTE,
 			});
+		});
+	});
+
+	async function protectTarget() {
+		const current = (await state()) ?? fail();
+		await sql`INSERT INTO app_deployment_installation_reviews(deployment_id,actor_id,checkpoint) VALUES (${current.deployment.id},'other-editor','{"previousKeys":[]}'::jsonb)`.execute(
+			h.db(),
+		);
+	}
+	it("records the admitted workbook while preserving a dropped place when its management grant changes", async () => {
+		const doc = await seed(await lookupDocument());
+		await withPeer(async (peer) => {
+			emptyTables(peer);
+			accepted(peer, 201);
+			serve(peer, SOURCE, "source-shell");
+			workbookTaken(peer);
+			tablesAfterPush(peer);
+			tableRows(peer);
+			serve(peer, SOURCE, "source-shell");
+			accepted(peer, 200);
+			serve(peer, SOURCE, "source-live");
+			expect((await publish(doc)).landed).toBe(true);
+			await recordPushedResources(
+				SCOPE,
+				TARGET,
+				[
+					{
+						kind: "location",
+						novaResourceId: installationUuid("old-place"),
+						remoteId: "old-place",
+						ownership: "nova-created",
+						pushedRevision: null,
+						remoteRevision: null,
+					},
+				],
+				{ status: "partial" },
+				{ expectedEndings: 0 },
+			);
+			await protectTarget();
+			const sender = await managedPublisher(doc);
+			const offset = requests(peer).length;
+			tablesAfterPush(peer);
+			tableRows(peer);
+			serve(peer, SOURCE, "source-live");
+			request(peer, WORKBOOK, "POST").reply(async () => {
+				await sender.revoke();
+				return { statusCode: 200, data: { code: 200, message: "Done" } };
+			});
+			tablesAfterPush(peer);
+			tableRows(peer);
+			await expect(sender.publish()).rejects.toMatchObject({
+				name: "McpCredentialInactiveError",
+			});
+			expect((await state())?.active.map((r) => r.remoteId)).toContain(
+				"old-place",
+			);
+			expect(
+				await h
+					.db()
+					.selectFrom("hq_remote_writes")
+					.select("id")
+					.where("write_kind", "=", "workbook")
+					.where("settled_at", "is not", null)
+					.execute(),
+			).toHaveLength(2);
+			expect(
+				requests(peer)
+					.slice(offset)
+					.filter((r) => r.startsWith("POST ")),
+			).toEqual([`POST ${WORKBOOK}`]);
+			const restored = await managedPublisher(doc);
+			tablesAfterPush(peer);
+			tableRows(peer);
+			serve(peer, SOURCE, "source-live");
+			workbookTaken(peer);
+			tablesAfterPush(peer);
+			tableRows(peer);
+			serve(peer, SOURCE, "source-live");
+			accepted(peer, 200);
+			serve(peer, SOURCE, "source-live");
+			expect((await restored.publish()).landed).toBe(true);
+			expect((await state())?.superseded.map((r) => r.remoteId)).toContain(
+				"old-place",
+			);
+		});
+	});
+	it("keeps an incomplete app's phase when its separate source read loses authority after a workbook", async () => {
+		const doc = await seed(await lookupDocument());
+		await withPeer(async (peer) => {
+			emptyTables(peer);
+			accepted(peer, 201);
+			serve(peer, SOURCE, "source-shell");
+			request(peer, WORKBOOK, "POST").reply(403, "");
+			expect(refusal(await publish(doc)).phase).toBe("resources");
+			await protectTarget();
+			const sender = await managedPublisher(doc);
+			emptyTables(peer);
+			serve(peer, SOURCE, "source-shell");
+			workbookTaken(peer);
+			tablesAfterPush(peer);
+			tableRows(peer);
+			let held: Awaited<ReturnType<typeof state>> = null;
+			request(peer, SOURCE).reply(async () => {
+				held = await state();
+				await sender.revoke();
+				return { statusCode: 200, data: "{" };
+			});
+			await expect(sender.publish()).rejects.toMatchObject({
+				name: "McpCredentialInactiveError",
+			});
+			expect(held).not.toBeNull();
+			expect(await state()).toEqual(held);
+			expect(
+				(await state())?.active.some((r) => r.kind === "lookup-table"),
+			).toBe(true);
+			const restored = await managedPublisher(doc);
+			tablesAfterPush(peer);
+			tableRows(peer);
+			serve(peer, SOURCE, "source-shell");
+			workbookTaken(peer);
+			tablesAfterPush(peer);
+			tableRows(peer);
+			request(peer, SOURCE).reply(200, "{");
+			expect(refusal(await restored.publish()).phase).toBe("upload");
+			expect((await state())?.deployment.resumePhase).toBe("upload");
+			tablesAfterPush(peer);
+			tableRows(peer);
+			serve(peer, SOURCE, "source-shell");
+			workbookTaken(peer);
+			tablesAfterPush(peer);
+			tableRows(peer);
+			serve(peer, SOURCE, "source-shell");
+			request(peer, IMPORT, "POST").reply(async () => {
+				await restored.revoke();
+				return { statusCode: 400, data: "Invalid application" };
+			});
+			expect(refusal(await restored.publish()).failure.code).toBe(
+				"hq_rejected_upload",
+			);
+			expect((await state())?.deployment.phases.upload).toMatchObject({
+				status: "failed",
+				failure: { code: "hq_rejected_upload" },
+			});
+		});
+	});
+	it("accounts for the admitted workbook but checks the current installation grant for a separate missing-app read", async () => {
+		const doc = await seed(await lookupDocument());
+		await withPeer(async (peer) => {
+			emptyTables(peer);
+			accepted(peer, 201);
+			serve(peer, SOURCE, "source-shell");
+			workbookTaken(peer);
+			tablesAfterPush(peer);
+			tableRows(peer);
+			serve(peer, SOURCE, "source-shell");
+			accepted(peer, 200);
+			serve(peer, SOURCE, "source-live");
+			expect((await publish(doc)).landed).toBe(true);
+			const before = (await state()) ?? fail();
+			await sql`INSERT INTO app_deployment_installation_reviews(deployment_id,actor_id,checkpoint) VALUES (${before.deployment.id},'other-editor','{"previousKeys":[]}'::jsonb)`.execute(
+				h.db(),
+			);
+			const ctx = await installationCredential(h.db(), ACTOR, [
+				"nova.read",
+				"nova.write",
+				"nova.hq.write",
+				"nova.hq.import",
+			]);
+			const grant = credentialWriteGrant(ctx, "upload_app_to_hq", [
+				"nova.hq.write",
+				"nova.hq.import",
+			]);
+			const first = requests(peer).length;
+			tablesAfterPush(peer);
+			tableRows(peer);
+			serve(peer, SOURCE, "source-live");
+			workbookTaken(peer);
+			tablesAfterPush(peer);
+			tableRows(peer);
+			request(peer, SOURCE).reply(async () => {
+				await sql`UPDATE auth_apikey SET enabled=false WHERE "referenceId"=${ACTOR}`.execute(
+					h.db(),
+				);
+				const answer = retainedPublishRead("source-missing");
+				return {
+					statusCode: answer.status,
+					data: retainedBodyText(answer),
+					responseOptions: { headers: { ...answer.headers } },
+				};
+			});
+			await expect(
+				publishAppToHq({
+					requireHqImport: null,
+					scope: { ...SCOPE, requireInstallationManagement: grant },
+					...TARGET,
+					doc,
+					compiledAtSeq: 0,
+					reloadHead: reloadHeadFor(APP, ACTOR),
+					appName: doc.appName,
+					confirm: CONFIRM_ALL,
+				}),
+			).rejects.toMatchObject({ name: "McpCredentialInactiveError" });
+			const sent = requests(peer).slice(first);
+			expect(sent).toContain(`POST ${WORKBOOK}`);
+			expect(sent).not.toContain(`POST ${IMPORT}`);
+			const current = (await state()) ?? fail();
+			expect(activeRemoteApp(current)?.remoteMissingAt).toBeNull();
+			expect(
+				current.active.some((resource) => resource.kind === "lookup-table"),
+			).toBe(true);
 		});
 	});
 
@@ -4945,3 +5205,847 @@ describe("a table only CommCare HQ's JSON resources can carry", () => {
 function fail(): never {
 	throw new Error("Expected a value");
 }
+
+describe("named installations on a destination", () => {
+	it("requires HQ Import before the first profile shell or live mapping", async () => {
+		const uuid = installationUuid("night-team");
+		const doc = clinicVisitsDocument();
+		doc.appSettings.installationProfiles = {
+			[uuid]: {
+				uuid,
+				name: "Night team",
+				languages: ["eng"],
+				requiresPracticeWorker: false,
+			},
+		};
+		await seed(doc);
+		await withPeer(async (peer) => {
+			await expect(
+				publish(doc, undefined, () => {
+					throw new Error("Missing HQ Import");
+				}),
+			).rejects.toThrow("Missing HQ Import");
+			expect(requests(peer).filter((line) => line.startsWith("POST "))).toEqual(
+				[],
+			);
+			expect(
+				await h
+					.db()
+					.selectFrom("app_deployment_resources")
+					.select("remote_id")
+					.where("superseded_at", "is", null)
+					.execute(),
+			).toEqual([]);
+			expect(
+				await h.db().selectFrom("hq_remote_writes").select("id").execute(),
+			).toEqual([]);
+		});
+	});
+
+	it.each(["revoke", "move", "unchanged"] as const)(
+		"accounts for the acknowledged intermediate language import when the review can %s",
+		async (change) => {
+			const uuid = installationUuid("language-transfer"),
+				key = uuid.replaceAll("-", "");
+			const doc = clinicVisitsDocument();
+			doc.appSettings.installationProfiles = {
+				[uuid]: {
+					uuid,
+					name: "Field office",
+					languages: ["eng"],
+					requiresPracticeWorker: false,
+				},
+			};
+			await seed(doc);
+			const profiles = {
+				[key]: {
+					name: "Field office",
+					langs: ["en"],
+					practice_mobile_worker_id: "",
+					doc_type: "BuildProfile",
+				},
+			};
+			const raw = (
+				name: "source-shell" | "source-after-create-then-update",
+				langs = ["en"],
+			) => ({
+				...retainedBodyJson(retainedPublishRead(name)),
+				langs,
+				build_profiles: profiles,
+			});
+			await withPeer(async (peer) => {
+				accepted(peer, 201);
+				request(peer, SOURCE).reply(200, raw("source-shell"));
+				request(peer, SOURCE).reply(200, raw("source-shell"));
+				accepted(peer, 200);
+				request(peer, SOURCE).reply(
+					200,
+					raw("source-after-create-then-update"),
+				);
+				expect((await publish(doc)).landed).toBe(true);
+				const mutate = (mutations: Mutation[]) =>
+					commitGuardedBatchProposal({
+						appId: APP,
+						expectedProjectId: PROJECT,
+						actorUserId: ACTOR,
+						batchId: crypto.randomUUID(),
+						kind: "autosave",
+						mutations,
+					});
+				const desired = await mutate([
+					{
+						kind: "addLanguage",
+						language: { language: "spa" },
+						wireCode: "es",
+					},
+					{
+						kind: "setAppSettings",
+						settings: {
+							installationProfile: {
+								operation: "update",
+								uuid,
+								patch: { languages: ["spa"] },
+							},
+						},
+					},
+				]);
+				const author = await managedPublisher(
+					hydratePersistedBlueprint(desired.committedDoc),
+				);
+				const sends = requests(peer).filter((p) =>
+					p.startsWith("POST "),
+				).length;
+				request(peer, SOURCE).reply(
+					200,
+					raw("source-after-create-then-update"),
+				);
+				request(peer, SOURCE).reply(
+					200,
+					raw("source-after-create-then-update"),
+				);
+				accepted(peer, 200, HQ_APP, undefined, async () => {
+					if (change === "revoke") await author.revoke();
+					if (change === "move")
+						await mutate([
+							{ kind: "setAppName", name: "Relabeled during import" },
+						]);
+				});
+				request(peer, SOURCE).reply(
+					200,
+					raw("source-after-create-then-update", ["en", "es"]),
+				);
+				const answer = author.publish(undefined, desired.seq);
+				if (change === "revoke")
+					await expect(answer).rejects.toMatchObject({
+						name: "McpCredentialInactiveError",
+						message: expect.stringContaining("CommCare HQ received the app"),
+					});
+				else
+					expect(refusal(await answer).failure.message).toContain(
+						change === "move" ? "Publish again" : "languages workers need",
+					);
+				const privateRow = await h
+					.db()
+					.selectFrom("app_deployment_installation_reviews")
+					.select("checkpoint")
+					.where("actor_id", "=", ACTOR)
+					.executeTakeFirstOrThrow();
+				expect(privateRow.checkpoint).toMatchObject({
+					phase: change === "unchanged" ? "edit-profiles" : "prepare-languages",
+				});
+				const receipt = await sql<{
+					version: number;
+					settled: boolean;
+				}>`SELECT (to_jsonb(w)->>'import_acknowledged_version')::integer AS version, settled_at IS NOT NULL AS settled FROM hq_remote_writes w WHERE write_kind='import' AND resource_id=${HQ_APP} ORDER BY opened_at DESC LIMIT 1`.execute(
+					h.db(),
+				);
+				expect(receipt.rows).toEqual([
+					{ version: saves.at(HQ_APP), settled: true },
+				]);
+				expect(
+					requests(peer).filter((p) => p.startsWith("POST ")).length - sends,
+				).toBe(1);
+			});
+		},
+	);
+	it("creates a profile on the shell, verifies its assigned key, and only records the final app after the complete map is read back", async () => {
+		const uuid = installationUuid("night-team");
+		const key = uuid.replaceAll("-", "");
+		const doc = clinicVisitsDocument();
+		doc.appSettings.installationProfiles = {
+			[uuid]: {
+				uuid,
+				name: "Night team",
+				languages: ["eng"],
+				requiresPracticeWorker: false,
+			},
+		};
+		await seed(doc);
+		const profiles = {
+			[key]: {
+				name: "Night team",
+				langs: ["en"],
+				practice_mobile_worker_id: "",
+				doc_type: "BuildProfile",
+			},
+		};
+		const read = (
+			name: "source-shell" | "source-after-create-then-update",
+		) => ({
+			...retainedBodyJson(retainedPublishRead(name)),
+			build_profiles: profiles,
+		});
+		await withPeer(async (peer) => {
+			const bodies: unknown[] = [];
+			accepted(peer, 201, HQ_APP, bodies);
+			request(peer, SOURCE).reply(200, read("source-shell"));
+			request(peer, SOURCE).reply(200, read("source-shell"));
+			accepted(peer, 200, HQ_APP, bodies);
+			request(peer, SOURCE).reply(200, read("source-after-create-then-update"));
+			const result = await publish(doc);
+			expect(result).toMatchObject({ landed: true });
+			expect(bodies[0]).toMatchObject({
+				app: {
+					build_profiles: { [key]: { name: "Night team", langs: ["en"] } },
+				},
+			});
+			expect(bodies[1]).not.toHaveProperty("app.build_profiles");
+			const rows = await h
+				.db()
+				.selectFrom("app_deployment_installation_profiles")
+				.select(["nova_profile_uuid", "profile_key", "practice_worker_id"])
+				.execute();
+			expect(rows).toEqual([
+				{ nova_profile_uuid: uuid, profile_key: key, practice_worker_id: null },
+			]);
+
+			const check = async (
+				workingDoc: BlueprintDoc,
+				raw: Record<string, unknown>,
+				token?: string,
+			) => {
+				const sequence = Number((await h.readAppRow(APP))?.mutation_seq);
+				const parsed = parseHqAppSource(raw);
+				if (parsed.kind !== "source")
+					throw new Error("The controlled source is unreadable.");
+				const snapshot = await state();
+				const mapping = snapshot?.active.find((r) => r.kind === "app");
+				if (!mapping || !snapshot)
+					throw new Error("Missing installation mapping");
+				return checkInstallationPublish({
+					claim: {
+						mapping: mapping.pushToken,
+						endings: snapshot.deployment.endings,
+					},
+					scope: SCOPE,
+					target: TARGET,
+					remoteAppId: HQ_APP,
+					source: parsed.source,
+					doc: workingDoc,
+					sequence,
+					identity: await readTargetIdentity(SCOPE, TARGET),
+					workingVersion: saves.at(HQ_APP),
+					needsBuildableContent: false,
+					creds: {
+						server: TARGET.server,
+						username: "account",
+						apiKey: "fixture-key",
+					},
+					releasesUrl: HOST,
+					confirmWorkers: token,
+					requireHqImport: () => {},
+				});
+			};
+			const working = read("source-after-create-then-update");
+			const absent = await check(doc, { ...working, build_profiles: {} });
+			expect(absent).toMatchObject({
+				kind: "review",
+				message: expect.stringContaining("create its replacement"),
+			});
+			const restored = {
+				...working,
+				build_profiles: { newKey: profiles[key] },
+			};
+			const choose = await check(doc, restored);
+			if (choose.kind !== "review" || !choose.choices?.[0])
+				throw new Error(
+					"The missing profile did not offer an exact replacement.",
+				);
+			const offered = choose.choices[0];
+			expect(offered.label).toContain("newKey");
+			// A confirmation from a different working source cannot rebind this UUID.
+			expect(
+				await check(
+					doc,
+					{ ...restored, build_profiles: { otherKey: profiles[key] } },
+					offered.confirmation,
+				),
+			).toMatchObject({ kind: "review" });
+			expect(
+				(await readTargetIdentity(SCOPE, TARGET)).installationProfiles,
+			).toMatchObject([{ uuid, key }]);
+			await check(doc, restored);
+			saves.save(HQ_APP);
+			const resaved = await check(doc, restored, offered.confirmation);
+			if (resaved.kind !== "review" || !resaved.choices?.[0])
+				throw new Error("Expected a new agreement after HQ saved");
+			expect(resaved.choices[0].confirmation).not.toBe(offered.confirmation);
+			expect(
+				await check(doc, restored, resaved.choices[0].confirmation),
+			).toMatchObject({
+				kind: "agreed",
+			});
+			expect(
+				(await readTargetIdentity(SCOPE, TARGET)).installationProfiles,
+			).toMatchObject([{ uuid, key: "newKey" }]);
+
+			const desired = structuredClone(doc);
+			desired.localization = {
+				sourceLanguage: "eng",
+				defaultLanguage: "eng",
+				languageOrder: ["eng", "spa"],
+				wireCodes: { eng: "en", spa: "es" },
+				translations: {},
+			};
+			if (!desired.appSettings.installationProfiles)
+				throw new Error("Lost the current installation.");
+			desired.appSettings.installationProfiles[uuid].languages = ["spa"];
+			const previous = {
+				...working,
+				langs: ["en", "fra"],
+				build_profiles: {
+					newKey: {
+						...profiles[key],
+						langs: ["fra"],
+						practice_mobile_worker_id: "inactive",
+					},
+				},
+			};
+			request(
+				peer,
+				`/a/clinic/apps/download/${HQ_APP}/suite.xml?profile=newKey`,
+			).reply(500, "Worker is disabled");
+			expect(await check(desired, previous)).toMatchObject({
+				kind: "review",
+				message: expect.stringContaining("clear or replace"),
+			});
+			expect(
+				await check(desired, {
+					...previous,
+					build_profiles: {
+						newKey: {
+							...previous.build_profiles.newKey,
+							practice_mobile_worker_id: null,
+						},
+					},
+				}),
+			).toMatchObject({ kind: "prepare-languages" });
+			const add = (
+				name: string,
+				uuid: ReturnType<typeof installationUuid>,
+			): Mutation => ({
+				kind: "setAppSettings",
+				settings: {
+					installationProfile: {
+						operation: "add",
+						profile: {
+							uuid,
+							name,
+							languages: ["eng"],
+							requiresPracticeWorker: false,
+						},
+					},
+				},
+			});
+			const save = (mutations: Mutation[]) =>
+				commitGuardedBatchProposal({
+					appId: APP,
+					expectedProjectId: PROJECT,
+					batchId: crypto.randomUUID(),
+					mutations,
+					actorUserId: ACTOR,
+					kind: "autosave",
+				});
+			const a = installationUuid("crew A"),
+				b = installationUuid("crew B");
+			const added = await save([add("New crew", a), add("New crew", b)]);
+			const saved = hydratePersistedBlueprint(added.committedDoc);
+			const unresolved = {
+				...working,
+				build_profiles: { newKey: profiles[key] },
+			};
+			expect(await check(saved, unresolved)).toMatchObject({ kind: "review" });
+			const physical = {
+				...working,
+				build_profiles: {
+					...unresolved.build_profiles,
+					crewFirst: { ...profiles[key], name: "New crew" },
+					crewSecond: { ...profiles[key], name: "New crew" },
+				},
+			};
+			const offers = await check(saved, physical);
+			if (offers.kind !== "review" || !offers.choices)
+				throw new Error(
+					"Expected a choice between two indistinguishable installations.",
+				);
+			expect(offers.choices).toHaveLength(2);
+			const forA = async (
+				doc: BlueprintDoc,
+				choices: NonNullable<typeof offers.choices>,
+			) => {
+				const choice = choices.find((c) => c.label.includes(a));
+				if (!choice) throw new Error("Expected the Nova installation chooser");
+				const destinations = await check(doc, physical, choice.confirmation);
+				if (destinations.kind !== "review" || !destinations.choices)
+					throw new Error("Expected project-space installations");
+				return destinations.choices;
+			};
+			const selected = (await forA(saved, offers.choices)).find(
+				(c) => c.label.includes(a) && c.label.includes("crewSecond"),
+			);
+			if (!selected) throw new Error("Expected the second destination key.");
+			const renamed = hydratePersistedBlueprint(
+				(await save([{ kind: "setAppName", name: "Unrelated app edit" }]))
+					.committedDoc,
+			);
+			const refreshed = await check(renamed, physical, selected.confirmation);
+			if (refreshed.kind !== "review" || !refreshed.choices)
+				throw new Error("Expected fresh choices after an unrelated app edit.");
+			const fresh = (await forA(renamed, refreshed.choices)).find(
+				(c) => c.label.includes(a) && c.label.includes("crewSecond"),
+			);
+			if (!fresh)
+				throw new Error("The existing HQ row must remain selectable.");
+			expect(fresh.confirmation).not.toBe(selected.confirmation);
+			const remaining = await check(renamed, physical, fresh.confirmation);
+			if (remaining.kind !== "review" || !remaining.choices?.[0])
+				throw new Error(
+					"The other named installation still needs its own exact selection.",
+				);
+			expect(remaining.choices).toHaveLength(1);
+			expect(
+				await check(renamed, physical, remaining.choices[0].confirmation),
+			).toMatchObject({ kind: "agreed" });
+			expect(
+				(await readTargetIdentity(SCOPE, TARGET)).installationProfiles,
+			).toEqual(
+				expect.arrayContaining([
+					{ uuid: a, key: "crewSecond" },
+					{ uuid: b, key: "crewFirst" },
+				]),
+			);
+			expect(bodies).toHaveLength(2);
+		});
+	}, 20_000);
+	it.each([
+		{ entitled: false, saveDuring: null },
+		{ entitled: true, saveDuring: null },
+		{ entitled: true, saveDuring: "final-suite" },
+		{ entitled: true, saveDuring: "content-suite" },
+		{ entitled: true, saveDuring: "restricted-runtime" },
+		{ entitled: true, saveDuring: "revoke-on-content" },
+		{ entitled: true, saveDuring: "revoke-on-resume" },
+		{ entitled: true, saveDuring: "move-on-content" },
+		{ entitled: true, saveDuring: "end-on-content" },
+	] as const)(
+		"fills the first shell once, then observes a named practice restore (entitled $entitled, concurrent save $saveDuring)",
+		async ({ entitled, saveDuring }) => {
+			const uuid = installationUuid("training");
+			const key = uuid.replaceAll("-", "");
+			const doc = clinicVisitsDocument();
+			doc.appSettings.installationProfiles = {
+				[uuid]: {
+					uuid,
+					name: "Practice",
+					languages: ["eng"],
+					requiresPracticeWorker: true,
+				},
+			};
+			await seed(doc);
+			const profile = {
+				name: "Practice",
+				langs: ["en"],
+				practice_mobile_worker_id: "selected-worker",
+				doc_type: "BuildProfile",
+			};
+			const source = (
+				name: "source-shell" | "source-after-create-then-update",
+			) => ({
+				...retainedBodyJson(retainedPublishRead(name)),
+				build_profiles: { [key]: profile },
+			});
+			const resource = (path: string, id: string) =>
+				`<resource id="${id}" version="1"><location authority="remote">./${path}?profile=${key}</location></resource>`;
+			const suite = `<suite>${["default", "en"].map((lang) => `<locale language="${lang}">${resource(`${lang}/app_strings.txt`, lang)}</locale>`).join("")}<user-restore>${resource("practice_user_restore.xml", "practice-user-restore")}</user-restore></suite>`;
+			if (saveDuring === "end-on-content")
+				await h.seedProjectMember(ADMIN, PROJECT, "admin");
+			const publisher = await managedPublisher(doc);
+			const journey = () =>
+				withPeer(async (peer) => {
+					const bodies: unknown[] = [];
+					accepted(peer, 201, HQ_APP, bodies);
+					accepted(peer, 200, HQ_APP, bodies, async () => {
+						if (saveDuring === "end-on-content")
+							await stopHere(ADMIN_SCOPE, TARGET);
+						if (saveDuring === "revoke-on-content") await publisher.revoke();
+						if (saveDuring === "move-on-content")
+							await commitGuardedBatchProposal({
+								appId: APP,
+								expectedProjectId: PROJECT,
+								actorUserId: ACTOR,
+								batchId: crypto.randomUUID(),
+								kind: "autosave",
+								mutations: [
+									{ kind: "setAppName", name: "Renamed during confirmation" },
+								],
+							});
+					});
+					request(peer, SOURCE)
+						.reply(() => ({
+							statusCode: 200,
+							data: JSON.stringify(
+								source(
+									saves.at(HQ_APP) <= 1
+										? "source-shell"
+										: "source-after-create-then-update",
+								),
+							),
+						}))
+						.persist();
+					let workerActive = false;
+					let promotedSuites = 0;
+					let checkingPrepared = false;
+					let changed = false;
+					request(
+						peer,
+						`/a/clinic/apps/download/${HQ_APP}/suite.xml?profile=${key}`,
+					)
+						.reply(async () => {
+							if (checkingPrepared) promotedSuites++;
+							if (
+								saveDuring === "revoke-on-resume" &&
+								checkingPrepared &&
+								promotedSuites === 1
+							)
+								await publisher.revoke();
+							if (
+								!changed &&
+								((saveDuring === "final-suite" && promotedSuites === 2) ||
+									(saveDuring === "content-suite" && saves.at(HQ_APP) === 2))
+							) {
+								changed = true;
+								profile.practice_mobile_worker_id = "another-active-worker";
+								saves.save(HQ_APP);
+							}
+							return workerActive
+								? { statusCode: 200, data: suite }
+								: {
+										statusCode: 500,
+										data: "The selected practice worker is inactive",
+									};
+						})
+						.persist();
+					let built = false;
+					request(peer, `/a/clinic/api/application/v1/${HQ_APP}/`)
+						.reply(() => ({
+							statusCode: 200,
+							data: JSON.stringify({
+								id: HQ_APP,
+								name: "Practice",
+								version: saves.at(HQ_APP),
+								built_from_app_id: null,
+								modules: [],
+								versions: built
+									? [
+											{
+												id: "practice-build",
+												version: saves.at(HQ_APP),
+												is_released: false,
+											},
+										]
+									: [],
+							}),
+						}))
+						.persist();
+					const first = refusal(await publish(doc));
+					const token = first.failure.installationProfileConfirmation;
+					if (!token)
+						throw new Error(
+							"Expected a destination-specific worker confirmation",
+						);
+					const disabled = refusal(await publish(doc, undefined, null, token));
+					expect(disabled.failure.message).toContain("active practice worker");
+					expect(requests(peer).filter((s) => s.startsWith("POST "))).toEqual([
+						`POST ${IMPORT}`,
+					]);
+					expect(bodies).toHaveLength(1);
+					expect(
+						(await readTargetIdentity(SCOPE, TARGET)).installationProfiles,
+					).toBeUndefined();
+					workerActive = true;
+					if (saveDuring === "end-on-content") {
+						await publisher.publish(token);
+						expect((await state())?.deployment.state).toBe("ended");
+						expect(activeRemoteApp((await state()) ?? fail())).toBeNull();
+						const receipt = await sql<{
+							version: number | null;
+							settled: boolean;
+						}>`SELECT (to_jsonb(w)->>'import_acknowledged_version')::integer AS version,settled_at IS NOT NULL AS settled FROM hq_remote_writes w WHERE write_kind='import' AND resource_id=${HQ_APP}`.execute(
+							h.db(),
+						);
+						expect(receipt.rows).toEqual([
+							{ version: saves.at(HQ_APP), settled: true },
+						]);
+						expect(bodies).toHaveLength(2);
+						return;
+					}
+					if (
+						saveDuring === "revoke-on-content" ||
+						saveDuring === "move-on-content"
+					) {
+						const before = (await state()) ?? fail();
+						await expect(publisher.publish(token)).rejects.toMatchObject({
+							message: expect.stringContaining("CommCare HQ received the app"),
+						});
+						const receipts = await sql<{
+							version: number | null;
+							settled: boolean;
+						}>`SELECT (to_jsonb(w)->>'import_acknowledged_version')::integer AS version,settled_at IS NOT NULL AS settled FROM hq_remote_writes w WHERE write_kind='import' AND resource_id=${HQ_APP}`.execute(
+							h.db(),
+						);
+						expect(receipts.rows).toEqual([
+							{ version: saves.at(HQ_APP), settled: true },
+						]);
+						const after = (await state()) ?? fail();
+						expect(activeRemoteApp(after)?.pushToken).toBe(
+							activeRemoteApp(before)?.pushToken,
+						);
+						expect(activeRemoteApp(after)?.pushedRevision).toBeNull();
+						expect(
+							(await readTargetIdentity(SCOPE, TARGET)).installationProfiles,
+						).toBeUndefined();
+						expect(bodies).toHaveLength(2);
+						return;
+					}
+					const waiting = refusal(await publish(doc, undefined, null, token));
+					expect(
+						(await readEntryPointEvidence(SCOPE, TARGET)).manifest,
+					).toBeNull();
+					if (saveDuring === "content-suite") {
+						expect(changed).toBe(true);
+						expect(waiting.failure.message).toMatch(/changed|verify/);
+						expect(
+							(await readTargetIdentity(SCOPE, TARGET)).installationProfiles,
+						).toBeUndefined();
+						const held = await state();
+						expect(
+							held?.active.find((r) => r.kind === "app")?.pushedRevision,
+						).toBeNull();
+						return;
+					}
+					expect(waiting.failure.message).toContain(
+						`CommCare_v${saves.at(HQ_APP)}.ccz`,
+					);
+					expect(bodies).toHaveLength(2);
+					expect(bodies[0]).toMatchObject({ app: { modules: [] } });
+					expect(bodies[1]).toMatchObject({
+						app: { modules: expect.arrayContaining([expect.anything()]) },
+					});
+					const mapping = () =>
+						h
+							.db()
+							.selectFrom("app_deployment_resources")
+							.select(["remote_id", "pushed_revision"])
+							.where("kind", "=", "app")
+							.where("superseded_at", "is", null)
+							.executeTakeFirstOrThrow();
+					expect(await mapping()).toMatchObject({
+						remote_id: HQ_APP,
+						pushed_revision: null,
+					});
+					expect(
+						(await readTargetIdentity(SCOPE, TARGET)).installationProfiles,
+					).toBeUndefined();
+					built = true;
+					serveWorkingInstallationInventory(
+						peer,
+						HOST,
+						HQ_APP,
+						saves.at(HQ_APP),
+						{ counterAlreadyServed: true },
+					);
+					const blobs = Object.fromEntries(
+						[
+							"profile.ccpr",
+							"suite.xml",
+							"profile.xml",
+							"media_profile.xml",
+							"media_profile.ccpr",
+							"media_suite.xml",
+							"default/app_strings.txt",
+							"en/app_strings.txt",
+							"modules-0/forms-0.xml",
+							...[
+								"profile.xml",
+								"media_profile.xml",
+								"media_profile.ccpr",
+								"media_suite.xml",
+								"modules-0/forms-0.xml",
+							].map((file) => `${key}/${file}`),
+							`${key}/profile.ccpr`,
+							`${key}/suite.xml`,
+							`${key}/default/app_strings.txt`,
+							`${key}/en/app_strings.txt`,
+							...(entitled ? [`${key}/practice_user_restore.xml`] : []),
+						].map((path) => [`files/${path}`, { content_length: 20 }]),
+					);
+					request(
+						peer,
+						"/a/clinic/api/application/v1/practice-build/?extras=true",
+					).reply(200, {
+						id: "practice-build",
+						_id: "practice-build",
+						domain: "clinic",
+						doc_type: "Application",
+						copy_of: HQ_APP,
+						built_from_app_id: HQ_APP,
+						version: saves.at(HQ_APP),
+						is_released: false,
+						langs: ["en"],
+						modules: [
+							{
+								forms: [
+									{ doc_type: "Form" },
+									{ doc_type: "ShadowForm" },
+									{
+										doc_type: "Form",
+										is_release_notes_form: true,
+										enable_release_notes: false,
+									},
+								],
+							},
+						],
+						build_profiles: { [key]: profile },
+						external_blobs: blobs,
+					});
+					checkingPrepared = true;
+					if (saveDuring === "revoke-on-resume") {
+						const receipt = () =>
+							sql<{
+								id: string;
+								at: Date | null;
+								version: number | null;
+							}>`SELECT id,settled_at AS at,(to_jsonb(w)->>'import_acknowledged_version')::integer AS version FROM hq_remote_writes w WHERE write_kind='import'`.execute(
+								h.db(),
+							);
+						const before = await receipt();
+						expect(before.rows).toMatchObject([
+							{ at: expect.any(Date), version: saves.at(HQ_APP) },
+						]);
+						await expect(publisher.publish()).rejects.toMatchObject({
+							name: "McpCredentialInactiveError",
+						});
+						expect((await receipt()).rows).toEqual(before.rows);
+						expect((await mapping()).pushed_revision).toBeNull();
+						expect(bodies).toHaveLength(2);
+						return;
+					}
+					const finished = await publish(doc);
+					if (saveDuring === "final-suite") {
+						expect(changed).toBe(true);
+						expect(refusal(finished).failure.message).toContain("changed");
+						expect((await mapping()).pushed_revision).toBeNull();
+						return;
+					}
+					if (entitled) {
+						expect(finished).toMatchObject({ landed: true });
+						expect((await mapping()).pushed_revision).not.toBeNull();
+						const evidence = await readEntryPointEvidence(SCOPE, TARGET);
+						expect(evidence.manifest).toMatchObject({
+							generation: evidence.generation,
+							remoteAppId: HQ_APP,
+							sourceSequence: Number((await mapping()).pushed_revision),
+						});
+						expect(
+							(await readTargetIdentity(SCOPE, TARGET)).installationProfiles,
+						).toMatchObject([
+							{
+								uuid,
+								key,
+								practiceWorkerId: "selected-worker",
+								practiceWitness: { buildId: "practice-build" },
+							},
+						]);
+					} else {
+						expect(refusal(finished).failure.message).toContain(
+							"make a new version",
+						);
+						expect((await mapping()).pushed_revision).toBeNull();
+						expect(
+							(await readTargetIdentity(SCOPE, TARGET)).installationProfiles,
+						).toBeUndefined();
+					}
+					expect(requests(peer).filter((s) => s.startsWith("POST "))).toEqual([
+						`POST ${IMPORT}`,
+						`POST ${IMPORT}`,
+					]);
+				});
+			if (saveDuring === "restricted-runtime")
+				await withInstallationRuntimeRole(h, journey);
+			else await journey();
+		},
+		45_000,
+	);
+	it("keeps a shell incomplete when the destination must supply an active practice worker", async () => {
+		const uuid = installationUuid("training");
+		const key = uuid.replaceAll("-", "");
+		const doc = clinicVisitsDocument();
+		doc.appSettings.installationProfiles = {
+			[uuid]: {
+				uuid,
+				name: "Practice",
+				languages: ["eng"],
+				requiresPracticeWorker: true,
+			},
+		};
+		await seed(doc);
+		await withPeer(async (peer) => {
+			accepted(peer, 201);
+			request(peer, SOURCE).reply(200, {
+				...retainedBodyJson(retainedPublishRead("source-shell")),
+				build_profiles: {
+					[key]: {
+						name: "Practice",
+						langs: ["en"],
+						practice_mobile_worker_id: null,
+						doc_type: "BuildProfile",
+					},
+				},
+			});
+			const stopped = refusal(await publish(doc));
+			expect(stopped.failure).toMatchObject({
+				code: "hq_installation_profile_review",
+				installationProfileReviewUrl: `${HOST}/a/clinic/apps/view/${HQ_APP}/releases/`,
+			});
+			expect(requests(peer).filter((s) => s === `POST ${IMPORT}`)).toHaveLength(
+				1,
+			);
+			expect(
+				await h
+					.db()
+					.selectFrom("app_deployment_installation_reviews")
+					.select("checkpoint")
+					.executeTakeFirstOrThrow(),
+			).toMatchObject({
+				checkpoint: { phase: "edit-profiles", appId: HQ_APP },
+			});
+			expect(
+				await h
+					.db()
+					.selectFrom("app_deployment_installation_profiles")
+					.select("practice_worker_id")
+					.execute(),
+			).toEqual([]);
+		});
+	});
+});

@@ -350,7 +350,7 @@ describe("both readings of one app", () => {
 			const first = testUuid("directory first");
 			const second = testUuid("directory second");
 			const menus = before.map((id, index) => ({
-				name: "Visit " + index,
+				name: `Visit ${index}`,
 				caseType: "visit",
 				forms: [
 					{
@@ -373,7 +373,7 @@ describe("both readings of one app", () => {
 						searchUuid: id === 17 ? first : second,
 						defaults: [
 							{
-								uuid: testUuid("region " + index),
+								uuid: testUuid(`region ${index}`),
 								name: "region",
 								value: term(literal("north")),
 							},
@@ -418,7 +418,7 @@ describe("both readings of one app", () => {
 				},
 			});
 			if (made.kind !== "readings")
-				throw new Error("No baseline: " + made.reason);
+				throw new Error(`No baseline: ${made.reason}`);
 			const changed = made.readings.now;
 			if (changed.kind !== "read")
 				throw new Error(JSON.stringify(changed.findings));

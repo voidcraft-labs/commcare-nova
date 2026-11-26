@@ -367,10 +367,21 @@ function createClaims(
 function identitiesClaimedBy(mutation: Mutation): MutationIdentityClaim[] {
 	switch (mutation.kind) {
 		case "setAppSettings": {
-			const edit = mutation.settings.projectSearch;
-			return edit?.operation === "add"
-				? createClaims([{ uuid: edit.uuid, kind: "projectSearch" }])
-				: [];
+			const search = mutation.settings.projectSearch;
+			const profile = mutation.settings.installationProfile;
+			return createClaims([
+				...(search?.operation === "add"
+					? [{ uuid: search.uuid, kind: "projectSearch" as const }]
+					: []),
+				...(profile?.operation === "add"
+					? [
+							{
+								uuid: profile.profile.uuid,
+								kind: "installationProfile" as const,
+							},
+						]
+					: []),
+			]);
 		}
 		case "updateModule":
 			return projectSearchParameterClaims(

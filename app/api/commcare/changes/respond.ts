@@ -145,6 +145,10 @@ export async function answerHqChanges<Body extends KeyedBody>(
 			role: access.role,
 			actorUserId: userId,
 			requireOperation: sessionManagementGrant(userId, session.session.id),
+			requireInstallationManagement: sessionManagementGrant(
+				session.user.id,
+				session.session.id,
+			),
 		};
 	} catch (err) {
 		const response = handleApiError(

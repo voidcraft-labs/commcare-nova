@@ -254,6 +254,11 @@ export function hqImportFileGuide(input: {
 }): readonly ManualImportStep[] {
 	const logo = logoMember(input.doc, input.assets);
 	return manualImportGuide({
+		practiceInstallations: Object.values(
+			input.doc.appSettings.installationProfiles ?? {},
+		)
+			.filter((profile) => profile.requiresPracticeWorker)
+			.map(({ name, languages }) => ({ name, languages })),
 		appFileName: appFileName(input.appName),
 		lookupTags: input.lookupWorkbook?.tables.map((table) => table.tag) ?? [],
 		additionalLookupFiles: input.extraWorkbooks?.map((file) => ({
@@ -362,7 +367,7 @@ export function streamHqJsonExportArchive(
 	additional: readonly StreamMember[] = [],
 ) {
 	const members: StreamMember[] = [
-		textMember(appFileName(appName) + ".json", JSON.stringify(hqJson, null, 2)),
+		textMember(`${appFileName(appName)}.json`, JSON.stringify(hqJson, null, 2)),
 	];
 	const bulk = bulkUploadAssets(doc, assets);
 	if (bulk.size > 0)
@@ -371,7 +376,7 @@ export function streamHqJsonExportArchive(
 			open: () => streamZip(mediaMembers(bulk)),
 		});
 	const logo = doc.logo === undefined ? undefined : assets.get(doc.logo);
-	if (logo) members.push(mediaMember(logo, "logo" + logo.extension));
+	if (logo) members.push(mediaMember(logo, `logo${logo.extension}`));
 	if (lookupWorkbook)
 		members.push(
 			bytesMember(MANUAL_IMPORT_LOOKUP_WORKBOOK, lookupWorkbook.bytes),

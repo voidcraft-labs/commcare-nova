@@ -221,6 +221,7 @@ export type UploadErrorType =
 	| "hq_confirmation_needed"
 	| "hq_web_apps_change"
 	| "hq_app_version_below_floor"
+	| "hq_installation_profile_review"
 	| "hq_build_profile_language_missing"
 	| "hq_plan_lacks_web_apps"
 	| "app_changed_while_publishing"

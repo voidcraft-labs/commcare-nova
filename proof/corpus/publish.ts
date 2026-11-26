@@ -1,3 +1,4 @@
+import type { InstallationProfileBinding } from "@/lib/commcare/wireIdentity";
 /**
  * What Nova's publish sends CommCare HQ for one corpus document, captured
  * from Nova's own client.
@@ -3039,6 +3040,7 @@ async function reviewOverPeer(input: {
 		target,
 		readingId: CAPTURE_READING_ID,
 		deployment: CAPTURE_DEPLOYMENT,
+		workingVersion: remoteRevision,
 		live,
 		baseline,
 		since,
@@ -3049,6 +3051,12 @@ async function reviewOverPeer(input: {
 		observedAt,
 		remoteRevision,
 		source,
+		layoutReplacements: legacyMenuLayoutLines({
+			doc: head.doc,
+			identity: exportIdentityOf(head.doc, input.targetIdentity).identity,
+			source,
+			ownership: baseline.ownership,
+		}),
 		modules: alignment.modules,
 		normalized,
 		published,
@@ -3757,6 +3765,7 @@ export interface HqAuthoredA {
 	readonly keyedCaseIds: readonly AdoptedKeyedCaseId[];
 	readonly columnWords: readonly ColumnFieldWordRow[];
 	readonly projectSearches?: readonly ProjectSearchBinding[];
+	readonly installationProfiles?: readonly InstallationProfileBinding[];
 }
 
 /** The held paths an export boundary takes for `mediaPaths`: each without `jr://file/`. */
@@ -4104,6 +4113,7 @@ async function adoptedA(
 			adopted.identity,
 			adopted.columnWords,
 			adopted.projectSearches,
+			adopted.installationProfiles,
 		),
 		novaRevision: prepared.source.compiledAtSeq,
 		mediaFiles,
@@ -4213,6 +4223,7 @@ export async function capturePublish(
 					adopted.identity,
 					adopted.columnWords,
 					adopted.projectSearches,
+					adopted.installationProfiles,
 				);
 	const heldMediaPaths =
 		adopted === undefined ? undefined : heldMediaPathsOf(adopted.mediaPaths);
@@ -4232,6 +4243,7 @@ export async function capturePublish(
 					...(adopted.projectSearches?.length && {
 						projectSearches: adopted.projectSearches,
 					}),
+					installationProfiles: adopted.installationProfiles,
 				});
 	const languageNames: LanguageNames =
 		adopted === undefined ? "nova" : "target";
@@ -4669,6 +4681,7 @@ export async function localCcz(
 			| "keyedCaseIds"
 			| "columnWords"
 			| "projectSearches"
+			| "installationProfiles"
 		>;
 	} = {},
 ): Promise<Buffer | LocalCczRefused | null> {
@@ -4730,6 +4743,7 @@ export async function localCcz(
 							options.targetIdentity
 								? record.projectSearches
 								: adopted.projectSearches,
+							adopted.installationProfiles,
 						),
 				{
 					emptyCaseListText: target.emptyCaseListText,

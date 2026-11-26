@@ -9,7 +9,7 @@ import { admitMutationBatch } from "@/lib/doc/mutationAdmission";
 import type { PlacementHoldEntry } from "@/lib/doc/types";
 import type { BlueprintDoc } from "@/lib/domain";
 import { log } from "@/lib/logger";
-import type { DeploymentScope } from "./store";
+import type { DeploymentScope, HqManagementGrant } from "./store";
 
 /**
  * What recording a publish's placements came to: the change written and the
@@ -37,6 +37,7 @@ export type RecordPlacementsOutcome =
  */
 export async function recordPublishPlacements(input: {
 	readonly scope: DeploymentScope;
+	readonly grant?: HqManagementGrant | null;
 	readonly expectedHeadSeq: number;
 	readonly holds: readonly PlacementHoldEntry[];
 }): Promise<RecordPlacementsOutcome> {
@@ -45,6 +46,7 @@ export async function recordPublishPlacements(input: {
 			"A publish asked to record its placements with none to record. A change that holds nothing is never written, so the caller has to skip the record instead.",
 		);
 	}
+	const grant = input.grant;
 	try {
 		const receipt = await commitGuardedBatch(
 			{
@@ -63,6 +65,7 @@ export async function recordPublishPlacements(input: {
 			{
 				beforeWrite: async ({ tx }) => {
 					await input.scope.requireOperation?.(tx);
+					await grant?.(tx);
 				},
 			},
 		);

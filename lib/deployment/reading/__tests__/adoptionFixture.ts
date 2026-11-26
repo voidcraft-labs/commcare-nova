@@ -370,6 +370,7 @@ export function reviewOf(
 export async function adoptFixtureApp(input: {
 	projectId: string;
 	actorUserId: string;
+	source?: RetainedHqAnswer;
 }): Promise<{ appId: string; receipt: AdoptedAppReceipt }> {
 	await seedFixtureConnection(input.actorUserId);
 	const actor = await authorizeBringIn(input.actorUserId, input.projectId);
@@ -379,7 +380,7 @@ export async function adoptFixtureApp(input: {
 		);
 	const key = fixtureKey(input.projectId);
 	return withHttpPeer(async (peer) => {
-		serveFixtureApp(peer, { times: 2 });
+		serveFixtureApp(peer, { times: 2, source: input.source });
 		const review = reviewOf(
 			await readHqAppForReview(actor, key, { onEvent: () => {} }),
 		);

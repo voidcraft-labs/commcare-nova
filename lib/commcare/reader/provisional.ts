@@ -275,6 +275,9 @@ function documentFromDrafts(ctx: ReadContext): BlueprintDoc {
 			...(draft.appSettings.projectSearches && {
 				projectSearches: draft.appSettings.projectSearches,
 			}),
+			...(draft.appSettings.installationProfiles && {
+				installationProfiles: draft.appSettings.installationProfiles,
+			}),
 			showSavedForms:
 				draft.appSettings.showSavedForms ?? NEW_APP_SETTINGS.showSavedForms,
 			showIncompleteForms:
