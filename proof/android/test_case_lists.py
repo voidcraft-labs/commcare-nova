@@ -45,10 +45,9 @@ cell drawn at an alignment Preview does not draw.
 
 from __future__ import annotations
 
+import json
 from contextlib import contextmanager
 from dataclasses import replace
-
-import json
 
 import pytest
 
