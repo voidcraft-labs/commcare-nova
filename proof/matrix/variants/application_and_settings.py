@@ -10,6 +10,22 @@ from proof.matrix import ops
 WEB_APPS_LOGO = "hq_logo_web_apps"
 
 
+def menu_icon_override_without_a_resource(authoring, app_id):
+    """Keep the mapped icon and locale value, but remove its ordinary form carrier."""
+    path = "jr://file/commcare/image/data/animal_name.png"
+
+    def remove_picture(root, _form):
+        media = [
+            value for value in root.iter("{http://www.w3.org/2002/xforms}value")
+            if value.get("form") == "image" and value.text == path
+        ]
+        assert len(media) == 1
+        media[0].getparent().remove(media[0])
+
+    ops.set_form_source(authoring, app_id, 0, 0, remove_picture, what="remove the ordinary picture carrier")
+    ops.set_json(authoring, app_id, "/translations", {"en": {"modules.m0.icon": path}})
+
+
 def every_form_deleted(authoring, app_id):
     """The first menu's case list offered as a menu item of its own (``case_list``, shown, labelled), and then each
     of its forms deleted through the form's own delete (``views/forms.py::delete_form``), which takes the form out

@@ -580,18 +580,20 @@ describe("an override of a generated media key in `translations`", () => {
 			"translations-generated-navigation-file",
 		);
 		const assets = new Map(manifestFor(doc));
-		for (const [path, ref] of Object.entries(ASSETS)) {
-			if (ref.kind !== "asset") continue;
-			const asset = assets.get(ref.assetId);
+		for (const [path, id] of [
+			[MENU_ICON, testMediaAssetId("menu-icon")],
+			[OTHER_ICON, testMediaAssetId("other-icon")],
+		] as const) {
+			const asset = assets.get(id);
 			if (asset)
-				assets.set(ref.assetId, {
+				assets.set(id, {
 					...asset,
 					wirePath: path.replace("jr://file/", ""),
 				});
 		}
 		const body = expandDoc(doc, { assets });
 		expect(body.modules[0].media_image.en).toBe(MENU_ICON);
-		expect(body.translations.en["modules.m0.icon"]).toBe(OTHER_ICON);
+		expect(body.translations?.en["modules.m0.icon"]).toBe(OTHER_ICON);
 	});
 
 	it("keeps a form's generated spoken label on that form and locale", async () => {

@@ -23323,11 +23323,7 @@
 	{
 		"id": "hq-media/translation-overrides-a-menu-icon",
 		"base": "hq-media",
-		"entry": "application-and-settings/translations-generated-key-anything-else",
-		"standing": "not-yet",
-		"place": {
-			"kind": "app"
-		},
+		"entry": "application-and-settings/translations-generated-navigation-file",
 		"change": {
 			"op": "set-json",
 			"pointer": "/translations",
@@ -23336,6 +23332,33 @@
 					"modules.m0.icon": "jr://file/commcare/image/data/animal_name.png"
 				}
 			}
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/mediaByLanguage/eng/iconOverride",
+				"value": {
+					"$projectFile": "jr://file/commcare/image/data/animal_name.png"
+				}
+			}
+		]
+	},
+	{
+		"id": "hq-media/translation-overrides-a-menu-icon-without-a-resource",
+		"base": "hq-media",
+		"entry": "application-and-settings/translations-generated-navigation-file-not-packaged",
+		"standing": "not-yet",
+		"place": {
+			"kind": "app"
+		},
+		"change": {
+			"op": "named",
+			"name": "menu_icon_override_without_a_resource"
 		}
 	},
 	{

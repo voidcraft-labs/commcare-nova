@@ -6,7 +6,11 @@ import {
 	languageTagSchema,
 	languageWireCodeSchema,
 } from "./localization";
-import { type MediaAssetId, mediaAssetIdSchema } from "./multimedia";
+import {
+	type MediaAssetId,
+	mediaAssetIdSchema,
+	storedFormMedia,
+} from "./multimedia";
 import { ownRecordSchema, ownRecordValue, recordWithValue } from "./records";
 
 /** An omitted language slot takes the shared file. A sparse menu imported from
@@ -200,7 +204,7 @@ export function navigationMediaProblem(
 			if (
 				override !== undefined &&
 				doc !== undefined &&
-				!ordinaryNavigationAsset(doc, role, language, override)
+				!ordinaryNavigationAsset(doc, app, role, language, override)
 			)
 				return { kind: "override-needs-package", role };
 		}
@@ -210,8 +214,9 @@ export function navigationMediaProblem(
 
 /** HQ installs only files referenced by its ordinary media surfaces. A locale
  * string alone does not cause the file to be added to the media resources. */
-function ordinaryNavigationAsset(
+export function ordinaryNavigationAsset(
 	doc: BlueprintDoc,
+	app: EffectiveAppLocalization,
 	role: "icon" | "audioLabel",
 	language: string,
 	asset: IconRef,
@@ -219,12 +224,45 @@ function ordinaryNavigationAsset(
 	const used = (carrier: NavigationMedia | undefined) =>
 		carrier !== undefined &&
 		storedNavigationFile(carrier, role, language) === asset;
-	return doc.moduleOrder.some((uuid) => {
-		const module = doc.modules[uuid];
-		return (
-			used(module) || doc.formOrder[uuid]?.some((form) => used(doc.forms[form]))
-		);
-	});
+	if (
+		doc.moduleOrder.some((uuid) => {
+			const module = doc.modules[uuid];
+			return (
+				used(module) ||
+				doc.formOrder[uuid]?.some((form) => used(doc.forms[form]))
+			);
+		})
+	)
+		return true;
+	const kind = role === "icon" ? "image" : "audio";
+	for (const field of Object.values(doc.fields)) {
+		if (
+			"label_media" in field &&
+			storedFormMedia(field.label_media, language, app.defaultLanguage)?.[
+				kind
+			] === asset
+		)
+			return true;
+		if (
+			"help_media" in field &&
+			storedFormMedia(field.help_media, language, app.defaultLanguage)?.[
+				kind
+			] === asset
+		)
+			return true;
+		if (
+			(field.kind === "single_select" || field.kind === "multi_select") &&
+			field.optionsSource.kind === "inline" &&
+			field.optionsSource.options.some(
+				(option) =>
+					storedFormMedia(option.media, language, app.defaultLanguage)?.[
+						kind
+					] === asset,
+			)
+		)
+			return true;
+	}
+	return false;
 }
 
 /** The author-facing sentence for a menu file problem. */

@@ -3,7 +3,13 @@
  * determine the shared value. Sparse entries keep the worker-visible fallback
  * of both the full app and installations limited to selected languages.
  */
-import type { MediaKind } from "@/lib/domain";
+import {
+	type BlueprintDoc,
+	effectiveAppLocalization,
+	type MediaKind,
+} from "@/lib/domain";
+import type { IconRef } from "@/lib/domain/builtinIcons";
+import { ordinaryNavigationAsset } from "@/lib/domain/navigationMedia";
 import { NO_ENTRIES, recordFromEntries } from "@/lib/domain/records";
 import type { HqPlace } from "@/lib/publish/hqFindings";
 import { applicationReading, type HeldTranslationKey } from "../appShell";
@@ -281,12 +287,36 @@ defineClaims("menus.navMedia", {
 	generatedMediaClaim,
 	generatedMediaNotPackaged,
 });
-const acceptedOverrides = new WeakSet<HeldTranslationKey>();
+const acceptedOverrides = new WeakMap<
+	HeldTranslationKey,
+	{
+		language: string;
+		role: "icon" | "audioLabel";
+		path: string;
+		assetId?: IconRef;
+	}
+>();
 
-export function acceptedNavigationMediaOverride(
-	key: HeldTranslationKey,
+export function accountNavigationMediaOverride(
+	doc: BlueprintDoc,
+	held: HeldTranslationKey,
 ): boolean {
-	return acceptedOverrides.has(key);
+	const override = acceptedOverrides.get(held);
+	if (override === undefined) return false;
+	if (
+		override.assetId !== undefined &&
+		!ordinaryNavigationAsset(
+			doc,
+			effectiveAppLocalization(doc.localization),
+			override.role,
+			override.language,
+			override.assetId,
+		)
+	) {
+		held.json.refuse(held.key, generatedMediaNotPackaged, { name: held.key });
+	} else
+		held.json.take(held.key, generatedMediaClaim, () => override.path).value;
+	return true;
 }
 
 function navigationLocale(
@@ -325,27 +355,7 @@ function readOverrides(
 		const tag = app?.languages.tagOf.get(held.language);
 		if (tag === undefined) continue;
 		const path = held.value;
-		const rawModules = ctx.input.source.raw.modules;
-		const map = mediaKind === "image" ? "media_image" : "media_audio";
-		const declares = (block: unknown) => {
-			if (!isJsonObject(block)) return false;
-			const media = block[map];
-			return isJsonObject(media) && media[held.language] === path;
-		};
-		if (
-			!Array.isArray(rawModules) ||
-			!rawModules.some(
-				(module) =>
-					declares(module) ||
-					(isJsonObject(module) &&
-						Array.isArray(module.forms) &&
-						module.forms.some(declares)),
-			)
-		) {
-			held.json.refuse(key, generatedMediaNotPackaged, { name: key });
-			acceptedOverrides.add(held);
-			continue;
-		}
+
 		const resolution = ctx.input.media.resolve(path);
 		const occurrence = {
 			path,
@@ -371,8 +381,14 @@ function readOverrides(
 				resolution: resolution.kind,
 			});
 		}
-		held.json.take(key, generatedMediaClaim, () => path).value;
-		acceptedOverrides.add(held);
+		acceptedOverrides.set(held, {
+			language: tag,
+			role: mediaKind === "image" ? "icon" : "audioLabel",
+			path,
+			...(resolution.kind === "asset" && {
+				assetId: resolution.assetId as IconRef,
+			}),
+		});
 	}
 	return overrides;
 }
