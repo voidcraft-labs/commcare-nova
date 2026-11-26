@@ -497,10 +497,10 @@ public class CaseOperationRuntimeTest {
         child.setCaseId("member-unicode");
         sandbox.getCaseStorage().write(child);
         String[] names = {"parént", "pare\u0301nt", "亲属", "par.ent", "par-ent"};
-        StringBuilder submission = new StringBuilder("<data><case xmlns="http://commcarehq.org/case/transaction/v2""
-                + " case_id="member-unicode" date_modified="2026-04-17T00:00:00.000Z" user_id="worker"><index>");
+        StringBuilder submission = new StringBuilder("<data><case xmlns='http://commcarehq.org/case/transaction/v2'"
+                + " case_id='member-unicode' date_modified='2026-04-17T00:00:00.000Z' user_id='worker'><index>");
         for (String name : names) {
-            submission.append("<").append(name).append(" case_type="household" relationship="child">")
+            submission.append("<").append(name).append(" case_type='household' relationship='child'>")
                     .append("household-unicode</").append(name).append(">");
         }
         submission.append("</index></case></data>");
