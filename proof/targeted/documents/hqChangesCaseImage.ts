@@ -117,6 +117,22 @@ export function hqChangesCaseImage(): CorpusDocument {
 	return {
 		...document,
 		hqSide: {
+			// HQ exposes image mappings after this app enables the Add-ons switch.
+			addOns: {
+				advanced_itemsets: false,
+				calc_xpaths: false,
+				case_detail_overwrite: false,
+				case_list_menu_item: false,
+				conditional_enum: false,
+				conditional_form_actions: false,
+				display_conditions: false,
+				enum_image: true,
+				menu_mode: false,
+				register_from_case_list: false,
+				subcases: false,
+				submenus: false,
+				empty_case_lists: false,
+			},
 			moduleDetail: {
 				module: 0,
 				columns: [column as unknown as Readonly<Record<string, unknown>>],
