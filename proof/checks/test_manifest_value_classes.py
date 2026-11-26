@@ -7437,7 +7437,7 @@ def _held_new():
             accepted("app", own_update("estado_é"), update_map, updates),
             accepted("app", own_update("aⅣ"), update_map, updates),
             accepted("app", own_update("note½"), update_map, updates),
-            accepted("app", child_update("n名字"), child_map, children),
+            accepted("app", child_update("n名字"), "schema:Form.actions", "/modules/0/forms/0/actions"),
         ),
         "forms-and-case-writes/update-key-holding-a-non-ascii-core-name-character": (
             refused("app", own_update("größe"), update_map, updates),
