@@ -38524,6 +38524,26 @@
 		}
 	},
 	{
+		"id": "hq-search/default-filter-sorting-by-case-location",
+		"base": "hq-search",
+		"entry": "case-search/a-server-order-naming-a-property-only-devices-hold",
+		"standing": "fix-in-hq",
+		"place": {
+			"kind": "search",
+			"menu": 1,
+			"name": "Active clients"
+		},
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/1/search_config/default_properties/-",
+			"value": {
+				"property": "commcare_sort",
+				"doc_type": "DefaultCaseSearchProperty",
+				"defaultValue": "'+location_id:exact'"
+			}
+		}
+	},
+	{
 		"id": "hq-search/default-filter-naming-the-related-case-property",
 		"base": "hq-search",
 		"entry": "case-search/default-related-record-id-property",
@@ -41146,6 +41166,29 @@
 			"value": [
 				{
 					"property_name": "owner_id",
+					"sort_type": "exact",
+					"direction": "ascending",
+					"doc_type": "CaseSearchCustomSortProperty"
+				}
+			]
+		}
+	},
+	{
+		"id": "hq-search/results-sorted-by-case-location",
+		"base": "hq-search",
+		"entry": "case-search/a-server-order-naming-a-property-only-devices-hold",
+		"standing": "fix-in-hq",
+		"place": {
+			"kind": "search",
+			"menu": 0,
+			"name": "Clients"
+		},
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/0/search_config/custom_sort_properties",
+			"value": [
+				{
+					"property_name": "location_id",
 					"sort_type": "exact",
 					"direction": "ascending",
 					"doc_type": "CaseSearchCustomSortProperty"

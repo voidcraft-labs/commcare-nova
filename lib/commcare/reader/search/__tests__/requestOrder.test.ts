@@ -1,6 +1,9 @@
 import { expect, it } from "vitest";
+import { runValidation } from "@/lib/commcare/validator/runner";
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { effectiveCaseTypes } from "@/lib/domain";
 import { literal, term } from "@/lib/domain/expression/builders";
+import { plainColumn } from "@/lib/domain/modules";
 import { proseText } from "@/lib/domain/prose";
 import { patients, uuid } from "../../caseList/__tests__/fixtures";
 import {
@@ -304,3 +307,97 @@ it("keeps an order bound to the requested record type that declares its property
 		catalog?.find((type) => type.name === "visit")?.properties,
 	).toMatchObject([{ name: "priority", data_type: "int" }]);
 });
+
+const deviceOnlyOrderCode =
+	"case-search/a-server-order-naming-a-property-only-devices-hold";
+
+it.each(["default filter", "dedicated setting"] as const)(
+	"refuses a device-only property and keeps an indexed worker property in the %s",
+	async (carrier) => {
+		const useDefault = carrier === "default filter";
+		const readOrder = (property: string) =>
+			readLists(patients([], { search: {} }), {
+				edit: (app) => {
+					const config = app.modules[0].search_config;
+					if (useDefault) {
+						config.default_properties = [
+							{
+								property: "commcare_sort",
+								defaultValue: `'+${property}:exact'`,
+							},
+						];
+					} else {
+						config.custom_sort_properties = [
+							{
+								doc_type: "CaseSearchCustomSortProperty",
+								property_name: property,
+								sort_type: "exact",
+								direction: "ascending",
+							},
+						];
+					}
+				},
+			});
+		const location = await readOrder("location_id");
+		expect(closedCodes(location), JSON.stringify(location.findings)).toEqual([
+			deviceOnlyOrderCode,
+		]);
+		const worker = await readOrder("hq_user_id");
+		expect(closedCodes(worker), JSON.stringify(worker.findings)).toEqual([]);
+		const order = [
+			{ property: "hq_user_id", comparison: "text", direction: "ascending" },
+		];
+		if (useDefault) {
+			expect(listOf(worker).searchFilters).toMatchObject([
+				{ kind: "order", order },
+			]);
+		} else {
+			expect(searchOf(worker)).toMatchObject({ requestOrder: order });
+		}
+
+		const authoredFindings = (property: string) => {
+			const term = {
+				property,
+				comparison: "text",
+				direction: "ascending",
+			} as const;
+			const columns = [plainColumn(uuid(1), "case_name", "Name")];
+			const doc = useDefault
+				? patients(columns, {
+						search: {},
+						list: {
+							searchFilters: [{ uuid: uuid(34), kind: "order", order: [term] }],
+						},
+					})
+				: patients(columns, { search: { requestOrder: [term] } });
+			doc.caseTypes = effectiveCaseTypes(doc).map((type) =>
+				type.name === "patient"
+					? {
+							...type,
+							properties: [
+								...type.properties,
+								{
+									name: "hq_user_id",
+									label: proseText("Linked worker"),
+									data_type: "text",
+								},
+								{
+									name: "location_id",
+									label: proseText("Location"),
+									data_type: "text",
+								},
+							],
+						}
+					: type,
+			);
+			return runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
+		};
+		expect(authoredFindings("location_id")).toEqual([
+			expect.objectContaining({
+				code: "CASE_SEARCH_FILTER_INVALID",
+				details: { reason: "order-device-only", property: "location_id" },
+			}),
+		]);
+		expect(authoredFindings("hq_user_id")).toEqual([]);
+	},
+);

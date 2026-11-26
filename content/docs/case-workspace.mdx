@@ -936,7 +936,7 @@ switch stays on until the menu has a form.
 
 ## Choose which matches Search sends
 
-A broad search can match more records than the worker receives. Under **Search filters**, **Which matches arrive first** sets which records the server sends. Pick a property, how to compare its values and a direction. Comparing a priority as a number puts 2 before 10 in ascending order; compared as text, 10 comes first. You can choose a property from any record type this search requests. Add a tie-breaker to decide between records that share a priority. Your list can still show the records it receives in its own order.
+A broad search can match more records than the worker receives. Under **Search filters**, **Which matches arrive first** sets which records the server sends. Pick a property, how to compare its values and a direction. Comparing a priority as a number puts 2 before 10 in ascending order; compared as text, 10 comes first. You can choose a property that Search indexes from any record type this search requests. Search does not index the record’s location. Add a tie-breaker to decide between records that share a priority. Your list can still show the records it receives in its own order.
 
 This order uses advanced case search in your CommCare HQ project space. If your project space doesn't have it, **Add order as a search filter** sets the same kind of order among the search filters instead. When a search has both, the server applies the filters' orders first, then the one above. An app you bring in from CommCare HQ keeps each order where it was.
 

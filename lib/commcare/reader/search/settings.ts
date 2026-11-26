@@ -36,7 +36,7 @@ import { emitExcludedOwnerFilterExpression } from "../../suite/case-list/nodeset
 import { searchGuardedFieldNames } from "../../suite/case-search/moduleXPathQuery";
 import { includeSearchHierarchy } from "../../suite/case-search/relatedCaseProjection";
 import {
-	dedicatedOrderNamesReserved,
+	dedicatedOrderRefusal,
 	readDedicatedOrder,
 } from "../../suite/case-search/requestOrder";
 import { normalizeSpace } from "../../suite/wire";
@@ -219,6 +219,10 @@ export const SETTING_CLAIMS = defineClaims("search.settings", {
 	),
 	customSortReserved: refuse(
 		`${S}a-server-order-naming-a-property-nova-reserves`,
+		"schema:CaseSearch.custom_sort_properties",
+	),
+	customSortDeviceOnly: refuse(
+		`${S}a-server-order-naming-a-property-only-devices-hold`,
 		"schema:CaseSearch.custom_sort_properties",
 	),
 	searchOnClear: take(
@@ -1169,8 +1173,12 @@ export function readSearchSettings(
 	if (cursor.used("custom_sort_properties")) {
 		const stored = cursor.peek("custom_sort_properties");
 		const order = readDedicatedOrder(stored);
-		if (order === undefined && dedicatedOrderNamesReserved(stored)) {
-			cursor.refuse("custom_sort_properties", T.customSortReserved);
+		const refusal = dedicatedOrderRefusal(stored);
+		if (order === undefined && refusal !== undefined) {
+			cursor.refuse(
+				"custom_sort_properties",
+				refusal === "reserved" ? T.customSortReserved : T.customSortDeviceOnly,
+			);
 			ok = false;
 		} else if (order === undefined) {
 			const detail = { name: "schema:CaseSearch.custom_sort_properties" };

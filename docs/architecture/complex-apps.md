@@ -892,7 +892,10 @@ writable standard scalar like `external_id`
 and 255 characters, and no standard property every case carries: a case type
 holds it where the app saves or declares it. HQ's case search indexes no
 location (`corehq/pillows/case_search.py::_get_case_properties`), so a
-search's read of it is refused (`typeChecker.ts`, `location-not-in-search`).
+search expression's read of it is refused (`typeChecker.ts`,
+`location-not-in-search`). Both the dedicated request order and a saved
+`commcare_sort` default filter also refuse it. An order can use
+`hq_user_id` where the requested case type carries it.
 A written `hq_user_id` is an ordinary property whose value the case store
 also copies into the case's external id, applied after the block's own
 `external_id` as HQ applies its known keys first; the submitting device keeps

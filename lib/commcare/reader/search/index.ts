@@ -35,7 +35,7 @@ import { readSearchFilterTarget } from "../../suite/case-search/nativeFilters";
 import {
 	readDedicatedOrder,
 	readRequestOrderText,
-	requestOrderTextNamesReserved,
+	requestOrderTextRefusal,
 } from "../../suite/case-search/requestOrder";
 import { simpleArmNeedsXPathQueryEmission } from "../../suite/case-search/simpleArmDerivation";
 import { rethrowWorkStop } from "../../workMeter";
@@ -175,6 +175,10 @@ export const SEARCH_CLAIMS = defineClaims("search", {
 	),
 	sortReserved: refuse(
 		`${S}a-server-order-naming-a-property-nova-reserves`,
+		"schema:DefaultCaseSearchProperty.property",
+	),
+	sortDeviceOnly: refuse(
+		`${S}a-server-order-naming-a-property-only-devices-hold`,
 		"schema:DefaultCaseSearchProperty.property",
 	),
 	sortKey: refuse(
@@ -439,7 +443,7 @@ function readDefaultFilters(
 		if (property !== "_xpath_query") {
 			// A literal order is held among the filters, where it arrived; one
 			// naming a property Nova reserves is refused under its own entry.
-			let sortReserved = false;
+			let sortRefusal: ReturnType<typeof requestOrderTextRefusal>;
 			if (property === "commcare_sort") {
 				const syntax = readFormSyntax(value);
 				const text =
@@ -448,8 +452,8 @@ function readDefaultFilters(
 						: undefined;
 				const order =
 					text === undefined ? undefined : readRequestOrderText(text);
-				sortReserved =
-					text !== undefined && requestOrderTextNamesReserved(text);
+				sortRefusal =
+					text === undefined ? undefined : requestOrderTextRefusal(text);
 				if (order !== undefined) {
 					const occurrence = names.get(property)?.length ?? 0;
 					addName(property, row);
@@ -472,9 +476,12 @@ function readDefaultFilters(
 				}
 			}
 			// The row's value is the filter the refusal names, and stands under its finding.
-			const claim = sortReserved
-				? C.sortReserved
-				: keyFinding(property, value, ownersExpression, relatedPropertySet);
+			const claim =
+				sortRefusal === "reserved"
+					? C.sortReserved
+					: sortRefusal === "device-only"
+						? C.sortDeviceOnly
+						: keyFinding(property, value, ownersExpression, relatedPropertySet);
 			if (claim === undefined) {
 				if (
 					property === "case_type" ||

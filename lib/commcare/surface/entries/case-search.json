@@ -280,6 +280,39 @@
 		"gates": []
 	},
 	{
+		"id": "case-search/a-server-order-naming-a-property-only-devices-hold",
+		"area": "case-search",
+		"section": "Case search",
+		"subsection": "Search configuration",
+		"item": "a `commcare_sort` default filter or a `custom_sort_properties` row naming `location_id`",
+		"surfaceKeys": [
+			"schema:DefaultCaseSearchProperty.property",
+			"schema:DefaultCaseSearchProperty.defaultValue",
+			"schema:CaseSearch.custom_sort_properties",
+			"schema:CaseSearchCustomSortProperty",
+			"schema:CaseSearchCustomSortProperty.property_name"
+		],
+		"valueClass": "server-order-device-only-property",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: HQ's Search index uses case_json and its indexed metadata, which both omit the case's location column. An order by location sees a missing value in every result.",
+		"subject": "search-default-filters",
+		"reasons": [
+			{
+				"kind": "broken-at-runtime",
+				"named": "HQ's Search index uses case_json and its indexed metadata, which both omit the case's location column. An order by location sees a missing value in every result."
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
 		"id": "case-search/a-commcare-sort-x-commcare-custom-related-case-property-or-case",
 		"area": "case-search",
 		"section": "Case search",

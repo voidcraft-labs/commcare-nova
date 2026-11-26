@@ -25,7 +25,10 @@ import type {
 } from "@/lib/domain";
 import { literal, term } from "@/lib/domain/expression";
 import { isOrdinaryCaseSearchConfig } from "@/lib/domain/modules";
-import { CANONICAL_STANDARD_CASE_PROPERTY_LABELS } from "@/lib/domain/standardCaseProperties";
+import {
+	CANONICAL_STANDARD_CASE_PROPERTY_LABELS,
+	isDeviceOnlyCaseProperty,
+} from "@/lib/domain/standardCaseProperties";
 import { newUuid } from "../uuid";
 import { SearchResultOrder } from "./SearchResultOrder";
 
@@ -79,6 +82,9 @@ export function SearchFilters({
 		CANONICAL_STANDARD_CASE_PROPERTY_LABELS,
 	))
 		if (!propertyOptions.has(value)) properties.push({ value, label });
+	const orderProperties = properties.filter(
+		({ value }) => !isDeviceOnlyCaseProperty(value),
+	);
 	const [adding, setAdding] = useState(false);
 	const [text, setText] = useState("");
 	const [chosen, setChosen] = useState<SearchFilterTarget>({
@@ -252,7 +258,7 @@ export function SearchFilters({
 				</p>
 				<SearchResultOrder
 					order={search?.requestOrder ?? []}
-					properties={properties}
+					properties={orderProperties}
 					onChange={(order) =>
 						commitMany([
 							{
@@ -276,7 +282,7 @@ export function SearchFilters({
 					{"order" in row ? (
 						<SearchResultOrder
 							order={row.order}
-							properties={properties}
+							properties={orderProperties}
 							onChange={(order) =>
 								onEdit(
 									order.length

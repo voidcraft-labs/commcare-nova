@@ -3527,6 +3527,42 @@ def _search_and_menus():
                 f"{config}/custom_sort_properties/0/property_name",
             ),
         ),
+        "case-search/a-server-order-naming-a-property-only-devices-hold": (
+            refused(
+                "app",
+                search(_search_module(default_properties=[_default("commcare_sort", "'+location_id:exact'")])),
+                "schema:DefaultCaseSearchProperty.property",
+                f"{config}/default_properties/0/property",
+            ),
+            accepted(
+                "app",
+                search(_search_module(default_properties=[_default("commcare_sort", "'+hq_user_id:exact'")])),
+                "schema:DefaultCaseSearchProperty.property",
+                f"{config}/default_properties/0/property",
+            ),
+            refused(
+                "app",
+                search(_search_module(
+                    default_properties=[_default("dob", "'x'")],
+                    custom_sort_properties=[
+                        {"doc_type": "CaseSearchCustomSortProperty", "property_name": "location_id", "sort_type": "exact"}
+                    ],
+                )),
+                "schema:CaseSearchCustomSortProperty.property_name",
+                f"{config}/custom_sort_properties/0/property_name",
+            ),
+            accepted(
+                "app",
+                search(_search_module(
+                    default_properties=[_default("dob", "'x'")],
+                    custom_sort_properties=[
+                        {"doc_type": "CaseSearchCustomSortProperty", "property_name": "hq_user_id", "sort_type": "exact"}
+                    ],
+                )),
+                "schema:CaseSearchCustomSortProperty.property_name",
+                f"{config}/custom_sort_properties/0/property_name",
+            ),
+        ),
         "case-search/instance-name-containing-casedb-ledgerdb-fixture-or-session": (
             refused("app", search(_search_module(instance_name="Mycasedb2")), "schema:CaseSearch.instance_name", f"{config}/instance_name"),
             accepted("app", search(_search_module(instance_name="MyCaseDB2")), "schema:CaseSearch.instance_name", f"{config}/instance_name"),

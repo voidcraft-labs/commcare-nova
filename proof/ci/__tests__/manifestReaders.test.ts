@@ -31,7 +31,10 @@ import {
 } from "@/lib/commcare/suite/case-search/requestOrder";
 import { loadManifest } from "@/lib/commcare/surface/__tests__/loadManifest";
 import type { InventoryEntry } from "@/lib/commcare/surface/schema";
-import { FORBIDDEN_CASE_OPERATION_WRITE_PROPERTIES } from "@/lib/domain/standardCaseProperties";
+import {
+	DEVICE_ONLY_CASE_PROPERTIES,
+	FORBIDDEN_CASE_OPERATION_WRITE_PROPERTIES,
+} from "@/lib/domain/standardCaseProperties";
 import { USERCASE_BUILT_IN_KEYS } from "@/lib/domain/usercase";
 import {
 	USER_DATA_RESERVED_PREFIXES,
@@ -162,6 +165,16 @@ it("reads a SaveToCase block's reserved update keys as the commit gate reserves 
 		[...FORBIDDEN_CASE_OPERATION_WRITE_PROPERTIES]
 			.filter((name) => !apart.has(name))
 			.sort(),
+	);
+});
+
+it("reads the same Search order keys kept outside the server index", async () => {
+	const deviceOnly = await pythonNames(
+		"manifest_value_classes.py",
+		"SERVER_ORDER_DEVICE_ONLY_KEYS",
+	);
+	expect([...deviceOnly].sort()).toEqual(
+		[...DEVICE_ONLY_CASE_PROPERTIES].sort(),
 	);
 });
 
