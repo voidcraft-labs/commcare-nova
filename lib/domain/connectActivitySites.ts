@@ -1,6 +1,9 @@
 import type { PersistableDoc } from "./blueprint";
 import type { Expression } from "./expression/types";
-import type { ConnectActivityField } from "./fields/connectActivity";
+import type {
+	ConnectActivityField,
+	ConnectRole,
+} from "./fields/connectActivity";
 import { ownRecordValue } from "./records";
 import { submissionLayout } from "./submissionLayout";
 import type { Uuid } from "./uuid";
@@ -55,4 +58,26 @@ export function connectActivitySites(
 	};
 	visit(formUuid);
 	return sites;
+}
+
+const RECEIVER_NAMES: Record<ConnectRole, ReadonlySet<string>> = {
+	learn: new Set(["module", "assessment"]),
+	deliver: new Set(["deliver", "task", "work_area_update"]),
+};
+
+/** HQ forwards the ancestors of each Connect element. The receiver searches
+ * those names at every depth and expects a Connect namespace on every match. */
+export function connectForwardedAncestorPaths(
+	doc: PersistableDoc,
+	sites: readonly ConnectActivitySite[],
+): ReadonlyMap<Uuid, readonly Uuid[]> {
+	const conflicts = new Map<Uuid, readonly Uuid[]>();
+	for (const { path } of sites) {
+		for (const [index, uuid] of path.slice(0, -1).entries()) {
+			const field = doc.fields[uuid];
+			if (doc.connectRoles.some((role) => RECEIVER_NAMES[role].has(field.id)))
+				conflicts.set(uuid, path.slice(0, index + 1));
+		}
+	}
+	return conflicts;
 }

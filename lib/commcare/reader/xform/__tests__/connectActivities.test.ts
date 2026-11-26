@@ -3,6 +3,8 @@ import { retainedBase } from "@/__tests__/helpers/retainedHqApps";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { connectSectionForm } from "@/lib/__tests__/connectSectionForm";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import { runValidation } from "@/lib/commcare/validator/runner";
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { connectActivitySites } from "@/lib/domain/connectActivitySites";
 import { connectRecipientRule } from "@/lib/domain/connectRecipientRule";
 import { connectSubmissionConflicts } from "@/lib/domain/connectSubmission";
@@ -10,6 +12,85 @@ import { exportedBody, inputFor } from "../../__tests__/novaExport";
 import { readHqApp } from "../../index";
 
 describe("Connect activities across a form submission", () => {
+	it("refuses an ancestor HQ forwards under a Connect receiver key", async () => {
+		const enclosing = testUuid("lesson-enclosing-group");
+		const doc = buildDoc({
+			connectRoles: ["learn"],
+			appSettings: {
+				showSavedForms: false,
+				showIncompleteForms: false,
+				runsOnlyOn: "android",
+			},
+			modules: [
+				{
+					name: "Lessons",
+					forms: [
+						{
+							name: "Review",
+							type: "survey",
+							fields: [
+								f({
+									kind: "group",
+									uuid: enclosing,
+									id: "practice",
+									children: [
+										f({
+											kind: "connect_activity",
+											id: "lesson",
+											activity: {
+												kind: "learning-module",
+												name: "Practice",
+												description: "Review the lesson",
+												estimatedHours: 1,
+											},
+										}),
+									],
+								}),
+								f({ kind: "text", id: "assessment" }),
+							],
+						},
+					],
+				},
+			],
+		});
+		const group = doc.fields[enclosing];
+		for (const name of ["Module", "deliver", "practice"]) {
+			group.id = name;
+			expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
+		}
+		const body = exportedBody(doc);
+		const [file, xml] = Object.entries(
+			body._attachments as Record<string, string>,
+		)[0];
+		body._attachments[file] = xml
+			.replaceAll("/data/practice", "/data/module")
+			.replaceAll("#form/practice", "#form/module")
+			.replaceAll("<practice>", "<module>")
+			.replaceAll("</practice>", "</module>");
+		group.id = "module";
+		expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toMatchObject([
+			{
+				code: "CONNECT_FORWARDED_ANCESTOR_ID",
+				location: { fieldUuid: enclosing },
+			},
+		]);
+		const result = readHqApp(await inputFor(body), { claims: "full" });
+		expect(result.defects).toEqual([]);
+		expect(result.kind).toBe("account");
+		if (result.kind !== "account") throw new Error("Expected one refusal");
+		expect(
+			[...result.claims.records()].filter(
+				(claim) => claim.entry === "questions/connect-forwarded-ancestor-name",
+			),
+			JSON.stringify(result.findings),
+		).toContainEqual(
+			expect.objectContaining({
+				entry: "questions/connect-forwarded-ancestor-name",
+				key: "xform:model/instance/*/*",
+				standing: "fix-in-hq",
+			}),
+		);
+	});
 	it("reads a field-list around the question in a Vellum-authored Learn form and republishes both original activities beside it", async () => {
 		const source = retainedBase("hq-connect-learn").source.body;
 		if (!source) throw new Error("Missing saved Vellum source");

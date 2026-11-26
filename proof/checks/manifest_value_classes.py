@@ -9212,6 +9212,33 @@ def _connect_part(use):
     return None
 
 
+LEARN_RECEIVER_NAMES = {"module", "assessment"}
+DELIVER_RECEIVER_NAMES = {"deliver", "task", "work_area_update"}
+
+
+def connect_forwarded_ancestor_name(use, manifest):
+    form, element = _form_element(use)
+    if form is None or element not in form.paths or not element.getchildren():
+        return False
+    name = _local(element)
+    if name not in LEARN_RECEIVER_NAMES | DELIVER_RECEIVER_NAMES:
+        return False
+    if etree.QName(element).namespace == CONNECT_NAMESPACE or element.get(f"{{{VELLUM}}}role") in CONNECT_ROLES:
+        return False
+    if not any(etree.QName(node).namespace == CONNECT_NAMESPACE for node in element.iterdescendants() if isinstance(node.tag, str)):
+        return False
+    forms = form.app_form[0].forms.values() if form.app_form is not None else [form]
+    roles = {
+        node.get(f"{{{VELLUM}}}role")
+        for other in forms
+        for node in other.paths
+    }
+    return bool(
+        (name in LEARN_RECEIVER_NAMES and roles & {"ConnectLearnModule", "ConnectAssessment"})
+        or (name in DELIVER_RECEIVER_NAMES and roles & {"ConnectDeliverUnit", "ConnectTask", "ConnectWorkAreaUpdate"})
+    )
+
+
 def connect_id_changes(use, manifest):
     part = _connect_part(use)
     return bool(part and part[1] is part[4] and part[4].get("id") is not None and part[4].get("id") != _local(part[2]))
@@ -12083,6 +12110,7 @@ VALUE_CLASSES = {
     "questions/connect-repeats-module-completion-key": connect_colliding_activities({'ConnectLearnModule'}),
     "questions/several-connect-assessment-blocks-in-one-form-or-one-inside-a": connect_colliding_activities({'ConnectAssessment'}),
     "questions/connect-deliver-unit-and-task-in-one-form": connect_colliding_activities({'ConnectDeliverUnit', 'ConnectTask'}),
+    "questions/connect-forwarded-ancestor-name": connect_forwarded_ancestor_name,
     "questions/connect-unit-id-changed-by-form-editor": connect_id_changes,
     "questions/a-connect-learn-module-or-task-id-longer-than-50-characters-or": connect_id_over_width,
     "questions/connect-value-that-the-editor-clears": connect_inline_calculation,
