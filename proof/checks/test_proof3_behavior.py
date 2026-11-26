@@ -697,12 +697,13 @@ def _casedb_form():
     ).encode()
 
 
-def test_core_reads_the_whole_restore_hq_writes(hq, core_runner):
+def test_core_reads_the_whole_restore_hq_writes(hq, core_runner, basic_app):
     database = casedata.case_database(_document())
     with hq_check(Configuration()) as (state, _):
         restore = casedata.restore(database, state.domain)
         assert restore == casedata.restore(database, state.domain)
     result = core_runner.evaluate(
+        app=basic_app,
         formBase64=base64.b64encode(_casedb_form()).decode(),
         restoreBase64=base64.b64encode(restore).decode(),
         expressions=[
@@ -1186,7 +1187,7 @@ def _lookup_document():
     return None
 
 
-def test_hqs_builds_read_lookup_tables_from_hqs_restore(hq, core_runner):
+def test_hqs_builds_read_lookup_tables_from_hqs_restore(hq, core_runner, basic_app):
     found = _lookup_document()
     assert found, "No corpus document's publish sends lookup tables, so nothing shows HQ's restore serves them."
     document, export = found
@@ -1208,6 +1209,7 @@ def test_hqs_builds_read_lookup_tables_from_hqs_restore(hq, core_runner):
         f"instance('item-list:{tag}')/{tag}_list/{tag}[{index + 1}]/{column['wireName']}" for index in range(len(rows))
     ]
     result = core_runner.evaluate(
+        app=basic_app,
         formBase64=base64.b64encode(form).decode(),
         restoreBase64=base64.b64encode(restore).decode(),
         expressions=[f"count(instance('item-list:{tag}')/{tag}_list/{tag})", *expressions],
@@ -1217,6 +1219,7 @@ def test_hqs_builds_read_lookup_tables_from_hqs_restore(hq, core_runner):
     missing_table = f'FixtureInitializationException: Unable to find lookup table "jr://fixture/item-list:{tag}"'
     with pytest.raises(CoreRunnerError, match=re.escape(missing_table)):
         core_runner.evaluate(
+            app=basic_app,
             formBase64=base64.b64encode(form).decode(),
             restoreBase64=base64.b64encode(plain).decode(),
             expressions=[f"count(instance('item-list:{tag}')/{tag}_list/{tag})"],
