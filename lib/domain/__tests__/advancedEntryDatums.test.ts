@@ -101,50 +101,71 @@ function supplied(doc: BlueprintDoc): string[] {
 		.sort();
 }
 
-it("does not advertise an advanced open action or datum to a guarded fresh create", () => {
+it("does not advertise the otherwise eligible advanced datum to a guarded fresh create", () => {
 	const formUuid = testUuid(REGISTER);
 	const moduleUuid = testUuid(HOUSEHOLDS);
-	const doc = buildDoc(
-		{
-			caseTypes: [{ name: "patient", properties: [] }],
-			modules: [
-				{
-					uuid: HOUSEHOLDS,
-					name: "Visits",
-					forms: [
-						{
-							uuid: REGISTER,
-							name: "Visit",
-							type: "survey",
-							fields: [{ kind: "text", id: "name", uuid: NAME }],
-						},
-					],
-				},
-			],
-		},
-		(draft) => {
-			draft.modules[moduleUuid].heldKind = "advanced";
-			draft.forms[formUuid].caseOperations = [
-				{
-					uuid: PATIENT,
-					id: "patient",
-					action: "create",
-					caseType: "patient",
-					target: { kind: "new" },
-					name: nameRead,
-					ownerAfterCreate: {
-						value: term(literal("team-2")),
-						condition: matchAll(),
+	const document = (guarded: boolean) =>
+		buildDoc(
+			{
+				caseTypes: [{ name: "patient", properties: [] }],
+				modules: [
+					{
+						uuid: HOUSEHOLDS,
+						name: "Visits",
+						forms: [
+							{
+								uuid: REGISTER,
+								name: "Visit",
+								type: "survey",
+								fields: [{ kind: "text", id: "name", uuid: NAME }],
+							},
+						],
 					},
-				},
-			];
+					{
+						uuid: PATIENTS,
+						name: "Patients",
+						caseType: "patient",
+						forms: [{ uuid: VISIT, name: "Follow up", type: "followup" }],
+					},
+				],
+			},
+			(draft) => {
+				draft.modules[moduleUuid].heldKind = "advanced";
+				draft.forms[formUuid].caseOperations = [
+					{
+						uuid: PATIENT,
+						id: "patient",
+						action: "create",
+						caseType: "patient",
+						target: { kind: "new" },
+						name: nameRead,
+						...(guarded && {
+							ownerAfterCreate: {
+								value: term(literal("team-2")),
+								condition: matchAll(),
+							},
+						}),
+					},
+				];
+			},
+		);
+	const child = datumRefKey({ kind: "new-child-case", caseType: "patient" });
+	const ordinary = document(false);
+	expect(menuEmittedAdvanced(ordinary, moduleUuid)).toBe(true);
+	expect(advancedEntryActions(ordinary, formUuid).opens).toEqual([
+		{
+			operationUuid: PATIENT,
+			caseType: "patient",
+			own: false,
+			repeat: undefined,
 		},
-	);
-	expect(menuEmittedAdvanced(doc, moduleUuid)).toBe(true);
-	expect(advancedEntryActions(doc, formUuid).opens).toEqual([]);
-	expect(supplied(doc)).not.toContain(
-		datumRefKey({ kind: "new-child-case", caseType: "patient" }),
-	);
+	]);
+	expect(supplied(ordinary)).toContain(child);
+
+	const guarded = document(true);
+	expect(menuEmittedAdvanced(guarded, moduleUuid)).toBe(true);
+	expect(advancedEntryActions(guarded, formUuid).opens).toEqual([]);
+	expect(supplied(guarded)).not.toContain(child);
 });
 
 describe("the entry of a registration emitted advanced", () => {

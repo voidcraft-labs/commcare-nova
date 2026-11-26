@@ -218,6 +218,93 @@ it("submits a guarded worker record update through an isolated App Test journey"
 	}
 });
 
+it("submits both guarded owner outcomes for a fresh case through App Tests", async () => {
+	const decision = testUuid("app-test-later-owner-decision");
+	const doc = buildDoc({
+		caseTypes: [
+			{
+				name: "visit",
+				properties: [{ name: "result", label: "Result", data_type: "text" }],
+			},
+		],
+		modules: [
+			{
+				name: "Visits",
+				forms: [
+					{
+						name: "Record a visit",
+						type: "survey",
+						fields: [f({ kind: "text", uuid: decision, id: "decision" })],
+					},
+				],
+			},
+		],
+	});
+	const moduleUuid = doc.moduleOrder[0];
+	const formUuid = doc.formOrder[moduleUuid][0];
+	doc.forms[formUuid].caseOperations = [
+		{
+			uuid: testUuid("app-test-guarded-fresh-owner"),
+			id: "record_visit",
+			action: "create",
+			caseType: "visit",
+			target: { kind: "new" },
+			name: term(literal("Visit")),
+			owner: term(literal("initial-owner")),
+			ownerAfterCreate: {
+				value: term(literal("later-owner")),
+				condition: eq(term(formField(decision)), literal("transfer")),
+			},
+			writes: [{ property: "result", value: term(formField(decision)) }],
+		},
+	];
+	const verdict = mutationCommitVerdict(doc, [], LOOKUP_CONTEXT_UNAVAILABLE);
+	if (!verdict.ok) throw new Error(JSON.stringify(verdict.findings));
+	await h.seedProjectMember(scope.actorUserId, scope.projectId, "viewer");
+	await h.seedAppWithBlueprint(doc, {
+		id: scope.appId,
+		owner: scope.actorUserId,
+		projectId: scope.projectId,
+	});
+	for (const [answer, owner] of [
+		["keep", "initial-owner"],
+		["transfer", "later-owner"],
+	]) {
+		let current = await startAppTest(scope, {
+			requestId: `later-owner-${answer}`,
+			expectedBlueprintSeq: 0,
+			input: { purpose: "Check the new visit's owner and saved result" },
+		});
+		const step = async (action: AppTestAction) => {
+			current = await continueAppTest(scope, {
+				testId: current.testId,
+				requestId: `step-${current.step}`,
+				expectedStep: current.step,
+				action,
+			});
+			return current.observation;
+		};
+		const rows = () =>
+			sql<{ case_id: string; owner_id: string; sibling: string }>`
+			SELECT case_id, owner_id, properties->>'result' AS sibling
+			FROM ${sql.id(appTestNamespace(current.testId), "cases")}
+			WHERE case_type = 'visit'
+		`.execute(h.db());
+		await step({ kind: "menu", moduleUuid });
+		await step({ kind: "form", formUuid });
+		expect((await rows()).rows).toEqual([]);
+		await step({
+			kind: "answer",
+			answers: [{ path: "decision", value: answer }],
+		});
+		expect(await step({ kind: "submit" })).toMatchObject({ savedInTest: true });
+		expect((await rows()).rows).toEqual([
+			{ case_id: expect.any(String), owner_id: owner, sibling: answer },
+		]);
+		await step({ kind: "finish" });
+	}
+});
+
 it("shows shared worker wording for a menu, form, record choice and submit button in each language", async () => {
 	const initial = buildDoc({
 		modules: [

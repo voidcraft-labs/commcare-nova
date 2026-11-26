@@ -952,11 +952,6 @@ it("round-trips two independently placed owner effects on a fresh case", async (
 		delete draft.modules[draft.moduleOrder[0]].caseType;
 	});
 	expect(gateCodes(doc)).toEqual([]);
-	expect(
-		planPlacements(doc, FORM, { moduleKind: "advanced" }).placements.get(
-			change.uuid,
-		)?.placement.kind,
-	).toBe("save-to-case");
 	const outcome = await readBack(doc);
 	expect(outcome.defects).toEqual([]);
 	if (outcome.kind !== "read")
@@ -969,6 +964,20 @@ it("round-trips two independently placed owner effects on a fresh case", async (
 	]);
 	const retained = exportedBody(outcome.draft.doc);
 	expect(retained._attachments).toEqual(exportedBody(doc)._attachments);
+});
+
+it("keeps an otherwise eligible advanced create as a Save to Case block with a later owner", () => {
+	const ordinary = visitCreate({ caseType: "patient", name: answer });
+	const guarded = {
+		...ordinary,
+		ownerAfterCreate: { value: term(literal("team-02")), condition: onYes },
+	} as CaseOperation;
+	const place = (operation: CaseOperation) =>
+		planPlacements(app("survey", [operation]), FORM, {
+			moduleKind: "advanced",
+		}).placements.get(operation.uuid)?.placement.kind;
+	expect(place(ordinary)).toBe("advanced");
+	expect(place(guarded)).toBe("save-to-case");
 });
 
 it("refuses the later owner on aliased and competing case changes", () => {
