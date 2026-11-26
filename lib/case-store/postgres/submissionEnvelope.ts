@@ -1457,7 +1457,7 @@ async function resolveOperationProgram(
 					invariant:
 						"an operation's lookup definitions name unavailable tables",
 					detail:
-						"Every definition must resolve in the authorized Project before effects.",
+						"Every definition must resolve in the authorized Project before evaluation.",
 				}),
 			);
 		}
