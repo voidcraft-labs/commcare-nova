@@ -1,4 +1,8 @@
-import { lookupRowJsonBody } from "@/lib/commcare/hq/lookupJson";
+import { HQ_LOOKUP_DEFINITION_MAX_BYTES } from "@/lib/commcare/hq/bounds";
+import {
+	lookupRowJsonBody,
+	lookupTableJsonBody,
+} from "@/lib/commcare/hq/lookupJson";
 import type {
 	ArchiveRow,
 	StreamingLookupTable,
@@ -7,7 +11,11 @@ import { slotFromStoragePath } from "@/lib/lookup/fixtureValues";
 import { lookupRowContentSchema } from "@/lib/lookup/schema";
 import { xmlTextIssue } from "../xmlText";
 import { MAX_LOOKUP_FIXTURE_BYTES, MAX_LOOKUP_FIXTURE_ROWS } from "./fixtures";
-import { type LookupJsonRowContent, lookupJsonRowContent } from "./jsonRows";
+import {
+	type LookupJsonRowContent,
+	lookupJsonDefinition,
+	lookupJsonRowContent,
+} from "./jsonRows";
 import type { LookupTableWireNaming } from "./naming";
 
 export interface PagedLookupJsonRow {
@@ -20,6 +28,8 @@ export interface PagedLookupJsonRow {
 export const PAGED_LOOKUP_JSON_ROWS = MAX_LOOKUP_FIXTURE_ROWS;
 export const PAGED_LOOKUP_JSON_BYTES = MAX_LOOKUP_FIXTURE_BYTES;
 
+// HQ reads request.body through Django's default DATA_UPLOAD_MAX_MEMORY_SIZE.
+const HQ_ROW_WRITE_BYTES = 2_621_440;
 const OVER_BUDGET =
 	"The lookup table exceeds the temporary workspace for sending its rows individually.";
 
@@ -82,14 +92,31 @@ export async function stagePagedLookupJson(
 	budget: { readonly rows: number; readonly bytes: number },
 ): Promise<
 	| { readonly rows: readonly PagedLookupJsonRow[]; readonly bytes: number }
-	| { readonly issue: string }
+	| { readonly issue: string; readonly excess?: "workspace" | "request" }
 > {
-	if (table.count > budget.rows) return { issue: OVER_BUDGET };
+	if (table.count > budget.rows)
+		return { issue: OVER_BUDGET, excess: "workspace" };
 	const rows: PagedLookupJsonRow[] = [];
-	let bytes = 0;
+	let bytes = Buffer.byteLength(
+		JSON.stringify(lookupTableJsonBody(lookupJsonDefinition(naming))),
+	);
+	const requestIssue = {
+		issue:
+			"One lookup row or its definition is too large for an individual CommCare HQ request.",
+		excess: "request" as const,
+	};
+	if (bytes > HQ_LOOKUP_DEFINITION_MAX_BYTES) return requestIssue;
+	if (bytes > budget.bytes) return { issue: OVER_BUDGET, excess: "workspace" };
 	for await (const input of table.reader.rows()) {
-		const row = await restoreRow(input, budget.bytes - bytes);
-		if (!row) return { issue: OVER_BUDGET };
+		const remaining = budget.bytes - bytes;
+		const row = await restoreRow(
+			input,
+			Math.min(remaining, HQ_ROW_WRITE_BYTES),
+		);
+		if (!row)
+			return remaining > HQ_ROW_WRITE_BYTES
+				? requestIssue
+				: { issue: OVER_BUDGET, excess: "workspace" };
 		const content = lookupJsonRowContent(naming, row);
 		const values = [
 			...Object.values(content.itemAttributes),
@@ -105,7 +132,7 @@ export async function stagePagedLookupJson(
 				issue:
 					"A lookup value contains a character that cannot be installed on a worker’s phone.",
 			};
-		bytes += Buffer.byteLength(
+		const rowBytes = Buffer.byteLength(
 			JSON.stringify(
 				lookupRowJsonBody("0".repeat(32), {
 					...content,
@@ -113,7 +140,10 @@ export async function stagePagedLookupJson(
 				}),
 			),
 		);
-		if (bytes > budget.bytes) return { issue: OVER_BUDGET };
+		if (rowBytes > HQ_ROW_WRITE_BYTES) return requestIssue;
+		bytes += rowBytes;
+		if (bytes > budget.bytes)
+			return { issue: OVER_BUDGET, excess: "workspace" };
 		rows.push({ novaRowId: row.id, content });
 	}
 	if (rows.length !== table.count)

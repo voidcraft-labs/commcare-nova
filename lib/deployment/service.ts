@@ -4310,7 +4310,7 @@ function lookupJsonStopFailure(
 			};
 		case "checkpoint":
 			return {
-				code: "hq_resource_state_unknown",
+				code: "hq_lookup_publish_checkpoint",
 				message: `Nova saved its progress sending “${name}” to “${domain}”, ${stopped} You can publish again to send the remaining rows.`,
 				details: [name],
 			};

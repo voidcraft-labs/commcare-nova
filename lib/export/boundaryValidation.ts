@@ -19,9 +19,10 @@ import { requiresLookupProjection } from "@/lib/lookup/source";
 import "server-only";
 
 import type { PreparedLookupWire } from "@/lib/commcare/lookup/fixtures";
-import type {
-	LookupTableWireNaming,
-	LookupWireNaming,
+import {
+	type LookupTableWireNaming,
+	type LookupWireNaming,
+	lookupWireNaming,
 } from "@/lib/commcare/lookup/naming";
 import type { LookupWorkbook } from "@/lib/commcare/lookup/workbook";
 import {
@@ -93,7 +94,6 @@ import {
 	alternativeLookupCarrier,
 	describeLookupCarrierAlternative,
 } from "@/lib/commcare/lookup/carrier";
-import { lookupWireNaming } from "@/lib/commcare/lookup/naming";
 import {
 	PAGED_LOOKUP_JSON_BYTES,
 	PAGED_LOOKUP_JSON_ROWS,
@@ -555,11 +555,13 @@ async function prepareWithRegistry(
 	]) {
 		const { definition } = table;
 		const tableNaming = lookupWireNaming([definition]).tableFor(definition.id);
-		const inWorkbook = input.workbookLookupTags
-			?.get(definition.id)
-			?.has(tableNaming.tag);
+		const inWorkbook =
+			!input.jsonDestinationTableIds?.has(definition.id) &&
+			input.workbookLookupTags?.get(definition.id)?.has(tableNaming.tag);
 		const direct = input.mode === "hq-upload";
 		let issue: string;
+		let code: ValidationError["code"] = "LOOKUP_WORKER_SOURCE_UNAVAILABLE";
+		let delivery: string = carrier.kind;
 		if (direct && carrier.kind === "json" && !inWorkbook) {
 			const staged = await stagePagedLookupJson(table, tableNaming, {
 				rows: remainingRows,
@@ -573,6 +575,10 @@ async function prepareWithRegistry(
 				continue;
 			}
 			issue = staged.issue;
+			code = staged.excess
+				? "LOOKUP_HQ_PUSH_TOO_LARGE"
+				: "LOOKUP_CELL_TEXT_UNREPRESENTABLE";
+			if (staged.excess === "request") delivery = "json-row";
 		} else {
 			issue = describeLookupCarrierAlternative(
 				definition.name,
@@ -582,14 +588,14 @@ async function prepareWithRegistry(
 		}
 		blocked.push(
 			validationError(
-				"LOOKUP_WORKER_SOURCE_UNAVAILABLE",
+				code,
 				"app",
 				issue,
 				{},
 				{
 					tableId: definition.id,
 					tableName: definition.name,
-					delivery: carrier.kind,
+					delivery,
 				},
 			),
 		);

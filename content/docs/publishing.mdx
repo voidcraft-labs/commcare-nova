@@ -209,6 +209,12 @@ on CommCare HQ is which of yours, so publishing again sends only the rows you
 added, changed, moved or removed, and nothing at all when the table is
 unchanged. Every app in your Project that reads the table shares that record.
 
+Direct publish can also send a paged global table when the workbook cannot
+preserve its values. Nova prepares up to 10,000 rows and 16 MiB of data across
+these tables per publish. If Nova saves its progress while sending rows,
+publish again to continue from the last confirmed change. Nova sends the app
+content after it has verified all the rows.
+
 If a change's answer gets lost on the way back, Nova reads that row in CommCare
 HQ before it sends anything else to the table, and waits a few minutes where
 the change could still arrive. If a row someone else added or changed is there,

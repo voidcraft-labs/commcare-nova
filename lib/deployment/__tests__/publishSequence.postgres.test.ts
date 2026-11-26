@@ -4691,7 +4691,10 @@ describe("a table only CommCare HQ's JSON resources can carry", () => {
 			serve(peer, SOURCE, "source-shell");
 			expect(refusal(await publish(doc))).toMatchObject({
 				phase: "resources",
-				failure: { message: expect.stringContaining("saved its progress") },
+				failure: {
+					code: "hq_lookup_publish_checkpoint",
+					message: expect.stringContaining("saved its progress"),
+				},
 			});
 			expect(hq.writes).toHaveLength(200);
 			expect(hq.rows.size).toBe(199);

@@ -2422,8 +2422,15 @@ const USER_MESSAGE_BY_CODE: Record<
 			: `“${det(e, "tableName", "This table")}” needs a verified data source for this destination. You can prepare its table in the project space or refresh worker data in Project data.`,
 	LOOKUP_FIXTURE_EXPORT_TOO_LARGE: () =>
 		"This app references more lookup data than it can bundle at once. Shrink or split the largest lookup tables and try again.",
-	LOOKUP_HQ_PUSH_TOO_LARGE: () =>
-		"This app references more lookup data than CommCare HQ accepts in one upload. Shrink or split the largest lookup tables and try again.",
+	LOOKUP_HQ_PUSH_TOO_LARGE: (e) => {
+		const delivery = det(e, "delivery", "");
+		const table = det(e, "tableName", "This table");
+		if (delivery === "json-row")
+			return `A row or the definition of “${table}” is too large for one request to CommCare HQ. You can prepare the table in the destination project space.`;
+		if (delivery === "json")
+			return `Nova can prepare up to 10,000 rows and 16 MiB of data per publish for tables that need individual row writes. You can prepare “${table}” in the destination project space.`;
+		return "This app references more lookup data than CommCare HQ accepts in one upload. Shrink or split the largest lookup tables and try again.";
+	},
 	HQ_NESTED_SELECTION_UNREPRESENTABLE: (e) => {
 		const named = (key: string, fallback: string) => {
 			const name = det(e, key, "");

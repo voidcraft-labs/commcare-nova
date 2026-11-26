@@ -196,6 +196,8 @@ export const DEPLOYMENT_FAILURE_CODES = [
 	 * stopped rather than push over something it cannot account for.
 	 */
 	"hq_resource_state_unknown",
+	/** A lookup publish saved a settled checkpoint before the app upload. */
+	"hq_lookup_publish_checkpoint",
 	/**
 	 * The target already holds a resource under a name this app needs, and
 	 * Nova did not create it. Nova never takes one over on its own.

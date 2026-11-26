@@ -2807,6 +2807,19 @@ the writes the whole table is read back and held to the ledger in Nova's
 order. Each table found there gets a `nova-created` mapping, recorded
 `partial` and retained by the resources phase's complete record.
 
+Direct publish can use the JSON carrier when a complete paged global table
+with known unindexed columns needs a value or shape the workbook cannot
+preserve. It can continue a prior JSON destination over the same row IDs.
+A revision-bound paged reader reassembles the exact external leaves and
+validates UTF-8 and the encoded request bodies before any writes. Preparation
+stages at most 10,000 rows and 16 MiB of JSON body bytes across these paged
+tables for that publish. The executor returns a checkpoint only between
+settled operations, after up to 200 writes or the wall-clock budget. An
+unfinished checkpoint retains the mapping and prevents sending app content.
+Publishing again reads the same destination ledger, rechecks the intended
+source and remote facts, and sends only outstanding work. The HQ app file
+has workbook carriers and instructions to prepare its destination.
+
 ### Lookup workbooks, media receipts and device downloads
 
 A direct workbook publish compares the actual target definition and ordered
