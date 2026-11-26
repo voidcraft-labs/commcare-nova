@@ -16,6 +16,7 @@ import {
 	VISIT,
 } from "@/lib/commcare/__tests__/menuFormRoutesFixture";
 import { TEST_RUNTIME_TARGET } from "@/lib/commcare/__tests__/runtimeTargetFixture";
+import { searchEmissionFixture } from "@/lib/commcare/__tests__/searchEmissionFixture";
 import { localAppStringTable } from "@/lib/commcare/appStrings";
 import { compileCcz } from "@/lib/commcare/compiler";
 import { emissionPlan } from "@/lib/commcare/emissionPlan";
