@@ -4,6 +4,7 @@ import { createBlueprintDocStore } from "@/lib/doc/store";
 import { createInProcessXPathWorkerFactory } from "../../xpath/inProcessWorkerClient";
 import { XPathRuntime } from "../../xpath/workerClient";
 import { EngineController } from "../engineController";
+import { FormEngine } from "../formEngine";
 import { engineFixtureInput } from "./fixtures/engineInput";
 import { androidDevice } from "./fixtures/previewDevices";
 
@@ -83,4 +84,59 @@ it("keeps an empty invoking Date empty and writes named results past entry widge
 	} finally {
 		controller.dispose();
 	}
+});
+
+it("rejects a late result for a repeat path now occupied by a different row", async () => {
+	const repeat = testUuid("readings");
+	const formUuid = testUuid("repeated-readings");
+	const input = engineFixtureInput(
+		[
+			{
+				kind: "repeat",
+				uuid: repeat,
+				id: "readings",
+				label: "Readings",
+				repeat_mode: "user_controlled",
+				children: [
+					{
+						kind: "text",
+						id: "meter",
+						label: "Meter",
+						androidApp: {
+							kind: "open-app",
+							action: "org.example.meter.READ",
+							send: [],
+							receive: [],
+						},
+					},
+				],
+			},
+		],
+		{ formUuid, formType: "survey" },
+	);
+	const engine = new FormEngine(
+		input,
+		undefined,
+		undefined,
+		undefined,
+		undefined,
+		undefined,
+		{ device: androidDevice() },
+	);
+	const repeatPath = "/data/readings";
+	const first = `${repeatPath}[0]/meter`;
+	const second = `${repeatPath}[1]/meter`;
+	expect(engine.addRepeat(repeatPath)).toBe(0);
+	expect(engine.addRepeat(repeatPath)).toBe(1);
+	expect(engine.setValue(second, "retained")).toBe(true);
+	const launch = await engine.openAndroidApp(second);
+	if (!launch) throw new Error("The second repeat row did not open its app.");
+
+	engine.removeRepeat(repeatPath, 0);
+	expect(engine.addRepeat(repeatPath)).toBe(1);
+	expect(
+		engine.androidAppResult(second, launch.signature, { primary: "late" }),
+	).toBeUndefined();
+	expect(engine.getState(first).value).toBe("retained");
+	expect(engine.getState(second).value).toBe("");
 });
