@@ -28,7 +28,7 @@ import {
 	type FormEvaluationContext,
 	FormEvaluationInputError,
 } from "../formEvaluationTypes";
-import { previewAsMe } from "../identity";
+import { previewAsMe, previewSessionValues } from "../identity";
 import { webAppsDevice } from "./fixtures/previewDevices";
 
 function person(caseId: string, name: string): CaseRow {
@@ -139,12 +139,13 @@ it("freezes root case IDs after authored defaults and before HQ's opening assign
 	if (!identity) throw new Error("Expected the worker's identity.");
 	const cases = { rows: [person("p-1", "after-HQ-preload")], indices: [] };
 	const entryKey = "11111111-1111-4111-8111-111111111111";
+	const device = webAppsDevice();
 	const opened = await evaluateAuthorizedFormOpeningSnapshot(
 		doc,
 		{ formUuid, caseIds: ["p-1"], answers: [] },
 		{
 			identity,
-			device: webAppsDevice(),
+			device,
 			cases,
 			lookup: { projectRevision: "0", definitions: [], rowsByTable: new Map() },
 		},
@@ -157,6 +158,7 @@ it("freezes root case IDs after authored defaults and before HQ's opening assign
 				boundCases: [{ caseId: "p-1" }],
 				menuSelections: {},
 				caseDatabase: cases,
+				session: previewSessionValues(identity, device),
 			}),
 		},
 	);

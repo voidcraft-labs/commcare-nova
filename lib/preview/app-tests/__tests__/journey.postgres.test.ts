@@ -129,6 +129,7 @@ it("keeps the exact ID set when an App Test form opens after its answer changes"
 	expect(await step({ kind: "submit" })).toMatchObject({ savedInTest: true });
 	const records = await sql<{ case_id: string }>`
 		SELECT case_id FROM ${sql.id(appTestNamespace(current.testId), "cases")}
+		WHERE case_type = 'person'
 	`.execute(h.db());
 	expect(records.rows).toEqual([{ case_id: "opened-id" }]);
 	await step({ kind: "finish" });

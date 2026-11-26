@@ -181,7 +181,7 @@ export async function evaluateAuthorizedFormOpeningSnapshot(
 	readonly caseCreateIds?: Readonly<Record<string, string>>;
 }> {
 	const result = await runFormSnapshot(doc, input, context, authorized);
-	if (!("opening" in result))
+	if (!("opening" in result) || result.opening === undefined)
 		throw new Error("The form did not return its opening.");
 	return result.opening;
 }
