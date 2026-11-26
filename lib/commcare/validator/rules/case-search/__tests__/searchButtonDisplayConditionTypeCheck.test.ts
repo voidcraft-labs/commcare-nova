@@ -131,7 +131,14 @@ describe("Search action condition admission", () => {
 			reason: "instance-not-on-the-list",
 			instances: "commcaresession",
 		});
-		expect(refused[0]?.message).toContain("instance('commcaresession')");
+		// The message speaks Nova's words for what the condition reads and
+		// names settings the author can change; the instance id stays in the
+		// details for tools.
+		expect(refused[0]?.message).toContain(
+			"reads the current worker's or the session's information, which its case list doesn't load",
+		);
+		expect(refused[0]?.message).not.toContain("instance(");
+		expect(refused[0]?.message).toContain('postSubmit "previous"');
 		expect(
 			findings(
 				candidate(

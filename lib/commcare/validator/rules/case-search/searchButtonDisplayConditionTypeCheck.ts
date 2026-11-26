@@ -40,6 +40,7 @@ import {
 	type Uuid,
 } from "@/lib/domain";
 import { checkExpression } from "@/lib/domain/expression";
+import { LOOKUP_FIXTURE_ID_PREFIX } from "../../../lookup/naming";
 import { searchButtonUndeclaredInstances } from "../../../suite/case-search/buttonCondition";
 import { type ValidationError, validationError } from "../../errors";
 import {
@@ -48,6 +49,22 @@ import {
 	semanticCheckErrors,
 } from "../../lookupTypeContext";
 import { formatPath } from "../case-list/shared";
+
+/** What a condition reads, in Nova's words: the worker and the session, a
+ *  lookup table by its id (the condition names it by that id, so the table
+ *  is the one it reads; `identityLookupWireNaming`), places, or the cases on
+ *  the device. */
+function readWhat(instanceId: string): string {
+	if (instanceId === "commcaresession")
+		return "the current worker's or the session's information";
+	if (instanceId === "locations") return "places";
+	if (instanceId === "casedb") return "the cases on the device";
+	if (instanceId.startsWith(`${LOOKUP_FIXTURE_ID_PREFIX}t_`))
+		return `lookup table ${instanceId
+			.slice(LOOKUP_FIXTURE_ID_PREFIX.length + 2)
+			.replaceAll("_", "-")}`;
+	return `instance('${instanceId}')`;
+}
 
 export function searchButtonDisplayConditionTypeCheck(
 	mod: Module,
@@ -117,7 +134,7 @@ export function searchButtonDisplayConditionTypeCheck(
 			validationError(
 				"CASE_SEARCH_BUTTON_DISPLAY_CONDITION_NOT_ON_THE_LIST",
 				"module",
-				`Module "${mod.name}" has a search-button display condition that reads ${undeclared.map((id) => `instance('${id}')`).join(", ")}, which its case list doesn't load. CommCare HQ's build declares an entry's instances from what its selections, case list and after-submit frames read, never from the Search action's condition, so on the device the case list would stop with a missing instance once the app is on CommCare HQ. Base the condition on what the list itself reads, such as a case list filter over the same information, return each form that shows the list to it with its case, or clear the condition to show the button unconditionally.`,
+				`Module "${mod.name}" has a search-button display condition that reads ${undeclared.map(readWhat).join(", ")}, which its case list doesn't load. CommCare HQ's build loads for a case list only what its selections, its forms' display conditions and their after-submit destinations read, never what the Search button's condition reads, so on the device the case list would stop once the app is on CommCare HQ. Base the condition on fixed values or today's date, or on information the list itself reads: give the case list a filter (or each form that shows it a display condition) over the same information, or set each form that shows the list to return to it after submit (postSubmit "previous"). Otherwise clear the condition to show the button always.`,
 				{ moduleUuid, moduleName: mod.name },
 				{
 					reason: "instance-not-on-the-list",
