@@ -52,6 +52,8 @@ function withValueModeAgainst(
 	return { ...rest, ...mode };
 }
 
+import { NO_SEARCH_SCREEN_TITLE } from "@/lib/domain/modules";
+
 type SlotWriter = (draft: Draft<BlueprintDoc>, value: LocalizedValue) => void;
 
 /** Where a unit's source text lives in the document, as a writer of that slot; undefined for a
@@ -296,7 +298,10 @@ export function sourceSlotWriter(
 						module.caseSearchConfig = {
 							...module.caseSearchConfig,
 							...(unit.role === "search-screen-title"
-								? { searchScreenTitle: text(value) }
+								? {
+										searchScreenTitle:
+											text(value) === "" ? NO_SEARCH_SCREEN_TITLE : text(value),
+									}
 								: { searchScreenSubtitle: text(value) }),
 						};
 					}

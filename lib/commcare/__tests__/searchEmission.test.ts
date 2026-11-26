@@ -1,6 +1,7 @@
 import AdmZip from "adm-zip";
 import { produce } from "immer";
 import { expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import {
@@ -568,8 +569,7 @@ it("writes a search with no title blank in every language on both paths", () => 
 	expect(Object.values(config.title_label).every((text) => text === "")).toBe(
 		true,
 	);
-	// The suite still names the title's locale, and every language's table
-	// writes it as the blank HQ's locale writer writes, a non-breaking space.
+	// A language without an override reads the default title's blank value.
 	const remote = xmlChildren(suite, "remote-request");
 	const queryHost =
 		remote.length > 0
@@ -583,12 +583,113 @@ it("writes a search with no title blank in every language on both paths", () => 
 		.getEntries()
 		.filter((file) => file.entryName.endsWith("app_strings.txt"));
 	expect(tables).not.toHaveLength(0);
+	const title = (file: string) =>
+		zip
+			.readAsText(file)
+			.split("\n")
+			.find((line) => line.startsWith("case_search.m0.inputs="));
+	const defaultTitle = title("default/app_strings.txt");
+	expect(defaultTitle).toBe("case_search.m0.inputs=\u00a0");
 	for (const table of tables)
-		expect(
-			zip
-				.readAsText(table)
-				.split("\n")
-				.find((line) => line.startsWith("case_search.m0.inputs=")),
-			table.entryName,
-		).toBe("case_search.m0.inputs=\u00a0");
+		expect(title(table.entryName) ?? defaultTitle, table.entryName).toBe(
+			defaultTitle,
+		);
+});
+
+// HQ's build sends a menu's default filters in order, then
+// `blacklisted_owner_ids_expression`, then `custom_sort_properties` joined into
+// one `commcare_sort` (`remote_requests.py::_remote_request_query_datums`). The
+// local archive sends the same keys and values in the same order, and the
+// search's own owner exclusion replaces the shared rule there while the list
+// keeps the shared rule's clause.
+it("sends a search's orders and its own owner exclusion where HQ's build does, in both exports", () => {
+	const doc = searchEmissionFixture("remote");
+	const module = doc.modules[doc.moduleOrder[0]];
+	const config = module.caseListConfig;
+	if (config === undefined || module.caseSearchConfig === undefined)
+		throw new Error("Fixture has a searched case list");
+	module.caseSearchConfig = {
+		...module.caseSearchConfig,
+		excludedOwnerIds: term(literal("assigned-elsewhere")),
+		requestOrder: [
+			{ property: "case_name", comparison: "text", direction: "ascending" },
+			{ property: "status", comparison: "text", direction: "descending" },
+		],
+	};
+	config.searchFilters = [
+		{
+			uuid: testUuid("order-filter"),
+			kind: "order",
+			order: [
+				{
+					property: "date_opened",
+					comparison: "date",
+					direction: "descending",
+				},
+			],
+		},
+		{
+			uuid: testUuid("search-owners"),
+			target: { kind: "excluded-owners", placement: "search-setting" },
+			value: term(literal("retired-team standby-team")),
+		},
+	];
+	const { hq, suite } = exported(doc);
+	const query = one(
+		one(onlyXml(xmlChildren(suite, "remote-request")), "session"),
+		"query",
+	);
+	const data = xmlChildren(query, "data").map((node) => [
+		node.attributes.key,
+		node.attributes.ref,
+	]);
+	const keys = data.map(([key]) => key);
+	expect(
+		keys.filter((key) => key === "commcare_blacklisted_owner_ids"),
+	).toHaveLength(1);
+	expect(keys.indexOf("commcare_sort")).toBeLessThan(
+		keys.indexOf("commcare_blacklisted_owner_ids"),
+	);
+	expect(keys.lastIndexOf("commcare_sort")).toBeGreaterThan(
+		keys.indexOf("commcare_blacklisted_owner_ids"),
+	);
+	expect(data.filter(([key]) => key === "commcare_sort")).toEqual([
+		["commcare_sort", "'-date_opened:date'"],
+		["commcare_sort", "'+case_name:exact,-@status:exact'"],
+	]);
+	expect(
+		data.find(([key]) => key === "commcare_blacklisted_owner_ids")?.[1],
+	).toBe("'retired-team standby-team'");
+	const uploaded = hq.modules[0].search_config;
+	expect(uploaded.blacklisted_owner_ids_expression).toBe(
+		"'retired-team standby-team'",
+	);
+	expect(uploaded.custom_sort_properties).toEqual([
+		{
+			doc_type: "CaseSearchCustomSortProperty",
+			property_name: "case_name",
+			sort_type: "exact",
+			direction: "ascending",
+		},
+		{
+			doc_type: "CaseSearchCustomSortProperty",
+			property_name: "@status",
+			sort_type: "exact",
+			direction: "descending",
+		},
+	]);
+	expect(
+		uploaded.default_properties.filter(
+			(row: { property: string }) => row.property === "commcare_sort",
+		),
+	).toEqual([
+		expect.objectContaining({
+			property: "commcare_sort",
+			defaultValue: "'-date_opened:date'",
+		}),
+	]);
+	// The assigned list keeps the shared rule's own clause.
+	expect(hq.modules[0].case_details.short.filter).toContain(
+		"assigned-elsewhere",
+	);
 });

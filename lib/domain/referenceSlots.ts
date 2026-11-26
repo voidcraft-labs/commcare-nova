@@ -148,11 +148,9 @@ type SearchInputArmKind = SearchInputDef["kind"];
 /**
  * The search-input union's second axis. `searchInputDefSchema` is seven arms over
  * TWO independent dimensions — `kind` (simple | advanced | hidden) and widget
- * shape (scalar | date-range | select; the hidden arm has no widget) — because a
- * range default, a scalar range mode, and a choice widget without its table all
- * have to be unrepresentable. Applicability has to name both: `default` lives on
- * the scalar and select arms regardless of kind, so no set of `kind` values alone
- * can describe it.
+ * shape (scalar | date-range | select; the hidden arm has no widget).
+ * Options live only on choice widgets. Starting values live on every
+ * visible widget, including both date-range arms.
  */
 type SearchInputWidget = "scalar" | "date-range" | "select";
 
@@ -877,6 +875,42 @@ export const MODULE_REFERENCE_SLOTS = [
 	},
 	{
 		entity: "module",
+		slot: "search_filter_value",
+		path: "caseListConfig.searchFilters[].value",
+		kind: "expression",
+	},
+	{
+		entity: "module",
+		slot: "case_search_filter",
+		path: "caseListConfig.searchCondition",
+		kind: "expression",
+	},
+	{
+		entity: "module",
+		slot: "search_order_property",
+		path: "caseSearchConfig.requestOrder[].property",
+		kind: "case-property-ref",
+	},
+	{
+		entity: "module",
+		slot: "search_filter_order_property",
+		path: "caseListConfig.searchFilters[].order[].property",
+		kind: "case-property-ref",
+	},
+	{
+		entity: "module",
+		slot: "search_filter_property",
+		path: "caseListConfig.searchFilters[].target.property",
+		kind: "case-property-ref",
+	},
+	{
+		entity: "module",
+		slot: "search_filter_ancestor_type",
+		path: "caseListConfig.searchFilters[].target.ancestors[].throughCaseType",
+		kind: "case-type-ref",
+	},
+	{
+		entity: "module",
 		slot: "search_input_property",
 		path: "caseListConfig.searchInputs[].property",
 		kind: "case-property-ref",
@@ -898,9 +932,6 @@ export const MODULE_REFERENCE_SLOTS = [
 		path: "caseListConfig.searchInputs[].default",
 		kind: "expression",
 		searchInputKinds: ["simple", "advanced"],
-		// Scalar and choice widgets. A date-range input owns its range mode and
-		// never carries a scalar default, so the two date-range arms declare no key.
-		searchInputWidgets: ["scalar", "select"],
 	},
 	{
 		entity: "module",
@@ -1103,6 +1134,8 @@ export function expressionSlotKey(ref: SlotContextRef): string {
 		return JSON.stringify([...base, member.columnUuid]);
 	}
 	if ("sortUuid" in member) return JSON.stringify([...base, member.sortUuid]);
+	if ("filterUuid" in member)
+		return JSON.stringify([...base, member.filterUuid]);
 	return JSON.stringify([...base, member.searchInputUuid]);
 }
 
@@ -1129,6 +1162,7 @@ function expressionRefForEntry(
 			case "case_list_action_condition":
 			case "case_list_filter":
 			case "case_form_context_line":
+			case "case_search_filter":
 			case "search_button_display_condition":
 			case "excluded_owner_ids":
 				return { entity: "module", uuid, slot: entry.slot };
@@ -1169,6 +1203,17 @@ function expressionRefForEntry(
 						member: { tabUuid: tab.uuid },
 					}
 				);
+			}
+			case "search_filter_value": {
+				const filter = mod.caseListConfig?.searchFilters?.[indices[0] ?? -1];
+				return filter === undefined
+					? undefined
+					: {
+							entity: "module",
+							uuid,
+							slot: entry.slot,
+							member: { filterUuid: filter.uuid },
+						};
 			}
 			case "case_list_column_expression": {
 				const column = mod.caseListConfig?.columns[indices[0] ?? -1];
@@ -2137,16 +2182,38 @@ export const NON_REFERENCE_MODULE_PATHS: Readonly<
 	"caseListConfig.columns[].text": "display-text",
 	"caseListConfig.searchInputs[].uuid": "identity",
 	"caseListConfig.searchInputs[].kind": "discriminator",
+	"caseListConfig.searchInputs[].matching": "config",
+	"caseListConfig.searchInputs[].allowBlank": "config",
+	"caseListConfig.searchInputs[].hidden": "config",
+	"caseListConfig.searchFilters[].uuid": "identity",
+	"caseListConfig.searchFilters[].target.kind": "discriminator",
+	"caseListConfig.searchFilters[].target.attribute": "config",
+	"caseListConfig.searchFilters[].target.identifier": "config",
+	"caseListConfig.searchFilters[].target.ancestors[].identifier": "config",
 	"caseListConfig.searchInputs[].name": "declaration",
 	"caseListConfig.searchInputs[].label": "display-text",
 	"caseListConfig.searchInputs[].type": "config",
 	"caseListConfig.searchInputs[].mode.kind": "discriminator",
 	"caseListConfig.searchInputs[].hint": "display-text",
 	"caseListConfig.searchInputs[].required.message": "display-text",
+	"caseListConfig.searchInputs[].required.noMessage": "config",
 	"caseListConfig.searchInputs[].validation.message": "display-text",
 	"caseSearchConfig.searchActionEnabled": "config",
+	"caseListConfig.searchFilters[].target.placement": "config",
+	"caseSearchConfig.requestOrder[].comparison": "config",
+	"caseSearchConfig.requestOrder[].recordName": "config",
+	"caseSearchConfig.requestOrder[].implicitComparison": "config",
+	"caseSearchConfig.requestOrder[].implicitDirection": "config",
+	"caseSearchConfig.requestOrder[].direction": "config",
+	"caseListConfig.searchFilters[].kind": "discriminator",
+	"caseListConfig.searchFilters[].order[].comparison": "config",
+	"caseListConfig.searchFilters[].order[].recordName": "config",
+	"caseListConfig.searchFilters[].order[].implicitComparison": "config",
+	"caseListConfig.searchFilters[].order[].implicitDirection": "config",
+	"caseListConfig.searchFilters[].order[].direction": "config",
 	"caseSearchConfig.workflow": "config",
 	"caseSearchConfig.formsReadSearch": "config",
+	"caseSearchConfig.searchOnClear": "config",
 	"caseSearchConfig.searchScreenTitle": "display-text",
 	"caseSearchConfig.searchScreenSubtitle": "display-text",
 };

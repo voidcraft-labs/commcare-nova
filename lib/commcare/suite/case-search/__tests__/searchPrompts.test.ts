@@ -387,3 +387,139 @@ it("uses readable label and required-message fallbacks without inventing a hint"
 		).children.map((child) => child.name),
 	).toEqual(["text"]);
 });
+
+// HQ's build writes a requirement whose text is blank in every language as a blank app string
+// (`remote_requests.py::build_query_prompts` writes its `<text>` whenever the test exists;
+// `app_strings.py` gives it `clean_trans({})`), so Core reports a blank message
+// (`QueryPrompt.getRequiredMessage`); a validation with no text gets none
+// (`if validation.has_text`), and Core reports its own sentence
+// (`QueryPrompt.getValidationMessage`). Nova's suite writes each the same way.
+it("writes a requirement with no message blank and a check with none of its own with no text", () => {
+	const { doc, config, expressions } = projection("prompt-widgets");
+	const first = config.searchInputs[0];
+	if (first.kind === "hidden")
+		throw new Error("Fixture starts with a visible prompt");
+	const { hint: _hint, ...withoutHint } = first;
+	config.searchInputs = [
+		{
+			...withoutHint,
+			required: { noMessage: true },
+			validation: { rule: eq(input(first.uuid), literal("north")) },
+		},
+	];
+	expect(runValidation(doc, promptLookupContext)).toEqual([]);
+	const prompts = buildSearchPrompts(
+		config.searchInputs,
+		"m0",
+		new Map(),
+		expressions,
+	);
+	const key = `search_property.m0.${first.name}`;
+	expect(prompts.strings[`${key}.required.text`]).toBe("");
+	expect(prompts.translationUnits[`${key}.required.text`]).toEqual([]);
+	expect(prompts.strings).not.toHaveProperty(`${key}.validation.0.text`);
+	const prompt = readXmlEvidence(serializeXml(prompts.elements[0]));
+	expect(
+		onlyXml(xmlChildren(prompt, "required")).children.map(
+			(child) => child.name,
+		),
+	).toEqual(["text"]);
+	expect(onlyXml(xmlChildren(prompt, "validation")).children).toEqual([]);
+});
+
+// A field that lets workers search for blank carries HQ's `allow_blank_value`
+// on both wires: the suite prompt's attribute Core and Formplayer read
+// (`QueryPromptParser`), and the Case List page's stored flag HQ's build reads
+// (`remote_requests.py::build_query_prompts`).
+it("marks a field that searches for blank on both wires", () => {
+	const doc = searchPromptFixture("prompt-widgets");
+	const moduleUuid = doc.moduleOrder[0];
+	const expressions = moduleExpressionContexts(
+		doc,
+		moduleUuid,
+		promptLookupNaming,
+	);
+	const village = {
+		uuid: testUuid("village"),
+		name: "village",
+		label: "Village",
+		kind: "simple",
+		type: "text",
+		property: "village",
+		allowBlank: true,
+	} as const;
+	expect(searchPromptWire(village, undefined, expressions).allowBlank).toBe(
+		true,
+	);
+	const { allowBlank: _allowBlank, ...plain } = village;
+	expect(searchPromptWire(plain, undefined, expressions).allowBlank).toBe(
+		false,
+	);
+	const prompts = buildSearchPrompts([village], "m0", new Map(), expressions);
+	expect(serializeXml(prompts.elements[0])).toContain(
+		'allow_blank_value="true"',
+	);
+	const bare = buildSearchPrompts([plain], "m0", new Map(), expressions);
+	expect(serializeXml(bare.elements[0])).not.toContain("allow_blank_value");
+});
+
+// A hidden field with no value is a hidden, excluded prompt with no `default`: Core seeds no
+// answer for it (`RemoteQuerySessionManager.initUserAnswers`), and HQ's Case List page writes the
+// same prompt for a field hidden and left out of the request with no starting value.
+it("emits a hidden field with no value as a hidden prompt with no default", () => {
+	const { doc, config, expressions } = projection("prompt-widgets");
+	config.searchInputs = config.searchInputs.map((one) => {
+		if (one.kind !== "hidden") return one;
+		const { value: _value, ...rest } = one;
+		return rest;
+	});
+	expect(runValidation(doc, promptLookupContext)).toEqual([]);
+	const emission = buildSearchPrompts(
+		config.searchInputs,
+		"m0",
+		undefined,
+		expressions,
+		promptLookupNaming,
+	);
+	expect(emission.elements.at(-1)?.attribs).toEqual({
+		key: "hidden",
+		hidden: "true",
+		exclude: "true()",
+	});
+});
+
+// A field Web Apps does not draw keeps its widget, its match and its starting value, with
+// `hidden="true"` beside them: matched by its own name it rides the bare prompt, so Core sends its
+// starting value as a filter (`RemoteQuerySessionManager.getRawQueryParams`).
+it("emits a field Web Apps does not draw as its prompt with hidden beside it", () => {
+	const { doc, config, expressions } = projection("prompt-widgets");
+	config.searchInputs = config.searchInputs.map((one) =>
+		one.kind === "simple" && one.name === "first_name"
+			? (() => {
+					const { hint: _hint, required: _required, ...rest } = one;
+					return { ...rest, hidden: true as const };
+				})()
+			: one.kind === "simple" && one.name === "region"
+				? { ...one, hidden: true as const }
+				: one,
+	);
+	expect(runValidation(doc, promptLookupContext)).toEqual([]);
+	const emission = buildSearchPrompts(
+		config.searchInputs,
+		"m0",
+		undefined,
+		expressions,
+		promptLookupNaming,
+	);
+	const attribs = emission.elements.map((element) => element.attribs);
+	expect(attribs.find((one) => one.key === "first_name")).toEqual({
+		key: "first_name",
+		hidden: "true",
+	});
+	expect(attribs.find((one) => one.key === "region")).toEqual({
+		key: "region",
+		hidden: "true",
+		input: "select1",
+		default: "'north'",
+	});
+});

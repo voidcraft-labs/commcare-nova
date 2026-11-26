@@ -47,6 +47,7 @@
 import {
 	type BlueprintDoc,
 	type Module,
+	projectSpaceMatchingFits,
 	SEARCH_INPUT_TYPE_PROPERTY_TYPES,
 	type Uuid,
 } from "@/lib/domain";
@@ -71,7 +72,7 @@ export function searchInputTypeMatchesPropertyType(
 		// vs-property pair to gate (predicate-type validation lives in
 		// `searchInputPredicateTypeCheck`), and hidden inputs bind no
 		// property. Only the simple arm has a pair to check.
-		if (input.kind !== "simple") continue;
+		if (input.kind !== "simple" || input.matching === "project-space") continue;
 
 		const allowed = SEARCH_INPUT_TYPE_PROPERTY_TYPES[input.type];
 		// `undefined` admit-list means "every property type works" — the
@@ -104,11 +105,15 @@ export function searchInputTypeMatchesPropertyType(
 
 		if (allowed.includes(dataType)) continue;
 
+		// A field that searches its own property under the same name with exact
+		// or range matching can take the project space's own matching, which
+		// matches any type (`nativeSearchFilters`).
+		const projectSpaceCanMatch = projectSpaceMatchingFits(input);
 		errors.push(
 			validationError(
 				"CASE_LIST_SEARCH_INPUT_TYPE_PROPERTY_TYPE_MISMATCH",
 				"module",
-				`Search input "${input.label || input.name}" (input #${index + 1}) on module "${mod.name}" uses a "${input.type}" widget against case property "${input.property}" on case type "${destinationCaseType}" (data type "${dataType}"). The "${input.type}" widget only admits properties of type ${formatAllowedTypes(allowed)}; on a "${dataType}" property the runtime cannot render a meaningful input UI (for example a calendar picker against text, or a barcode scanner against an integer). Either change the input's \`type\` to one that admits "${dataType}", change the property's \`data_type\` to one the widget admits, or point the input at a different property.`,
+				`Search input "${input.label || input.name}" (input #${index + 1}) on module "${mod.name}" uses a "${input.type}" widget against case property "${input.property}" on case type "${destinationCaseType}" (data type "${dataType}"). The "${input.type}" widget only admits properties of type ${formatAllowedTypes(allowed)}; on a "${dataType}" property the runtime cannot render a meaningful input UI (for example a calendar picker against text, or a barcode scanner against an integer). Either change the input's \`type\` to one that admits "${dataType}", change the property's \`data_type\` to one the widget admits, ${projectSpaceCanMatch ? 'set `matching` to "project-space" so the project space matches the answer by its own rule, ' : ""}or point the input at a different property.`,
 				{ moduleUuid, moduleName: mod.name },
 				{
 					index: String(index),
@@ -118,6 +123,7 @@ export function searchInputTypeMatchesPropertyType(
 					property: input.property,
 					destinationCaseType,
 					dataType,
+					...(projectSpaceCanMatch && { projectSpaceCanMatch: "true" }),
 				},
 			),
 		);

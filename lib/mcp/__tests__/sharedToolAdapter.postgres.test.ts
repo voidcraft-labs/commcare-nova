@@ -19,7 +19,10 @@ import { proseText } from "@/lib/domain/prose";
 import { log } from "@/lib/logger";
 import { sectionEntryDoc } from "@/lib/preview/engine/__tests__/fixtures/sectionEntry";
 import { registerSharedTool } from "../adapters/sharedToolAdapter";
+import { MAX_RESULT_SIZE_CHARS } from "../resultSize";
+import { SCOPES } from "../scopes";
 import { registerWorkTools } from "../tools/work";
+import type { ToolContext } from "../types";
 import { withMcpClient } from "./client";
 import { promptDoc } from "./promptFixtures";
 import { resultContentText, resultText } from "./resultText";
@@ -32,11 +35,16 @@ const context = {
 	scopes: ["nova.read", "nova.write"],
 	authKind: "oauth" as const,
 };
-const register: Parameters<typeof withMcpClient>[0] = (server) => {
-	registerWorkTools(server, context);
-	for (const entry of SHARED_TOOL_REGISTRY)
-		registerSharedTool(server, entry, context);
-};
+function registerFor(
+	context: ToolContext,
+): Parameters<typeof withMcpClient>[0] {
+	return (server) => {
+		registerWorkTools(server, context);
+		for (const entry of SHARED_TOOL_REGISTRY)
+			registerSharedTool(server, entry, context);
+	};
+}
+const register = registerFor(context);
 async function seedCanonical(doc: BlueprintDoc) {
 	await h.seedProjectMember("creator", PROJECT, "owner");
 	const candidate = prepareGenesisCandidate({
@@ -721,4 +729,194 @@ it("serves ordered journey actions with deferred section names and bounded retai
 			actions: [{ action: { kind: "finish" } }],
 		});
 	});
+});
+
+it.each(["oauth", "api-key"] as const)(
+	"requires fresh Preview consent for %s reads, changes and committed-work replay",
+	async (authKind) => {
+		const doc = await seed();
+		const allowed = {
+			...context,
+			authKind,
+			scopes: [
+				...context.scopes,
+				SCOPES.previewSearchRead,
+				SCOPES.previewSearchWrite,
+			],
+		};
+		const selected = await withMcpClient(
+			registerFor(allowed),
+			async (client) => {
+				const catalog = await call(client, "get_preview_search_settings", {
+					app_id: doc.appId,
+				});
+				expect(catalog.profiles).toMatchObject([
+					{ target: { kind: "local" }, revision: "0", caseListMap: null },
+				]);
+				const { work_id } = await begin(client, doc.appId);
+				const input = {
+					work_id,
+					request_id: "confirmed-calendar",
+					expectedRevision: "0",
+					target: { kind: "local" },
+					changes: {
+						maximum: 500,
+						timeZone: "Europe/Paris",
+						caseListMap: true,
+						propertyMatchers: { fuzzyProperties: [], ignoredText: [] },
+					},
+				};
+				const receipt = await call(
+					client,
+					"set_preview_search_settings",
+					input,
+				);
+				expect(receipt).toMatchObject({ ok: true, revision: "1" });
+				expect(
+					await call(client, "set_preview_search_settings", input),
+				).toEqual(receipt);
+				return input;
+			},
+		);
+		await withMcpClient(
+			registerFor({ ...context, authKind }),
+			async (client) => {
+				const denied = await client.callTool({
+					name: "get_preview_search_settings",
+					arguments: { app_id: doc.appId },
+				});
+				expect(denied.isError).toBe(true);
+				expect(JSON.parse(resultContentText(denied))).toMatchObject({
+					error_type: "scope_missing",
+					required_scope: SCOPES.previewSearchRead,
+				});
+			},
+		);
+		await withMcpClient(
+			registerFor({
+				...context,
+				authKind,
+				scopes: [...context.scopes, SCOPES.previewSearchRead],
+			}),
+			async (client) => {
+				const current = await call(client, "get_preview_search_settings", {
+					app_id: doc.appId,
+				});
+				expect(current.profiles).toMatchObject([
+					{ revision: "1", timeZone: "Europe/Paris", caseListMap: true },
+				]);
+				const replay = await client.callTool({
+					name: "set_preview_search_settings",
+					arguments: selected,
+				});
+				expect(replay.isError).toBe(true);
+				expect(JSON.parse(resultContentText(replay))).toMatchObject({
+					error_type: "scope_missing",
+					required_scope: SCOPES.previewSearchWrite,
+				});
+			},
+		);
+	},
+);
+
+it("reads every destination and ordered rule through bounded MCP pages, and refuses a changed cursor", async () => {
+	const doc = await seed();
+	const names = Array.from(
+		{ length: 14 },
+		(_, i) => `clinic-${String(i).padStart(2, "0")}`,
+	);
+	const rules = Array.from({ length: 97 }, (_, i) => ({
+		caseType: `${"\u0001".repeat(255)}p`,
+		property: `${"\u0002".repeat(255)}q`,
+		literal: "\u0003".repeat(251) + String(i).padStart(5, "0"),
+	}));
+	for (const domain of names) {
+		await sql`INSERT INTO app_deployments (app_id,project_id,server,domain,state,created_by)
+		VALUES (${doc.appId},${PROJECT},'eu',${domain},'uploaded',${ACTOR})`.execute(
+			h.db(),
+		);
+	}
+	const target = { kind: "destination", server: "eu", domain: names[12] };
+	const values = {
+		maximum: 1500,
+		timeZone: "US/Eastern",
+		propertyMatchers: {
+			fuzzyProperties: [{ caseType: "person", property: "code", fuzzy: true }],
+			ignoredText: rules,
+		},
+	};
+	await sql`INSERT INTO preview_search_settings (project_id,server,domain,revision,settings)
+		VALUES (${PROJECT},'eu',${target.domain},1,${JSON.stringify(values)}::jsonb)`.execute(
+		h.db(),
+	);
+	await withMcpClient(
+		registerFor({
+			...context,
+			scopes: [
+				...context.scopes,
+				SCOPES.previewSearchRead,
+				SCOPES.previewSearchWrite,
+			],
+		}),
+		async (client) => {
+			const read = (args: Record<string, unknown>) =>
+				call(client, "get_preview_search_settings", {
+					app_id: doc.appId,
+					...args,
+				});
+			const first = await read({});
+			const second = await read({ cursor: first.nextCursor });
+			expect(second.nextCursor).toBeNull();
+			expect(
+				[...first.profiles, ...second.profiles].map((p) => p.target.domain),
+			).toEqual(names);
+			let page = await read({ target });
+			const firstCursor = page.nextCursor;
+			const found: unknown[] = [];
+			for (;;) {
+				expect(JSON.stringify(page).length).toBeLessThan(MAX_RESULT_SIZE_CHARS);
+				found.push(...page.rules);
+				if (!page.nextCursor) break;
+				page = await read({ target, cursor: page.nextCursor });
+			}
+			expect(found).toEqual([
+				{
+					list: "fuzzyProperties",
+					index: 0,
+					...values.propertyMatchers.fuzzyProperties[0],
+				},
+				...rules.map((r, index) => ({ list: "ignoredText", index, ...r })),
+			]);
+			const work = await begin(client, doc.appId);
+			const result = await call(client, "set_preview_search_settings", {
+				work_id: work.work_id,
+				request_id: "one-setting",
+				target,
+				expectedRevision: "1",
+				changes: { timeZone: "Europe/Paris" },
+			});
+			expect(result).toMatchObject({ ok: true, revision: "2" });
+			expect(await read({ target, cursor: firstCursor })).toMatchObject({
+				code: "restart",
+			});
+			expect(await read({ cursor: first.nextCursor })).toMatchObject({
+				code: "restart",
+			});
+			const current = await read({ target });
+			expect(current.profile).toMatchObject({
+				revision: "2",
+				timeZone: "Europe/Paris",
+				matching: { fuzzyProperties: 1, ignoredText: rules.length },
+			});
+			const stored = await sql<{
+				settings: unknown;
+			}>`SELECT settings FROM preview_search_settings WHERE project_id=${PROJECT} AND server='eu' AND domain=${target.domain}`.execute(
+				h.db(),
+			);
+			expect(stored.rows[0]?.settings).toEqual({
+				...values,
+				timeZone: "Europe/Paris",
+			});
+		},
+	);
 });

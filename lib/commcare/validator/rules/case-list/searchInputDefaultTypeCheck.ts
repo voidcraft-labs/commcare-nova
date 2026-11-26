@@ -66,9 +66,6 @@ export function searchInputDefaultTypeCheck(
 			);
 			continue;
 		}
-		if (input.type === "date-range") {
-			throw new Error("Date-range input exposed a scalar default.");
-		}
 		const expectedType = SEARCH_INPUT_TYPE_DEFAULT_EXPECTED_TYPES[input.type];
 		const typeErrors = checked.filter(
 			(error) => error.code !== "search-answer-unavailable",

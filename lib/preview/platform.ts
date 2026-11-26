@@ -157,9 +157,33 @@ export interface PreviewPlatformRules {
 	/** A Search field's required condition and checks (manifest
 	 *  `case-search/required-test-text`, `validations-0-test-text`). */
 	readonly searchFieldChecks: boolean;
-	/** A hidden Search field with a starting value (manifest
-	 *  `case-search/hidden-exclude-with-a-default-value-on-a-prompt-with-no-itemset`). */
-	readonly hiddenSearchFieldWithDefault: "hidden" | "editable";
+	/** A hidden Search field: a hidden value or a field Web Apps does not
+	 *  draw (manifest `case-search/hidden-exclude-with-a-default-value-on-a-prompt-with-no-itemset`,
+	 *  `hidden-exclude-without-a-default-value-on-a-prompt-with-no`,
+	 *  `hidden-without-exclude-on-a-prompt-with-no-itemset-input-type-or`,
+	 *  `hidden-on-a-prompt-that-carries-an-itemset-input-type-or`). Web Apps
+	 *  hides the prompt's row whole (`query.js`, `d-none`); Android reads no
+	 *  `hidden` and draws it as any field, where the worker can change it. */
+	readonly hiddenSearchField: "hidden" | "editable";
+	/** "Include results where … is blank" under a Search field that allows it
+	 *  (manifest `case-search/allow-blank-value`): Web Apps draws the box from
+	 *  Formplayer's `allow_blank_value` (`query/item.html`); Android reads no
+	 *  such setting and shows the field alone. */
+	readonly searchForBlank: boolean;
+	/** HQ's Web Apps model indexes labels by value; Android enumerates Core's itemset rows. */
+	readonly searchChoiceOrder: "values" | "rows";
+	/** A date-range Search field's starting value. Web Apps' range picker
+	 *  reads it by the client's strict Moment formats and shows each end in the
+	 *  browser's calendar (`cloudcare/js/utils.js`, `menus/views/query.js`;
+	 *  `searchRangeAnswer.ts::webSearchRangeDraft`), refusing the screen where
+	 *  it cannot; Android's prompt shows the stored text
+	 *  (`androidStartingRangeLabel`). */
+	readonly searchRangeStartingValue: "date-picker" | "text";
+	/** A day the worker picks for a date-range end. Android's Material range
+	 *  picker supplies UTC midnight, which its callback prints in the worker's
+	 *  zone (`androidSelectedRangeDay`); Web Apps' picker gives the calendar
+	 *  day itself. */
+	readonly searchRangeChosenDay: "calendar-day" | "utc-midnight";
 	/** A barcode Search field (manifest `case-search/appearance-barcode-scan`:
 	 *  a plain text box in Web Apps). */
 	readonly barcodeSearchField: "text" | "scan-or-text";
@@ -174,6 +198,13 @@ export interface PreviewPlatformRules {
 	 *  error line alone (`activities/QueryRequestUiController.kt`, layout
 	 *  `http_request_layout.xml`), and `QueryRequestActivity` clears no field. */
 	readonly searchClear: boolean;
+	/** The narrowest window, in CSS pixels, at which Clear also runs the
+	 *  search where the menu asks for it (`caseSearchConfig.searchOnClear`),
+	 *  or `undefined` where Clear never searches. Web Apps'
+	 *  `menus/views/query.js::clearAction` searches only while the screen is
+	 *  not small (`utils.js::smallScreenIsEnabled`, `SMALL_SCREEN_WIDTH_PX`
+	 *  992); Android has no Clear. */
+	readonly searchOnClearMinWidth: number | undefined;
 	/** Whether the case list's Search action launches on its own: search first
 	 *  and skip to results. Core's cli `EntityScreen.evaluateAutoLaunch`, which
 	 *  Formplayer runs; commcare-android holds no reader of `auto_launch`, so it
@@ -567,10 +598,15 @@ export const PREVIEW_PLATFORM_RULES = {
 		searchScreenCaseTile: true,
 		caseDetailsCaseTile: false,
 		searchFieldChecks: true,
-		hiddenSearchFieldWithDefault: "hidden",
+		hiddenSearchField: "hidden",
+		searchForBlank: true,
+		searchChoiceOrder: "values",
+		searchRangeStartingValue: "date-picker",
+		searchRangeChosenDay: "calendar-day",
 		barcodeSearchField: "text",
 		zeroSearchResults: "results",
 		searchClear: true,
+		searchOnClearMinWidth: 992,
 		searchActionAutoLaunch: true,
 		searchReplay: "latest-answers",
 		poppedEntrySelections: "address",
@@ -663,10 +699,15 @@ export const PREVIEW_PLATFORM_RULES = {
 		searchScreenCaseTile: false,
 		caseDetailsCaseTile: true,
 		searchFieldChecks: false,
-		hiddenSearchFieldWithDefault: "editable",
+		hiddenSearchField: "editable",
+		searchForBlank: false,
+		searchChoiceOrder: "rows",
+		searchRangeStartingValue: "text",
+		searchRangeChosenDay: "utc-midnight",
 		barcodeSearchField: "scan-or-text",
 		zeroSearchResults: "stay-on-search",
 		searchClear: false,
+		searchOnClearMinWidth: undefined,
 		searchActionAutoLaunch: false,
 		searchReplay: "own-answers",
 		poppedEntrySelections: "session",

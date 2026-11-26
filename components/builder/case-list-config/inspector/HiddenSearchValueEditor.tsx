@@ -10,11 +10,14 @@
 // visible field's starting value uses: session and current-user values,
 // literals, the date and time. Case data and other search answers are not
 // offered, matching the commit gate's forbids-input-ref rule for this slot.
+// The value is optional: a hidden field with none starts blank, which Web
+// Apps keeps and Android shows for the worker to fill in.
 
 "use client";
 
 import { Icon } from "@iconify/react/offline";
 import tablerEyeOff from "@iconify-icons/tabler/eye-off";
+import tablerPlus from "@iconify-icons/tabler/plus";
 import { useMemo, useState } from "react";
 import { ExpressionSlotEditor } from "@/components/builder/shared/ExpressionSlotEditors";
 import {
@@ -23,6 +26,7 @@ import {
 } from "@/components/builder/shared/editorContext";
 import { BlurCommitTextInput } from "@/components/builder/shared/primitives/BlurCommitTextInput";
 import { InlineError } from "@/components/builder/shared/primitives/CardShell";
+import { Button } from "@/components/shadcn/button";
 import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
 import {
 	type CaseType,
@@ -33,7 +37,7 @@ import {
 	type UserProperty,
 	type Uuid,
 } from "@/lib/domain";
-import type { Expression } from "@/lib/domain/expression";
+import { type Expression, literal, term } from "@/lib/domain/expression";
 import {
 	NO_SEARCH_INPUTS,
 	type ResolvedRow,
@@ -88,14 +92,14 @@ export function HiddenSearchValueEditor({
 	const rebuild = (patch: {
 		readonly name?: string;
 		readonly label?: string;
-		readonly value?: Expression;
+		readonly value?: Expression | undefined;
 	}) =>
 		onChange(
 			hiddenSearchInputDef(
 				value.uuid,
 				patch.name ?? value.name,
 				patch.label ?? value.label,
-				patch.value ?? value.value,
+				"value" in patch ? patch.value : value.value,
 			),
 		);
 
@@ -132,9 +136,10 @@ export function HiddenSearchValueEditor({
 						aria-hidden="true"
 					/>
 					<span>
-						People never see this value and it never narrows the results. Nova
-						works it out when the Search screen opens and keeps it with the
-						search, so a form that opens afterwards can save it.
+						People never see this value in Web Apps and it never narrows the
+						results. Nova works it out when the Search screen opens and keeps it
+						with the search, so a form that opens afterwards can save it.
+						Android shows it on the Search screen, where people can change it.
 					</span>
 				</p>
 
@@ -154,6 +159,17 @@ export function HiddenSearchValueEditor({
 					<div className="rounded-xl border border-white/[0.06] bg-nova-deep/30 p-3">
 						{moduleUuid === undefined ? (
 							<p role="status">This value's owner is no longer available.</p>
+						) : value.value === undefined ? (
+							<Button
+								type="button"
+								onClick={() => rebuild({ value: term(literal("")) })}
+								variant="ghost"
+								className="nova-add-slot w-full"
+								aria-label={`Add a value for hidden search value ${index + 1}`}
+							>
+								<Icon icon={tablerPlus} width="13" height="13" />
+								<span>Add value</span>
+							</Button>
 						) : (
 							<ExpressionSlotEditor
 								slot={{
@@ -171,6 +187,17 @@ export function HiddenSearchValueEditor({
 								userProperties={userProperties}
 								constraint={{ accepts: "any" }}
 							/>
+						)}
+						{moduleUuid !== undefined && value.value !== undefined && (
+							<Button
+								type="button"
+								onClick={() => rebuild({ value: undefined })}
+								variant="destructive"
+								className="mt-3 w-full px-3 text-[14px]"
+								aria-label={`Remove the value of hidden search value ${index + 1}`}
+							>
+								Remove value
+							</Button>
 						)}
 					</div>
 				</FieldRow>
