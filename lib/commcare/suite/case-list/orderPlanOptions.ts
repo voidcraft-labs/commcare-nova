@@ -44,7 +44,7 @@ import { serializeWire } from "../../xpath/wire/serialize";
 import type { WireExpr } from "../../xpath/wire/tree";
 import { classifyRelatedCaseSearchExpression } from "../case-search/relatedCaseProjection";
 import { columnPropertyPath } from "../wire";
-import { bindCaseTextVariables, caseTextKeyPadding } from "./calculationText";
+import { bindCaseTextVariables, caseTextKeyVariants } from "./calculationText";
 import {
 	intervalColumnDisplayXpath,
 	linkColumnDisplayXpath,
@@ -163,7 +163,7 @@ export function hqExpressionField(
 			...(rewrites === undefined ? {} : { rewrites }),
 		});
 		return column.texts
-			? bindCaseTextVariables(wire, caseTextKeyPadding(wire, column.texts))
+			? bindCaseTextVariables(wire, caseTextKeyVariants(wire, column.texts))
 			: wire;
 	}
 	const path = columnPropertyPath(column);

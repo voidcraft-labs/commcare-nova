@@ -36,6 +36,7 @@ import {
 } from "./listReading";
 
 const M = "menus-and-case-lists/";
+const CASE_TEXT_KEY = "case_text_00000000000040008000000000000003";
 
 const readLists = namingFromHqPages(readListsOf);
 
@@ -164,37 +165,46 @@ describe("CommCare HQ's column formats", () => {
 			texts: column.texts,
 		});
 	});
-	it("keeps an authored literal equal to a translated piece's usual wire name", async () => {
-		const word = { uuid: uuid(3), label: "Village" };
-		const literal = "case_text_00000000000040008000000000000003";
-		const column = {
-			...calculatedColumn(uuid(2), "Visit", {
-				kind: "concat",
-				parts: [
-					{ kind: "case-text", textUuid: word.uuid },
-					{ kind: "term", term: { kind: "literal", value: literal } },
-				],
-			}),
-			texts: [word],
-		};
-		const read = await readLists(patients([column]));
-		expect(
-			closedCodes(read),
-			JSON.stringify(read.ctx.close().findings),
-		).toEqual([]);
-		const stored = read.app.modules[0].case_details.short.columns[0];
-		expect(stored.enum).toMatchObject([{ key: `v${literal}` }]);
-		expect(listOf(read).columns[0]).toMatchObject({
-			kind: "calculated",
-			expression: {
-				kind: "concat",
-				parts: [
-					{ kind: "case-text" },
-					{ kind: "term", term: { kind: "literal", value: literal } },
-				],
-			},
-		});
-	});
+	it.each([
+		["", "v"],
+		["v".repeat(256), "v00000002_"],
+		[`v${CASE_TEXT_KEY} v00000002_`, "v00000003_"],
+	])(
+		"keeps an authored literal containing a translated piece's wire name (%s)",
+		async (prefix, available) => {
+			const word = { uuid: uuid(3), label: "Village" };
+			const literal = `${prefix}${CASE_TEXT_KEY}`;
+			const column = {
+				...calculatedColumn(uuid(2), "Visit", {
+					kind: "concat",
+					parts: [
+						{ kind: "case-text", textUuid: word.uuid },
+						{ kind: "term", term: { kind: "literal", value: literal } },
+					],
+				}),
+				texts: [word],
+			};
+			const read = await readLists(patients([column]));
+			expect(
+				closedCodes(read),
+				JSON.stringify(read.ctx.close().findings),
+			).toEqual([]);
+			const stored = read.app.modules[0].case_details.short.columns[0];
+			expect(stored.enum).toMatchObject([
+				{ key: `${available}${CASE_TEXT_KEY}` },
+			]);
+			expect(listOf(read).columns[0]).toMatchObject({
+				kind: "calculated",
+				expression: {
+					kind: "concat",
+					parts: [
+						{ kind: "case-text" },
+						{ kind: "term", term: { kind: "literal", value: literal } },
+					],
+				},
+			});
+		},
+	);
 	it("normalizes a non-calculated translated value without losing its unused wording", async () => {
 		const read = await readFormat({
 			format: "translatable-enum",

@@ -325,23 +325,26 @@ describe("matchingResolver", () => {
 	});
 });
 
-it("recognizes a translated piece across native and emitted names only within its own calculated field", () => {
-	const owner = mintEntityUuid(APP_ID, externalKey.module("owner"));
-	const other = mintEntityUuid(APP_ID, externalKey.module("another"));
-	const native = externalKey.caseCalculationText(owner, "greeting");
-	const uuid = mintEntityUuid(APP_ID, native);
-	const generated = `case_text_${uuid.replaceAll("-", "")}`;
-	const printed = externalKey.caseCalculationText(owner, generated);
-	const imported = matchingResolver(APP_ID, [{ ...native, uuid }]);
-	expect(imported.uuidOf(printed)).toBe(uuid);
-	expect(matchingResolver(APP_ID, [{ ...printed, uuid }]).uuidOf(native)).toBe(
-		uuid,
-	);
-	expect(
-		imported.uuidOf(externalKey.caseCalculationText(other, generated)),
-	).not.toBe(uuid);
-	expect(
-		imported.uuidOf(printed, undefined, new Set([externalKeyText(native)])),
-	).not.toBe(uuid);
-	expect(mintingResolver(APP_ID).uuidOf(printed)).not.toBe(uuid);
-});
+it.each(["", "vvv", "v00000003_"])(
+	"recognizes a translated piece across native and emitted names only within its own calculated field (%s)",
+	(prefix) => {
+		const owner = mintEntityUuid(APP_ID, externalKey.module("owner"));
+		const other = mintEntityUuid(APP_ID, externalKey.module("another"));
+		const native = externalKey.caseCalculationText(owner, "greeting");
+		const uuid = mintEntityUuid(APP_ID, native);
+		const generated = `${prefix}case_text_${uuid.replaceAll("-", "")}`;
+		const printed = externalKey.caseCalculationText(owner, generated);
+		const imported = matchingResolver(APP_ID, [{ ...native, uuid }]);
+		expect(imported.uuidOf(printed)).toBe(uuid);
+		expect(
+			matchingResolver(APP_ID, [{ ...printed, uuid }]).uuidOf(native),
+		).toBe(uuid);
+		expect(
+			imported.uuidOf(externalKey.caseCalculationText(other, generated)),
+		).not.toBe(uuid);
+		expect(
+			imported.uuidOf(printed, undefined, new Set([externalKeyText(native)])),
+		).not.toBe(uuid);
+		expect(mintingResolver(APP_ID).uuidOf(printed)).not.toBe(uuid);
+	},
+);

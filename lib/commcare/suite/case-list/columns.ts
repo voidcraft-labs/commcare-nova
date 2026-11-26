@@ -1,7 +1,7 @@
 import { translatedDistanceProperty } from "@/lib/domain/modules";
 import {
 	bindCaseTextVariables,
-	caseTextKeyPadding,
+	caseTextKeyVariants,
 	caseTextWireKey,
 } from "./calculationText";
 import { columnLoadBehavior, withFieldLoadBehavior } from "./optimizations";
@@ -1806,11 +1806,11 @@ function buildCalculatedField(args: {
 		const translationUnits: Record<string, TranslationUnitId> = {
 			[headerId]: makeTranslationUnitId("column", column.uuid, "header"),
 		};
-		const padding = caseTextKeyPadding(calcXpath, column.texts);
-		const localizedXpath = bindCaseTextVariables(calcXpath, padding);
+		const variants = caseTextKeyVariants(calcXpath, column.texts);
+		const localizedXpath = bindCaseTextVariables(calcXpath, variants);
 		const names = column.texts.map((piece) => {
 			const name = keyAsVariable(
-				caseTextWireKey(piece.uuid, padding.get(piece.uuid)),
+				caseTextWireKey(piece.uuid, variants.get(piece.uuid)),
 			);
 			const id = `${headerId.replace(/\.header$/, "")}.enum.${name}`;
 			strings[id] = piece.label;

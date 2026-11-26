@@ -51,7 +51,7 @@ export type WireExpr =
 	| {
 			readonly k: "case-text-variable";
 			readonly textUuid: Uuid;
-			readonly padding?: number;
+			readonly variant?: number;
 	  }
 	| { readonly k: "image-mapping-variable"; readonly key: string }
 	| { readonly k: "endpoint-argument-var"; readonly name: string };

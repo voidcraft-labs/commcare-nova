@@ -5,7 +5,7 @@ import {
 	lookupReadTypes,
 } from "@/lib/domain/lookupRead";
 import {
-	caseTextKeyPadding,
+	caseTextKeyVariants,
 	caseTextWireKey,
 } from "../suite/case-list/calculationText";
 import { mappingIdentityAt } from "./caseList/mappingIdentity";
@@ -273,8 +273,8 @@ export function externalIdentityMap(
 					const namable =
 						!lookupNaming ||
 						canNameCalculation(column.expression, lookupNaming);
-					const padding = namable
-						? caseTextKeyPadding(
+					const variants = namable
+						? caseTextKeyVariants(
 								hqExpressionField(column, module, doc, "results", lookupNaming),
 								column.texts,
 							)
@@ -284,7 +284,7 @@ export function externalIdentityMap(
 							namable
 								? externalKey.caseCalculationText(
 										column.uuid,
-										caseTextWireKey(piece.uuid, padding?.get(piece.uuid)),
+										caseTextWireKey(piece.uuid, variants?.get(piece.uuid)),
 									)
 								: externalKey.caseMappingRow(
 										column.uuid,

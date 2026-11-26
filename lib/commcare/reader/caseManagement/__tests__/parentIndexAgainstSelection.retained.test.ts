@@ -106,7 +106,9 @@ describe("an advanced open action's parent index against a menu's parent selecti
 		const [formUuid] = doc.formOrder[visits.uuid] ?? [];
 		const readForm = doc.forms[formUuid];
 		expect(readForm.type).toBe("followup");
-		const [household, member] = formCaseSelections(doc, formUuid);
+		const selections = formCaseSelections(doc, formUuid);
+		expect(selections).toHaveLength(2);
+		const [household, member] = selections;
 		if (!household || !member)
 			throw new Error("Expected the two form selections");
 		expect(household).toMatchObject({

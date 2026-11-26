@@ -1500,11 +1500,10 @@ function memberOpen(
 	};
 }
 
-describe("an open action's index beside the menus' parent selection", () => {
-	it("keeps the menu's parent selection beside a parent index to another type or as an extension", async () => {
-		// A basic menu's selection matches any non-extension index to the chosen
-		// case (`entries.py::get_parent_filter`), whatever the catalog names as
-		// the type's parent, so an index the form writes leaves it standing.
+describe("an open action's index beside the form's parent selection", () => {
+	it("keeps the form's parent selection beside a parent index to another type or as an extension", async () => {
+		// A follow-up chooses the member under the selected household. The
+		// open action can independently write a different child or extension index.
 		const { doc } = memberFollowup();
 		for (const relationship of ["child", "extension"] as const) {
 			const reading = await readMenusOf(doc, (app) => {
@@ -1519,15 +1518,31 @@ describe("an open action's index beside the menus' parent selection", () => {
 			});
 			expect(reading.outcome.defects, relationship).toEqual([]);
 			expect(codesOf(reading), relationship).toEqual([]);
-			const read = Object.values(reading.doc?.modules ?? {});
+			if (!reading.doc) throw new Error("Expected a held read");
+			const read = Object.values(reading.doc.modules);
 			const members = read.find((menu) => menu.name === "Members");
 			const households = read.find((menu) => menu.name === "Households");
-			expect(members?.parentCaseModuleUuid, relationship).toBe(
-				households?.uuid,
-			);
-			if (!reading.doc) throw new Error("Expected a held read");
+			if (!members || !households)
+				throw new Error("Expected the two case menus");
 			const form = formNamed(reading.doc, "Under test");
 			expect(form.type).toBe("followup");
+			const selections = formCaseSelections(reading.doc, form.uuid);
+			expect(selections).toHaveLength(2);
+			const [household, member] = selections;
+			if (!household || !member)
+				throw new Error("Expected the two form selections");
+			expect(household).toMatchObject({
+				caseType: "household",
+				source: { kind: "choose", module: households.uuid },
+			});
+			expect(member).toMatchObject({
+				caseType: "member",
+				source: {
+					kind: "choose",
+					module: members.uuid,
+					under: { selection: household.uuid, identifier: "parent" },
+				},
+			});
 			const create = form.caseOperations?.find(
 				(operation) => operation.action === "create",
 			);
