@@ -220,6 +220,8 @@ export const PLATFORM_FEATURE_IDS = [
 	"datetime-question",
 	"answer-name-requires-android",
 	"web-apps-form-behavior",
+	"case-list-icon-actions",
+	"saved-form-descriptor",
 	"case-list-here",
 	"worker-distance",
 	"sort-by-distance",
@@ -309,6 +311,7 @@ export type PlatformFeatureId = (typeof PLATFORM_FEATURE_IDS)[number];
 export const REFUSABLE_PLATFORM_FEATURE_IDS = [
 	"datetime-question",
 	"answer-name-requires-android",
+	"case-list-icon-actions",
 	"case-list-here",
 	"worker-distance",
 	"sort-by-distance",
@@ -370,6 +373,28 @@ export const PLATFORM_FEATURES: Readonly<
 			reading: "ignored",
 			note: "the form opens and submits as any other form",
 		},
+	},
+	"case-list-icon-actions": {
+		label: "Submit from a case list icon",
+		channel: "structure",
+		webApps: { reading: "runs" },
+		android: { reading: "unavailable", note: "raw `jr://` path as text" },
+		refusal: {
+			what: "has an icon that submits a form",
+			why: "Android shows the image path as text and cannot run the action.",
+			alternative: "remove the action from the icon",
+			pickerLine:
+				"Available only in Web Apps. You can change where this app runs in App settings.",
+		},
+	},
+	"saved-form-descriptor": {
+		label: "Saved form label",
+		channel: "structure",
+		webApps: {
+			reading: "ignored",
+			note: "Web Apps does not use the saved form label.",
+		},
+		android: { reading: "runs" },
 	},
 	"case-list-here": {
 		label: "here() in a case list",

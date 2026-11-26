@@ -140,6 +140,8 @@ export interface ReadSaveToCaseBlock {
 	readonly setvalues: readonly SetvalueFacts[];
 	/** Its ancestors between its scope and itself, outermost first, each a `case-region` node. */
 	readonly wrappers: readonly DataNode[];
+	/** An ordinary root, group or repeat holds the block among its submitted fields. */
+	readonly authoredScopeLength?: number;
 	/** The refusal of the data tree that covers the block (two siblings of one name in it or
 	 *  at it), which has claimed it with its binds and setvalues: the case management stage
 	 *  reads nothing of it and refuses what stands around it for it alone under that refusal. */
@@ -274,6 +276,7 @@ export interface ReadXForm {
 	readonly caseRegion: readonly DataNode[];
 	/** Every Save to Case block of the form, in document order, wherever it stands. */
 	readonly saveToCaseBlocks: readonly ReadSaveToCaseBlock[];
+	attachCaseChange(node: DataNode, operationUuid: Uuid): void;
 	readonly connectBlocks: readonly ReadConnectBlock[];
 	readonly itext: ItextTable;
 	/** Each declared secondary instance id to its `src`. */
@@ -317,16 +320,23 @@ function saveToCaseBlocks(
 		.map((node) => {
 			const refusal = tree.refused.get(node);
 			let repeat: DraftField | null = null;
+			let authoredScopeLength = 0;
 			const wrappers: DataNode[] = [];
 			for (let at = node.parent; at !== null; at = at.parent) {
 				const role = roles.get(at);
 				if (role?.kind === "case-region") wrappers.unshift(at);
 				else if (role?.kind === "query-row") {
 					repeat = role.repeat;
+					authoredScopeLength = at.path.length;
 					break;
 				} else if (role?.kind === "field") {
-					if (role.field.kind === "repeat") repeat = role.field;
-					break;
+					if (role.field.kind === "repeat") {
+						repeat = role.field;
+						authoredScopeLength = at.path.length;
+						break;
+					}
+					if (role.field.kind !== "group" && role.field.kind !== "section")
+						break;
 				}
 			}
 			return {
@@ -340,6 +350,7 @@ function saveToCaseBlocks(
 					(one) => one.target !== undefined && under(node.path, one.target),
 				),
 				wrappers,
+				...(wrappers.length === 0 && { authoredScopeLength }),
 				...(refusal === undefined ? {} : { refusal }),
 			};
 		});
@@ -802,6 +813,7 @@ function readForm(
 		binds: binds.byNode,
 		setvalues,
 		childrenOf: joined.childrenOf,
+		attachCaseChange: joined.attachCaseChange,
 		candidates,
 		settle,
 		generated,

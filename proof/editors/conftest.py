@@ -75,6 +75,7 @@ DOCUMENTS = (
     "navigation-base",
     "targeted-worker-messages",
     "targeted-repeat-invitations",
+    "targeted-face-photo",
     "targeted-label-sort",
     "prompt-checkboxes",
     "targeted-named-answer-root",

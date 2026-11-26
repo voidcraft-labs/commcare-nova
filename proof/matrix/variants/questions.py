@@ -1949,9 +1949,14 @@ def save_to_case_link_long_name(authoring, app_id):
     _save_to_case_link(authoring, app_id, "save-to-case-link-long-name", "p" * 256)
 
 
+def save_to_case_hyphenated_link_name(authoring, app_id):
+    """The create keeps the exact spelling of its hyphenated connection."""
+    _save_to_case_link_with_guard(authoring, app_id, "save-to-case-hyphenated-link-name", "par-ent")
+
+
 def save_to_case_link_name_outside_grammar(authoring, app_id):
-    """A link of the created case by the name ``par-ent``, outside Nova's link names."""
-    _save_to_case_link(authoring, app_id, "save-to-case-link-name-outside-grammar", "par-ent")
+    """The bind path contains a period that Vellum does not parse as an index bind."""
+    _save_to_case_link(authoring, app_id, "save-to-case-link-name-outside-grammar", "par.ent")
 
 
 def _save_to_case_link(authoring, app_id, what, name, value="'abc'"):
@@ -3330,17 +3335,21 @@ def save_to_case_child_link(authoring, app_id):
     """The Save to Case create's ``household`` linked as a child (``index/parent``) to the ``household`` whose case
     id is the answer to ``full_name``, in the shape Nova writes a link: the index, its value, and the block that
     holds the linked case to its type."""
+    _save_to_case_link_with_guard(authoring, app_id, "save-to-case-child-link", "parent")
+
+
+def _save_to_case_link_with_guard(authoring, app_id, what, name):
     _save_to_case(
         authoring,
         app_id,
-        "save-to-case-child-link",
+        what,
         (
             STC_UPDATE + "</case></make_household>",
-            STC_UPDATE + '<index><parent case_type="household" relationship="child"/></index></case></make_household>',
+            STC_UPDATE + f'<index><{name} case_type="household" relationship="child"/></index></case></make_household>',
             1,
         ),
         ("</make_household>", "</make_household>" + TYPE_GUARD_DATA, 1),
-        (STC_HEAD_BIND, STC_HEAD_BIND + f'<bind nodeset="{MAKE}/index/parent" calculate="{PARENT_HOUSEHOLD}"/>', 1),
+        (STC_HEAD_BIND, STC_HEAD_BIND + f'<bind nodeset="{MAKE}/index/{name}" calculate="{PARENT_HOUSEHOLD}"/>', 1),
         (
             f'<bind nodeset="{GUARD}/update/case_type"',
             TYPE_GUARD_BINDS + f'<bind nodeset="{GUARD}/update/case_type"',

@@ -352,6 +352,9 @@ const english = {
 	// Android's barcode question.
 	scanBarcode: "Scan",
 	// Android's capture widgets (`R.string.capture_image` and its siblings).
+	switchCamera: "Switch camera",
+	facePhotoGuide:
+		"Center the face in the guide and keep still, or take the picture when you are ready.",
 	photoFrameGuide:
 		"Line up the subject inside the rectangle. The photo includes the whole frame.",
 	cameraUnavailable:
@@ -725,6 +728,9 @@ const spanish: Record<RuntimeMessage, string> = {
 	altitudeLine: "Altitud: {m}m",
 	accuracyLine: "Precisión: {m}m",
 	scanBarcode: "Escanear",
+	switchCamera: "Cambiar de cámara",
+	facePhotoGuide:
+		"Centra el rostro en la guía y quédate quieto, o toma la foto cuando estés listo.",
 	photoFrameGuide:
 		"Coloque el motivo dentro del rectángulo. La foto incluye todo el encuadre.",
 	cameraUnavailable:

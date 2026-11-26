@@ -606,14 +606,19 @@ describe("case-operation identifier vocabulary", () => {
 			expect(caseOperationWritePropertyVerdict(candidate, new Set())).toEqual({
 				ok: true,
 			});
-		for (const candidate of ["parent-link", "parent.link", " parent_link"]) {
+		expect(
+			caseOperationLinkIdentifierVerdict("parent-link", new Set()),
+		).toEqual({
+			ok: true,
+		});
+		for (const candidate of ["parent.link", " parent_link"]) {
 			expect(
 				caseOperationLinkIdentifierVerdict(candidate, new Set()),
 			).toMatchObject({
 				ok: false,
 				code: "illegal_format",
 				userMessage:
-					"Start with a letter or underscore; use only letters, digits, or underscores.",
+					"Start with a letter or underscore. Use only letters, digits, underscores, or hyphens.",
 			});
 		}
 	});

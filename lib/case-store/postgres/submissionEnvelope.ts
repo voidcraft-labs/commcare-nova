@@ -190,9 +190,8 @@ interface ProgramStep extends Omit<EnvelopeCaseOperation, "operation"> {
 	/** The step is the form's own case. */
 	readonly own: boolean;
 	/**
-	 * The own arm closes its case after its writes: on a registration when
-	 * the form has a close condition, on a close form always. `condition`
-	 * absent closes on every submission.
+	 * A close leaf runs after the block's writes. If its independent
+	 * condition is absent it closes every time the block runs.
 	 */
 	readonly closeLeaf?: { readonly condition?: DomainExpression };
 	/**
@@ -1667,7 +1666,6 @@ async function resolveOperationProgram(
 		const childlessClose =
 			operation.action === "close" &&
 			!closes &&
-			operation.emptyUpdate !== true &&
 			(operation.writes?.length ?? 0) === 0;
 		const resolveTargetId = (): {
 			caseId: string;
@@ -1864,9 +1862,7 @@ async function resolveOperationProgram(
 			openingCaseIds &&
 			operation.action !== "create" &&
 			operation.target.kind === "expression" &&
-			(operation.emptyUpdate ||
-				operation.closeCondition ||
-				operation.closeAfter) &&
+			(operation.closeCondition || operation.closeAfter) &&
 			!openingCaseIds.has(target.caseId)
 		) {
 			throw new SubmissionRejectedError({
@@ -2533,7 +2529,6 @@ async function applyOperationEffects(
 			(operation.retype === undefined ||
 				operation.retype === operation.caseType);
 		if (
-			operation.emptyUpdate ||
 			(entry.closes && (operation.closeAfter || operation.closeCondition)) ||
 			(operation.action === "update" &&
 				writesNothing &&

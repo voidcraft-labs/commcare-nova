@@ -79,7 +79,7 @@ function defaultSelectOptions() {
  * no label slot ignore it.
  */
 export const NEW_FIELD_BUILDERS: {
-	[K in FieldKind]: (
+	[K in Exclude<FieldKind, "case_change">]: (
 		id: string,
 		label: string,
 	) => Omit<Extract<Field, { kind: K }>, "uuid">;

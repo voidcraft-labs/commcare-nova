@@ -989,7 +989,7 @@ Reference-capable label/hint text is a typed `ProseTemplate`; only explicit atom
 
 ### Form behavior pragmas
 
-A form behavior (`Form.automaticSubmissionText`, `skipAutomaticSyncText`, `validateChangedAnswersText`) is written as its carrier text under the pragma id (`xform/itextIds.ts::behaviorWireIds`: `Pragma-Submit-Automatically`, `Pragma-Suppress-Autosync`, `Pragma-Skip-Full-Form-Validation`), once per language, with every sharing slot's control reading that id (`fieldTextIds`, `builder.ts::addItext`). Formplayer reads each by presence (`FormSession.setAutoSubmitFlag` and its siblings). HQ's build merges itext groups equal in every language and form under the lexically first id (`xform.py::normalize_itext`), so `behaviorTexts.ts::formBehaviorTextIssue` refuses a setting an earlier equal text would absorb (`FORM_BEHAVIOR_TEXT_INVALID`, its sentence in `behaviorTextCopy.ts`). The reader takes a pragma HQ keeps (`reader/xform/itext.ts::pragmaClaim`, `X.pragmaPresence`) as the form's behavior, the first referencing slot its carrier. The activity notice uses the same binding for `Pragma-Volatility-Key`, `Pragma-Volatility-Entity-Title` and `Pragma-Volatility-Window` (`X.pragmaActivity`). Formplayer fills their localized prose against the initialized form root. A title or window without a referenced key that survives HQ’s build is inert. The saved-form descriptor stays refused.
+A form behavior (`Form.automaticSubmissionText`, `skipAutomaticSyncText`, `validateChangedAnswersText`) is written as its carrier text under the pragma id (`xform/itextIds.ts::behaviorWireIds`: `Pragma-Submit-Automatically`, `Pragma-Suppress-Autosync`, `Pragma-Skip-Full-Form-Validation`), once per language, with every sharing slot's control reading that id (`fieldTextIds`, `builder.ts::addItext`). Formplayer reads each by presence (`FormSession.setAutoSubmitFlag` and its siblings). HQ's build merges itext groups equal in every language and form under the lexically first id (`xform.py::normalize_itext`), so `behaviorTexts.ts::formBehaviorTextIssue` refuses a setting an earlier equal text would absorb (`FORM_BEHAVIOR_TEXT_INVALID`, its sentence in `behaviorTextCopy.ts`). The reader takes a pragma HQ keeps (`reader/xform/itext.ts::pragmaClaim`, `X.pragmaPresence`) as the form's behavior, the first referencing slot its carrier. The activity notice uses the same binding for `Pragma-Volatility-Key`, `Pragma-Volatility-Entity-Title` and `Pragma-Volatility-Window` (`X.pragmaActivity`). Formplayer fills their localized prose against the initialized form root. A title or window without a referenced key that survives HQ’s build is inert. The saved-form descriptor uses the same identity and collision rules under `Pragma-Form-Descriptor` (`X.pragmaFormDescriptor`) and runs on Android save.
 
 ### Markdown itext
 
@@ -2642,17 +2642,18 @@ group's first case and passes it for every body icon (`menus/views.js::iconClick
 nothing, so an app that runs on Android holds none. HQ's Case List editor offers
 only forms whose XForm makes `Pragma-Submit-Automatically` a question's label
 (`views/modules.py::_form_endpoint_options`, `Form.is_auto_submitting_form`);
-that answer comes from `lib/domain/automaticSubmission.ts`, and while Nova has no
-automatic submission no form qualifies and the gate refuses every icon action
-(`CASE_LIST_ICON_ACTION_INVALID`, an app rule, since an edit to another menu's
-form can strand it). The HQ JSON writes the short detail's column as
+`xform/behaviorTexts.ts` checks that exact text role, and
+`CASE_LIST_ICON_ACTION_INVALID` rechecks it when another menu's form changes.
+Preview submits a tapped action through the same authorized form opening and
+submission used by the form itself, then returns to the current Results. The HQ JSON writes the short detail's column as
 `clickable-icon` with the destination's current `endpoint_action_id`; the suite
 writes `template form="clickable-icon"` and `<endpoint_action endpoint_id=…
 background="true"/>` after the template (`xml_models.py::Field.ORDER`), and in a
 named tile after the cell's template as `icon_text_grid.xml` does. The case
 detail keeps the image. The project space needs `CASE_LIST_CLICKABLE_ICON`
-beside the deep links' `SESSION_ENDPOINTS`. The reader still refuses an HQ
-clickable icon as HELD-NEW (`menus-and-case-lists/16-clickable-icon-…`).
+beside the deep links' `SESSION_ENDPOINTS`. The reader keeps an actionable icon
+on Results and checks its destination once the form and selection arguments
+have been resolved.
 
 ### Manual links into Search
 

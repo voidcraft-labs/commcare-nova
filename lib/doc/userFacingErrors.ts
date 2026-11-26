@@ -765,6 +765,11 @@ const PLATFORM_BUILDER_COPY = {
 		sentence:
 			"Connect workers open this app only in the Connect app on Android. You can set the app to run only on Android in App settings, or turn off Connect.",
 	},
+	"case-list-icon-actions": {
+		lead: (subject) =>
+			`${subject} has an icon that submits a form. Android shows the image path as text and cannot run the action.`,
+		alternative: "remove the action from the icon",
+	},
 	"case-list-search-text": {
 		lead: (subject) =>
 			`${subject} reads the case list's search text, which Web Apps doesn't keep.`,
@@ -1137,9 +1142,7 @@ const USER_MESSAGE_BY_CODE: Record<
 	CASE_LIST_ICON_ACTION_INVALID: (e) => {
 		const reason = e.details?.reason;
 		return listIconActionSentence(
-			reason === "android" ||
-				reason === "not-on-results" ||
-				reason === "grouped-body"
+			reason === "not-on-results" || reason === "grouped-body"
 				? reason
 				: "no-destination",
 			e.details?.columnLabel,
@@ -2057,6 +2060,8 @@ const USER_MESSAGE_BY_CODE: Record<
 		"A case operation refers to a case that isn't created yet. Move the create operation before this one.",
 	CASE_OPERATION_EXECUTION_ORDER: () =>
 		"These case operations use an order the running form can't preserve. Put authored-ID creates before updates and closes, and keep each repeating section's operations together in form order.",
+	CASE_OPERATION_CLOSE_CONDITION_INVALID: (e) => e.message,
+	CASE_CHANGE_POSITION_INVALID: (e) => e.message,
 	CASE_OPERATION_REPEAT_INVALID: () =>
 		"A case operation points to a repeating section that isn't available. Choose a repeat in this form.",
 	CASE_OPERATION_REPEAT_CORRELATION: () =>

@@ -1209,7 +1209,10 @@ function heldToken(
 		case "trigger":
 			return value === kindAppearanceToken("label");
 		case "image":
-			return value === kindAppearanceToken("signature");
+			return (
+				value === kindAppearanceToken("signature") ||
+				value === FIELD_DISPLAY_SETTING_TOKENS.captureSource["face-camera"]
+			);
 		case "group":
 			return isFieldListAppearance(value);
 		case "text":

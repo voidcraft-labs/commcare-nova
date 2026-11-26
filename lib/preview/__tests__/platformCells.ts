@@ -124,6 +124,7 @@ export const PLATFORM_CELLS: Readonly<
 	"questions/time-12-hour@android": stated("twelve-hour-clock"),
 	"questions/geopoint-maps@web-apps": stated("android-map"),
 	"questions/barcode-editable@web-apps": stated("edit-scan"),
+	"questions/face-capture-image-face@web-apps": browser("face-photo-web-apps"),
 	"questions/image-acquire@web-apps": browser("visit-display-web-apps"),
 	"questions/image-overlay-small@web-apps": stated("photo-overlay"),
 	"questions/audio-legacy@web-apps": stated("classic-recorder"),
@@ -212,6 +213,8 @@ export const PLATFORM_CELLS: Readonly<
 	"questions/submitted-answer-name-only-android-stores@web-apps": structural(
 		"answer-name-requires-android",
 	),
+	"menus-and-case-lists/16-clickable-icon-endpoint-action-id-on-the-case-list@android":
+		structural("case-list-icon-actions"),
 
 	// ── Refused, expression ────────────────────────────────────────────
 	"expressions-and-data/here-in-a-case-list-calculated-column-or-sort@web-apps":
@@ -236,6 +239,8 @@ export const PLATFORM_CELLS: Readonly<
 	// open nor rechecks only changed answers there.
 	"questions/a-question-text-whose-itext-id-is-a-web-apps-presence-pragma@android":
 		model("presence-pragmas-on-web-apps-only"),
+	"questions/a-question-text-whose-itext-id-is-pragma-form-descriptor-where@web-apps":
+		stated("saved-form-descriptor"),
 	"questions/hidden-value-with-both-calculate-and-a-default-by-any-expression@web-apps":
 		model("row-starting-value"),
 	"expressions-and-data/random@web-apps": model("recalculation-every-request"),

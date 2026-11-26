@@ -23,6 +23,7 @@ import { attributeDisplayCondition } from "./documents/attributeDisplayCondition
 import { blankLabels } from "./documents/blankLabels";
 import { captureWidgets } from "./documents/captureWidgets";
 import { attributeColumns, caseIdColumn } from "./documents/caseIdColumn";
+import { caseListIconAction } from "./documents/caseListIconAction";
 import { caseListMenuItem } from "./documents/caseListMenuItems";
 import { caseListSearchTextDocument } from "./documents/caseListSearchText";
 import { caseMap } from "./documents/caseMap";
@@ -57,6 +58,7 @@ import {
 	expressionPropertyRenames,
 	expressionRenames,
 } from "./documents/expressionRenames";
+import { facePhoto } from "./documents/facePhoto";
 import { formLinkCarriedCase } from "./documents/formLinkCarriedCase";
 import { formLinkChain } from "./documents/formLinkChain";
 import { formLinkHiddenTarget } from "./documents/formLinkHiddenTarget";
@@ -153,6 +155,7 @@ import {
 	repeatCountWhole,
 } from "./documents/repeats";
 import { sameTypeChild } from "./documents/sameTypeChild";
+import { savedFormDescriptor } from "./documents/savedFormDescriptor";
 import { saveToCaseRead } from "./documents/saveToCaseRead";
 import { saveToCaseShapes } from "./documents/saveToCaseShapes";
 import {
@@ -204,6 +207,7 @@ import { workerRecordColumns } from "./documents/workerRecordColumns";
 export const TARGETED_DOCUMENTS: readonly (() => CorpusDocument)[] = [
 	receivingAnswersOnBoth,
 	receivingAnswersOnAndroid,
+	facePhoto,
 	lookupReservedTags,
 	searchHqCompile,
 	validatedBarcodeSecret,
@@ -211,6 +215,7 @@ export const TARGETED_DOCUMENTS: readonly (() => CorpusDocument)[] = [
 	webFormActivity,
 	labelSort,
 	customTile,
+	caseListIconAction,
 	closeConditions,
 	closeConditionUnparsable,
 	multiSelectDestinations,
@@ -333,6 +338,7 @@ export const TARGETED_DOCUMENTS: readonly (() => CorpusDocument)[] = [
 	connectLearnHyphenIds,
 	numberKeypad,
 	questionCalendar,
+	savedFormDescriptor,
 	detailOnlyColumn,
 	relatedColumns,
 	workerRecordColumns,

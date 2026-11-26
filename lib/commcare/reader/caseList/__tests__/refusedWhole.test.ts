@@ -87,7 +87,7 @@ describe("a refused column", () => {
 				endpoint_action_id: "open_visit",
 			},
 			"short",
-			`${M}16-clickable-icon-endpoint-action-id-on-the-case-list`,
+			`${M}clickable-icon-with-an-unusable-form-endpoint`,
 		],
 		[
 			"a clickable icon on the list with no entry point, with its mapping",

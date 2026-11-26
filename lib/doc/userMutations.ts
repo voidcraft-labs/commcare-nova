@@ -366,6 +366,7 @@ function describeUserPropertyReference(
 			deliver_entity_name: "delivery entity name",
 			case_operation_target_expression: "case target calculation",
 			case_operation_condition: "case operation condition",
+			case_operation_close_condition: "case closing condition",
 			case_operation_name: "case name calculation",
 			case_operation_owner: "case owner calculation",
 			case_operation_write_value: "case property calculation",

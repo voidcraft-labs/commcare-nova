@@ -1,3 +1,4 @@
+import type { Uuid } from "@/lib/domain";
 import { CONNECT_XMLNS } from "../../xform/connectActivity";
 /**
  * The join of a form's model and body, as HQ's form builder makes it
@@ -181,6 +182,7 @@ export interface JoinedForm {
 	 *  the Hidden Value it is, with the claims any Hidden Value takes. */
 	settleField(node: DataNode): DraftField;
 	attachActivity(node: DataNode, activity: Record<string, unknown>): DraftField;
+	attachCaseChange(node: DataNode, operationUuid: Uuid): void;
 }
 
 /**
@@ -1379,6 +1381,14 @@ export function joinForm(input: JoinInput): JoinedForm {
 			);
 			ordered = undefined;
 			return field;
+		},
+		attachCaseChange(node, operationUuid) {
+			const region = roles.get(node);
+			make(node, dataParent(node), undefined, "case_change", false, {
+				operationUuid,
+			});
+			if (region !== undefined) roles.set(node, region);
+			ordered = undefined;
 		},
 		settleField(node) {
 			const field = readQuestion(node, undefined, dataParent(node));

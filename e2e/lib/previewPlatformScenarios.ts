@@ -16,6 +16,7 @@
 import type { Platform } from "@/lib/domain/platforms";
 
 export type PreviewPlatformFixture =
+	| "face-photo"
 	| "question-display"
 	| "questions"
 	| "sections"
@@ -32,6 +33,18 @@ export interface PreviewPlatformScenario {
 }
 
 export const PREVIEW_PLATFORM_SCENARIOS = {
+	"face-photo-android": {
+		platform: "android",
+		fixture: "face-photo",
+		describe:
+			"the worker switches and closes a face camera, then saves its cropped photograph",
+	},
+	"face-photo-web-apps": {
+		platform: "web-apps",
+		fixture: "face-photo",
+		describe:
+			"the worker attaches the unchanged picture to the same face question",
+	},
 	"visit-display-web-apps": {
 		platform: "web-apps",
 		fixture: "question-display",

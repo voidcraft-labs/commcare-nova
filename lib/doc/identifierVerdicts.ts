@@ -39,10 +39,12 @@ import {
 	authoredCasePropertyNameSchema,
 	type BlueprintDoc,
 	CASE_OPERATION_IDENTIFIER_FORMAT_MESSAGE,
+	CASE_OPERATION_LINK_IDENTIFIER_FORMAT_MESSAGE,
 	CASE_OPERATION_PROPERTY_FORMAT_MESSAGE,
 	FORBIDDEN_CASE_OPERATION_WRITE_PROPERTIES,
 	type FreeNameOffer,
 	isCaseOperationIdentifier,
+	isCaseOperationLinkIdentifier,
 	isCaseOperationProperty,
 	isReservedCaseOperationWrite,
 	type Uuid,
@@ -605,11 +607,11 @@ export function caseOperationLinkIdentifierVerdict(
 	if (trimmed.length === 0) {
 		return { ok: false, code: "empty", userMessage: "Name this connection." };
 	}
-	if (identifier !== trimmed || !isCaseOperationIdentifier(trimmed)) {
+	if (identifier !== trimmed || !isCaseOperationLinkIdentifier(trimmed)) {
 		return {
 			ok: false,
 			code: "illegal_format",
-			userMessage: CASE_OPERATION_IDENTIFIER_FORMAT_MESSAGE,
+			userMessage: CASE_OPERATION_LINK_IDENTIFIER_FORMAT_MESSAGE,
 		};
 	}
 	if (trimmed.length > MAX_CASE_INDEX_IDENTIFIER_LENGTH) {

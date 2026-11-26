@@ -1183,7 +1183,7 @@ describe("ordered selected-case batches", () => {
 		}
 	});
 
-	it("separates a childless close's server history from an empty update and an absent block", async () => {
+	it("separates a childless close's server history from an active close and an absent block", async () => {
 		const store = makeStore();
 		await seedSessionPatient(store);
 		const older = new Date("2025-01-01T00:00:00Z");
@@ -1255,23 +1255,27 @@ describe("ordered selected-case batches", () => {
 		);
 		expect(await store.applySubmission(childlessClaim)).toEqual(childless);
 
-		const emptyRequest = request({ ...close, emptyUpdate: true }, opening);
-		const emptyClaim = {
-			...emptyRequest,
-			submissionReceipt: receiptFor(emptyRequest),
+		const activeRequest = request(
+			{ ...close, closeCondition: predicate(true) },
+			opening,
+		);
+		const activeClaim = {
+			...activeRequest,
+			submissionReceipt: receiptFor(activeRequest),
 		};
-		await expect(store.applySubmission(emptyClaim)).rejects.toMatchObject({
+		await expect(store.applySubmission(activeClaim)).rejects.toMatchObject({
 			rejection: { kind: "target", reason: "not-found-or-out-of-scope" },
 		});
 		expect((await patientRow(store, SESSION_CASE_ID))?.modified_on).toEqual(
 			afterChildless?.modified_on,
 		);
-		if (!emptyClaim.operations || !afterChildless)
+		if (!activeClaim.operations || !afterChildless)
 			throw new Error("Expected case and program");
+		// Retry the same claim with the signed device row restored.
 		const recovered = await store.applySubmission({
-			...emptyClaim,
+			...activeClaim,
 			operations: {
-				...emptyClaim.operations,
+				...activeClaim.operations,
 				openingReads: {
 					...opening,
 					cases: { ...opening.cases, rows: [afterChildless] },
@@ -1282,6 +1286,7 @@ describe("ordered selected-case batches", () => {
 			expect.objectContaining({ caseId: SESSION_CASE_ID, executed: true }),
 		]);
 		expect(recovered.operations[0]).not.toHaveProperty("childlessBlock");
+		expect(recovered.caseDatabasePatch?.rows[0]?.status).toBe("closed");
 		expect(
 			recovered.caseDatabasePatch?.rows[0]?.modified_on.getTime(),
 		).toBeGreaterThan(afterChildless.modified_on.getTime());

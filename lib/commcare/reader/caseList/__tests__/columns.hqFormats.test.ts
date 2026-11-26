@@ -909,7 +909,7 @@ describe("clickable icons", () => {
 			["short"],
 		);
 		expect(codes(reading)).toContain(
-			`${M}16-clickable-icon-endpoint-action-id-on-the-case-list`,
+			`${M}clickable-icon-with-an-unusable-form-endpoint`,
 		);
 	});
 

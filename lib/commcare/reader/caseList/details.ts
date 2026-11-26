@@ -527,7 +527,9 @@ export interface JoinedDetails {
 function sameProposal(a: ColumnProposal, b: ColumnProposal): boolean {
 	const slots = (proposal: ColumnProposal) =>
 		recordFromEntries(
-			Object.entries(proposal.column).filter(([key]) => key !== "header"),
+			Object.entries(proposal.column).filter(
+				([key]) => key !== "header" && key !== "entryPointUuid",
+			),
 		);
 	const restA = slots(a);
 	const restB = slots(b);

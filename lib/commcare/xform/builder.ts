@@ -1208,6 +1208,12 @@ function buildFieldParts(
 		);
 	}
 	const nodePath = parentPath.child(field.id);
+	if (field.kind === "case_change") {
+		// The case-operation emitter fills this node in-place after the
+		// submitted tree has been built.
+		dataElements.push(el(field.id, {}));
+		return;
+	}
 	if (field.kind === "connect_activity") {
 		buildActivityParts(
 			field,

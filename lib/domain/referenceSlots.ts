@@ -269,6 +269,13 @@ const LABEL_TEXT_KINDS = INPUT_KINDS;
 // ── Field slots ───────────────────────────────────────────────────
 
 export const FIELD_REFERENCE_SLOTS = [
+	{
+		entity: "field",
+		slot: "case_change_operation",
+		path: "operationUuid",
+		kind: "entity-uuid",
+		appliesTo: ["case_change"],
+	},
 	// Entry order is observable: consumers that walk a field's slots in
 	// registry order (the rename rewriters, the deep validator's scan —
 	// whose error order user-facing surfaces preserve) see slots in this
@@ -435,6 +442,7 @@ const FORM_BEHAVIOR_SLOT_NAMES = {
 	activityKeyText: "activity_key_text",
 	activityTitleText: "activity_title_text",
 	activityWindowText: "activity_window_text",
+	savedFormDescriptorText: "saved_form_descriptor_text",
 } as const satisfies Record<FormBehaviorRole, string>;
 
 export const FORM_REFERENCE_SLOTS = [
@@ -607,6 +615,13 @@ export const FORM_REFERENCE_SLOTS = [
 		entity: "form",
 		slot: "case_operation_condition",
 		path: "caseOperations[].condition",
+		kind: "expression",
+		formTypes: FORM_TYPES,
+	},
+	{
+		entity: "form",
+		slot: "case_operation_close_condition",
+		path: "caseOperations[].closeCondition",
 		kind: "expression",
 		formTypes: FORM_TYPES,
 	},
@@ -1369,6 +1384,7 @@ function expressionRefForEntry(
 		}
 		case "case_operation_target_expression":
 		case "case_operation_condition":
+		case "case_operation_close_condition":
 		case "case_operation_name":
 		case "case_operation_owner":
 		case "case_operation_rename": {
@@ -2168,6 +2184,7 @@ export const NON_REFERENCE_FORM_PATHS: Readonly<
 	"caseOperations[].uuid": "identity",
 	"caseOperations[].id": "declaration",
 	"caseOperations[].action": "discriminator",
+	"caseOperations[].closeAfter": "config",
 	"caseOperations[].target.kind": "discriminator",
 	"caseOperations[].links[].identifier": "wire-token",
 	"caseOperations[].links[].target.kind": "discriminator",

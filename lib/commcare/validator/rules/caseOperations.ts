@@ -17,6 +17,7 @@ import {
 	findOnDeviceDateAddIssue,
 	type OnDeviceDateAddIssue,
 } from "@/lib/commcare/validator/onDeviceCompatibility";
+import { collectFieldLocations } from "@/lib/commcare/xform/caseOps";
 import { formNodeProjection } from "@/lib/commcare/xpath/formNodeProjection";
 import { w } from "@/lib/commcare/xpath/wire/builders";
 import { toWire } from "@/lib/commcare/xpath/wire/fromExpression";
@@ -31,6 +32,7 @@ import {
 	CASE_FACET_OF_ONLY_IF_CHANGED,
 	CASE_LOADING_FORM_TYPES,
 	CASE_OPERATION_IDENTIFIER_FORMAT_MESSAGE,
+	CASE_OPERATION_LINK_IDENTIFIER_FORMAT_MESSAGE,
 	CASE_OPERATION_PROPERTY_FORMAT_MESSAGE,
 	type CaseFacetOnlyIfChanged,
 	type CaseOperation,
@@ -45,6 +47,7 @@ import {
 	formFieldCanKeyCreate,
 	formFieldCorrelatesWithCreate,
 	isCaseOperationIdentifier,
+	isCaseOperationLinkIdentifier,
 	isCaseOperationProperty,
 	isFacetWriteThroughIndex,
 	isReservedCaseOperationWrite,
@@ -53,6 +56,7 @@ import {
 	type Module,
 	operationCanReadFormField,
 	operationCaseType,
+	operationSavesOnlyChanged,
 	operationTarget,
 	orderedCaseOperations,
 	placementIneligibilitySentence,
@@ -66,6 +70,7 @@ import {
 	userPropertiesOf,
 } from "@/lib/domain";
 import { entryOperationCaseType } from "@/lib/domain/advancedEntryDatums";
+import { isWorkerRecordUpdate } from "@/lib/domain/basicCaseSlots";
 import { caseWriteValueField } from "@/lib/domain/caseWriteViews";
 import {
 	activeRowScope,
@@ -285,6 +290,42 @@ export function validateCaseOperations(
 		moduleName: module.name,
 		caseType: module.caseType,
 	});
+	const positions = new Set<Uuid>();
+	const byUuid = new Map(
+		operations.map((operation) => [operation.uuid, operation]),
+	);
+	for (const [uuid, location] of collectFieldLocations(doc, formUuid)) {
+		const field = doc.fields[uuid];
+		if (field.kind !== "case_change") continue;
+		const operation = byUuid.get(field.operationUuid);
+		const invalid =
+			operation === undefined
+				? "Choose a case change from this form."
+				: positions.has(field.operationUuid)
+					? "Keep just one position for this case change."
+					: operation.forEach?.repeat !== location.repeat
+						? "Place this case change in the section it repeats over."
+						: operation.action === "own" ||
+								operation.action === "create" ||
+								operation.condition !== undefined ||
+								isWorkerRecordUpdate(operation) ||
+								operationSavesOnlyChanged(operation) ||
+								operation.writes?.some((write) => write.via !== undefined)
+							? "Choose a direct update or close for this position."
+							: undefined;
+		positions.add(field.operationUuid);
+		if (invalid !== undefined)
+			ownFindings.push(
+				validationError("CASE_CHANGE_POSITION_INVALID", "field", invalid, {
+					moduleUuid,
+					moduleName: module.name,
+					formUuid,
+					formName: form.name,
+					fieldUuid: uuid,
+					fieldId: field.id,
+				}),
+			);
+	}
 	if (operations.length === 0) return ownFindings;
 
 	const ctx = operationRuleContext(
@@ -547,6 +588,24 @@ function validateOperation(
 		operationSlot(ctx, operation, "case_operation_condition"),
 		errors,
 	);
+	if (operation.closeCondition !== undefined) {
+		if (operation.action !== "close" && operation.closeAfter !== true)
+			errors.push(
+				opError(
+					ctx,
+					operation,
+					"CASE_OPERATION_CLOSE_CONDITION_INVALID",
+					"Choose to close the case before setting when it closes.",
+				),
+			);
+		validatePredicateSlot(
+			ctx,
+			operation,
+			operation.closeCondition,
+			operationSlot(ctx, operation, "case_operation_close_condition"),
+			errors,
+		);
+	}
 	validateNameExpression(ctx, operation, operation.name, "create name", errors);
 	validateTextExpression(
 		ctx,
@@ -587,7 +646,7 @@ function validateLinks(
 		(operation.links ?? []).map((link) => link.identifier),
 	);
 	for (const link of operation.links ?? []) {
-		const invalidLinkFormat = !isCaseOperationIdentifier(link.identifier);
+		const invalidLinkFormat = !isCaseOperationLinkIdentifier(link.identifier);
 		const linkTooLong =
 			link.identifier.length > MAX_CASE_INDEX_IDENTIFIER_LENGTH;
 		const duplicateLink = linkIds.has(link.identifier);
@@ -598,7 +657,7 @@ function validateLinks(
 					operation,
 					"CASE_OPERATION_LINK_INVALID",
 					invalidLinkFormat
-						? `Link identifier "${link.identifier}" is invalid. ${CASE_OPERATION_IDENTIFIER_FORMAT_MESSAGE}`
+						? `Link identifier "${link.identifier}" is invalid. ${CASE_OPERATION_LINK_IDENTIFIER_FORMAT_MESSAGE}`
 						: linkTooLong
 							? `Link identifier "${link.identifier}" is longer than ${MAX_CASE_INDEX_IDENTIFIER_LENGTH} characters.`
 							: `Link identifier "${link.identifier}" is used more than once by this operation.`,
@@ -1577,6 +1636,7 @@ function validateTarget(
 type OperationScalarSlot =
 	| "case_operation_target_expression"
 	| "case_operation_condition"
+	| "case_operation_close_condition"
 	| "case_operation_name"
 	| "case_operation_owner"
 	| "case_operation_rename";

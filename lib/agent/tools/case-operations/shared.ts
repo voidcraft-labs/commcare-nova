@@ -12,6 +12,8 @@ import {
 	type BlueprintDoc,
 	CASE_OPERATION_IDENTIFIER_FORMAT_MESSAGE,
 	CASE_OPERATION_IDENTIFIER_REGEX,
+	CASE_OPERATION_LINK_IDENTIFIER_FORMAT_MESSAGE,
+	CASE_OPERATION_LINK_IDENTIFIER_REGEX,
 	CASE_OPERATION_PROPERTY_FORMAT_MESSAGE,
 	CASE_OPERATION_PROPERTY_REGEX,
 	type CaseOperation,
@@ -113,8 +115,8 @@ const propertyInputSchema = z
 const linkIdInputSchema = z
 	.string()
 	.regex(
-		CASE_OPERATION_IDENTIFIER_REGEX,
-		CASE_OPERATION_IDENTIFIER_FORMAT_MESSAGE,
+		CASE_OPERATION_LINK_IDENTIFIER_REGEX,
+		CASE_OPERATION_LINK_IDENTIFIER_FORMAT_MESSAGE,
 	)
 	.max(255)
 	.superRefine((value, ctx) => {
@@ -329,9 +331,18 @@ const createOperationInputSchema = z
 	.strictObject({
 		id: operationIdInputSchema,
 		action: z.literal("create"),
+		closeAfter: z
+			.literal(true)
+			.optional()
+			.describe("Close the same case in this change."),
 		caseType: caseTypeInputSchema,
 		target: newTargetInputSchema,
 		condition: conditionSchema.optional(),
+		closeCondition: conditionSchema
+			.optional()
+			.describe(
+				"Condition for closing the case. The other effects of this change still run.",
+			),
 		forEach: z
 			.strictObject({ repeat: uuidSchema })
 			.optional()
@@ -351,9 +362,18 @@ const updateOperationInputSchema = z
 	.strictObject({
 		id: operationIdInputSchema,
 		action: z.literal("update"),
+		closeAfter: z
+			.literal(true)
+			.optional()
+			.describe("Close the same case in this change."),
 		caseType: updateCaseTypeInputSchema,
 		target: updateTargetInputSchema,
 		condition: conditionSchema.optional(),
+		closeCondition: conditionSchema
+			.optional()
+			.describe(
+				"Condition for closing the case. The other effects of this change still run.",
+			),
 		forEach: z
 			.strictObject({ repeat: uuidSchema })
 			.optional()
@@ -378,6 +398,11 @@ const closeOperationInputSchema = z
 		caseType: caseTypeInputSchema,
 		target: existingTargetInputSchema,
 		condition: conditionSchema.optional(),
+		closeCondition: conditionSchema
+			.optional()
+			.describe(
+				"Condition for closing the case. The other effects of this change still run.",
+			),
 		forEach: z
 			.strictObject({ repeat: uuidSchema })
 			.optional()
@@ -486,6 +511,9 @@ export function resolveCaseOperationInput(
 		id: input.id,
 		caseType: input.caseType,
 		...(input.condition !== undefined && { condition: input.condition }),
+		...(input.closeCondition !== undefined && {
+			closeCondition: input.closeCondition,
+		}),
 		...(input.forEach !== undefined && { forEach: input.forEach }),
 		...(input.writes !== undefined && { writes: input.writes }),
 	};
@@ -494,6 +522,7 @@ export function resolveCaseOperationInput(
 			return caseOperationSchema.parse({
 				...common,
 				action: "create",
+				...(input.closeAfter === true && { closeAfter: true }),
 				target: input.target,
 				name: input.name,
 				...(input.owner !== undefined && { owner: input.owner }),
@@ -506,6 +535,7 @@ export function resolveCaseOperationInput(
 			return caseOperationSchema.parse({
 				...common,
 				action: "update",
+				...(input.closeAfter === true && { closeAfter: true }),
 				target: input.target,
 				...(input.owner !== undefined && { owner: input.owner }),
 				...(input.ownerOnlyIfChanged !== undefined && {

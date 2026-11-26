@@ -50,6 +50,7 @@ export const formBehaviorRoleNames = {
 	activityKeyText: "Activity notice key",
 	activityTitleText: "Activity notice record title",
 	activityWindowText: "Activity notice window",
+	savedFormDescriptorText: "Saved form label",
 } as const;
 export type FormBehaviorRole = keyof typeof formBehaviorRoleNames;
 export type FormBehaviorTexts = Partial<Record<FormBehaviorRole, BehaviorText>>;
@@ -543,10 +544,8 @@ const caseOperationCommonShape = {
 	id: z.string(),
 	caseType: z.string(),
 	condition: conditionSchema.optional(),
-	/** The close leaf's relevance, separate from the block. */
+	/** The close leaf is conditional independently of the block. */
 	closeCondition: conditionSchema.optional(),
-	/** A physical update element even when it carries no property leaves. */
-	emptyUpdate: z.literal(true).optional(),
 	forEach: z.strictObject({ repeat: uuidSchema }).optional(),
 	writes: z.array(caseOperationWriteSchema).optional(),
 	placement: casePlacementSchema.optional(),
@@ -564,9 +563,6 @@ export const ownCaseOperationSchema = z.strictObject({
 	uuid: uuidSchema,
 	id: z.string(),
 	action: z.literal("own"),
-	closeCondition: z.never().optional(),
-	closeAfter: z.never().optional(),
-	emptyUpdate: z.never().optional(),
 	/** Registration: the new case's name. Follow-up and close: a rename of
 	 *  the case the form loaded. */
 	name: valueSchema.optional(),
@@ -583,6 +579,8 @@ export const ownCaseOperationSchema = z.strictObject({
 	caseType: z.never().optional(),
 	target: z.never().optional(),
 	condition: z.never().optional(),
+	closeCondition: z.never().optional(),
+	closeAfter: z.never().optional(),
 	forEach: z.never().optional(),
 	rename: z.never().optional(),
 	renameOnlyIfChanged: z.never().optional(),
@@ -702,7 +700,6 @@ export type OwnCaseOperation = CaseOperationFacets & {
 	condition?: undefined;
 	closeCondition?: undefined;
 	closeAfter?: undefined;
-	emptyUpdate?: undefined;
 	forEach?: undefined;
 	rename?: undefined;
 	renameOnlyIfChanged?: undefined;
@@ -717,7 +714,6 @@ export type TargetedCaseOperation = CaseOperationFacets & {
 	condition?: Expression;
 	closeCondition?: Expression;
 	closeAfter?: true;
-	emptyUpdate?: true;
 	forEach?: { repeat: Uuid };
 	rename?: Expression;
 	renameOnlyIfChanged?: true;
@@ -853,6 +849,7 @@ export const formSchema = z.strictObject({
 	activityKeyText: behaviorTextSchema.optional(),
 	activityTitleText: behaviorTextSchema.optional(),
 	activityWindowText: behaviorTextSchema.optional(),
+	savedFormDescriptorText: behaviorTextSchema.optional(),
 	uuid: uuidSchema,
 	id: z.string(),
 	name: z.string(),

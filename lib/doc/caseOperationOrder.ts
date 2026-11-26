@@ -334,7 +334,6 @@ function keyedCreateOrderMatters(
 		operation.owner !== undefined ||
 		operation.retype !== undefined ||
 		operation.closeAfter ||
-		operation.emptyUpdate ||
 		(operation.links?.length ?? 0) > 0 ||
 		writes.length === 0 ||
 		create.writes?.some((write) => (write.via?.length ?? 0) > 0)

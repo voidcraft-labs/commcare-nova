@@ -1,3 +1,4 @@
+import { authoredCaseChangePaths } from "@/lib/commcare/xform/caseOps";
 import { caseSlotFacts } from "@/lib/domain/basicCaseSlots";
 /**
  * The rules over held placements: where a published app already keeps a
@@ -307,11 +308,18 @@ function blockPathFindings(
 ): ValidationError[] {
 	const { doc, formUuid } = ctx;
 	const errors: ValidationError[] = [];
-	const saveToCase = holds.flatMap((hold) =>
-		hold.placement.kind === "save-to-case"
-			? [{ hold, repeat: hold.placement.repeat, path: hold.placement.path }]
-			: [],
-	);
+	const authored = authoredCaseChangePaths(doc, formUuid);
+	const planned = planPlacements(doc, formUuid).placements;
+	const saveToCase = holds.flatMap((hold) => {
+		if (hold.placement.kind !== "save-to-case") return [];
+		if (
+			hold.operation !== undefined &&
+			authored.has(hold.operation.uuid) &&
+			planned.get(hold.operation.uuid)?.held === true
+		)
+			return [];
+		return [{ hold, repeat: hold.placement.repeat, path: hold.placement.path }];
+	});
 	const scopes = new Set(saveToCase.map((held) => held.repeat));
 	for (const repeat of scopes) {
 		const here = saveToCase.filter((held) => held.repeat === repeat);

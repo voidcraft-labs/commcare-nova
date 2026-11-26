@@ -6473,7 +6473,7 @@
 		"area": "menus-and-case-lists",
 		"section": "Case list and case detail",
 		"subsection": "Column formats",
-		"item": "16 `clickable-icon` + `endpoint_action_id`, on the case list",
+		"item": "A case list's clickable icon names a form endpoint that can submit one case",
 		"surfaceKeys": [
 			"format:clickable-icon",
 			"parser:DetailFieldParser/endpoint_action",
@@ -6489,11 +6489,10 @@
 			"schema:MappingItem.key",
 			"schema:MappingItem.value"
 		],
+		"slotChanges": [],
 		"valueClass": "clickable-icon-on-the-case-list-naming-a-form-endpoint",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `clickableIcon` column kind (icon mapping + the entry point of a case-requiring form that carries the `Pragma-Submit-Automatically` label, the only targets the editor offers, `views/modules.py::_form_endpoint_options`, `Form.is_auto_submitting_form`)",
-		"subject": "case-list-columns",
-		"owner": "case-list-and-detail",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: A case list image submits an offered form for the selected row. Its action names a deep link taking precisely one case and the form's automatic submission is carried by a leaf question label. A grouped header passes its related case. The action runs in Web Apps.",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / UNAVAILABLE (raw `jr://` path as text)",
@@ -6510,6 +6509,51 @@
 			"markers": []
 		},
 		"gates": ["toggle/CASE_LIST_CLICKABLE_ICON", "toggle/SESSION_ENDPOINTS"]
+	},
+	{
+		"id": "menus-and-case-lists/clickable-icon-with-an-unusable-form-endpoint",
+		"area": "menus-and-case-lists",
+		"section": "Case list and case detail",
+		"subsection": "Column formats",
+		"item": "A list icon whose action cannot submit the selected row",
+		"surfaceKeys": [
+			"format:clickable-icon",
+			"parser:DetailFieldParser/endpoint_action",
+			"parser:DetailFieldParser/endpoint_action@background",
+			"parser:DetailFieldParser/endpoint_action@endpoint_id",
+			"parser:DetailFieldParser/header@width",
+			"parser:DetailFieldParser/template@form",
+			"parser:DetailFieldParser/template@width",
+			"schema:DetailColumn.endpoint_action_id",
+			"schema:DetailColumn.enum",
+			"schema:DetailColumn.format",
+			"schema:MappingItem",
+			"schema:MappingItem.key",
+			"schema:MappingItem.value"
+		],
+		"valueClass": "unusable-list-icon-endpoint",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: The icon needs one usable form endpoint for that case and runs in Web Apps. A grouped tile body would submit the first case of its group.",
+		"subject": "case-list-columns",
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": [],
+		"reasons": [
+			{
+				"kind": "broken-at-runtime",
+				"named": "The endpoint is absent, its required inputs do not match the tapped case, or the grouped body sends a different case."
+			},
+			{
+				"kind": "not-hq-editable",
+				"named": "The case list editor offers case-requiring forms with automatic submission on a question label."
+			}
+		]
 	},
 	{
 		"id": "menus-and-case-lists/16p-clickable-icon-with-an-empty-endpoint-action-id-on-the-case",

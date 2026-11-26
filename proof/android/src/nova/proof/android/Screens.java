@@ -191,7 +191,7 @@ final class Screens {
         if (request.has("saveIncomplete")) {
             // A form saved incomplete from the command, and the record Android keeps of it (its name among it).
             JSONObject saved = new JSONObject();
-            Integer record = Updates.saveIncomplete(request.getString("saveIncomplete"), saved);
+            Integer record = Updates.saveIncomplete(request.getString("saveIncomplete"), saved, request.optString("saveLanguage"));
             if (request.optBoolean("reopen") && record != null) {
                 // The worker reopens that record from home's incomplete forms and completes it: walked to its
                 // end with the request's answers, finished, saved and sent where the device is served.

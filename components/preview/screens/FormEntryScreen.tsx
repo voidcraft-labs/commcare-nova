@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { v4 as uuidv4 } from "uuid";
 import { Button } from "@/components/shadcn/button";
 import { useReconcilerContext } from "@/lib/collab/context";
+import { useBlueprintDocApi } from "@/lib/doc/hooks/useBlueprintDoc";
 import { CASE_LOADING_FORM_TYPES } from "@/lib/domain";
 import type { ActivityFact } from "@/lib/domain/connectSubmissionFacts";
 import { entrySelectionSettings } from "@/lib/domain/formEntryCases";
@@ -30,12 +31,14 @@ import {
 	readBuilderHistoryMove,
 } from "@/lib/routing/useClientPath";
 import {
+	useAccessPhase,
 	useAppId,
 	useEditMode,
 	usePreviewCaseTarget,
 	usePreviewDevice,
 	usePreviewMenuCaseSelections,
 	usePreviewPersonaUuid,
+	usePreviewResumedDraft,
 	usePreviewSessionId,
 	useSetPreviewCaseTarget,
 	useSetPreviewSelectedCase,
@@ -70,11 +73,57 @@ export function FormEntryScreen({
 	const { doc } = usePreviewMenuSource();
 	const mode = useEditMode();
 	const run = usePreviewSessionId();
+	const resumed = usePreviewResumedDraft();
+	const session = useBuilderSessionApi();
+	const device = usePreviewDevice();
+	const access = useAccessPhase();
+	const documentState = useBlueprintDocApi().getState();
 	const target = usePreviewCaseTarget();
 	const walks =
 		target?.formUuid === screen.formUuid &&
 		target.entryChoices !== undefined &&
 		entryWalksChoices(doc, screen.formUuid);
+	if (
+		mode === "preview" &&
+		resumed?.formUuid === screen.formUuid &&
+		resumed.moduleUuid === screen.moduleUuid
+	) {
+		if (
+			access !== "authorized" ||
+			resumed.opened.documentState !== documentState
+		)
+			return (
+				<p role="status" className="p-6 text-sm text-nova-text-muted">
+					This app changed since the form was saved. You can start another form
+					from the app's home screen.
+				</p>
+			);
+		const opening = resumed.target.opening;
+		if (opening && resumed.device.appLanguage !== device.appLanguage)
+			return (
+				<p role="status" className="p-6 text-sm text-nova-text-muted">
+					This form was opened in another language. You can switch back to that
+					language or start another form.
+				</p>
+			);
+		return (
+			<FormScreen
+				key={resumed.entryKey}
+				screen={screen}
+				draft={resumed}
+				opening={opening}
+				projection={opening?.projection}
+				onReopen={() => {
+					session.getState().removePreviewFormRecord(resumed.entryKey);
+					session.setState({
+						previewResumedDraft: undefined,
+						previewCaseTarget: { ...resumed.target, opening: undefined },
+					});
+				}}
+				onSubmittedActivities={onSubmittedActivities}
+			/>
+		);
+	}
 	if (
 		mode !== "preview" ||
 		!(walks || formNeedsOpeningEvidence(doc, screen.formUuid))

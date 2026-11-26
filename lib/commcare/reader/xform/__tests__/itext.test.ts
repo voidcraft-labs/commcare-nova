@@ -217,7 +217,6 @@ describe("pragma keys", () => {
 		);
 		expect(codes(reading).sort()).toEqual(
 			[
-				Q("a-question-text-whose-itext-id-is-pragma-form-descriptor-where"),
 				Q("itext-pragma-entries-pragma-form-descriptor-pragma-skip-full"),
 				Q("itext-entry-referenced-only-from-jr-itext-in-an-expression"),
 			].sort(),

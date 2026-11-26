@@ -42,10 +42,12 @@ DOCUMENTS = (
     "targeted-worker-messages",
     "targeted-repeat-invitations",
     "targeted-capture-widgets",
+    "targeted-face-photo",
     "targeted-form-link-hidden-target",
     "targeted-forms-in-menu-above-one-case",
     "targeted-case-choice-values",
     "targeted-case-map",
+    "targeted-case-list-icon-action",
     "targeted-relative-case-dates",
     "targeted-hidden-column",
     "targeted-independent-case-order",
@@ -77,6 +79,7 @@ DOCUMENTS = (
     "targeted-connect-recipient-repeat",
     "targeted-connect-section-order",
     "targeted-validated-barcode-secret",
+    "targeted-saved-form-descriptor",
 )
 
 
