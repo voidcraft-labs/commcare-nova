@@ -410,10 +410,14 @@ export async function documentInputs(
 		judge.editLocalRefused = await file(root, `edit/${LOCAL_REFUSED}`);
 	}
 	const importFile: Record<string, InputFile> = {};
-	if (existsSync(join(root, "import-file.zip"))) {
-		importFile["import-file"] = {
-			path: "import-file.zip",
-			digest: archiveDigest(await readFile(join(root, "import-file.zip"))),
+	for (const [role, path] of [
+		["import-file", "import-file.zip"],
+		["edit-import-file", "edit/import-file.zip"],
+	] as const) {
+		if (!existsSync(join(root, path))) continue;
+		importFile[role] = {
+			path,
+			digest: archiveDigest(await readFile(join(root, path))),
 		};
 	}
 	return {

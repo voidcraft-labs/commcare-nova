@@ -1553,6 +1553,16 @@ export async function writeEntry(
 			),
 		);
 		await writeJson(join(editRoot, "verdict.json"), verdictJson(editVerdict));
+		if (authored?.editedImportFile) {
+			await writeFile(
+				join(editRoot, "import-file.zip"),
+				await importFile(
+					edit.publish,
+					PROOF_DOMAIN,
+					targetIdentity.projectSearches ?? [],
+				),
+			);
+		}
 		for (const [name] of named) {
 			const capture = captures.get(name);
 			const update =

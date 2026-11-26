@@ -1,6 +1,7 @@
 """The same native lookup choices survive an adopted app edit and a manual installation."""
 
 from dataclasses import replace
+import json
 from urllib.parse import parse_qs, urlsplit
 from zipfile import ZipFile
 
@@ -100,6 +101,15 @@ def test_workers_use_the_shared_table_after_an_adopted_publish_and_manual_setup(
             original_entities = _identities(app)
             sibling_entities = _identities(sibling)
             original_table, original_rows = _table(unit)
+        with unit.operation("shared-table:republish", DOCUMENT.encode()):
+            refusal, uploaded = publish.update(
+                unit, app_id, document.exports["minimum"].republish, "adopted shared-table app"
+            )
+            assert refusal is None and uploaded is None, (refusal, uploaded)
+            assert _identities(operations.held_app(unit, app_id)) == original_entities
+            assert _identities(operations.held_app(unit, sibling.get_id)) == sibling_entities
+            table, rows = _table(unit)
+            assert table.id == original_table.id and rows == original_rows
         with unit.operation("shared-table:publish", DOCUMENT.encode()):
             refusal, uploaded = publish.update(
                 unit, app_id, document.edit.exports["minimum"].update, "shared-table edit"
@@ -116,11 +126,12 @@ def test_workers_use_the_shared_table_after_an_adopted_publish_and_manual_setup(
         after_publish = _observe(unit, app_id, formplayer_runner, "source")
         assert {entry["xmlns"] for entry in after_publish.values()} == {original_entities[2]}
 
-    with ZipFile(document.import_file) as archive:
+    with ZipFile(document.edit.import_file) as archive:
         guide = archive.read("README.txt").decode()
         assert "uses the existing table in nova-proof" in guide and "selected-table export" in guide
         app_member, = [name for name in archive.namelist() if name.endswith(".json")]
         manual_app = archive.read(app_member)
+        assert json.loads(manual_app)["langs"] == ["fra", "en"]
         assert not any(name.endswith(".xlsx") for name in archive.namelist())
 
     with hq_check(replace(configuration, domain="second-clinic")) as (unit, _):
@@ -134,6 +145,7 @@ def test_workers_use_the_shared_table_after_an_adopted_publish_and_manual_setup(
                 (code, label) for _, code, label in original_rows
             ]
             imported = _manual_import(unit, manual_app)
+            assert imported.langs == ["fra", "en"]
         after_manual = _observe(unit, imported.get_id, formplayer_runner, "manual")
         assert imported.get_id != app_id
         assert {entry["xmlns"] for entry in after_manual.values()} == {_identities(imported)[2]}
