@@ -18,8 +18,10 @@ from proof.observe.sessions import admitted, unmarked_submission
 
 CASE = "http://commcarehq.org/case/transaction/v2"
 PERSON = "person-with-a-visit"
-STAMP = datetime(2025, 4, 5, 23, 24, 47, 321000, tzinfo=timezone.utc)
-CLOCK = "2025-04-05T23:24:47.321Z"
+# Core and Formplayer's clock harness parses the fixed instant with DateUtils.
+# A binary-exact fraction makes the frozen input identical to Android's clock.
+STAMP = datetime(2025, 4, 5, 23, 24, 47, 125000, tzinfo=timezone.utc)
+CLOCK = "2025-04-05T23:24:47.125Z"
 DAY = "2025-04-05"
 
 
