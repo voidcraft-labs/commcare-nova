@@ -1952,7 +1952,7 @@
 						"$xmlns": [1, 0]
 					}
 				],
-				"pointer": "/caseOperations/0/placement",
+				"pointer": "/caseOperations/2/placement",
 				"value": {
 					"kind": "advanced",
 					"tag": "open_member_0"
@@ -1965,7 +1965,7 @@
 						"$xmlns": [1, 0]
 					}
 				],
-				"pointer": "/caseOperations/0/links/0/identifier",
+				"pointer": "/caseOperations/2/links/0/identifier",
 				"value": "parent"
 			},
 			{
@@ -1975,7 +1975,7 @@
 						"$xmlns": [1, 0]
 					}
 				],
-				"pointer": "/caseOperations/0/links/0/targetType",
+				"pointer": "/caseOperations/2/links/0/targetType",
 				"value": "member"
 			},
 			{
@@ -1985,7 +1985,7 @@
 						"$xmlns": [1, 0]
 					}
 				],
-				"pointer": "/caseOperations/0/links/0/relationship",
+				"pointer": "/caseOperations/2/links/0/relationship",
 				"value": "child"
 			},
 			{
@@ -1995,8 +1995,18 @@
 						"$xmlns": [1, 0]
 					}
 				],
-				"pointer": "/caseOperations/0/links/0/target/expr/term/datum/kind",
-				"value": "form-selection"
+				"pointer": "/caseOperations/2/links/0/target/kind",
+				"value": "session"
+			},
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [1, 0]
+					}
+				],
+				"pointer": "/caseOperations/2/action",
+				"value": "create"
 			}
 		]
 	},
@@ -2362,7 +2372,7 @@
 						"$xmlns": [1, 0]
 					}
 				],
-				"pointer": "/caseOperations/0/links/0/relationship",
+				"pointer": "/caseOperations/2/links/0/relationship",
 				"value": "extension"
 			},
 			{
@@ -2372,7 +2382,7 @@
 						"$xmlns": [1, 0]
 					}
 				],
-				"pointer": "/caseOperations/0/links/0/identifier",
+				"pointer": "/caseOperations/2/links/0/identifier",
 				"value": "host"
 			}
 		]
@@ -2430,7 +2440,7 @@
 						"$xmlns": [1, 0]
 					}
 				],
-				"pointer": "/caseOperations/0/placement",
+				"pointer": "/caseOperations/2/placement",
 				"value": {
 					"kind": "advanced",
 					"tag": "open_member_0"
@@ -2445,6 +2455,16 @@
 				],
 				"pointer": "/caseOperations/0/action",
 				"value": "own"
+			},
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [1, 0]
+					}
+				],
+				"pointer": "/caseOperations/2/action",
+				"value": "create"
 			}
 		]
 	},
@@ -2474,8 +2494,38 @@
 						"$xmlns": [1, 0]
 					}
 				],
-				"pointer": "/closeCondition/kind",
+				"pointer": "/caseOperations/3/condition/kind",
 				"value": "eq"
+			},
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [1, 0]
+					}
+				],
+				"pointer": "/caseOperations/2/action",
+				"value": "create"
+			},
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [1, 0]
+					}
+				],
+				"pointer": "/closeCondition",
+				"value": null
+			},
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [1, 0]
+					}
+				],
+				"pointer": "/caseOperations/3/target/kind",
+				"value": "op"
 			}
 		]
 	},
@@ -2583,7 +2633,7 @@
 						"$xmlns": [1, 0]
 					}
 				],
-				"pointer": "/caseOperations/0/placement",
+				"pointer": "/caseOperations/2/placement",
 				"value": {
 					"kind": "advanced",
 					"tag": "open_member_0"
@@ -2596,8 +2646,28 @@
 						"$xmlns": [1, 0]
 					}
 				],
-				"pointer": "/openCondition/kind",
+				"pointer": "/caseOperations/2/condition/kind",
 				"value": "eq"
+			},
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [1, 0]
+					}
+				],
+				"pointer": "/caseOperations/2/action",
+				"value": "create"
+			},
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [1, 0]
+					}
+				],
+				"pointer": "/openCondition",
+				"value": null
 			}
 		]
 	},
@@ -2660,7 +2730,7 @@
 						"$xmlns": [1, 0]
 					}
 				],
-				"pointer": "/caseOperations/0/writes/0/property",
+				"pointer": "/caseOperations/2/writes/0/property",
 				"value": "first_visit"
 			}
 		]
@@ -5925,6 +5995,27 @@
 		}
 	},
 	{
+		"id": "hq-case-lists/automatic-fixed-text-callout",
+		"base": "hq-case-lists",
+		"entry": "menus-and-case-lists/lookup-autolaunch",
+		"change": {
+			"op": "named",
+			"name": "automatic_fixed_text_callout"
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/deviceLookup/automatic",
+				"value": true
+			}
+		]
+	},
+	{
 		"id": "hq-case-lists/case-id-column",
 		"base": "hq-case-lists",
 		"entry": "menus-and-case-lists/case-id-as-a-property-column-s-field",
@@ -8492,6 +8583,113 @@
 			"pointer": "/modules/0/case_details/short/filter",
 			"value": "#host/village = 'north'"
 		}
+	},
+	{
+		"id": "hq-case-lists/fixed-text-callout",
+		"base": "hq-case-lists",
+		"entry": "menus-and-case-lists/lookup-with-text-extras",
+		"change": {
+			"op": "named",
+			"name": "fixed_text_callout"
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/deviceLookup",
+				"value": {
+					"action": "org.example.SCAN",
+					"label": "Scan a card",
+					"extras": [
+						{
+							"name": "mode",
+							"value": "scan"
+						},
+						{
+							"name": "source",
+							"value": "home visit"
+						}
+					],
+					"responses": ["patient_id", "fallback"]
+				}
+			}
+		]
+	},
+	{
+		"id": "hq-case-lists/fixed-text-callout-extras",
+		"base": "hq-case-lists",
+		"entry": "menus-and-case-lists/lookup-extras-fixed-text",
+		"change": {
+			"op": "named",
+			"name": "fixed_text_callout"
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/deviceLookup/extras",
+				"value": [
+					{
+						"name": "mode",
+						"value": "scan"
+					},
+					{
+						"name": "source",
+						"value": "home visit"
+					}
+				]
+			}
+		]
+	},
+	{
+		"id": "hq-case-lists/fixed-text-callout-name",
+		"base": "hq-case-lists",
+		"entry": "menus-and-case-lists/lookup-name",
+		"change": {
+			"op": "named",
+			"name": "fixed_text_callout"
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/deviceLookup/label",
+				"value": "Scan a card"
+			}
+		]
+	},
+	{
+		"id": "hq-case-lists/fixed-text-callout-responses",
+		"base": "hq-case-lists",
+		"entry": "menus-and-case-lists/lookup-responses-key",
+		"change": {
+			"op": "named",
+			"name": "fixed_text_callout"
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/deviceLookup/responses",
+				"value": ["patient_id", "fallback"]
+			}
+		]
 	},
 	{
 		"id": "hq-case-lists/follow-ups-shown-above-offering-registration",
@@ -16428,6 +16626,19 @@
 		}
 	},
 	{
+		"id": "hq-case-lists/translation-overrides-a-detail-tab-title",
+		"base": "hq-case-lists",
+		"entry": "application-and-settings/translations-generated-key-anything-else",
+		"standing": "not-yet",
+		"place": {
+			"kind": "app"
+		},
+		"change": {
+			"op": "named",
+			"name": "translation_overrides_a_detail_tab_title"
+		}
+	},
+	{
 		"id": "hq-case-lists/worker-words-for-one-generated-title",
 		"base": "hq-case-lists",
 		"entry": "application-and-settings/translations-generated-wording",
@@ -23002,20 +23213,18 @@
 	{
 		"id": "hq-lookups/itemset-over-cases",
 		"base": "hq-lookups",
-		"entry": "questions/itemset-over-casedb-or-another-instance-advanced-data-source",
-		"standing": "not-yet",
-		"place": {
-			"kind": "question",
-			"menu": 0,
-			"form": 0,
-			"menuName": "Farm survey",
-			"formName": "Survey",
-			"path": "district"
-		},
+		"entry": "questions/itemset-over-casedb-in-nova-s-case-choices-shape",
 		"change": {
 			"op": "named",
 			"name": "itemset_over_cases"
-		}
+		},
+		"holds": [
+			{
+				"key": ["field", { "$xmlns": [0, 0] }, ["district"]],
+				"pointer": "/optionsSource",
+				"value": { "kind": "available-cases" }
+			}
+		]
 	},
 	{
 		"id": "hq-lookups/itemset-sort",
@@ -23290,19 +23499,17 @@
 		"id": "hq-media/video-inline-on-help",
 		"base": "hq-media",
 		"entry": "questions/video-inline-form-on-a-text-other-than-a-question-label",
-		"standing": "not-yet",
-		"place": {
-			"kind": "question",
-			"menu": 0,
-			"form": 0,
-			"menuName": "Animals",
-			"formName": "Survey",
-			"path": "animal_name"
-		},
 		"change": {
 			"op": "named",
 			"name": "video_inline_on_help"
-		}
+		},
+		"holds": [
+			{
+				"key": ["field", { "$xmlns": [0, 0] }, ["animal_name"]],
+				"pointer": "/help/parts/0/text",
+				"value": "Say what the animal is called"
+			}
+		]
 	},
 	{
 		"id": "hq-media/media-key-outside-jr-file",
@@ -23400,11 +23607,7 @@
 	{
 		"id": "hq-media/translation-overrides-a-menu-icon",
 		"base": "hq-media",
-		"entry": "application-and-settings/translations-generated-key-anything-else",
-		"standing": "not-yet",
-		"place": {
-			"kind": "app"
-		},
+		"entry": "application-and-settings/translations-generated-navigation-file",
 		"change": {
 			"op": "set-json",
 			"pointer": "/translations",
@@ -23413,6 +23616,33 @@
 					"modules.m0.icon": "jr://file/commcare/image/data/animal_name.png"
 				}
 			}
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/mediaByLanguage/eng/iconOverride",
+				"value": {
+					"$projectFile": "jr://file/commcare/image/data/animal_name.png"
+				}
+			}
+		]
+	},
+	{
+		"id": "hq-media/translation-overrides-a-menu-icon-without-a-resource",
+		"base": "hq-media",
+		"entry": "application-and-settings/translations-generated-navigation-file-not-packaged",
+		"standing": "not-yet",
+		"place": {
+			"kind": "app"
+		},
+		"change": {
+			"op": "named",
+			"name": "menu_icon_override_without_a_resource"
 		}
 	},
 	{
@@ -29528,16 +29758,17 @@
 		"id": "hq-plain/auto-select-on-a-multi-select-list",
 		"base": "hq-plain",
 		"entry": "menus-and-case-lists/detail-auto-select-multi-select",
-		"standing": "not-yet",
-		"place": {
-			"kind": "case-list",
-			"menu": 0,
-			"name": "Households"
-		},
 		"change": {
 			"op": "named",
 			"name": "auto_select_on_a_multi_select_list"
-		}
+		},
+		"holds": [
+			{
+				"key": ["module", { "$menu": 0 }],
+				"pointer": "/caseListConfig/selection",
+				"value": { "kind": "multiple", "maximum": 100, "autoSelect": true }
+			}
+		]
 	},
 	{
 		"id": "hq-plain/bare-string-update",
@@ -33972,37 +34203,33 @@
 		"id": "hq-questions/long-form-on-group-label",
 		"base": "hq-questions",
 		"entry": "questions/long-form-on-a-group-or-repeat-label",
-		"standing": "not-yet",
-		"place": {
-			"kind": "question",
-			"menu": 0,
-			"form": 0,
-			"menuName": "Questions",
-			"formName": "Survey",
-			"path": "members"
-		},
 		"change": {
 			"op": "named",
 			"name": "long_form_on_group_label"
-		}
+		},
+		"holds": [
+			{
+				"key": ["field", { "$xmlns": [0, 0] }, ["members"]],
+				"pointer": "/extended_text/parts/0/text",
+				"value": "Every member of the household"
+			}
+		]
 	},
 	{
 		"id": "hq-questions/long-form-on-help",
 		"base": "hq-questions",
 		"entry": "questions/long-form-on-a-hint-help-text-validation-message-or-choice",
-		"standing": "not-yet",
-		"place": {
-			"kind": "question",
-			"menu": 0,
-			"form": 0,
-			"menuName": "Questions",
-			"formName": "Survey",
-			"path": "full_name"
-		},
 		"change": {
 			"op": "named",
 			"name": "long_form_on_help"
-		}
+		},
+		"holds": [
+			{
+				"key": ["field", { "$xmlns": [0, 0] }, ["full_name"]],
+				"pointer": "/extended_help/parts/0/text",
+				"value": "Ask who heads the household"
+			}
+		]
 	},
 	{
 		"id": "hq-questions/markdown-differing",
@@ -35171,6 +35398,50 @@
 		}
 	},
 	{
+		"id": "hq-questions/save-to-case-keyed-from-outside-its-row",
+		"base": "hq-questions",
+		"entry": "questions/savetocase-create-with-an-authored-non-uuid-case-id-xpath-inside",
+		"standing": "not-yet",
+		"place": {
+			"kind": "question",
+			"menu": 0,
+			"form": 0,
+			"menuName": "Questions",
+			"formName": "Survey",
+			"path": "members/nova_operations/kid"
+		},
+		"change": {
+			"op": "named",
+			"name": "save_to_case_keyed_from_outside_its_row"
+		}
+	},
+	{
+		"id": "hq-questions/save-to-case-declared-type-choice",
+		"base": "hq-questions",
+		"entry": "questions/savetocase-create-case-type-literal-case-name-owner-id-uuid-case",
+		"change": {
+			"op": "named",
+			"name": "save_to_case_declared_type_choice"
+		},
+		"holds": [
+			{
+				"key": ["form", { "$xmlns": [0, 0] }],
+				"pointer": "/caseOperations/0/caseType",
+				"value": "household"
+			},
+			{
+				"key": ["form", { "$xmlns": [0, 0] }],
+				"pointer": "/caseOperations/0/typeChoice/otherwise",
+				"value": "visit"
+			},
+			{
+				"key": ["form", { "$xmlns": [0, 0] }],
+				"pointer": "/caseOperations/0/typeChoice/condition/kind",
+				"value": "gt"
+			}
+		]
+	},
+	{
 		"id": "hq-questions/save-to-case-dynamic-type",
 		"base": "hq-questions",
 		"entry": "questions/savetocase-case-type-given-as-an-xpath",
@@ -35279,6 +35550,24 @@
 		"change": {
 			"op": "named",
 			"name": "save_to_case_link_name_outside_grammar"
+		}
+	},
+	{
+		"id": "hq-questions/save-to-case-link-stops-form-designer",
+		"base": "hq-questions",
+		"entry": "questions/savetocase-link-name-outside-nova-s-identifier-grammar",
+		"standing": "not-yet",
+		"place": {
+			"kind": "question",
+			"menu": 0,
+			"form": 0,
+			"menuName": "Questions",
+			"formName": "Survey",
+			"path": "nova_operations/make_household"
+		},
+		"change": {
+			"op": "named",
+			"name": "save_to_case_link_stops_form_designer"
 		}
 	},
 	{
@@ -38075,6 +38364,26 @@
 				"property": "standing",
 				"doc_type": "DefaultCaseSearchProperty",
 				"defaultValue": "/data/name"
+			}
+		}
+	},
+	{
+		"id": "hq-search/default-filter-sorting-by-a-repeated-direction",
+		"base": "hq-search",
+		"entry": "case-search/default-properties-entry-keyed-commcare-sort-x-commcare-custom",
+		"standing": "not-yet",
+		"place": {
+			"kind": "search",
+			"menu": 1,
+			"name": "Active clients"
+		},
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/1/search_config/default_properties/-",
+			"value": {
+				"property": "commcare_sort",
+				"doc_type": "DefaultCaseSearchProperty",
+				"defaultValue": "'++priority:exact'"
 			}
 		}
 	},

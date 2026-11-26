@@ -4137,6 +4137,12 @@ async function pushLookupTablesJson(
 }> {
 	const db = await getAppDb();
 	const mapped: { novaResourceId: string; remoteId: string }[] = [];
+	const pagedWave = { requests: 200, until: Date.now() + 150_000 };
+	const pagedDeadline = plan.tables.some(
+		(table) => table.pagedBytes !== undefined,
+	)
+		? AbortSignal.timeout(240_000)
+		: undefined;
 	let recorded: RecordAnswer | null = null;
 	for (const table of plan.tables) {
 		const key: LookupJsonDestinationKey = {
@@ -4149,7 +4155,13 @@ async function pushLookupTablesJson(
 		let result: LookupJsonPublishResult;
 		try {
 			result = await publishLookupTableJson({
-				hq: hqLookupJsonPort(creds, domain, table.rows.length),
+				hq: hqLookupJsonPort(
+					creds,
+					domain,
+					table.rows.length,
+					table.pagedBytes === undefined ? undefined : pagedDeadline,
+					table.pagedBytes,
+				),
 				journal: {
 					read: () => readLookupJsonDestination(db, key),
 					admit: async (entry, expectedRevision) => {
@@ -4175,7 +4187,9 @@ async function pushLookupTablesJson(
 				definition: table.definition,
 				rows: table.rows,
 				holdMs: LOOKUP_JSON_HOLD_MS,
+				...(table.pagedBytes !== undefined && { writeBudget: pagedWave }),
 			});
+			if (table.pagedBytes !== undefined) pagedWave.requests -= result.writes;
 		} catch (error) {
 			if (!(error instanceof LookupError)) throw error;
 			return {
@@ -4292,6 +4306,12 @@ function lookupJsonStopFailure(
 			return {
 				code: "hq_resource_state_unknown",
 				message: `The lookup table “${name}” on “${domain}” doesn't hold what Nova's last change should have left there, ${stopped} Nova won't write to it again on its own. You can look at the table in CommCare HQ, then publish again.`,
+				details: [name],
+			};
+		case "checkpoint":
+			return {
+				code: "hq_lookup_publish_checkpoint",
+				message: `Nova saved its progress sending “${name}” to “${domain}”, ${stopped} You can publish again to send the remaining rows.`,
 				details: [name],
 			};
 		case "busy":

@@ -145,6 +145,7 @@ export type ValidationErrorCode =
 	| "CASE_LIST_CLOSED_ON_NOT_ON_DEVICE"
 	| "MULTI_SELECT_PERSISTENT_TILE"
 	| "MULTI_SELECT_NO_BATCH_CONSUMER"
+	| "MULTI_SELECT_SEARCH_ON_CLEAR"
 	// Case-tile layout rules. Geometry rules run on every stored cell,
 	// tile layout on or off, so switching the layout back on can never
 	// be rejected for a cell the author cannot currently see. The
@@ -259,6 +260,7 @@ export type ValidationErrorCode =
 	| "CASE_OPERATION_OWNER_CONDITION_INVALID"
 	| "CASE_OPERATION_CLOSE_ACTION_REQUIRED"
 	| "CASE_OPERATION_TYPE_CALCULATION_MISMATCH"
+	| "CASE_OPERATION_TYPE_CHOICE_INVALID"
 	| "CASE_OPERATION_CLOSE_CONDITION_INVALID"
 	| "CASE_CHANGE_POSITION_INVALID"
 	| "CASE_OPERATION_INVALID_ID"

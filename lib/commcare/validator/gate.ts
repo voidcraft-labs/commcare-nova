@@ -262,6 +262,7 @@ export const VALIDITY_CLASS_BY_CODE = {
 	CASE_LIST_CLOSED_ON_NOT_ON_DEVICE: "soundness",
 	MULTI_SELECT_PERSISTENT_TILE: "soundness",
 	MULTI_SELECT_NO_BATCH_CONSUMER: "soundness",
+	MULTI_SELECT_SEARCH_ON_CLEAR: "soundness",
 	// Tile geometry and coverage are soundness: a cell off the grid, two
 	// cells on one square, or a shown field with nowhere to sit each
 	// produce a layout the running app draws differently from the one the
@@ -415,6 +416,7 @@ export const VALIDITY_CLASS_BY_CODE = {
 	CASE_OPERATION_CLOSE_CONDITION_INVALID: "soundness",
 	CASE_OPERATION_CLOSE_ACTION_REQUIRED: "soundness",
 	CASE_OPERATION_TYPE_CALCULATION_MISMATCH: "soundness",
+	CASE_OPERATION_TYPE_CHOICE_INVALID: "soundness",
 	CASE_CHANGE_POSITION_INVALID: "soundness",
 	CASE_OPERATION_INVALID_ID: "soundness",
 	CASE_OPERATION_DUPLICATE_ID: "soundness",

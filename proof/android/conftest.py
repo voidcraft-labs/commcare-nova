@@ -39,6 +39,7 @@ DOCUMENTS = (
     "localization-bilingual",
     "navigation-base",
     "targeted-menu-badges",
+    "targeted-media-slots",
     "prompt-checkboxes",
     "targeted-worker-messages",
     "targeted-repeat-invitations",

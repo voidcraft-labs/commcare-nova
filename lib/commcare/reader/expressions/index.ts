@@ -409,14 +409,20 @@ function proseTemplate(
 	if (!isProseSlotRef(ref)) return undefined;
 	const field = doc.fields[ref.uuid] as Holder | undefined;
 	if (field === undefined) return undefined;
-	if (ref.slot !== "option_label")
-		return field[ref.slot] as ProseTemplate | undefined;
+	if (!("member" in ref)) return field[ref.slot] as ProseTemplate | undefined;
 	const source = field.optionsSource as
-		| { options?: { uuid: Uuid; label: ProseTemplate }[] }
+		| {
+				options?: {
+					uuid: Uuid;
+					label: ProseTemplate;
+					extended_text?: ProseTemplate;
+				}[];
+		  }
 		| undefined;
-	return source?.options?.find(
-		(option) => option.uuid === ref.member.optionUuid,
-	)?.label;
+	const option = source?.options?.find(
+		(entry) => entry.uuid === ref.member.optionUuid,
+	);
+	return ref.slot === "option_label" ? option?.label : option?.extended_text;
 }
 
 /** Where each registration's tree is written: a slot, or the part of a

@@ -1480,8 +1480,13 @@ export const X = {
 	},
 	/** An inline video on a text other than a question's label, which no runtime shows. */
 	videoInlineElsewhere: one(
-		"refuse",
+		"account",
 		Q("video-inline-form-on-a-text-other-than-a-question-label"),
+		"itext-form:android/video-inline",
+	),
+	videoInlineOnlyHelp: one(
+		"refuse",
+		Q("video-inline-as-the-only-content-of-a-help-text"),
 		"itext-form:android/video-inline",
 	),
 	/** A question label's other texts (`lib/domain/labelForms.ts`), by the slot each is held in. */
@@ -1513,15 +1518,20 @@ export const X = {
 	),
 	/** A `long` form on a group's or repeat's label, which both runtimes show as its header. */
 	longFormOnContainer: one(
-		"refuse",
+		"take",
 		Q("long-form-on-a-group-or-repeat-label"),
 		"itext-form:core/long",
 	),
 	/** A `long` form on a hint, a help text, a validation message or a choice, which both runtimes
 	 *  show in place of the text. */
 	longFormOnOtherText: one(
-		"refuse",
+		"take",
 		Q("long-form-on-a-hint-help-text-validation-message-or-choice"),
+		"itext-form:core/long",
+	),
+	longFormOnRepeatAction: one(
+		"drop",
+		Q("long-form-on-a-repeat-action-caption"),
 		"itext-form:core/long",
 	),
 	shortForm: one("account", Q("short-form"), "itext-form:core/short"),

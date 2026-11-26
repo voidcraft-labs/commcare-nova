@@ -1686,6 +1686,7 @@ export function projectCaseListForHq(
 	pair.short.filter = filter;
 	if (caseListConfig?.selection?.kind === "multiple") {
 		pair.short.multi_select = true;
+		if (caseListConfig.selection.autoSelect) pair.short.auto_select = true;
 		pair.short.max_select_value = caseListConfig.selection.maximum;
 	}
 	const deviceLookup = caseListConfig?.deviceLookup;

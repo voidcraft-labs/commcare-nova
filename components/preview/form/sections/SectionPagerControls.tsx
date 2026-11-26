@@ -12,10 +12,13 @@
  */
 "use client";
 import { useBuilderLanguage } from "@/components/builder/localization/BuilderLocalizationProvider";
+import { useFieldTextForm } from "@/lib/doc/hooks/useFieldTextForm";
 import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
 import type { Uuid } from "@/lib/domain";
+import { labelShowsAsTyped } from "@/lib/domain/plainText";
 import { proseTemplateIsEmpty } from "@/lib/domain/prose";
 import { usePresentationField } from "@/lib/preview/hooks/useVisibleFieldOrder";
+import { presentedLabelText } from "@/lib/preview/labelPresentation";
 import { runtimeMessage } from "@/lib/preview/runtimeMessages";
 import { selectableSegmentCls } from "@/lib/styles";
 import { sectionKicker } from "./SectionHeading";
@@ -25,9 +28,13 @@ import type { FormPaging } from "./useFormPaging";
 function useSectionTitle(uuid: Uuid): string | undefined {
 	const field = usePresentationField(uuid);
 	const projectProse = useProseProjection();
-	if (field?.kind !== "section" || field.label === undefined) return undefined;
-	if (proseTemplateIsEmpty(field.label)) return undefined;
-	const text = projectProse(field.label).trim();
+	const textForm = useFieldTextForm(uuid);
+	const title =
+		field?.kind === "section"
+			? presentedLabelText(field, labelShowsAsTyped(textForm, field), {})
+			: undefined;
+	if (!title || proseTemplateIsEmpty(title.template)) return undefined;
+	const text = projectProse(title.template).trim();
 	return text === "" ? undefined : text;
 }
 

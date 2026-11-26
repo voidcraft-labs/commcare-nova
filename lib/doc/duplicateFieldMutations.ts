@@ -23,7 +23,11 @@ import {
 	findFieldParent,
 	walkFormFieldUuids,
 } from "@/lib/doc/mutations/helpers";
-import { HELD_FIELD_KEYS, type HeldFieldKey } from "@/lib/domain/fields";
+import {
+	HELD_FIELD_KEYS,
+	type HeldFieldKey,
+	optionsSourceFilter,
+} from "@/lib/domain/fields";
 import { submissionLayout } from "@/lib/domain/submissionLayout";
 import { asUuid, type BlueprintDoc, type Mutation, type Uuid } from "./types";
 
@@ -77,16 +81,14 @@ export function duplicateFieldMutations(
 	if (cloneUuid === undefined) return undefined;
 
 	for (const { field } of cloned) {
-		if (
-			(field.kind === "single_select" || field.kind === "multi_select") &&
-			field.optionsSource.kind !== "inline" &&
-			field.optionsSource.filter
-		) {
-			walkExpressionTerms(field.optionsSource.filter, (term) => {
-				if (term.kind === "field")
-					term.uuid = clonedIds.get(term.uuid) ?? term.uuid;
-			});
-		}
+		if (field.kind !== "single_select" && field.kind !== "multi_select")
+			continue;
+		const filter = optionsSourceFilter(field.optionsSource);
+		if (filter === undefined) continue;
+		walkExpressionTerms(filter, (term) => {
+			if (term.kind === "field")
+				term.uuid = clonedIds.get(term.uuid) ?? term.uuid;
+		});
 	}
 
 	// A duplicate stands beside its source on screen, and each copied answer

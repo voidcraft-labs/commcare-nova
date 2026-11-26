@@ -20,7 +20,18 @@ CONFIGURATION = Configuration(privileges={"CLOUDCARE", "VELLUM_SAVE_TO_CASE"})
 TYPE = "if(/data/selection = 'house', 'household', if(/data/selection = 'reserved', 'commcare-user', 'visit'))"
 
 
-def _source(xmlns, type_calculation):
+def _source(xmlns, type_calculation, *, guard=False):
+    type_guard = f"""<scalar_guard vellum:role="SaveToCase" vellum:case_type="">
+            <case xmlns="{CASE}" case_id="" date_modified="" user_id="">
+              <update><case_type/></update>
+            </case>
+          </scalar_guard>""" if guard else ""
+    guard_binds = """
+        <bind nodeset="/data/scalar_guard/case/@case_id" calculate="current()/../../../make_case/case/@case_id"/>
+        <bind nodeset="/data/scalar_guard/case/@date_modified" type="xsd:dateTime" calculate="/data/meta/timeEnd"/>
+        <bind nodeset="/data/scalar_guard/case/@user_id" calculate="/data/meta/userID"/>
+        <bind nodeset="/data/scalar_guard/case/update/case_type" calculate="current()/../../../../make_case/case/create/case_type"/>
+    """ if guard else ""
     return f"""<h:html xmlns:h="http://www.w3.org/1999/xhtml" xmlns="{XFORMS}"
       xmlns:jr="http://openrosa.org/javarosa" xmlns:vellum="{VELLUM}" xmlns:xsd="http://www.w3.org/2001/XMLSchema">
       <h:head><h:title>Choose a type</h:title><model>
@@ -29,7 +40,7 @@ def _source(xmlns, type_calculation):
             <case xmlns="{CASE}" case_id="" date_modified="" user_id="">
               <create><case_type/><case_name/><owner_id/></create>
             </case>
-          </make_case>
+          </make_case>{type_guard}
         </data></instance>
         <bind nodeset="/data/selection" type="xsd:string"/>
         <bind nodeset="/data/make_case/case/@date_modified" type="xsd:dateTime" calculate="/data/meta/timeEnd"/>
@@ -37,16 +48,16 @@ def _source(xmlns, type_calculation):
         <bind nodeset="/data/make_case/case/create/case_type" calculate="{type_calculation}"/>
         <bind nodeset="/data/make_case/case/create/case_name" calculate="'Case from calculation'"/>
         <bind nodeset="/data/make_case/case/create/owner_id" calculate="/data/meta/userID"/>
-        <setvalue event="xforms-ready" ref="/data/make_case/case/@case_id" value="uuid()"/>
+        {guard_binds}<setvalue event="xforms-ready" ref="/data/make_case/case/@case_id" value="uuid()"/>
         <itext><translation lang="en" default=""><text id="selection-label"><value>Selection</value></text></translation></itext>
       </model></h:head>
       <h:body><input ref="/data/selection"><label ref="jr:itext('selection-label')"/></input></h:body>
     </h:html>"""
 
 
-def _saved_form(state, app_id, editor_driver, form, calculation, *, expected_metadata):
+def _saved_form(state, app_id, editor_driver, form, calculation, *, expected_metadata, guard=False):
     _patched(
-        state, app_id, form.unique_id, _source(form.xmlns, calculation), "case type calculation",
+        state, app_id, form.unique_id, _source(form.xmlns, calculation, guard=guard), "case type calculation",
     )
     saved = vellum.fresh_open_and_save(editor_driver, state, app_id, form.unique_id)
     assert saved.loaded and saved.saved and saved.stored_source, (saved.load_error, saved.save_refusal)
@@ -55,6 +66,13 @@ def _saved_form(state, app_id, editor_driver, form, calculation, *, expected_met
     assert block.get(f"{{{VELLUM}}}case_type") == expected_metadata
     bind, = source.xpath("//*[local-name()='bind' and @nodeset='/data/make_case/case/create/case_type']")
     assert bind.get("calculate") == calculation
+    if guard:
+        scalar_guard, = source.xpath("//*[local-name()='scalar_guard']")
+        assert scalar_guard.get(f"{{{VELLUM}}}case_type") == ""
+        guard_bind, = source.xpath(
+            "//*[local-name()='bind' and @nodeset='/data/scalar_guard/case/update/case_type']"
+        )
+        assert guard_bind.get("calculate") == "current()/../../../../make_case/case/create/case_type"
     return source
 
 
@@ -64,7 +82,7 @@ def _built_archive(state, app_id, record, directory):
     return arrange(built.files, directory)
 
 
-def _observe(state, core_runner, app, form, answer):
+def _observe(state, core_runner, app, form, answer, *, guard=False):
     table = load_answer_table()
     table["novaKinds"]["type-selection"] = [answer]
     trace = core_runner.session(
@@ -77,7 +95,15 @@ def _observe(state, core_runner, app, form, answer):
         (run, step) for run in trace["runs"]
         if (step := form_step(run)) and step.get("xmlns") == form.xmlns and run["end"] == "submitted"
     )
-    case, = etree.fromstring(step["submission"].encode()).iter(f"{{{CASE}}}case")
+    case, *following = etree.fromstring(step["submission"].encode()).iter(f"{{{CASE}}}case")
+    if guard:
+        update, = following
+        assert update.get("case_id") == case.get("case_id")
+        assert update.findtext(f"{{{CASE}}}update/{{{CASE}}}case_type") == case.findtext(
+            f"{{{CASE}}}create/{{{CASE}}}case_type"
+        )
+    else:
+        assert not following
     case_id = case.attrib["case_id"]
     device, = etree.fromstring(step["caseDb"].encode()).xpath(f"/*/case[@case_id='{case_id}']")
     submission, generated = unmarked_submission(run)
@@ -134,3 +160,24 @@ def test_literal_concat_and_literal_write_the_same_case_but_report_different_typ
     assert written[0] == written[1]
     assert written[0][:3] == ("household",) * 3
     assert catalog_keys == [{""}, {"household"}]
+
+
+def test_a_following_guard_keeps_the_resolved_create_type_on_device_and_hq(
+    hq, core_runner, editor_driver, tmp_path
+):
+    with hq_check(CONFIGURATION) as (state, record):
+        app_id = publish_hq_app(state, TWO_LANGUAGE_APP)
+        form = operations.held_app(state, app_id).modules[0].forms[0]
+        _saved_form(
+            state, app_id, editor_driver, form,
+            "if(/data/selection = 'house', 'household', 'visit')",
+            expected_metadata="", guard=True,
+        )
+        held = operations.held_app(state, app_id).get_form(form.unique_id)
+        assert set(held.get_save_to_case_updates()) == {""}
+        archive = _built_archive(state, app_id, record, tmp_path)
+        with admitted(core_runner, archive) as admission:
+            assert admission["admitted"], admission["problems"]
+            for answer, expected in (("house", "household"), ("visit", "visit")):
+                observed = _observe(state, core_runner, admission["app"], form, answer, guard=True)
+                assert observed[:3] == (expected,) * 3

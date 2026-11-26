@@ -102,7 +102,7 @@ def test_nova_archive_and_hq_release_send_fixed_extras_and_search_text(hq, andro
         cases=(_case("lookup-cedar", "Cedar"), _case("lookup-juniper", "Juniper")),
     )
     commands = [
-        {"primary": " Cedar "},
+        {"automatic": True, "primary": " Cedar "},
         {"primary": None, "named": {"first": "Juniper", "second": "Cedar"}},
         {"primary": "none-matches"},
     ]

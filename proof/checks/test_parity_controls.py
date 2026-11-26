@@ -396,21 +396,24 @@ def _hq_plain_source():
     return json.loads(json.loads(answer.read_text(encoding="utf-8"))["body"])
 
 
-def test_a_variants_added_uses_include_the_badge_and_its_fields():
-    """A form badge adds uses for its container and each held field at its own place."""
+def test_a_variant_s_added_uses_are_the_one_its_change_makes_and_none_for_its_base_again():
+    """A variant contributes its own collection and leaves, once, with the class of each changed value."""
     base = _hq_plain_source()
     assert parity.added_uses(base, copy.deepcopy(base)) == []
     variant = copy.deepcopy(base)
     variant["modules"][0]["forms"][1]["custom_icons"] = [
-        {"doc_type": "CustomIcon", "form": "badge", "text": {"en": "New"}, "xpath": ""}
+        {"doc_type": "CustomIcon", "form": "other", "text": {"en": "New"}, "xpath": ""}
     ]
     where = "/modules/0/forms/1/custom_icons"
-    added = parity.added_uses(base, variant)
-    assert [(one.use, one.standing) for one in added] == [
-        (Use("schema:Form.custom_icons", "app.json", where), HELD),
-        (Use("schema:CustomIcon.text", "app.json", f"{where}/0/text"), HELD),
-        (Use("schema:CustomIcon.xpath", "app.json", f"{where}/0/xpath"), HELD),
+    assert [(row.use, row.standing, [entry.id for entry in row.entries]) for row in parity.added_uses(base, variant)] == [
+        (Use("schema:Form.custom_icons", "app.json", where), manifest_usage.HELD, []),
+        (Use("schema:CustomIcon.form", "app.json", where + "/0/form"), manifest_usage.REFUSED,
+         ["menus-and-case-lists/custom-icon-form-other-than-badge"]),
+        (Use("schema:CustomIcon.text", "app.json", where + "/0/text"), manifest_usage.HELD, []),
+        (Use("schema:CustomIcon.xpath", "app.json", where + "/0/xpath"), manifest_usage.HELD, []),
     ]
+    assert parity.added_uses(variant, copy.deepcopy(variant)) == []
+
 
 def test_each_private_language_and_alias_needs_a_claim_at_its_own_position():
     from proof.checks.manifest_usage import app_json_uses, Uses
@@ -504,6 +507,10 @@ def test_an_appearance_the_lane_does_not_decide_is_reported_and_not_joined():
     "entry,variant_id,key,artifact,where,standing,member",
     [
         (
+            "menus-and-case-lists/detail-auto-select-multi-select", "hq-plain/auto-select-on-a-multi-select-list",
+            "schema:Detail.auto_select", "app.json", "/modules/0/case_details/short/auto_select", HELD, None,
+        ),
+        (
             parity.LOCATION_WRITE, "hq-case-management/location-id-write",
             "schema:UpdateCaseAction.update", "app.json",
             "/modules/1/forms/0/actions/update_case/update", HELD, "location_id",
@@ -537,7 +544,7 @@ def test_an_appearance_the_lane_does_not_decide_is_reported_and_not_joined():
         ),
     ],
 )
-def test_retained_forms_decide_the_specific_source_fact(
+def test_retained_variants_decide_the_specific_source_fact(
     monkeypatch, entry, variant_id, key, artifact, where, standing, member
 ):
     from types import SimpleNamespace

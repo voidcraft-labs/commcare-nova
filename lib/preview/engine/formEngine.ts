@@ -1,5 +1,6 @@
 import { moduleUuidOfForm } from "@/lib/domain";
 import { androidAppInputMember } from "@/lib/domain/fields/androidApp";
+import { workerChoiceProse, workerFieldProseSlot } from "../workerProse";
 import type { CompletedFormSearch } from "./xpathInstances";
 /**
  * FormEngine — reactive form engine backed by a Zustand store.
@@ -29,7 +30,10 @@ import type { CompletedFormSearch } from "./xpathInstances";
 import { v4 as uuidv4 } from "uuid";
 import { createStore, type StoreApi } from "zustand/vanilla";
 import { androidAppRequest } from "@/lib/commcare";
-import { caseOptionsNodeset } from "@/lib/commcare/caseOptions";
+import {
+	availableCasesNodeset,
+	caseOptionsNodeset,
+} from "@/lib/commcare/caseOptions";
 import { formSharingPlan } from "@/lib/commcare/casePlacementPlan";
 import { emitCasePropertyWirePath } from "@/lib/commcare/casePropertyWire";
 import { lookupOptionsNodeset } from "@/lib/commcare/lookupOptions";
@@ -55,9 +59,9 @@ import { serializeWire } from "@/lib/commcare/xpath/wire/serialize";
 import type { WireExpr } from "@/lib/commcare/xpath/wire/tree";
 import type {
 	BlueprintDoc,
-	CaseOptionsSource,
 	CaseSelectionCardinality,
 	CaseType,
+	DeviceCaseOptionsSource,
 	Field,
 	FieldProseSlot,
 	Form,
@@ -270,11 +274,15 @@ function resolvedLabelTextsOf(
 	return entries.length === 0 ? undefined : Object.fromEntries(entries);
 }
 
-function optionProseSlot(field: Field, optionUuid: Uuid): ProseSlotRef {
+function optionProseSlot(
+	field: Field,
+	optionUuid: Uuid,
+	slot: "option_label" | "option_extended_text",
+): ProseSlotRef {
 	return {
 		entity: "field",
 		uuid: field.uuid,
-		slot: "option_label",
+		slot,
 		member: { optionUuid },
 	};
 }
@@ -714,6 +722,16 @@ export class FormEngine {
 	 *  field slice rooted at its one form. Rebuilt whenever the input
 	 *  is re-supplied. */
 	private printDoc: BlueprintDoc;
+
+	private validationMessageSlot(field: Field) {
+		return workerFieldProseSlot(
+			field,
+			"validate_msg",
+			this.printDoc.forms[this.inputFormUuid] ?? {},
+			this.device.platform,
+		);
+	}
+
 	private inputFormUuid: Uuid;
 	private readonly openingAssignments: NonNullable<
 		FormEngineInput["openingAssignments"]
@@ -4844,13 +4862,26 @@ export class FormEngine {
 						fieldProseTemplate(field, "label"),
 						resolve(fieldProseSlot(field, "label")),
 					);
+					const textForm = this.printDoc.forms[this.inputFormUuid] ?? {};
+					const hintSlot = workerFieldProseSlot(
+						field,
+						"hint",
+						textForm,
+						this.device.platform,
+					);
+					const helpSlot = workerFieldProseSlot(
+						field,
+						"help",
+						textForm,
+						this.device.platform,
+					);
 					const nextHint = await resolveLabelAsync(
-						fieldProseTemplate(field, "hint"),
-						resolve(fieldProseSlot(field, "hint")),
+						fieldProseTemplate(field, hintSlot),
+						resolve(fieldProseSlot(field, hintSlot)),
 					);
 					const nextHelp = await resolveLabelAsync(
-						fieldProseTemplate(field, "help"),
-						resolve(fieldProseSlot(field, "help")),
+						fieldProseTemplate(field, helpSlot),
+						resolve(fieldProseSlot(field, helpSlot)),
 					);
 					const labelTexts = new Map<LabelTextSlot, string>();
 					for (const slot of LABEL_TEXT_SLOTS) {
@@ -4884,9 +4915,15 @@ export class FormEngine {
 					) {
 						const entries: Array<readonly [string, string]> = [];
 						for (const option of field.optionsSource.options) {
+							const { template, slot } = workerChoiceProse(
+								field,
+								option,
+								textForm,
+								this.device.platform,
+							);
 							const label = await resolveLabelAsync(
-								option.label,
-								resolve(optionProseSlot(field, option.uuid)),
+								template,
+								resolve(optionProseSlot(field, option.uuid, slot)),
 							);
 							if (label !== undefined) entries.push([option.uuid, label]);
 						}
@@ -4922,15 +4959,15 @@ export class FormEngine {
 						break;
 					}
 					const next =
-						field.optionsSource.kind === "cases"
-							? await this.computeCaseChoicesAsync(
+						field.optionsSource.kind === "lookup"
+							? this.computeLookupChoices(
+									field.optionsSource,
+									this.createEvalContext(path, updates),
+								)
+							: await this.computeCaseChoicesAsync(
 									field.optionsSource,
 									path,
 									evaluateAsync,
-								)
-							: this.computeLookupChoices(
-									field.optionsSource,
-									this.createEvalContext(path, updates),
 								);
 					if (next === undefined) break;
 					if (!lookupChoicesEqual(next, choices)) {
@@ -5166,13 +5203,26 @@ export class FormEngine {
 							fieldProseTemplate(f, "label"),
 							resolve(fieldProseSlot(f, "label")),
 						);
+						const textForm = this.printDoc.forms[this.inputFormUuid] ?? {};
+						const hintSlot = workerFieldProseSlot(
+							f,
+							"hint",
+							textForm,
+							this.device.platform,
+						);
+						const helpSlot = workerFieldProseSlot(
+							f,
+							"help",
+							textForm,
+							this.device.platform,
+						);
 						const rh = resolveLabel(
-							fieldProseTemplate(f, "hint"),
-							resolve(fieldProseSlot(f, "hint")),
+							fieldProseTemplate(f, hintSlot),
+							resolve(fieldProseSlot(f, hintSlot)),
 						);
 						const rhelp = resolveLabel(
-							fieldProseTemplate(f, "help"),
-							resolve(fieldProseSlot(f, "help")),
+							fieldProseTemplate(f, helpSlot),
+							resolve(fieldProseSlot(f, helpSlot)),
 						);
 						const rtexts = resolvedLabelTextsOf((slot) =>
 							resolveLabel(
@@ -5199,9 +5249,15 @@ export class FormEngine {
 							f.optionsSource.kind === "inline"
 								? Object.fromEntries(
 										f.optionsSource.options.flatMap((option) => {
+											const { template, slot } = workerChoiceProse(
+												f,
+												option,
+												textForm,
+												this.device.platform,
+											);
 											const value = resolveLabel(
-												option.label,
-												resolve(optionProseSlot(f, option.uuid)),
+												template,
+												resolve(optionProseSlot(f, option.uuid, slot)),
 											);
 											return value === undefined
 												? []
@@ -5242,9 +5298,9 @@ export class FormEngine {
 						f.optionsSource.kind !== "inline"
 					) {
 						const next =
-							f.optionsSource.kind === "cases"
-								? this.computeCaseChoices(f.optionsSource, ctx)
-								: this.computeLookupChoices(f.optionsSource, ctx);
+							f.optionsSource.kind === "lookup"
+								? this.computeLookupChoices(f.optionsSource, ctx)
+								: this.computeCaseChoices(f.optionsSource, ctx);
 						/* `undefined` is the typed loading state: no snapshot captured
 						 * yet (the cold-load race before the builder session's fetch
 						 * settles). The renderer shows loading, and the controller's
@@ -5424,18 +5480,26 @@ export class FormEngine {
 					? await resolveConstraintMessageAsync(
 							async () =>
 								(await resolveLabelAsync(
-									fieldProseTemplate(field, "validate_msg"),
+									fieldProseTemplate(field, this.validationMessageSlot(field)),
 									async (part) =>
 										xpathToString(
 											await evaluateAsync(
 												this.expressions.prose(
 													part,
-													fieldProseSlot(field, "validate_msg"),
+													fieldProseSlot(
+														field,
+														this.validationMessageSlot(field),
+													),
 												),
 												path,
 											),
 										),
-								)) ?? proseSource(field, "validate_msg", this.printDoc),
+								)) ??
+								proseSource(
+									field,
+									this.validationMessageSlot(field),
+									this.printDoc,
+								),
 						)
 					: undefined) ?? runtimeMessage(this.presentationLanguage, "invalid"));
 		if (valid !== state.valid || errorMessage !== state.errorMessage) {
@@ -5501,18 +5565,26 @@ export class FormEngine {
 					? resolveConstraintMessage(
 							() =>
 								resolveLabel(
-									fieldProseTemplate(field, "validate_msg"),
+									fieldProseTemplate(field, this.validationMessageSlot(field)),
 									(part) =>
 										xpathToString(
 											evaluate(
 												this.expressions.prose(
 													part,
-													fieldProseSlot(field, "validate_msg"),
+													fieldProseSlot(
+														field,
+														this.validationMessageSlot(field),
+													),
 												),
 												ctx,
 											),
 										),
-								) ?? proseSource(field, "validate_msg", this.printDoc),
+								) ??
+								proseSource(
+									field,
+									this.validationMessageSlot(field),
+									this.printDoc,
+								),
 						)
 					: undefined) ?? runtimeMessage(this.presentationLanguage, "invalid"));
 
@@ -6908,8 +6980,9 @@ export class FormEngine {
 	 *  coverage-keyed rebuild resolves them when fresh data arrives.
 	 *  Only a COVERED snapshot evaluates, so `lookupChoicesFromNodeset`'s
 	 *  identity throws stay a genuine validation-bypass surface. */
-	private caseChoiceDataCovered(source: CaseOptionsSource): boolean {
+	private caseChoiceDataCovered(source: DeviceCaseOptionsSource): boolean {
 		return (
+			source.kind === "available-cases" ||
 			source.filter === undefined ||
 			predicateLookupsCovered(source.filter, this.lookupData ?? undefined)
 		);
@@ -6967,35 +7040,39 @@ export class FormEngine {
 	}
 
 	private caseChoiceQuery(
-		source: CaseOptionsSource,
+		source: DeviceCaseOptionsSource,
 		questionPath: string,
 	): string {
 		return serializeWire(
-			caseOptionsNodeset(
-				source,
-				this.choiceContext(questionPath),
-				{
-					...this.choiceBindings(questionPath),
-					...(this.lookupData && {
-						lookup: {
-							naming: this.lookupData.naming,
-							instanceScope: "xform" as const,
+			source.kind === "available-cases"
+				? availableCasesNodeset()
+				: caseOptionsNodeset(
+						source,
+						this.choiceContext(questionPath),
+						{
+							...this.choiceBindings(questionPath),
+							...(this.lookupData && {
+								lookup: {
+									naming: this.lookupData.naming,
+									instanceScope: "xform" as const,
+								},
+							}),
 						},
-					}),
-				},
-				this.expressions.projection,
-			),
+						this.expressions.projection,
+					),
 			{ target: "preview" },
 		).text;
 	}
 
 	private caseChoicesForIds(
-		source: CaseOptionsSource,
+		source: DeviceCaseOptionsSource,
 		ids: readonly string[],
 	): readonly LookupChoice[] {
-		const labelPath = emitCasePropertyWirePath(source.labelProperty);
+		const labelPath = emitCasePropertyWirePath(
+			source.kind === "cases" ? source.labelProperty : "case_name",
+		);
 		const sortPath =
-			source.sortProperty === undefined
+			source.kind !== "cases" || source.sortProperty === undefined
 				? undefined
 				: emitCasePropertyWirePath(source.sortProperty);
 		const choices = ids.map((value) => {
@@ -7023,7 +7100,7 @@ export class FormEngine {
 	}
 
 	private computeCaseChoices(
-		source: CaseOptionsSource,
+		source: DeviceCaseOptionsSource,
 		ctx: EvalContext,
 	): readonly LookupChoice[] | undefined {
 		if (!this.hasCaseSnapshot || !this.caseChoiceDataCovered(source))
@@ -7041,7 +7118,7 @@ export class FormEngine {
 	}
 
 	private async computeCaseChoicesAsync(
-		source: CaseOptionsSource,
+		source: DeviceCaseOptionsSource,
 		path: string,
 		evaluateAsync: FormEngineAsyncEvaluator,
 	): Promise<readonly LookupChoice[] | undefined> {

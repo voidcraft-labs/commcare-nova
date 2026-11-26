@@ -677,7 +677,10 @@ describe("a completed search's snapshot", () => {
 		const rows = [
 			["patient-a", "patient", "open", "care-a"],
 			["house-a", "household", "open", null],
-			["file-a", "document", "open", null],
+			["file-a", "document", "open", "extension-seed"],
+			["extension-host", "episode", "open", null],
+			["extension-seed", "episode", "closed", null],
+			["extension-leaf", "episode", "open", null],
 			["care-a", "episode", "closed", null],
 			["middle", "group", "closed", null],
 			["last", "region", "closed", null],
@@ -704,8 +707,10 @@ describe("a completed search's snapshot", () => {
 				('other-app',${PROJECT},'other-app-case','visit','Other app case','open','{}'::jsonb)`.execute(
 			dbHandle.db,
 		);
-		for (const [child, ancestor, name, type] of [
+		for (const [child, ancestor, name, type, relationship = "child"] of [
 			["care-a", "middle", "parent", "group"],
+			["extension-seed", "extension-host", "host", "episode", "extension"],
+			["extension-leaf", "extension-seed", "host", "episode", "extension"],
 			["middle", "last", "parent", "region"],
 			["child", "care-a", "parent", "episode"],
 			["second-child", "patient-a", "parent", "patient"],
@@ -715,7 +720,7 @@ describe("a completed search's snapshot", () => {
 			["other-app-case", "patient-a", "parent", "patient"],
 		]) {
 			await sql`insert into case_indices(case_id,ancestor_id,identifier,depth,relationship,target_case_type)
-				values (${child},${ancestor},${name},1,'child',${type})`.execute(
+				values (${child},${ancestor},${name},1,${relationship},${type})`.execute(
 				dbHandle.db,
 			);
 		}
@@ -868,9 +873,35 @@ describe("a completed search's snapshot", () => {
 		).toEqual([
 			["care-a", "closed"],
 			["child", "closed"],
+			["extension-seed", "closed"],
 			["last", "closed"],
 			["second-child", "closed"],
 		]);
+		const hierarchy = await readSearchResultsSnapshot(store, {
+			...args,
+			searchPopulation: {
+				...args.searchPopulation,
+				request: { ...request, includeRelatedHierarchy: true },
+			},
+		});
+		expect(hierarchy.totalMatches).toBe(3);
+		expect(
+			hierarchy.rows
+				.filter((row) => row.properties.commcare_is_related_case === "true")
+				.map((row) => [row.case_id, row.status])
+				.sort(),
+		).toEqual([
+			["care-a", "closed"],
+			["child", "closed"],
+			["extension-host", "open"],
+			["extension-leaf", "open"],
+			["extension-seed", "closed"],
+			["ignored-child", "closed"],
+			["last", "closed"],
+			["middle", "closed"],
+			["second-child", "closed"],
+		]);
+
 		const page = await store.querySearchResults(args);
 		expect(page.primaryCount).toBe(3);
 		expect(page.totalRows).toBe(2);
@@ -923,6 +954,7 @@ describe("a completed search's snapshot", () => {
 		expect(prefix.rows.map((row) => row.case_id).sort()).toEqual([
 			"care-a",
 			"child",
+			"extension-seed",
 			"file-a",
 			"house-a",
 			"last",

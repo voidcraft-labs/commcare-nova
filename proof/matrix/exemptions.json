@@ -243,10 +243,6 @@
 		"reason": "only-in-a-build",
 		"note": "Every key is parser:, which a runtime reads from a build and no app source holds."
 	},
-	"menus-and-case-lists/lookup-autolaunch": {
-		"reason": "stated-by-its-part",
-		"note": "Part 07 decided it (its section 11.1): a callout is one finding under its decisive cause, and this key stands under that finding, never as one of its own."
-	},
 	"menus-and-case-lists/lookup-display-results-lookup-field-header-lookup-field-template": {
 		"reason": "stated-by-its-part",
 		"note": "Part 07 decided it (its section 11.1): a callout is one finding under its decisive cause, and this key stands under that finding, never as one of its own."
@@ -257,17 +253,9 @@
 	},
 	"menus-and-case-lists/lookup-extras-key-value": {
 		"reason": "stated-by-its-part",
-		"note": "Part 07 decided it (its section 11.1): a callout is one finding under its decisive cause, and this key stands under that finding, never as one of its own."
+		"note": "The relative XPath extra in hq-case-lists/named-callout is refused as one configuration under lookup-enabled-lookup-action. The fixed-text extras have their own retained variant."
 	},
 	"menus-and-case-lists/lookup-image-jr": {
-		"reason": "stated-by-its-part",
-		"note": "Part 07 decided it (its section 11.1): a callout is one finding under its decisive cause, and this key stands under that finding, never as one of its own."
-	},
-	"menus-and-case-lists/lookup-name": {
-		"reason": "stated-by-its-part",
-		"note": "Part 07 decided it (its section 11.1): a callout is one finding under its decisive cause, and this key stands under that finding, never as one of its own."
-	},
-	"menus-and-case-lists/lookup-responses-key": {
 		"reason": "stated-by-its-part",
 		"note": "Part 07 decided it (its section 11.1): a callout is one finding under its decisive cause, and this key stands under that finding, never as one of its own."
 	},

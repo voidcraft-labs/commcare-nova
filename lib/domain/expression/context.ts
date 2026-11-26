@@ -825,9 +825,8 @@ export function slotContext(
 				!declaration.repeatModes.includes(field.repeatMode as never))
 		)
 			return undefined;
-		if (slot.slot === "option_label" && !field.choices?.kind) return undefined;
 		if (
-			slot.slot === "option_label" &&
+			(slot.slot === "option_label" || slot.slot === "option_extended_text") &&
 			(field.choices?.kind !== "inline" ||
 				!field.choices.options.some(
 					(option) => option.uuid === slot.member.optionUuid,
@@ -881,7 +880,8 @@ export function slotContext(
 		);
 		if (slot.slot === "lookup_options_source") {
 			const choices = field.choices;
-			if (choices === undefined || choices.kind === "inline") return undefined;
+			if (choices?.kind !== "lookup" && choices?.kind !== "cases")
+				return undefined;
 			profile = slotProfile(
 				"record",
 				choices.kind === "cases" ? "case" : "table",
@@ -1087,6 +1087,7 @@ export function slotContext(
 				slot.slot === "case_operation_condition" ||
 				slot.slot === "case_operation_close_condition" ||
 				slot.slot === "case_operation_owner_condition" ||
+				slot.slot === "case_operation_type_condition" ||
 				slot.slot === "case_operation_write_condition";
 			const target =
 				(slot.slot === "case_operation_target_expression" &&

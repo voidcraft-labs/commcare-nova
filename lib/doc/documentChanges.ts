@@ -357,6 +357,10 @@ function formFieldOrder(doc: BlueprintDoc, form: string): string[] {
 /** The slot path of each media reference `walkAssetRefs` visits. */
 function mediaSlotPath(doc: BlueprintDoc, ref: AssetRef): readonly string[] {
 	const location = ref.location;
+	const icon = location.translationOverride ? "iconOverride" : "icon";
+	const audio = location.translationOverride
+		? "audioLabelOverride"
+		: "audioLabel";
 	const language =
 		location.language === undefined
 			? []
@@ -368,16 +372,16 @@ function mediaSlotPath(doc: BlueprintDoc, ref: AssetRef): readonly string[] {
 		case "app_logo":
 			return ["logo"];
 		case "module_icon":
-			return ["modules", location.moduleUuid, ...language, "icon"];
+			return ["modules", location.moduleUuid, ...language, icon];
 		case "module_audio_label":
-			return ["modules", location.moduleUuid, ...language, "audioLabel"];
+			return ["modules", location.moduleUuid, ...language, audio];
 		case "case_list_icon":
 			return [
 				"modules",
 				location.moduleUuid,
 				"caseListMenuItem",
 				...language,
-				"icon",
+				icon,
 			];
 		case "case_list_audio_label":
 			return [
@@ -385,7 +389,7 @@ function mediaSlotPath(doc: BlueprintDoc, ref: AssetRef): readonly string[] {
 				location.moduleUuid,
 				"caseListMenuItem",
 				...language,
-				"audioLabel",
+				audio,
 			];
 		case "case_list_registration_icon":
 			return [
@@ -393,7 +397,7 @@ function mediaSlotPath(doc: BlueprintDoc, ref: AssetRef): readonly string[] {
 				location.moduleUuid,
 				"caseListRegistrationForm",
 				...language,
-				"icon",
+				icon,
 			];
 		case "case_list_registration_audio_label":
 			return [
@@ -401,12 +405,12 @@ function mediaSlotPath(doc: BlueprintDoc, ref: AssetRef): readonly string[] {
 				location.moduleUuid,
 				"caseListRegistrationForm",
 				...language,
-				"audioLabel",
+				audio,
 			];
 		case "form_icon":
-			return ["forms", location.formUuid, ...language, "icon"];
+			return ["forms", location.formUuid, ...language, icon];
 		case "form_audio_label":
-			return ["forms", location.formUuid, ...language, "audioLabel"];
+			return ["forms", location.formUuid, ...language, audio];
 		case "field_media_bundle":
 			return [
 				"fields",

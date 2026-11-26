@@ -342,6 +342,12 @@ function fieldItextUnits(
 		for (const option of field.optionsSource.options) {
 			ids.push(
 				makeTranslationUnitId("field", field.uuid, "option", option.uuid),
+				makeTranslationUnitId(
+					"field",
+					field.uuid,
+					"option_extended_text",
+					option.uuid,
+				),
 			);
 		}
 	}
@@ -416,10 +422,20 @@ function projectFieldWithUnits(
 				const unit = units.get(
 					makeTranslationUnitId("field", field.uuid, "option", option.uuid),
 				);
-				if (unit === undefined) return option;
+				const extended = units.get(
+					makeTranslationUnitId(
+						"field",
+						field.uuid,
+						"option_extended_text",
+						option.uuid,
+					),
+				);
 				return {
 					...option,
-					label: read(unit) as typeof option.label,
+					...(unit && { label: read(unit) as typeof option.label }),
+					...(extended && {
+						extended_text: read(extended) as typeof option.label,
+					}),
 				};
 			},
 		);
