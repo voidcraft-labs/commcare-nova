@@ -1797,13 +1797,18 @@ the action pushes the form's command and its new case's `uuid()` datum, and the 
 puts the new case into the host's load datum (`case_id_<tag>`).
 
 **A label with no text.** Where a block made in CommCare HQ holds a label that yields no text
-in a language, HQ's build writes "Create a new Case" there
+in a language, HQ's build writes its fallback words there
 (`app_strings.py::_create_case_list_form_app_strings`): in every language where no language
-holds text, and in each language whose value is an empty string. A label Nova writes always
-holds text: the slot's `label`, else the form's name. The reader of CommCare HQ's apps reads
-such a label as the text HQ's build writes, "Create a new Case" in each of those languages
-(`lib/commcare/reader/menus/registration.ts`, through `modules.ts::labelAsBuilt`), and records
-the spelling the first publish writes in its place under the register row
+holds text, and in each language whose value is an empty string. The words follow the project
+space's FOLLOWUP_FORMS_AS_CASE_LIST_FORM setting: with it on, "Continue To <form name>" (the
+form's name as HQ's build reads it in that language); without it, "Create a new Case". A label
+Nova writes always holds text: the slot's `label`, else the form's name. The reader of CommCare
+HQ's apps reads such a label as the words HQ's build writes for the project space it came from,
+in each of those languages (`lib/commcare/reader/menus/registration.ts::emptyLabelText`, from
+the reading's `caseListActionsApplied`, through `modules.ts::labelAsBuilt`). A reading asks the
+project space for that setting wherever a button's label falls back in some language
+(`lib/commcare/hq/caseListActionSetting.ts::sourceUsesCaseListActionSetting`). The reader
+records the spelling the first publish writes in its place under the register row
 `registration-label-fixed`.
 
 **The button by platform.** Web Apps draws the action's text alone
