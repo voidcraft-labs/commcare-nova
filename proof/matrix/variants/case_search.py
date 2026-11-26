@@ -16,6 +16,7 @@ import copy
 import json
 
 from proof.matrix import ops
+from proof.matrix.bases import _pages
 
 SESSION = "instance('commcaresession')/session"
 
@@ -456,10 +457,14 @@ def child_menu_selecting_from_the_search_reads_it(authoring, app_id):
     its child menu, choosing a household from Households' list before its own member; and Members' Followup Form
     showing ``status_note`` where Households' village answer is ``north``. HQ's build writes Households' query into
     the entry ahead of that choice (``entries.py::EntriesHelper.add_remote_query_datums``), so the form reads the
-    answers its own entry loaded. The results instance of its own HQ's build needs of Members is distinct from Households'."""
+    answers its own entry loaded. The Web Apps witness has a case-first parent and a distinct name on the child.
+    Remove the base's ordinary registration and Android-only date-time form, which exercise separate contracts."""
+    _pages.delete_form(authoring, app_id, 0, 3)
+    _pages.delete_form(authoring, app_id, 0, 0)
     _set_each(
         authoring,
         app_id,
+        ("/cloudcare_enabled", True),
         ("/modules/1/search_config/instance_name", "members"),
         ("/modules/0/search_config/properties", [_field("village", "Village")]),
         ("/modules/0/search_config/inline_search", True),

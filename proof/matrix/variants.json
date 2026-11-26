@@ -16797,6 +16797,7 @@
 	{
 		"id": "hq-case-management/child-menu-selecting-from-the-search-reads-it",
 		"base": "hq-case-management",
+		"declaration": { "runsOnlyOn": "web-apps", "splitDatetime": false },
 		"entry": "expressions-and-data/search-input-read-in-the-forms-of-a-child-menu-of-an-inline-search-menu",
 		"change": {
 			"op": "named",
