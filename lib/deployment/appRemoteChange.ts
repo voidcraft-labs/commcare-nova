@@ -76,9 +76,8 @@ export function appRemoteChange(input: {
 	/**
 	 * Menu layouts on CommCare HQ no baseline accounts for that this publish
 	 * would replace (`legacyMenuLayouts.ts::legacyMenuLayoutLines`). They are
-	 * a function of the document at the head the authority names, the
-	 * target's menu ids and the read the digest names, so the digest a
-	 * person confirms already binds them. Listed first, whatever the baseline.
+	 * a function of the head, the target's menu ids and the current HQ read.
+	 * The overwrite receipt includes the exact lines the person saw.
 	 */
 	readonly layoutReplacements?: readonly string[];
 }): DeploymentRemoteChange | null {
@@ -105,21 +104,21 @@ export function appRemoteChange(input: {
 		parts: readonly string[],
 		baselineKnown: boolean,
 	): DeploymentRemoteChange => {
-		const full = [
-			...(input.legacyLanguageRemoval ? [input.legacyLanguageRemoval] : []),
-			...lines,
-			...parts,
-		];
-		const shown = boundedParts(full);
+		const priority = input.legacyLanguageRemoval
+			? [input.legacyLanguageRemoval]
+			: [];
+		const shown = boundedParts([...priority, ...lines, ...parts]);
 		const truncated = fileDisclosureTruncated(
 			lines.length,
-			parts.length + Number(input.legacyLanguageRemoval !== undefined),
+			parts.length,
+			priority.length,
 		);
 		const complete = hqDiscardDigest(
 			input.authority,
 			input.current.digest,
 			removed,
 			"complete",
+			layouts,
 		);
 		const reviewed = input.discards?.some(
 			(discard) =>
@@ -145,7 +144,13 @@ export function appRemoteChange(input: {
 					: null,
 			observedDigest: reviewed
 				? complete
-				: hqDiscardDigest(input.authority, input.current.digest, removed),
+				: hqDiscardDigest(
+						input.authority,
+						input.current.digest,
+						removed,
+						"preview",
+						layouts,
+					),
 			baselineKnown,
 			since: input.since,
 			canBringIn: baselineKnown && input.canBringIn,

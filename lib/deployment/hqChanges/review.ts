@@ -136,6 +136,7 @@ import {
 	removedHqFiles,
 	unapprovedHqFiles,
 } from "../hqSourceBaseline";
+import { legacyMenuLayoutLines } from "../legacyMenuLayouts";
 import {
 	type AcceptedDeclaration,
 	acceptReadingSteps,
@@ -286,13 +287,14 @@ export function reviewMatchingSource(
 		reported: NO_ENTRIES,
 		settled: published,
 	});
-	if (!hqMediaRecordMoves(baseline.mediaFiles, next)) return unchanged(since);
+	if (!hqMediaRecordMoves(baseline.mediaFiles, next))
+		return unchanged(since, basis.layoutReplacements);
 	return {
 		kind: "nothing",
 		reason: "reads-the-same",
 		since,
 		hqChanges: [],
-		publishChanges: [],
+		publishChanges: basis.layoutReplacements,
 		readingId: basis.readingId,
 		reviewDigest: hqChangesReviewDigest({
 			identity: { read: targetIdentity, next: targetIdentity },
@@ -412,6 +414,8 @@ export interface HqChangesBasis {
 	readonly observedAt: string;
 	readonly remoteRevision: number;
 	readonly source: HqAppSource;
+	/** Layouts an overwrite from the current Nova head would replace. */
+	readonly layoutReplacements: readonly string[];
 	readonly modules: readonly HqAlignedModule[];
 	readonly normalized: {
 		readonly normalized: unknown;
@@ -634,13 +638,14 @@ function unavailable(
 
 function unchanged(
 	since: DriftReference,
+	publishChanges: readonly string[] = [],
 ): Extract<HqChangesReview, { kind: "nothing" }> {
 	return {
 		kind: "nothing",
 		reason: "unchanged",
 		since,
 		hqChanges: [],
-		publishChanges: [],
+		publishChanges,
 		readingId: null,
 		reviewDigest: null,
 	};
@@ -1177,9 +1182,6 @@ async function computeWith(
 			break;
 	}
 	const { source, modules } = reading;
-	mayOfferDiscard =
-		source.multimediaMap !== null &&
-		!fileDisclosureTruncated(source.multimediaMap.length, 1);
 	sourceBytes = await pieces
 		.at("the source's size")
 		.run(() => Buffer.byteLength(JSON.stringify(source.raw)));
@@ -1229,6 +1231,19 @@ async function computeWith(
 	if (reference === null)
 		return answer({ kind: "stop", finding: atApp("changed-while-reading") });
 	const targetIdentity = await readTargetIdentity(scope, target);
+	const layoutReplacements = legacyMenuLayoutLines({
+		doc: head.doc,
+		identity: exportIdentityOf(head.doc, targetIdentity).identity,
+		source,
+		ownership: baseline.ownership,
+	});
+	mayOfferDiscard =
+		source.multimediaMap !== null &&
+		!fileDisclosureTruncated(
+			source.multimediaMap.length,
+			1,
+			layoutReplacements.length,
+		);
 	if (reference.kind !== "ok") {
 		/* With no reference there are no files to settle by content. An
 		 * observed move still needs the missing reference for a full reading. */
@@ -1264,7 +1279,7 @@ async function computeWith(
 				recordedHqFilePaths(baseline.mediaFiles, source.multimediaMap ?? []),
 			)
 		)
-			return answer(unchanged(since));
+			return answer(unchanged(since, layoutReplacements));
 		logUnavailable(scope, operation, reference.kind);
 		return answer(unavailable(reference.kind, since));
 	}
@@ -1333,20 +1348,30 @@ async function computeWith(
 		observedAt,
 		remoteRevision: reading.version,
 		source,
+		layoutReplacements,
 		modules,
 		normalized,
 		published,
 		learned,
 		ownRows: await ownAssetRows(published, scope.projectId),
 	};
+	const trailingLines =
+		parts.length +
+		Number(legacyLocationDiffers) +
+		Number(unownedAndroidSelection);
 	const hiddenFiles =
-		fileDisclosureTruncated(source.multimediaMap?.length ?? 0, parts.length) &&
+		fileDisclosureTruncated(
+			source.multimediaMap?.length ?? 0,
+			trailingLines,
+			layoutReplacements.length,
+		) &&
 		fileDisclosureTruncated(
 			unapprovedHqFiles(
 				await prospectiveFileLosses(basis, head.doc, targetIdentity, []),
 				baseline.approvedFileRemovals,
 			).length,
-			parts.length,
+			trailingLines,
+			layoutReplacements.length,
 		);
 	mayOfferDiscard = !hiddenFiles;
 	if (
@@ -2040,6 +2065,7 @@ export async function checkHqChanges(
 		targetIdentity: recorded,
 	};
 	const reviewLines = [
+		...fetched.layoutReplacements,
 		...(legacy
 			? [
 					priorNext
@@ -2109,7 +2135,7 @@ export async function checkHqChanges(
 				reason: plan.kind === "nothing" ? "reads-the-same" : "already-here",
 				since: fetched.since,
 				hqChanges: whereHqKeeps,
-				publishChanges,
+				publishChanges: [...fetched.layoutReplacements, ...publishChanges],
 				readingId: fetched.readingId,
 				reviewDigest: built.reviewDigest,
 			},
@@ -2127,7 +2153,10 @@ export async function checkHqChanges(
 			kind: "changes",
 			...(cannotDiscard && { requiresReview: true }),
 			...(changedFiles.length > 0 && {
-				fileReviewLines: changedFiles.length + Number(legacy),
+				fileReviewLines:
+					fetched.layoutReplacements.length +
+					changedFiles.length +
+					Number(legacy),
 			}),
 			since: fetched.since,
 			hqChanges: [
@@ -2163,6 +2192,7 @@ export async function checkHqChanges(
 				fetched.normalized.digest,
 				discardedFiles,
 				cannotDiscard ? "unavailable" : "complete",
+				fetched.layoutReplacements,
 			),
 			renamedInNova: plan.kind === "changes" ? plan.renamedInNova : [],
 			tables: built.tables,

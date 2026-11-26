@@ -1,6 +1,9 @@
 import type { Field, Platform, SingleSelectField } from "@/lib/domain";
 import { proseTemplateText } from "@/lib/domain";
-import { choiceLayoutForPlatform } from "@/lib/domain/questionDisplay";
+import {
+	choiceLayoutForPlatform,
+	questionReceiverProperty,
+} from "@/lib/domain/questionDisplay";
 import type { FieldState } from "./engine/types";
 
 /** HQ creates one form-level channel hub and a new hub for each concrete
@@ -20,7 +23,7 @@ export function receivedAnswer(
 	platform: Platform,
 ): string | undefined {
 	if (!field.receiveFrom) return undefined;
-	const property = field.receiveFrom.field;
+	const property = questionReceiverProperty(field.receiveFrom.field);
 	if (
 		field.kind === "text" ||
 		field.kind === "secret" ||

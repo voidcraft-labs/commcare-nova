@@ -352,12 +352,18 @@ export function describePlaceChange(part: PlaceChangePart): string {
 	}
 }
 
-/** File removals precede ordinary differences; the overflow line itself occupies a slot. */
+/** File removals follow priority warnings and precede ordinary differences.
+ * The overflow line itself occupies a slot. */
 export function fileDisclosureTruncated(
 	files: number,
-	otherLines: number,
+	trailingLines: number,
+	priorityLines = 0,
 ): boolean {
-	return files >= MAX_PART_LINES && files + otherLines > MAX_PART_LINES;
+	return (
+		files > 0 &&
+		priorityLines + files >= MAX_PART_LINES &&
+		priorityLines + files + trailingLines > MAX_PART_LINES
+	);
 }
 
 /** At most 20 lines; past 20 the last line is "and N more". */
