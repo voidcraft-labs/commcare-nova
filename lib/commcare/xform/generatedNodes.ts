@@ -99,6 +99,7 @@ import { writesMoment } from "@/lib/domain/fieldValueType";
 import { effectiveQueryRepeatPlacement } from "@/lib/domain/queryRepeatPlacement";
 import { planRepeatCountCarriers } from "@/lib/domain/repeatCount";
 import { planFormCaseWire } from "../casePlacementPlan";
+import { XML_ELEMENT_NAME_REGEX } from "../constants";
 import { emissionPlan } from "../emissionPlan";
 import { placedBasic, readsTrimmedSibling } from "../placement";
 import { queryRepeatNodeReads } from "./builder";
@@ -557,7 +558,10 @@ function allocateGeneratedNodes(
 		const children = (structure.fieldOrder.get(parentUuid) ?? []).flatMap(
 			(uuid) => {
 				const field = doc.fields[uuid];
-				return field === undefined ? [] : [field];
+				// Validation can plan the valid scopes while a field ID is still invalid.
+				return field !== undefined && XML_ELEMENT_NAME_REGEX.test(field.id)
+					? [field]
+					: [];
 			},
 		);
 		const scopeKey: Uuid | undefined = root ? undefined : parentUuid;

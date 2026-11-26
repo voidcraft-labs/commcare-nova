@@ -24,6 +24,7 @@ import {
 	type SaveToCaseBlock,
 	saveToCaseBlocks,
 } from "@/lib/commcare/casePlacementPlan";
+import { XML_ELEMENT_NAME_REGEX } from "@/lib/commcare/constants";
 import {
 	el,
 	type WireElementContext,
@@ -2939,6 +2940,8 @@ export function authoredCaseChangePaths(
 	return paths;
 }
 
+/** Project the fields that have wire paths. The field rule owns invalid IDs,
+ * and neither an invalid element nor its descendants have an XForm path. */
 export function collectFieldLocations(
 	doc: BlueprintDoc,
 	formUuid: Uuid,
@@ -2952,7 +2955,8 @@ export function collectFieldLocations(
 	): void => {
 		for (const uuid of layout.children.get(parentUuid) ?? []) {
 			const field = doc.fields[uuid];
-			if (field === undefined) continue;
+			if (field === undefined || !XML_ELEMENT_NAME_REGEX.test(field.id))
+				continue;
 			const path = parentPath.child(field.id);
 			const fieldRepeat = field.kind === "repeat" ? uuid : repeat;
 			result.set(uuid, { path, repeat: fieldRepeat });

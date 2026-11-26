@@ -151,6 +151,15 @@ it("admits disjoint authored and HQ-managed writes and refuses the order-sensiti
 			}),
 		}),
 	]);
+
+	// An invalid question name cannot prevent the position rule from reporting
+	// the same operation conflict in the candidate.
+	doc.fields[TEXT] = { ...doc.fields[TEXT], id: "first.name" };
+	const faults = validateCandidate(doc);
+	expect(faults.map(({ code }) => code)).toEqual([
+		"CASE_CHANGE_POSITION_INVALID",
+		"INVALID_FIELD_ID",
+	]);
 });
 
 it("admits one action for a closing block that only saves case properties", () => {

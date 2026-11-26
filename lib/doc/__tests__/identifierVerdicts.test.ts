@@ -692,6 +692,13 @@ describe("each verdict agrees with the commit gate", () => {
 			availableLookupContext([]),
 		);
 		expect(candidate.ok).toBe(verdict.ok);
+		if (!candidate.ok && !verdict.ok && verdict.code === "illegal_xml_name")
+			expect(candidate.findings).toContainEqual(
+				expect.objectContaining({
+					code: "INVALID_FIELD_ID",
+					location: expect.objectContaining({ fieldUuid: AGE, fieldId: id }),
+				}),
+			);
 	});
 
 	/** A registration form of `caseType` whose answer saves to `property`. */

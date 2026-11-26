@@ -17,7 +17,6 @@ import {
 	findOnDeviceDateAddIssue,
 	type OnDeviceDateAddIssue,
 } from "@/lib/commcare/validator/onDeviceCompatibility";
-import { collectFieldLocations } from "@/lib/commcare/xform/caseOps";
 import { saveToCaseActions } from "@/lib/commcare/xform/saveToCaseActions";
 import { formNodeProjection } from "@/lib/commcare/xpath/formNodeProjection";
 import { w } from "@/lib/commcare/xpath/wire/builders";
@@ -38,6 +37,7 @@ import {
 	CASE_OPERATION_IDENTIFIER_FORMAT_MESSAGE,
 	CASE_OPERATION_LINK_IDENTIFIER_FORMAT_MESSAGE,
 	CASE_OPERATION_PROPERTY_FORMAT_MESSAGE,
+	type CaseChangeField,
 	type CaseFacetOnlyIfChanged,
 	type CaseOperation,
 	type CaseOperationWrite,
@@ -118,6 +118,7 @@ import {
 } from "@/lib/domain/questionId";
 import { expressionSlotValues } from "@/lib/domain/referenceSlots";
 import { WRITABLE_STANDARD_CASE_PROPERTY_WORDS } from "@/lib/domain/standardCaseProperties";
+import { submissionLayout } from "@/lib/domain/submissionLayout";
 import { addressesWorkerRecord } from "@/lib/domain/workerRecordRequirements";
 import {
 	entryDatumIdResolver,
@@ -408,19 +409,30 @@ export function validateCaseOperations(
 		caseType: module.caseType,
 	});
 	const positions = new Set<Uuid>();
-	const locations = collectFieldLocations(doc, formUuid);
-	const positioned = new Set(
-		[...locations.keys()].flatMap((uuid) => {
+	// Position checks need submitted order and the enclosing repeat, even
+	// when an ID in that tree cannot yet be used as an XForm element name.
+	const { children } = submissionLayout(formUuid, doc.fields, doc.fieldOrder);
+	const caseChangeLocations = new Map<
+		Uuid,
+		{ field: CaseChangeField; repeat: Uuid | undefined }
+	>();
+	const walkPositions = (parent: Uuid, repeat: Uuid | undefined) => {
+		for (const uuid of children.get(parent) ?? []) {
 			const field = doc.fields[uuid];
-			return field?.kind === "case_change" ? [field.operationUuid] : [];
-		}),
+			if (field === undefined) continue;
+			if (field.kind === "case_change")
+				caseChangeLocations.set(uuid, { field, repeat });
+			walkPositions(uuid, field.kind === "repeat" ? uuid : repeat);
+		}
+	};
+	walkPositions(formUuid, undefined);
+	const positioned = new Set(
+		[...caseChangeLocations.values()].map(({ field }) => field.operationUuid),
 	);
 	const byUuid = new Map(
 		operations.map((operation) => [operation.uuid, operation]),
 	);
-	for (const [uuid, location] of locations) {
-		const field = doc.fields[uuid];
-		if (field.kind !== "case_change") continue;
+	for (const [uuid, { field, repeat }] of caseChangeLocations) {
 		const operation = byUuid.get(field.operationUuid);
 		const invalid =
 			operation === undefined
@@ -433,7 +445,7 @@ export function validateCaseOperations(
 							reason: "duplicate-position",
 							message: "Keep just one position for this case change.",
 						}
-					: operation.forEach?.repeat !== location.repeat
+					: operation.forEach?.repeat !== repeat
 						? {
 								reason: "repeat-scope",
 								message:
