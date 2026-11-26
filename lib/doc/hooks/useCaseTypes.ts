@@ -20,6 +20,7 @@ import {
 	materializableCaseTypes,
 	propertyAgreedType,
 } from "@/lib/domain";
+import { entryCaseTypes } from "@/lib/domain/effectiveCaseTypes";
 import { useBlueprintDoc } from "./useBlueprintDoc";
 
 const EMPTY: readonly CaseType[] = [];
@@ -74,4 +75,9 @@ export function usePropertyAgreedType(
  */
 export function useMaterializableCaseTypes(): readonly CaseType[] {
 	return useBlueprintDoc((s) => materializableCaseTypes(s));
+}
+
+/** The running app may list the worker's own record. */
+export function useEntryCaseTypes(): readonly CaseType[] {
+	return useBlueprintDoc((s) => entryCaseTypes(s));
 }

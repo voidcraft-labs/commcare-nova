@@ -467,10 +467,9 @@
 		"item": "`ShadowForm`",
 		"surfaceKeys": ["schema:ShadowForm", "schema:FormBase.doc_type"],
 		"valueClass": "shadow-form",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `Form.shadowOf` (Shadow forms)",
-		"subject": "shadow-forms",
-		"owner": "forms-and-case-management",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: `Form.shadowOf`",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -2045,10 +2044,8 @@
 			"schema:ShadowForm.submit_label"
 		],
 		"valueClass": "non-default",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `Form.submitLabel` (editor: Bulk App Translations edits the existing string)",
-		"subject": "form-settings",
-		"owner": "forms-and-case-management",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: The form owns its Web Apps submit wording. The stored wording keeps sparse language keys. A blank language inherits the built default. Android draws its own finish action.",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / IGNORED",
@@ -2063,7 +2060,8 @@
 			"cell": "`submit_label{lang}`",
 			"markers": []
 		},
-		"gates": []
+		"gates": [],
+		"slotChanges": []
 	},
 	{
 		"id": "forms-and-case-writes/submit-notification-label",
@@ -3139,10 +3137,9 @@
 			"schema:LoadUpdateAction.case_properties"
 		],
 		"valueClass": "facet-key-through-index",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: a rename or an owner of the case above: HQ's build writes `name` as that case's `case_name` and `owner_id` as its owner (`xform.py::XFormCaseBlock.add_case_updates`, over `XForm._add_case_updates`), and `case-reserved-words.json` holds neither, while Nova renames and gives an owner only to an operation's own case (`standardCaseProperties.ts::FORBIDDEN_CASE_OPERATION_WRITE_PROPERTIES`)",
-		"subject": "case-property-names",
-		"owner": "forms-and-case-management",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: a write of the reached case's `case_name` or `owner_id` through `via` on the form's own case (`standardCaseProperties.ts::CASE_FACETS_THROUGH_INDEX`): HQ's build writes `name` as that case's `case_name` and `owner_id` as its owner in the block of the case the index reaches (`xform.py::XFormCaseBlock.add_case_updates`, over `XForm._add_case_updates`), which Core sets as the case's name and owner (`CaseXmlParser.updateCase`) and HQ's server as its name and known owner (`update_strategy.py::SqlCaseUpdateStrategy._apply_update_action`); the case store sets the reached row's name and owner as an operation's own rename and owner (`postgres/submissionEnvelope.ts`), a name is trimmed and refused blank as every case name is (`caseScalarTextGuard.ts`), and Nova's export writes the same key back",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -3154,8 +3151,8 @@
 			}
 		},
 		"emission": {
-			"cell": "omit",
-			"markers": ["omit"]
+			"cell": "the key",
+			"markers": []
 		},
 		"gates": []
 	},
@@ -3378,7 +3375,7 @@
 		"id": "forms-and-case-writes/update-keys-location-id-hq-user-id",
 		"area": "forms-and-case-writes",
 		"section": "Basic form actions",
-		"item": "update keys `location_id`, `hq_user_id`, on the form's own case, a case above it (`parent/location_id`) or the worker's record (`usercase_update`), and the same keys of a child case's, an advanced load's or an advanced open action's `case_properties`, each from a question that is not an upload, and a SaveToCase block's `update/location_id` or `update/hq_user_id`, on any case",
+		"item": "update keys `location_id`, `hq_user_id`, on the form's own case, a case above it (`parent/location_id`) or the worker's record (`usercase_update`, `location_id` alone), and the same keys of a child case's, an advanced load's or an advanced open action's `case_properties`, each from a question that is not an upload, and a SaveToCase block's `update/location_id` or `update/hq_user_id`, on any case but `hq_user_id` on the worker's record (`a-write-of-the-worker-s-record-to-a-key-no-worker-property-takes`)",
 		"surfaceKeys": [
 			"schema:Form.actions",
 			"schema:FormActions.update_case",
@@ -3389,10 +3386,9 @@
 			"xform:model/instance//*"
 		],
 		"valueClass": "location-id-hq-user-id-keys",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: a write CommCare HQ stores elsewhere: `location_id` becomes the case's own column and `hq_user_id` is copied to its external id (`update_strategy.py::_apply_update_action`), whichever action wrote the key, since HQ's build writes every one of them as an element of the case block's `<update>` (`xform.py::XFormCaseBlock.add_case_updates`, called for a basic update, a case above, the worker's record, a child case, an advanced load and an open action), and as HQ's form builder writes a SaveToCase block's (`saveToCase.js`, whose property names take no reserved words), which HQ's build checks no key of (`helpers/validators.py::IndexedFormBaseValidator.check_case_properties` reads only the actions'); an action's key whose question is an upload names an `<attachment>` instead (`is_attachment`), which is the upload question's row (`update-from-an-upload-question-attachment-mode`)",
-		"subject": "case-property-names",
-		"owner": "forms-and-case-management",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the case's own location and a copy of its external id, as CommCare HQ's server stores the two keys whichever action wrote them (`update_strategy.py::SqlCaseUpdateStrategy._apply_update_action`, over `xform.py::XFormCaseBlock.add_case_updates`): `location_id` is an opaque text the case store keeps in the case's `location_id` column (`standardCaseProperties.ts::WRITABLE_STANDARD_CASE_PROPERTIES`) and a device reads as the case's `location_id` property, and `hq_user_id` is a property whose value the case store also copies into the case's external id, which the submitting device keeps as it was until its next sync (`postgres/submissionEnvelope.ts::partitionWrites`); HQ's case search indexes no location (`corehq/pillows/case_search.py::_get_case_properties`), so a search's read of `location_id` is refused (`location-not-in-search`); an action's key whose question is an upload names an `<attachment>` instead (`is_attachment`), the upload question's row (`update-from-an-upload-question-attachment-mode`)",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -3413,7 +3409,7 @@
 		"id": "forms-and-case-writes/a-write-of-the-worker-s-record-to-a-key-no-worker-property-takes",
 		"area": "forms-and-case-writes",
 		"section": "Basic form actions",
-		"item": "a write of the worker's record (`usercase_update`, an advanced load auto-selected by `usercase`, a SaveToCase block of `commcare-user`) to a key no worker property takes: one HQ's user-case sync keeps in step with the worker's profile (`case_name`, `name`, `owner_id`, `case_type`, `first_name`, `username`, `email`, …), or a name HQ's user data or Nova refuses for a worker property (`external_id`, `user_type`, a `commcare` or `xml` prefix, a case-reserved word in any capitalization such as `Status`, past 127 characters), other than `location_id` and `hq_user_id` (`update-keys-location-id-hq-user-id`) and a key HQ's build refuses",
+		"item": "a write of the worker's record (`usercase_update`, an advanced load auto-selected by `usercase`, a SaveToCase block of `commcare-user`) to a key no worker property takes: one HQ's user-case sync keeps in step with the worker's profile (`case_name`, `name`, `owner_id`, `case_type`, `first_name`, `username`, `email`, …), or a name HQ's user data or Nova refuses for a worker property (`external_id`, `user_type`, a `commcare` or `xml` prefix, a case-reserved word in any capitalization such as `Status`, past 127 characters), `hq_user_id` among them, other than `location_id` (`update-keys-location-id-hq-user-id`) and a key HQ's build refuses",
 		"surfaceKeys": [
 			"schema:UpdateCaseAction.update",
 			"schema:LoadUpdateAction.case_properties",
@@ -3882,7 +3878,7 @@
 		],
 		"valueClass": "load-as-default-same-state",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: the question's default value reading `#case/<property>`: HQ appends each load as an `xforms-ready` setvalue after every Vellum setvalue in the form (`XForm.add_case_preloads`), so the load replaces any default of the question's own, and by the condition the move changes nothing",
+		"dispositionCell": "**HELD**: the owning load assigns the selected record's property once when the form opens. A previously adopted equivalent field default stays in its recorded representation while its original source and dependencies agree.",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
@@ -3895,7 +3891,7 @@
 			}
 		},
 		"emission": {
-			"cell": "a Vellum default value: `#case/<prop>` in the XForm (for `name`, `#case/case_name`; for `owner_id`, the expanded casedb path ending in `/@owner_id`, since HQ loads those from `case_name` and the `@owner_id` attribute, `XForm.add_case_preloads`); Nova writes no basic `case_preload`",
+			"cell": "the retained case action or the earlier equivalent field default, with the selected property and question unchanged",
 			"markers": []
 		},
 		"gates": []
@@ -3971,19 +3967,24 @@
 			"schema:PreloadAction.preload"
 		],
 		"valueClass": "load-changes-values",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: a preload held with its place at the end of the load: HQ appends it after every setvalue the form holds (`xform.py::XForm.add_case_preloads`), and a default value runs at the question's place. The basic Case Management page draws no load section, and its save keeps a stored `case_preload` (`forms/case_config_ui.js::HQFormActions.from_case_transaction`)",
-		"subject": "case-preloads",
-		"owner": "forms-and-case-management",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the ordered starting assignment runs after the form's authored ready values and retains the destination's own initial value and calculation",
 		"platforms": {
-			"kind": "not-applicable",
-			"cell": "n/a"
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
 		},
 		"emission": {
-			"cell": "omit",
-			"markers": ["omit"]
+			"cell": "the source form's case preload on a retained basic form, or the owning advanced load",
+			"markers": []
 		},
-		"gates": []
+		"gates": [],
+		"slotChanges": []
 	},
 	{
 		"id": "forms-and-case-writes/case-preload-from-parent-paths-into-a-question-outside-any",
@@ -3997,7 +3998,7 @@
 		],
 		"valueClass": "parent-path",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: default value reading the ancestor property (`#case/parent/<prop>`, and `#case/grandparent/<prop>` for `parent/parent/…`), under the same condition",
+		"dispositionCell": "**HELD**: the owning load assigns the selected record's property once when the form opens. A previously adopted equivalent field default stays in its recorded representation while its original source and dependencies agree.",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
@@ -4010,7 +4011,7 @@
 			}
 		},
 		"emission": {
-			"cell": "an XForm setvalue: the Vellum default value, with the `#case/parent/` or `#case/grandparent/` hashtag only where HQ's parent-type map gives the case type that ancestor, and otherwise the expanded casedb path alone, as for a deeper ancestor (the next row; XPath functions and structure, `#case/parent/<prop>`); Nova writes no basic `case_preload`",
+			"cell": "the retained case action or the earlier equivalent field default, with the selected property and question unchanged",
 			"markers": []
 		},
 		"gates": []
@@ -4026,10 +4027,8 @@
 			"schema:PreloadAction.preload"
 		],
 		"valueClass": "other-index-path",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: a default value reading that ancestor's property through the expanded casedb path (typed expression model), since Vellum's `#case/` names only `parent` and `grandparent` (`app_schemas/casedb_schema.py`)",
-		"subject": "case-preloads",
-		"owner": "forms-and-case-management",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the selected record's property through each named direct connection, in source order, with a missing connection reading blank",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -4041,10 +4040,11 @@
 			}
 		},
 		"emission": {
-			"cell": "Vellum default value with the expanded path",
+			"cell": "each original index identifier, followed by the property on the owning load",
 			"markers": []
 		},
-		"gates": []
+		"gates": [],
+		"slotChanges": []
 	},
 	{
 		"id": "forms-and-case-writes/case-preload-into-a-question-inside-a-repeat",
@@ -4057,17 +4057,24 @@
 			"schema:PreloadAction.preload"
 		],
 		"valueClass": "inside-repeat",
-		"disposition": "INERT",
-		"dispositionCell": "**INERT**: HQ loads it with an `xforms-ready` setvalue (`XForm.add_case_preloads`; executed), which runs before any row exists and fills none, in a user-added or a counted repeat (executed in Core)",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the opening assignment addresses the repeat instances present when the form becomes ready; a template alone supplies no target",
 		"platforms": {
-			"kind": "not-applicable",
-			"cell": "n/a"
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
 		},
 		"emission": {
-			"cell": "omit",
-			"markers": ["omit"]
+			"cell": "the owning case load retains the repeat question's data path",
+			"markers": []
 		},
-		"gates": []
+		"gates": [],
+		"slotChanges": []
 	},
 	{
 		"id": "forms-and-case-writes/usercase-update-with-condition-always-or-if-read-as-always-xform",
@@ -4665,10 +4672,9 @@
 			"schema:FormActionCondition.operator"
 		],
 		"valueClass": "condition-is-true-not-yes-no",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: a record condition that reads an answer alone as CommCare reads it, true wherever the answer is not empty (`FunctionUtils.toBoolean`); a hidden value a condition calculates is held as the condition it reads (`subcases[].condition: if`)",
-		"subject": "child-cases",
-		"owner": "forms-and-case-management",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: a case change's condition holding the explicit operation `boolean(...)` of the question (`reader/caseManagement/conditions.ts::effectiveBooleanConditions`), which reads an answer alone as CommCare reads it, true wherever the answer is not empty, a text or choice answer of `0` and the text `false` included, and false for a number answered `0` (`FunctionUtils.toBoolean`, over `XPathConditional.eval` of the question's path HQ's build prints, `xform.py::XForm.action_relevance`), and which Case Management states back as `boolean_true` (`basicCaseSlots.ts::stateCondition`); a hidden value a condition calculates is held as the condition it reads (`subcases[].condition: if`)",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -5114,10 +5120,9 @@
 		"item": "writers `single_select` ⊔ `multi_select`",
 		"surfaceKeys": [],
 		"noSurfaceKey": "A relation among the questions that write one case property (a single-select and a multi-select writer), which no single surface item holds; each writer's own items are named by the question-type and case-write rows.",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: join `multi_select`",
-		"subject": "writer-types",
-		"owner": "forms-and-case-management",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: join `multi_select`, the choices merged by value in writer order, the first label kept (`ruleSets.ts::agreedStorageType`, `reader/caseManagement/catalog.ts::selectTypes`); a device stores one choice and several as their values' text, which a several-choice question reads token by token (`SelectMultiData.cast`), and the case store keeps one choice as a list of one",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "not-applicable",
 			"cell": "n/a"
@@ -5133,11 +5138,11 @@
 		"area": "forms-and-case-writes",
 		"section": "Basic form actions",
 		"subsection": "Case-property typing",
-		"item": "writers of one property whose types agree on no one stored type, each text, a single choice, a whole number, a decimal number or a date (one Hidden Value's results among them), where no question opens on the property's value through an answer class that casts it",
+		"item": "writers of one property whose types agree on no one stored type, each text, a single choice, a whole number, a decimal number, a date or a location (one Hidden Value's results among them), where no question opens on the property's value through an answer class that casts it",
 		"surfaceKeys": [],
 		"noSurfaceKey": "A relation among the questions, Hidden Values and case changes that write one case property (writers of types text holds), which no single surface item holds; each writer's own items are named by the question-type and case-write rows.",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: joined on `text`, which holds each writer's value as the text a device submits for it: a whole number's digits, a decimal number's `Double.toString`, a date's `yyyy-MM-dd` (`ruleSets.ts::joinsAsText`, `casePropertyTypes.ts::TEXT_JOINED_DATA_TYPES`)",
+		"dispositionCell": "**HELD**: joined on `text`, which holds each writer's value as the text a device submits for it: a whole number's digits, a decimal number's `Double.toString`, a date's `yyyy-MM-dd`, a location's four numbers each as `Double.toString`, space-separated (`GeoPointData.getDisplayText`), none of which HQ's `adjust_datetimes` rewrites (`ruleSets.ts::joinsAsText`, `casePropertyTypes.ts::TEXT_JOINED_DATA_TYPES`)",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "not-applicable",
@@ -5154,11 +5159,11 @@
 		"area": "forms-and-case-writes",
 		"section": "Basic form actions",
 		"subsection": "Case-property typing",
-		"item": "any other mixed writer pair: writers of one property whose types agree on no one stored type (`agreedStorageType`) and are not saved as text: one is a date and time, a time or a location, or a question opens on the property's value through an answer class that casts it",
+		"item": "any other mixed writer pair: writers of one property whose types agree on no one stored type (`agreedStorageType`) and are not saved as text: one is a date and time or a time, or a question opens on the property's value through an answer class that casts it",
 		"surfaceKeys": [],
 		"noSurfaceKey": "A relation among the questions, Hidden Values and case changes that write one case property (writers of two other types), which no single surface item holds; each writer's own items are named by the question-type and case-write rows.",
 		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: join `text` for a date and time, a time and a location, and for a property a question opens on through an answer class that casts it",
+		"dispositionCell": "**HELD-NEW**: join `text` for a date and time and a time, whose text HQ's server (`adjust_datetimes`, to UTC) and the device (a time's offset) each keep their own way, and for a property a question opens on through an answer class that casts it, which stops the form on another writer's text (Core's failed cast), a stop Preview does not yet make",
 		"subject": "writer-types",
 		"owner": "forms-and-case-management",
 		"platforms": {
@@ -5197,11 +5202,32 @@
 		"area": "forms-and-case-writes",
 		"section": "Basic form actions",
 		"subsection": "Case-property typing",
-		"item": "a DateTime question, or a Hidden Value its bind types `xsd:dateTime`, saved straight to a case",
+		"item": "a DateTime question saved straight to a property of the action's own case, every other writer of which gives it a day",
+		"surfaceKeys": [],
+		"noSurfaceKey": "A relation between a writer and the case property it writes (the type a date-and-time writer gives it), which no single surface item holds; the writer and the case write are named by their own rows.",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: a `date` property the question saves its day to (`ruleSets.ts::isAnswerWriteAssignable`, `reader/caseManagement/catalog.ts::declareDays`): HQ's build binds the case block's leaf with no type, so Core keeps the day alone (`Recalculate.wrapData`), and Nova saves a date-and-time question to a `date` property straight too, with no `nova_datetime_<id>` sibling (`fieldValueType.ts::writesMoment`); the case store keeps the answer's day in the viewer's zone, as the device does (`postgres/submissionEnvelope.ts::storageValueFromEvaluation`)",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "untyped bind as HQ writes it",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "forms-and-case-writes/a-date-and-time-saved-straight-in-no-shape-nova-keeps",
+		"area": "forms-and-case-writes",
+		"section": "Basic form actions",
+		"subsection": "Case-property typing",
+		"item": "a Hidden Value its bind types `xsd:dateTime` saved straight to a case, and a DateTime question saved straight to a case's name, owner, external id, `location_id`, `hq_user_id`, `category` or `state`, to the worker's record, or through an index segment (a property another writer gives something other than a day is `any-other-mixed-writer-pair`)",
 		"surfaceKeys": [],
 		"noSurfaceKey": "A relation between a writer and the case property it writes (the type a date-and-time writer gives it), which no single surface item holds; the writer and the case write are named by their own rows.",
 		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: a date-and-time writer writing its date to a `date` property: HQ's build binds the case block's leaf with no type, so Core keeps the day alone (`Recalculate.wrapData`) (Nova routes every date-and-time writer through the `nova_datetime_<id>` sibling, which stores the full instant, and its validator refuses a date-and-time field writing a `date` property, `FIELD_KIND_PROPERTY_TYPE_MISMATCH`)",
+		"dispositionCell": "**HELD-NEW**: the day of a date and time where Nova holds no `date` property for it: a Hidden Value's bind follows the property it writes (`fieldValueType.ts::fieldValueType`), so its own node would hold the day where HQ's holds the moment, and a case's name, owner and standard keys, an ancestor's property and a worker property are no `date` property the reading declares (`reader/caseManagement/catalog.ts::declareDays`)",
 		"subject": "writer-types",
 		"owner": "forms-and-case-management",
 		"platforms": {
@@ -5274,19 +5300,24 @@
 			"schema:AdvancedFormActions.load_update_cases"
 		],
 		"valueClass": "loads-outside-one-chain",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: stored case selections per form",
-		"subject": "advanced-forms",
-		"owner": "forms-and-case-management",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: A form keeps its own ordered, named record choices.",
 		"platforms": {
-			"kind": "not-applicable",
-			"cell": "n/a"
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
 		},
 		"emission": {
-			"cell": "omit",
-			"markers": ["omit"]
+			"cell": "Ordered load_update_cases belonging to the form.",
+			"markers": []
 		},
-		"gates": []
+		"gates": [],
+		"slotChanges": []
 	},
 	{
 		"id": "forms-and-case-writes/loadupdateaction-case-tag-without",
@@ -5324,19 +5355,24 @@
 			"schema:LoadUpdateAction.auto_select"
 		],
 		"valueClass": "underived-tag-on-a-load-changing-no-case",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: a held tag on a selection that changes no case (`placement.ts::planAdvancedCore` holds a tag only on an operation)",
-		"subject": "advanced-forms",
-		"owner": "forms-and-case-management",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: Every named choice keeps its stable submission tag, including a read-only choice and a read-only worker record.",
 		"platforms": {
-			"kind": "not-applicable",
-			"cell": "n/a"
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
 		},
 		"emission": {
-			"cell": "omit",
-			"markers": ["omit"]
+			"cell": "case_tag on the retained load.",
+			"markers": []
 		},
-		"gates": []
+		"gates": [],
+		"slotChanges": []
 	},
 	{
 		"id": "forms-and-case-writes/case-tag-holding-a-hyphen",
@@ -5348,17 +5384,22 @@
 			"schema:AdvancedOpenCaseAction.case_tag"
 		],
 		"valueClass": "tag-with-a-hyphen",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: a tag outside Nova's tag grammar (`placements.ts::advancedTagSchema`); the tag is the submission path `case_<tag>` and the session value `case_id_<tag>`, so no rename keeps it",
-		"subject": "advanced-forms",
-		"owner": "forms-and-case-management",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the operation's held advanced tag preserves each hyphen in the case block, session datum and references to that action.",
+		"slotChanges": [],
 		"platforms": {
-			"kind": "not-applicable",
-			"cell": "n/a"
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
 		},
 		"emission": {
-			"cell": "omit",
-			"markers": ["omit"]
+			"cell": "`case_tag`",
+			"markers": []
 		},
 		"gates": []
 	},
@@ -5541,7 +5582,7 @@
 		"surfaceKeys": ["schema:LoadUpdateAction.preload"],
 		"valueClass": "selection-preload-as-default",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: the question's default value reading the selected case's property, the same state (README, \"Load-time values\")",
+		"dispositionCell": "**HELD**: the owning load assigns the selected record's property once when the form opens. A previously adopted equivalent field default stays in its recorded representation while its original source and dependencies agree.",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
@@ -5554,7 +5595,7 @@
 			}
 		},
 		"emission": {
-			"cell": "`preload`",
+			"cell": "the retained case action or the earlier equivalent field default, with the selected property and question unchanged",
 			"markers": []
 		},
 		"gates": []
@@ -5566,19 +5607,24 @@
 		"item": "`LoadUpdateAction.preload` into a question a later load-time value reads, into a question in a repeat, or from a property path",
 		"surfaceKeys": ["schema:LoadUpdateAction.preload"],
 		"valueClass": "selection-preload-read-later",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: a preload held with its place at the end of the load",
-		"subject": "case-preloads",
-		"owner": "forms-and-case-management",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the named load's ordered setvalues at their actual position after the form's authored ready values",
 		"platforms": {
-			"kind": "not-applicable",
-			"cell": "n/a"
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
 		},
 		"emission": {
-			"cell": "omit",
-			"markers": ["omit"]
+			"cell": "the owning load's preload map with paths in execution order",
+			"markers": []
 		},
-		"gates": []
+		"gates": [],
+		"slotChanges": []
 	},
 	{
 		"id": "forms-and-case-writes/loadupdateaction-case-properties",
@@ -5856,19 +5902,24 @@
 		"item": "`LoadUpdateAction.case_index` on the first chosen load naming the worker's record's auto-selected load stored before it",
 		"surfaceKeys": ["schema:LoadUpdateAction.case_index"],
 		"valueClass": "index-to-the-worker-record-load",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: a chosen case narrowed to the worker's record's children: HQ's editor offers the index on every load stored after the first that does not auto-select (`case_config_advanced.html`, `advanced/actions.js` `subcase`), and HQ's build filters the chosen list by the worker's record's id (`entries.py::EntriesHelper.get_datum_meta_assertions_advanced`, `get_parent_filter_by_ref_id`)",
-		"subject": "advanced-forms",
-		"owner": "forms-and-case-management",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: A worker record can supply the connection used by the next chosen record.",
 		"platforms": {
-			"kind": "not-applicable",
-			"cell": "n/a"
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
 		},
 		"emission": {
-			"cell": "omit",
-			"markers": ["omit"]
+			"cell": "case_index.tag names the preceding worker-record datum.",
+			"markers": []
 		},
-		"gates": []
+		"gates": [],
+		"slotChanges": []
 	},
 	{
 		"id": "forms-and-case-writes/the-worker-s-record-s-auto-selected-load-stored-before-a-chosen-load",
@@ -5880,19 +5931,24 @@
 			"schema:AdvancedFormActions.load_update_cases"
 		],
 		"valueClass": "worker-load-before-a-chosen-load",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: the worker's record's load in its stored place: HQ's entry gives each load's datum in stored order (`entries.py::EntriesHelper.get_datum_meta_assertions_advanced`), so the worker's computed `usercase_id` stands before the chosen loads' selections, and Nova writes the worker's load after every chosen load",
-		"subject": "advanced-forms",
-		"owner": "forms-and-case-management",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: The worker record is resolved in the position the form gives it.",
 		"platforms": {
-			"kind": "not-applicable",
-			"cell": "n/a"
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
 		},
 		"emission": {
-			"cell": "omit",
-			"markers": ["omit"]
+			"cell": "load_update_cases keeps the worker record before the manual choice.",
+			"markers": []
 		},
-		"gates": []
+		"gates": [],
+		"slotChanges": []
 	},
 	{
 		"id": "forms-and-case-writes/auto-select-mode-raw-value-key",
@@ -5902,13 +5958,13 @@
 		"surfaceKeys": [
 			"schema:LoadUpdateAction.auto_select",
 			"schema:AutoSelectCase.mode",
+			"schema:AutoSelectCase.value_source",
 			"schema:AutoSelectCase.value_key"
 		],
 		"valueClass": "auto-select-raw",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `caseSelections[].autoSelect {kind: expression}`",
-		"subject": "advanced-forms",
-		"owner": "forms-and-case-management",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: The form evaluates its opening expression in the ordered entry and requires one reached record.",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -5936,10 +5992,9 @@
 			"schema:AutoSelectCase.value_key"
 		],
 		"valueClass": "auto-select-user",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `autoSelect {kind: userData, key}`",
-		"subject": "advanced-forms",
-		"owner": "forms-and-case-management",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: The form reaches the record named by the worker's data key.",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -5968,10 +6023,9 @@
 			"schema:AutoSelectCase.value_source"
 		],
 		"valueClass": "auto-select-fixture",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `autoSelect {kind: lookupRow, table, column}`",
-		"subject": "advanced-forms",
-		"owner": "forms-and-case-management",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: A Project table and column supply the record ID. The entry checks that the table has one row and the device holds the record.",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -6031,10 +6085,9 @@
 			"schema:AutoSelectCase.value_source"
 		],
 		"valueClass": "auto-select-case-index",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `autoSelect {kind: index, selection, index}`",
-		"subject": "advanced-forms",
-		"owner": "forms-and-case-management",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: The form follows the named connection of its earlier record selection.",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -6047,6 +6100,35 @@
 		},
 		"emission": {
 			"cell": "`case`",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "forms-and-case-writes/automatic-connection-to-a-load-renamed-by-its-parent",
+		"area": "forms-and-case-writes",
+		"section": "Advanced form actions",
+		"item": "An automatic connection from an earlier record whose session name changes under its parent menu",
+		"surfaceKeys": [
+			"schema:LoadUpdateAction.auto_select",
+			"schema:AutoSelectCase.value_source"
+		],
+		"valueClass": "aligned-auto-select-case",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: broken at runtime: The form reads the earlier record under a name its parent replaced. Matching the source tag to the parent’s tag keeps the connection available.",
+		"subject": "advanced-forms",
+		"reasons": [
+			{
+				"kind": "broken-at-runtime",
+				"named": "The form reads the earlier record under a name its parent replaced. Matching the source tag to the parent’s tag keeps the connection available."
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
 			"markers": []
 		},
 		"gates": []
@@ -6984,10 +7066,9 @@
 			"schema:ArbitraryDatum.datum_function"
 		],
 		"valueClass": "computed-datum",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `Form.computedDatums[] {id, expression}`. The class takes a non-empty list, on an advanced form or a shadow form; the empty list is HQ's default, which the shadow own fields row holds on a shadow form",
-		"subject": "advanced-forms",
-		"owner": "forms-and-case-management",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: an entry value has its own UUID, saved session key and expression over the preceding supplies. It is emitted after the case choices and before the new-case ids.",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -7000,6 +7081,36 @@
 		},
 		"emission": {
 			"cell": "`arbitrary_datums`",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "forms-and-case-writes/opening-values-sharing-a-physical-session-name",
+		"area": "forms-and-case-writes",
+		"section": "Advanced form actions",
+		"item": "Two form opening values that use the same final session name",
+		"surfaceKeys": [
+			"schema:AdvancedFormActions.load_update_cases",
+			"schema:AdvancedForm.arbitrary_datums",
+			"schema:LoadUpdateAction.case_tag"
+		],
+		"valueClass": "duplicate-opening-session-name",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: broken at runtime: CommCare keeps the first value under this name and skips the second. Giving each opening value a distinct saved name keeps both available.",
+		"subject": "advanced-forms",
+		"reasons": [
+			{
+				"kind": "broken-at-runtime",
+				"named": "CommCare keeps the first value under this name and skips the second. Giving each opening value a distinct saved name keeps both available."
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
 			"markers": []
 		},
 		"gates": []
@@ -7164,10 +7275,9 @@
 		"item": "`shadow_parent_form_id` naming an AdvancedForm that is not a ShadowForm",
 		"surfaceKeys": ["schema:ShadowForm.shadow_parent_form_id"],
 		"valueClass": "advanced-form-parent",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `Form.shadowOf` (runs the parent's XForm and xmlns under its own entry)",
-		"subject": "shadow-forms",
-		"owner": "forms-and-case-management",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: `Form.shadowOf.form (the ordinary form that holds the questions and writes)`",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -7304,10 +7414,9 @@
 			"schema:LoadUpdateAction.case_index"
 		],
 		"valueClass": "shadow-selection-override",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `shadowOf.selectionOverrides[]`",
-		"subject": "shadow-forms",
-		"owner": "forms-and-case-management",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: `Form.shadowOf.selections[].replace (a parent choice and this entry’s selection source)`",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -7335,10 +7444,9 @@
 			"schema:LoadUpdateAction.case_tag"
 		],
 		"valueClass": "shadow-extra-selection",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `shadowOf.extraSelections[]` (datum only; the parent XForm never reads it)",
-		"subject": "shadow-forms",
-		"owner": "forms-and-case-management",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: `Form.shadowOf.selections[].add (an ordered read-only choice)`",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -7634,17 +7742,51 @@
 			"schema:LoadUpdateAction.preload"
 		],
 		"valueClass": "preload-target-holds-no-default",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: a load into a question that takes no default: Nova holds a preload as the question's default value, and a Hidden Value holds one value source (`HIDDEN_VALUE_BOTH_SOURCES`)",
-		"subject": "case-preloads",
-		"owner": "forms-and-case-management",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: a starting assignment and the question's independent calculation, both at their original execution stages where the owning case action is editable or retained",
 		"platforms": {
-			"kind": "not-applicable",
-			"cell": "n/a"
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
 		},
 		"emission": {
-			"cell": "omit",
-			"markers": ["omit"]
+			"cell": "the destination is identified by its form data path in the owning load's preload map",
+			"markers": []
+		},
+		"gates": [],
+		"slotChanges": []
+	},
+	{
+		"id": "forms-and-case-writes/a-source-only-record-load-with-no-equivalent-editable-initial-value",
+		"area": "forms-and-case-writes",
+		"section": "Basic form actions",
+		"item": "A historical record load that the source editor cannot create and whose value or timing an ordinary field default cannot reproduce",
+		"surfaceKeys": [
+			"schema:PreloadAction.preload",
+			"schema:LoadUpdateAction.preload"
+		],
+		"valueClass": "source-only-opening-value",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: the basic User Properties editor cannot add a load; a source-only reserved property spelling similarly needs an equivalent ordinary field default when the case editor cannot produce its property. A field that cannot take that default, or an intervening read that observes its timing, prevents the conversion.",
+		"subject": "case-preloads",
+		"reasons": [
+			{
+				"kind": "not-hq-editable",
+				"named": "HQ's basic User Properties editor only saves worker properties, and its case editor does not offer a reserved property spelling. An equivalent ordinary default can preserve such an app only when its destination and initialization order allow it."
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
 		},
 		"gates": []
 	},
@@ -7652,20 +7794,51 @@
 		"id": "forms-and-case-writes/update-mode-edit-off-a-follow-up-form-s-own-update",
 		"area": "forms-and-case-writes",
 		"section": "Basic form actions",
-		"item": "`update_mode: edit` on a registration form's `update_case` or `external_id`, on the `name` or `owner_id` key of any `update_case`, on `usercase_update`, on a child case's `case_properties`, or on an advanced load's or open action's `case_properties`, in a project space with `SAVE_ONLY_EDITED_FORM_FIELDS`",
+		"item": "`update_mode: edit` on a key of a registration form's `update_case`, on `usercase_update`, on a child case's `case_properties` key other than `owner_id`, or on an advanced load's or open action's `case_properties` key other than its own `name` and `owner_id`, in a project space with `SAVE_ONLY_EDITED_FORM_FIELDS`",
 		"surfaceKeys": ["schema:ConditionalCaseUpdate.update_mode"],
 		"valueClass": "edit-where-nova-saves-every-time",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: saving only a changed answer anywhere but a follow-up or close form's own basic update, in a project space with `SAVE_ONLY_EDITED_FORM_FIELDS`: HQ's build applies it there (`xform.py::XFormCaseBlock.add_case_updates`), and Nova holds `onlyIfChanged` on the own arm's property writes in the basic own slot alone (`validateOnlyIfChanged`)",
-		"subject": "form-case-management",
-		"owner": "forms-and-case-management",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the write's `onlyIfChanged`, on any write Case Management or an advanced form's actions save: HQ's build applies the mode to every update map it writes there (`xform.py::XFormCaseBlock.add_case_updates`, over `_add_case_updates`, `_add_usercase`, the subcase and the open and load blocks), comparing the casedb leaf of the block's case with the answer, so on a case the form creates, whose leaf is empty, a blank answer saves nothing; the case store compares the same way (`postgres/submissionEnvelope.ts`), and Nova's export writes `edit` back; a change saved through Save to Case has no such setting (`CASE_WRITE_ONLY_IF_CHANGED_INVALID`)",
+		"slotChanges": [],
 		"platforms": {
-			"kind": "not-applicable",
-			"cell": "n/a"
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
 		},
 		"emission": {
-			"cell": "omit",
-			"markers": ["omit"]
+			"cell": "`edit`",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "forms-and-case-writes/update-mode-edit-on-a-case-s-name-or-owner",
+		"area": "forms-and-case-writes",
+		"section": "Basic form actions",
+		"item": "`update_mode: edit` on the `name` or `owner_id` key of a form's own `update_case`, on the `owner_id` key of a child case's `case_properties`, or on the `name` or `owner_id` key of an advanced load's or open action's `case_properties`, in a project space with `SAVE_ONLY_EDITED_FORM_FIELDS`",
+		"surfaceKeys": ["schema:ConditionalCaseUpdate.update_mode"],
+		"valueClass": "edit-on-a-case-s-name-or-owner",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the operation's `nameOnlyIfChanged`, `renameOnlyIfChanged` or `ownerOnlyIfChanged` (`forms.ts::CaseFacetOnlyIfChanged`): HQ's build applies the mode to these keys as to any other (`xform.py::XFormCaseBlock.add_case_updates`), comparing the casedb `case_name` leaf with a rename, and with an owner an `owner_id` leaf a case holds as an attribute, so always empty: an owner is saved only when the answer is not blank, and on a case the form creates the create block's own owner is then `-` (`autoset_owner_id_for_*`); the case store compares the same way (`postgres/submissionEnvelope.ts`), and Nova's export writes `edit` back; a registration's own name (its `open_case.name_update`, whose mode HQ's build never reads), an owner that is the worker or no one, and a change saved through Save to Case are refused (`CASE_WRITE_ONLY_IF_CHANGED_INVALID`)",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "`edit`",
+			"markers": []
 		},
 		"gates": []
 	},
@@ -7714,6 +7887,123 @@
 		"emission": {
 			"cell": "omit",
 			"markers": ["omit"]
+		},
+		"gates": []
+	},
+	{
+		"id": "forms-and-case-writes/case-actions-using-the-same-tag",
+		"area": "forms-and-case-writes",
+		"section": "Advanced form actions",
+		"item": "Two actions in a form use the same nonblank case tag",
+		"surfaceKeys": [
+			"schema:LoadUpdateAction.case_tag",
+			"schema:AdvancedOpenCaseAction.case_tag"
+		],
+		"valueClass": "case-actions-using-the-same-tag",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: The advanced case editor requires each action to have a different name (actions.js::validate).",
+		"subject": "advanced-forms",
+		"reasons": [
+			{
+				"kind": "not-hq-editable",
+				"named": "The advanced case editor requires each action to have a different name (actions.js::validate)."
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "forms-and-case-writes/worker-record-selection-with-another-case-type",
+		"area": "forms-and-case-writes",
+		"section": "Advanced form actions",
+		"item": "A worker-record mode stores another case type",
+		"surfaceKeys": [
+			"schema:LoadUpdateAction.auto_select",
+			"schema:LoadUpdateAction.case_type"
+		],
+		"valueClass": "worker-record-selection-with-another-case-type",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: The worker-record mode sets the type to commcare-user (advanced/actions.js).",
+		"subject": "advanced-forms",
+		"reasons": [
+			{
+				"kind": "not-hq-editable",
+				"named": "The worker-record mode sets the type to commcare-user (advanced/actions.js)."
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "forms-and-case-writes/automatic-table-choice-without-its-table-or-column",
+		"area": "forms-and-case-writes",
+		"section": "Advanced form actions",
+		"item": "A table selection names a missing table or field",
+		"surfaceKeys": [
+			"schema:LoadUpdateAction.auto_select",
+			"schema:AutoSelectCase.value_source",
+			"schema:AutoSelectCase.value_key"
+		],
+		"valueClass": "automatic-table-choice-without-its-table-or-column",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: The device cannot find the configured table field to supply a record ID (EntriesHelper.get_auto_select_datums_and_assertions).",
+		"subject": "advanced-forms",
+		"reasons": [
+			{
+				"kind": "broken-at-runtime",
+				"named": "The device cannot find the configured table field to supply a record ID (EntriesHelper.get_auto_select_datums_and_assertions)."
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "forms-and-case-writes/automatic-choice-with-an-unknown-mode",
+		"area": "forms-and-case-writes",
+		"section": "Advanced form actions",
+		"item": "An automatic selection stores an unrecognized nonblank mode",
+		"surfaceKeys": [
+			"schema:LoadUpdateAction.auto_select",
+			"schema:AutoSelectCase.mode"
+		],
+		"valueClass": "automatic-choice-with-an-unknown-mode",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: The advanced case page offers the configured automatic selection modes (case_config_ui.js::getAutoSelectModes).",
+		"subject": "advanced-forms",
+		"reasons": [
+			{
+				"kind": "not-hq-editable",
+				"named": "The advanced case page offers the configured automatic selection modes (case_config_ui.js::getAutoSelectModes)."
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
 		},
 		"gates": []
 	}

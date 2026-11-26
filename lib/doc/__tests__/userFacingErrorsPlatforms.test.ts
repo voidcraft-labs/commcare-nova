@@ -56,6 +56,10 @@ describe("each refusable structural feature in the builder's words", () => {
 			'"Patients" opens on its case list first, which CommCare HQ no longer offers in Web Apps. You can open it on Search first, or set the app to run only on Android in App settings.',
 		],
 		[
+			"auto-select-confirm",
+			`"Visit" opens a record's details automatically when exactly one record matches. Web Apps stops before the form opens. You can let workers choose the record or remove its confirmation screen, or set the app to run only on Android in App settings.`,
+		],
+		[
 			"several-cases",
 			'"Patients" lets workers choose several cases, which Android can\'t do. You can let them choose one case, or set the app to run only in Web Apps in App settings.',
 		],

@@ -439,9 +439,9 @@ export function summaryDifferences(
 	}
 
 	/* The first form of each `xmlns`, as a search of each list in order finds it. */
-	const formUuidOf = new Map<string, Uuid>();
-	for (const one of draft.identities.forms)
-		if (!formUuidOf.has(one.xmlns)) formUuidOf.set(one.xmlns, one.uuid);
+	const entryOf = new Map(
+		draft.identities.forms.map((one) => [one.readUniqueId, one.uuid]),
+	);
 	const factsOf = new Map<string, (typeof draft.facts.forms)[number]>();
 	for (const one of draft.facts.forms)
 		if (!factsOf.has(one.xmlns)) factsOf.set(one.xmlns, one);
@@ -450,7 +450,9 @@ export function summaryDifferences(
 		for (const aligned of module.forms) {
 			if (aligned.xmlns === null) continue;
 			const xmlns = aligned.xmlns;
-			const formUuid = formUuidOf.get(xmlns);
+			const entryUuid = entryOf.get(aligned.source.readUniqueId);
+			const formUuid =
+				entryUuid && (doc.forms[entryUuid]?.shadowOf?.form ?? entryUuid);
 			if (formUuid === undefined) {
 				differ(
 					["ids", "form"],

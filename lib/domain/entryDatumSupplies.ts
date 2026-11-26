@@ -10,6 +10,10 @@ import {
 import type { BlueprintDoc } from "./blueprint";
 import type { FormStructure } from "./expression/formStructure";
 import { type DatumRef, datumRefKey } from "./expression/types";
+import {
+	entrySelectionSettings,
+	implicitFormSelectionId,
+} from "./formEntryCases";
 import type { ResolvedFormLinkTarget } from "./formLinkTargets";
 import { CASE_LOADING_FORM_TYPES } from "./forms";
 import {
@@ -58,6 +62,8 @@ export interface RootSelectionAlignment {
 	readonly matches: readonly {
 		readonly sourceModuleUuid: Uuid;
 		readonly targetModuleUuid: Uuid;
+		readonly sourceChoice?: Uuid;
+		readonly targetChoice?: Uuid;
 	}[];
 	readonly boundMismatches: readonly SelectionBoundMismatch[];
 	readonly parentSelectionConflict: boolean;
@@ -115,6 +121,11 @@ function selectionModules(
 ): Uuid[] {
 	if (doc.modules[entry.module] === undefined) return [];
 	if (entry.kind === "form") {
+		const rows = entrySelectionSettings(doc.forms[entry.form]);
+		if (rows)
+			return rows.flatMap((row) =>
+				row.source.kind === "choose" ? [row.source.module] : [],
+			);
 		const form =
 			prepared?.formUuid === entry.form ? prepared : doc.forms[entry.form];
 		if (form === undefined || !CASE_LOADING_FORM_TYPES.has(form.type))
@@ -148,17 +159,40 @@ export function rootSelectionAlignment(
 			: parentForm === undefined
 				? { kind: "browse", module: parentUuid }
 				: { kind: "form", module: parentUuid, form: parentForm };
-	const matches: Array<{
-		sourceModuleUuid: Uuid;
-		targetModuleUuid: Uuid;
-	}> = [];
+	const matches: Array<RootSelectionAlignment["matches"][number]> = [];
+	const explicitOf = (at: DatumEntry) =>
+		at.kind === "form" ? entrySelectionSettings(doc.forms[at.form]) : undefined;
 	const boundMismatches: SelectionBoundMismatch[] = [];
 	let parentSelectionConflict = false;
 	if (parentEntry !== undefined) {
-		const remaining = selectionModules(doc, entry, prepared);
+		const explicit = explicitOf(entry);
+		const prefix = explicit?.slice(
+			0,
+			explicit.findIndex((row) => row.source.kind !== "choose") < 0
+				? explicit.length
+				: explicit.findIndex((row) => row.source.kind !== "choose"),
+		);
+		const remaining =
+			prefix?.flatMap((row) =>
+				row.source.kind === "choose"
+					? [{ module: row.source.module, choice: row.uuid }]
+					: [],
+			) ??
+			selectionModules(doc, entry, prepared).map((module) => ({
+				module,
+				choice: undefined,
+			}));
+		const sourceChoices = explicitOf(parentEntry)?.filter(
+			(row) => row.source.kind === "choose",
+		);
 		const parentSelections = parentSelectionChain(doc, entry.module);
-		for (const sourceModuleUuid of selectionModules(doc, parentEntry)) {
-			const targetModuleUuid = remaining[0];
+		for (const [index, sourceModuleUuid] of selectionModules(
+			doc,
+			parentEntry,
+		).entries()) {
+			const targetChoice = remaining[0]?.choice;
+			const sourceChoice = sourceChoices?.[index]?.uuid;
+			const targetModuleUuid = remaining[0]?.module;
 			if (targetModuleUuid === undefined) break;
 			const source = menuWithInheritedCaseSettings(doc, sourceModuleUuid);
 			const target = menuWithInheritedCaseSettings(doc, targetModuleUuid);
@@ -179,7 +213,12 @@ export function rootSelectionAlignment(
 			}
 			if (!caseSelectionCanFlowBetweenModules(source, target)) continue;
 			remaining.shift();
-			matches.push({ sourceModuleUuid, targetModuleUuid });
+			matches.push({
+				sourceModuleUuid,
+				targetModuleUuid,
+				...(sourceChoice && { sourceChoice }),
+				...(targetChoice && { targetChoice }),
+			});
 			if (
 				targetModuleUuid !== sourceModuleUuid &&
 				parentSelections.includes(targetModuleUuid)
@@ -237,6 +276,14 @@ function suppliedAtEntry(
 		add({ kind: "selected-case", module }, scalar);
 		if (source !== module)
 			add({ kind: "selected-case", module: source }, scalar);
+		if (entry.kind === "form")
+			add(
+				{
+					kind: "form-selection",
+					selection: implicitFormSelectionId(entry.form, module),
+				},
+				scalar,
+			);
 		const match = alignment.matches.find(
 			(pair) => pair.targetModuleUuid === module,
 		);
@@ -346,7 +393,27 @@ function suppliedAtAdvancedEntry(
 	)
 		return undefined;
 	const alignment = rootSelectionAlignment(doc, entry, prepared);
-	for (const { moduleUuid } of advancedLoadChain(doc, entry.form)) {
+	const explicit = entrySelectionSettings(saved);
+	for (const selection of explicit ?? []) {
+		add({ kind: "form-selection", selection: selection.uuid });
+		if (selection.source.kind === "worker-record")
+			add({ kind: "worker-record" });
+	}
+	for (const datum of saved.computedDatums ?? [])
+		add({ kind: "entry-value", datum: datum.uuid });
+	const menus =
+		explicit === undefined
+			? advancedLoadChain(doc, entry.form).map((row) => row.moduleUuid)
+			: explicit.flatMap((row) =>
+					row.source.kind === "choose" ? [row.source.module] : [],
+				);
+	for (const moduleUuid of menus) {
+		if (explicit === undefined)
+			add({
+				kind: "form-selection",
+				selection: implicitFormSelectionId(entry.form, moduleUuid),
+			});
+		if (menus.indexOf(moduleUuid) !== menus.lastIndexOf(moduleUuid)) continue;
 		add({ kind: "selected-case", module: moduleUuid });
 		const match = alignment.matches.find(
 			(pair) => pair.targetModuleUuid === moduleUuid,
@@ -368,7 +435,14 @@ function suppliedAtAdvancedEntry(
 				refs.set(datumRefKey(supplied.ref), supplied);
 	}
 	const actions = advancedEntryActions(doc, entry.form);
-	if (actions.workerLoad) add({ kind: "worker-record" });
+	if (actions.workerLoad) {
+		add({ kind: "worker-record" });
+		if (explicit === undefined)
+			add({
+				kind: "form-selection",
+				selection: implicitFormSelectionId(entry.form, "worker-record"),
+			});
+	}
 	for (const open of actions.opens) {
 		if (open.repeat !== undefined) continue;
 		add(
@@ -391,9 +465,16 @@ export function formLinkTargetSupplies(
 	target: ResolvedFormLinkTarget,
 ): EntryDatumSupplies {
 	const refs = new Map<string, EntryDatumSupplies["refs"][number]>();
-	const addSelections = (entry: DatumEntry): void => {
+	const addSelections = (
+		entry: DatumEntry,
+		choices?: ReadonlySet<Uuid>,
+	): void => {
 		for (const row of suppliedAtEntry(doc, entry, new Set()).refs) {
-			if (row.ref.kind === "selected-case") refs.set(datumRefKey(row.ref), row);
+			if (
+				row.ref.kind === "selected-case" ||
+				(row.ref.kind === "form-selection" && choices?.has(row.ref.selection))
+			)
+				refs.set(datumRefKey(row.ref), row);
 		}
 	};
 	const ancestors: Uuid[] = [];
@@ -420,11 +501,18 @@ export function formLinkTargetSupplies(
 		target.type === "form" &&
 		routeContainsForm(doc, target.moduleUuid, target.formUuid)
 	)
-		addSelections({
-			kind: "form",
-			module: target.moduleUuid,
-			form: target.formUuid,
-		});
+		addSelections(
+			{
+				kind: "form",
+				module: target.moduleUuid,
+				form: target.formUuid,
+			},
+			new Set(
+				doc.forms[target.formUuid]?.caseSelections
+					?.filter((row) => row.source.kind === "choose")
+					.map((row) => row.uuid),
+			),
+		);
 	return { refs: [...refs.values()] };
 }
 
@@ -467,15 +555,58 @@ export function entrySelections(
 					new Set([...visiting, entry.module]),
 				);
 	const parentKeys = new Set(parent.map((row) => row.key));
-	return selectionModules(doc, entry).map((module) => {
+	const selections = selectionModules(doc, entry);
+	const form = entry.kind === "form" ? doc.forms[entry.form] : undefined;
+	const shared = form?.shadowOf;
+	const content = shared && doc.forms[shared.form];
+	const tagBySelection = new Map(
+		content?.caseSelections?.map((row) => [row.uuid, row.tag]),
+	);
+	const authored = (
+		form?.caseSelections ??
+		shared?.selections.map((row) =>
+			row.kind === "add"
+				? row
+				: {
+						uuid: row.selection,
+						source: row.source,
+						tag: tagBySelection.get(row.selection),
+					},
+		)
+	)?.filter((row) => row.source.kind === "choose");
+	const contentOwner =
+		content &&
+		doc.moduleOrder.find((module) =>
+			doc.formOrder[module]?.includes(content.uuid),
+		);
+	const inheritedKeys = new Map<Uuid, string>();
+	if (content && !content.shadowOf && !content.caseSelections && contentOwner) {
+		const original = [...parentSelectionChain(doc, contentOwner), contentOwner];
+		for (const [index, module] of original.entries()) {
+			const key = JSON.stringify([
+				"chain",
+				original.length - index - 1,
+				caseSelectionCardinality(doc.modules[module]) === "single",
+			]);
+			inheritedKeys.set(implicitFormSelectionId(content.uuid, module), key);
+		}
+	}
+
+	return selections.map((module, index) => {
+		const choice = authored?.[index];
 		const source = path.find((row) => row.detail === module)?.source ?? module;
 		const mod =
 			menuWithInheritedCaseSettings(doc, source) ?? doc.modules[source];
 		const scalar = caseSelectionCardinality(mod) === "single";
 		const match = alignment.matches.find(
-			(pair) => pair.targetModuleUuid === module,
+			(pair) =>
+				pair.targetModuleUuid === module && pair.targetChoice === choice?.uuid,
 		);
-		const refs: DatumRef[] = [{ kind: "selected-case", module }];
+		const refs: DatumRef[] = choice
+			? [{ kind: "form-selection", selection: choice.uuid }]
+			: [];
+		if (selections.indexOf(module) === selections.lastIndexOf(module))
+			refs.push({ kind: "selected-case", module });
 		if (source !== module && source !== match?.sourceModuleUuid)
 			refs.push({ kind: "selected-case", module: source });
 		if (match !== undefined && match.sourceModuleUuid !== module)
@@ -483,9 +614,24 @@ export function entrySelections(
 		const aligned =
 			match === undefined
 				? undefined
-				: parent.find((row) => row.module === match.sourceModuleUuid);
+				: parent.find(
+						(row) =>
+							row.module === match.sourceModuleUuid &&
+							(!match.sourceChoice ||
+								row.refs.some(
+									(ref) =>
+										ref.kind === "form-selection" &&
+										ref.selection === match.sourceChoice,
+								)),
+					);
 		const place = chain.length - 1 - chain.indexOf(module);
-		const own = JSON.stringify(["chain", place, scalar]);
+		const own =
+			choice?.tag !== undefined
+				? JSON.stringify(["tag", choice.tag])
+				: choice
+					? (inheritedKeys.get(choice.uuid) ??
+						JSON.stringify(["selection", choice.uuid]))
+					: JSON.stringify(["chain", place, scalar]);
 		const key =
 			aligned !== undefined
 				? aligned.key

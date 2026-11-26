@@ -71,7 +71,6 @@ import { planFieldMoveCaseWrites } from "@/lib/doc/fieldCaseWriteMutations";
 import type { FieldPath } from "@/lib/doc/fieldPath";
 import { planFieldRemoval } from "@/lib/doc/fieldRemovalMutations";
 import { fieldSlotAfter } from "@/lib/doc/fieldSlot";
-import { planFormLinkDependentsOnRemove } from "@/lib/doc/formLinkDependents";
 import {
 	formRecordNameMutations,
 	type PreparedFormRecordName,
@@ -126,8 +125,10 @@ import {
 	caseListModuleMutations,
 	caseTypeCatalogMutations,
 	formScaffoldMutations,
+	sharedFormMutations,
 	surveyModuleMutations,
 } from "@/lib/doc/scaffolds";
+import { planFormDependentsOnRemove } from "@/lib/doc/sharedFormDependents";
 import type {
 	BlueprintDoc,
 	Mutation,
@@ -764,6 +765,11 @@ export interface BlueprintMutations {
 	 * one gated batch. A bare case list keeps its case list entry beside the
 	 * new form. Returns the new form's uuid for navigation.
 	 */
+	createSharedForm: (
+		moduleUuid: Uuid,
+		parentUuid: Uuid,
+		index?: number,
+	) => AddCommitOutcome;
 	createForm: (
 		moduleUuid: Uuid,
 		type: FormType,
@@ -1714,7 +1720,7 @@ export function createBlueprintMutations(
 				 * would dangle. The shared planner refuses naming every link
 				 * (`lib/doc/formLinkDependents.ts`); the SA's `removeForm` tool
 				 * consults the same planner, so both surfaces refuse alike. */
-				const dependents = planFormLinkDependentsOnRemove(doc, {
+				const dependents = planFormDependentsOnRemove(doc, {
 					kind: "form",
 					formUuid: uuid,
 				});
@@ -1925,7 +1931,7 @@ export function createBlueprintMutations(
 				 * into it would dangle; the shared planner refuses naming each
 				 * (`lib/doc/formLinkDependents.ts`). Links on the module's own
 				 * forms leave with them. */
-				const dependents = planFormLinkDependentsOnRemove(doc, {
+				const dependents = planFormDependentsOnRemove(doc, {
 					kind: "module",
 					moduleUuid: uuid,
 				});
@@ -2296,6 +2302,15 @@ export function createBlueprintMutations(
 				const applied = guardedApply(mutations);
 				if (!applied.ok) return applied;
 				return { ok: true, uuid: moduleUuid };
+			},
+
+			createSharedForm(moduleUuid, parentUuid, index) {
+				const scaffold = sharedFormMutations(get(), moduleUuid, parentUuid, {
+					index,
+				});
+				if (!scaffold) return NOOP_REJECTION;
+				const result = guardedApply(scaffold.mutations);
+				return result.ok ? { ok: true, uuid: scaffold.formUuid } : result;
 			},
 
 			createForm(moduleUuid, type, index) {

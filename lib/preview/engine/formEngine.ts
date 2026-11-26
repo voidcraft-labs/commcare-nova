@@ -399,6 +399,7 @@ export type CaseDataByType = Map<string, Map<string, string>>;
  * document's actual slot context.
  */
 export interface FormEngineInput {
+	readonly openingAssignments?: readonly import("./openingCaseAssignments").OpeningCaseAssignment[];
 	/** Saved document supplies the owning module, catalogs, and expression slots. */
 	doc: BlueprintDoc;
 	/** Active form language, used by locale-sensitive JavaRosa functions. */
@@ -426,6 +427,10 @@ export interface FormEngineInput {
 	caseScalarTextGuards?: Readonly<Record<string, CaseScalarTextGuard>>;
 	/** The form's uuid — used as the root key into `fieldOrder`. */
 	formUuid: Uuid;
+	/** Entry that opened this content. Identifies the receipt and capture scope. */
+	entryUuid?: Uuid;
+	entryRecordType?: string;
+	requiresSelectedRecord?: boolean;
 	/** Flat uuid→field map (the `doc.fields` slice). */
 	fields: Record<string, Field>;
 	/** Adjacency list from parent uuid → ordered child uuids (`doc.fieldOrder`). */
@@ -676,6 +681,11 @@ export class FormEngine {
 	 *  is re-supplied. */
 	private printDoc: BlueprintDoc;
 	private inputFormUuid: Uuid;
+	private readonly openingAssignments: NonNullable<
+		FormEngineInput["openingAssignments"]
+	>;
+	private readonly entryUuid: Uuid;
+	private requiresSelectedRecord: boolean;
 	private expressions: FormExpressionRuntime;
 	/** The document a field's case writes and its bind type are read from. */
 	private caseWriteDoc: BlueprintDoc;
@@ -814,6 +824,9 @@ export class FormEngine {
 		);
 		this.caseSelectionCardinality = input.caseSelectionCardinality ?? "single";
 		this.formType = input.form.type;
+		this.requiresSelectedRecord =
+			input.requiresSelectedRecord ??
+			(this.formType === "followup" || this.formType === "close");
 		this.formRootAttributes = xformDataRootRuntimeAttributes(
 			input.wireName ?? input.form.name,
 		);
@@ -870,6 +883,8 @@ export class FormEngine {
 		this.tree = buildFieldTree(input.formUuid, input.fields, input.fieldOrder);
 		this.printDoc = printableDocOf(input);
 		this.inputFormUuid = input.formUuid;
+		this.openingAssignments = input.openingAssignments ?? [];
+		this.entryUuid = input.entryUuid ?? input.formUuid;
 		this.expressions = this.expressionRuntime();
 		this.caseWriteDoc = caseWriteDocOf(input);
 		this.scalarTextGuards = input.caseScalarTextGuards ?? {};
@@ -3112,7 +3127,7 @@ export class FormEngine {
 	}): SubmissionMutation {
 		const operationAnswers = this.computeOperationAnswers();
 		const protocol = {
-			formUuid: this.activeFormUuid() as string,
+			formUuid: this.entryUuid,
 			entryKey: args.entryKey,
 			// Always present, even when empty: an empty list is the exact
 			// projection that retires every unreferenced staged attachment for
@@ -3127,6 +3142,8 @@ export class FormEngine {
 				return { kind: "registration", ...protocol };
 			case "followup":
 			case "close": {
+				if (!this.requiresSelectedRecord)
+					return { kind: this.formType, ...protocol, caseIds: [] };
 				if (args.caseIds === undefined || args.caseIds.length === 0) {
 					throw new Error(
 						compilerBugMessage({
@@ -3736,6 +3753,9 @@ export class FormEngine {
 		this.instance.refreshTemplate(this.tree, this.bindTypeOf);
 		this.repeatCountName = repeatCountNameOf(input.repeatCountNames);
 		this.formType = input.form.type;
+		this.requiresSelectedRecord =
+			input.requiresSelectedRecord ??
+			(this.formType === "followup" || this.formType === "close");
 		this.caseSelectionCardinality = input.caseSelectionCardinality ?? "single";
 		this.caseData = caseData;
 		// Selected-case reads are compiled from this captured context. A
@@ -3761,6 +3781,9 @@ export class FormEngine {
 
 		this.caseSelectionCardinality = input.caseSelectionCardinality ?? "single";
 		this.formType = input.form.type;
+		this.requiresSelectedRecord =
+			input.requiresSelectedRecord ??
+			(this.formType === "followup" || this.formType === "close");
 		this.formRootAttributes = xformDataRootRuntimeAttributes(
 			input.wireName ?? input.form.name,
 		);
@@ -4946,6 +4969,34 @@ export class FormEngine {
 			) {
 				const ids = yield* this.readQueryIds(field, path);
 				snapshots.set(path, { count: ids.length, ids });
+			}
+		}
+		if (prefix === "/data" && insertedPath === undefined && !healing) {
+			// HQ appends its case reads after the authored ready actions. At
+			// this event a repeat template alone does not supply a target.
+			// SetValueAction applies the answer cast and fires dependents before
+			// evaluating the next read, including another read into this field.
+			const destinations = new Map(
+				fields.map(({ node, path }) => [
+					node.field.uuid,
+					{ field: node.field, path },
+				]),
+			);
+			for (const assignment of this.openingAssignments) {
+				const destination = destinations.get(assignment.field);
+				if (!destination) continue;
+				const { field, path } = destination;
+				const value = this.castSetvalue(field, path, assignment.value, {
+					cause: "preload",
+					property: assignment.property,
+					caseType: assignment.caseType,
+					...(assignment.caseId && { caseId: assignment.caseId }),
+				});
+				this.instance.set(path, value);
+				yield* this.initializeExpressions(
+					this.dag.getAffectedInitialization([path], this.repeatCounts),
+					calculated,
+				);
 			}
 		}
 		if (insertedPath) {

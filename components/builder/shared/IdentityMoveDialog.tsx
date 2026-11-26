@@ -71,7 +71,7 @@ function IdentityMoveDialogContent({
 					{TITLE}
 				</DialogTitle>
 				<DialogDescription className="text-left">
-					{identityMoveLead(pending.origin)}
+					{identityMoveLead(pending.origin, pending.moves)}
 				</DialogDescription>
 			</DialogHeader>
 			<DialogBody>

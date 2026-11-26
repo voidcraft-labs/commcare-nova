@@ -2,7 +2,10 @@ import "server-only";
 
 import { recordDialectRoundTrip } from "@/lib/agent/authoring/recordRoundTrip";
 import type { HqAlignedModule } from "@/lib/commcare/hq/appReading";
-import type { HqAppSource } from "@/lib/commcare/hq/appSource";
+import {
+	entryLookupTableTags,
+	type HqAppSource,
+} from "@/lib/commcare/hq/appSource";
 import { baseUrl, type CommCareCredentials } from "@/lib/commcare/hq/http";
 import type { HqLookupTable } from "@/lib/commcare/hq/lookupTables";
 import {
@@ -73,6 +76,9 @@ export async function referencedLookupTags(input: {
 			? [input.source]
 			: [input.source, input.alsoSource];
 	for (const source of sources) {
+		for (const tag of entryLookupTableTags(source)) {
+			if (listed.has(tag)) tags.add(tag);
+		}
 		const read = await pieces.at("the lookup dependencies").steps(
 			readHqLookupTagsSteps({
 				appId,

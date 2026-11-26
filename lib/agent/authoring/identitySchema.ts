@@ -32,6 +32,8 @@ export const NAMED_IDENTITY_FAMILIES = {
 	location: "Place name or site code",
 	"case-operation": "Case operation name",
 	"entry-point": "Deep link external ID",
+	"form-entry-supply": "Opening record or value name",
+	"form-opening-assignment": "Starting value name from get_form",
 	automation: "Automation name",
 	"lookup-table": "Data table name",
 	"lookup-column": "Data column name",
