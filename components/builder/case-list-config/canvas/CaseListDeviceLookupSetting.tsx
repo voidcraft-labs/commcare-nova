@@ -18,6 +18,7 @@ function row(name = "", value = "") {
 
 function edit(value?: CaseListDeviceLookup) {
 	return {
+		id: v4(),
 		action: value?.action ?? "",
 		label: value?.label ?? "",
 		icon: value?.icon,
@@ -97,7 +98,12 @@ export function CaseListDeviceLookupSetting({
 					onSubmit={(event) => {
 						event.preventDefault();
 						const parsed = caseListDeviceLookupSchema.safeParse({
-							...draft,
+							action: draft.action,
+							label: draft.label,
+							...(draft.icon !== undefined && { icon: draft.icon }),
+							...(draft.automatic !== undefined && {
+								automatic: draft.automatic,
+							}),
 							extras: draft.extras.map(({ name, value }) => ({ name, value })),
 							responses: draft.responses.map(({ name }) => name),
 						});
@@ -126,9 +132,11 @@ export function CaseListDeviceLookupSetting({
 							kind="image"
 							value={draft.icon}
 							onChange={(icon) =>
-								setDraft((latest) => latest && { ...latest, icon })
+								setDraft((latest) =>
+									latest?.id === draft.id ? { ...latest, icon } : latest,
+								)
 							}
-							slotKey={`case-list-lookup:${moduleUuid}`}
+							slotKey={`case-list-lookup:${moduleUuid}:${draft.id}`}
 							ariaLabel="Case lookup button icon"
 						/>
 					</div>
