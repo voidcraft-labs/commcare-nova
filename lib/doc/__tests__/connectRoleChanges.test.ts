@@ -134,7 +134,7 @@ it("refuses moving a learning module into the same submission as another of its 
 			LOOKUP_CONTEXT_UNAVAILABLE,
 		).ok,
 	).toBe(true);
-	// HQ will not keep a grouped question's answer at the form root.
+	// HQ will not keep a grouped Connect activity's submitted value at the form root.
 	const atRoot = mutationCommitVerdict(
 		doc,
 		[

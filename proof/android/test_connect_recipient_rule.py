@@ -9,6 +9,8 @@ from proof.formplayer import apps
 from proof.formplayer import hq as hq_forms
 from proof.observe.record import Blobs
 
+pytestmark = pytest.mark.reader("android")
+
 FORM = "m0-f0"
 FIRST = "/data/rows[1]/recipient[1]"
 SECOND = "/data/rows[2]/recipient[1]"

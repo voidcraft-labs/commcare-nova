@@ -9,6 +9,8 @@ from proof.formplayer import hq as hq_forms
 from proof.hq import operations
 from proof.observe.record import Blobs
 
+pytestmark = pytest.mark.reader("android")
+
 
 @pytest.mark.parametrize("activity_only", [False, True], ids=["two-pages", "activity-only-page"])
 def test_worker_pages_keep_all_submitted_learn_activities_in_order(android_documents, hq, activity_only):
