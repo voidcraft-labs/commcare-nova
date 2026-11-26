@@ -69,7 +69,7 @@
 	},
 	"expressions-and-data/fields-is-indexed": {
 		"reason": "not-in-app-source",
-		"note": "Every key is of a lookup family, which no app's source holds; no API-key read shows whether a field is indexed, and lib/commcare/__tests__/hqLookupRestore.test.ts reads the indexed fields from a verified global restore's schema."
+		"note": "The index flag lives in the selected table workbook and restore schema. proof/hq/test_lookup_upload.py exercises HQ’s positive workbook and restore path and the API omission. lib/commcare/__tests__/hqLookupRestore.test.ts reads the verified restore."
 	},
 	"expressions-and-data/image-svg": {
 		"reason": "hq-never-serves-the-value",
@@ -77,7 +77,7 @@
 	},
 	"expressions-and-data/is-global-false-row-owners-user-group-location": {
 		"reason": "not-in-app-source",
-		"note": "Every key is of a lookup family, which no app's source holds; lib/deployment/reading/projectData/__tests__/lookupTables.test.ts reads CommCare HQ's retained lookup answers."
+		"note": "Ownership lives in HQ's fixture tables. proof/hq/test_lookup_upload.py uses HQ’s workbook importer and worker fixture provider over direct user, group and primary-location-ancestor assignments, with disjoint and empty workers."
 	},
 	"expressions-and-data/is-synced-last-modified": {
 		"reason": "not-in-app-source",
@@ -113,7 +113,7 @@
 	},
 	"expressions-and-data/table-or-row-count-beyond-nova-s-caps-5-000-rows-250-columns-64": {
 		"reason": "not-in-app-source",
-		"note": "Every key is of a lookup family, which no app's source holds; lib/deployment/reading/projectData/__tests__/lookupTables.test.ts reads CommCare HQ's retained lookup answers."
+		"note": "Lookup values live outside app source. proof/hq/test_lookup_upload.py checks the exact workbook row limit through HQ’s workbook reader. lib/export/__tests__/boundaryValidation.test.ts checks Nova’s aggregate archive row limit across inline and paged fixtures."
 	},
 	"expressions-and-data/tag-containing-casedb-or-ledgerdb": {
 		"reason": "not-in-app-source",
