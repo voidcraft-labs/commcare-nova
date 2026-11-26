@@ -42,7 +42,7 @@ import {
 import { caseContextLine } from "@/lib/domain/caseFormContext";
 import { columnReadsDetailTabRow } from "@/lib/domain/detailTabs";
 import { formContentUuid } from "@/lib/domain/formEntryCases";
-import { firstModuleListingForm } from "@/lib/domain/formMembership";
+import { moduleUuidOfForm } from "@/lib/domain/postSubmit";
 import type { FormOpeningProjection } from "./formOpeningSnapshot";
 import { restoreOpeningCases } from "./formOpeningSnapshot";
 import {
@@ -2645,7 +2645,7 @@ export function buildCaseOperationProgramFromDoc(args: {
 		ordinaryFormType: form.type,
 	};
 	const committed = committedProgramForm(doc, formUuid);
-	const entryMenu = firstModuleListingForm(doc.formOrder, entryUuid);
+	const entryMenu = moduleUuidOfForm(doc, entryUuid);
 	const noOwnSelection =
 		!!doc.forms[entryUuid]?.shadowOf && !record.requiresCase;
 	const readsWorkerAlongsideRepeat =
