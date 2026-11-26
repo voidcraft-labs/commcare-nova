@@ -170,6 +170,7 @@ import { styledValue } from "./documents/styledValue";
 import { supplyPointText } from "./documents/supplyPointText";
 import { plainLabels, textReads } from "./documents/textReads";
 import { tileGroupFilter } from "./documents/tileGroupFilter";
+import { tileRowBound } from "./documents/tileRowBound";
 import { validatedBarcodeSecret } from "./documents/validatedBarcodeSecret";
 import { workerRecordColumns } from "./documents/workerRecordColumns";
 
@@ -226,6 +227,7 @@ export const TARGETED_DOCUMENTS: readonly (() => CorpusDocument)[] = [
 	attributeColumns,
 	hiddenCalculatedColumn,
 	tileHiddenOrder,
+	tileRowBound,
 	hiddenFromMenu,
 	listFirstPlaces,
 	sessionReads,
