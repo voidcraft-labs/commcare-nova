@@ -174,6 +174,10 @@ export function SearchCanvas({
 	// array, and reorder drag indices all key off it, so an SA/MCP
 	// `moveSearchInput` reflects here and a drag computes correct indices.
 	const orderedInputs = useMemo(() => [...searchInputs], [searchInputs]);
+	const rowPositions = new Map(
+		orderedInputs.map(({ uuid }, index) => [uuid, index]),
+	);
+
 	const searchGroups = searchInputGroupsWithMembers({
 		searchInputs,
 		searchInputGroups,
@@ -554,7 +558,7 @@ export function SearchCanvas({
 													/>
 												</li>
 												{group.inputs.map((input) =>
-													renderInput(input, orderedInputs.indexOf(input)),
+													renderInput(input, rowPositions.get(input.uuid) ?? 0),
 												)}
 											</Fragment>
 										))}

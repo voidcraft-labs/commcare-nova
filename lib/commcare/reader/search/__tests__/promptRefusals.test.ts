@@ -639,38 +639,42 @@ describe("a Search field Nova cannot hold", () => {
 			expect(await account(one.edit)).toEqual(one.findings);
 		});
 
-	// A group's own entry is no field: it is one finding naming the group, which each member's
-	// `group_key` names too, and a member with no `group_key` beside groups is a finding of its own.
-	it("for a search with groups is one finding for the groups, and one for a member in none", async () => {
+	it("preserves a localized group and places a refusal on its missing field assignment", async () => {
 		const header = {
 			name: "g",
 			label: { es: "Grupo", en: "Group" },
 			is_group: true,
 			group_key: "g",
 		};
-		expect(
-			await account((body) => {
-				const prompts = promptsOf(body);
-				for (const prompt of prompts) prompt.group_key = "g";
-				prompts.unshift(header);
-			}),
-		).toEqual([[`${S}is-group-group-key`, "search", "g"]]);
+		const { doc, respelled } = await documentOf((body) => {
+			const prompts = promptsOf(body);
+			for (const prompt of prompts) prompt.group_key = "g";
+			prompts.unshift(header);
+		});
+		const config = doc.modules[doc.moduleOrder[0]].caseListConfig;
+		const group = config?.searchInputGroups?.[0];
+		expect(group?.label).toBe("Group");
+		expect(config?.searchInputs.map((input) => input.group)).toEqual(
+			config?.searchInputs.map(() => group?.uuid),
+		);
+		expect(respelled).toContainEqual([
+			`${S}is-group-group-key`,
+			"/modules/0/search_config/properties/0/name",
+			"list-settings-respelled",
+		]);
+
 		const missing = await account((body) => {
 			const prompts = promptsOf(body);
 			for (const prompt of prompts.slice(1)) prompt.group_key = "g";
 			prompts.unshift(header);
 		});
-		expect(new Set(missing)).toEqual(
-			new Set([
-				[`${S}is-group-group-key`, "search", "g"],
-				[
-					`${S}groups-present-and-an-input-without-group-key`,
-					"search",
-					"case_name",
-				],
-			]),
-		);
-		expect(missing).toHaveLength(2);
+		expect(missing).toEqual([
+			[
+				`${S}groups-present-and-an-input-without-group-key`,
+				"search",
+				"case_name",
+			],
+		]);
 	});
 
 	// The filter keyed by a plain property is a finding of its own, and its value stands under it.

@@ -650,6 +650,9 @@ export function SearchInputForm({
 	// component. Returning null here makes the contract self-
 	// enforcing: a caller that forgets the guard doesn't surface a
 	// labelled-but-empty `<search>` landmark to assistive tech.
+	const visibleById = new Map(
+		visibleInputs.map((input) => [input.uuid, input]),
+	);
 	const groups = platformRules.searchFieldGroups
 		? searchInputGroupsWithMembers({ searchInputs, searchInputGroups }).filter(
 				(group) => group.inputs.length > 0,
@@ -734,9 +737,10 @@ export function SearchInputForm({
 											{group.label}
 										</summary>
 										<div className="mt-3 flex flex-col gap-4">
-											{visibleInputs
-												.filter((input) => input.group === group.uuid)
-												.map(renderInput)}
+											{group.inputs.map(({ uuid }) => {
+												const input = visibleById.get(uuid);
+												return input === undefined ? null : renderInput(input);
+											})}
 										</div>
 									</details>
 								))}
