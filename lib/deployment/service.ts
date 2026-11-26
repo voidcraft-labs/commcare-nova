@@ -2369,8 +2369,11 @@ export async function publishAppToHq(
 					target,
 					importAdmission.writeId,
 					appId,
-					result.version,
-					acceptedVersion,
+					{
+						version: result.version,
+						acceptedVersion,
+						managesInstallations: Boolean(protectedInstallations),
+					},
 				);
 				if (protectedInstallations) {
 					await acknowledgement;

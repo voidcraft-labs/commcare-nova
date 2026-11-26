@@ -3934,19 +3934,26 @@ export async function recordImportAcknowledgement(
 	target: DeploymentTargetKey,
 	writeId: string,
 	appId: string,
-	version: number | null,
-	acceptedVersion: number | null,
+	reply: {
+		readonly version: number | null;
+		readonly acceptedVersion: number | null;
+		readonly managesInstallations: boolean;
+	},
 ): Promise<void> {
+	const { version, acceptedVersion, managesInstallations } = reply;
+	if (acceptedVersion === null && !managesInstallations) return;
 	await (await getAppDb())
 		.updateTable("hq_remote_writes")
 		.set({
-			import_acknowledged_at: sql<Date>`COALESCE(import_acknowledged_at,now())`,
-			import_acknowledged_version: version,
+			...(managesInstallations && {
+				import_acknowledged_at: sql<Date>`COALESCE(import_acknowledged_at, now())`,
+				import_acknowledged_version: version,
+			}),
 			...(acceptedVersion !== null && {
 				accepted_remote_revision: acceptedVersion,
-				settled_generation: sql<
-					string | null
-				>`(SELECT content_generation FROM app_deployments WHERE id = hq_remote_writes.deployment_id)`,
+				settled_generation: sql<string | null>`COALESCE(settled_generation, (
+					SELECT content_generation FROM app_deployments WHERE id = hq_remote_writes.deployment_id
+				))`,
 			}),
 		})
 		.where("id", "=", writeId)
@@ -3958,8 +3965,15 @@ export async function recordImportAcknowledgement(
 		.where("actor_user_id", "=", scope.actorUserId)
 		.where("server", "=", target.server)
 		.where("domain", "=", target.domain)
-		.where(
-			sql<SqlBool>`(import_acknowledged_at IS NULL OR import_acknowledged_version IS NOT DISTINCT FROM ${version}::bigint)`,
+		.$if(managesInstallations, (query) =>
+			query.where(
+				sql<SqlBool>`(import_acknowledged_at IS NULL OR import_acknowledged_version IS NOT DISTINCT FROM ${version}::bigint)`,
+			),
+		)
+		.$if(acceptedVersion !== null, (query) =>
+			query.where(
+				sql<SqlBool>`(accepted_remote_revision IS NULL OR accepted_remote_revision = ${acceptedVersion}::bigint)`,
+			),
 		)
 		.returning("id")
 		.executeTakeFirstOrThrow();
