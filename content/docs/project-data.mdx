@@ -337,6 +337,10 @@ it, marked **Managed in CommCare HQ**. Each one lives in its project space on
 CommCare HQ. Nova keeps a copy so your apps and Preview can read it, and never
 changes it there.
 
+An assigned table comes in with its definition and a link to its project space.
+Preview and device delivery check the connected worker’s current rows when they
+need them.
+
 Project data distinguishes the complete source inventory from the rows an individual worker receives. A table can stay linked to its project space while a large inventory is refreshed. If a source read stops partway, Nova keeps the last completed inventory and labels it with the time it was read.
 
 Project editors can open **Check source access** and enter a mobile worker’s username to read the data that worker’s device currently receives with their own approved HQ connection. Leaving it blank checks the connected account. A web account receives every row of a global table and no assigned rows. A mobile worker’s rows follow their own assignments, groups and primary place, including its ancestors. A worker check reports a time, complete row count and a small sample. A protected table needs fresh worker data before a dependent action can run.

@@ -2727,6 +2727,8 @@ An editor may inspect an assigned table's source separately from a worker's fixt
 
 Global transfer obtains a full authenticated restore and independent details for every candidate. It compares cardinality, ordered device projection, complete canonical content and the locally reviewed ordered row identities, then stamps the observed index flags while holding the transfer lock. An assigned or incomplete table remains managed at its source. The server retains a verified reference when an inline read exceeds its capacity. An unreadable inventory has no count and its historical rows never enter a device projection.
 
+Bring-in can bind a verified HQ-managed assigned table by its definition and source link. It stores no worker projection at adoption. Preview and delivery still need and validate the projection for their worker.
+
 Promoting a verified generation reconciles the current HQ field, row-attribute and value-property definitions through the same identity and reference governance as inline refresh. An admin transferring a complete global generation rechecks its exact active generation, original source grant, ordered administrative digest and two complete native fixture observations. Transfer binds index flags from those fixtures, materializes stable editable rows and lexical value slots under the table lock, and rechecks the grant before changing custody. The previous generation retires in the same transaction.
 
 

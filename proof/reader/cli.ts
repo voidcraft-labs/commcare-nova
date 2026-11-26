@@ -277,6 +277,8 @@ function reviewChanges(
 		target: toPersistableDoc(plan.target),
 		application: expandDoc(plan.target, {
 			identity: targetWireIdentity(reading.identity),
+			lookupNaming:
+				reading.lookup && lookupWireNaming(reading.lookup.definitions),
 		}),
 	};
 }
