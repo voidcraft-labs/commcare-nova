@@ -32,6 +32,14 @@ def _case(key, name):
     )
 
 
+def _view_texts(value):
+    if isinstance(value, list):
+        return [text for child in value for text in _view_texts(child)]
+    if not isinstance(value, dict) or value.get("visibility") in ("gone", "invisible"):
+        return []
+    return ([value["text"]] if value.get("text") else []) + _view_texts(value.get("children", []))
+
+
 def test_case_list_lookup_reads_the_companions_native_result(hq, editor_driver):
     """HQ's Case List save sets up the action; only Android's own result branches may filter the list."""
     database = casedata.CaseDatabase(
@@ -48,7 +56,7 @@ def test_case_list_lookup_reads_the_companions_native_result(hq, editor_driver):
         {"primary": None, "named": {"second": "Cedar", "first": "Juniper"}},
         {"primary": None, "named": {"first": None, "second": "Cedar"}},
         {"primary": "unmatchable"},
-        {"identify": "lookup-juniper"},
+        {"identify": "lookup-juniper", "inspectScores": True},
         {"identify": "not-in-restore"},
     ]
     with hq_check(CONFIGURATION) as (state, _):
@@ -86,6 +94,8 @@ def test_case_list_lookup_reads_the_companions_native_result(hq, editor_driver):
     assert (no_match["after"], no_match["searchText"]) == ([], "unmatchable")
     assert all(not reply["isIdentification"] for reply in observed[:7])
     assert identity["isIdentification"] and identity["after"] == ["Juniper"]
+    assert "Match" in _view_texts(identity["scoreHeader"])
+    assert _view_texts(identity["scoreRows"]) == ["Juniper", "★★★★★"]
     assert unknown_identity["isIdentification"] and unknown_identity["after"] == []
 
 
