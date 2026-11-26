@@ -742,6 +742,20 @@ the guarded Blueprint transaction; ordinary additive changes ride a post-commit 
 the committed doc at the committed seq (`syncedSeq`), which
 converges concurrent edits via the same monotone gate.
 
+### Earlier record links in Search
+
+A stored case has one creation-history flag and its set of observed cleared index identifiers. A live direct edge supplies its current target. Removing an observed direct edge remembers that identifier on the source case, including a surviving case detached during a sample reset. Assigning a new target removes the clear. Clearing an absent edge preserves the previous observation. The case row carries these facts across a Project move and drops them when the case is deleted. They are internal to the case store and excluded from the worker restore, case pages and submission snapshots.
+
+Existing cases and newly loaded historical records have incomplete history. A local creation, including a submission or a generated sample, starts with complete tracking. A reused caller-supplied ID starts another case lifetime. The read-only `scripts/scan-case-index-history.ts` counts current edges, known clears, coverage and completed submission observations by app and Project. A post-submission snapshot alone cannot certify a missing edge's entire history.
+
+### Completed worker searches
+
+A submitted request resolves its destination's revision, maximum, time zone and effective property matchers in the authorized app/Project transaction. The database certifies the open primary population before the device sees its results. An unconfirmed matcher, historical clear, fuzzy expansion or cutoff can change the answer; each produces a placed refusal before a count, row or claim is returned. CSQL fuzzy predicates carry lower and upper bounds through negation and related-row predicates so that an independent filter can still establish a certain match or exclusion.
+
+A similar match (`sql/certifiedFuzzyMatch.ts`) is HQ's `case_property_query(fuzzy=True)` read in Postgres: the stored value and the query split on Java's whitespace, cut every 255 code points and lowercased by Unicode simple case mapping (`pg_c_utf8`), any shared word a match; otherwise the whole query, Python-lowercased, as one term with AUTO edits (0 below three code points, 1 below six, else 2, Levenshtein without transpositions) and an exact two code point prefix. A row with no word within reach is certainly no match. A word within reach is certainly kept when it is the term itself or when at most 100 distinct words of the Project's records of the app (every indexed metadata value and property, open or closed, every type) are within reach; past 100 the index's expansion limit decides, and the search refuses with `fuzzy-expansion-unavailable`. Text Preview cannot lowercase or cut as the index and HQ's Python do (case pairs Unicode added after 11, a query holding Σ, a word over 127 code points with a supplementary character) refuses with `fuzzy-text-unavailable`; `searchPopulation.ts::fuzzyRefusal` tells the two apart. `proof/hq/test_similar_match.py` holds HQ's own answers in `proof/hq/fixtures/similar-match-vectors.json`, and `postgres/__tests__/similarMatch.postgres.test.ts` holds the store to them. An ordered comparison reads a text property's `.numeric` value as Java's `Double.parseDouble` does (`sql/searchIndexedNumber.ts`); a spelling only Java reads stays undecided, as a sort key's does. Ordered ignored literals follow their single configured sequence across requested types.
+
+`querySearchResults` reads the primary count and the visible, optionally grouped page under the same snapshot. Inline filtering, display order and paging apply after the server limit. `readSearchResultInstance` delivers the primary hits and the endpoints of the related paths that the search-enabled menus' exported details request. The worker's restore keeps its persisted properties, including one named `commcare_search_score`. Only the online search result can supply its native score.
+
 ### Fixed case indexes
 
 Physical indexes are fixed tenant, type and identity infrastructure. Adding,
@@ -1174,7 +1188,7 @@ The database extension inventory contains these three extensions:
 - `pg_trgm` remains installed by the database bootstrap and historical migrations.
   Runtime case reads no longer require property-specific trigram indexes.
 - `fuzzystrmatch` — `match(mode: fuzzy)` (`levenshtein` for the
-  term-level AUTO-fuzziness clause) and `match(mode: phonetic)`
+  term-level AUTO-fuzziness clause and the Project's words within reach) and `match(mode: phonetic)`
   (`soundex`, the encoder CommCare HQ's phonetic analyzer uses).
 - `postgis` — `match(mode: within-distance)` (`ST_GeogFromText`
   + `ST_DWithin`).

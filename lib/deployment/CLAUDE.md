@@ -2818,3 +2818,36 @@ For media batches, the status job and the authenticated target file digest
 establish completion separately for each mapped path. A named device archive
 may reference an assigned table only at its verified installation target.
 The device reads its private rows when the worker authenticates to HQ.
+
+### Project space settings for a record search in Preview
+
+A project space's calendar, maximum server results, fuzzy properties and literal
+text ignored by its record search belong to the project space. The app API and
+a source digest cannot report those facts. A Project member with edit access
+can record each fact independently in Preview. The settings apply to every app
+in that Project that has reached that server and domain. Bringing in another app
+or another HQ edit leaves them in place. A local profile is a separate choice
+for an app with no reached destination. Its initial settings are UTC, exact
+matching and 500 results. A viewer can choose a destination and run the app.
+
+`previewSearchSettings.ts` reads the app's reached targets and Project-qualified
+settings on the calling transaction. `previewRecords.ts` also supplies the
+existing deployment resolution, including the exclusion for a released live app
+mapping. A claimed destination outside this app contributes no facts. The
+browser and shared tools reauthorize writes and compare the selected profile's
+revision. Tool retries reauthorize before returning the durable receipt. The
+deployment stream sends the catalog to authorized tabs when a profile changes.
+A Project move, changed target or new revision changes the search observation.
+
+
+Browser and tool settings writes both hold the app row exclusively from
+destination eligibility through commit, including the first insert. A settings
+write can precede or follow stop-publishing, but cannot check a live deployment
+and then write through its ending. The MCP read requires the separate
+`nova.preview.search.read` grant for destinations and shared settings. Writing
+and replaying that write require both the read grant and
+`nova.preview.search.write`, before the work or receipt is resolved.
+
+A settings edit carries only changed scalars and indexed rule splices under the current revision. The Builder transport and the SA/MCP tool share the same 64 KiB change budget. Complete confirmed profiles remain readable. `previewSearchPages.ts` pages destination summaries and twelve ordered rules at a time under a fresh Project/role snapshot. Its continuation binds the app, Project, target and revisions and gives an explicit restart if the selection changed. The stream sends bounded profile segments and the Builder exposes only the complete Project snapshot.
+
+The nullable `caseListMap` field uses the same Project/target/revision, consent and role fences. Older JSON without the field remains readable and unrelated scalar edits preserve that absence. An explicit false records an unavailable Web Apps record map.

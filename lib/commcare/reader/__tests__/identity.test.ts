@@ -92,6 +92,7 @@ describe("mintEntityUuid", () => {
 				JSON.stringify(["selected", "a"]),
 			),
 			externalKey.searchInput("m", "name"),
+			externalKey.searchFilter("m", "owner_id", 0),
 			externalKey.caseOperation(XMLNS, ["basic", "subcase", 2], "create", 1),
 			externalKey.formLink(XMLNS, ["this-form"], 0),
 			externalKey.entryPoint("module", "m", "case-list"),

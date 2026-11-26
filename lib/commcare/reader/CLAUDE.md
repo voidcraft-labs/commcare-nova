@@ -548,6 +548,19 @@ is a clause of the list the case list stage reads, which a row restates. A field
 first field read, in the fields' order, is another advanced field is that field's
 (`search-field-conditions-of-another-field-are-its-own`), where the search's rows come out the
 same, as the reader's kind D tries that field's condition first.
+A conjunct that reads no Search field (`searchConditions.ts::readsSearchField`) is a condition on
+the whole search, never on a field it does not read: the reader places such a row as the search's
+own filter (kind F), joined to the list filter on a menu whose forms read the search where the
+device reads it as HQ's search does (`joinReadsAlike`), and else as the search condition alone,
+the list a device runs keeping its own condition. Nova writes every field's conjunct that reads no
+field with the search condition's rows, ahead of every field's
+(`suite/case-search/xpathQuery.ts::composeXPathQueryClauses`), so the canonical row
+`search-field-conditions-reading-no-field-are-the-search-s` moves such a conjunct of a field's
+condition to the search condition where the rows come out the same, and a source that holds such
+a row after a field's row is written in Nova's order (`search-filter-rows-recut`), which HQ's
+search runs as the same filters (`case_search/utils.py::_apply_filter` applies each row as its own
+filter). A row the search condition's slot does not admit but an excluded field's does is still
+that field's.
 
 `matchingResolver` answers a key the map holds with its UUID and gives any other key a UUID the
 map holds under no key (`identity.ts::freeEntityUuid`): a map holds a renamed entity's UUID, minted
@@ -876,20 +889,14 @@ A change that holds one removes its line.
   rewrite withheld**: `unrecognized` at the form, `schema:FormLink.xpath` or
   `schema:FormDatum.xpath` (`menus/afterSubmit.ts::compareLinks`). The links are compared with
   the expansion's print, which applies every rewrite, and no held level reaches that print.
-- **Nova's own owner clause in a case list filter respelled by hand in CommCare HQ**, beside a
-  search that stores the owner list: refused under
-  `case-search/blacklisted-owner-ids-expression-without-that-clause` at the search
-  (`search/settings.ts::readSearchSettings`, `holdsOwnersWithoutClause`). Only Nova's spelling
-  tells the clause from an authored condition (`isOwnerClause`), and Nova's print would write the
-  clause again beside the respelled one.
-- **A search's own filter row that reads no Search field and that HQ's search and the device's list
-  read apart**, on a menu whose forms read the search, where no excluded field can hold it: refused
-  under `case-search/xpath-query-row-that-is-neither-a-list-filter-clause-nor-a-search-field-s`
-  (`search/joinReadsAlike.ts`). Nova keeps such a row only as a clause of the list filter, which the
-  device runs again over the results. HQ tests a property's text as stored and the device trimmed
-  (Core's `TreeElementParser`, `CaseXmlParser`), so a `!=`, a `not` of `=`, of a blank test or of
-  `starts-with`, a literal with a space at an end, or the session's user data (untrimmed) would
-  drop a case HQ's search returned.
+- **Nova's own owner clause in a case list filter respelled by hand in CommCare HQ, or removed**,
+  beside a search that stores Nova's spelling of the owner list: refused under
+  `case-search/blacklisted-owner-ids-expression-outside-valueexpression` at the search
+  (`search/index.ts::readOwnersWithoutClause`). Only Nova's spelling tells the clause from an
+  authored condition (`isOwnerClause`), so the stored list is read as the search's own owner
+  exclusion, whose value takes no `normalize-space` wrapper. An owner list HQ's editor saved
+  without the wrapper and with no clause is that search-only exclusion
+  (`blacklisted-owner-ids-expression-without-that-clause`).
 - **Two rewrites that print at one node, one inside the other's spelling, each spelled otherwise
   than the source**: refused under the slot's own entry (`expressions/index.ts::siteLevel`). No
   single site's flip moves the first difference on, so the search finds no level.

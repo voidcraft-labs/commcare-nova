@@ -1369,6 +1369,39 @@ const PAIRS: readonly Pair[] = [
 			}),
 	},
 	{
+		id: "search-field-conditions-reading-no-field-are-the-search-s",
+		name: "two advanced fields' conditions each holding a conjunct that reads no field, after a list filter",
+		other: () =>
+			patients([plainColumn(uuid(1), "case_name", "Name")], {
+				searchInputs: [
+					{
+						uuid: uuid(8),
+						name: "number",
+						label: "Number",
+						kind: "advanced",
+						type: "text",
+						predicate: and(
+							whenInput(
+								input(uuid(8)),
+								eq(prop("patient", "phone"), input(uuid(8))),
+							),
+							eq(prop("patient", "notes"), term(literal("x"))),
+						),
+					},
+					{
+						uuid: uuid(9),
+						name: "note",
+						label: "Note",
+						kind: "advanced",
+						type: "text",
+						predicate: eq(prop("patient", "notes"), term(literal("y"))),
+					},
+				],
+				search: {},
+				list: { filter: eq(prop("patient", "phone"), term(literal("z"))) },
+			}),
+	},
+	{
 		id: "calculated-attribute-columns-are-plain",
 		name: "a calculated column that reads the case's id alone",
 		other: () =>

@@ -7,7 +7,8 @@
  * session/current-user values and Search answers, but never a case property
  * or relationship because it resolves before a case is selected.
  *
- * Every slot is required on the SA boundary. `excludedOwnerIds` and
+ * The existing slots are required on the SA boundary; `requestOrder` may be
+ * omitted to keep the current order. `excludedOwnerIds` and
  * `formsReadSearch` are nullable (`null` clears); `searchWorkflow` always
  * names one workflow. The tool computes a whole editor projection so the display
  * cluster round-trips byte-identically, then `updateModuleMutations` splits
@@ -24,6 +25,7 @@ import {
 	type CaseSearchConfig,
 	isOrdinaryCaseSearchConfig,
 	isOwnerOnlyCaseSearchConfig,
+	searchOpensOnList,
 } from "@/lib/domain";
 import { updateModuleMutations } from "../../blueprintHelpers";
 import type { ToolInvocationContext } from "../../workspace/types";
@@ -72,7 +74,7 @@ export type SetCaseSearchAdvancedResult =
 
 export const setCaseSearchAdvancedTool = {
 	description:
-		"Set the excluded-owner rule, what the menu opens on, and whether its forms read the search. The owner rule can use fixed owners, worker values and Search answers before record selection.",
+		"Set the order that decides which matches the server sends first, the excluded-owner rule, what the menu opens on, and whether its forms read the search. The order needs advanced case search in the project space; omit requestOrder to keep it or use null to clear it. The owner rule can use fixed owners, worker values and Search answers before record selection, and limits both the case list and the online matches unless the search has its own excluded-owners filter.",
 	inputSchema: setCaseSearchAdvancedInputSchema,
 	async execute(
 		input: SetCaseSearchAdvancedInput,
@@ -91,7 +93,7 @@ export const setCaseSearchAdvancedTool = {
 			const { moduleUuid, module: mod } = address;
 
 			if (
-				input.searchWorkflow === "listFirst" &&
+				searchOpensOnList(input.searchWorkflow) &&
 				input.formsReadSearch === true
 			) {
 				return {
@@ -106,8 +108,20 @@ export const setCaseSearchAdvancedTool = {
 			// Search first is the stored absence of `workflow`.
 			const existing = snapshotCaseSearchConfig(mod);
 			const excludedOwnerIds = input.excludedOwnerIds ?? undefined;
+			// Omitted keeps the stored order; `null` clears it.
+			const requestOrder =
+				input.requestOrder === undefined
+					? isOrdinaryCaseSearchConfig(existing)
+						? existing.requestOrder
+						: undefined
+					: (input.requestOrder ?? undefined);
 			const workflow = storedSearchWorkflow(input.searchWorkflow);
 			const formsReadSearch = input.formsReadSearch === true;
+			const searchOnClear =
+				input.searchOnClear === undefined
+					? isOrdinaryCaseSearchConfig(existing) &&
+						existing.searchOnClear === true
+					: input.searchOnClear === true;
 			const clearingOwnerOnly =
 				existing !== undefined &&
 				"searchActionEnabled" in existing &&
@@ -115,6 +129,7 @@ export const setCaseSearchAdvancedTool = {
 			const addingFirstOwnerRule =
 				existing === undefined &&
 				(mod.caseListConfig?.searchInputs.length ?? 0) === 0 &&
+				(mod.caseListConfig?.searchFilters?.length ?? 0) === 0 &&
 				excludedOwnerIds !== undefined;
 			const ownerOnlyModule =
 				addingFirstOwnerRule ||
@@ -124,12 +139,18 @@ export const setCaseSearchAdvancedTool = {
 			// call keeps its owner rule or clears it in the same breath: clearing
 			// leaves no config at all, so a workflow or formsReadSearch riding
 			// along would be dropped while the result still named it as set.
-			if (ownerOnlyModule && (workflow !== undefined || formsReadSearch)) {
+			if (
+				ownerOnlyModule &&
+				(workflow !== undefined ||
+					formsReadSearch ||
+					searchOnClear ||
+					requestOrder !== undefined)
+			) {
 				return {
 					kind: "mutate" as const,
 					mutations: [],
 					result: {
-						error: `Module "${mod.name}" only limits which cases are available and has no Search action, so there is no search for it to open on or for its forms to read. Add a search input first, then choose what the menu opens on.`,
+						error: `Module "${mod.name}" only limits which cases are available and has no Search action, so there is no search for it to open on, order or for its forms to read. Add a search input first, then choose what the menu opens on and how its matches are ordered.`,
 					},
 				};
 			}
@@ -138,9 +159,11 @@ export const setCaseSearchAdvancedTool = {
 					? { searchActionEnabled: false, excludedOwnerIds }
 					: {
 							...pickDisplayCluster(existing),
+							...(requestOrder !== undefined && { requestOrder }),
 							...(excludedOwnerIds !== undefined && { excludedOwnerIds }),
 							...(workflow !== undefined && { workflow }),
 							...(formsReadSearch && { formsReadSearch: true as const }),
+							...(searchOnClear && { searchOnClear: true as const }),
 						};
 			const nextConfig = clearingOwnerOnly
 				? undefined
@@ -185,7 +208,7 @@ export const setCaseSearchAdvancedTool = {
 			// Every slot the call stated with a value; `searchWorkflow` is
 			// always stated.
 			const advancedSlotsSet = ADVANCED_SLOT_NAMES.filter(
-				(slot) => input[slot] !== null,
+				(slot) => input[slot] !== null && input[slot] !== undefined,
 			);
 
 			return {

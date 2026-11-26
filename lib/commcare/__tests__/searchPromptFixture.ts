@@ -6,6 +6,7 @@ import {
 	declareWorkerProperties,
 	f,
 } from "@/lib/__tests__/docHelpers";
+import { fixedSearchRangeExpression } from "@/lib/commcare/searchRangeStartingValue";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import type { LookupValidationContext } from "@/lib/doc/lookupReferences";
 import {
@@ -132,8 +133,13 @@ export const promptLookupFixtures = buildLookupFixtures(
 );
 export const promptScenarios = [
 	"prompt-widgets",
+	"prompt-checkboxes",
 	"prompt-guards",
 	"prompt-dataflow",
+	"prompt-periods",
+	"prompt-period-fallback",
+	"prompt-period-spellings",
+	"prompt-period-held",
 ] as const;
 export type PromptScenario = (typeof promptScenarios)[number];
 export function searchPromptFixture(scenario: PromptScenario) {
@@ -150,7 +156,81 @@ export function searchPromptFixture(scenario: PromptScenario) {
 		{ name: "region", label: proseText("Region"), data_type: "text" },
 	);
 	const id = PROMPT_IDS;
-	if (scenario === "prompt-widgets") {
+	if (scenario === "prompt-periods") {
+		config.searchInputs = [
+			simpleSearchInputDef(
+				id.period,
+				"period",
+				"Review dates",
+				"date-range",
+				"period",
+				{ default: fixedSearchRangeExpression("2024-01-01", "2024-12-31") },
+			),
+			simpleSearchInputDef(
+				id.visit_date,
+				"visit_date",
+				"Visit dates",
+				"date-range",
+				"visit_date",
+				{
+					default: concat(
+						term(literal("2024-03-10")),
+						term(literal(" to 2024-03-11")),
+					),
+				},
+			),
+		];
+	} else if (scenario === "prompt-period-held") {
+		declareWorkerProperties(doc, ["region_group"]);
+		config.searchInputs = [
+			simpleSearchInputDef(
+				id.period,
+				"period",
+				"Visit dates",
+				"date-range",
+				"period",
+				{ default: term(sessionUser("region_group")) },
+			),
+		];
+	} else if (scenario === "prompt-period-spellings") {
+		config.searchInputs = [
+			simpleSearchInputDef(
+				id.period,
+				"period",
+				"Review dates",
+				"date-range",
+				"period",
+				{ default: term(literal("2024-01-02__2024-02-12__2024-05-21")) },
+			),
+			simpleSearchInputDef(
+				id.visit_date,
+				"visit_date",
+				"Visit dates",
+				"date-range",
+				"visit_date",
+				{ default: term(literal("2024-03-10")) },
+			),
+		];
+	} else if (scenario === "prompt-period-fallback") {
+		config.searchInputs = [
+			simpleSearchInputDef(
+				id.period,
+				"period",
+				"Review dates",
+				"date-range",
+				"period",
+				{ default: term(literal("awaiting dates")) },
+			),
+			simpleSearchInputDef(
+				id.visit_date,
+				"visit_date",
+				"Visit dates",
+				"date-range",
+				"visit_date",
+				{ default: term(literal("__range__2024-12-31__2024-01-01")) },
+			),
+		];
+	} else if (scenario === "prompt-widgets") {
 		declareWorkerProperties(doc, ["region_group"]);
 		const options = {
 			kind: "lookup",
@@ -228,6 +308,38 @@ export function searchPromptFixture(scenario: PromptScenario) {
 				"hidden",
 				"Hidden value",
 				term(literal("secret")),
+			),
+		];
+	} else if (scenario === "prompt-checkboxes") {
+		declareWorkerProperties(doc, ["region_group"]);
+		config.searchInputs = [
+			simpleSearchInputDef(
+				id.regions,
+				"regions",
+				"Regions",
+				"checkboxes",
+				"regions",
+				{
+					options: {
+						kind: "lookup",
+						tableId,
+						valueColumnId: valueId,
+						labelColumnId: labelId,
+						filter: eq(
+							tableColumn(tableId, groupId),
+							sessionUser("region_group"),
+						),
+					},
+					default: term(literal("north")),
+				},
+			),
+			simpleSearchInputDef(
+				id.first_name,
+				"first_name",
+				"Name",
+				"text",
+				"first_name",
+				{ allowBlank: true },
 			),
 		];
 	} else if (scenario === "prompt-dataflow") {

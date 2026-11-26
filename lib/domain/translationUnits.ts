@@ -992,7 +992,9 @@ export function collectTranslationUnits(
 					}),
 				);
 			}
-			if (input.required !== undefined) {
+			// A requirement with no message at all, and a check with none of its
+			// own, which shows CommCare's sentence, have no text to translate.
+			if (input.required !== undefined && input.required.noMessage !== true) {
 				if (input.required.message === undefined) {
 					needsDefaultRequiredMessage = true;
 				} else {
@@ -1013,7 +1015,7 @@ export function collectTranslationUnits(
 					);
 				}
 			}
-			if (input.validation !== undefined) {
+			if (input.validation?.message !== undefined) {
 				out.push(
 					unit({
 						id: makeTranslationUnitId(
@@ -1035,21 +1037,20 @@ export function collectTranslationUnits(
 		const search = effectiveCaseSearchConfig(module);
 		if (search !== undefined) {
 			const searchOwner = { kind: "module" as const, moduleUuid };
-			// A search with no title has no text to translate.
-			const title = searchScreenTitleText(search);
-			if (title !== null) {
-				out.push(
-					unit({
-						id: makeTranslationUnitId("module", moduleUuid, "search-title"),
-						valueKind: "text",
-						role: "search-screen-title",
-						source: title,
-						owner: searchOwner,
-						breadcrumb: [...moduleBreadcrumb, "Search", "title"],
-						context: { moduleName: module.name },
-					}),
-				);
-			}
+			// Every search has a title unit. A search with no title in its
+			// source language holds the unit blank there, and another language
+			// may show a heading of its own (`searchScreenTitleIn`).
+			out.push(
+				unit({
+					id: makeTranslationUnitId("module", moduleUuid, "search-title"),
+					valueKind: "text",
+					role: "search-screen-title",
+					source: searchScreenTitleText(search) ?? "",
+					owner: searchOwner,
+					breadcrumb: [...moduleBreadcrumb, "Search", "title"],
+					context: { moduleName: module.name },
+				}),
+			);
 			if (search.searchScreenSubtitle !== undefined) {
 				out.push(
 					unit({
@@ -1501,7 +1502,11 @@ function storedTranslation(
 		}
 		return {
 			effective: unitValue.source,
-			status: isSource ? "ready" : "missing",
+			status:
+				isSource ||
+				(unitValue.role === "search-screen-title" && unitValue.source === "")
+					? "ready"
+					: "missing",
 		};
 	}
 	const fallback = explicit.workerFallback;
@@ -1587,6 +1592,24 @@ export function collectLocalizedTranslationUnits(
 	return collectTranslationUnits(doc)
 		.filter((unit) => !unit.generated?.dormant)
 		.map((entry) => localizeTranslationUnit(doc, language, entry));
+}
+
+/**
+ * The units a language added by copying another takes a translation of: each
+ * whose text, as the copied language shows it, can be a translation. A unit
+ * whose shown text can't (a Search title the app shows none of, blank where
+ * its role needs text) gets none, and the new language shows what the unit
+ * holds, as the copied language does. Shared by every editor that adds a
+ * language, so none copies what the gate refuses.
+ */
+export function unitsCopiedToANewLanguage<T extends LocalizedTranslationUnit>(
+	units: readonly T[],
+): readonly T[] {
+	return units.filter(
+		(unit) =>
+			(!unit.generated || unit.explicit !== undefined) &&
+			translationValueIntegrityIssue(unit, unit.effective) === undefined,
+	);
 }
 
 export function resolveTranslationUnitValue(

@@ -618,6 +618,32 @@ describe("BuilderSession store", () => {
 		expect(store.getState().previewMenuCaseSelections).toEqual({});
 	});
 
+	it("a previous worker search has no standing after its destination changes and changes back", () => {
+		const store = createBuilderSessionStore();
+		const moduleUuid = testUuid("search-destinations");
+		const read = () => store.getState();
+		read().setPreviewing(true);
+		read().setPreviewSearchRevision("first");
+		const original = read().previewSessionId;
+		read().setPreviewSearchState(moduleUuid, {
+			kind: "completed",
+			attempt: 1,
+			submission: "initial",
+			answers: { name: "Ana" },
+			matchCount: 1,
+		});
+		read().setPreviewSearchRevision("first");
+		expect(read().previewSessionId).toBe(original);
+		expect(read().previewSearchStates[moduleUuid]?.kind).toBe("completed");
+		read().setPreviewSearchRevision("second");
+		const second = read().previewSessionId;
+		expect(second).not.toBe(original);
+		expect(read().previewSearchStates).toEqual({});
+		read().setPreviewSearchRevision("first");
+		expect(new Set([original, second, read().previewSessionId]).size).toBe(3);
+		expect(read().previewSearchStates).toEqual({});
+	});
+
 	it("keeps each module's completed-search context uuid-keyed and clears it with the case state", () => {
 		const store = createBuilderSessionStore();
 		const moduleUuid = testUuid("module-search");

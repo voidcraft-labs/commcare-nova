@@ -151,6 +151,7 @@ import {
 	fieldConditionsOfAnotherFieldAreItsOwn,
 	fieldConditionsOverOtherFieldsAreTheFilters,
 	fieldConditionsReadingNoFieldAreTheFilters,
+	fieldConditionsReadingNoFieldAreTheSearchs,
 	filterConditionsOfAFieldAreItsOwn,
 	searchesThatFindNothingAsRead,
 	searchFieldPathsAreTyped,
@@ -850,6 +851,16 @@ export const READER_CANONICAL_CHOICES: readonly ReaderCanonicalChoice[] = [
 		id: "search-field-conditions-reading-no-field-are-the-filter-s",
 		kind: "one-wire",
 		apply: fieldConditionsReadingNoFieldAreTheFilters,
+	},
+	{
+		/** A conjunct of an advanced Search field's condition that reads no Search field, and the
+		 *  same conjunct as the search condition's last clause: Nova writes every such conjunct with
+		 *  the search condition's rows, ahead of every field's, so both print one request, and the
+		 *  reader returns the search condition's, a condition on the whole search
+		 *  (`search/rows.ts::fieldConditionsReadingNoFieldAreTheSearchs`). */
+		id: "search-field-conditions-reading-no-field-are-the-search-s",
+		kind: "one-wire",
+		apply: fieldConditionsReadingNoFieldAreTheSearchs,
 	},
 	{
 		/** A tile cell no wire writes (on a list with no tile, or on a column hidden from Results

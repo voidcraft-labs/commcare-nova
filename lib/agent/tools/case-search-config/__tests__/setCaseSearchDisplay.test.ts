@@ -14,6 +14,7 @@ import {
 	literal,
 	matchAll,
 	prop,
+	sessionContext,
 	sessionUser,
 	term,
 } from "@/lib/domain/expression";
@@ -159,7 +160,9 @@ describe("setCaseSearchDisplay", () => {
 
 	it("turns an owner-only config into explicit Search when the action's condition is set", async () => {
 		const baseDoc = makeCaseSearchDoc();
-		const owner = term({ kind: "literal", value: "owner-a" });
+		// The owner list reads the session, so the case list loads it and the
+		// Search button's condition may read the worker too.
+		const owner = term(sessionContext("userid"));
 		const supervisor = eq(sessionUser("user_type"), literal("supervisor"));
 		const mod = baseDoc.modules[MOD_A];
 		if (mod?.caseListConfig === undefined) {

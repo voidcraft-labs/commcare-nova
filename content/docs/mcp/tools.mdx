@@ -19,6 +19,26 @@ it can't hold there (`notOffered`). Read individual modules, forms or fields whe
 content matters to the task. This keeps a large app's question text out of
 every startup prompt.
 
+## Preview search and map settings
+
+Use `get_preview_search_settings` to list the destinations for a saved app.
+Each answer includes a `nextCursor`. Pass it as `cursor` until it is null.
+Choose a listed `target` to read its matching rules the same way. Each rule
+includes its list and index. A null setting has yet to be confirmed. The `caseListMap` value records whether the destination offers a record map in Web Apps. Android uses its own map behavior. If a
+teammate changes the settings during a read, restart without a cursor.
+
+Use `set_preview_search_settings` in an editing work with the target, expected
+revision, request id and `changes`. Send only the settings the team confirmed.
+For example, `{"timeZone":"Asia/Kolkata"}` preserves every matching rule.
+A rule edit gives a zero-based `start`, the number of rows to `remove`, and
+rows to `insert`. Within `propertyMatchers`, `fuzzyProperties` chooses matching
+by record type and property. The order of `ignoredText` applies across record
+types. Null clears a confirmed setting. Review a newer revision before retrying
+a changed edit.
+
+Reading needs `nova.preview.search.read`. Editing also needs
+`nova.preview.search.write`. Existing credentials can add these grants when needed.
+
 ## Private work and saving
 
 App edits use a private workspace. Open one with `begin_work`, supplying a
@@ -256,7 +276,13 @@ limited to 30 seconds and 128 MiB. Conditional closing and additional case
 operations remain unevaluated. Media capture and the submission transaction
 need the running app; evaluation does not prove deployment or successful storage.
 The check runs on one platform the app runs on, chosen with `platform` (Web Apps
-by default when the app runs on both).
+by default when the app runs on both). A form that reads what a search found gets the same
+answers that selected those records. To try a different date range, pass both
+`name:from` and `name:to` in `searchAnswers`, using calendar dates such as
+`2024-06-01` and `2024-06-30`. On Web Apps, a field the worker also searched for
+blank adds `name:blank` set to `true`; Android's Search screen has no such box,
+so an Android check refuses it. Hidden values are worked out by the search, so
+leave them out.
 
 For a complete observed journey, `start_app_test` opens the saved app at its
 entry screen with disposable records. `start_app_test` and `continue_app_test`
@@ -333,6 +359,11 @@ cases from the same menu. During a form with expandable case information,
 `{"kind":"caseContext","expanded":true}` opens the selected case’s Details.
 Include `tabUuid` to choose a tab there, or send `expanded:false` to collapse it
 and return to the same form page.
+
+On a Search screen, `clearSearch` empties the fields as the Clear button does.
+It searches again only where the menu's `searchOnClear` applies, on a desktop
+Web Apps screen, and a required field left blank then stops that search without
+showing an error.
 
 `continue_app_test` accepts `actions: [{sessionId?, action, expect?}, ...]` with up to eight
 ordered actions. Each produces its own step. Optional expectations can name the
@@ -961,9 +992,10 @@ A module's case list is the screen that lists existing cases and the search bar 
 | `update_case_list_column` | Replace a column's body, addressed by `moduleUuid` and `columnUuid`. Its `sort` takes the same `comparator` and `menuPosition` as `add_case_list_columns`. |
 | `remove_case_list_column` | Remove one column by `moduleUuid` and `columnUuid`. |
 | `reorder_case_list_columns` | Reorder a surface by passing its complete `columnUuids` sequence. |
-| `set_case_list_filter` | Set or clear the optional filter predicate that narrows the list. |
-| `add_search_inputs` | Add one or more search inputs in one call: a simple property bind, an advanced predicate, or a hidden value carried with the search. Visible inputs may carry a `hint`, a `required` condition, and one `validation` check; `select` / `multi-select` inputs take their choices from a Project lookup table through `options`, listed in the order of the text in `options.sortColumnId` (omit it to order them by the label column). Each may predeclare `searchInputUuid`; predicates reference inputs with `#search/name`. A name CommCare reads as part of the search request (such as `case_type`, `include_closed` or `_xpath_query`) is refused; the tool description lists them all. On Android, an answer that holds both `'` and `"` finds nothing. |
-| `update_search_input` | Replace a search input's body, addressed by `moduleUuid` and `searchInputUuid`. Accepts the same shapes as `add_search_inputs`. |
+| `set_case_list_filter` | Choose which records can appear on the device list, match the online search, or both. `surface` chooses `list`, `search` or `both`, which it is when left out. `null` includes all records. |
+| `edit_search_filter` | Add, change, move or remove one online search filter on a menu. Its target chooses what to match (a property, a property of a related record through its relationship path, the record's ID, name, owner, project space or a named relationship) and its value comes from the worker, an earlier selection, a search answer, a table or a constant. Filters on the same target send their values together, in order. The `excluded-owners` target leaves the records of the owners its value names (separated by spaces) out of the online matches only; give a new one `placement: "search-setting"`, and keep one per search. `add-order` and `edit-order` set an order among the filters that decides which matches the server sends first, without advanced case search. |
+| `add_search_inputs` | Add one or more search inputs in one call: a simple property bind, an advanced predicate, or a hidden value carried with the search. Visible inputs may carry a `hint`, a `required` condition, and one `validation` check; `select`, `multi-select` and `checkboxes` inputs take their choices from a Project lookup table through `options`, listed in the order of the text in `options.sortColumnId` (omit it to order them by the label column). Each may predeclare `searchInputUuid`; predicates reference inputs with `#search/name`. A name CommCare reads as part of the search request (such as `case_type`, `include_closed` or `_xpath_query`) is refused; the tool description lists them all. On Android, an answer that holds both `'` and `"` finds nothing. A date range can start with a fixed pair of dates in `default`, or with a calculation that gives the two dates as `YYYY-MM-DD` joined by `' to '`. A visible input with `hidden: true` is left off the Web Apps Search screen and searches with its starting value as it stands; Android still shows it. It carries no `hint`, `required`, `validation` or `allowBlank`, and as a text input it matches its own property by its own name exactly (or with `matching: "project-space"`). A hidden value may leave out `value`, which Web Apps keeps blank and Android shows empty. |
+| `update_search_input` | Replace a search input's body, addressed by `moduleUuid` and `searchInputUuid`. Accepts the same shapes as `add_search_inputs`. A date range can start with a fixed pair such as `default: {"from":"2026-01-01","to":"2026-01-31"}`, or with one calculated expression that gives the two dates as `YYYY-MM-DD` joined by `' to '`, such as `concat(format-date(date-add(today(), -30, 'days'), '%Y-%m-%d'), ' to ', format-date(today(), '%Y-%m-%d'))`; `get_module` returns fixed dates as a pair and a calculation as an expression. |
 | `remove_search_input` | Remove one search input by `moduleUuid` and `searchInputUuid`. |
 | `reorder_search_inputs` | Reorder search inputs by passing their complete `searchInputUuids` sequence. |
 | `configure_case_selection` | Pass `selection: { kind: "multiple", maximum: N }` to let workers choose several cases, where `N` is 1 through 100. Pass `selection: null` to return to opening one case at a time. A several-case module needs a follow-up or close form that can consume the batch. Questions saved to the selected case start without one case's value; each nonblank answer is saved to every selected case, while blank preserves their existing values. A capture destination updates only when the runtime submission provides a file, and each case then stores the link to that file. Preview creates none. `applied` and `unchanged` are complete outcomes. `needs_changes` applies no mutations. For `needs: "confirmation"`, review the returned effects, then repeat the same request with `confirmedModuleUuids` exactly equal to `requiredConfirmedModuleUuids` and `confirmationToken` copied unchanged from that same result. The token binds the approval to the requested source selection and every reviewed module effect. If that effect changed, no mutation is applied and the result supplies the current review and a new token. For `needs: "repair"`, fix the UUID-owned blockers before retrying. For `needs: "refresh"`, call again without either confirmation field to review the current effects. `unavailable` also applies nothing and returns the reason the request cannot run against the current app. |
@@ -1091,7 +1123,7 @@ Case search is the search experience that surrounds the case list: the screen ti
 | Tool | What it does |
 |---|---|
 | `set_case_search_display` | Set the search-screen title, subtitle, and the predicate that decides when to show the search button. |
-| `set_case_search_advanced` | Set the excluded-owner rule, what the menu opens on, and whether its forms read the search, all three in one call. `excludedOwnerIds` is an expression naming owner ids whose cases are left out of Results, or `null`. `searchWorkflow` is required: `searchFirst` opens on Search in Web Apps, with Results showing what the search finds; `skipToResults` opens on the cases the search finds with the Search fields' starting values, which workers can search again to narrow, in Web Apps; `listFirst` opens on the case list with Search from it, and only an app that runs only on Android can use it. Android opens a menu that searches on its case list under every choice. `formsReadSearch: true` runs the search again as each form in the menu opens, so the forms can read `#search/<name>` and what the search found, and a case the worker found is claimed when a form is chosen; it needs `searchFirst` or `skipToResults` in a menu whose forms all work on an existing case, or a case list with no forms, it refuses a Search button display condition and `previous` after submit, and it runs only in Web Apps. `null` turns it off. |
+| `set_case_search_advanced` | Set the order that decides which matches the server sends first, the excluded-owner rule, what the menu opens on, whether its forms read the search, and whether Search runs again after Clear, in one call. `requestOrder` lists the properties, each compared as text, a number or a date in a direction, that order the matches before the server's cap; it needs advanced case search in the project space, leaving it out keeps the current order and `null` clears it. `excludedOwnerIds` is an expression naming owner ids whose cases are left out of the case list and of Results, or `null`; a search's own `excluded-owners` filter replaces it for the online search. `searchWorkflow` is required: `searchFirst` opens on Search in Web Apps, with Results showing what the search finds; `skipToResults` opens on the cases the search finds with the Search fields' starting values, which workers can search again to narrow, in Web Apps; `listFirst` opens on the case list with Search from it, and only an app that runs only on Android can use it; `listFirstWithDefaultResults` opens the same way and also requests default results for Search when the app is published. Android opens a menu that searches on its case list under every choice. `formsReadSearch: true` runs the search again as each form in the menu opens, so the forms can read `#search/<name>` and what the search found, and a case the worker found is claimed when a form is chosen; it needs `searchFirst` or `skipToResults` in a menu whose forms all work on an existing case, or a case list with no forms, it refuses a Search button display condition and `previous` after submit, and it runs only in Web Apps. `null` turns it off. The optional `searchOnClear: true` searches again when a worker clears Search on a desktop Web Apps screen; smaller screens and Android keep manual search, `null` turns it off, and leaving it out keeps the current setting. |
 
 ## Working with deep links
 
