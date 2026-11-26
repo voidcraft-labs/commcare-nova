@@ -44,7 +44,7 @@ interface FieldRendererProps {
 	questionLabelledBy?: string | undefined;
 	questionDescriptionIds?: string | undefined;
 	questionLabel?: string | undefined;
-	onChange: (value: string) => void;
+	onChange: (value: string) => Promise<boolean>;
 	onBlur: () => void;
 	onChangeAt?: ((path: string, value: string) => void) | undefined;
 	onBlurAt?: ((path: string) => void) | undefined;

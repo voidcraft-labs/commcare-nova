@@ -6,6 +6,7 @@ import {
 	render,
 	screen,
 } from "@testing-library/react";
+import { useRef, useState } from "react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { proseText } from "@/lib/domain";
@@ -51,31 +52,50 @@ function offerPlace(fetchFields: () => Promise<void>) {
 	});
 }
 
-function mountAddress(onChange: (value: string) => Promise<boolean>) {
+function mountAddress(
+	onChange: (value: string) => Promise<boolean>,
+	{ publishBeforeAcknowledgement = false } = {},
+) {
 	const onDisplayMessage = vi.fn((_message: QuestionMessage) =>
 		Promise.resolve(),
 	);
-	render(
-		<AddressEntryField
-			field={{
-				uuid: testUuid("address-lookup"),
-				id: "address",
-				kind: "text",
-				label: proseText("Address"),
-			}}
-			state={{
-				path: "/data/address",
-				value: "",
-				visible: true,
-				required: false,
-				valid: true,
-				touched: false,
-			}}
-			onBlur={() => {}}
-			onChange={onChange}
-			onDisplayMessage={onDisplayMessage}
-		/>,
-	);
+	function Address() {
+		const [value, setValue] = useState("");
+		const latest = useRef(0);
+		return (
+			<AddressEntryField
+				field={{
+					uuid: testUuid("address-lookup"),
+					id: "address",
+					kind: "text",
+					label: proseText("Address"),
+				}}
+				state={{
+					path: "/data/address",
+					value,
+					visible: true,
+					required: false,
+					valid: true,
+					touched: false,
+				}}
+				onBlur={() => {}}
+				onChange={async (next) => {
+					const revision = ++latest.current;
+					if (publishBeforeAcknowledgement) setValue(next);
+					const applied = await onChange(next);
+					if (
+						!publishBeforeAcknowledgement &&
+						applied &&
+						revision === latest.current
+					)
+						setValue(next);
+					return applied;
+				}}
+				onDisplayMessage={onDisplayMessage}
+			/>
+		);
+	}
+	render(<Address />);
 	return {
 		input: screen.getByRole<HTMLInputElement>("combobox"),
 		onDisplayMessage,
@@ -83,7 +103,7 @@ function mountAddress(onChange: (value: string) => Promise<boolean>) {
 }
 
 async function chooseFromSearch(input: HTMLInputElement, search: string) {
-	await act(() => {
+	await act(async () => {
 		input.focus();
 		fireEvent.input(input, {
 			inputType: "insertText",
@@ -121,7 +141,7 @@ it("keeps a new query while details from a previous choice are pending", async (
 		await chooseFromSearch(input, "River");
 		expect(fetchFields).toHaveBeenCalledOnce();
 
-		await act(() => {
+		await act(async () => {
 			fireEvent.input(input, {
 				inputType: "insertText",
 				target: { value: "Orchard Avenue" },
@@ -144,14 +164,16 @@ it("drops the broadcast when editing resumes before the sender acknowledges the 
 	const onChange = vi.fn(async (_value: string) => true);
 	onChange.mockImplementationOnce(() => sender.promise);
 	offerPlace(() => Promise.resolve());
-	const { input, onDisplayMessage } = mountAddress(onChange);
+	const { input, onDisplayMessage } = mountAddress(onChange, {
+		publishBeforeAcknowledgement: true,
+	});
 	try {
 		await chooseFromSearch(input, "River");
-		expect(input.value).toBe(ADDRESS);
+		expect(input.value).toBe("River");
 		expect(onChange).toHaveBeenCalledOnce();
 		expect(onDisplayMessage).not.toHaveBeenCalled();
 
-		await act(() => {
+		await act(async () => {
 			fireEvent.input(input, {
 				inputType: "insertText",
 				target: { value: "Orchard Avenue" },
@@ -174,4 +196,93 @@ it("drops the broadcast when editing resumes before the sender acknowledges the 
 	expect(onChange).toHaveBeenLastCalledWith(
 		JSON.stringify(onDisplayMessage.mock.calls[0]?.[0]),
 	);
+});
+
+it("keeps a rejected choice as a search and shows the chosen answer once accepted", async () => {
+	const onChange = vi.fn(async (_value: string) => true);
+	onChange.mockResolvedValueOnce(false);
+	offerPlace(() => Promise.resolve());
+	const { input, onDisplayMessage } = mountAddress(onChange);
+
+	await chooseFromSearch(input, "River");
+	expect(onChange).toHaveBeenCalledOnce();
+	expect(input.value).toBe("River");
+	expect(input.getAttribute("aria-invalid")).toBe("true");
+	expect(onDisplayMessage).not.toHaveBeenCalled();
+
+	await chooseFromSearch(input, "River Road");
+	expect(input.value).toBe(ADDRESS);
+	expect(input.hasAttribute("aria-invalid")).toBe(false);
+	expect(onDisplayMessage).toHaveBeenCalledOnce();
+});
+
+it("keeps the recorded address when a clear is refused and sends null after a successful retry", async () => {
+	const onChange = vi.fn(async (_value: string) => true);
+	offerPlace(() => Promise.resolve());
+	const { input, onDisplayMessage } = mountAddress(onChange);
+	await chooseFromSearch(input, "River");
+	onDisplayMessage.mockClear();
+	onChange.mockResolvedValueOnce(false);
+	const clear = screen.getByRole("button", { name: "Clear the address" });
+
+	await act(async () => {
+		fireEvent.click(clear);
+	});
+	expect(input.value).toBe(ADDRESS);
+	expect(onDisplayMessage).not.toHaveBeenCalled();
+
+	await act(async () => {
+		fireEvent.click(clear);
+	});
+	expect(input.value).toBe("");
+	expect(onDisplayMessage).toHaveBeenCalledExactlyOnceWith(null);
+});
+
+it("drops a delayed clear broadcast after a newer address has been chosen", async () => {
+	const clearing = Promise.withResolvers<boolean>();
+	const onChange = vi.fn(async (_value: string) => true);
+	offerPlace(() => Promise.resolve());
+	const { input, onDisplayMessage } = mountAddress(onChange);
+	await chooseFromSearch(input, "River");
+	onDisplayMessage.mockClear();
+	onChange.mockImplementationOnce(() => clearing.promise);
+	try {
+		await act(async () => {
+			fireEvent.click(
+				screen.getByRole("button", { name: "Clear the address" }),
+			);
+		});
+		expect(input.value).toBe(ADDRESS);
+
+		await chooseFromSearch(input, "River Road");
+		expect(input.value).toBe(ADDRESS);
+		expect(onDisplayMessage).toHaveBeenCalledOnce();
+		expect(onDisplayMessage).not.toHaveBeenCalledWith(null);
+	} finally {
+		await act(async () => {
+			clearing.resolve(true);
+			await clearing.promise;
+		});
+	}
+	expect(input.value).toBe(ADDRESS);
+	expect(onDisplayMessage).toHaveBeenCalledOnce();
+});
+
+it("shows the recorded address if typing cannot clear it", async () => {
+	const onChange = vi.fn(async (_value: string) => true);
+	offerPlace(() => Promise.resolve());
+	const { input, onDisplayMessage } = mountAddress(onChange);
+	await chooseFromSearch(input, "River");
+	onChange.mockResolvedValueOnce(false);
+	onDisplayMessage.mockClear();
+
+	await act(async () => {
+		fireEvent.input(input, {
+			inputType: "insertText",
+			target: { value: "Orchard" },
+		});
+	});
+	expect(onChange).toHaveBeenLastCalledWith("");
+	expect(input.value).toBe(ADDRESS);
+	expect(onDisplayMessage).not.toHaveBeenCalled();
 });
