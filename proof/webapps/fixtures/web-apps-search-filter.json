@@ -1,0 +1,9 @@
+{
+	"entry": "case-search/case-list-filter-clause-the-search-does-not-restate",
+	"source": "/modules/2/case_details/short/filter",
+	"menu": "Visits",
+	"restore": "restore-search-filter.xml",
+	"query": "village = 'north'",
+	"listFilter": "standing = 'open'",
+	"rows": ["client-both"]
+}

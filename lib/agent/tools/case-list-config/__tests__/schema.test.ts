@@ -3,6 +3,7 @@
  * optional-count or native wire claim. */
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
+import { authoringJsonSchema } from "@/lib/agent/authoring/schema";
 import { addCaseListColumnsTool } from "../addCaseListColumns";
 import { addSearchInputsTool } from "../addSearchInputs";
 import { configureCaseSelectionTool } from "../configureCaseSelection";
@@ -16,6 +17,7 @@ import {
 	caseTileLayoutInputSchema,
 	columnInputSchema,
 	columnUpdateInputSchema,
+	SEARCH_FOR_BLANK_DESCRIPTION,
 	stampColumnUuid,
 	tileCellFromInput,
 	tileCellInputSchema,
@@ -24,6 +26,22 @@ import { updateCaseListColumnTool } from "../updateCaseListColumn";
 import { updateSearchInputTool } from "../updateSearchInput";
 
 const MODULE_UUID = "11111111-1111-4111-8111-111111111111";
+
+// The search for blank is admitted on every visible arm, so its one
+// description tells the model what an advanced field's condition receives.
+it.each([
+	["add_search_inputs", addSearchInputsTool.inputSchema],
+	["update_search_input", updateSearchInputTool.inputSchema],
+])(
+	"%s describes the search for blank an advanced field receives",
+	(_, schema) => {
+		const served = JSON.stringify(authoringJsonSchema(schema));
+		expect(served).toContain(JSON.stringify(SEARCH_FOR_BLANK_DESCRIPTION));
+		expect(SEARCH_FOR_BLANK_DESCRIPTION).toContain(
+			"An advanced field's condition receives the blank joined before the answer (#,#answer",
+		);
+	},
+);
 
 describe("case-list author command boundaries", () => {
 	// ── Representative-payload smoke tests ────────────────────────────
@@ -334,7 +352,7 @@ describe("case-list author command boundaries", () => {
 		expect(result.success).toBe(true);
 	});
 
-	it.each(["select", "multi-select"])(
+	it.each(["select", "multi-select", "checkboxes"])(
 		"requires lookup options for %s inputs on both authored arms",
 		(type) => {
 			const options = {
@@ -376,7 +394,7 @@ describe("case-list author command boundaries", () => {
 			moduleUuid: MODULE_UUID,
 			searchInputUuid: "11111111-1111-4111-8111-111111111111",
 		};
-		const scalarDefault = updateSearchInputTool.inputSchema.safeParse({
+		const rangeDefault = updateSearchInputTool.inputSchema.safeParse({
 			...base,
 			searchInput: {
 				kind: "simple",
@@ -385,7 +403,7 @@ describe("case-list author command boundaries", () => {
 				type: "date-range",
 				property: "visit_date",
 				mode: { kind: "range" },
-				default: { kind: "today" },
+				default: { from: "2024-03-01", to: "2024-04-01" },
 			},
 		});
 		const missingMode = updateSearchInputTool.inputSchema.safeParse({
@@ -421,7 +439,10 @@ describe("case-list author command boundaries", () => {
 			},
 		});
 
-		expect(scalarDefault.success).toBe(false);
+		expect(rangeDefault.data?.searchInput).toHaveProperty("default", {
+			kind: "term",
+			term: { kind: "literal", value: "__range__2024-03-01__2024-04-01" },
+		});
 		expect(missingMode.success).toBe(false);
 		expect(wrongWidget.success).toBe(false);
 		expect(validRange.success).toBe(true);

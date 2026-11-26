@@ -89,9 +89,11 @@ describe("canonical mutation grammar", () => {
 			uuid: columnUuid,
 			searchInput: {
 				...input,
+				// A date range matches only as a range; an exact mode is no
+				// stored shape (its starting value is canonical).
 				type: "date-range",
 				property: "date_opened",
-				mode: { kind: "range" },
+				mode: { kind: "exact" },
 				default: { kind: "today" },
 			},
 		},

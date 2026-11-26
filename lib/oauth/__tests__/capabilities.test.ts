@@ -31,6 +31,8 @@ describe("deriveCapabilities", () => {
 			"nova.hq.read",
 			"nova.hq.write",
 			"nova.hq.import",
+			"nova.preview.search.read",
+			"nova.preview.search.write",
 			"nova.projects.read",
 			"nova.projects.write",
 			"nova.projects.data.export",

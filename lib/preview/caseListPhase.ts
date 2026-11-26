@@ -10,7 +10,7 @@
 // (CommCare's inline search, which only an app declaring Web Apps alone can
 // hold) has no list before its search runs.
 
-import type { SearchWorkflow } from "@/lib/domain";
+import { type SearchWorkflow, searchOpensOnList } from "@/lib/domain";
 import type { CaseQueryConstraintSource } from "@/lib/preview/engine/caseDataBindingTypes";
 import type { PreviewPlatformRules } from "./platform";
 
@@ -62,12 +62,12 @@ export function caseListStep(args: {
 	 * Skip to results runs the default search as the menu opens; search
 	 * first shows the Search screen, with only its Search button when no
 	 * field is visible, until a search is submitted. */
-	if (args.formsReadSearch && args.workflow !== "listFirst")
+	if (args.formsReadSearch && !searchOpensOnList(args.workflow))
 		return opensOn(args.workflow, args);
 	if (
 		args.rules.searchActionAutoLaunch &&
 		args.searchRelevant &&
-		args.workflow !== "listFirst"
+		!searchOpensOnList(args.workflow)
 	)
 		return opensOn(args.workflow, args);
 	return "browse";
@@ -201,7 +201,7 @@ export function caseListDefaultSearchLaunch(
 }
 
 function opensOn(
-	workflow: Exclude<SearchWorkflow, "listFirst">,
+	workflow: "searchFirst" | "skipToResults",
 	run: { readonly hasSubmitted: boolean; readonly searchReopened?: boolean },
 ): CaseListStep {
 	if (run.hasSubmitted) return "results";

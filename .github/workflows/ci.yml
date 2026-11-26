@@ -321,9 +321,9 @@ jobs:
     # reinstalling extensions and replaying migrations for each behavior test.
     name: Test shard ${{ matrix.shard }}/8
     runs-on: ubuntu-latest
-    # The deadline also covers npm and Docker setup and the timing upload.
-    # The largest shard can take over nine minutes inside Vitest alone.
-    timeout-minutes: 12
+    # The deadline covers npm and Docker setup, Vitest, and the timing upload.
+    # The largest measured Search shard took over eleven minutes in Vitest.
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:

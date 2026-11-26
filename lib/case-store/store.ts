@@ -97,12 +97,20 @@ export interface RelatedRead {
  * reads it; the store binds it). `owner_id` stays — it is the CommCare
  * case-owner (the future location-access axis), a real row field.
  */
-export type CaseRow = Omit<Selectable<CasesTable>, "project_id">;
+export type PrivateCaseColumn =
+	| "project_id"
+	| "index_history_complete"
+	| "cleared_index_identifiers";
+export type CaseRow = Omit<Selectable<CasesTable>, PrivateCaseColumn>;
 
 /** One direct case-index edge whose source and ancestor both belong to the
  * bound app and Project. The target type is persisted on the edge because
  * CommCare keeps the original CaseIndex type even if the target is retyped. */
 export type CaseIndexRow = Selectable<CaseIndicesTable>;
+
+export interface SearchResultInstance extends DeviceCaseDatabase {
+	readonly primaryIds: readonly string[];
+}
 
 export interface DeviceCaseDatabase {
 	readonly rows: readonly CaseRow[];
@@ -129,7 +137,7 @@ export interface DeviceCaseDatabase {
  */
 export type CaseInsert = Omit<
 	Insertable<CasesTable>,
-	"app_id" | "project_id" | "owner_id" | "properties"
+	"app_id" | PrivateCaseColumn | "owner_id" | "properties"
 > & {
 	properties: JsonObject | string;
 };
@@ -309,6 +317,7 @@ export interface RestoreScope {
  */
 export interface SearchPopulation {
 	readonly heldBy: RestoreScope;
+	readonly request?: import("./searchRequest").CaseSearchRequest;
 	/**
 	 * Read only the population's cases `heldBy`'s restore does not hold:
 	 * HQ's search population less the worker's restore closure, which is
@@ -484,6 +493,14 @@ export interface CaseGroup {
  * rows those groups contain. That is the platform's behavior, faithfully
  * reproduced, not a bug to work around.
  */
+export interface SearchResultsPage {
+	readonly primaryCount: number;
+	readonly totalRows: number;
+	readonly offset: number;
+	readonly rows: readonly CaseRowWithCalculated[];
+	readonly grouped?: GroupedQueryResult;
+}
+
 export interface GroupedQueryResult {
 	readonly groups: readonly CaseGroup[];
 	/**
@@ -541,6 +558,7 @@ export type CountArgs =
 			ownerId?: never;
 			/** Same selected-parent population contract as `QueryArgs.parentCases`. */
 			parentCases?: SelectedParentCases;
+			caseIds?: readonly string[];
 			caseTypeSchemas?: ReadonlyMap<string, CaseType>;
 			/** Same contract as `QueryArgs.lookupTableSchemas`. */
 			lookupTableSchemas?: LookupTableSchemas;
@@ -1136,6 +1154,14 @@ export interface CaseStore extends SchemaCaseStore {
 		readonly caseIds: readonly string[];
 	}): Promise<DeviceCaseDatabase>;
 
+	/** A completed search's primary rows, in server order, with the direct
+	 * indices those rows held in the same authorized database snapshot. */
+	querySearchResults(
+		args: QueryArgs,
+		grouping?: string,
+	): Promise<SearchResultsPage>;
+	readSearchResultInstance(args: QueryArgs): Promise<SearchResultInstance>;
+
 	/**
 	 * DomainExpression-driven SELECT with optional inline calculated-column
 	 * projection. Default ordering (when `sort` is absent) is
@@ -1210,6 +1236,8 @@ export interface CaseStore extends SchemaCaseStore {
 	insert(args: {
 		appId: string;
 		row: CaseInsert;
+		/** A record supplied from an external history proves only its current links. */
+		origin?: "existing-record";
 		/** Relationship for a supplied `parent_case_id`; ordinary child when omitted. */
 		parentRelationship?: "child" | "extension";
 		/** The index a supplied `parent_case_id` is written under: the one a

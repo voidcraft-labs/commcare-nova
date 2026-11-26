@@ -5,8 +5,8 @@
 // line and the lines that follow from it. The switch commits
 // `setModuleFormsInMenuAboveMutation` through the inline gate and is never
 // hidden: where the gate refuses the change (a menu that is a link's target,
-// holds an entry point or searches), it is disabled with the gate's own
-// sentence (`useOfferedBatchRefusals`).
+// holds an entry point or has its forms read the search), it is disabled with
+// the gate's own sentence (`useOfferedBatchRefusals`).
 
 "use client";
 

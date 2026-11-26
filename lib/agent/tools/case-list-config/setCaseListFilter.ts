@@ -1,41 +1,8 @@
-/**
- * SA tool: `setCaseListFilter` — set or clear the always-on
- * predicate filter on a module's case list.
- *
- * Accepts the typed `Expression` shape directly. The case list filter
- * narrows the cases that show up on the module's list at load time —
- * applied unconditionally before any search-input-driven refinement
- * runs. The wire emitter stamps it as a nodeset filter on the
- * module's `<entry>` session datum; the Postgres runtime applies it
- * as a SQL `WHERE` clause.
- *
- * The `predicate` slot is `nullable()` — `null` clears the filter
- * (case list shows every case of the module's case type), a supplied
- * predicate replaces whatever was there. The clear-via-`null`
- * convention reads as "an absence value rather than absence-via-
- * omission" — it forces the SA to spell out "remove the filter" as a
- * payload rather than relying on a missing key, which the AI SDK /
- * provider schema wouldn't honor consistently across edits.
- *
- * Filter is the one wholesale-shape slot on `caseListConfig` (one
- * Expression, no array of entries to address by uuid) — column and
- * search-input authoring decompose into the atomic add / update /
- * remove / reorder tools instead. Result shape mirrors the atomic
- * family: a structured success carrying the `kind` of the predicate
- * (or `"cleared"` on the null path) so the SA can branch on the
- * outcome without re-parsing prose.
- *
- * Both the SA chat factory and the MCP adapter call this through the
- * shared `ToolInvocationContext` interface. Two exit branches:
- *
- *   1. Module UUID address does not resolve → `{ error }`, no mutations.
- *   2. Success → `{ message, kind }` plus the persisted mutation,
- *      tagged `module:M:filter`.
- */
-
-import type { z } from "zod";
+import { z } from "zod";
+import { enableCaseSearchMutation } from "@/lib/doc/caseSearchConfigMutations";
 import type { Mutation } from "@/lib/doc/types";
 import { conditionSchema, type Expression } from "@/lib/domain/expression";
+import { effectiveCaseSearchConfig } from "@/lib/domain/modules";
 import type { ToolInvocationContext } from "../../workspace/types";
 import {
 	guardedMutate,
@@ -50,6 +17,12 @@ import type { ToolCallSummary } from "../shared/toolCallSummary";
 
 export const setCaseListFilterInputSchema = moduleAddressSchema
 	.extend({
+		surface: z
+			.enum(["list", "search", "both"])
+			.optional()
+			.describe(
+				"Change the device list, the online search, or both. Omitting this sets both.",
+			),
 		filter: conditionSchema
 			.nullable()
 			.describe(
@@ -90,7 +63,7 @@ export type SetCaseListFilterResult =
 
 export const setCaseListFilterTool = {
 	description:
-		"Set or clear the record filter applied before Search. Null clears it.",
+		"Choose which records can appear on the device list or match the online search. Set the surface to change just one. Null includes all records.",
 	inputSchema: setCaseListFilterInputSchema,
 	async execute(
 		input: SetCaseListFilterInput,
@@ -114,13 +87,26 @@ export const setCaseListFilterTool = {
 			// concurrent column edit on the guarded re-apply): `null` clears the
 			// slot, an Expression sets it. The reducer maps `null → delete`, so a
 			// clear crosses the JSON wire intact.
+			// A menu with no search has one condition: a list edit there is the
+			// combined edit, so no search condition is ever stored beside it
+			// (absence projects the list's condition once search is turned on).
+			const hasSearch = effectiveCaseSearchConfig(mod) !== undefined;
 			const mutations: Mutation[] = [
 				{
 					kind: "setCaseListMeta",
 					uuid: mod.uuid,
-					patch: { filter },
+					patch:
+						input.surface === "list" && hasSearch
+							? { listCondition: filter }
+							: input.surface === "search"
+								? { searchCondition: filter }
+								: { filter },
 				},
 			];
+			if (input.surface === "search" && filter !== null && !hasSearch)
+				mutations.unshift(
+					enableCaseSearchMutation(mod.uuid, mod.caseSearchConfig),
+				);
 			// Cases available and Search intent are independent. An empty
 			// caseSearchConfig is an intentional zero-input manual action, not a
 			// synthetic by-product of this filter, so clearing the filter must leave
