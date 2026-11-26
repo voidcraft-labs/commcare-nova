@@ -524,8 +524,9 @@ export function rowHasStructuralError(resolved: ResolvedRow): boolean {
 // produce, so a row referencing its own input is the canonical shape,
 // not a self-reference to forbid. `slotContext` derives the same
 // full search-input catalog for the expression checker. This list
-// provides editor vocabulary; the actual slot context decides which
-// answers are available at that point in the search workflow.
+// provides editor vocabulary for referable answers. A direct parent
+// match uses the answer only for remote matching. The actual slot
+// context decides which of the other answers the workflow can read.
 //
 // Slots that run BEFORE the search screen opens, including default
 // values and the search-button condition, see no answers. Calculated
@@ -545,7 +546,10 @@ export function deriveSearchInputDecl(
 export function searchInputDecls(
 	rows: readonly SearchInputDef[],
 ): readonly EditorSearchInputDecl[] {
-	return rows.filter(isSearchAnswerInput).map(deriveSearchInputDecl);
+	return rows
+		.filter(isSearchAnswerInput)
+		.filter((row) => directParentSearchRequestKey(row) === undefined)
+		.map(deriveSearchInputDecl);
 }
 
 // ── Default-value expectedType + seed ─────────────────────────────
