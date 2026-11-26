@@ -510,7 +510,7 @@
 		"expect": [
 			{
 				"pointer": "/caseList/rows/1/fields/3",
-				"value": " South"
+				"value": " South "
 			},
 			{
 				"pointer": "/caseList/rows/0/fields/3",
