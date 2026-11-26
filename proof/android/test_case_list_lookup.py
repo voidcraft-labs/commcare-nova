@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from io import BytesIO
+from zipfile import ZipFile
 
 import pytest
+from lxml import etree
 
 from proof.android import observe
 from proof.editors.conftest import write_evidence
@@ -100,6 +103,65 @@ def test_case_list_lookup_reads_the_companions_native_result(hq, editor_driver):
     assert _view_texts(identity["scoreRows"]) == ["Juniper", "★★★★★"]
     assert unknown_identity["isIdentification"] and unknown_identity["after"] == []
 
+
+@pytest.mark.parametrize("heading", [None, "Match"], ids=["absent-heading-map", "alternate-result-key"])
+def test_case_list_lookup_uses_the_saved_result_field(hq, editor_driver, heading):
+    database = casedata.CaseDatabase(
+        user_id=casedata.USER_ID,
+        username=casedata.USERNAME,
+        user_data=(),
+        cases=(
+            replace(_case("lookup-cedar", "Cedar"), properties=(("scan_id", "card-22"),)),
+            replace(_case("lookup-juniper", "Juniper"), properties=(("scan_id", "card-41"),)),
+        ),
+    )
+    template = "@case_id" if heading is None else "scan_id"
+    with hq_check(CONFIGURATION) as (state, _):
+        app_id, _ = _lookup_case_list(state, editor_driver, result_heading=heading, result_template=template)
+        with formplayer.serve(state, None, app_id, database=database, label="case-list-lookup-result") as served:
+            archive = observe.release_archive(served)
+            with ZipFile(BytesIO(archive)) as released:
+                suite = etree.fromstring(released.read("suite.xml"))
+            (field,) = suite.findall(".//lookup/field")
+            assert field.find("template/text/xpath").get("function") == template
+            header = field.find("header")
+            header_xml = etree.tostring(header, encoding="unicode")
+            if heading is None:
+                assert header.get("width") == "0" and len(header) == 0, header_xml
+            else:
+                assert header.find("text/locale") is not None, header_xml
+            blobs = Blobs()
+            record = observe.app(
+                served,
+                blobs,
+                label="case-list-lookup-result",
+                archive=archive,
+                case_lookup_returns=[
+                    {"identify": "lookup-juniper"},
+                    {"identify": "card-41", "inspectScores": True},
+                ],
+            )
+            installed = blobs.get_json(record["answer"])
+
+    variant = "absent-heading-map" if heading is None else "alternate-result-key"
+    write_evidence(f"android-case-list-lookup-{variant}", {"header": header_xml, "android": installed})
+    if heading is None:
+        assert installed == {"install": "MissingResourcesWithMessage"}, installed
+        return
+
+    assert installed["install"] == "Installed", installed
+    assert installed["signIn"].startswith("Success("), installed
+    (observed,) = [
+        step["list"]["lookupReturns"]
+        for walk in installed["walks"].values()
+        for step in walk.get("steps", [])
+        if "lookupReturns" in (step.get("list") or {})
+    ]
+    case_id, alternate = observed
+    assert sorted(case_id["before"]) == ["Cedar", "Juniper"] and case_id["after"] == []
+    assert alternate["isIdentification"] and alternate["after"] == ["Juniper"]
+    assert "Match" in _view_texts(alternate["scoreHeader"])
+    assert _view_texts(alternate["scoreRows"]) == ["Juniper", "★★★★★"]
 
 
 @pytest.mark.parametrize(("scenario", "extra"), [("relative", "scan"), ("text", "'scan'")], ids=["relative", "text"])
