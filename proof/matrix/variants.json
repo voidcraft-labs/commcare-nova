@@ -38117,13 +38117,7 @@
 	{
 		"id": "hq-search/default-filter-naming-the-related-case-property",
 		"base": "hq-search",
-		"entry": "case-search/default-properties-entry-keyed-commcare-sort-x-commcare-custom",
-		"standing": "not-yet",
-		"place": {
-			"kind": "search",
-			"menu": 1,
-			"name": "Active clients"
-		},
+		"entry": "case-search/default-related-record-id-property",
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/1/search_config/default_properties/-",
@@ -38132,7 +38126,14 @@
 				"doc_type": "DefaultCaseSearchProperty",
 				"defaultValue": "'parent_id'"
 			}
-		}
+		},
+		"holds": [
+			{
+				"key": ["module", { "$menu": 1 }],
+				"pointer": "/caseListConfig/searchFilters/0/property",
+				"value": "parent_id"
+			}
+		]
 	},
 	{
 		"id": "hq-search/default-filter-with-no-value",
