@@ -668,7 +668,11 @@ def data_parent_at_form_root(authoring, app_id):
 def data_parent_of_a_group(authoring, app_id):
     """The details group remains on the main screen and submits its group under a separate container."""
     def relocate(text):
-        text = _replaced(text, [("<details>", "<archive><details>", 1), ("</details>", "</details></archive>", 1)])
+        text = _replaced(text, [
+            ("<details>", "<archive><details>", 1),
+            ("</details>", "</details></archive>", 1),
+            (FULL_NAME_CLOSE, FULL_NAME_CLOSE + '\n<group ref="/data/archive"><label>Archive</label></group>', 1),
+        ])
         # Keep both the raw references and Vellum's companion references pointing at the source data nodes.
         return text.replace("/data/details", "/data/archive/details").replace("#form/details", "#form/archive/details")
 
