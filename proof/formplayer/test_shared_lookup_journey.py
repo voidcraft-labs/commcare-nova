@@ -31,7 +31,7 @@ def _table(unit):
 
 def _identities(app):
     menu, = app.get_modules()
-    form, = menu.get_forms()
+    form, = menu.forms
     return menu.unique_id, form.unique_id, form.xmlns
 
 

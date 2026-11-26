@@ -332,10 +332,11 @@ it("keeps the source app and its shared lookup through renewed consent, publish,
 			peer.holdTables([nativeTable]);
 			const result = await publish(sibling, origin);
 			if (!result.landed) throw new Error(JSON.stringify(result.refusal));
-			expect(result.sent.map((resource) => resource.kind)).toEqual([
-				"app",
-				"app",
-			]);
+			expect(result.hqAppAction).toBe("created");
+			expect(result.sent.map((resource) => resource.kind)).toEqual(["app"]);
+			expect(
+				peer.requests.filter(({ method }) => method === "POST"),
+			).toHaveLength(2);
 			const held = peer.snapshot();
 			expect(held.tables).toEqual([nativeTable]);
 			if (!held.source)
