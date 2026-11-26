@@ -31,11 +31,16 @@ describe("firstPublishViewFromStored", () => {
 		for (const kind of ["first-publish", "next-publish"] as const) {
 			const recorded = stored([id], true, kind);
 			const absent = stored([], true, kind);
-			for (const connectType of ["learn", null, "deliver"] as const) {
-				const app = { appSettings, connectType };
+			for (const connectRoles of [
+				["learn"],
+				[],
+				["deliver"],
+				["learn", "deliver"],
+			] as const) {
+				const app = { appSettings, connectRoles: [...connectRoles] };
 				const shown = firstPublishViewFromStored(recorded, app);
-				expect(shown.ids).toEqual(connectType === null ? [] : [id]);
-				expect(shown.touchesWorkers).toBe(connectType !== null);
+				expect(shown.ids).toEqual(connectRoles.length === 0 ? [] : [id]);
+				expect(shown.touchesWorkers).toBe(connectRoles.length > 0);
 				expect(firstPublishViewFromStored(absent, app).ids).toEqual([]);
 			}
 		}
@@ -45,7 +50,7 @@ describe("firstPublishViewFromStored", () => {
 		const list = stored(["forms-and-settings-rewritten"], true);
 		expect(
 			firstPublishViewFromStored(list, {
-				connectType: null,
+				connectRoles: [],
 				appSettings: {
 					runsOnlyOn: "android",
 					showIncompleteForms: false,
@@ -59,7 +64,7 @@ describe("firstPublishViewFromStored", () => {
 		for (const runsOnlyOn of ["web-apps", undefined] as const) {
 			expect(
 				firstPublishViewFromStored(list, {
-					connectType: null,
+					connectRoles: [],
 					appSettings: {
 						runsOnlyOn,
 						showIncompleteForms: false,
@@ -75,7 +80,7 @@ describe("firstPublishViewFromStored", () => {
 		for (const runsOnlyOn of ["web-apps", undefined] as const) {
 			expect(
 				firstPublishViewFromStored(off, {
-					connectType: null,
+					connectRoles: [],
 					appSettings: {
 						runsOnlyOn,
 						showIncompleteForms: false,
@@ -85,7 +90,7 @@ describe("firstPublishViewFromStored", () => {
 		}
 		expect(
 			firstPublishViewFromStored(off, {
-				connectType: null,
+				connectRoles: [],
 				appSettings: {
 					runsOnlyOn: "android",
 					showIncompleteForms: false,
@@ -107,7 +112,7 @@ describe("firstPublishViewFromStored", () => {
 			"next-publish",
 		);
 		const view = firstPublishViewFromStored(list, {
-			connectType: null,
+			connectRoles: [],
 			appSettings: {
 				runsOnlyOn: "web-apps",
 				showIncompleteForms: false,

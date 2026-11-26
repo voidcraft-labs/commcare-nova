@@ -371,7 +371,11 @@ test("Repeated Preview questions keep native accessible names and retained DOM i
 		const content = await repeat.getAttribute("aria-controls");
 		expect(content).toBeTruthy();
 		await expect(page.locator(`[id="${content}"]`)).toBeVisible();
-		await page.getByRole("button", { name: /^Add Visits/ }).click();
+		// A repeat whose rows the worker adds opens with none, as CommCare
+		// opens a repeat it writes with a template.
+		const addVisit = page.getByRole("button", { name: /^Add Visits/ });
+		await addVisit.click();
+		await addVisit.click();
 		await expect(
 			page.getByRole("button", {
 				name: /Repeat 3.*Instance 1.*Photo.*Attach file/,
@@ -506,6 +510,10 @@ test("adding a repeat initializes its bound rows without replacing earlier answe
 	try {
 		await page.goto(`${peer.origin}/?initialization`);
 		const notes = page.getByRole("textbox", { name: /Asset note/ });
+		// The visits repeat opens with no row; the first one the worker adds
+		// takes the zone's starting answer.
+		await expect(notes).toHaveCount(0);
+		await page.getByRole("button", { name: /^Add Visits/ }).click();
 		await expect(notes).toHaveCount(2);
 		await expect(notes.nth(0)).toHaveValue("pump");
 		await expect(notes.nth(1)).toHaveValue("tap");
@@ -539,8 +547,8 @@ test("phone Preview omits automatic calculation shells and keeps meaningful repe
 		await page.goto(`${peer.origin}/?presentation`);
 		const details = page.getByRole("textbox", { name: /Show entry details/ });
 		await expect(details).toBeVisible();
-		await expect(page.getByText("Instance 1", { exact: true })).toHaveCount(1);
-		await expect(page.getByText("Instance 2", { exact: true })).toHaveCount(0);
+		// The manual repeat opens with no entry until the worker adds one.
+		await expect(page.getByText("Instance 1", { exact: true })).toHaveCount(0);
 		const add = page.getByRole("button", { name: /^Add/ });
 		await expect(add).toHaveCount(1);
 		await expect(add).toHaveAccessibleName(/Add.*Repeat/);
@@ -557,6 +565,9 @@ test("phone Preview omits automatic calculation shells and keeps meaningful repe
 				"/data/query_processing[0]/row_id": "first",
 				"/data/query_processing[1]/row_id": "second",
 			});
+		await add.click();
+		await expect(page.getByText("Instance 1", { exact: true })).toHaveCount(1);
+		await expect(page.getByText("Instance 2", { exact: true })).toHaveCount(0);
 		await add.click();
 		await expect(page.getByText("Instance 2", { exact: true })).toHaveCount(1);
 		await page.getByRole("button", { name: /Remove.*Instance 2/ }).click();

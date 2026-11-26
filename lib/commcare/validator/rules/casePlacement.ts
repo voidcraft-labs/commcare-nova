@@ -1,3 +1,4 @@
+import { caseSlotFacts } from "@/lib/domain/basicCaseSlots";
 /**
  * The rules over held placements: where a published app already keeps a
  * form's case changes in CommCare HQ (`CaseOperation.placement`,
@@ -46,7 +47,6 @@ import {
 	type BlueprintDoc,
 	type CaseOperation,
 	type CasePlacement,
-	formConnectIds,
 	type Module,
 	orderedCaseOperations,
 	placementIneligibilitySentence,
@@ -315,22 +315,21 @@ function blockPathFindings(
 	const scopes = new Set(saveToCase.map((held) => held.repeat));
 	for (const repeat of scopes) {
 		const here = saveToCase.filter((held) => held.repeat === repeat);
-		// The scope's own namespace: its authored questions and, at the root,
-		// the form's Connect blocks, beside each held path's first segment.
-		const questionUuids = doc.fieldOrder[repeat ?? formUuid] ?? [];
+		// The scope's own namespace: its authored questions and activities,
+		// beside each held path's first segment.
+		const questionUuids =
+			caseSlotFacts(doc, formUuid).submittedChildren.get(repeat ?? formUuid) ??
+			[];
 		const questions = questionUuids.flatMap((uuid) => {
 			const field = doc.fields[uuid];
 			return field === undefined ? [] : [field];
 		});
-		const connectIds =
-			repeat === undefined ? [...formConnectIds(doc, formUuid)] : [];
 		const firstSegments = new Map<string, Hold>();
 		for (const held of here)
 			if (!firstSegments.has(held.path[0]))
 				firstSegments.set(held.path[0], held.hold);
 		const scopeTaken = new Set<string>([
 			...questions.map((field) => field.id),
-			...connectIds,
 			...firstSegments.keys(),
 		]);
 		for (const field of questions) {
@@ -338,7 +337,12 @@ function blockPathFindings(
 			if (hold === undefined) continue;
 			const subjectWords = heldSubjectWords(hold.subject, hold.operation);
 			const suggestion = suffixUntilFree(
-				editorSafeQuestionId(field.id),
+				editorSafeQuestionId(
+					field.id,
+					field.kind === "connect_activity"
+						? RESERVED_CONNECT_BLOCK_IDS
+						: undefined,
+				),
 				scopeTaken,
 			);
 			errors.push(
@@ -358,36 +362,7 @@ function blockPathFindings(
 						held: JSON.stringify(hold.subject),
 						name: field.id,
 						suggestion,
-						takenBy: "question",
-						subjectWords,
-					},
-				),
-			);
-		}
-		for (const id of connectIds) {
-			const hold = firstSegments.get(id);
-			if (hold === undefined) continue;
-			const subjectWords = heldSubjectWords(hold.subject, hold.operation);
-			const suggestion = suffixUntilFree(
-				editorSafeQuestionId(id, RESERVED_CONNECT_BLOCK_IDS),
-				scopeTaken,
-			);
-			errors.push(
-				validationError(
-					"HELD_BLOCK_PATH_TAKEN",
-					"form",
-					heldBlockPathTakenMessage(id, subjectWords, suggestion),
-					{
-						moduleUuid: ctx.moduleUuid,
-						moduleName: ctx.moduleName,
-						formUuid,
-						formName: ctx.formName,
-					},
-					{
-						held: JSON.stringify(hold.subject),
-						name: id,
-						suggestion,
-						takenBy: "connect",
+						takenBy: field.kind === "connect_activity" ? "connect" : "question",
 						subjectWords,
 					},
 				),
@@ -511,17 +486,15 @@ function appendedNameFindings(
 	}
 	const errors: ValidationError[] = [];
 	for (const [repeat, names] of byScope) {
-		const questions = (doc.fieldOrder[repeat ?? formUuid] ?? []).flatMap(
-			(uuid) => {
-				const field = doc.fields[uuid];
-				return field === undefined ? [] : [field];
-			},
-		);
-		const connectIds =
-			repeat === undefined ? [...formConnectIds(doc, formUuid)] : [];
+		const questions = (
+			caseSlotFacts(doc, formUuid).submittedChildren.get(repeat ?? formUuid) ??
+			[]
+		).flatMap((uuid) => {
+			const field = doc.fields[uuid];
+			return field === undefined ? [] : [field];
+		});
 		const scopeTaken = new Set<string>([
 			...questions.map((field) => field.id),
-			...connectIds,
 			...names.keys(),
 		]);
 		for (const field of questions) {
@@ -529,7 +502,12 @@ function appendedNameFindings(
 			if (hold === undefined) continue;
 			const subjectWords = heldSubjectWords(hold.subject, hold.operation);
 			const suggestion = suffixUntilFree(
-				editorSafeQuestionId(field.id),
+				editorSafeQuestionId(
+					field.id,
+					field.kind === "connect_activity"
+						? RESERVED_CONNECT_BLOCK_IDS
+						: undefined,
+				),
 				scopeTaken,
 			);
 			errors.push(
@@ -549,36 +527,7 @@ function appendedNameFindings(
 						held: JSON.stringify(hold.subject),
 						name: field.id,
 						suggestion,
-						takenBy: "question",
-						subjectWords,
-					},
-				),
-			);
-		}
-		for (const id of connectIds) {
-			const hold = names.get(id);
-			if (hold === undefined) continue;
-			const subjectWords = heldSubjectWords(hold.subject, hold.operation);
-			const suggestion = suffixUntilFree(
-				editorSafeQuestionId(id, RESERVED_CONNECT_BLOCK_IDS),
-				scopeTaken,
-			);
-			errors.push(
-				validationError(
-					"HELD_BLOCK_PATH_TAKEN",
-					"form",
-					heldBlockPathTakenMessage(id, subjectWords, suggestion),
-					{
-						moduleUuid: ctx.moduleUuid,
-						moduleName: ctx.moduleName,
-						formUuid,
-						formName: ctx.formName,
-					},
-					{
-						held: JSON.stringify(hold.subject),
-						name: id,
-						suggestion,
-						takenBy: "connect",
+						takenBy: field.kind === "connect_activity" ? "connect" : "question",
 						subjectWords,
 					},
 				),
@@ -648,8 +597,25 @@ export function validateCasePlacements(
 		operations: orderedCaseOperations(form),
 	};
 	const holds = holdsOf(ctx, form.ownClosePlacement);
+	const consumed = holds.flatMap((hold) => {
+		if (
+			hold.placement.kind !== "save-to-case" ||
+			!hold.placement.path.some((segment) => segment.toLowerCase() === "case")
+		)
+			return [];
+		return [
+			placementError(
+				ctx,
+				"SUBMITTED_CASE_CHANGE_WRAPPER",
+				"A group around a saved case change uses the ID case. Workers read that group as a second case change. Move the change to a group with a different ID.",
+				hold.operation,
+				{ slot: "placement" },
+			),
+		];
+	});
 	if (holds.length === 0) return [];
 	return [
+		...consumed,
 		...inexpressibleFindings(ctx, planPlacements(doc, formUuid).inexpressible),
 		...sharedFindings(ctx, holds),
 		...blockPathFindings(ctx, holds),

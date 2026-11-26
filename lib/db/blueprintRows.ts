@@ -1,7 +1,7 @@
 // Blueprint ⇄ entity rows — the persistence projection behind `apps`.
 //
 // There is no blueprint blob: an app's current state is scalar columns on its
-// `apps` row (name, connectType, caseTypes, localization, appSettings, logo)
+// `apps` row (name, connectRoles, caseTypes, localization, appSettings, logo)
 // plus one `blueprint_entities`
 // row per hierarchical or flat authored entity. `assembleBlueprint` reconstructs the exact
 // `PersistableDoc` (records + membership arrays by stored `ordinal`);
@@ -104,7 +104,7 @@ const FLAT_COLLECTIONS = [
 /** The `apps`-row scalar slice of the doc (everything that isn't an entity). */
 export interface BlueprintScalars {
 	app_name: string;
-	connect_type: PersistableDoc["connectType"];
+	connect_roles: PersistableDoc["connectRoles"] | null;
 	case_types: PersistableDoc["caseTypes"];
 	localization: PersistableDoc["localization"];
 	/** `null` for a row that holds none, which the strict parse refuses. */
@@ -115,7 +115,7 @@ export interface BlueprintScalars {
 export function blueprintScalars(doc: PersistableDoc): BlueprintScalars {
 	return {
 		app_name: doc.appName,
-		connect_type: doc.connectType,
+		connect_roles: doc.connectRoles,
 		case_types: doc.caseTypes,
 		localization: doc.localization,
 		app_settings: doc.appSettings,
@@ -232,6 +232,10 @@ export function assembleBlueprint(
 	appId: string,
 	scalars: BlueprintScalars,
 	rows: readonly EntityRow[],
+	/** A decoder from an earlier stored shape to the current one, applied to
+	 *  the assembled document before the strict parse. */
+	decode: (snapshot: Record<string, unknown>) => unknown = (snapshot) =>
+		snapshot,
 ): PersistableDoc {
 	let modules: Record<string, unknown> = {};
 	let forms: Record<string, unknown> = {};
@@ -355,51 +359,53 @@ export function assembleBlueprint(
 		}
 	}
 
-	return blueprintDocSchema.parse({
-		appId,
-		appName: scalars.app_name,
-		connectType: scalars.connect_type,
-		caseTypes: scalars.case_types,
-		...(scalars.localization !== undefined && {
-			localization: scalars.localization,
-		}),
-		/* A row with no settings leaves the required root out, so the strict
-		 * parse refuses it rather than reading it as a default. */
-		...(scalars.app_settings !== null && {
-			appSettings: scalars.app_settings,
-		}),
-		modules,
-		forms,
-		fields,
-		moduleOrder: moduleRows.map((r) => r.uuid),
-		formOrder,
-		fieldOrder,
-		...(scalars.logo !== null && { logo: scalars.logo }),
-		/* Omitted when empty, so an app that declares no user properties,
-		 * types, or personas assembles to exactly the doc it did before those
-		 * collections existed — the same shape `logo` keeps for an app with no
-		 * logo. Every reader takes absent as empty, so the two shapes would
-		 * otherwise be a distinction without a difference that still diffed. */
-		...Object.fromEntries(
-			Object.entries(flat).filter(
-				([, collection]) => Object.keys(collection).length > 0,
-			),
-		),
-		/* The membership array rebuilds from the stored `ordinal`, the same way
-		 * `moduleOrder` does above — the record's key iteration order is not a
-		 * sequence and must never be mistaken for one. Omitted alongside its
-		 * record when the collection is empty. */
-		...Object.fromEntries(
-			FLAT_COLLECTIONS.flatMap(([, slot, orderSlot]) => {
-				const flatRows = flatRowsBySlot.get(slot) ?? [];
-				if (flatRows.length === 0) return [];
-				const sequence = [...flatRows]
-					.sort((a, b) => a.ordinal - b.ordinal)
-					.map((row) => row.uuid);
-				return [[orderSlot, sequence] as const];
+	return blueprintDocSchema.parse(
+		decode({
+			appId,
+			appName: scalars.app_name,
+			connectRoles: scalars.connect_roles,
+			caseTypes: scalars.case_types,
+			...(scalars.localization !== undefined && {
+				localization: scalars.localization,
 			}),
-		),
-	});
+			/* A row with no settings leaves the required root out, so the strict
+			 * parse refuses it rather than reading it as a default. */
+			...(scalars.app_settings !== null && {
+				appSettings: scalars.app_settings,
+			}),
+			modules,
+			forms,
+			fields,
+			moduleOrder: moduleRows.map((r) => r.uuid),
+			formOrder,
+			fieldOrder,
+			...(scalars.logo !== null && { logo: scalars.logo }),
+			/* Omitted when empty, so an app that declares no user properties,
+			 * types, or personas assembles to exactly the doc it did before those
+			 * collections existed — the same shape `logo` keeps for an app with no
+			 * logo. Every reader takes absent as empty, so the two shapes would
+			 * otherwise be a distinction without a difference that still diffed. */
+			...Object.fromEntries(
+				Object.entries(flat).filter(
+					([, collection]) => Object.keys(collection).length > 0,
+				),
+			),
+			/* The membership array rebuilds from the stored `ordinal`, the same way
+			 * `moduleOrder` does above — the record's key iteration order is not a
+			 * sequence and must never be mistaken for one. Omitted alongside its
+			 * record when the collection is empty. */
+			...Object.fromEntries(
+				FLAT_COLLECTIONS.flatMap(([, slot, orderSlot]) => {
+					const flatRows = flatRowsBySlot.get(slot) ?? [];
+					if (flatRows.length === 0) return [];
+					const sequence = [...flatRows]
+						.sort((a, b) => a.ordinal - b.ordinal)
+						.map((row) => row.uuid);
+					return [[orderSlot, sequence] as const];
+				}),
+			),
+		}),
+	);
 }
 
 /** The minimal write-set between two docs' entity rows. */

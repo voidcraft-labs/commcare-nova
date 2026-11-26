@@ -93,6 +93,8 @@ export const FIELD_PROSE_SLOTS = [
 	"hint",
 	"help",
 	"validate_msg",
+	"addFirstLabel",
+	"addLabel",
 	...LABEL_TEXT_SLOTS,
 ] as const;
 export type FieldProseSlot = (typeof FIELD_PROSE_SLOTS)[number];

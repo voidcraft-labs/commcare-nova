@@ -58,6 +58,7 @@ export function formPrintContext(
 	const datumId = entryDatumIdResolver(datums);
 	return {
 		...names,
+		dataRootName: form?.dataRootName,
 		...(projection === undefined
 			? {}
 			: { graph: projection.graph, step: projection.step }),

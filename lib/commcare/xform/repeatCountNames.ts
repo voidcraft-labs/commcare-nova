@@ -26,12 +26,7 @@ export function planRepeatCountNames(
 			const field = form.fields.get(uuid);
 			return field === undefined ? [] : [field];
 		});
-		const scope = new Namespace([
-			...children.map((field) => field.id),
-			...(parent === form.formUuid
-				? Object.values(form.connect).map((block) => block.id)
-				: []),
-		]);
+		const scope = new Namespace(children.map((field) => field.id));
 		for (const field of children) {
 			if (field.kind === "repeat" && field.repeatMode === "count_bound")
 				names.set(field.uuid, scope.allocate(repeatCountBaseName(field.id)));

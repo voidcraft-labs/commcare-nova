@@ -2195,7 +2195,7 @@ describe("FormEngine", () => {
 		// `FieldState.repeatCount` — that's what makes the preview's Add/Remove
 		// buttons reactive. A regression here puts us back to the silent-no-op
 		// click that motivated this slot existing.
-		it("seeds repeatCount=1 on the repeat's own state", () => {
+		it("seeds repeatCount=0 on the repeat's own state", () => {
 			const input = dTree([
 				{
 					id: "members",
@@ -2206,7 +2206,7 @@ describe("FormEngine", () => {
 			]);
 			const engine = new FormEngine(input);
 
-			expect(engine.getState("/data/members").repeatCount).toBe(1);
+			expect(engine.getState("/data/members").repeatCount).toBe(0);
 		});
 
 		it("addRepeat bumps repeatCount and rewrites the FieldState reference", () => {
@@ -2221,13 +2221,13 @@ describe("FormEngine", () => {
 			const engine = new FormEngine(input);
 
 			const before = engine.store.getState()["/data/members"];
-			expect(before?.repeatCount).toBe(1);
+			expect(before?.repeatCount).toBe(0);
 
 			const newIndex = engine.addRepeat("/data/members");
-			expect(newIndex).toBe(1);
+			expect(newIndex).toBe(0);
 
 			const after = engine.store.getState()["/data/members"];
-			expect(after?.repeatCount).toBe(2);
+			expect(after?.repeatCount).toBe(1);
 			// New reference is the reactivity contract Zustand subscribers rely on.
 			expect(after).not.toBe(before);
 		});
@@ -2242,6 +2242,7 @@ describe("FormEngine", () => {
 				},
 			]);
 			const engine = new FormEngine(input);
+			engine.addRepeat("/data/members");
 
 			engine.addRepeat("/data/members");
 			engine.addRepeat("/data/members");
@@ -2273,6 +2274,7 @@ describe("FormEngine", () => {
 				},
 			]);
 			const engine = new FormEngine(input);
+			engine.addRepeat("/data/members");
 
 			engine.addRepeat("/data/members");
 			engine.setValue("/data/members[0]/name", "Alice");
@@ -2296,6 +2298,7 @@ describe("FormEngine", () => {
 				},
 			]);
 			const engine = new FormEngine(input);
+			engine.addRepeat("/data/members");
 			engine.addRepeat("/data/members");
 			engine.addRepeat("/data/members");
 			const first = engine.getRepeatInstanceKey("/data/members", 0);
@@ -2325,6 +2328,8 @@ describe("FormEngine", () => {
 			]);
 			const engine = new FormEngine(input);
 			engine.addRepeat("/data/households");
+			engine.addRepeat("/data/households");
+			engine.addRepeat("/data/households[1]/members");
 			engine.addRepeat("/data/households[1]/members");
 			const survivingNestedKeys = [
 				engine.getRepeatInstanceKey("/data/households[1]/members", 0),
@@ -2369,7 +2374,7 @@ describe("FormEngine", () => {
 
 			engine.setValue("/data/show", "yes");
 			engine.addRepeat("/data/members");
-			expect(engine.getState("/data/members").repeatCount).toBe(2);
+			expect(engine.getState("/data/members").repeatCount).toBe(1);
 
 			// Toggle the parent's relevance off and back on. Each transition
 			// rewrites the repeat's `visible` flag, which forces a fresh
@@ -2377,10 +2382,10 @@ describe("FormEngine", () => {
 			engine.setValue("/data/show", "no");
 			engine.setValue("/data/show", "yes");
 
-			expect(engine.getState("/data/members").repeatCount).toBe(2);
+			expect(engine.getState("/data/members").repeatCount).toBe(1);
 		});
 
-		it("removeRepeat is a no-op when only one instance remains", () => {
+		it("removeRepeat is a no-op when the group is already empty", () => {
 			const input = dTree([
 				{
 					id: "members",
@@ -2395,7 +2400,7 @@ describe("FormEngine", () => {
 			engine.removeRepeat("/data/members", 0);
 			const after = engine.store.getState()["/data/members"];
 
-			expect(after?.repeatCount).toBe(1);
+			expect(after?.repeatCount).toBe(0);
 			// Same reference — no spurious re-render fired.
 			expect(after).toBe(before);
 		});
@@ -3134,6 +3139,7 @@ describe("FormEngine", () => {
 				"patient",
 			);
 			engine.setValue("/data/case_name", "Alice");
+			engine.addRepeat("/data/visits");
 			engine.setValue("/data/visits[0]/visit_name", "First");
 			engine.addRepeat("/data/visits");
 			engine.setValue("/data/visits[1]/visit_name", "Second");
@@ -3785,7 +3791,10 @@ describe("FormEngine", () => {
 					`initialization-relevance-${stagedAsync}`,
 				);
 				try {
-					if (stagedAsync) await engine.initializeAsync(evaluateAsync);
+					if (stagedAsync) {
+						await engine.initializeAsync(evaluateAsync);
+						await engine.addRepeatAsync("/data/visits", evaluateAsync);
+					} else engine.addRepeat("/data/visits");
 					expect(engine.getRepeatCount("/data/visits[0]/assets")).toBe(0);
 					if (stagedAsync) {
 						await engine.setValueAsync("/data/enabled", "yes", evaluateAsync);
@@ -3850,7 +3859,10 @@ describe("FormEngine", () => {
 					`insert-bound-${stagedAsync}`,
 				);
 				try {
-					if (stagedAsync) await engine.initializeAsync(evaluateAsync);
+					if (stagedAsync) {
+						await engine.initializeAsync(evaluateAsync);
+						await engine.addRepeatAsync("/data/visits", evaluateAsync);
+					} else engine.addRepeat("/data/visits");
 					expect(engine.getRepeatCount("/data/visits[0]/assets")).toBe(2);
 					if (stagedAsync) {
 						await engine.setValueAsync(
@@ -4263,7 +4275,8 @@ describe("FormEngine", () => {
 				engine.getState("/data/members").repeatCount,
 				engine.getRepeatCount("/data/members"),
 			];
-			expect(counts()).toEqual([1, 1]);
+			expect(counts()).toEqual([0, 0]);
+			engine.addRepeat("/data/members");
 			engine.addRepeat("/data/members");
 			engine.addRepeat("/data/members");
 			expect(counts()).toEqual([3, 3]);
@@ -4273,7 +4286,7 @@ describe("FormEngine", () => {
 			expect(counts()).toEqual([2, 2]);
 			expect(engine.getState("/data/members[0]/name").value).toBe("Bob");
 			engine.reset();
-			expect(counts()).toEqual([1, 1]);
+			expect(counts()).toEqual([0, 0]);
 			expect(engine.getState("/data/members[0]/name").value).toBe("");
 		});
 	});
@@ -4340,6 +4353,7 @@ describe("FormEngine", () => {
 
 		it("a calculate inside a repeat reads its typed sibling", () => {
 			const engine = new FormEngine(ordersFixture(), "patient");
+			engine.addRepeat("/data/orders");
 
 			// Fallback arm computes at init…
 			expect(engine.getState("/data/orders[0]/case_name").value).toBe(
@@ -4355,6 +4369,7 @@ describe("FormEngine", () => {
 
 		it("the typed value reaches the child create's name at submit", () => {
 			const engine = new FormEngine(ordersFixture(), "patient");
+			engine.addRepeat("/data/orders");
 			engine.setValue("/data/orders[0]/medication_name", "Hydrangea");
 
 			const mutation = engine.computeSubmissionMutation({
@@ -4367,6 +4382,7 @@ describe("FormEngine", () => {
 
 		it("each instance's calc evaluates against its own values", () => {
 			const engine = new FormEngine(ordersFixture(), "patient");
+			engine.addRepeat("/data/orders");
 			engine.setValue("/data/orders[0]/medication_name", "Hydrangea");
 			engine.addRepeat("/data/orders");
 			engine.setValue("/data/orders[1]/medication_name", "Aspirin");
@@ -4389,6 +4405,7 @@ describe("FormEngine", () => {
 
 		it("a new instance's calc evaluates immediately on addRepeat", () => {
 			const engine = new FormEngine(ordersFixture(), "patient");
+			engine.addRepeat("/data/orders");
 			engine.addRepeat("/data/orders");
 
 			expect(engine.getState("/data/orders[1]/case_name").value).toBe(
@@ -4414,6 +4431,7 @@ describe("FormEngine", () => {
 			]);
 			const engine = new FormEngine(input);
 			engine.addRepeat("/data/orders");
+			engine.addRepeat("/data/orders");
 
 			engine.setValue("/data/orders[1]/flag", "yes");
 			expect(engine.getState("/data/orders[0]/details").visible).toBe(false);
@@ -4437,6 +4455,7 @@ describe("FormEngine", () => {
 				},
 			]);
 			const engine = new FormEngine(input);
+			engine.addRepeat("/data/orders");
 			engine.addRepeat("/data/orders");
 
 			engine.setValue("/data/orders[0]/qty", "good");
@@ -4472,6 +4491,7 @@ describe("FormEngine", () => {
 			]);
 			const engine = new FormEngine(input);
 			engine.addRepeat("/data/orders");
+			engine.addRepeat("/data/orders");
 			engine.setValue("/data/orders[0]/medication_name", "Hydrangea");
 			engine.setValue("/data/orders[1]/medication_name", "Aspirin");
 
@@ -4500,6 +4520,7 @@ describe("FormEngine", () => {
 			]);
 			const engine = new FormEngine(input);
 			engine.addRepeat("/data/orders");
+			engine.addRepeat("/data/orders");
 
 			engine.setValue("/data/prefix", "RX");
 			expect(engine.getState("/data/orders[0]/tag").value).toBe("RX-0");
@@ -4515,6 +4536,7 @@ describe("FormEngine", () => {
 				},
 			]);
 			const engine = new FormEngine(input);
+			engine.addRepeat("/data/orders");
 			engine.addRepeat("/data/orders");
 			engine.addRepeat("/data/orders");
 			expect(engine.getState("/data/orders[2]/idx").value).toBe("0");
@@ -4540,6 +4562,7 @@ describe("FormEngine", () => {
 				},
 			]);
 			const engine = new FormEngine(input);
+			engine.addRepeat("/data/orders");
 			expect(engine.getState("/data/orders[0]/stamp").value).toBe("entry-0");
 
 			engine.addRepeat("/data/orders");
@@ -4566,6 +4589,7 @@ describe("FormEngine", () => {
 				},
 			]);
 			const engine = new FormEngine(input);
+			engine.addRepeat("/data/orders");
 			engine.addRepeat("/data/orders");
 			engine.setValue("/data/orders[1]/flag", "yes");
 
@@ -4594,6 +4618,7 @@ describe("FormEngine", () => {
 				},
 			]);
 			const engine = new FormEngine(input);
+			engine.addRepeat("/data/section");
 
 			expect(engine.getRepeatCount("/data/section")).toBe(1);
 			expect(engine.getState("/data/section").repeatCount).toBe(1);
@@ -4624,17 +4649,18 @@ describe("FormEngine", () => {
 				},
 			]);
 			const engine = new FormEngine(input);
+			engine.addRepeat("/data/households");
 			engine.addRepeat("/data/households[0]/members");
 			engine.addRepeat("/data/households[0]/members");
-			expect(engine.getRepeatCount("/data/households[0]/members")).toBe(3);
+			expect(engine.getRepeatCount("/data/households[0]/members")).toBe(2);
 
 			engine.addRepeat("/data/households");
-			expect(engine.getRepeatCount("/data/households[1]/members")).toBe(1);
+			expect(engine.getRepeatCount("/data/households[1]/members")).toBe(0);
 			expect(engine.getState("/data/households[1]/members").repeatCount).toBe(
-				1,
+				0,
 			);
 			// The grown instance keeps its own shape.
-			expect(engine.getRepeatCount("/data/households[0]/members")).toBe(3);
+			expect(engine.getRepeatCount("/data/households[0]/members")).toBe(2);
 		});
 
 		it("position() on repeat children uses the final node multiplicity", () => {
@@ -4653,6 +4679,7 @@ describe("FormEngine", () => {
 				},
 			]);
 			const engine = new FormEngine(input);
+			engine.addRepeat("/data/orders");
 			expect(engine.getState("/data/orders[0]/final_note").visible).toBe(true);
 
 			engine.addRepeat("/data/orders");
@@ -4728,6 +4755,7 @@ describe("FormEngine", () => {
 			]);
 			const engine = new FormEngine(input);
 			engine.addRepeat("/data/orders");
+			engine.addRepeat("/data/orders");
 			const { evaluateAsync } = fixedWorldEvaluator(engine, "rename-prose");
 			await engine.setValueAsync(
 				"/data/orders[0]/name",
@@ -4782,6 +4810,7 @@ describe("FormEngine", () => {
 			]);
 			const engine = new FormEngine(input);
 			engine.addRepeat("/data/orders");
+			engine.addRepeat("/data/orders");
 			engine.setValue("/data/orders[0]/name", "Hydrangea");
 			engine.setValue("/data/orders[1]/name", "Aspirin");
 
@@ -4805,6 +4834,7 @@ describe("FormEngine", () => {
 			]);
 			const engine = new FormEngine(input);
 			engine.addRepeat("/data/orders");
+			engine.addRepeat("/data/orders");
 			engine.setValue("/data/orders[1]/name", "Aspirin");
 
 			engine.renamePaths([
@@ -4826,6 +4856,7 @@ describe("FormEngine", () => {
 				},
 			]);
 			const engine = new FormEngine(input);
+			engine.addRepeat("/data/c");
 			engine.addRepeat("/data/c");
 			engine.setValue("/data/c[0]/x", "keep");
 			engine.setValue("/data/c[1]/x", "gone");
@@ -4883,7 +4914,10 @@ describe("FormEngine", () => {
 			]);
 			const engine = new FormEngine(input);
 			engine.addRepeat("/data/households");
+			engine.addRepeat("/data/households");
 
+			engine.addRepeat("/data/households[0]/members");
+			engine.addRepeat("/data/households[1]/members");
 			engine.setValue("/data/households[0]/surname", "Smith");
 			engine.setValue("/data/households[1]/surname", "Jones");
 			engine.setValue("/data/households[0]/members[0]/first", "Mary");
@@ -5287,8 +5321,10 @@ it.each([false, true])(
 			if (stagedAsync) {
 				await engine.initializeAsync(worker.evaluateAsync);
 				await engine.addRepeatAsync("/data/a", worker.evaluateAsync);
+				await engine.addRepeatAsync("/data/a", worker.evaluateAsync);
 				await engine.setValueAsync("/data/n", "3", worker.evaluateAsync);
 			} else {
+				engine.addRepeat("/data/a");
 				engine.addRepeat("/data/a");
 				engine.setValue("/data/n", "3");
 			}
@@ -5737,13 +5773,13 @@ describe("FormEngine setvalue casts", () => {
 		);
 		expect(insertRefusal).toMatchObject({
 			cause: "repeat-insert",
-			path: "/data/visits[1]/n",
+			path: "/data/visits[0]/n",
 			value: "many",
 		});
 
 		engine.setValue("/data/seed", "4");
-		expect(engine.addRepeat("/data/visits")).toBe(1);
-		expect(engine.getState("/data/visits[1]/n").value).toBe("4");
+		expect(engine.addRepeat("/data/visits")).toBe(0);
+		expect(engine.getState("/data/visits[0]/n").value).toBe("4");
 		expect(engine.getState("/data/visits").insertRefusal).toBeUndefined();
 	});
 

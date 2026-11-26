@@ -535,7 +535,7 @@ class Builder:
         ):
             # The observation also verifies that HQ's actual A and B have no Connect opportunity before partitioning.
             source = json.loads((root / "document.json").read_bytes())
-            group.partition_editors = source["doc"]["connectType"] is None
+            group.partition_editors = not source["doc"]["connectRoles"]
         group.units = configurations_of(root)
         files = files if files is not None else keys.files_digest(root)
         group.key = keys.document_key(self.document_scope, name, files)

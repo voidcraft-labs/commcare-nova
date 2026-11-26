@@ -26,12 +26,17 @@
 
 import { z } from "zod";
 import type { FormStructure } from "./expression/formStructure";
+import { openingRepeatLimitation } from "./expression/openingRepeat";
 import type { Expression } from "./expression/types";
 import {
 	expressionCallsNow,
 	expressionReadsFormAnswers,
 } from "./expression/walk";
 import type { Uuid } from "./uuid";
+
+export const ROW_TIMINGS = ["on-open", "as-answers-change"] as const;
+export type RowTiming = (typeof ROW_TIMINGS)[number];
+export const rowTimingSchema = z.enum(ROW_TIMINGS);
 
 export const QUERY_REPEAT_PLACEMENTS = ["model-iteration", "count"] as const;
 export type QueryRepeatPlacement = (typeof QUERY_REPEAT_PLACEMENTS)[number];
@@ -63,7 +68,7 @@ function conditionCanChange(condition: Expression | undefined): boolean {
 }
 
 /** What model iteration cannot run for this query repeat, nearest first: its
- * own query and its own condition, then the nearest repeat and the nearest changing group around it
+ * own query and its own condition, then the nearest repeat and each changing group around it
  * in the order they enclose it. Empty for a field the form does not hold. */
 export function queryRepeatPlacementNeeds(
 	form: FormStructure,
@@ -90,7 +95,6 @@ export function queryRepeatPlacementNeeds(
 		)
 			needs.push({ kind: "row-condition" });
 		let nested = false;
-		let conditionChanges = false;
 		const seen = new Set<Uuid>([uuid]);
 		let current = field.parent;
 		while (current !== form.formUuid && !seen.has(current)) {
@@ -102,7 +106,6 @@ export function queryRepeatPlacementNeeds(
 				needs.push({ kind: "nested", repeatUuid: ancestor.uuid });
 			} else if (
 				ancestor.kind === "group" &&
-				!conditionChanges &&
 				conditionCanChange(
 					form.expressionAt({
 						entity: "field",
@@ -111,7 +114,6 @@ export function queryRepeatPlacementNeeds(
 					}),
 				)
 			) {
-				conditionChanges = true;
 				needs.push({
 					kind: "ancestor-condition-changes",
 					groupUuid: ancestor.uuid,
@@ -136,21 +138,51 @@ export function effectiveQueryRepeatPlacement(
 	form: FormStructure,
 	uuid: Uuid,
 ): QueryRepeatPlacement {
-	const held = form.fields.get(uuid)?.heldQueryPlacement;
-	if (held !== undefined) return held;
+	const field = form.fields.get(uuid);
+	if (field?.heldQueryPlacement !== undefined) return field.heldQueryPlacement;
+	const requested = requestedQueryPlacement(field?.rowTiming);
+	if (requested !== undefined) return requested;
 	return queryRepeatPlacementNeeds(form, uuid).length === 0
 		? "model-iteration"
 		: "count";
 }
 
+export function requestedQueryPlacement(
+	timing: RowTiming | undefined,
+): QueryRepeatPlacement | undefined {
+	return timing === undefined
+		? undefined
+		: timing === "on-open"
+			? "model-iteration"
+			: "count";
+}
+
+/** A specific defect at the opening event. A query or a condition that can
+ * change later does not alone say that its captured result is wrong. */
+export function heldOpeningRepeatNeed(
+	form: FormStructure,
+	uuid: Uuid,
+	setAfterIds?: (field: Uuid) => boolean | undefined,
+): QueryRepeatNeed | undefined {
+	return openingRepeatLimitation(
+		form,
+		uuid,
+		queryRepeatPlacementNeeds(form, uuid),
+		setAfterIds,
+	);
+}
+
 /** Whether `placement` can express this repeat as `form` holds it: the count
- * placement always, model iteration exactly when the repeat has no need. */
+ * placement for live timing, and model iteration for opening timing when
+ * the query can capture the intended records. */
 export function queryRepeatPlacementExpresses(
 	form: FormStructure,
 	uuid: Uuid,
 	placement: QueryRepeatPlacement,
 ): boolean {
+	const requested = requestedQueryPlacement(form.fields.get(uuid)?.rowTiming);
 	return (
-		placement === "count" || queryRepeatPlacementNeeds(form, uuid).length === 0
+		(requested === undefined || requested === placement) &&
+		(placement === "count" || heldOpeningRepeatNeed(form, uuid) === undefined)
 	);
 }

@@ -359,7 +359,7 @@ function lookupReceiverDoc(appId: string): PersistableDoc {
 	return {
 		appId,
 		appName: "Lookup receiver",
-		connectType: null,
+		connectRoles: [],
 		appSettings: { showSavedForms: false, showIncompleteForms: false },
 		caseTypes: null,
 		modules: {

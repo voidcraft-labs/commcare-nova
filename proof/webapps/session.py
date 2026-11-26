@@ -159,6 +159,10 @@ def recorded(screen: Mapping[str, Any]) -> dict:
     return kept
 
 
+# The Formplayer requests that carry a question's answer from the client (``web_form_session.js``).
+_ANSWERING = ("/answer", "/clear_answer", "/submit-all", "/answer_media")
+
+
 class WebAppsRunFailed(AssertionError):
     """A Web Apps run did not get through; says what the page, HQ and Formplayer saw."""
 
@@ -359,6 +363,8 @@ class Session:
                 f"{EditorRunFailed('The Web Apps run', error, answers)}"
                 f"\nFormplayer's failed answers:{refused or ' none'}"
                 f"\nFormplayer's exchanges: {[(e.method, e.path, e.status) for e in exchanges]}"
+                # What the client sent where it answered or cleared a question or submitted: the answers it held.
+                f"\nThe client's answers: {[(e.path, (e.body or b'')[:1500]) for e in exchanges if e.path.split('?')[0] in _ANSWERING]}"
                 f"\nHQ's answers: {[(e.method, e.path, e.status) for e in answers.exchanges]}"
                 # What HQ's APIs answered the client (the users App Preview's Log in as lists, say): what the
                 # page then drew is read from them.

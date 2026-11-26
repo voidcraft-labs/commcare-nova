@@ -169,6 +169,22 @@ function stored(h: ReturnType<typeof makeAuthoringHarness>): Field {
 	return field;
 }
 
+describe("confirmation label display", () => {
+	it("keeps other supported settings and refuses those that remove the Android checkbox", () => {
+		expect(
+			fieldDisplayProblem(
+				fieldOf("label", { askForConfirmation: true, textAlignment: "center" }),
+			),
+		).toBeUndefined();
+		for (const display of [{ banner: "good" }, { selectableText: true }])
+			expect(
+				fieldDisplayProblem(
+					fieldOf("label", { askForConfirmation: true, ...display }),
+				),
+			).toContain("hide the worker’s confirmation checkbox on Android");
+	});
+});
+
 describe("a grid's fixed column count", () => {
 	it("is kept on its own, and named as Android's limit beside another setting", () => {
 		const grid = { kind: "grid", columns: 3, advanceOnChoice: true };

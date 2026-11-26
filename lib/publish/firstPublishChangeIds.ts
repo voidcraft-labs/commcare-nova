@@ -13,7 +13,7 @@ import { z } from "zod";
 import type { AppSettings, BlueprintDoc } from "@/lib/domain";
 import type { Platform } from "@/lib/domain/platforms";
 
-/** Every change a first publish can make, in registry order. */
+/** Every change a current or historically adopted app can still publish, in display order. */
 export const FIRST_PUBLISH_CHANGE_IDS = [
 	"forms-and-settings-rewritten",
 	"hidden-values-added",
@@ -56,6 +56,8 @@ export const FIRST_PUBLISH_CHANGE_IDS = [
 	"text-spaces-dropped",
 	"form-text-characters-written-as-outputs",
 	"hidden-value-defaults-dropped",
+	"hidden-answer-types-respelled",
+	"model-iteration-conditions-moved-to-rows",
 	"sort-by-entry-with-a-blank-name-dropped",
 	"form-titles-written",
 	"unread-fixture-declarations-dropped",
@@ -64,12 +66,29 @@ export const FIRST_PUBLISH_CHANGE_IDS = [
 export type FirstPublishChangeId = (typeof FIRST_PUBLISH_CHANGE_IDS)[number];
 
 /** Stored reviews can still display these notices. New reads preserve their source exactly. */
-export const retiredSearchFilterNotices: ReadonlySet<FirstPublishChangeId> =
-	new Set([
-		"search-filter-joined-to-list",
-		"search-restates-list-filter",
-		"search-today-device-day",
-	]);
+export const retiredSearchFilterNotices = new Set([
+	"search-filter-joined-to-list",
+	"search-restates-list-filter",
+	"search-today-device-day",
+] as const);
+
+/** Earlier Nova reads omitted an unobserved hidden starting answer. Its
+ * notice survives on their deployment until content is published or the
+ * difference is resolved. New readings keep both expressions. */
+export type CurrentFirstPublishChangeId = Exclude<
+	FirstPublishChangeId,
+	| "hidden-value-defaults-dropped"
+	| "search-filter-joined-to-list"
+	| "search-restates-list-filter"
+	| "search-today-device-day"
+>;
+export const CURRENT_FIRST_PUBLISH_CHANGE_IDS = FIRST_PUBLISH_CHANGE_IDS.filter(
+	(id): id is CurrentFirstPublishChangeId =>
+		id !== "hidden-value-defaults-dropped" &&
+		id !== "search-filter-joined-to-list" &&
+		id !== "search-restates-list-filter" &&
+		id !== "search-today-device-day",
+);
 
 /** A list of what a publish changes, as every surface shows it. */
 export interface FirstPublishView {
@@ -137,6 +156,8 @@ export const FIRST_PUBLISH_TOUCHES_WORKERS: Readonly<
 	"text-spaces-dropped": true,
 	"form-text-characters-written-as-outputs": false,
 	"hidden-value-defaults-dropped": false,
+	"hidden-answer-types-respelled": false,
+	"model-iteration-conditions-moved-to-rows": true,
 	"sort-by-entry-with-a-blank-name-dropped": true,
 	"form-titles-written": true,
 	"unread-fixture-declarations-dropped": true,
@@ -149,9 +170,8 @@ export const FIRST_PUBLISH_TOUCHES_WORKERS: Readonly<
  * it only while the list it replaces holds it
  * (`reading/firstPublishChanges.ts::withAnsweredChanges`).
  */
-export const ANSWERED_FIRST_PUBLISH_CHANGES: readonly FirstPublishChangeId[] = [
-	"owner-rule-given-to-worker",
-];
+export const ANSWERED_FIRST_PUBLISH_CHANGES: readonly CurrentFirstPublishChangeId[] =
+	["owner-rule-given-to-worker"];
 
 /** Ids another entry's sentence says to a person. */
 export const FIRST_PUBLISH_SAID_BY = {
@@ -254,7 +274,7 @@ export const storedFirstPublishSchema: z.ZodType<StoredFirstPublish> =
 
 export interface FirstPublishApp {
 	readonly appSettings: Pick<AppSettings, "runsOnlyOn" | "showIncompleteForms">;
-	readonly connectType: BlueprintDoc["connectType"];
+	readonly connectRoles: BlueprintDoc["connectRoles"];
 }
 
 /**
@@ -269,7 +289,7 @@ export function firstPublishViewFromStored(
 	stored: StoredFirstPublish,
 	{
 		appSettings: { runsOnlyOn, showIncompleteForms },
-		connectType,
+		connectRoles,
 	}: FirstPublishApp,
 ): FirstPublishView {
 	const present = new Set<FirstPublishChangeId>(stored.ids);
@@ -286,7 +306,8 @@ export function firstPublishViewFromStored(
 			if (platform !== runsOnlyOn) present.delete(id);
 	}
 	if (showIncompleteForms) present.delete("incomplete-forms-tile-hidden");
-	if (connectType === null) present.delete("connect-app-captures-location");
+	if (connectRoles.length === 0)
+		present.delete("connect-app-captures-location");
 	const ids = FIRST_PUBLISH_CHANGE_IDS.filter((id) => present.has(id));
 	return {
 		ids,

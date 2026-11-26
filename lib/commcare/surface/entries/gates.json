@@ -2279,6 +2279,7 @@
 			"questions/connect-task",
 			"questions/connect-deliver-unit-and-task-in-one-form",
 			"questions/connect-learn-and-deliver-blocks-in-one-app",
+			"questions/connect-work-area-update-photo-not-forwarded",
 			"questions/connect-work-area-update"
 		],
 		"platforms": "n/a",
@@ -3289,7 +3290,7 @@
 		"class": {
 			"kind": "target-owned"
 		},
-		"content": "HELD-NEW (Question types `lockedInHq`)",
+		"content": "HELD (Question types `lockedInHq`)",
 		"contentEntries": ["questions/vellum-lock-all-locked-question"],
 		"platforms": "n/a",
 		"preflight": {
