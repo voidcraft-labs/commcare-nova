@@ -25,6 +25,7 @@ DOCUMENTS = (
     "localization-bilingual",
     "media-only",
     "navigation-base",
+    "no-matches-basic",
     "prompt-widgets",
     "search-browse",
     "targeted-menu-badges",
