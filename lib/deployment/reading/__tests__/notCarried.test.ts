@@ -23,7 +23,12 @@ import {
 import { CANONICALIZATIONS } from "@/lib/commcare/reader/canon";
 import { documentDifferences } from "@/lib/doc/documentDifferences";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
-import { type BlueprintDoc, blueprintDocSchema } from "@/lib/domain";
+import {
+	type BlueprintDoc,
+	blueprintDocSchema,
+	translationSourceFingerprint,
+} from "@/lib/domain";
+import { generatedWordingId } from "@/lib/domain/generatedWording";
 import { KEYS_WITH_NO_EXTERNAL_KEY, readBackDifferences } from "../readBack";
 import {
 	everyKindDocument,
@@ -65,7 +70,33 @@ function documents(): { readonly id: string; readonly doc: BlueprintDoc }[] {
 		{ id: "sort-named-hidden-column", doc: sortNamedHiddenColumnDocument() },
 		{ id: "survey-list", doc: surveyListDocument() },
 		{ id: "unprinted-search-guard", doc: unprintedGuardDocument() },
+		{ id: "source-wording-fingerprint", doc: sourceWordingDocument() },
 	];
+}
+
+/** A survey whose home screen title has its own wording in the source language, fingerprinted
+ *  against itself rather than against the app's name it overrides. */
+function sourceWordingDocument(): BlueprintDoc {
+	const doc = surveyListDocument();
+	return {
+		...doc,
+		localization: {
+			sourceLanguage: "eng",
+			defaultLanguage: "eng",
+			languageOrder: ["eng"],
+			wireCodes: { eng: "en" },
+			translations: {},
+			generatedSourceWording: {
+				[generatedWordingId("app", "homescreenTitle")]: {
+					value: "Home",
+					sourceFingerprint: translationSourceFingerprint("text", "Home"),
+					origin: "human",
+					review: "reviewed",
+					translatedFrom: "eng",
+				},
+			},
+		} as BlueprintDoc["localization"],
+	};
 }
 
 describe("the content no export holds", () => {
@@ -78,6 +109,7 @@ describe("the content no export holds", () => {
 				"organization-levels-as-read",
 				"purpose-notes-are-absent",
 				"sort-named-hidden-column-header-is-its-name",
+				"source-wording-fingerprint-as-read",
 				"tile-columns-shown-nowhere-are-as-read",
 				"translation-provenance-is-read-as-reviewed",
 				"unprinted-search-guard-translations-are-absent",
