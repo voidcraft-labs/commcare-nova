@@ -11,7 +11,7 @@
  * base, whose app CommCare HQ holds with Web Apps off, reads on Android only; with its list choosing
  * several patients (which Android cannot run) it reads on Web Apps only, and with `here()` in its
  * calculated column (which Web Apps cannot run) on Android only; and in each the stored header
- * folds into the column's header.
+ * reads as the detail's own wording of the column.
  *
  * Plausible failure: the strings built over the document as the reading assembles it, which
  * declares nothing and so runs on both platforms, where the gate refuses content only one of them
@@ -72,15 +72,18 @@ function read(reading: LaneReading) {
 	return reading;
 }
 
-/** The header of the column of Visits due whose detail holds the stored override. */
+/** The wording a generated unit of the document holds as the stored override's text, in any language. */
 function referenceHeader(reading: LaneReading): unknown {
 	const { doc } = read(reading);
-	const visits = Object.values(doc.modules).find(
-		(module) => module.name === "Visits due",
-	);
-	return visits?.caseListConfig?.columns.find(
-		(column) => column.header === "Patient reference",
-	)?.header;
+	const localization = doc.localization;
+	const entries = [
+		localization?.generatedSourceWording ?? {},
+		...Object.values(localization?.translations ?? {}),
+	].flatMap((held) => Object.entries(held));
+	return entries.find(
+		([unit, entry]) =>
+			unit.includes("generated") && entry?.value === "Patient reference",
+	)?.[1]?.value;
 }
 
 describe("the app strings a reading judges its generated keys against", () => {

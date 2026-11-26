@@ -23,11 +23,11 @@
 4. Two generated keys on the UI translations page
    (``views/apps.py::edit_app_ui_translations``): the first form's name in
    English, ``forms.m0f0``, at the text HQ's build writes for it, which
-   changes nothing; and the second menu's name in French, ``modules.m1``,
-   which the menu itself names in English alone, so the key is that
-   menu name's French wording (``translation-overrides-folded``). The page
-   drops ``modules.m0`` from every save, so the override is on the second
-   menu.
+   Nova reads as the form's menu label's own wording, equal to the name;
+   and the second menu's name in French, ``modules.m1``, which the menu
+   itself names in English alone, so the key is that menu title's own
+   French wording (``translations-generated-wording``). The page drops
+   ``modules.m0`` from every save, so the override is on the second menu.
 
 Its configuration is the lane's floor and no flag. Web Apps is off, as
 ``Application.cloudcare_enabled`` defaults, and its content runs on Android,
@@ -122,8 +122,7 @@ BASE = Base(
     exhibits=(
         "application-and-settings/langs-order-langs-0-default",
         "application-and-settings/langs-code-spelling-matching-hq-s-grammar-a-z-2-3-a-z-e-g-en-hin",
-        "application-and-settings/translations-generated-key-over-one-text",
-        "application-and-settings/translations-generated-key-with-no-effect",
+        "application-and-settings/translations-generated-wording",
         "questions/label-default-text-itext-value",
         "questions/an-explicitly-blank-value-in-a-non-default-language-where-the",
         "questions/itext-ids-other-than-a-pragma-key-default-placement",

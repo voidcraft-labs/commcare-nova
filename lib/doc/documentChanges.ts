@@ -16,6 +16,7 @@
  * joined by "/", since an id is unique only among its siblings.
  */
 
+import { deepEqual } from "@/lib/doc/deepEqual";
 import {
 	type BlueprintDoc,
 	type CaseListConfig,
@@ -26,7 +27,10 @@ import {
 	type PersistableDoc,
 	type Uuid,
 } from "@/lib/domain";
-import { languageEntries } from "@/lib/domain/localization";
+import {
+	effectiveAppLocalization,
+	languageEntries,
+} from "@/lib/domain/localization";
 import { type AssetRef, walkAssetRefs } from "@/lib/domain/mediaRefs";
 import {
 	type DocumentDifference,
@@ -896,7 +900,18 @@ function fileLocalizationDifference(
 			collector.translations.set(key, kind);
 	};
 	if (path.length === 1) {
-		collector.app.add("languages");
+		// The root appears or goes with its first or last stored wording; the languages change
+		// only where the effective catalog does.
+		const languagesOf = (doc: BlueprintDoc) => {
+			const {
+				translations: _translations,
+				generatedSourceWording: _wording,
+				...languages
+			} = effectiveAppLocalization(doc.localization);
+			return languages;
+		};
+		if (!deepEqual(languagesOf(before.doc), languagesOf(after.doc)))
+			collector.app.add("languages");
 		for (const doc of [before.doc, after.doc]) {
 			for (const language of doc.localization?.languageOrder ?? [])
 				for (const unit of translationEntries(doc, language))

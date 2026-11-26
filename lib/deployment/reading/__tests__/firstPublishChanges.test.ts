@@ -2860,12 +2860,17 @@ const PAIRS: Readonly<Record<FirstPublishChangeId, Pair>> = {
 		{ xml: withBlankSecondLabel },
 	),
 	"translation-overrides-folded": {
-		// A translation of the app that words the first menu's name.
+		// A translation of the app that words its name, the one generated key no wording unit
+		// reads (a menu's name reads as the menu's own wording).
 		on: async () =>
 			factsOf(
 				await readAs(
 					followUpDoc(),
-					{ root: { translations: { en: { "modules.m0": "Registration" } } } },
+					{
+						root: {
+							translations: { en: { "app.display.name": "Registration" } },
+						},
+					},
 					{ appStrings: readingAppStrings(LOOKUP_CONTEXT_UNAVAILABLE) },
 				),
 			),
@@ -3473,11 +3478,8 @@ interface FoldCase {
 	readonly source: boolean;
 	/** Keys the case folds beside the classifier's: the first language's `app.display.name`. */
 	readonly also?: Readonly<Record<string, string>>;
-	/** The rows of `FOLDED_TEXT_SLOTS` the case's folded keys are spelled by. */
+	/** The rows of `FOLDED_TEXT_SLOTS` the case's keys are spelled by. */
 	readonly patterns: readonly string[];
-	/** Whether the case folds a form's name in the app's first language, which its source's title
-	 *  and data node's name take. */
-	readonly formTitles?: true;
 }
 
 const FOLD_CASES: Readonly<Record<string, FoldCase>> = {
@@ -3486,7 +3488,6 @@ const FOLD_CASES: Readonly<Record<string, FoldCase>> = {
 		code: "en",
 		source: true,
 		also: { "app.display.name": "Folded app" },
-		formTitles: true,
 		patterns: [
 			"app.display.name",
 			"modules.m#",
@@ -3515,7 +3516,6 @@ const FOLD_CASES: Readonly<Record<string, FoldCase>> = {
 		doc: () => localizationWireFixture("prompts"),
 		code: "es",
 		source: false,
-		formTitles: true,
 		patterns: [
 			"modules.m#",
 			"forms.m#f#",
@@ -3579,30 +3579,41 @@ describe("the text a folded translation key names", () => {
 	});
 
 	for (const [title, one] of Object.entries(FOLD_CASES))
-		it(`changes, where it folds ${title}, only the slots its entry allows at the places it gives`, {
+		it(`reads ${title} as each text's own wording, folds only the app's name, and changes only the slots its entry allows`, {
 			timeout: 60_000,
 		}, async () => {
 			const doc = one.doc();
-			const keys = {
-				...foldingOverrides(doc, one.source),
-				...one.also,
-			};
+			const overridden = foldingOverrides(doc, one.source);
+			const keys = { ...overridden, ...one.also };
 			const on = await foldingFacts(doc, one.code, keys);
 			const off = await foldingFacts(doc, one.code, {});
 			const entry = FIRST_PUBLISH_CHANGES["translation-overrides-folded"];
 
-			// Every key of the case folds, each spelled by a row.
+			// Every key the case sets is spelled by a row; only the app's name folds, since every
+			// other key is a generated wording unit's and reads as that text's own wording.
+			expect(
+				new Set(
+					Object.keys(keys).map((key) => foldedTextSlotsOf(key)?.pattern),
+				),
+			).toEqual(new Set(one.patterns));
 			const folded = on.facts.foldedTranslationKeys.map(
 				(pointer) => placeSteps(pointer).at(-1) ?? "",
 			);
-			expect(new Set(folded)).toEqual(new Set(Object.keys(keys)));
-			expect(
-				new Set(folded.map((key) => foldedTextSlotsOf(key)?.pattern)),
-			).toEqual(new Set(one.patterns));
+			expect(new Set(folded)).toEqual(new Set(Object.keys(one.also ?? {})));
 			expect(applies("translation-overrides-folded", off)).toBe(false);
+			expect(applies("translation-overrides-folded", on)).toBe(
+				one.also !== undefined,
+			);
 
-			// What the fold moves in the stored app: each difference lies under a path the entry
-			// allows and at a place it stands at.
+			// The words come back out where CommCare HQ held them: a publish writes each key again.
+			const emitted = (exportedBody(on.doc, {
+				expand: { attachmentTarget: TARGET },
+			}).translations ?? {}) as Record<string, Record<string, string>>;
+			for (const [key, value] of Object.entries(overridden))
+				expect([key, emitted[one.code]?.[key]]).toEqual([key, value]);
+
+			// What the fold of the app's name moves in the stored app: each difference lies under a
+			// path the entry allows and at a place it stands at.
 			const before = new Set(
 				storedDifferences(off.source.raw, firstPublishStored(off, {})),
 			);
@@ -3610,9 +3621,10 @@ describe("the text a folded translation key names", () => {
 				on.source.raw,
 				firstPublishStored(on, {}),
 			).filter((pointer) => !before.has(pointer));
-			const [placed] = firstPublishChangePlaces(on, [
-				"translation-overrides-folded",
-			]);
+			const [placed] =
+				one.also === undefined
+					? []
+					: firstPublishChangePlaces(on, ["translation-overrides-folded"]);
 			const places = placed?.places ?? [];
 			const unheld = moved.filter((pointer) => {
 				const at = placeOfStoredPointer(on.positions, pointer);
@@ -3624,44 +3636,14 @@ describe("the text a folded translation key names", () => {
 			});
 			expect(unheld).toEqual([]);
 
-			// A form's source, which the comparison above leaves to the lane's parts: its title and
-			// its data node's name move where the form's name folds in the first language.
+			// A form's source keeps its title and its data node's name: a form's name never folds.
 			const titlesBefore = publishedFormTitles(off);
-			const sourceMoves = [...publishedFormTitles(on)].flatMap(
-				([position, now]) => {
-					const was = titlesBefore.get(position);
-					return [
-						...(now.title === was?.title
-							? []
-							: [placeOf("form", position, "xform", "title")]),
-						...(now.name === was?.name
-							? []
-							: [placeOf("form", position, "xform", "data", "@name")]),
-					];
-				},
-			);
-			expect(sourceMoves.length > 0).toBe(one.formTitles === true);
 			expect(
-				sourceMoves.filter(
-					(at) =>
-						!entry.paths.includes("/_attachments/*") ||
-						!places.some((place) => placeStandsAt(place, at)),
-				),
+				[...publishedFormTitles(on)].filter(([position, now]) => {
+					const was = titlesBefore.get(position);
+					return now.title !== was?.title || now.name !== was?.name;
+				}),
 			).toEqual([]);
-
-			// Each row's text moved: the key left `translations`, and its text took the value.
-			for (const pattern of one.patterns) {
-				const row = FOLDED_TEXT_SLOTS.find((one) => one.pattern === pattern);
-				const paths = row === undefined ? [] : foldedTextPathsOf(row);
-				expect([
-					pattern,
-					moved.some(
-						(pointer) =>
-							!pointer.startsWith("/translations/") &&
-							paths.some((path) => pointerCovers(path, pointer)),
-					),
-				]).toEqual([pattern, true]);
-			}
 		});
 });
 

@@ -384,18 +384,23 @@ export const READER_CANONICAL_CHOICES: readonly ReaderCanonicalChoice[] = [
 		apply: blankItextFilled,
 	},
 	{
-		/** A translation equal to its source text, and none: the reader returns none. */
+		/** A translation equal to its source text, and none: the reader returns none. A generated
+		 *  wording unit's own wording is no member: the emitter writes it under its key even where
+		 *  it equals the text its base gives, and the reader takes it back as the unit's own
+		 *  (`generatedTranslationKeys.ts`). Its blank wording is a member. */
 		id: "translation-equal-to-source-is-absent",
 		kind: "one-wire",
 		apply: (doc) => {
 			const equal: [LanguageTag, TranslationUnitId][] = [];
+			const units = snapshotTranslationUnits(doc);
 			eachEntry(doc, (language, unit, current) => {
 				const entry = languageEntries(doc.localization, language)?.[unit];
+				const generated = units.get(unit)?.generated;
 				if (
 					current !== undefined &&
-					(sameJson(entry?.value, current.source) ||
-						(entry?.value === "" &&
-							snapshotTranslationUnits(doc).get(unit)?.generated))
+					((sameJson(entry?.value, current.source) &&
+						(generated === undefined || generated.dormant === true)) ||
+						(entry?.value === "" && generated))
 				)
 					equal.push([language, unit]);
 			});
@@ -1487,6 +1492,7 @@ function decideGeneratedKeys(
 					() => kept,
 				).value;
 				ctx.translations.set(verdict.unit, "text", new Map([[tag, wording]]));
+				ctx.translations.own(verdict.unit, tag);
 				if (hqDeviceText(verdict.value) !== hqDeviceText(kept))
 					recordTextRewrite(
 						ctx,

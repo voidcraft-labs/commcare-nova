@@ -182,11 +182,12 @@ export function generatedWordingOverrides(
 					doc,
 					localizeTranslationUnit(doc, tag, unit),
 				);
+				// The unit's own wording is written even where it equals the text its base gives, so a
+				// reading takes it back as the unit's (`reader/generatedTranslationKeys.ts`).
 				if (
 					typeof localized.effective === "string" &&
 					(localized.status !== "out-of-date" || !!entry.workerFallback) &&
-					localized.effective !== "" &&
-					localized.effective !== localized.defaultText
+					localized.effective !== ""
 				)
 					values[key] = localized.effective;
 			}

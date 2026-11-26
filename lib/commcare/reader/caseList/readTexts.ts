@@ -26,7 +26,11 @@ import {
 import { wordingSourceUnit } from "../../generatedSearchWording";
 import { withCandidate } from "../candidate";
 import { sameJson } from "../jsonCursor";
-import { type TranslationSink, translationEntryFor } from "../translations";
+import {
+	ownWordingEntryFor,
+	type TranslationSink,
+	translationEntryFor,
+} from "../translations";
 
 /* The last document each sink's texts were written over, at the sink's
  * revision then. Every list and search settle projects the same bound
@@ -87,20 +91,21 @@ function writeReadTexts(
 		readonly language: LanguageTag;
 		readonly entry: TranslationEntry | undefined;
 	}[] = [];
-	for (const { unit, byLanguage } of given) {
+	for (const { unit, byLanguage, own } of given) {
 		const raw = units.get(unit);
 		const current = raw && wordingSourceUnit(doc, raw);
 		if (current === undefined) continue;
 		for (const [language, value] of byLanguage) {
 			if (language === source && !hasGeneratedWording(current)) continue;
-			const read = translationEntryFor(
-				current.valueKind,
-				current.generated
-					? defaultWording(doc, language, current)
-					: current.source,
-				value,
-				source,
-			);
+			const fallback = current.generated
+				? defaultWording(doc, language, current)
+				: current.source;
+			// A generated unit's own wording, read from the override HQ holds for its key, is an
+			// entry even where it equals the text its base gives: the app holds the two apart.
+			const read =
+				current.generated && own.has(language)
+					? ownWordingEntryFor(current.valueKind, fallback, value, source)
+					: translationEntryFor(current.valueKind, fallback, value, source);
 			const entry = read && {
 				...read,
 				...authoredTranslationValueMode(current, read.value),

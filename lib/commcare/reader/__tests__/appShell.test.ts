@@ -514,6 +514,7 @@ describe("readApplication's language names", () => {
 				unit: makeTranslationUnitId("app", "name"),
 				kind: "text",
 				byLanguage: new Map([["fra", "Patients et visites"]]),
+				own: new Set(),
 			},
 		]);
 		expect(ctx.draft.localization).toEqual({
@@ -649,6 +650,7 @@ describe("readApplication's app name and the source language it tells", () => {
 				unit: makeTranslationUnitId("app", "name"),
 				kind: "text",
 				byLanguage: new Map([["eng", "Clinic"]]),
+				own: new Set(),
 			},
 		]);
 		expect(ctx.facts.foldedTranslationKeys).toHaveLength(0);
@@ -679,6 +681,7 @@ describe("readApplication's app name and the source language it tells", () => {
 				unit: makeTranslationUnitId("app", "name"),
 				kind: "text",
 				byLanguage: new Map([["fra", "Clinique"]]),
+				own: new Set(),
 			},
 		]);
 		expect(ctx.facts.foldedTranslationKeys).toHaveLength(1);

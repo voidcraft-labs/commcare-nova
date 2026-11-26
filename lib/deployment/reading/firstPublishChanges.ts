@@ -2028,6 +2028,28 @@ export function firstPublishListToStore(
 	};
 }
 
+/**
+ * `list` with `translation-overrides-folded` where the plan of a bring-in of changes still finds
+ * the next publish making it (`hqChanges/plan.ts::holdsFoldedOverride`): a fold an earlier
+ * reading made, which a reading today no longer lists, stays on the list of an app not yet
+ * published until a push writes it.
+ */
+export function keepingAnEarlierFold(
+	list: FirstPublishView,
+	publishChanges: readonly FirstPublishChangeId[],
+): FirstPublishView {
+	const id = "translation-overrides-folded";
+	if (list.ids.includes(id) || !publishChanges.includes(id)) return list;
+	const ids = FIRST_PUBLISH_CHANGE_IDS.filter(
+		(one) => one === id || list.ids.includes(one),
+	);
+	return {
+		ids,
+		touchesWorkers: ids.some((one) => FIRST_PUBLISH_TOUCHES_WORKERS[one]),
+		of: list.of,
+	};
+}
+
 /** The ids whose `applies` is true, in registry order. */
 export function firstPublishChangesFor(
 	facts: FirstPublishFacts,

@@ -64,6 +64,7 @@ import type {
 	BlueprintDoc,
 	CaseProperty,
 	PersistableDoc,
+	TranslationUnitId,
 	Uuid,
 } from "@/lib/domain";
 import { effectiveCaseTypes } from "@/lib/domain/effectiveCaseTypes";
@@ -82,6 +83,7 @@ import {
 	recordFromEntries,
 } from "@/lib/domain/records";
 import {
+	defaultWording,
 	hasGeneratedWording,
 	snapshotTranslationUnits,
 	storedTranslationValue,
@@ -521,6 +523,59 @@ function narrowed(
 				if (before && after && held && deepEqual(before.value, after.value)) {
 					const original = snapshotTranslationUnits(D).get(mutation.unitId);
 					if (original && hasGeneratedWording(original)) break;
+				}
+				// A generated output CommCare HQ's app now writes, where Nova holds the same words
+				// (a wording an edit there woke, the menu item that shows it turned on): Nova's own.
+				if (!before && after && held && deepEqual(held.value, after.value)) {
+					const original = snapshotTranslationUnits(D).get(mutation.unitId);
+					if (original && hasGeneratedWording(original)) break;
+				}
+				// A generated output CommCare HQ's app no longer writes because the place that shows
+				// it is gone there (a menu item turned off): its wording stays Nova's, dormant, as it
+				// would had the change been made in Nova.
+				if (
+					after === null &&
+					held &&
+					snapshotTranslationUnits(T).get(mutation.unitId)?.generated?.dormant
+				)
+					break;
+				// A generated output's wording CommCare HQ changed over a base it left alone, where
+				// Nova words that base otherwise (a fold an earlier reader made of the form's name):
+				// the words are current against the base Nova holds, which workers read them beside.
+				if (after && !after.workerFallback) {
+					const rawOf = (doc: BlueprintDoc) => {
+						const raw = snapshotTranslationUnits(doc).get(mutation.unitId);
+						return raw && hasGeneratedWording(raw) ? raw : undefined;
+					};
+					// The fingerprint of the text the output's base gives, which a stored wording names.
+					const baseOf = (doc: BlueprintDoc) => {
+						const base = rawOf(doc)?.generated?.base;
+						return base === undefined
+							? undefined
+							: snapshotTranslationUnits(doc).get(base)?.sourceFingerprint;
+					};
+					const theirs = baseOf(T);
+					const based = baseOf(B);
+					const own = rawOf(D);
+					const ours = own && wordingSourceUnit(D, own)?.sourceFingerprint;
+					if (
+						theirs !== undefined &&
+						based !== undefined &&
+						ours !== undefined &&
+						translationSourceFingerprintsEqual(
+							after.sourceFingerprint,
+							theirs,
+						) &&
+						translationSourceFingerprintsEqual(based, theirs) &&
+						!translationSourceFingerprintsEqual(ours, theirs)
+					) {
+						const { restoreAgainst: _restore, ...plain } = mutation;
+						out.push({
+							...plain,
+							entry: { ...after, sourceFingerprint: ours },
+						});
+						break;
+					}
 				}
 				if (
 					before !== undefined &&
@@ -1512,6 +1567,46 @@ function formsOf(draft: ReadDraft): readonly { readonly uuid: Uuid }[] {
 	});
 }
 
+/**
+ * Whether the next publish still makes a fold an earlier reader made of a generated wording
+ * override. Nova's earlier reader folded a key CommCare HQ's app translations set for a text with
+ * a base (a form's name, a menu's) into that base, so the document it saved words the base as the
+ * override did. A reading today takes the override as the text's own wording and keeps the base
+ * CommCare HQ holds, so it lists no fold, and yet publishing the saved document still writes those
+ * words into the base, the change `translation-overrides-folded` names. Its signature: where the
+ * baseline, read now, holds a text's own wording in a language, the reference document (what the
+ * baseline described when Nova recorded it) words the base otherwise than the baseline does, and
+ * the head still words it as the reference does, so no edit in Nova made the difference.
+ */
+export function holdsFoldedOverride(
+	reference: BlueprintDoc,
+	baseline: BlueprintDoc,
+	head: BlueprintDoc,
+): boolean {
+	const read = effectiveAppLocalization(baseline.localization);
+	const readUnits = snapshotTranslationUnits(baseline);
+	const referenceUnits = snapshotTranslationUnits(reference);
+	const headUnits = snapshotTranslationUnits(head);
+	for (const language of read.languageOrder) {
+		for (const [unitId, entry] of Object.entries(
+			languageEntries(read, language) ?? {},
+		)) {
+			const id = unitId as TranslationUnitId;
+			const unit = readUnits.get(id);
+			const was = referenceUnits.get(id);
+			const now = headUnits.get(id);
+			if (entry === undefined || !unit?.generated?.base || !was || !now)
+				continue;
+			const referenceBase = defaultWording(reference, language, was);
+			if (deepEqual(referenceBase, defaultWording(baseline, language, unit)))
+				continue;
+			if (deepEqual(referenceBase, defaultWording(head, language, now)))
+				return true;
+		}
+	}
+	return false;
+}
+
 interface PlanInput {
 	readonly baseMediaFiles: readonly AdoptedMediaFile[];
 	readonly reference: Extract<ReferenceDocument, { readonly kind: "ok" }>;
@@ -1637,6 +1732,12 @@ export function* planHqChangesSteps(input: PlanInput): Steps<HqChangePlan> {
 				id !== "forms-and-settings-rewritten" &&
 				(!baseIds.includes(id) || changedPublishSubjects.includes(id)),
 		);
+		// A fold an earlier reading made stays the next publish's change until a push ends it.
+		if (
+			!publishChanges.includes("translation-overrides-folded") &&
+			holdsFoldedOverride(ref, B, input.now)
+		)
+			publishChanges = [...publishChanges, "translation-overrides-folded"];
 	} catch {
 		return differs({
 			check: "apply",

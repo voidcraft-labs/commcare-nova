@@ -134,8 +134,9 @@ function unitsOf(
 }
 
 /**
- * The verdict on each held key, in order, by the five rules: a blank value, an id no string of
- * the table has, and a value equal to the table's string are inert; an id whose source is one
+ * The verdict on each held key, in order, by the five rules: a blank value and an id no string of
+ * the table has are inert; an id one of the document's generated wording units writes
+ * (`table.wordingUnits`) is that unit's wording; a value equal to the table's string is inert; an id whose source is one
  * translation unit, where every other id that unit feeds holds the same value in that language or
  * is this one, folds into that unit's text in that language; a split or constant with an owned output keeps its own wording. The
  * fold rule reads the stored value of every id a unit feeds, so `held` lists every generated key
@@ -188,6 +189,11 @@ export function classifyGeneratedTranslationKeys(
 		const strings = table.languages[one.language];
 		if (strings === undefined || !Object.hasOwn(strings, one.id))
 			return { kind: "inert" };
+		// A key Nova's own wording unit writes is that unit's wording in the language, whatever
+		// its value: equal to the text its base gives, or the only text the language holds there.
+		// Folding it into the base (a form's name, a menu's) would change every other place the
+		// base feeds, and a Nova export would not read back as the document that made it.
+		if (wording) return own;
 		if (strings[one.id] === one.value) return { kind: "inert" };
 		const source = Object.hasOwn(table.units, one.id)
 			? table.units[one.id]

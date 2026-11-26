@@ -493,3 +493,51 @@ it("uses the native title's placeholder rules on only the generated outputs that
 			expandDoc(saved.nextDoc).translations?.en["forms.m0f0.submit_label"],
 		).toBe(wording);
 });
+
+it("reads a form menu label's own wording back as it was written, beside or without the form's name, equal or not", async () => {
+	const base = localizationWireFixture("bilingual");
+	const formUuid = base.formOrder[base.moduleOrder[0]][0];
+	const name = makeTranslationUnitId("form", formUuid, "name");
+	const title = generatedWordingId(formUuid, "formTitle");
+	const fingerprint =
+		snapshotTranslationUnits(base).get(title)?.sourceFingerprint;
+	if (fingerprint === undefined)
+		throw new Error("The form needs its menu label.");
+	const wording = (value: string) => ({
+		value,
+		sourceFingerprint: fingerprint,
+		origin: "human" as const,
+		review: "reviewed" as const,
+		translatedFrom: "eng",
+	});
+	const cases: readonly [string, string | undefined, string | undefined][] = [
+		["the name translated alone", "Registrar", undefined],
+		["the menu label alone", undefined, "Inscribir"],
+		["both, different", "Registrar", "Inscribir"],
+		["both, equal", "Registrar", "Registrar"],
+	];
+	for (const [label, named, titled] of cases) {
+		const doc = structuredClone(base);
+		const spanish = doc.localization?.translations.spa;
+		if (spanish === undefined) throw new Error("The fixture holds Spanish.");
+		if (named === undefined) delete spanish[name];
+		if (titled !== undefined) spanish[title] = wording(titled);
+		const result = readHqApp(
+			await inputFor(exportedBody(doc), {
+				appStrings: (read) => localAppStringTable(read, []),
+			}),
+		);
+		if (result.kind !== "read")
+			throw new Error(JSON.stringify(result.findings));
+		const back = result.draft.doc;
+		const backForm = back.formOrder[back.moduleOrder[0]][0];
+		const read = back.localization?.translations.spa ?? {};
+		expect(
+			[
+				read[makeTranslationUnitId("form", backForm, "name")]?.value,
+				read[generatedWordingId(backForm, "formTitle")]?.value,
+			],
+			label,
+		).toEqual([named, titled]);
+	}
+});

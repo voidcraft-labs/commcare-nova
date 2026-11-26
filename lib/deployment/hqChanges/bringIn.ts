@@ -64,7 +64,10 @@ import {
 import { removalLedgerPaths } from "../hqSourceBaseline";
 import { hqImportApplicationSteps } from "../importApplication";
 import { movedBindingCount } from "../reading/create";
-import { firstPublishListToStore } from "../reading/firstPublishChanges";
+import {
+	firstPublishListToStore,
+	keepingAnEarlierFold,
+} from "../reading/firstPublishChanges";
 import { Pieces } from "../reading/gather";
 import { resolveTableChoices, underTableChoices } from "../reading/projectData";
 import {
@@ -392,9 +395,12 @@ async function recordReadsTheSame(
 		 * the list, which then stays. */
 		...(checked !== null && {
 			nextPublish: {
-				accepted: firstPublishListToStore(
-					checked.declaration.firstPublish,
-					checked.draft.facts,
+				accepted: keepingAnEarlierFold(
+					firstPublishListToStore(
+						checked.declaration.firstPublish,
+						checked.draft.facts,
+					),
+					checked.plan.publishChanges,
 				),
 				publishChanges: checked.plan.publishChanges,
 				removedFiles: {
@@ -855,9 +861,12 @@ async function takenFor(
 			},
 			targetIdentity: checked.targetIdentity,
 			firstPublish: {
-				accepted: firstPublishListToStore(
-					checked.declaration.firstPublish,
-					checked.draft.facts,
+				accepted: keepingAnEarlierFold(
+					firstPublishListToStore(
+						checked.declaration.firstPublish,
+						checked.draft.facts,
+					),
+					plan.publishChanges,
 				),
 				publishChanges: plan.publishChanges,
 				removedFiles: {
