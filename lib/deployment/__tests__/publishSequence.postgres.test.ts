@@ -4770,7 +4770,10 @@ describe("a table only CommCare HQ's JSON resources can carry", () => {
 
 			const confirmed = { ...request, confirm: reviewed.confirmation };
 			const first = await installManualLookupData(confirmed);
-			expect(first.status).toBe("checkpoint");
+			expect(first).toMatchObject({
+				status: "checkpoint",
+				message: expect.stringContaining("Continue installing"),
+			});
 			expect(hq.rows.size).toBe(199);
 			const firstId = [...hq.rows.keys()][0] ?? fail();
 			expect(hq.rows.get(firstId)?.fields.name[0]?.field_value).toBe(value);

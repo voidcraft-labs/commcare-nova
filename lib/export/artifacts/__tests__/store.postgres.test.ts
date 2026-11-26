@@ -128,7 +128,7 @@ it("retains a small manual lookup plan only while the requesting editor can down
 		h.db(),
 	);
 	await expect(readExportManifest(actor, file.id)).rejects.toMatchObject({
-		status: 404,
+		reason: "insufficient_role",
 	});
 });
 
