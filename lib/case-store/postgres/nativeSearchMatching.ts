@@ -1,4 +1,4 @@
-import { type RawBuilder, sql } from "kysely";
+import { type Expression, type RawBuilder, sql } from "kysely";
 import {
 	type CaseSearchCriterion,
 	CaseSearchUnavailableError,
@@ -13,6 +13,7 @@ import {
 	compileRelationPath,
 	relationPathContextFrom,
 } from "../sql/compileRelationPath";
+import { storedJsonbText } from "../sql/compileTerm";
 import { indexedSearchDate } from "../sql/searchIndexedDate";
 
 type Truth = RawBuilder<boolean | null>;
@@ -20,7 +21,7 @@ type Truth = RawBuilder<boolean | null>;
 /** case_properties.value is whitespace-analyzed text, and its exact subfield
  * is a case-sensitive keyword (ignore_above 8191 UTF-16 code units). */
 function propertyMatches(
-	value: RawBuilder<unknown>,
+	value: Expression<unknown>,
 	values: readonly string[],
 	fuzzy: boolean,
 	scope: FuzzyScope,
@@ -61,9 +62,15 @@ export function missingNativeProperty(key: string): Truth {
 	}
 }
 
-// HQ bounds terminal matches before it follows reverse links.
-// The extra reverse lookup uses ESQuery.get_ids(), whose default size is SIZE_LIMIT.
-const HQ_PARENT_LOOKUP_WINDOWS = { terminal: 500_000, intermediate: 1_000_000 };
+// HQ bounds terminal matches before following reverse links. Its intermediate
+// ESQuery.get_ids() reads up to SIZE_LIMIT. Each reverse hop uses a single terms
+// clause, so Preview certifies only up to Elasticsearch's default term count.
+// ES 6.8.23 warns above this setting, while newer versions can reject the query.
+const HQ_PARENT_LOOKUP_WINDOWS = {
+	terminal: 500_000,
+	intermediate: 1_000_000,
+	reverseTerms: 65_536,
+};
 
 export async function checkParentPathLookupLimit(
 	criterion: Extract<CaseSearchCriterion, { kind: "native" }>,
@@ -76,32 +83,39 @@ export async function checkParentPathLookupLimit(
 	const terms = values.filter((value) => value !== "");
 	const groups =
 		values.includes("") && terms.length > 0 ? [terms, [""]] : [values];
-	const exceeded = () =>
-		new CaseSearchUnavailableError({ kind: "parent-lookup-limit", field });
+	const terminalLimit = Math.min(windows.terminal, windows.reverseTerms);
+	const intermediateLimit = Math.min(
+		windows.intermediate,
+		windows.reverseTerms,
+	);
 	for (const group of groups) {
-		const value = sql`terminal.properties ->> ${target.property}`;
+		const value = storedJsonbText("terminal.properties", target.property, true);
 		const match = propertyMatches(value, group, false, ctx);
 		const terminal = sql`select terminal.case_id from cases as terminal
 			where terminal.app_id = ${ctx.appId} and terminal.project_id = ${ctx.projectId} and ${match}`;
-		const terminalCount = await sql<{ exceeded: boolean }>`select exists (
-			${terminal} offset ${windows.terminal} limit 1
-		) as exceeded`.execute(ctx.db);
-		if (terminalCount.rows[0]?.exceeded) throw exceeded();
-		if (target.ancestors?.length !== 2) continue;
-
-		// Count intermediate records once each, even if a retained record
-		// holds multiple indices leading to matching terminal records.
-		const intermediateCount = await sql<{ exceeded: boolean }>`select exists (
-			select 1 from cases as middle
-			where middle.app_id = ${ctx.appId} and middle.project_id = ${ctx.projectId}
-				and exists (
-					select 1 from case_indices as edge
-					join (${terminal}) as matched on matched.case_id = edge.ancestor_id
-					where edge.case_id = middle.case_id and edge.depth = 1 and edge.identifier = 'parent'
-				)
-			offset ${windows.intermediate} limit 1
-		) as exceeded`.execute(ctx.db);
-		if (intermediateCount.rows[0]?.exceeded) throw exceeded();
+		const lookup =
+			target.ancestors?.length === 2
+				? sql<{ exceeded: boolean }>`
+				with terminal_matches as materialized (${terminal} limit ${terminalLimit + 1})
+				select case when (select count(*) from terminal_matches) > ${terminalLimit} then true
+				else exists (
+					select 1 from cases as middle
+					where middle.app_id = ${ctx.appId} and middle.project_id = ${ctx.projectId}
+						and exists (
+							select 1 from case_indices as edge
+							join terminal_matches as matched on matched.case_id = edge.ancestor_id
+							where edge.case_id = middle.case_id and edge.depth = 1 and edge.identifier = 'parent'
+						)
+					offset ${intermediateLimit} limit 1
+				) end as exceeded`
+				: sql<{ exceeded: boolean }>`select exists (
+				${terminal} offset ${terminalLimit} limit 1
+			) as exceeded`;
+		if ((await lookup.execute(ctx.db)).rows[0]?.exceeded)
+			throw new CaseSearchUnavailableError({
+				kind: "parent-lookup-limit",
+				field,
+			});
 	}
 }
 
@@ -205,7 +219,9 @@ export function nativeSearchTruth(
 					case "external_id":
 						return sql`${read(source, "external_id")}`;
 					default:
-						return sql`${read(source, "properties")} ->> ${target.property}`;
+						return criterion.parameter.parentPathPrompt
+							? storedJsonbText(`${source}.properties`, target.property, true)
+							: sql`${read(source, "properties")} ->> ${target.property}`;
 				}
 			};
 			if (!target.ancestors)

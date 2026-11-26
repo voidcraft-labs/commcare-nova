@@ -54,7 +54,10 @@ const EXCLUDED_WORKER = "worker-excluded";
 
 const HOUSEHOLD: CaseType = {
 	name: "household",
-	properties: [{ name: "village", label: proseText("Village") }],
+	properties: [
+		{ name: "village", label: proseText("Village") },
+		{ name: "stops", label: proseText("Stops"), data_type: "multi_select" },
+	],
 };
 const PATIENT: CaseType = {
 	name: "patient",
@@ -625,7 +628,9 @@ describe("a completed search's snapshot", () => {
 			matcherFor: (key) =>
 				key === "parent/parent/village"
 					? { fuzzy: false, ignoreLiterals: ["!"] }
-					: null,
+					: key === "parent/parent/stops"
+						? { fuzzy: false, ignoreLiterals: [] }
+						: null,
 		}));
 		const grandparent: SearchInputDef = {
 			uuid: testUuid("grandparent-village"),
@@ -653,7 +658,10 @@ describe("a completed search's snapshot", () => {
 					case_type: "household",
 					case_name: caseId,
 					status: "closed",
-					properties: { village },
+					properties: {
+						village,
+						...(caseId === "target-house" ? { stops: ["east", "west"] } : {}),
+					},
 				},
 			});
 		const edge = (caseId: string, target: string) =>
@@ -671,15 +679,22 @@ describe("a completed search's snapshot", () => {
 		] as const)
 			await store.insert(patient(id, "open", related));
 		const config = caseListConfig([{ field: "case_name", header: "Name" }]);
-		config.searchInputs = [grandparent];
-		const read = (answer: string) =>
+		const stops: SearchInputDef = {
+			...grandparent,
+			uuid: testUuid("grandparent-stops"),
+			name: "parent_parent_stops",
+			label: "Grandparent stops",
+			property: "stops",
+		};
+		config.searchInputs = [grandparent, stops];
+		const read = (answer: string, input: SearchInputDef = grandparent) =>
 			readSearchResultsSnapshot(store, {
 				...SEARCH,
 				searchPopulation: {
 					...SEARCH.searchPopulation,
 					request: completedSearchRequest(
 						{ caseListConfig: config },
-						new Map([[grandparent.name, answer]]),
+						new Map([[input.name, answer]]),
 						undefined,
 						{ revision: "exact" },
 					),
@@ -688,6 +703,13 @@ describe("a completed search's snapshot", () => {
 		const found = await read("No!rth");
 		expect(found.rows.map((row) => row.case_id)).toEqual(["nested"]);
 		expect(await read("Missing")).toEqual({ rows: [], totalMatches: 0 });
+		expect(
+			(await read("east west", stops)).rows.map((row) => row.case_id),
+		).toEqual(["nested"]);
+		expect(await read("west east", stops)).toEqual({
+			rows: [],
+			totalMatches: 0,
+		});
 
 		const unavailable = {
 			reason: {
@@ -734,7 +756,10 @@ describe("a completed search's snapshot", () => {
 					case_type: "household",
 					case_name: caseId,
 					status: "open",
-					properties: { village },
+					properties: {
+						village,
+						stops: village === "North" ? ["east", "west"] : ["west"],
+					},
 				},
 			});
 		}
@@ -749,18 +774,18 @@ describe("a completed search's snapshot", () => {
 			kind: "native",
 			fuzzy: false,
 			parameter: {
-				field: "Grandparent village",
-				key: "parent/parent/village",
+				field: "Grandparent stops",
+				key: "parent/parent/stops",
 				parentPathPrompt: true,
 				target: {
 					kind: "property",
-					property: "village",
+					property: "stops",
 					ancestors: [{ identifier: "parent" }, { identifier: "parent" }],
 				},
-				values: ["North"],
+				values: ["east west"],
 			},
 		};
-		const check = (terminal: number, intermediate: number) =>
+		const check = (terminal: number, intermediate: number, reverseTerms = 2) =>
 			checkParentPathLookupLimit(
 				criterion,
 				{
@@ -768,15 +793,30 @@ describe("a completed search's snapshot", () => {
 					appId: APP_ID,
 					projectId: PROJECT,
 				},
-				{ terminal, intermediate },
+				{ terminal, intermediate, reverseTerms },
 			);
 		await expect(check(2, 2)).resolves.toBeUndefined();
 		await expect(check(2, 1)).rejects.toMatchObject({
-			reason: { kind: "parent-lookup-limit", field: "Grandparent village" },
+			reason: { kind: "parent-lookup-limit", field: "Grandparent stops" },
 		});
 		await expect(check(1, 2)).rejects.toMatchObject({
-			reason: { kind: "parent-lookup-limit", field: "Grandparent village" },
+			reason: { kind: "parent-lookup-limit", field: "Grandparent stops" },
 		});
+		const overLimit = {
+			reason: { kind: "parent-lookup-limit", field: "Grandparent stops" },
+		};
+		await expect(check(2, 2, 1)).rejects.toMatchObject(overLimit);
+		// One qualifying terminal fits the terms limit, but its two matching
+		// reverse links still exceed that limit on the intermediate set.
+		await sql`update cases set properties = properties || '{"stops":["west","east"]}'::jsonb
+			where app_id = ${APP_ID} and project_id = ${PROJECT} and case_id = 'terminal-two'`.execute(
+			dbHandle.db,
+		);
+		await sql`insert into case_indices(case_id, ancestor_id, identifier, depth, relationship, target_case_type)
+			values ('middle-two', 'terminal-one', 'parent', 1, 'child', 'household')`.execute(
+			dbHandle.db,
+		);
+		await expect(check(2, 2, 1)).rejects.toMatchObject(overLimit);
 	});
 
 	it("decides a fuzzy search condition from the Project's own words", async () => {

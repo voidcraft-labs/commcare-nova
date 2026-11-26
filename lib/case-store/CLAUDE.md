@@ -779,10 +779,14 @@ confirmed ignore-text rule, before matching parent values in the authorized
 app and Project. A candidate without the required parent edges is a known miss.
 An edge at either hop to a missing record or one with undismissed parked
 values leaves the match uncertain. The search transaction reports it as
-unavailable if the other filters still allow that candidate. HQ caps terminal matches at 500,000 and uses a 1,000,000-result
-window for an intermediate reverse lookup. Preview checks both boundaries
-before selecting primary hits and refuses to certify a truncated intermediate
-set. Preview cannot certify the parent vocabulary for fuzzy
+unavailable if the other filters still allow that candidate. A multiple-choice
+property matches the text a device writes, with values joined in their saved
+order. HQ caps terminal matches at 500,000 and reads a 1,000,000-result window
+for an intermediate lookup. Each reverse lookup sends one Elasticsearch
+terms clause. Preview bounds each clause at the default 65,536 IDs. HQ's
+pinned Elasticsearch 6.8.23 warns above that count, and deployments that
+enforce the default can refuse it. Preview checks the bounded sets before
+selecting primary hits. Preview cannot certify the parent vocabulary for fuzzy
 matching, so it keeps the app's published rules and reports that search as
 unavailable in Preview.
 
