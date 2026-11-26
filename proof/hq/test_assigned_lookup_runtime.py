@@ -1,9 +1,9 @@
 """HQ's assigned row receipts and the installed worker's choice-source boundary."""
 
 import base64
+from xml.etree import ElementTree
 
 import pytest
-from lxml import etree
 
 from proof.core.client import CoreRunnerError
 from proof.hq import operations
@@ -92,7 +92,7 @@ def test_native_worker_distinguishes_unavailable_empty_and_filtered_assigned_cho
                 assert count == len(item.findall("./villages_list/villages"))
                 registered = casedata.CaseDatabase(user.user_id, name, (), ())
                 others = [part.replace(GLOBAL_USER_ID.encode(), user.user_id.encode()) for part in global_items]
-                xml = etree.tostring(item)
+                xml = ElementTree.tostring(item)
                 result[name] = casedata.restore(registered, state.domain, [*others, xml])
                 if name == "first":
                     result["unavailable"] = casedata.restore(registered, state.domain, others)
