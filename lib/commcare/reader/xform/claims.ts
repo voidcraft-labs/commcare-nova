@@ -764,7 +764,6 @@ export const X = {
 			Q("a-select-whose-bind-type-is-neither-a-choice-type-nor-a-string"),
 			"jr-type:int",
 		),
-		face: one("refuse", Q("face-capture-image-face"), "mug:FaceCapture"),
 		uploadOther: one(
 			"refuse",
 			Q("upload-with-any-other-mediatype-or-none"),
