@@ -2108,6 +2108,14 @@ through the one `lookupOptions.ts::lookupOptionsNodeset` the XForm itemset and
 the Search prompt print; see `lib/preview/CLAUDE.md`); CSQL and the case-search `_xpath_query` path keep
 rejecting them.
 
+A lookup choice filter that directly calls `position(number)` refuses at its
+nodeset. Core's `XPathPositionFunc` casts its one argument to a nodeset for
+each candidate row, so a literal number breaks when evaluated. Zero-argument
+`position()` and the supported form-node argument keep their existing typing.
+A bare numeric predicate selects one fixture row on Core. Nova's lookup
+filter remains boolean and keeps that retained case in the outside-predicate
+finding.
+
 `workbook.ts` is the OTHER carrier: the `.xlsx` CommCare HQ's fixture upload
 reads, built from the same `naming.ts` identities and the same
 `cellText.ts` projection, so the workbook and the `.ccz` fixtures cannot

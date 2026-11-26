@@ -2290,6 +2290,19 @@ def itemset_filter_position_of_scalar(authoring, app_id):
     )
 
 
+def itemset_filter_numeric_row_index(authoring, app_id):
+    """A bare numeric predicate chooses a single one-based fixture row."""
+    def change(tree, form):
+        itemset, = tree.xpath(
+            "//*[local-name()='select1' and @ref='/data/village']/*[local-name()='itemset']"
+        )
+        for key, value in itemset.attrib.items():
+            if key == "nodeset" or key.endswith("}nodeset"):
+                source, _, _ = value.partition("[")
+                itemset.set(key, source + "[2]")
+    ops.set_form_source(authoring, app_id, 0, 0, change, what="itemset-filter-numeric-row-index")
+
+
 def itemset_over_cases(authoring, app_id):
     """The district select's choices read from every case the worker holds (``instance('casedb')``), declared in
     the model, in place of the table."""

@@ -211,6 +211,35 @@ function instanceChain(node: FormSyntax):
 	return id === undefined ? undefined : { id: id.value, steps, predicates };
 }
 
+function ungroupSyntax(node: FormSyntax): FormSyntax {
+	while (node.kind === "group") node = node.value;
+	return node;
+}
+
+/** Core's one-argument position() casts its argument to a nodeset.
+ * A literal number in a direct predicate or comparison is evaluated
+ * for every candidate row. This does not inspect conditional branches. */
+function positionOfNumber(predicate: FormSyntax): boolean {
+	const node = ungroupSyntax(predicate);
+	const directly = (expression: FormSyntax) => {
+		const at = ungroupSyntax(expression);
+		if (at.kind !== "call" || at.name !== "position" || at.args.length !== 1)
+			return false;
+		const argument = ungroupSyntax(at.args[0]);
+		return (
+			argument.kind === "number" ||
+			(argument.kind === "negative" &&
+				ungroupSyntax(argument.value).kind === "number")
+		);
+	};
+	return (
+		directly(node) ||
+		(node.kind === "binary" &&
+			["=", "!=", "<", "<=", ">", ">="].includes(node.op) &&
+			(directly(node.left) || directly(node.right)))
+	);
+}
+
 /** A ref that is one name step: the column's or the property's name. */
 function singleName(text: string, storedName = false): string | undefined {
 	const read = storedName ? readStoredNameSyntax(text) : readFormSyntax(text);
@@ -393,6 +422,17 @@ function readItemset(
 			);
 			return undefined;
 		}
+		const predicate = chain.predicates[0];
+		if (predicate !== undefined && positionOfNumber(predicate)) {
+			input.carrierRead(chain.id);
+			cursor.refuseSubtreeAt(
+				itemset,
+				{ element: itemset, attribute: "nodeset" },
+				X.itemsetScalarPosition[select],
+				place,
+			);
+			return undefined;
+		}
 		const labelSites =
 			typeof labelColumn === "string" ? X.lookupRefs : X.richLookupRefs;
 		const valueSites =
@@ -409,7 +449,6 @@ function readItemset(
 			place,
 		);
 		input.carrierRead(chain.id);
-		const predicate = chain.predicates[0];
 		if (predicate === undefined)
 			cursor.take(
 				{ element: itemset, attribute: "nodeset" },

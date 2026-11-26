@@ -2,9 +2,8 @@
 
 from lxml import etree
 
-from proof.editors.conftest import corpus_document
 from proof.editors import vellum
-from proof.editors.conftest import write_evidence
+from proof.editors.conftest import corpus_document, write_evidence
 from proof.formplayer import apps, hq as formplayer
 from proof.formplayer.test_lookup_tags import _opened, _questions
 from proof.formplayer.walk import screen_kind
@@ -12,7 +11,6 @@ from proof.hq import operations
 from proof.hq.check import hq_check
 from proof.matrix.authoring import Authoring
 from proof.observe import publish
-from proof.observe.hqside import _patched
 
 
 def _itemset(source):
@@ -37,10 +35,22 @@ def _worker(unit, app_id, runner, document, label):
         return _opened(apps.web(runner, served))
 
 
-def _village_choices(screen):
-    assert screen_kind(screen) == "form", screen
-    village, = [node for node in _questions(screen["tree"]) if node.get("binding") == "/data/village"]
-    return village["choices"]
+def _submit_second_row(unit, app_id, runner, document):
+    with formplayer.serve(unit, document, app_id, runner=runner, label="literal-second") as served:
+        with served.run("second-fixture-row"):
+            web = apps.web(runner, served)
+            screen = _opened(web)
+            assert screen_kind(screen) == "form", screen
+            village, = [q for q in _questions(screen["tree"]) if q.get("binding") == "/data/village"]
+            choices = village["choices"]
+            assert choices == ["Mbeya"], screen
+            start = len(served.hq.submissions)
+            reply = web.submit(screen["session_id"], {village["ix"]: "1"})
+            assert reply.get("status") == "success", reply
+            submission, = served.hq.submissions[start:]
+            value = etree.fromstring(submission.instance).findtext("{*}village")
+            assert value == "v2"
+            return {"choices": choices, "submitted": value}
 
 
 def test_vellum_preserves_the_invalid_scalar_position_and_formplayer_refuses_it(
@@ -67,16 +77,18 @@ def test_vellum_preserves_the_invalid_scalar_position_and_formplayer_refuses_it(
         assert after == before
         bad_after = _worker(unit, app_id, formplayer_runner, document, "scalar-after-save")
 
-        root, itemset = _itemset(run.stored_source)
-        itemset.set("nodeset", after["nodeset"].replace("[position(3) < 3]", "[2]"))
-        _patched(unit, app_id, form.unique_id, etree.tostring(root, encoding="unicode"), "literal row position control")
-        good = _worker(unit, app_id, formplayer_runner, document, "second-fixture-row")
-        choices = _village_choices(good)
+        named_change("itemset_filter_numeric_row_index")(authoring, app_id)
+        form = operations.held_app(unit, app_id).modules[0].forms[0]
+        literal = _state(form.source)
+        assert literal == {**before, "nodeset": before["nodeset"].replace("[position(3) < 3]", "[2]")}
+        run = vellum.fresh_open_and_save(editor_driver, unit, app_id, form.unique_id)
+        assert run.loaded and run.saved, (run.load_error, run.save_refusal)
+        assert _state(run.stored_source) == literal
+        accepted = _submit_second_row(unit, app_id, formplayer_runner, document)
 
     write_evidence("lookup-itemset-scalar-position", {
-        "sourceBefore": before, "sourceAfter": after,
-        "runtimeBefore": bad_before, "runtimeAfter": bad_after, "literalSecond": choices,
+        "sourceBefore": before, "sourceAfter": after, "literalSource": literal,
+        "runtimeBefore": bad_before, "runtimeAfter": bad_after, "literalSecond": accepted,
     })
-    assert choices == ["Mbeya"]
     assert screen_kind(bad_before) != "form", bad_before
     assert screen_kind(bad_after) != "form", bad_after

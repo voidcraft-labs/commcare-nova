@@ -3084,6 +3084,29 @@
 		"gates": []
 	},
 	{
+		"id": "questions/itemset-position-called-on-a-number",
+		"area": "questions",
+		"section": "Question types",
+		"item": "A lookup choice filter that calls position with a numeric literal as its argument",
+		"surfaceKeys": [
+			"xform:select1/itemset@nodeset",
+			"xform:select/itemset@nodeset"
+		],
+		"valueClass": "scalar-position-in-lookup-filter",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: broken at runtime: for each candidate row, Core's one-argument position function casts the argument to a nodeset. A numeric literal throws when the table has a candidate row. Vellum preserves the invalid filter on save.",
+		"subject": "question-choices",
+		"reasons": [
+			{
+				"kind": "broken-at-runtime",
+				"named": "For each candidate row, Core's one-argument position function casts the argument to a nodeset. A numeric literal throws when the table has a candidate row."
+			}
+		],
+		"platforms": { "kind": "none", "cell": "—" },
+		"emission": { "cell": "—", "markers": [] },
+		"gates": []
+	},
+	{
 		"id": "questions/itemset-filter-outside-predicate",
 		"area": "questions",
 		"section": "Question types",
