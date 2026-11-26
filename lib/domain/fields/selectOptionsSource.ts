@@ -26,10 +26,22 @@ export const caseOptionsSourceSchema = z.strictObject({
 export type CaseOptionsSource = z.infer<typeof caseOptionsSourceSchema>;
 z.globalRegistry.add(caseOptionsSourceSchema, { id: "CaseOptionsSource" });
 
+/** Names and opaque IDs from the worker's whole restored case database. */
+export const availableCasesOptionsSourceSchema = z.strictObject({
+	kind: z.literal("available-cases"),
+});
+export type AvailableCasesOptionsSource = z.infer<
+	typeof availableCasesOptionsSourceSchema
+>;
+export type DeviceCaseOptionsSource =
+	| CaseOptionsSource
+	| AvailableCasesOptionsSource;
+
 export const selectOptionsSourceSchema = z.discriminatedUnion("kind", [
 	inlineOptionsSourceSchema,
 	lookupOptionsSourceSchema,
 	caseOptionsSourceSchema,
+	availableCasesOptionsSourceSchema,
 ]);
 
 export type InlineOptionsSource = z.infer<typeof inlineOptionsSourceSchema>;
@@ -42,3 +54,9 @@ export function inlineOptionsOf(
 }
 
 z.globalRegistry.add(selectOptionsSourceSchema, { id: "SelectOptionsSource" });
+
+export function isDeviceCaseOptionsSource(
+	source: SelectOptionsSource,
+): source is DeviceCaseOptionsSource {
+	return source.kind === "cases" || source.kind === "available-cases";
+}

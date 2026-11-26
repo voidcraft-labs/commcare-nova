@@ -868,10 +868,14 @@ export {
 	selectOptionSchema,
 } from "./base";
 export {
+	type AvailableCasesOptionsSource,
+	availableCasesOptionsSourceSchema,
 	type CaseOptionsSource,
 	caseOptionsSourceSchema,
+	type DeviceCaseOptionsSource,
 	type InlineOptionsSource,
 	inlineOptionsSourceSchema,
+	isDeviceCaseOptionsSource,
 	type SelectOptionsSource,
 	selectOptionsSourceSchema,
 } from "./selectOptionsSource";

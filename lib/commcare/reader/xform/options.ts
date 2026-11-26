@@ -44,7 +44,7 @@ export interface CaseChoicesProposal {
 	readonly value: Element;
 	readonly sort?: Element;
 	readonly select: "select1" | "select";
-	readonly caseType: string;
+	readonly caseType?: string;
 	readonly labelProperty: string;
 	/** Whether the nodeset holds a filter, registered for the expression stage, which claims
 	 *  the nodeset with it. */
@@ -460,10 +460,22 @@ function readItemset(
 		chain.steps.length === 2 &&
 		chain.steps[0] === "casedb" &&
 		chain.steps[1] === "case" &&
-		chain.predicates.length >= 1 &&
 		chain.predicates.length <= 2 &&
 		singleAttribute(valueRef) === "case_id"
 	) {
+		if (chain.predicates.length === 0) {
+			if (sort !== undefined || singleName(labelRef) !== "case_name")
+				return other();
+			field.field.optionsSource = { kind: "available-cases" };
+			return {
+				itemset,
+				label,
+				value,
+				select,
+				labelProperty: "case_name",
+				filtered: false,
+			};
+		}
 		const caseType = caseTypeTest(chain.predicates[0] as FormSyntax);
 		const labelProperty = singleName(labelRef) ?? singleAttribute(labelRef);
 		if (caseType === undefined || labelProperty === undefined) return other();
