@@ -35679,8 +35679,8 @@
 	{
 		"id": "hq-questions/save-to-case-link-stops-form-designer",
 		"base": "hq-questions",
-		"entry": "questions/savetocase-link-name-outside-nova-s-identifier-grammar",
-		"standing": "not-yet",
+		"entry": "questions/question-id-failing-the-grammar-or-meta-in-any-case",
+		"standing": "fix-in-hq",
 		"place": {
 			"kind": "question",
 			"menu": 0,
