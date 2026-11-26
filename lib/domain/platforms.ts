@@ -222,6 +222,7 @@ export const PLATFORM_FEATURE_IDS = [
 	"worker-distance",
 	"sort-by-distance",
 	"forms-read-search",
+	"search-on-clear",
 	"list-first",
 	"several-cases",
 	"search-field-single-date",
@@ -278,7 +279,9 @@ export const PLATFORM_FEATURE_IDS = [
 	"case-map-layers",
 	"search-screen-text",
 	"search-field-checks",
+	"search-starting-dates",
 	"barcode-search-field",
+	"search-for-blank",
 	"hidden-search-field",
 	"search-first",
 	"search",
@@ -398,6 +401,18 @@ export const PLATFORM_FEATURES: Readonly<
 				"turn off Forms read the search, so the menu searches first and each form reads the case it opens",
 		},
 	},
+	"search-on-clear": {
+		label: "Search again after clearing",
+		channel: "structure",
+		webApps: {
+			reading: "runs",
+			note: "clearing searches again on screens at least 992 pixels wide",
+		},
+		android: {
+			reading: "ignored",
+			note: "the search screen has no Clear button",
+		},
+	},
 	"list-first": {
 		label: "Case list first",
 		channel: "structure",
@@ -454,12 +469,13 @@ export const PLATFORM_FEATURES: Readonly<
 		android: {
 			reading: "unavailable",
 			note: "the field isn't shown, so a search runs without it",
-			remedy: "A single-choice Search field runs on both.",
+			remedy: "A checkboxes Search field or a single-choice one runs on both.",
 		},
 		refusal: {
 			what: "lets workers pick several choices",
 			why: "Android doesn't show a multiple-choice Search field, so a search there runs without it.",
-			alternative: "let workers pick one choice, which both platforms show",
+			alternative:
+				"show the choices as checkboxes or let workers pick one, which both platforms show",
 		},
 	},
 	"connect-app": {
@@ -983,11 +999,35 @@ export const PLATFORM_FEATURES: Readonly<
 			note: "the search runs without checking the answer",
 		},
 	},
+	"search-starting-dates": {
+		label: "Starting dates for Search",
+		channel: "structure",
+		webApps: {
+			reading: "different",
+			note: "a calculation uses the server's calendar, and the Search screen needs readable dates",
+		},
+		android: {
+			reading: "different",
+			note: "a calculation uses the worker’s time zone, and the Search screen keeps a value it cannot turn into dates",
+		},
+	},
 	"barcode-search-field": {
 		label: "Barcode Search fields",
 		channel: "structure",
 		webApps: { reading: "ignored", note: "it's a plain text box" },
 		android: { reading: "runs", note: "the camera can scan a code into it" },
+	},
+	"search-for-blank": {
+		label: "Searching for blank",
+		channel: "structure",
+		webApps: {
+			reading: "runs",
+			note: "a box under the field also finds cases where it's blank",
+		},
+		android: {
+			reading: "ignored",
+			note: "the Search screen shows the field alone",
+		},
 	},
 	"hidden-search-field": {
 		label: "Hidden Search values",

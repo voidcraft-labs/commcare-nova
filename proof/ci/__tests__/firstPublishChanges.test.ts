@@ -2,7 +2,7 @@
 // register: the lane's shards hold no TypeScript, so its judge reads which
 // differences each change allows from this file. Where the checkout is whole
 // the file is held to the register itself: one object a change, every
-// change in registry order; each object's `source` rows exactly the
+// change in registry order but a retired notice no reading makes; each object's `source` rows exactly the
 // stored-app pointers the register's entry allows, but the change that
 // stands everywhere, which holds a form's source only by the part classes a
 // run's evidence writes and the register types (`RESPELLED_FORM_PARTS`),
@@ -27,6 +27,7 @@ import {
 import {
 	FIRST_PUBLISH_CHANGE_IDS,
 	type FirstPublishChangeId,
+	retiredSearchFilterNotices,
 } from "@/lib/publish/firstPublishChangeIds";
 
 interface Row {
@@ -72,10 +73,14 @@ function load(): Change[] {
 }
 
 describe("proof/first-publish-changes.json", () => {
-	it("holds one object a change, in registry order", () => {
-		expect(load().map((one) => one.change)).toEqual([
-			...FIRST_PUBLISH_CHANGE_IDS,
-		]);
+	it("holds one object a change, in registry order, but a retired notice no reading makes", () => {
+		// A stored review can still name a retired notice, so the registry keeps it, while
+		// no reading makes it and the lane allows no difference under it.
+		expect(load().map((one) => one.change)).toEqual(
+			FIRST_PUBLISH_CHANGE_IDS.filter(
+				(id) => !retiredSearchFilterNotices.has(id),
+			),
+		);
 	});
 
 	it("holds as each change's place kinds exactly the kinds its entry stands at", () => {

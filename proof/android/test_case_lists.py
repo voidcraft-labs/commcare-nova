@@ -164,9 +164,97 @@ def test_android_orders_clinics_from_the_workers_current_position(android_docume
             ], label
 
 
+
+
+def test_list_first_waits_for_search_on_android_with_either_default_results_preference(
+    android_documents, hq
+):
+    """Both exported apps open the worker's list and draw the prompt before the worker presses Search."""
+    from proof.android import observe
+    from proof.observe.record import Blobs
+
+    document = android_documents["targeted-search-workflow-android"]
+    with _archives(document, _restored(document)) as (served, archives):
+        for label, archive in archives.items():
+            blobs = Blobs()
+            result = observe.app(served, blobs, label=label, archive=archive)
+            answer = blobs.get_json(result["answer"])
+            for menu in ("m0", "m1"):
+                browse = answer["walks"][menu]["steps"]
+                assert browse[-1]["screen"] == LIST, (label, menu, browse)
+                assert all(step["screen"] != "QueryRequestActivity" for step in browse)
+                searched = answer["walks"][f"{menu}/@action:0"]["steps"]
+                query = next(
+                    step["query"]
+                    for step in searched
+                    if step["screen"] == "QueryRequestActivity"
+                )
+                assert query["finishingBeforePress"] is False, (label, menu, query)
+                assert query["opened"] and "patient_name" in query["prompts"], (
+                    label,
+                    menu,
+                    query,
+                )
+
+
 # The first rule's values, set by hand so its order is the reverse of the names'.
 RANKS = {"targeted-amina-visit": "zulu", "targeted-baraka-visit": "mike", "targeted-chausiku-visit": "alpha"}
 PLACED = [["Chausiku", "Lakeside"], ["Baraka", "Hilltop"], ["Amina", "Riverside"]]
+
+
+def test_checkbox_search_sends_each_checked_value_on_both_archives(android_documents, hq):
+    from proof.android import observe
+    from proof.observe.record import Blobs
+
+    from proof.observe import casedata
+
+    document = android_documents["prompt-checkboxes"]
+    # A prompt document is generated, so it holds no restore of its own: its cases are its document's.
+    database = casedata.document_case_database(document)
+    database = replace(
+        database, user_data=(*((k, v) for k, v in database.user_data if k != "region_group"), ("region_group", "A"))
+    )
+    command = "search_command.m0"
+    with _archives(document, database) as (served, archives):
+        for label, archive in archives.items():
+            blobs = Blobs()
+            result = observe.app(served, blobs, label=label, archive=archive, commands=[command])
+            answer = blobs.get_json(result["answer"])
+            assert answer["install"] == "Installed", label
+            walk = answer["walks"][command]
+            [query] = [step["query"] for step in walk["steps"] if "typed" in step.get("query", {})]
+            assert query["items"]["regions"] == ["East", "North & coast"], (label, query)
+            assert query["RemoteQuerySessionManager.getRawQueryParams"]["regions"] == ["north"]
+            typed = query["typed"]
+            assert typed["given"]["regions"] == "East"
+            assert typed["RemoteQuerySessionManager.getRawQueryParams"]["regions"] == ["east", "north"]
+
+
+@pytest.mark.parametrize(("document_id","period","screen_text"), [
+    ("prompt-periods","__range__2024-01-01__2024-12-31","2024-01-01 to 2024-12-31"),
+    ("prompt-period-fallback","awaiting dates","awaiting dates"),
+    ("prompt-period-spellings","2024-01-02__2024-02-12__2024-05-21","2024-01-02__2024-02-12__2024-05-21"),
+])
+def test_installed_app_sends_fixed_starting_dates_on_both_archives(android_documents, hq, document_id, period, screen_text):
+    from proof.android import observe
+    from proof.observe.record import Blobs
+
+    from proof.observe import casedata
+
+    document = android_documents[document_id]
+    command = "search_command.m0"
+    with _archives(document, casedata.document_case_database(document)) as (served, archives):
+        for label, archive in archives.items():
+            blobs = Blobs()
+            result = observe.app(served, blobs, label=label, archive=archive, commands=[command])
+            answer = blobs.get_json(result["answer"])
+            assert answer["install"] == "Installed", (label, answer)
+            [opened] = [step["query"] for step in answer["walks"][command]["steps"]
+                        if "RemoteQuerySessionManager.getRawQueryParams" in step.get("query", {})]
+            params = opened["RemoteQuerySessionManager.getRawQueryParams"]
+            assert params["period"] == [period], (label, opened)
+            assert opened["pickerText"]["period"] == screen_text, (label, opened)
+            assert set(opened["prompts"]) >= {"period", "visit_date"}, (label, opened)
 
 
 def _ranked(database):
@@ -290,3 +378,35 @@ def test_selected_case_context_in_android_form_entry(android_documents, hq, scen
                 assert tile["expands"] is bool(expanded)
                 if expanded:
                     assert expanded in tile["detail"] and "Monday" in tile["detail"], (name, tile)
+
+
+
+def _visible_query_buttons(view):
+    if view.get("visibility") in {"gone", "invisible"}:
+        return
+    if view["class"].endswith("Button"):
+        yield view
+    for child in view.get("children", ()):
+        yield from _visible_query_buttons(child)
+
+
+def test_search_on_clear_keeps_androids_search_button_without_adding_a_clear_action(android_documents, hq, evidence):
+    """Install each export. Search on the Android menu opens its query, with its sole visible Search button."""
+    from proof.android import observe
+    from proof.observe.record import Blobs
+
+    document = android_documents["targeted-search-workflow"]
+    with _archives(document, _restored(document)) as (served, archives):
+        for label, archive in archives.items():
+            blobs = Blobs()
+            result = observe.app(served, blobs, label=label, archive=archive, views=True)
+            walked = blobs.get_json(result["answer"])["walks"]
+            # Recent patients enables search-on-clear. Nearby patients keeps it off.
+            for menu, prompt in (("m1", "area"), ("m2", "patient_name")):
+                assert walked[menu]["steps"][-1]["screen"] == LIST, (label, menu)
+                pressing_search = walked[f"{menu}/@action:0"]["steps"]
+                query = next(step["query"] for step in pressing_search if step["screen"] == "QueryRequestActivity")
+                assert query["opened"] and prompt in query["prompts"], (label, menu, query)
+                buttons = list(_visible_query_buttons(query["controls"]))
+                evidence(f"{label}-{menu}-query-buttons", buttons)
+                assert query["submitButton"]["text"].strip() and buttons == [query["submitButton"]], (label, menu, buttons)

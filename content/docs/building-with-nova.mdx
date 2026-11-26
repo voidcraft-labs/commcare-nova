@@ -293,6 +293,32 @@ first. In Web Apps the list keeps the order it shows, its own or the item a
 worker picked in **Sort by**, and closeness decides only between cases that
 order places equally.
 
+For record searches, open the **Running as** menu and choose **Preview search and map
+settings**. The project space sets its own time zone, maximum results, and
+which record properties use fuzzy matching or ignore particular text. A team
+member with edit access can record the settings your project space uses. They
+appear as supplied by your team. For a list with an address, you can also record whether the project space offers the Web Apps record map. Leave it unrecorded if your team has yet to check. Android uses the list’s address independently. Choose a named time zone such as Asia/Kolkata or America/New_York so Preview can follow daylight saving time. You can browse matching rules in order and save a single setting while keeping the other rules. If a setting changes in CommCare HQ, you can
+update it here. Publishing always uses CommCare HQ's current settings.
+
+An app you bring in keeps its searches. If a search needs an unrecorded setting,
+you can supply it and try again. For an app on several project spaces you can
+choose the destination you want to test. For an app with no destination you can
+choose **Local Preview**, which starts in UTC with exact matching and a limit of
+500 records. Project members share the settings they record for each destination.
+If a teammate saves while you're editing, you can review their settings, then
+choose **Keep my edits** to keep each setting you changed over theirs, or **Use
+latest settings** to start again from theirs.
+
+A search for similar spellings finds the records CommCare HQ would find. Words
+are separated by spaces only, so "Mary-Jane" and "O'Brien" stay whole words, and
+accents count as letters of their own. A record matches when it shares a whole
+word with the search, or when one of its words starts with the same two
+characters as the whole search and differs from it by at most one character for
+a search of three to five characters, or two for a longer one. CommCare checks
+at most 100 saved words close to what was typed. When more are close, Preview
+can't tell which records CommCare would find, and says so for that search. A
+longer or more exact search lets you preview it.
+
 A case list in Preview has the **Sort by** menu each platform gives it. On
 Android it lists every item Results shows and each hidden item you named in
 Sort by, numbered in the list's own order until a worker picks one. In Web Apps

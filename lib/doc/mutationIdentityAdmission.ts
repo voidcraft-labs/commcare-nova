@@ -55,6 +55,11 @@ function nestedModuleIdentities(
 			kind: "caseListColumn" as const,
 			ownerUuid: module.uuid,
 		})),
+		...(module.caseListConfig?.searchFilters ?? []).map((filter) => ({
+			uuid: filter.uuid,
+			kind: "searchFilter" as const,
+			ownerUuid: module.uuid,
+		})),
 		...(module.caseListConfig?.searchInputs ?? []).map((input) => ({
 			uuid: input.uuid,
 			kind: "searchInput" as const,
@@ -483,6 +488,18 @@ function identitiesClaimedBy(mutation: Mutation): MutationIdentityClaim[] {
 						},
 					])
 				: [];
+		case "setCaseListMeta": {
+			const edit = mutation.patch.searchFilterEdit;
+			return edit?.operation === "add"
+				? createClaims([
+						{
+							uuid: edit.filter.uuid,
+							kind: "searchFilter",
+							ownerUuid: mutation.uuid,
+						},
+					])
+				: [];
+		}
 		case "removeModule":
 		case "moveModule":
 		case "renameModule":

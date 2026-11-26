@@ -186,6 +186,8 @@ export const CASE_LIST_KEY_PARTS = {
 	contextAboveForm: "case-details",
 	filter: "case-list",
 	searchInputs: "search",
+	searchFilters: "search",
+	searchCondition: "search",
 	selection: "case-list",
 	emptyText: "case-list",
 	selectButtonText: "case-list",

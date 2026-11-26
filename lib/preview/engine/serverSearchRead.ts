@@ -8,6 +8,7 @@ import { workerLookupSchemas } from "@/lib/case-store/sql/compileLookup";
 // window, so a paged Results read and a form's unpaged search-results read
 // (`searchResultsSnapshot.ts`) both come from here.
 
+import { searchOwnerOverride } from "@/lib/domain/modules";
 import "server-only";
 import type { RestoreScope } from "@/lib/case-store";
 import type { BlueprintDoc, CaseType, LanguageTag, Uuid } from "@/lib/domain";
@@ -25,6 +26,7 @@ import { previewPlatformRules } from "../platform";
 import { projectWorkerModule } from "../workerModule";
 import type { readCases } from "./caseDataBindingHelpers";
 import { previewCaseStoreOrder } from "./caseListOrder";
+import { completedSearchRequest } from "./completedSearchRequest";
 import { PreviewDataRefusal } from "./dataRefusal";
 import { caseListStepSession } from "./entrySessionData";
 import { evaluateSearch } from "./evaluateForm";
@@ -66,6 +68,7 @@ export interface ServerSearchWorld {
 
 /** What the worker did on the records screen. */
 export interface ServerSearchRequest {
+	readonly completeForForm?: boolean;
 	readonly moduleUuid: Uuid;
 	/** A previous completed search, including its system-generated values. */
 	readonly submitted?: readonly { name: string; value: string }[];
@@ -135,6 +138,7 @@ export async function serverRecordsRead(
 			submitted: request.submitted,
 			entry: request.entry,
 			answers: request.answers,
+			completeForForm: request.completeForForm,
 		},
 		{
 			identity: world.identity,
@@ -157,6 +161,7 @@ export async function serverRecordsRead(
 			workflow: search.workflow,
 			formsReadSearch: search.formsReadSearch,
 			searchRelevant: search.relevant,
+			searchReopened: request.entry?.cleared === true,
 			hasSubmitted: false,
 			rules,
 		}) !== "search";
@@ -224,7 +229,13 @@ export async function serverRecordsRead(
 		refusal === undefined;
 	/* The assigned-case exclusion is the Results read's rule: its refusal
 	 * stops the list where Preview's Results read stops, and is the list's. */
-	if (readsResults && search.exclusionRefusal !== undefined)
+	const inheritedOwnerRule =
+		!searched || searchOwnerOverride(mod.caseListConfig) === undefined;
+	if (
+		readsResults &&
+		inheritedOwnerRule &&
+		search.exclusionRefusal !== undefined
+	)
 		throw new SurfacedDataRefusal(
 			new PreviewDataRefusal(search.exclusionRefusal),
 			"list",
@@ -273,10 +284,28 @@ export async function serverRecordsRead(
 						world.projectId,
 						world.lookup,
 					),
-					excludedOwnerIds: search.excludedOwnerIds,
-					authoredExcludedOwnerIds: search.authoredExcludedOwnerIds,
+					excludedOwnerIds: inheritedOwnerRule
+						? search.excludedOwnerIds
+						: undefined,
+					authoredExcludedOwnerIds: inheritedOwnerRule
+						? search.authoredExcludedOwnerIds
+						: undefined,
 					...(searched
-						? { searchPopulation: { heldBy: world.restoreScope } }
+						? {
+								searchPopulation: {
+									heldBy: world.restoreScope,
+									...(registeredCaseId === undefined && {
+										request: completedSearchRequest(
+											mod,
+											search.inputValues,
+											wire?.filterValues,
+											world.device.searchConfiguration,
+											{ doc: world.doc, caseType },
+											search.defaultSearch,
+										),
+									}),
+								},
+							}
 						: { restoreScope: world.restoreScope }),
 				};
 	return { search, searched, read, refusal };
@@ -290,8 +319,13 @@ export async function serverRecordsRead(
 export async function serverSearchResults(
 	store: Parameters<typeof readSearchResultsSnapshot>[0],
 	read: Awaited<ReturnType<typeof serverRecordsRead>>["read"],
+	readsHitScore = false,
 ): Promise<SearchResultsSnapshot | undefined> {
 	if (read?.searchPopulation === undefined) return undefined;
 	const { restoreScope: _restore, searchPopulation, ...rest } = read;
-	return readSearchResultsSnapshot(store, { ...rest, searchPopulation });
+	return readSearchResultsSnapshot(
+		store,
+		{ ...rest, searchPopulation },
+		readsHitScore,
+	);
 }

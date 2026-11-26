@@ -82,8 +82,17 @@ export interface CaseListCanvasProps {
 	readonly onShowColumn: (column: Column) => void;
 	readonly filterBroken: boolean;
 	readonly excludedOwnerIdsBroken?: boolean;
-	readonly onFilterChange: (next: Expression | undefined) => CommitOutcome;
-	readonly onClearFilter: (next: Expression | undefined) => CommitOutcome;
+	readonly onFilterChange: (
+		next: Expression | undefined,
+		surface?: "list" | "search",
+	) => CommitOutcome;
+	readonly onSearchFilterEdit?: (
+		change: import("./SearchFilters").SearchFilterEdit,
+	) => void;
+	readonly onClearFilter: (
+		next: Expression | undefined,
+		surface?: "list" | "search",
+	) => CommitOutcome;
 	readonly searchConfig: CaseSearchConfig | undefined;
 	readonly onExcludedOwnerIdsChange: (next: Expression | undefined) => void;
 	readonly appId: string;
@@ -134,6 +143,7 @@ export function CaseListCanvas({
 	excludedOwnerIdsBroken = false,
 	onFilterChange,
 	onClearFilter,
+	onSearchFilterEdit,
 	searchConfig,
 	onExcludedOwnerIdsChange,
 	appId,
@@ -321,6 +331,7 @@ export function CaseListCanvas({
 							filterBroken={filterBroken}
 							excludedOwnerIdsBroken={excludedOwnerIdsBroken}
 							onFilterChange={onFilterChange}
+							onSearchFilterEdit={onSearchFilterEdit}
 							onClearFilter={onClearFilter}
 							searchConfig={searchConfig}
 							onExcludedOwnerIdsChange={onExcludedOwnerIdsChange}

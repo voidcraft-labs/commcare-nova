@@ -41,15 +41,28 @@ export async function componentPeer(
 			JSON.parse(readFileSync(".next/required-server-files.json", "utf8")),
 		);
 	const outputDirectory = resolve(".component-peer-assets");
+	// An ordinary browser peer cannot authenticate a server-side Search opening
+	// or a Preview search settings save, and bundling either Server Action
+	// would pull the server's whole module graph into the browser. A peer that
+	// needs one supplies its own service boundary.
+	const moduleAliases = {
+		"@/lib/preview/engine/openSearchRangesAction": resolve(
+			"e2e/lib/search-range-opening-boundary.ts",
+		),
+		"@/lib/deployment/previewSearchActions": resolve(
+			"e2e/lib/preview-search-settings-boundary.ts",
+		),
+		...aliases,
+	};
 	const relativeAliases = new Map(
-		Object.entries(aliases).map(([source, target]) => [
+		Object.entries(moduleAliases).map(([source, target]) => [
 			resolve(source.replace(/^@\//, "")),
 			target,
 		]),
 	);
 	const bundle = await build({
 		entryPoints: [entryPoint],
-		alias: { ...aliases },
+		alias: moduleAliases,
 		plugins: [
 			{
 				name: "component-boundary-aliases",

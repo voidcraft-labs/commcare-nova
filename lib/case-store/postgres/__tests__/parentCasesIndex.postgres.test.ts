@@ -13,6 +13,7 @@
 import type { Kysely } from "kysely";
 import { beforeEach, describe, expect, it } from "vitest";
 import type { CaseType } from "@/lib/domain";
+import { literal, neq, prop } from "@/lib/domain/expression/builders";
 import { SEARCH_READING } from "@/lib/domain/expression/temporalType";
 import { buildSimpleBlueprint } from "../../__tests__/fixtures/simpleBlueprint";
 import { HeuristicCaseGenerator } from "../../sample/heuristic";
@@ -212,5 +213,153 @@ describe("PostgresCaseStore selected-parent index", () => {
 				},
 			}),
 		).rejects.toThrow(/blank type, id or index identifier/);
+	});
+});
+
+it("retains observed index clears on the correct record through retries, reassignment, rollback and sample reset", async () => {
+	const store = makeStore();
+	await seedHousehold(store);
+	const current = "child-under-parent";
+	const existing = "imported";
+	await store.insert({
+		appId: APP_ID,
+		origin: "existing-record",
+		row: {
+			case_type: "member",
+			case_id: existing,
+			case_name: "Imported",
+			properties: {},
+		},
+	});
+	const history = (caseId: string) =>
+		database()
+			.selectFrom("cases")
+			.select(["index_history_complete", "cleared_index_identifiers"])
+			.where("app_id", "=", APP_ID)
+			.where("project_id", "=", PROJECT_ID)
+			.where("case_id", "=", caseId)
+			.executeTakeFirstOrThrow();
+	const clear = (caseId: string) =>
+		store.update({
+			appId: APP_ID,
+			caseId,
+			patch: { parent_case_id: null },
+		});
+	const known = {
+		index_history_complete: true,
+		cleared_index_identifiers: ["parent"],
+	};
+	expect(await history(current)).toEqual({
+		index_history_complete: true,
+		cleared_index_identifiers: [],
+	});
+	await clear(existing);
+	expect(await history(existing)).toEqual({
+		index_history_complete: false,
+		cleared_index_identifiers: [],
+	});
+	await clear(current);
+	await clear(current);
+	expect(await history(current)).toEqual(known);
+	const request = {
+		appId: APP_ID,
+		caseType: "member",
+		reading: SEARCH_READING,
+		searchPopulation: {
+			heldBy: { ownerIds: [PROJECT_ID] },
+			request: {
+				maximum: 500,
+				criteria: [
+					{
+						kind: "index",
+						identifier: "parent",
+						field: "Earlier household",
+						values: [""],
+					},
+				],
+			},
+		},
+	} as const;
+	const unavailable = {
+		reason: {
+			kind: "link-history-unavailable",
+			field: "Earlier household",
+			identifier: "parent",
+		},
+	};
+	await expect(
+		store.query({ ...request, caseIds: [current], limit: 1 }),
+	).rejects.toMatchObject(unavailable);
+	await expect(
+		store.queryGrouped({
+			...request,
+			indexIdentifier: "parent",
+			groupOffset: 500,
+			groupLimit: 1,
+		}),
+	).rejects.toMatchObject(unavailable);
+	await expect(store.count(request)).rejects.toMatchObject(unavailable);
+	const withoutUnknown = {
+		...request,
+		predicate: neq(prop("member", "case_name"), literal("Imported")),
+	};
+	expect((await store.query(withoutUnknown)).map((row) => row.case_id)).toEqual(
+		[current],
+	);
+	expect(await store.count(withoutUnknown)).toBe(1);
+
+	await expect(
+		store.update({
+			appId: APP_ID,
+			caseId: current,
+			parentRelationship: "child",
+			patch: { parent_case_id: "missing-household" },
+		}),
+	).rejects.toThrow();
+	expect(await history(current)).toEqual(known);
+	for (const caseId of [current, existing]) {
+		await store.update({
+			appId: APP_ID,
+			caseId,
+			parentRelationship: "child",
+			patch: { parent_case_id: "household-a" },
+		});
+		expect((await history(caseId)).cleared_index_identifiers).toEqual([]);
+	}
+	await store.resetSampleData({
+		appId: APP_ID,
+		caseType: { name: "household", properties: [] },
+		count: 1,
+	});
+	expect(await history(current)).toEqual(known);
+	expect(await history(existing)).toEqual({
+		...known,
+		index_history_complete: false,
+	});
+	for (const row of await store.query({
+		appId: APP_ID,
+		caseType: "member",
+		reading: SEARCH_READING,
+	})) {
+		expect(row).not.toHaveProperty("index_history_complete");
+		expect(row).not.toHaveProperty("cleared_index_identifiers");
+	}
+	await store.resetSampleData({
+		appId: APP_ID,
+		caseType: { name: "member", properties: [] },
+		count: 1,
+	});
+	await store.insert({
+		appId: APP_ID,
+		row: {
+			case_type: "member",
+			case_id: existing,
+			case_name: "New person",
+			properties: {},
+		},
+	});
+	expect(await history(existing)).toEqual({
+		index_history_complete: true,
+		cleared_index_identifiers: [],
 	});
 });

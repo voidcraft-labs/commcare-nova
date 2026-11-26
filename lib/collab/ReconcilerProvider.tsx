@@ -82,6 +82,8 @@ import { uuidSchema } from "@/lib/domain";
 import { getLookupManifestAction } from "@/lib/lookup/actions";
 import type { LookupManifest } from "@/lib/lookup/types";
 import { invalidateCaseData } from "@/lib/preview/hooks/caseDataInvalidation";
+import type { PreviewSearchCatalog } from "@/lib/preview/searchSettings";
+import { createPreviewSearchFrameReader } from "@/lib/preview/searchSettingsFrames";
 import { guardBuilderDeparture } from "@/lib/routing/departureGuard";
 import { buildUrl } from "@/lib/routing/location";
 import {
@@ -175,6 +177,9 @@ export interface ReconcilerRuntime {
 	) => () => void;
 	/** Subscribe to server-resolved preview-target-facts announcements, with
 	 *  the same replay of the retained latest value. */
+	readonly subscribePreviewSearchSettings: (
+		cb: (catalog: PreviewSearchCatalog | null) => void,
+	) => () => void;
 	readonly subscribePreviewTargetFacts: (
 		cb: (facts: PreviewTargetFacts | null) => void,
 	) => () => void;
@@ -280,6 +285,23 @@ export function createReconcilerRuntime(
 		previewTargetFactsLatest = facts;
 		for (const cb of [...previewTargetFactsSubs]) cb(facts);
 	}
+	const searchSettingsSubscribers = new Set<
+		(catalog: PreviewSearchCatalog | null) => void
+	>();
+	let searchSettings: PreviewSearchCatalog | null = null;
+	function publishPreviewSearchSettings(catalog: PreviewSearchCatalog | null) {
+		searchSettings = catalog;
+		for (const callback of searchSettingsSubscribers) callback(catalog);
+	}
+	function subscribePreviewSearchSettings(
+		callback: (catalog: PreviewSearchCatalog | null) => void,
+	) {
+		searchSettingsSubscribers.add(callback);
+		callback(searchSettings);
+		return () => {
+			searchSettingsSubscribers.delete(callback);
+		};
+	}
 	const lookupManifestBroker = createLookupManifestBroker();
 	const projectScopeResetRegistry = createProjectScopeResetRegistry();
 	let presenceMayBeRetained = false;
@@ -377,6 +399,7 @@ export function createReconcilerRuntime(
 		closeOwnedStream();
 		const scopeEpoch = sessionStore.getState().beginAccessRefresh();
 		try {
+			publishPreviewSearchSettings(null);
 			projectScopeResetRegistry.reset(scopeEpoch);
 			return true;
 		} catch (error) {
@@ -783,6 +806,15 @@ export function createReconcilerRuntime(
 			} else {
 				sessionStore.getState().markBuildUnfinished();
 			}
+		});
+		const readSearchFrame = createPreviewSearchFrameReader();
+		es.addEventListener("preview-search-settings", (ev) => {
+			if (es !== eventSource) return;
+			const catalog = readSearchFrame(
+				(ev as MessageEvent).data,
+				sessionStore.getState().projectId ?? null,
+			);
+			if (catalog !== undefined) publishPreviewSearchSettings(catalog);
 		});
 		es.addEventListener("preview-project-space", (ev) => {
 			if (es !== eventSource) return;
@@ -1324,6 +1356,7 @@ export function createReconcilerRuntime(
 		presenceSubs,
 		organizationSubs,
 		subscribePreviewProjectSpace,
+		subscribePreviewSearchSettings,
 		subscribePreviewTargetFacts,
 		lookupManifestBroker,
 		projectScopeResetRegistry,
@@ -1419,6 +1452,8 @@ export function ReconcilerProvider({
 						subscribePreviewProjectSpace: (
 							cb: (projectSpace: string | null) => void,
 						) => runtime.subscribePreviewProjectSpace(cb),
+						subscribePreviewSearchSettings:
+							runtime.subscribePreviewSearchSettings,
 						subscribePreviewTargetFacts: (
 							cb: (facts: PreviewTargetFacts | null) => void,
 						) => runtime.subscribePreviewTargetFacts(cb),
