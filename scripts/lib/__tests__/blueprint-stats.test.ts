@@ -19,7 +19,7 @@ function fixture(property: string, fieldId = "case_name"): BlueprintDoc {
 	const doc: BlueprintDoc = {
 		appId: "stats-app",
 		appName: "Stats",
-		connectType: null,
+		connectRoles: [],
 		appSettings: { showSavedForms: false, showIncompleteForms: false },
 		caseTypes: [
 			{

@@ -236,7 +236,11 @@ export function formReadToWire(
 	// withheld, exactly where it is for `#form/`. Outside Vellum mode the root
 	// prints `/data` either way, so runtime bytes never depend on this.
 	if (spelling === undefined || spelling === "absolute")
-		return w.form(coordinates.slice(1).map(step), "hashtag");
+		return w.form(
+			coordinates.slice(1).map(step),
+			"hashtag",
+			types.form?.dataRootName,
+		);
 	const origin = spelling === "current" ? types.sourceNode : types.contextNode;
 	const from = origin === undefined ? undefined : projection.graph.path(origin);
 	if (from === undefined)

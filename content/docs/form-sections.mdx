@@ -111,3 +111,14 @@ Counted repeats can read an integer answer from an earlier page. Increasing the
 count adds rows when you enter the repeat. Decreasing it keeps rows already
 created, including their answers and any record updates when you submit. For
 rows that workers add and remove freely, use a worker-added repeat.
+
+
+## Place a question and its answer separately
+
+A visit form can ask for a phone number on its first screen and keep the answer in the contact details group used by your reports. In the question's **Field actions**, choose **Place question on screen** to move its prompt, or **Place submitted answer** to move its saved value. When you move a question on screen, choose a group and the item it should follow. Use **First** to put the question at the start of that group. When you move the submitted answer, choose its group. Nova uses the answer order that CommCare HQ’s form builder keeps.
+
+A worker sees the question when both groups apply to this visit. If the group holding the saved answer applies but the screen group is hidden, the form can still submit its starting value. If the saved answer’s group is hidden, the form leaves that group out of the submission.
+
+In a repeat, the prompt and the saved value belong to the same entry. Moving a saved group also moves the addresses of its answers. An app brought in from CommCare HQ keeps both the worker's screen order and the saved answer order when you edit the wording.
+
+A worker test can add or remove repeat rows while the repeat is reachable. On Android, the worker passes the questions before an invitation to add an entry. An existing entry keeps its answers while a condition hides the repeat.

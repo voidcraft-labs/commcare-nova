@@ -23,7 +23,9 @@
 
 import type { PersistableDoc } from "./blueprint";
 import { type CaptureFieldKind, isCaptureFieldKind } from "./fields";
+import { formRootName } from "./formAnswerRoot";
 import type { Platform } from "./platforms";
+import { submissionLayout } from "./submissionLayout";
 
 /** What one platform accepts as a worker's capture. */
 export interface CaptureLimits {
@@ -128,29 +130,27 @@ export function committedCapturePath(
 	doc: PersistableDoc,
 	fieldUuid: string,
 ): { formUuid: string; instancePathTemplate: string } | undefined {
-	const walk = (
-		parentUuid: string,
-		prefix: string,
-		formUuid: string,
-	): { formUuid: string; instancePathTemplate: string } | undefined => {
-		for (const childUuid of doc.fieldOrder[parentUuid] ?? []) {
-			const field = doc.fields[childUuid];
-			if (field === undefined) continue;
-			const path = `${prefix}/${field.id}`;
-			if (childUuid === fieldUuid && isCaptureFieldKind(field.kind)) {
-				return { formUuid, instancePathTemplate: path };
-			}
-			if (doc.fieldOrder[childUuid] !== undefined) {
-				const childPrefix = field.kind === "repeat" ? `${path}[0]` : path;
-				const found = walk(childUuid, childPrefix, formUuid);
-				if (found !== undefined) return found;
-			}
-		}
+	const capture = doc.fields[fieldUuid];
+	if (capture === undefined || !isCaptureFieldKind(capture.kind))
 		return undefined;
-	};
-	for (const formUuid of Object.keys(doc.forms)) {
-		const found = walk(formUuid, "/data", formUuid);
-		if (found !== undefined) return found;
+	for (const form of Object.values(doc.forms)) {
+		const submitted = submissionLayout(form.uuid, doc.fields, doc.fieldOrder);
+		if (!submitted.parents.has(capture.uuid)) continue;
+		const steps = [capture.id];
+		let parent = submitted.parents.get(capture.uuid);
+		const seen = new Set([capture.uuid]);
+		while (parent !== undefined && parent !== form.uuid) {
+			const field = doc.fields[parent];
+			if (field === undefined || seen.has(parent)) return undefined;
+			seen.add(parent);
+			steps.unshift(field.kind === "repeat" ? `${field.id}[0]` : field.id);
+			parent = submitted.parents.get(parent);
+		}
+		if (parent === form.uuid)
+			return {
+				formUuid: form.uuid,
+				instancePathTemplate: `/${formRootName(form)}/${steps.join("/")}`,
+			};
 	}
 	return undefined;
 }

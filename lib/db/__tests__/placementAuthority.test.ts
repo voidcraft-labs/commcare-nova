@@ -14,7 +14,7 @@ import {
 	OWN,
 	operationHold,
 	ownCloseHold,
-	PATIENTS_NAMED,
+	PATIENTS_BY_ENTERED_ID,
 	queryRepeatHold,
 	read,
 	saveToCase,
@@ -344,7 +344,10 @@ describe("placementChangeRefusal", () => {
 				uuid: VISITS,
 				targetKind: "repeat",
 				patch: {
-					data_source: { ...repeat.data_source, ids_query: PATIENTS_NAMED },
+					data_source: {
+						...repeat.data_source,
+						ids_query: PATIENTS_BY_ENTERED_ID,
+					},
 				},
 			} as Mutation;
 			expect(

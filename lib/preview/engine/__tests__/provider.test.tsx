@@ -70,7 +70,7 @@ const FIELD_UUID = testUuid("11111111-1111-1111-1111-111111111111");
 const DOC: PersistableDoc = admittedControllerDoc({
 	appId: "test-app",
 	appName: "Test",
-	connectType: null,
+	connectRoles: [],
 	appSettings: { showSavedForms: false, showIncompleteForms: false },
 	caseTypes: null,
 	modules: {

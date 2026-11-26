@@ -930,5 +930,101 @@
 			}
 		],
 		"exports": ["B", "local"]
+	},
+	{
+		"id": "visits-counted",
+		"entry": "questions/relevance-bound-on-a-model-iteration-repeat-s-container",
+		"form": {
+			"menu": 0,
+			"form": 2
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/round_summary",
+					"value": "Two rounds"
+				}
+			],
+			"expressions": [
+				"/data/visits/@count",
+				"count(/data/visits/item)",
+				"/data/round_summary"
+			]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "0"
+			},
+			{
+				"pointer": "/values/1/value",
+				"value": "0"
+			},
+			{
+				"pointer": "/values/2/value",
+				"value": "Two rounds"
+			}
+		]
+	},
+	{
+		"id": "visits-rows-counted",
+		"entry": "questions/repeat-model-iteration-vellum-role-repeat-ids-count-current",
+		"form": {
+			"menu": 0,
+			"form": 2
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/round_summary",
+					"value": "Two rounds"
+				}
+			],
+			"expressions": [
+				"/data/visits/@count",
+				"count(/data/visits/item)",
+				"/data/round_summary"
+			]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "0"
+			},
+			{
+				"pointer": "/values/1/value",
+				"value": "0"
+			},
+			{
+				"pointer": "/values/2/value",
+				"value": "Two rounds"
+			}
+		]
+	},
+	{
+		"id": "round-summary-entered",
+		"entry": "questions/text-input-xsd-string",
+		"form": {
+			"menu": 0,
+			"form": 2
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/round_summary",
+					"value": "Two rounds"
+				}
+			],
+			"expressions": ["/data/round_summary"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "Two rounds"
+			}
+		]
 	}
 ]

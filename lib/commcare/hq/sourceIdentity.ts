@@ -163,6 +163,8 @@ export interface FormIdentity {
 	readonly xmlns: string;
 	/** The data root's own namespace, which must equal `xmlns`. */
 	readonly dataNamespace: string;
+	/** The submitted envelope name, including forms adopted from HQ. */
+	readonly dataRootName: string;
 	readonly uniqueId: string;
 	readonly docType: string;
 	readonly leaves: ReadonlyMap<string, AnswerLeaf>;
@@ -443,15 +445,6 @@ function formIdentity(xml: string): FormRecord {
 		unparsed("the primary instance holds no single data root");
 	const rootName = splitName(root.element.name).local;
 
-	// The data root reads as `data` whatever it is named.
-	const normalize = (path: string): string => {
-		const prefix = `/${rootName}`;
-		if (path === prefix) return "/data";
-		return path.startsWith(`${prefix}/`)
-			? `/data${path.slice(prefix.length)}`
-			: path;
-	};
-
 	// Step 1: the model's leaves.
 	const leafPaths: string[] = [];
 	const walkData = (parent: Scoped, path: string): void => {
@@ -463,7 +456,7 @@ function formIdentity(xml: string): FormRecord {
 			else walkData(child, childPath);
 		}
 	};
-	walkData(root, "/data");
+	walkData(root, `/${rootName}`);
 
 	// Step 2: each bind's type, by its resolved nodeset; a later bind of one
 	// node replaces an earlier one, as Core attaches binds in order.
@@ -473,7 +466,7 @@ function formIdentity(xml: string): FormRecord {
 	for (const { element } of binds) {
 		const nodeset = plainAttribute(element, "nodeset");
 		if (nodeset === null) continue;
-		const path = normalize(resolvePath(nodeset, ""));
+		const path = resolvePath(nodeset, "");
 		typeOf.set(path, plainAttribute(element, "type"));
 		const id = plainAttribute(element, "id");
 		if (id !== null && !bindPaths.has(id)) bindPaths.set(id, path);
@@ -521,7 +514,7 @@ function formIdentity(xml: string): FormRecord {
 			return path;
 		}
 		const ref = plainAttribute(element, local === "repeat" ? "nodeset" : "ref");
-		return ref === null ? null : normalize(resolvePath(ref, context));
+		return ref === null ? null : resolvePath(ref, context);
 	};
 
 	// Step 3: the body, in document order.
@@ -626,7 +619,7 @@ function formIdentity(xml: string): FormRecord {
 		containers.set(container.path, container);
 	};
 	const body = childNamed(html, XHTML_NS, "body")[0];
-	if (body !== undefined) walkBody(body, "/data", body);
+	if (body !== undefined) walkBody(body, `/${rootName}`, body);
 
 	const repeatPaths = [...containers.values()]
 		.filter((container) => container.kind === "repeat")
@@ -647,6 +640,7 @@ function formIdentity(xml: string): FormRecord {
 
 	return {
 		dataNamespace: elementNamespace(root.element, root.scope) ?? "",
+		dataRootName: rootName,
 		leaves,
 		containers,
 		order,

@@ -23,7 +23,7 @@ function fixture(): BlueprintDoc {
 	return {
 		appId: "app",
 		appName: "App",
-		connectType: null,
+		connectRoles: [],
 		appSettings: { showSavedForms: false, showIncompleteForms: false },
 		caseTypes: [
 			{

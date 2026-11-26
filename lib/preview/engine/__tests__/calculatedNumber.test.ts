@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { heldCalculatedNumber } from "../calculatedNumber";
+import { setvalueText } from "../answerCast";
 
 /**
  * Each vector is what `Recalculate.wrapData` holds for the double and what
@@ -20,7 +20,9 @@ describe("a calculated number as a device holds it", () => {
 		[Number.POSITIVE_INFINITY, "Infinity", Number.POSITIVE_INFINITY],
 		[Number.NEGATIVE_INFINITY, "-Infinity", Number.NEGATIVE_INFINITY],
 	])("holds %d under any other bind as %s", (value, text, held) => {
-		expect(heldCalculatedNumber(value, false)).toEqual({ text, value: held });
+		const actual = setvalueText(value, "text");
+		expect(actual).toBe(text);
+		expect(Number(actual)).toBe(held);
 	});
 
 	it.each([
@@ -31,9 +33,6 @@ describe("a calculated number as a device holds it", () => {
 		[Number.POSITIVE_INFINITY, "2147483647"],
 		[-0.4, "0"],
 	])("holds %d under a whole-number bind as its (int), %s", (value, text) => {
-		expect(heldCalculatedNumber(value, true)).toEqual({
-			text,
-			value: Number(text),
-		});
+		expect(setvalueText(value, "int")).toBe(text);
 	});
 });

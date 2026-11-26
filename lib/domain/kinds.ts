@@ -15,6 +15,7 @@ import type { ProseTemplate } from "./prose";
 
 /** XForm control element emitted by the compiler for a given field kind. */
 export type XFormControlKind =
+	| "data-only"
 	| "input"
 	| "select1"
 	| "select"

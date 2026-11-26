@@ -53,6 +53,7 @@ import {
 	isIsoDateText,
 } from "./datePattern";
 import { formNodeGraph } from "./formNodes";
+import { isBlankLiteral } from "./inference";
 import {
 	branchesMixCoercedDays,
 	coercedValueRefusal,
@@ -98,6 +99,7 @@ import {
 	type DatumRef,
 	datumRefKey,
 	type Expression,
+	FIELD_ITEXT_SLOTS,
 	type FormNodeRef,
 	formNodeKey,
 	isConditionArm,
@@ -195,6 +197,7 @@ export type CheckErrorCode =
 	| "expected-value"
 	| "constraint-value"
 	| "default-not-a-choice"
+	| "capture-default-not-blank"
 	| "arm-unavailable"
 	| "case-data-unavailable"
 	| "form-answer-unavailable"
@@ -839,8 +842,11 @@ export function checkExpression(
 		const refused = repeatCountRefusal(expression, outcome, ctx);
 		if (refused !== undefined) errors.push(refused);
 	}
-	if (ctx.slot.entity === "field" && ctx.slot.slot === "default_value")
+	if (ctx.slot.entity === "field" && ctx.slot.slot === "default_value") {
 		checkChoiceDefault(expression, ctx, errors);
+		const startingFile = captureDefaultRefusal(expression, ctx);
+		if (startingFile !== undefined) errors.push(startingFile);
+	}
 	return { type: outcome.type, errors };
 }
 
@@ -1544,10 +1550,7 @@ function termAdmission(
 		term.kind === "literal" &&
 		(typeof term.value === "boolean" ||
 			term.value === null ||
-			term.data_type !== undefined ||
-			(typeof term.value === "string" &&
-				term.value.includes("'") &&
-				term.value.includes('"')))
+			term.data_type !== undefined)
 	)
 		return refusal(
 			"arm-unavailable",
@@ -1830,15 +1833,7 @@ function formTextAdmission(
 			(unit.role === "select-option-label"
 				? field.choices?.kind === "inline" &&
 					field.choices.options.some((option) => option.uuid === unit.option)
-				: field.proseSlots?.includes(
-						unit.role === "field-label"
-							? "label"
-							: unit.role === "field-hint"
-								? "hint"
-								: unit.role === "field-help"
-									? "help"
-									: "validate_msg",
-					) === true);
+				: field.proseSlots?.includes(FIELD_ITEXT_SLOTS[unit.role]) === true);
 		if (!present)
 			return refusal(
 				"unknown-form-field",
@@ -3492,11 +3487,7 @@ function inferTerm(
 					several,
 				);
 			}
-			if (
-				term.node.kind === "form-root" ||
-				term.node.role === "block" ||
-				term.node.role === "content"
-			)
+			if (term.node.kind === "form-root" || term.node.role === "content")
 				return {
 					data: { nodes: "text", cardinality: "one", container: true },
 					held: { nodes: "string" },
@@ -3521,27 +3512,31 @@ function inferTerm(
 			if (term.node.kind === "connect-assessment" && term.node.role === "score")
 				return generatedCalculation(
 					{
-						entity: "form",
-						uuid: form.formUuid,
+						entity: "field",
+						uuid: term.node.activity,
 						slot: "assessment_user_score",
 					},
 					ctx,
+					several,
 				);
-			if (
-				term.node.kind === "connect-delivery" &&
-				(term.node.role === "entity-id" || term.node.role === "entity-name")
-			)
-				return generatedCalculation(
-					{
-						entity: "form",
-						uuid: form.formUuid,
-						slot:
-							term.node.role === "entity-id"
-								? "deliver_entity_id"
-								: "deliver_entity_name",
-					},
-					ctx,
-				);
+			if (term.node.kind === "connect-delivery") {
+				const slot = {
+					"entity-id": "deliver_entity_id",
+					"entity-name": "deliver_entity_name",
+					"work-area-id": "deliver_work_area_id",
+				} as const;
+				const role = term.node.role;
+				if (
+					role === "entity-id" ||
+					role === "entity-name" ||
+					role === "work-area-id"
+				)
+					return generatedCalculation(
+						{ entity: "field", uuid: term.node.activity, slot: slot[role] },
+						ctx,
+						several,
+					);
+			}
 			return nodes("text", "string");
 		}
 		case "table-column": {
@@ -3788,8 +3783,9 @@ function structuralSeveral(
 
 const resolvingGenerated = new WeakMap<ExpressionContext, Set<string>>();
 function generatedCalculation(
-	slot: import("./types").FormExpressionSlotRef,
+	slot: import("./types").FieldExpressionSlotRef,
 	ctx: ExpressionContext,
+	several: StructuralSource | undefined,
 ): NodeType | undefined {
 	const key = `${slot.uuid}:${slot.slot}`;
 	let resolving = resolvingGenerated.get(ctx);
@@ -3812,7 +3808,7 @@ function generatedCalculation(
 				: type.held === "sequence"
 					? "string"
 					: type.held;
-		return nodes(data, held);
+		return severalNodes(nodes(data, held), several);
 	} finally {
 		resolving.delete(key);
 	}
@@ -3921,6 +3917,26 @@ function systemDateNode(
 		? { ...node, dayText: "date_opened" }
 		: node;
 }
+/** An attachment question starts blank. Web Apps clears a starting file name
+ * as the form opens and submits nothing for it (the client sends
+ * `clear_answer`), and Android looks for the named file in the form's own
+ * folder and stops the form (`MediaWidget` raises "Failed to decrypt media"),
+ * so any other starting value, a file name or an expression that can give
+ * one, never reaches a submission. */
+function captureDefaultRefusal(
+	expression: Expression,
+	ctx: ExpressionContext,
+): CheckError | undefined {
+	if (ctx.slot.entity !== "field") return undefined;
+	const field = ctx.form?.fields.get(ctx.slot.uuid);
+	if (field === undefined || !isCaptureFieldKind(field.kind)) return undefined;
+	if (isBlankLiteral(expression)) return undefined;
+	return refusal(
+		"capture-default-not-blank",
+		"An attachment question can't start with a file. Web Apps clears it as the form opens, and Android can't open the form. You can leave the starting value empty.",
+	);
+}
+
 function checkChoiceDefault(
 	expression: Expression,
 	ctx: ExpressionContext,

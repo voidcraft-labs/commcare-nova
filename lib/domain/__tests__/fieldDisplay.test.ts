@@ -40,9 +40,20 @@ import { fieldDisplayOptionsFor } from "../fieldDisplay";
  *  question's control is drawn, written as its `appearance`. */
 const NOT_DISPLAY_SETTINGS: Readonly<Record<string, string>> = {
 	placement: "a query repeat's held placement, an identity no author chooses",
+	maxDimension: "the maximum pixel size of the submitted image file",
 	fieldList: "a group's screen layout, written on the group and not a control",
 	plainLabel: "a label's text formatting, read by plainText.ts",
 	plainHelp: "a help text's formatting, read by plainText.ts",
+	rowTiming:
+		"when a query repeat takes its rows, which the form's events carry",
+	answerType:
+		"the data class a hidden value's bind declares, which no control draws",
+	askForConfirmation:
+		"whether a message asks for its confirmation, a switch its own editor writes rather than an appearance",
+	lockedInHq:
+		"whether CommCare HQ's form designer locks the question, which no worker sees",
+	answerNamespace:
+		"the namespace a receiving service reads a hidden value by, which no control draws",
 };
 
 /** Every string an enum or constant inside a JSON Schema admits. */

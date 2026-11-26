@@ -218,24 +218,23 @@ async function populatedApp() {
 			},
 		],
 	});
+	await ok("configureConnect", { roles: ["learn"] });
 	await ok("addFields", {
 		moduleUuid: "Learning",
 		formUuid: "Assessment",
-		fields: [{ kind: "int", id: "score", label: "Score" }],
+		fields: [
+			{
+				kind: "connect_activity",
+				id: "assessment_result",
+				activity: { kind: "assessment", score: "#form/score" },
+			},
+			{ kind: "int", id: "score", label: "Score" },
+		],
 	});
 	await ok("removeField", {
 		moduleUuid: "Learning",
 		formUuid: "Assessment",
 		fieldUuid: "fixture_placeholder",
-	});
-	await ok("configureConnect", {
-		mode: "learn",
-		participants: [
-			{
-				formUuid: "Assessment",
-				connect: { assessment: { user_score: "#form/score" } },
-			},
-		],
 	});
 	await ok("addLanguage", { language: { language: "fra" } });
 	await ok("setMenuMedia", {
@@ -297,6 +296,11 @@ const readInputs: Record<ReadToolName, readonly unknown[] | null> = {
 		{ moduleUuid: "Learning", formUuid: "Assessment" },
 	],
 	getField: [
+		{
+			moduleUuid: "Learning",
+			formUuid: "Assessment",
+			fieldUuid: "assessment_result",
+		},
 		{ moduleUuid: "Clients", formUuid: "Register", fieldUuid: "head" },
 		{ moduleUuid: "Clients", formUuid: "Register", fieldUuid: "summary" },
 		{ moduleUuid: "Clients", formUuid: "Register", fieldUuid: "service" },
@@ -304,6 +308,53 @@ const readInputs: Record<ReadToolName, readonly unknown[] | null> = {
 	],
 	getCaseOperations: [{ moduleUuid: "Clients", formUuid: "Visit" }],
 };
+
+it("reads and edits each activity calculation at its actual form position", async () => {
+	const h = await populatedApp();
+	const at = {
+		moduleUuid: "Learning",
+		formUuid: "Assessment",
+		fieldUuid: "assessment_result",
+	};
+	const read = await h.call("getField", at);
+	expect(JSON.stringify(read)).toContain("#form/score");
+	expect(
+		await h.call("configureConnect", { roles: ["learn", "deliver"] }),
+	).not.toHaveProperty("error");
+	expect(
+		await h.call("editField", {
+			...at,
+			updates: {
+				kind: "connect_activity",
+				activity: {
+					kind: "delivery",
+					name: "Visit",
+					entityId: "'person'",
+					workAreaId: "#form/score",
+				},
+			},
+		}),
+	).not.toHaveProperty("error");
+	expect(JSON.stringify(await h.call("getField", at))).toContain("#form/score");
+	expect(
+		await h.call("editField", {
+			...at,
+			updates: {
+				kind: "connect_activity",
+				activity: {
+					kind: "delivery",
+					name: "Visit",
+				},
+			},
+		}),
+	).not.toHaveProperty("error");
+	expect(JSON.stringify(await h.call("getField", at))).not.toContain(
+		"workAreaId",
+	);
+	expect(await h.call("configureConnect", { roles: ["learn"] })).toHaveProperty(
+		"error",
+	);
+});
 
 it("reads every part of a populated app as authored content", async () => {
 	const h = await populatedApp();
