@@ -193,6 +193,7 @@ const READ_ANSWERS: readonly [string, ReadingAnswer][] = [
 				platformsOut: [],
 				kept: [],
 				tables: [],
+				ownerRules: [],
 				places: null,
 				mediaLeftOut: 0,
 				firstPublish: { ids: [], touchesWorkers: false, of: "first-publish" },

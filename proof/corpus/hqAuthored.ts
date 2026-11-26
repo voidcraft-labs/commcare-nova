@@ -91,6 +91,8 @@ export interface RetainedHqApp {
 			readonly caseSearchEnabled: boolean;
 		};
 		readonly declaration: "preselected" | LaneDeclaration;
+		/** The base's answers to its reading's owner-rule questions, by level code, where it states any. */
+		readonly ownerRuleChoices?: Readonly<Record<string, string>>;
 		readonly exhibits: readonly string[];
 	};
 	/** `app-source.json`, `application.json` and `current-version.json`. */
@@ -117,6 +119,11 @@ export interface RetainedHqApp {
 	readonly lookupTables: RetainedHqAnswer;
 	/** Where the base holds each: the rows, location and media answers. */
 	readonly fixtureRows?: Readonly<Record<string, RetainedHqAnswer>>;
+	/** `lookup-definition-<id>.json` and `fixture-detail-<id>.json`, by CommCare HQ's id: the detail
+	 *  reads of a table whose definition or rows the plain row list cannot carry
+	 *  (`proof/hq/operations.py::lookup_detail_targets`). */
+	readonly lookupDefinitions?: Readonly<Record<string, RetainedHqAnswer>>;
+	readonly fixtureDetails?: Readonly<Record<string, RetainedHqAnswer>>;
 	readonly locationTypes?: RetainedHqAnswer;
 	readonly locationsV1?: RetainedHqAnswer;
 	readonly locations?: RetainedHqAnswer;
@@ -265,6 +272,19 @@ export function loadRetainedHqApp(
 			([tag, file]) => [tag, answer(directory, file)],
 		),
 	);
+	const details = (prefix: string) =>
+		Object.fromEntries(
+			readdirSync(directory)
+				.sort()
+				.flatMap((name) => {
+					const id = new RegExp(`^${prefix}-([0-9a-f]{32})\\.json$`).exec(
+						name,
+					)?.[1];
+					return id === undefined ? [] : [[id, answer(directory, name)]];
+				}),
+		);
+	const lookupDefinitions = details("lookup-definition");
+	const fixtureDetails = details("fixture-detail");
 	const locationTypes = optionalAnswer(directory, "location-types.json");
 	const locations = optionalAnswer(directory, "locations.json");
 	const locationsV1 = optionalAnswer(directory, "locations-v1.json");
@@ -287,6 +307,8 @@ export function loadRetainedHqApp(
 		})),
 		lookupTables: answer(directory, "lookup-tables.json"),
 		...(Object.keys(fixtureRows).length > 0 && { fixtureRows }),
+		...(Object.keys(lookupDefinitions).length > 0 && { lookupDefinitions }),
+		...(Object.keys(fixtureDetails).length > 0 && { fixtureDetails }),
 		...(locationTypes !== undefined && { locationTypes }),
 		...(locations !== undefined && { locations }),
 		...(locationsV1 !== undefined && { locationsV1 }),
@@ -335,6 +357,12 @@ export function laneInputFor(app: RetainedHqApp): LaneReadInput {
 		projectData: {
 			lookupTables: app.lookupTables,
 			fixtureRows: app.fixtureRows ?? {},
+			...(app.lookupDefinitions !== undefined && {
+				lookupDefinitions: app.lookupDefinitions,
+			}),
+			...(app.fixtureDetails !== undefined && {
+				fixtureDetails: app.fixtureDetails,
+			}),
 			...(app.locationTypes !== undefined && {
 				locationTypes: app.locationTypes,
 			}),
@@ -356,6 +384,9 @@ export function laneInputFor(app: RetainedHqApp): LaneReadInput {
 		},
 		...(app.base.declaration !== "preselected" && {
 			declaration: app.base.declaration,
+		}),
+		...(app.base.ownerRuleChoices !== undefined && {
+			ownerRuleChoices: app.base.ownerRuleChoices,
 		}),
 		identity: "mint",
 		claims: "full",
@@ -403,7 +434,11 @@ function didNotComeIn(
 export class BaseSetAside extends Error {
 	constructor(
 		readonly base: string,
-		readonly reading: "account" | "declaration-not-offered" | "answer-missing",
+		readonly reading:
+			| "account"
+			| "declaration-not-offered"
+			| "answer-missing"
+			| "owner-rules-not-answered",
 		message: string,
 	) {
 		super(message);
@@ -439,7 +474,8 @@ function declarationNotOffered(
 /**
  * The base's media as the document's own assets: each file the reading holds
  * (`LaneMedia`), under the id and with the type and extension the reading
- * gives it, its bytes the retained file `media.json` names at one of its
+ * gives it, stored as a bring-in stores it (`source: "commcare-hq"`, which no
+ * upload cap bounds), its bytes the retained file `media.json` names at one of its
  * paths, and the path HQ keeps each asset under on the project space it came
  * from, as the birth records it: an asset no path of which can be held takes
  * its content-hash path, and names none here.
@@ -478,6 +514,7 @@ function baseMedia(
 			mimeType: file.mimeType,
 			extension: file.extension,
 			bytes: Buffer.from(bytes),
+			source: "commcare-hq",
 		});
 	}
 	const mediaPaths = new Map<string, string>();
@@ -571,6 +608,12 @@ export async function hqAuthoredDocument(
 			"declaration-not-offered",
 			declarationNotOffered(app.id, reading.stated, reading.offered),
 		);
+	if (reading.kind === "owner-rules-not-answered")
+		throw new BaseSetAside(
+			app.id,
+			"owner-rules-not-answered",
+			`The base ${app.id} states the owner-rule answers ${JSON.stringify(reading.stated)}, and its reading asks about the levels ${JSON.stringify(reading.askedLevels)}: a create takes one answer for each level it asks about and no other. Give the base's ownerRuleChoices one answer a level in proof/matrix/bases/, and author it again.`,
+		);
 	const { media, mediaPaths } = baseMedia(app, reading.media);
 	const hand = join(handRoot, app.id);
 	const hqAuthored: HqAuthoredFacts = {
@@ -579,6 +622,9 @@ export async function hqAuthoredDocument(
 		firstPublish: reading.firstPublish,
 		firstPublishPlaces: reading.firstPublishPlaces,
 		declaration: reading.declaration,
+		...(app.base.ownerRuleChoices !== undefined && {
+			ownerRuleChoices: app.base.ownerRuleChoices,
+		}),
 		mediaPaths,
 		keyedCaseIds: reading.keyedCaseIds,
 		columnWords: reading.columnWords,

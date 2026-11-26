@@ -1,0 +1,24 @@
+[
+	{
+		"id": "visit-type-from-the-types-table",
+		"entry": "expressions-and-data/tag-types",
+		"form": { "menu": 0, "form": 0 },
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{ "path": "/data/visit_type", "value": "2" },
+				{ "path": "/data/site", "value": "1" }
+			],
+			"expressions": [
+				"/data/visit_type",
+				"/data/site",
+				"/data/visit_description"
+			]
+		},
+		"expect": [
+			{ "pointer": "/values/0/value", "value": "follow_up" },
+			{ "pointer": "/values/1/value", "value": "home" },
+			{ "pointer": "/values/2/value", "value": "Check on progress" }
+		]
+	}
+]

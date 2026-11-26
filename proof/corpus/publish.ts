@@ -270,7 +270,10 @@ import {
 	adoptedMediaFiles,
 	type ReadingMediaPlan,
 } from "@/lib/deployment/reading/projectData/media";
-import { judgeReadingMedia } from "@/lib/deployment/reading/projectData/mediaStore";
+import {
+	judgeReadingMedia,
+	memoryMediaStaging,
+} from "@/lib/deployment/reading/projectData/mediaStore";
 import {
 	type ReadingProjectSide,
 	readReadingProjectData,
@@ -429,7 +432,7 @@ export const CCZ_CLOCK = Date.UTC(2026, 0, 1);
  */
 type LanguageNames = "nova" | "target";
 
-/** One uploaded media asset, as the Project's media store holds it. */
+/** One media asset of the Project, as its media store holds it. */
 export interface UploadedMedia {
 	readonly kind: MediaKind;
 	/** The accepted MIME type Nova's upload stores (`image/png`). */
@@ -437,6 +440,12 @@ export interface UploadedMedia {
 	/** The canonical extension Nova's upload stores for that type (`.png`). */
 	readonly extension: string;
 	readonly bytes: Buffer;
+	/**
+	 * `"commcare-hq"` for a file Nova's reading of an app made in CommCare HQ
+	 * held and a bring-in stored (`lib/deployment/reading/projectData/mediaStore.ts`),
+	 * which no upload cap bounds; absent for a file a person uploaded to Nova.
+	 */
+	readonly source?: "commcare-hq";
 }
 
 /** One admitted document, with what Nova's publish reads beside it. */
@@ -800,7 +809,9 @@ function sha256(bytes: Uint8Array): string {
  * it can. Nova's upload (`lib/media/validate.ts::validateMediaBytes`) stores
  * an accepted MIME type as written, the kind and canonical extension
  * `lib/domain/multimedia.ts` gives that type, and the bytes' SHA-256 and
- * size, within the kind's size cap.
+ * size, within the kind's size cap. A file brought in from CommCare HQ
+ * (`source: "commcare-hq"`) is stored the same way at any size: the cap is
+ * the upload's alone (`validateSniffedMediaBody`).
  */
 export function uploadedMediaProblem(asset: UploadedMedia): string | undefined {
 	const mimeType = normalizeMimeType(asset.mimeType);
@@ -815,8 +826,9 @@ export function uploadedMediaProblem(asset: UploadedMedia): string | undefined {
 	if (extension !== asset.extension) {
 		return `its extension is ${JSON.stringify(asset.extension)}, where Nova stores ${mimeType} as ${JSON.stringify(extension)}`;
 	}
+	if (asset.bytes.length === 0) return "it holds no bytes";
 	const cap = ASSET_SIZE_CAPS_BYTES[asset.kind];
-	if (asset.bytes.length === 0 || asset.bytes.length > cap) {
+	if (asset.source !== "commcare-hq" && asset.bytes.length > cap) {
 		return `it holds ${asset.bytes.length} bytes, where a ${asset.kind} upload holds 1 to ${cap}`;
 	}
 	return undefined;
@@ -1031,6 +1043,17 @@ async function prepareDocument(
 	if (!result.ok) {
 		throw new UnexportableDocumentError(source.id, mode, result.violations);
 	}
+	/* A table the workbook cannot carry exactly goes through CommCare HQ's
+	 * JSON resources on a direct publish (`travelsAsJson`). The capture sends
+	 * no such request, so a document holding one would be captured without
+	 * its table: refuse it rather than publish another app than Nova's. The
+	 * JSON carrier's requests are held to HQ's own answers by
+	 * `proof/hq/test_lookup_json_publish.py`. */
+	const json = result.prepared.jsonLookupTables ?? [];
+	if (json.length > 0)
+		throw new Error(
+			`Nova's publish of ${source.id} carries ${json.map((table) => table.tag).join(", ")} through CommCare HQ's JSON table resources, which the capture does not send. Give the document tables a workbook carries exactly.`,
+		);
 	const workbook = result.prepared.lookupWorkbook;
 	const workbookIntent =
 		mode === "hq-upload" && workbook
@@ -3161,12 +3184,15 @@ async function reviewOverPeer(input: {
 	let judged: Pick<ReadingMediaPlan, "verdicts" | "staged" | "published"> =
 		union;
 	if (union.files.length > 0) {
+		/* A file past its kind's cap streams as a review's does, here into memory. */
+		const spill = memoryMediaStaging();
 		const read = await judgeReadingMedia({
 			creds: CREDENTIALS,
 			plan: union,
+			spill,
 			fetched: settledReads,
 			onProgress: () => {},
-		});
+		}).finally(() => spill.discard());
 		if (read.kind === "failed") {
 			throw new Error(
 				`A review of ${prepared.source.id} could not read a file the capture peer maps (${JSON.stringify(read.failure)}), and the peer serves every file it maps.`,

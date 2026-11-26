@@ -137,6 +137,7 @@ import {
 	type AcceptedDeclaration,
 	acceptReadingSteps,
 } from "../reading/acceptance";
+import { withAnsweredChanges } from "../reading/firstPublishChanges";
 import { editModeTest, formsWithinReading, Pieces } from "../reading/gather";
 import { reviewMediaId } from "../reading/mediaIds";
 import {
@@ -144,6 +145,7 @@ import {
 	type ReaderProjectDataReads,
 	type ReadingProjectData,
 	readingLookupSnapshot,
+	readingOwnerRules,
 	readingProjectDataFindingsFor,
 } from "../reading/projectData";
 import {
@@ -157,6 +159,7 @@ import {
 import {
 	judgeReadingMedia,
 	type MediaStaging,
+	projectMediaStaging,
 } from "../reading/projectData/mediaStore";
 import {
 	postgresProjectSide,
@@ -293,6 +296,7 @@ export function reviewMatchingSource(
 			incomingPaths: removalLedgerPaths(basis.normalized.normalized, published),
 			target: null,
 			tables: [],
+			ownerRules: [],
 		}),
 	};
 }
@@ -1255,9 +1259,13 @@ async function computeWith(
 		return answer(unavailable(reference.kind, since));
 	}
 
-	/* 6. The files the reference publishes, settled by content. */
+	/* 6. The files the reference publishes, settled by content. Each carries its
+	 * size (a byte source no byte is read through here), so a file of the app's
+	 * past its kind's cap is settled by its streamed digest, never refused at
+	 * the cap as another file. */
 	const manifest = await resolveMediaManifest(reference.doc, scope.projectId, {
 		withBytes: false,
+		streamBytes: true,
 		heldPaths: exportIdentityOf(reference.doc, targetIdentity).heldMediaPaths,
 	});
 	const standings = hqMediaStandings({
@@ -1502,16 +1510,19 @@ async function computeWith(
 	if (union.files.length > 0) {
 		onEvent({ type: "stage", stage: "checking-media" });
 		onEvent({ type: "files", done: 0, total: union.files.length });
+		/* A review streams a file past its kind's cap into objects of its own, deleted
+		 * once judged and again, whatever it left, before it answers. */
+		const spill =
+			options.stageMedia === null ? projectMediaStaging(scope.projectId) : null;
 		const files = await judgeReadingMedia({
 			creds,
 			plan: union,
-			...(options.stageMedia !== null && {
-				stage: options.stageMedia.stage,
-			}),
+			...(options.stageMedia !== null && { stage: options.stageMedia }),
+			...(spill !== null && { spill }),
 			fetched: settledReads,
 			onProgress: (done, total) => onEvent({ type: "files", done, total }),
 			...(cancel !== undefined && { cancel }),
-		});
+		}).finally(() => spill?.discard());
 		if (files.kind === "failed") return answer(failedRead(files.failure));
 		judged = files.plan;
 		onEvent({ type: "stage", stage: "checking" });
@@ -1945,6 +1956,12 @@ export async function checkHqChanges(
 						draft.doc,
 						resolverOf(fetched),
 					).tables.filter((table) => newTagSet.has(table.tag));
+		/* The owner rules of what the app takes that the places now cannot satisfy: each asks
+		 * the person, as a bring-in's review does. */
+		const ownerRules =
+			plan.kind === "changes"
+				? readingOwnerRules(data, readsNow, plan.target, resolverOf(fetched))
+				: [];
 		const reviewDigest = hqChangesReviewDigest({
 			identity: receipt,
 			approvedRemovals: approved,
@@ -1975,8 +1992,9 @@ export async function checkHqChanges(
 					? contentNamedDocument(plan.target, targetFiles, ownContent)
 					: null,
 			tables,
+			ownerRules,
 		});
-		return { newTags, tables, reviewDigest };
+		return { newTags, tables, ownerRules, reviewDigest };
 	});
 	const checked: CheckedHqChanges = {
 		removedFiles: unused.map((file) => file.digest),
@@ -2010,14 +2028,22 @@ export async function checkHqChanges(
 				`The next publish would rewrite another saved value in the form “${name}”.`,
 		),
 	];
+	/* The reading's list, with each change a person's answer made that the stored list holds and the
+	 * document the review would commit still makes of CommCare HQ's app, as a take keeps it. */
+	const listed = withAnsweredChanges(
+		declaration.firstPublish,
+		declaration.firstPublishFacts,
+		plan.kind === "changes" ? plan.target : fetched.head.doc,
+		fetched.baseline.answeredPublishChanges ?? [],
+	).ids;
 	const publishChanges = [
 		...publishChangeSentences(
 			priorNext
-				? declaration.firstPublish.ids.filter(
+				? listed.filter(
 						(id) => priorNext.includes(id) || plan.publishChanges.includes(id),
 					)
 				: legacy
-					? declaration.firstPublish.ids
+					? listed
 					: plan.publishChanges,
 		),
 	];
@@ -2110,6 +2136,7 @@ export async function checkHqChanges(
 			),
 			renamedInNova: plan.kind === "changes" ? plan.renamedInNova : [],
 			tables: built.tables,
+			ownerRules: built.ownerRules,
 			projectName: fetched.projectName,
 			readingId: fetched.readingId,
 			reviewDigest: built.reviewDigest,

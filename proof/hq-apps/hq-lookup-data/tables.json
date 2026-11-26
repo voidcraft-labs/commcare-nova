@@ -1,0 +1,185 @@
+[
+	{
+		"tag": "crops",
+		"is_global": true,
+		"description": "",
+		"fields": [
+			{
+				"name": "id",
+				"properties": [],
+				"is_indexed": false
+			},
+			{
+				"name": "name",
+				"properties": [
+					"lang"
+				],
+				"is_indexed": false
+			},
+			{
+				"name": "note",
+				"properties": [],
+				"is_indexed": false
+			}
+		],
+		"item_attributes": [
+			"code"
+		],
+		"rows": [
+			{
+				"fields": {
+					"id": [
+						{
+							"value": "maize",
+							"properties": {}
+						}
+					],
+					"name": [
+						{
+							"value": "Maize",
+							"properties": {
+								"lang": "en"
+							}
+						},
+						{
+							"value": "Makka",
+							"properties": {
+								"lang": "hin"
+							}
+						}
+					],
+					"note": [
+						{
+							"value": "Grows fast",
+							"properties": {}
+						}
+					]
+				},
+				"item_attributes": {
+					"code": "c-maize"
+				}
+			},
+			{
+				"fields": {
+					"id": [
+						{
+							"value": "beans",
+							"properties": {}
+						}
+					],
+					"name": [
+						{
+							"value": "Beans",
+							"properties": {
+								"lang": "en"
+							}
+						},
+						{
+							"value": "Sem",
+							"properties": {
+								"lang": "hin"
+							}
+						}
+					],
+					"note": []
+				},
+				"item_attributes": {
+					"code": "c-beans"
+				}
+			},
+			{
+				"fields": {
+					"id": [
+						{
+							"value": "sorghum",
+							"properties": {}
+						}
+					],
+					"name": [
+						{
+							"value": "Sorghum",
+							"properties": {
+								"lang": "en"
+							}
+						},
+						{
+							"value": "Jowar",
+							"properties": {
+								"lang": "hin"
+							}
+						}
+					]
+				},
+				"item_attributes": {
+					"code": "c-sorghum"
+				}
+			},
+			{
+				"fields": {
+					"id": [
+						{
+							"value": "millet",
+							"properties": {}
+						}
+					],
+					"name": [
+						{
+							"value": "Millet",
+							"properties": {
+								"lang": "en"
+							}
+						},
+						{
+							"value": "Bajra",
+							"properties": {
+								"lang": "hin"
+							}
+						}
+					],
+					"note": [
+						{
+							"value": "",
+							"properties": {}
+						}
+					]
+				},
+				"item_attributes": {
+					"code": "c-millet"
+				}
+			},
+			{
+				"fields": {
+					"id": [
+						{
+							"value": "maize",
+							"properties": {}
+						}
+					],
+					"name": [
+						{
+							"value": "Maize",
+							"properties": {
+								"lang": "en"
+							}
+						},
+						{
+							"value": "Makka",
+							"properties": {
+								"lang": "hin"
+							}
+						}
+					],
+					"note": [
+						{
+							"value": "Grows fast",
+							"properties": {}
+						}
+					]
+				},
+				"item_attributes": {
+					"code": "c-maize-hill"
+				}
+			}
+		]
+	}
+]

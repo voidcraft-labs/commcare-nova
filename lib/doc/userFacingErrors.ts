@@ -2064,7 +2064,7 @@ const USER_MESSAGE_BY_CODE: Record<
 		return `CommCare HQ can't yet find the cases for ${child} from several cases selected in ${parent}. You can set ${parent} to select one case. ${keeps}`;
 	},
 	LOOKUP_TAG_RESERVED_BY_HQ: (e) =>
-		`CommCare HQ keeps the name ${det(e, "tag", "types")} for its own list of the tables in an upload, so a table cannot be exported under it. Rename that table's export tag in Project data, then try again.`,
+		`CommCare HQ keeps the name ${det(e, "tag", "types")} for its own list of the tables in a workbook, so a table can't travel in one under it. A direct publish to CommCare HQ from Nova carries a table with no index and no row assignments under that tag. Otherwise you can rename the table's export tag in Project data, then try again.`,
 
 	// ── Media (export boundary) ──────────────────────────────────────
 	MEDIA_ASSET_NOT_FOUND: () =>

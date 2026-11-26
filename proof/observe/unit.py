@@ -944,7 +944,8 @@ class _Unit:
         ``reads:project-spaces``. At ``authored``, what a first reading asks
         beyond the app, as ``proof/matrix/retain.py`` makes those reads of the
         base it retains: the lookup table list and each listed table's rows,
-        the levels and the places, in the operation ``reads:project-data``,
+        each row's detail where the plain list cannot carry the table
+        (``operations.lookup_detail_targets``), the levels and the places, in the operation ``reads:project-data``,
         and each mapped file at the address HQ gives its map item
         (``HQMediaMapItem.url``) in the operation ``reads:media``, through
         ``operations.media_file_read``, which keeps the bytes HQ sent. At
@@ -955,7 +956,7 @@ class _Unit:
 
         Returns ``{"source", "application", "currentVersion", "projectSpaces":
         {"all", "flagged"}, "projectData"?: {"lookupTables", "fixtureRows":
-        {<tag>: ...}, "locationTypes", "locations"}, "media"?: [{"path",
+        {<tag>: ...}, "lookupDefinitions"?, "fixtureDetails"?, "locationTypes", "locations"}, "media"?: [{"path",
         "mediaType", "multimediaId", "status", "sha256", "length"}]}``, each
         answer a blob of it as ``HqAnswer.retained`` writes it, a file's bytes
         never: at ``authored`` they are the document's own (``authored/media/``),
@@ -1026,11 +1027,19 @@ class _Unit:
         with ops("reads:project-data", b"project-data"):
             listed = operations.lookup_tables_read(unit, credential)
             tables = json.loads(listed.body).get("objects", []) if listed.status == 200 else []
+            rows_read = {table["tag"]: operations.fixture_rows_read(unit, table["id"], credential) for table in tables}
+            # The detail reads of a table a plain row list cannot carry, as retain.py makes them of a base.
+            details = {"lookupDefinitions": {}, "fixtureDetails": {}}
+            for table in tables:
+                listed_rows = rows_read[table["tag"]]
+                rows = json.loads(listed_rows.body).get("objects", []) if listed_rows.status == 200 else []
+                for kind, resource, remote_id in operations.lookup_detail_targets(table, rows):
+                    answer = operations.lookup_detail_read(unit, resource, remote_id, credential)
+                    details[f"{kind}s"][remote_id] = kept(answer)
             data = {
                 "lookupTables": kept(listed),
-                "fixtureRows": {
-                    table["tag"]: kept(operations.fixture_rows_read(unit, table["id"], credential)) for table in tables
-                },
+                "fixtureRows": {tag: kept(answer) for tag, answer in rows_read.items()},
+                **{kind: found for kind, found in details.items() if found},
                 "locationTypes": kept(operations.location_types_read(unit, credential)),
                 "locations": kept(operations.locations_read(unit, credential)),
                 "locationsV1": kept(operations.location_external_ids_read(unit, credential)),

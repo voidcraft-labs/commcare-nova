@@ -286,6 +286,7 @@ function storedInputs(publish: PublishDocument) {
 						mimeType: asset.mimeType,
 						extension: asset.extension,
 						base64: asset.bytes.toString("base64"),
+						...(asset.source !== undefined && { source: asset.source }),
 					},
 				]),
 			),
@@ -305,6 +306,9 @@ function hqAuthoredJson(facts: HqAuthoredFacts) {
 	return {
 		identity: facts.identity,
 		declaration: facts.declaration,
+		...(facts.ownerRuleChoices !== undefined && {
+			ownerRuleChoices: facts.ownerRuleChoices,
+		}),
 		firstPublish: facts.firstPublish,
 		mediaPaths: Object.fromEntries(facts.mediaPaths),
 	};

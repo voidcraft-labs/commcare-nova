@@ -352,11 +352,16 @@ export interface HqAnswer {
 	 * `unavailable`.
 	 */
 	read(maxBytes: number, held: HeldAs): Promise<BoundedBody>;
-	/** Stream a bounded response. A media digest knows its expected file size and retains no payload. */
+	/**
+	 * Stream a bounded response, each chunk handed to `consumer` and awaited
+	 * before the next is read. A media digest knows its expected file size and
+	 * a media stream writes each chunk on to storage; neither retains the
+	 * payload, so neither is held to `HQ_BODY_BOUND_CEILING`.
+	 */
 	consume(
 		maxBytes: number,
-		consumer: (chunk: Uint8Array) => void,
-		mode?: "media-digest",
+		consumer: (chunk: Uint8Array) => void | Promise<void>,
+		mode?: "media-digest" | "media-stream",
 	): Promise<"read" | "too-long" | "unavailable">;
 	/** Let the body go unread. Never throws. */
 	discard(): Promise<void>;

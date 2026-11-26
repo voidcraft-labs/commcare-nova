@@ -12,9 +12,14 @@
  * the header `bmp.ts` reads for a BMP without its file header. A cursor
  * (type 2) is not an icon, and any other image encoding is a variant Nova
  * does not accept.
+ *
+ * The file is read by position (`randomAccess.ts`): the directory, then the
+ * one image Pillow opens, which is read whole only where it is at most
+ * `ICO_IMAGE_MAX_BYTES`, the most a picture Nova reads whole holds.
  */
 
 import sharp from "sharp";
+import type { RandomAccessBytes } from "./randomAccess";
 
 export type IcoReading =
 	| { readonly kind: "icon"; readonly width: number; readonly height: number }
@@ -36,10 +41,15 @@ interface Entry {
 	readonly offset: number;
 }
 
+/** The largest image of an icon Nova reads. */
+export const ICO_IMAGE_MAX_BYTES = 64 * 1024 * 1024;
+
 /** Read an ICO's directory and its largest image. */
-export async function readIco(bytes: Uint8Array): Promise<IcoReading> {
+export async function readIco(source: RandomAccessBytes): Promise<IcoReading> {
+	const size = source.size;
+	const bytes = await source.read(0, DIRECTORY_BYTES + 255 * ENTRY_BYTES);
 	const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-	if (bytes.byteLength < DIRECTORY_BYTES || view.getUint16(0, true) !== 0) {
+	if (size < DIRECTORY_BYTES || view.getUint16(0, true) !== 0) {
 		return { kind: "unreadable", detail: "it has no icon directory" };
 	}
 	const type = view.getUint16(2, true);
@@ -54,7 +64,7 @@ export async function readIco(bytes: Uint8Array): Promise<IcoReading> {
 			detail: `its directory lists ${count} images`,
 		};
 	}
-	if (bytes.byteLength < DIRECTORY_BYTES + count * ENTRY_BYTES) {
+	if (size < DIRECTORY_BYTES + count * ENTRY_BYTES) {
 		return { kind: "unreadable", detail: "its directory is cut short" };
 	}
 	const entries: Entry[] = [];
@@ -70,7 +80,7 @@ export async function readIco(bytes: Uint8Array): Promise<IcoReading> {
 			size: view.getUint32(at + 8, true),
 			offset: view.getUint32(at + 12, true),
 		};
-		if (entry.size === 0 || entry.offset + entry.size > bytes.byteLength) {
+		if (entry.size === 0 || entry.offset + entry.size > size) {
 			return {
 				kind: "unreadable",
 				detail: "an image runs past the end of the file",
@@ -88,7 +98,13 @@ export async function readIco(bytes: Uint8Array): Promise<IcoReading> {
 			? entry
 			: best;
 	});
-	const image = bytes.subarray(largest.offset, largest.offset + largest.size);
+	if (largest.size > ICO_IMAGE_MAX_BYTES) {
+		return {
+			kind: "unreadable",
+			detail: "its largest image is larger than Nova reads",
+		};
+	}
+	const image = await source.read(largest.offset, largest.size);
 	const dimensions = { width: largest.width, height: largest.height };
 	if (PNG_SIGNATURE.every((byte, index) => image[index] === byte)) {
 		try {

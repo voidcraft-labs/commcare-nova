@@ -58,6 +58,7 @@ export const FIRST_PUBLISH_CHANGE_IDS = [
 	"sort-by-entry-with-a-blank-name-dropped",
 	"form-titles-written",
 	"unread-fixture-declarations-dropped",
+	"owner-rule-given-to-worker",
 ] as const;
 export type FirstPublishChangeId = (typeof FIRST_PUBLISH_CHANGE_IDS)[number];
 
@@ -129,7 +130,18 @@ export const FIRST_PUBLISH_TOUCHES_WORKERS: Readonly<
 	"sort-by-entry-with-a-blank-name-dropped": true,
 	"form-titles-written": true,
 	"unread-fixture-declarations-dropped": true,
+	"owner-rule-given-to-worker": true,
 };
+
+/**
+ * The changes no reading gives alone: each stands on a list only where the
+ * person answered a review's question that makes it, and a later list keeps
+ * it only while the list it replaces holds it
+ * (`reading/firstPublishChanges.ts::withAnsweredChanges`).
+ */
+export const ANSWERED_FIRST_PUBLISH_CHANGES: readonly FirstPublishChangeId[] = [
+	"owner-rule-given-to-worker",
+];
 
 /** Ids another entry's sentence says to a person. */
 export const FIRST_PUBLISH_SAID_BY = {

@@ -120,6 +120,8 @@ export const FIRST_PUBLISH_SENTENCES: Readonly<
 		"Each form's title now holds the form's name. On Android, a saved form a worker opens again shows that name at the top, where it showed no title or an older name before.",
 	"unread-fixture-declarations-dropped":
 		"A form no longer asks for data it never reads, such as a mobile report or the list of places. Where a worker's phone or Web Apps doesn't have that data, the form couldn't open before, and now it opens.",
+	"owner-rule-given-to-worker":
+		"Cases a form gave to a place in your organization now belong to the worker who fills in the form, as you chose in Nova. CommCare HQ's places held no single place for them.",
 };
 
 /** One line of a list: the id whose sentence it shows, and that sentence. */

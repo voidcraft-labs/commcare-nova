@@ -120,6 +120,7 @@ export function review(overrides: Partial<ReadingReview> = {}): ReadingReview {
 		platformsOut: [],
 		kept: [],
 		tables: [],
+		ownerRules: [],
 		places: null,
 		mediaLeftOut: 0,
 		firstPublish:

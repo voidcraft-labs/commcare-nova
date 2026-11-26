@@ -25,6 +25,7 @@ import {
 } from "@/lib/commcare/lookup/fixtures";
 import { lookupHqCellTextFindings } from "@/lib/commcare/lookup/hqCellText";
 import {
+	type LookupTableWireNaming,
 	type LookupWireNaming,
 	lookupWireNaming,
 } from "@/lib/commcare/lookup/naming";
@@ -50,6 +51,7 @@ import { walkExpressionTerms } from "@/lib/domain/expression/walk";
 import { requiresLookupProjection } from "@/lib/lookup/source";
 import type {
 	LookupFixtureDataSnapshot,
+	LookupFixtureRow,
 	LookupTableDefinition,
 	LookupTableId,
 } from "@/lib/lookup/types";
@@ -74,6 +76,23 @@ export interface ExportCarrierFindingsInput {
 	 * made for no project space and do not.
 	 */
 	readonly lookupTarget?: LookupTarget;
+	/**
+	 * `hq-upload`'s tables that already have a JSON destination ledger on
+	 * `lookupTarget` (`lib/deployment/lookupJsonLedger.ts`): they keep
+	 * travelling through CommCare HQ's JSON resources while those can carry
+	 * them, since a workbook would replace the rows the ledger names.
+	 */
+	readonly jsonDestinationTableIds?: ReadonlySet<string>;
+	/**
+	 * `hq-upload`'s tables the Project already has on `lookupTarget` through
+	 * a workbook, by table id, each with the tags it is there under: a live
+	 * mapping of any of the Project's apps, or a table taken over from there
+	 * (`lib/deployment/store.ts::readWorkbookLookupTags`). Such a table under
+	 * such a tag stays in the workbook, since the JSON resources cannot take
+	 * over rows that carry no Nova identity; its findings name what the
+	 * workbook cannot carry.
+	 */
+	readonly workbookLookupTags?: ReadonlyMap<string, ReadonlySet<string>>;
 }
 
 /** A project space by its server and domain, as a table's origin names one. */
@@ -136,6 +155,14 @@ export interface ExportCarrierFindings {
 	 * the other two modes and where no table is managed.
 	 */
 	readonly managedLookupWorkbooks: readonly ManagedLookupWorkbook[];
+	/**
+	 * `hq-upload`'s tables that travel through CommCare HQ's JSON resources
+	 * instead of the workbook (`lib/deployment/lookupJsonExecutor.ts`), in
+	 * the definitions' order: a global table with no index whose rows the
+	 * workbook cannot carry exactly, or that already has a JSON destination
+	 * there. Empty in the other two modes.
+	 */
+	readonly jsonLookupTables: readonly LookupTableWireNaming[];
 	/** `lookupExportFindings`, then `organizationExportFindings`: the order
 	 *  the export boundary joins them in, after the document's own verdict. */
 	readonly rowFindings: readonly ValidationError[];
@@ -203,6 +230,7 @@ export function exportCarrierFindings(
 			lookupWorkbook: undefined,
 			managedLookupTables: [],
 			managedLookupWorkbooks: [],
+			jsonLookupTables: [],
 			rowFindings: unavailable.map((table) =>
 				validationError(
 					"LOOKUP_WORKER_SOURCE_UNAVAILABLE",
@@ -218,9 +246,37 @@ export function exportCarrierFindings(
 		leftOutOfMainWorkbook(definition, mode, input.lookupTarget),
 	);
 	const leftOutIds = new Set(leftOut.map((definition) => definition.id));
+	const jsonLookupTables =
+		mode === "hq-upload" && naming !== undefined
+			? referenced.flatMap((definition) => {
+					if (
+						leftOutIds.has(definition.id) ||
+						fixtureData.streamedTables?.has(definition.id)
+					)
+						return [];
+					const table = naming.tables.find(
+						(candidate) => candidate.tableId === definition.id,
+					);
+					return table !== undefined &&
+						travelsAsJson(
+							definition,
+							table,
+							fixtureData.rowsByTable.get(definition.id) ?? [],
+							input.jsonDestinationTableIds?.has(definition.id) ?? false,
+							input.workbookLookupTags?.get(definition.id)?.has(table.tag) ??
+								false,
+						)
+						? [table]
+						: [];
+				})
+			: [];
+	const jsonIds = new Set<string>(
+		jsonLookupTables.map((table) => table.tableId),
+	);
 	const mainDefinitions = referenced.filter(
 		(definition) =>
 			!leftOutIds.has(definition.id) &&
+			!jsonIds.has(definition.id) &&
 			!fixtureData.streamedTables?.has(definition.id),
 	);
 	/* Each HQ workbook's tables, judged and built over its own: the main one,
@@ -282,8 +338,16 @@ export function exportCarrierFindings(
 				throw new Error("The planned workbook lost its table definition.");
 			const carrier = alternativeLookupCarrier(definition, shape.issue);
 			alternativeKinds.set(table.tableId, carrier.kind);
+			/* A table tagged `types` is refused by its tag
+			 * (`lookupHqReservedTagFindings`), whose ways out are a direct
+			 * publish without a workbook and a new export tag. Neither is open
+			 * to Nova's copy of a table CommCare HQ manages: Nova refuses every
+			 * edit of it, and its indexes CommCare HQ never showed keep it off
+			 * the JSON resources. Create a separate table is its way out, so
+			 * that copy is named here, and its tag is not refused besides. */
 			if (
-				table.tag.toLowerCase() === TYPES_SHEET ||
+				(table.tag.toLowerCase() === TYPES_SHEET &&
+					!separableCopy(definition)) ||
 				textFindings.some((f) => f.details?.tableId === table.tableId)
 			)
 				continue;
@@ -291,7 +355,14 @@ export function exportCarrierFindings(
 				validationError(
 					"LOOKUP_WORKER_SOURCE_UNAVAILABLE",
 					"app",
-					describeLookupCarrierAlternative(definition.name, carrier),
+					describeLookupCarrierAlternative(
+						definition.name,
+						carrier,
+						/* On a direct upload a table the JSON resources could carry is
+						 * in the workbook only because the Project put it there by
+						 * one (`travelsAsJson`). */
+						mode === "hq-json" ? "file" : "workbook-there",
+					),
 					{},
 					{
 						tableId: table.tableId,
@@ -329,7 +400,17 @@ export function exportCarrierFindings(
 			),
 			textFindings,
 			...(lookupWire !== undefined && { fixtures: lookupWire.fixtures }),
-			hqNamings: workbookTables.filter((tables) => tables !== undefined),
+			hqNamings: workbookTables
+				.filter((tables) => tables !== undefined)
+				.map((naming) => ({
+					...naming,
+					tables: naming.tables.filter(
+						(table) =>
+							!alternatives.some(
+								(finding) => finding.details?.tableId === table.tableId,
+							),
+					),
+				})),
 			workbooks: [lookupWorkbook, ...managedWorkbooks].filter(
 				(workbook) => workbook !== undefined,
 			),
@@ -354,6 +435,7 @@ export function exportCarrierFindings(
 			: leftOut
 		).map(managedLookupTable),
 		managedLookupWorkbooks,
+		jsonLookupTables,
 		rowFindings,
 		get selectionFindings() {
 			selectionFindings ??=
@@ -361,6 +443,37 @@ export function exportCarrierFindings(
 			return selectionFindings;
 		},
 	};
+}
+
+/**
+ * Whether a direct upload carries this table through CommCare HQ's JSON
+ * resources instead of the workbook: only a table those resources carry
+ * whole (`lib/commcare/lookup/carrier.ts::alternativeLookupCarrier`: global,
+ * no index, a complete copy where it has a source), and only where the
+ * workbook cannot carry its rows exactly (`lookupWorkbookShape`: the tag
+ * `types`, a value CommCare HQ's reader would trim, an occurrence count or
+ * an empty occurrence it would lose) or the table already has a JSON
+ * destination there, whose rows a workbook would replace. A table the
+ * Project already put there under its tag by a workbook stays in the
+ * workbook: its rows there carry no Nova identity the JSON resources could
+ * reconcile by.
+ */
+function travelsAsJson(
+	definition: LookupTableDefinition,
+	table: LookupTableWireNaming,
+	rows: readonly LookupFixtureRow[],
+	hasDestination: boolean,
+	inWorkbookThere: boolean,
+): boolean {
+	if (alternativeLookupCarrier(definition, "").kind !== "json") return false;
+	if (hasDestination) return true;
+	if (inWorkbookThere) return false;
+	const shape = lookupWorkbookShape(table);
+	for (const row of rows) {
+		if (shape.issue !== undefined) break;
+		observeLookupWorkbookRow(shape, table, row);
+	}
+	return shape.issue !== undefined;
 }
 
 /**
@@ -664,7 +777,7 @@ function lookupHqReservedTagFindings(
 			validationError(
 				"LOOKUP_TAG_RESERVED_BY_HQ",
 				"app",
-				`CommCare HQ keeps the sheet name ${TYPES_SHEET} for its own list of the tables in an upload, so the export tag ${table.tag} has nowhere to put its rows. Rename it in Project data, then try again.`,
+				`CommCare HQ keeps the sheet name ${TYPES_SHEET} for its own list of the tables in a workbook, so the export tag ${table.tag} has nowhere to put its rows there. A direct publish to CommCare HQ from Nova carries a table with no index and no row assignments under that tag without a workbook. Otherwise you can rename the tag in Project data, then try again.`,
 				{},
 				{ tag: table.tag, reservedTag: TYPES_SHEET },
 			),

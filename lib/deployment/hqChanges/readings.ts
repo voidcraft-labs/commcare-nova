@@ -363,7 +363,21 @@ export function* makeHqChangeReadingsSteps(
 		input.heldExpansions === undefined
 			? {}
 			: { heldExpansions: input.heldExpansions };
-	const base = yield* readHqAppSteps(baseInput, options);
+	/* A reference that holds no level was read with none: its reading read no places, so Nova
+	 * holds no level for it. The base is read as it was then, so the levels CommCare HQ's change
+	 * newly reads come in as that change's own, beside the rule that reads them. A base that
+	 * reads a level all the same is read with the Project's levels, as before. */
+	const levelless =
+		(reference.doc.organizationLevelOrder ?? []).length === 0 &&
+		data.organization.levels.length > 0;
+	let base = yield* readHqAppSteps(
+		levelless
+			? { ...baseInput, organization: { levelCodes: [], levels: [] } }
+			: baseInput,
+		options,
+	);
+	if (levelless && base.kind === "account")
+		base = yield* readHqAppSteps(baseInput, options);
 	if (base.kind === "account")
 		return {
 			kind: "no-base",

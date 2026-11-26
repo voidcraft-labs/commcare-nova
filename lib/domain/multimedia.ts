@@ -761,6 +761,22 @@ export const ASSET_SIZE_CAPS_BYTES: Record<AssetKind, number> = {
 };
 
 /**
+ * The most pixels (width × height, each side counted as at least 1) a picture
+ * CommCare HQ stores may hold. Every path HQ stores a picture through opens it
+ * with Pillow (`hqmedia/models.py::CommCareImage.attach_data` →
+ * `get_image_object` → `Image.open`): its bulk upload, which Nova's publish
+ * sends, and its one-file upload. `Image.open` raises `DecompressionBombError`
+ * past twice `PIL.Image.MAX_IMAGE_PIXELS` (Pillow 12.3.0 at HQ's pin:
+ * `int(1024 * 1024 * 1024 // 4 // 3)` = 89,478,485), and the bulk upload turns
+ * that into an error that stops the whole upload and saves none of its files
+ * (`hqmedia/tasks.py::process_bulk_upload_zip`). Held natively by
+ * `proof/hq/test_media_bounds.py`. The bound counts pixels, not bytes: a
+ * picture of one colour this large compresses to a few kilobytes.
+ */
+export const HQ_PICTURE_MAX_PIXELS =
+	2 * Math.floor((1024 * 1024 * 1024) / 4 / 3);
+
+/**
  * Aggregate budget of the export boundary's in-memory mode
  * (`lib/export/boundaryValidation.ts` without `streamMedia`), which loads
  * EVERY referenced ready asset's bytes at once and so must bound their SUM

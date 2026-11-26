@@ -295,18 +295,10 @@ def project_data_reads(authoring, app_id, credential):
             listed = operations.fixture_rows_read(state, table["id"], credential)
             found[f"fixtureRows:{table['tag']}"] = listed
         rows = _body(listed).get("objects", []) if listed.status == 200 else []
-        if not (table.get("item_attributes") or any(field.get("properties") for field in table["fields"])
-                or any(isinstance(value, list) for row in rows for value in row["fields"].values())):
-            continue
-        for name, resource, remote_id in (
-            [("lookupDefinition", "lookup_table", table["id"])]
-            + [("fixtureDetail", "lookup_table_item", row["id"]) for row in rows]
-        ):
+        for name, resource, remote_id in operations.lookup_detail_targets(table, rows):
             key = f"{name}:{remote_id}"
             with authoring.step("reads", key.encode()):
-                found[key] = operations.api_request(
-                    state, "GET", f"/a/{state.domain}/api/{resource}/v1/{remote_id}/", credential=credential,
-                )
+                found[key] = operations.lookup_detail_read(state, resource, remote_id, credential)
     with authoring.step("reads", b"locationTypes"):
         found["locationTypes"] = operations.location_types_read(state, credential)
     with authoring.step("reads", b"locations"):
@@ -384,6 +376,8 @@ def reading_input(app_id_answers, project_answers, media, base, *, claims) -> di
     }
     if base.declaration is not None:
         found["declaration"] = base.declaration.as_json()
+    if base.owner_rule_choices:
+        found["ownerRuleChoices"] = dict(base.owner_rule_choices)
     return found
 
 
@@ -461,6 +455,11 @@ def not_read_message(base_id, answer, kept) -> str:
         shown += f"; and {len(listed) - LISTED_FINDINGS} more"
     if answer.get("kind") == "declaration-not-offered":
         shown = f"it states {answer.get('declaration')}, and the reading offers {answer.get('offered')}"
+    if answer.get("kind") == "owner-rules-not-answered":
+        shown = (
+            f"it answers the owner rules {answer.get('ownerRuleChoices')}, and the reading asks about the levels"
+            f" {answer.get('ownerRuleLevels')}"
+        )
     return (
         f"Nova's reader did not read the base {base_id} the lane made in CommCare HQ ({answer.get('kind')}):"
         f" {shown or 'no finding'}. A base is made only of what Nova holds, so either the reader is wrong about that"

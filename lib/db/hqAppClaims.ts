@@ -64,10 +64,11 @@ export const HQ_APP_MAPPING_OWNERSHIPS = ["nova-created", "adopted"] as const;
 /** What a write Nova lets out to CommCare HQ is, by the resource it writes. */
 export const HQ_REMOTE_APP_WRITE_KINDS = ["create", "import", "media"] as const;
 export type HqRemoteAppWriteKind = (typeof HQ_REMOTE_APP_WRITE_KINDS)[number];
-/** Every kind of write the ledger holds: an app's, a lookup table workbook, a batch of places, a worker account. */
+/** Every kind of write the ledger holds: an app's, a lookup table workbook or one JSON request for a table, a batch of places, a worker account. */
 export type HqRemoteWriteKind =
 	| HqRemoteAppWriteKind
 	| "workbook"
+	| "lookup-json"
 	| "places"
 	| "worker";
 export const HQ_APP_END_REASONS = ["stopped", "claimed-elsewhere"] as const;

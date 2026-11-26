@@ -33,7 +33,10 @@ import type {
 	HqChangesProgress,
 	HqChangesReview,
 } from "@/lib/deployment/hqChanges";
-import { LOOKUP_TABLE_CHOICES } from "@/lib/deployment/reading/projectData/reviewTypes";
+import {
+	LOOKUP_TABLE_CHOICES,
+	ownerRuleChoicesSchema,
+} from "@/lib/deployment/reading/projectData/reviewTypes";
 import { READING_ID_PATTERN } from "@/lib/deployment/reading/types";
 import type {
 	DeploymentScope,
@@ -52,7 +55,8 @@ export const hqChangesKeySchema = z.strictObject({
 	domain: z.string(),
 });
 
-/** The bring-in route's body: the key, the review it answers and each table's answer. */
+/** The bring-in route's body: the key, the review it answers, each table's answer and each
+ *  owner rule's. */
 export const hqChangesBringInSchema = z.strictObject({
 	appId: deploymentAppIdSchema,
 	server: z.enum(COMMCARE_SERVER_IDS),
@@ -60,6 +64,8 @@ export const hqChangesBringInSchema = z.strictObject({
 	readingId: z.string().regex(READING_ID_PATTERN),
 	reviewDigest: z.string().regex(/^[0-9a-f]{64}$/),
 	tableChoices: z.record(z.string(), z.enum(LOOKUP_TABLE_CHOICES)),
+	/** The answer for each owner rule the review asks about, by level code. */
+	ownerRuleChoices: ownerRuleChoicesSchema.optional(),
 });
 
 /** One line of either route's stream. */

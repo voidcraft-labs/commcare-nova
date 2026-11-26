@@ -1,0 +1,150 @@
+[
+	{
+		"tag": "sites",
+		"is_global": true,
+		"description": "",
+		"fields": [
+			{
+				"name": "id",
+				"properties": [],
+				"is_indexed": false
+			},
+			{
+				"name": "name",
+				"properties": [],
+				"is_indexed": false
+			}
+		],
+		"item_attributes": [],
+		"rows": [
+			{
+				"fields": {
+					"id": [
+						{
+							"value": "home",
+							"properties": {}
+						}
+					],
+					"name": [
+						{
+							"value": "At home",
+							"properties": {}
+						}
+					]
+				},
+				"item_attributes": {}
+			},
+			{
+				"fields": {
+					"id": [
+						{
+							"value": "clinic",
+							"properties": {}
+						}
+					],
+					"name": [
+						{
+							"value": "At the clinic",
+							"properties": {}
+						}
+					]
+				},
+				"item_attributes": {}
+			}
+		]
+	},
+	{
+		"tag": "types",
+		"is_global": true,
+		"description": "",
+		"fields": [
+			{
+				"name": "id",
+				"properties": [],
+				"is_indexed": false
+			},
+			{
+				"name": "name",
+				"properties": [],
+				"is_indexed": false
+			},
+			{
+				"name": "description",
+				"properties": [],
+				"is_indexed": false
+			}
+		],
+		"item_attributes": [],
+		"rows": [
+			{
+				"fields": {
+					"id": [
+						{
+							"value": "first",
+							"properties": {}
+						}
+					],
+					"name": [
+						{
+							"value": "First visit",
+							"properties": {}
+						}
+					],
+					"description": [
+						{
+							"value": "Meet the family",
+							"properties": {}
+						}
+					]
+				},
+				"item_attributes": {}
+			},
+			{
+				"fields": {
+					"id": [
+						{
+							"value": "follow_up",
+							"properties": {}
+						}
+					],
+					"name": [
+						{
+							"value": "Follow-up",
+							"properties": {}
+						}
+					],
+					"description": [
+						{
+							"value": "Check on progress",
+							"properties": {}
+						}
+					]
+				},
+				"item_attributes": {}
+			},
+			{
+				"fields": {
+					"id": [
+						{
+							"value": "closing",
+							"properties": {}
+						}
+					],
+					"name": [
+						{
+							"value": "Closing visit",
+							"properties": {}
+						}
+					],
+					"description": [
+						{
+							"value": "Say goodbye",
+							"properties": {}
+						}
+					]
+				},
+				"item_attributes": {}
+			}
+		]
+	}
+]

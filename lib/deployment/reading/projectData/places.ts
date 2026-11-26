@@ -16,7 +16,6 @@ import {
 	type LocationProperty,
 	levelMayNestUnder,
 	type OrganizationLevel,
-	organizationLevelsOf,
 	type Uuid,
 } from "@/lib/domain";
 import { walkExpression } from "@/lib/domain/expression/walk";
@@ -29,12 +28,6 @@ import type {
 	ManagedPlacePlan,
 	ManagedPlaceWrite,
 } from "@/lib/organization/managed";
-import {
-	type OwnerVerdictLocationRow,
-	ownerVerdictRows,
-	reverseHopDestinationLevelUuids,
-	reverseLocationOwnerVerdict,
-} from "@/lib/organization/ownerTargetVerdicts";
 import {
 	coordinateSchema,
 	LOCATION_NAME_MAX_LENGTH,
@@ -424,52 +417,4 @@ export function planManagedPlaces(input: {
 		leftOutHqLocationIds,
 		findings,
 	};
-}
-
-// ── The owner rules the copy would refuse ────────────────────────────────
-
-/**
- * The owner rules of `doc` that the copy would refuse, as findings: the
- * check a birth's organization integrity step runs over the stored rows
- * (`commitIntegrity.ts::assertReverseHopTargetsUnambiguous`), run over the
- * planned places, each a live place whose id is its site code. A rule that
- * gives a case to the place at a level below its owner holds only where
- * exactly one such place stands below each place that owns cases; one where
- * it does not is `owner-rule-needs-one-place`, named by the level.
- */
-export function managedPlacesOwnerFindings(
-	doc: BlueprintDoc,
-	plan: ManagedPlacePlan,
-): readonly Finding[] {
-	const destinations = reverseHopDestinationLevelUuids(doc);
-	if (destinations.length === 0) return [];
-	const rows = ownerVerdictRows(
-		plan.places.map(
-			(place): OwnerVerdictLocationRow => ({
-				id: place.siteCode,
-				name: place.name,
-				level_uuid: place.levelUuid,
-				parent_id: place.parentSiteCode,
-				archived_at: null,
-			}),
-		),
-	);
-	const findings: Finding[] = [];
-	for (const levelUuid of destinations) {
-		const verdict = reverseLocationOwnerVerdict(doc, rows, levelUuid);
-		if (!verdict) continue;
-		const level = organizationLevelsOf(doc)[levelUuid]?.name ?? levelUuid;
-		const name =
-			verdict.kind === "ambiguous"
-				? `Both ${verdict.first.name} and ${verdict.second.name} match ${level} under ${verdict.source.name}.`
-				: verdict.kind === "none-below"
-					? `No ${level} matches under ${verdict.source.name}.`
-					: `The worker cannot reach one owner at ${level}.`;
-		findings.push(
-			circumstanceFinding("owner-rule-needs-one-place", ORGANIZATION, {
-				name,
-			}),
-		);
-	}
-	return findings;
 }

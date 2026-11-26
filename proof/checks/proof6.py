@@ -173,6 +173,7 @@ def first_read_input(document, reads, *, claims="counts"):
             "runsOnlyOn": declaration.get("runsOnlyOn"),
             "splitDatetime": bool(declaration.get("splitDatetime")),
         },
+        **({"ownerRuleChoices": facts["ownerRuleChoices"]} if facts.get("ownerRuleChoices") else {}),
         "identity": "mint",
         "claims": claims,
     }
@@ -258,9 +259,23 @@ def answer_differences(document_id, state, answer, *, stated=None) -> list[Diffe
                 answer.get("offered"),
             )
         ]
+    if kind == "owner-rules-not-answered":
+        path = "/ownerRuleChoices"
+        return [
+            Difference(
+                CHECK,
+                document_id,
+                f"document@{state}",
+                path,
+                path,
+                "changed",
+                answer.get("ownerRuleChoices"),
+                answer.get("ownerRuleLevels"),
+            )
+        ]
     raise readerbundle.ReaderBundleFailed(
         f"Nova's reader answered {document_id} at {state} with the kind {kind!r}; proof/reader/cli.ts answers read,"
-        " account or declaration-not-offered."
+        " account, declaration-not-offered or owner-rules-not-answered."
     )
 
 

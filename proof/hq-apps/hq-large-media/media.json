@@ -1,0 +1,18 @@
+[
+	{
+		"path": "jr://file/commcare/audio/data/site_remark.mp3",
+		"file": "media/0.mp3",
+		"mediaClass": "CommCareAudio",
+		"kind": "audio",
+		"mimeType": "audio/mpeg",
+		"extension": "mp3"
+	},
+	{
+		"path": "jr://file/large_site_photo.png",
+		"file": "media/1.png",
+		"mediaClass": "CommCareImage",
+		"kind": "image",
+		"mimeType": "image/png",
+		"extension": "png"
+	}
+]

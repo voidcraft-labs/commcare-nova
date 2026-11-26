@@ -215,6 +215,52 @@ describe("withRetainedHq", () => {
 		expect(asked).toEqual(["fixtureRows:plain"]);
 	});
 
+	it("gives a file past its kind's upload cap twice, as a reading streams it after its read in memory, and a file within it once", async () => {
+		const large = Buffer.alloc(5 * 1024 * 1024 + 1, 1);
+		const answers = {
+			...ANSWERS,
+			projectData: {
+				...ANSWERS.projectData,
+				media: [
+					...ANSWERS.projectData.media,
+					{
+						path: "jr://file/commcare/image/large.png",
+						mediaType: "CommCareImage",
+						multimediaId: "large",
+						status: 200,
+						base64: large.toString("base64"),
+					},
+				],
+			},
+		};
+		const largePath = "/hq/multimedia/file/CommCareImage/large/";
+		const sizes = await withRetainedHq(answers, async () => {
+			const seen = [];
+			for (let read = 0; read < 2; read++)
+				seen.push(
+					(await (await fetch(`${ORIGIN}${largePath}`)).arrayBuffer())
+						.byteLength,
+				);
+			return seen;
+		});
+		expect(sizes).toEqual([large.byteLength, large.byteLength]);
+		await expect(
+			withRetainedHq(answers, async () => {
+				for (let read = 0; read < 3; read++)
+					await (await fetch(`${ORIGIN}${largePath}`))
+						.arrayBuffer()
+						.catch(() => undefined);
+			}),
+		).rejects.toThrow(new RetainedAnswerMissing(largePath));
+		const smallPath = "/hq/multimedia/file/CommCareImage/a1b2c3/";
+		await expect(
+			withRetainedHq(answers, async () => {
+				await (await fetch(`${ORIGIN}${smallPath}`)).arrayBuffer();
+				await fetch(`${ORIGIN}${smallPath}`).catch(() => undefined);
+			}),
+		).rejects.toThrow(new RetainedAnswerMissing(smallPath));
+	});
+
 	it("refuses a request to any other host", async () => {
 		const run = withRetainedHq(ANSWERS, async () => {
 			await fetch("https://india.commcarehq.org/api/user_domains/v1/").catch(

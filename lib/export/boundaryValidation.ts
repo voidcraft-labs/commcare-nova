@@ -19,7 +19,10 @@ import { requiresLookupProjection } from "@/lib/lookup/source";
 import "server-only";
 
 import type { PreparedLookupWire } from "@/lib/commcare/lookup/fixtures";
-import type { LookupWireNaming } from "@/lib/commcare/lookup/naming";
+import type {
+	LookupTableWireNaming,
+	LookupWireNaming,
+} from "@/lib/commcare/lookup/naming";
 import type { LookupWorkbook } from "@/lib/commcare/lookup/workbook";
 import {
 	type ValidationError,
@@ -131,6 +134,18 @@ export interface PrepareExportBoundaryInput {
 	 * left out of the workbook, so Nova never writes it there.
 	 */
 	readonly lookupTarget?: LookupTarget;
+	/**
+	 * `hq-upload`'s tables that already have a JSON destination on
+	 * `lookupTarget`, which keep travelling through CommCare HQ's JSON
+	 * resources (`boundaryFindings.ts::ExportCarrierFindingsInput`).
+	 */
+	readonly jsonDestinationTableIds?: ReadonlySet<string>;
+	/**
+	 * `hq-upload`'s tables the Project already has on `lookupTarget` through
+	 * a workbook, with the tags they are there under, which stay in the
+	 * workbook (`boundaryFindings.ts::ExportCarrierFindingsInput`).
+	 */
+	readonly workbookLookupTags?: ReadonlyMap<string, ReadonlySet<string>>;
 }
 
 /**
@@ -196,6 +211,13 @@ export interface PreparedExportBoundary {
 	 * everywhere else.
 	 */
 	readonly managedLookupWorkbooks: readonly ManagedLookupWorkbook[];
+	/**
+	 * `hq-upload`'s tables that travel through CommCare HQ's JSON resources
+	 * rather than `lookupWorkbook`, their rows in `lookupSnapshot`
+	 * (`boundaryFindings.ts::ExportCarrierFindings.jsonLookupTables`). Absent
+	 * where none does.
+	 */
+	readonly jsonLookupTables?: readonly LookupTableWireNaming[];
 }
 
 export type PrepareExportBoundaryResult =
@@ -210,10 +232,11 @@ export type PrepareExportBoundaryResult =
  * prepared export still come from this module.
  */
 export interface ExportBoundaryReads {
-	/** The requested tables' definitions and complete ordered rows. */
+	/** The requested tables' definitions and complete ordered rows, for the export mode. */
 	readonly lookupFixtureData: (
 		scope: LookupScope,
 		tableIds: readonly LookupTableId[],
+		mode: ExportMode,
 	) => Promise<LookupFixtureDataSnapshot>;
 	/** The Project's rows for the requested uploaded media ids. */
 	readonly mediaRows: (
@@ -233,8 +256,12 @@ export interface ExportBoundaryReads {
 }
 
 const PRODUCTION_READS: ExportBoundaryReads = {
-	lookupFixtureData: (scope, tableIds) =>
-		getLookupFixtureData(scope, tableIds, "export"),
+	lookupFixtureData: (scope, tableIds, mode) =>
+		getLookupFixtureData(
+			scope,
+			tableIds,
+			mode === "ccz" ? "download-export" : "export",
+		),
 	mediaRows: (ids, projectId) => loadAssetsByIds(ids, projectId),
 	mediaManifest: (doc, projectId, heldPaths, streamMedia) =>
 		resolveMediaManifest(doc, projectId, {
@@ -366,6 +393,7 @@ async function prepareWithRegistry(
 	const genericData = await reads.lookupFixtureData(
 		scope,
 		lookupTargets.tableIds,
+		input.mode,
 	);
 	const restoreIds =
 		input.mode === "ccz" && input.installTarget
@@ -444,9 +472,12 @@ async function prepareWithRegistry(
 				validationError(
 					"LOOKUP_WORKER_SOURCE_UNAVAILABLE",
 					"app",
+					/* Only a table held as a streamed generation reaches here, and
+					 * no carrier takes one exactly yet, the direct publish included. */
 					describeLookupCarrierAlternative(
 						item.table.definition.name,
 						item.carrier,
+						"too-large",
 					),
 					{},
 					{
@@ -469,6 +500,12 @@ async function prepareWithRegistry(
 		restoreTableIds: new Set(restoreIds),
 		...(input.lookupTarget !== undefined && {
 			lookupTarget: input.lookupTarget,
+		}),
+		...(input.jsonDestinationTableIds !== undefined && {
+			jsonDestinationTableIds: input.jsonDestinationTableIds,
+		}),
+		...(input.workbookLookupTags !== undefined && {
+			workbookLookupTags: input.workbookLookupTags,
 		}),
 	});
 	const {
@@ -533,6 +570,9 @@ async function prepareWithRegistry(
 			...(lookupWorkbook !== undefined && { lookupWorkbook }),
 			managedLookupTables,
 			managedLookupWorkbooks,
+			...(carrier.jsonLookupTables.length > 0 && {
+				jsonLookupTables: carrier.jsonLookupTables,
+			}),
 		},
 	};
 }

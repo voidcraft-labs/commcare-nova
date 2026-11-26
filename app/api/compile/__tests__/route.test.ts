@@ -358,7 +358,7 @@ for (const [mode, post, verb] of [
 			expect(getLookupFixtureData).toHaveBeenCalledWith(
 				{ projectId: "project-1", actorId: "u1", role: "viewer" },
 				[],
-				"export",
+				mode === "ccz" ? "download-export" : "export",
 			);
 			if (mode === "json") {
 				expect(response.headers.get("x-compiled-at-seq")).toBe("99");

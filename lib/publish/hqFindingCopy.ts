@@ -314,10 +314,7 @@ export const FINDING_COPY: Readonly<
 			"A lookup table here uses something Nova can't hold yet, or is larger than Nova takes.",
 	},
 	"media-by-language": {},
-	"media-files": {
-		"not-yet":
-			"A media file here is larger than Nova takes, or this app has more media than Nova takes.",
-	},
+	"media-files": {},
 	"menu-badges": {
 		"not-yet":
 			"This uses a badge on a menu or form, which Nova can't hold yet.",
@@ -855,6 +852,16 @@ export const CIRCUMSTANCE_COPY: Readonly<
 		body: "The app points at {name}, and CommCare HQ has no file there, so the app can't show or play it either.",
 		next: "You can upload the file again in CommCare HQ, or remove it from the app there, then check again.",
 	},
+	"media-file-too-large": {
+		title: "This file is larger than Nova reads",
+		body: "The app points at {name}, and Nova reads no file that large. That limit is Nova's, not the app's.",
+		next: "You can save a smaller copy of it in CommCare HQ, then check again.",
+	},
+	"media-picture-too-many-pixels": {
+		title: "This picture is larger than CommCare HQ stores",
+		body: "The app points at {name}. CommCare HQ takes no new picture that large, so Nova couldn't publish it.",
+		next: "You can save a smaller copy of it in CommCare HQ, then check again.",
+	},
 	"media-not-played-where-app-runs": {
 		title: "A media file doesn't play where this app runs",
 		body: "The app points at {name}, and no platform that can run the rest of this app plays that file's format.",
@@ -904,11 +911,6 @@ export const CIRCUMSTANCE_COPY: Readonly<
 		title: "A place field's worker text is unclear",
 		body: "CommCare HQ sends {name} in {space} with its entries sorted. A worker sees them in their original order.",
 		next: "You can store the intended worker text in that field in CommCare HQ, then check again.",
-	},
-	"owner-rule-needs-one-place": {
-		title: "A case owner rule needs one destination",
-		body: "{name} Nova checked the rule against the places in {space}.",
-		next: "You can choose a specific owner in the form or change the places in CommCare HQ, then check again.",
 	},
 	unrecognized: {
 		title: "Nova met something it doesn't know",

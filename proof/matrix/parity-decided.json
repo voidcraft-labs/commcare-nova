@@ -170,7 +170,9 @@
 		"hq-kept-settings/translation-key-with-a-leading-space"
 	],
 	"hq-languages": [],
+	"hq-large-media": [],
 	"hq-lookup-aliases": [],
+	"hq-lookup-data": [],
 	"hq-lookup-name-lists": [
 		"hq-lookup-name-lists/non-ascii-column-in-menu-condition"
 	],
@@ -179,6 +181,7 @@
 		"hq-lookup-names/dotted-table-in-form-condition",
 		"hq-lookup-names/non-ascii-column-in-form-condition"
 	],
+	"hq-lookup-types": [],
 	"hq-lookups": [
 		"hq-lookups/declared-report-fixture",
 		"hq-lookups/itemset-copy",
@@ -242,6 +245,7 @@
 		"hq-new-app/vellum-case-management-off"
 	],
 	"hq-nova-then-builder": ["hq-nova-then-builder/close-on-a-survey"],
+	"hq-owner-rules": [],
 	"hq-places": [],
 	"hq-plain": [
 		"hq-plain/advanced-itemsets-turned-on",

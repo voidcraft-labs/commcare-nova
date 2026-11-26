@@ -29,7 +29,7 @@ import { publishFromSession as publishAppToHq } from "@/lib/deployment/__tests__
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { gunzipSync, gzipSync } from "node:zlib";
+import { crc32, gunzipSync, gzipSync } from "node:zlib";
 import { produce } from "immer";
 import { type Kysely, sql } from "kysely";
 import sharp from "sharp";
@@ -57,6 +57,7 @@ import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { withProjectContext } from "@/lib/case-store";
 import type { Database as CaseDatabase } from "@/lib/case-store/sql/database";
 import { decrypt } from "@/lib/commcare/encryption";
+import { locationOwnerFixture } from "@/lib/commcare/locations/__tests__/locationOwnerFixture";
 import { derivedFormXmlns, derivedUniqueId } from "@/lib/commcare/wireIdentity";
 import { applyBlueprintChangeProposal } from "@/lib/db/__tests__/admittedWriterTestHelpers";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
@@ -67,6 +68,7 @@ import {
 	toPersistableDoc,
 } from "@/lib/doc/fieldParent";
 import {
+	ASSET_SIZE_CAPS_BYTES,
 	type BlueprintDoc,
 	makeTranslationUnitId,
 	translationSourceFingerprint,
@@ -91,8 +93,11 @@ import { getLookupTable, updateLookupTableTag } from "@/lib/lookup/service";
 import { authorizeLookupWriteInTransaction } from "@/lib/lookup/writerTransaction";
 import { continueAppTest, startAppTest } from "@/lib/preview/app-tests/service";
 import type { StoredFirstPublish } from "@/lib/publish/firstPublishChangeIds";
+import { FIRST_PUBLISH_SENTENCES } from "@/lib/publish/firstPublishCopy";
 import {
 	ANDROID_APPS_PRIVILEGE_LOST_LINE,
+	HQ_CHANGES_OWNER_RULE_MISSING,
+	HQ_CHANGES_OWNER_RULE_NOT_OFFERED,
 	hqChangesPublishingStoppedLine,
 } from "@/lib/publish/hqChangesCopy";
 import { PLAN_FEATURE_IDS } from "@/lib/publish/planFeatures";
@@ -140,7 +145,13 @@ import {
 	serveHqApp,
 	summarizeServedHqApp,
 } from "../reading/__tests__/servedHqApp";
+import {
+	hqPlace,
+	serveHqPlaces,
+	serveLocationLevels,
+} from "../reading/__tests__/servedPlaces";
 import { createFromReview } from "../reading/create";
+import { workerOwnerMutations } from "../reading/projectData/ownerRules";
 import { authorizeBringIn, readHqAppForReview } from "../reading/read";
 import {
 	landedFirstPublish,
@@ -213,24 +224,53 @@ vi.mock("@/lib/deployment/service", async (importOriginal) => {
 		await importOriginal<typeof import("@/lib/deployment/service")>();
 	return { ...actual, setupArtifactFor: vi.fn(actual.setupArtifactFor) };
 });
+/* The objects a reading streams a file past its kind's cap into, held as the bucket holds them. */
+const stagedObjects = vi.hoisted(() => new Map<string, Buffer>());
 /* The bucket, at its own boundary: an app brought in with a file publishes it there. */
-vi.mock("@/lib/storage/media", () => ({
-	uploadAssetBytes: vi.fn(async () => undefined),
-	deleteAsset: vi.fn(),
-	downloadAssetBytes: vi.fn(),
-	stageAssetBytes: vi.fn(
-		async ({ gcsObjectKey }: { gcsObjectKey: string }) => ({
-			gcsObjectKey,
-			generation: "1",
-			checksum: "staged",
+vi.mock("@/lib/storage/media", async () => {
+	const { bufferBytes } = await import("@/lib/media/randomAccess");
+	return {
+		openStagedAssetWrite: vi.fn(
+			({ gcsObjectKey }: { gcsObjectKey: string }) => {
+				const chunks: Buffer[] = [];
+				return {
+					write: async (chunk: Uint8Array) => {
+						chunks.push(Buffer.from(chunk));
+					},
+					finish: async () => {
+						stagedObjects.set(gcsObjectKey, Buffer.concat(chunks));
+						return { gcsObjectKey, generation: "1", checksum: "staged" };
+					},
+					abort: async () => {
+						stagedObjects.delete(gcsObjectKey);
+					},
+				};
+			},
+		),
+		setStagedContentType: vi.fn(async () => undefined),
+		stagedObjectBytes: vi.fn(({ gcsObjectKey }: { gcsObjectKey: string }) => {
+			const bytes = stagedObjects.get(gcsObjectKey);
+			if (bytes === undefined)
+				throw new Error(`No object is staged at ${gcsObjectKey}.`);
+			return bufferBytes(bytes);
 		}),
-	),
-	copyAssetObjectIfAbsent: vi.fn(async () => ({
-		destinationGeneration: "1",
-		replay: false,
-	})),
-	deleteAssetGeneration: vi.fn(async () => undefined),
-}));
+		uploadAssetBytes: vi.fn(async () => undefined),
+		deleteAsset: vi.fn(),
+		downloadAssetBytes: vi.fn(),
+		stageAssetBytes: vi.fn(
+			async ({ gcsObjectKey }: { gcsObjectKey: string }) => ({
+				gcsObjectKey,
+				generation: "1",
+				checksum: "staged",
+			}),
+		),
+		copyAssetObjectIfAbsent: vi.fn(async () => ({
+			destinationGeneration: "1",
+			replay: false,
+		})),
+		deleteAssetGeneration: vi.fn(async () => undefined),
+	};
+});
 beforeEach(() => {
 	seam.beforeCommit = null;
 	vi.mocked(decrypt).mockReset();
@@ -1871,6 +1911,79 @@ describe("a bring-in of changes made in CommCare HQ", () => {
 		);
 		const baseline = await readAppBaseline(scope, KEY_TARGET);
 		expect(baseline?.mediaFiles).toEqual({ [WIRE_PATH]: "same-image" });
+	}, 30_000);
+
+	it("settles a file of the app's own past its kind's cap that CommCare HQ holds under a new id as the app's, by its digest", async () => {
+		const scope = await broughtInWithIcon();
+		/* The app's picture is one past the picture cap: the pattern with a private chunk before
+		 * its end, as a picture brought in past the cap is held. */
+		const iend = PNG.length - 12;
+		const filler = Buffer.alloc(ASSET_SIZE_CAPS_BYTES.image + 137, 7);
+		const type = Buffer.from("prVt", "latin1");
+		const length = Buffer.alloc(4);
+		length.writeUInt32BE(filler.length);
+		const crc = Buffer.alloc(4);
+		crc.writeUInt32BE(crc32(Buffer.concat([type, filler])));
+		const big = Buffer.concat([
+			PNG.subarray(0, iend),
+			length,
+			type,
+			filler,
+			crc,
+			PNG.subarray(iend),
+		]);
+		const updated = await h
+			.db()
+			.updateTable("media_assets")
+			.set({
+				content_hash: createHash("sha256").update(big).digest("hex"),
+				size_bytes: big.length,
+			})
+			.where("project_id", "=", E2E_PROJECT)
+			.executeTakeFirst();
+		expect(Number(updated.numUpdatedRows)).toBe(1);
+		/* CommCare HQ now names the same bytes by another id, as a bulk upload whose processing
+		 * Nova did not see confirmed leaves it. */
+		const BIG = "big-image";
+		const current = changedAnswer(
+			withIcons(fixtureSource(), [ICON]),
+			(body) => {
+				const map = body.multimedia_map as Record<
+					string,
+					Record<string, unknown>
+				>;
+				const entry = map[ICON_PATH];
+				if (entry === undefined) throw new Error("The icon has no map entry.");
+				entry.multimedia_id = BIG;
+				return body;
+			},
+		);
+		const answer = <T>(request: () => Promise<T>) =>
+			withHttpPeer(async (peer) => {
+				/* Only the file's id moved: settled by content, nothing else is read. */
+				serveRead(peer, current, { tables: false });
+				peer
+					.get(FIXTURE_HOST)
+					.intercept({ path: FIXTURE_PATHS.media(BIG), method: "GET" })
+					.reply(200, big, { headers: { "content-type": "image/png" } })
+					.persist();
+				return request();
+			});
+		const listed = await answer(() =>
+			reviewHqChanges(scope, KEY_TARGET, { onEvent: () => {} }),
+		);
+		/* The file is the app's own: the app reads the same, and no file is told as changed. */
+		expect(listed).toMatchObject({ kind: "nothing", reason: "reads-the-same" });
+		if (listed.kind !== "nothing") throw new Error(JSON.stringify(listed));
+		const recorded = await answer(() =>
+			bringIn(scope, {
+				readingId: listed.readingId ?? "",
+				reviewDigest: listed.reviewDigest ?? "",
+			}),
+		);
+		if (recorded.kind !== "recorded") throw new Error(JSON.stringify(recorded));
+		const baseline = await readAppBaseline(scope, KEY_TARGET);
+		expect(baseline?.mediaFiles).toEqual({ [WIRE_PATH]: BIG });
 	}, 30_000);
 
 	describe("a recorded file whose new id CommCare HQ no longer serves", () => {
@@ -6910,6 +7023,348 @@ describe("a bring-in of changes made in CommCare HQ to a case app", () => {
 				],
 			).toBeUndefined();
 			expect(await storedIds()).not.toContain("translation-overrides-folded");
+		});
+	});
+
+	describe("an owner rule CommCare HQ added that the places cannot satisfy", () => {
+		/** Two clinics below one district: a rule that gives a case to the clinic below its
+		 *  owner names no one place. */
+		const TWO_CLINICS = [
+			hqPlace("north", "region", null),
+			hqPlace("north_district", "district", "north"),
+			hqPlace("first_clinic", "clinic", "north_district"),
+			hqPlace("second_clinic", "clinic", "north_district"),
+		];
+		const servePlacesOf = (peer: MockAgent, times: number) => {
+			serveLocationLevels(peer, times);
+			serveHqPlaces(peer, TWO_CLINICS, {}, times);
+		};
+
+		/** The two-clinic app with each transferred case given to the worker who fills in the
+		 *  form, every other id its own. */
+		function byWorker(): BlueprintDoc {
+			const doc = locationOwnerFixture("direct");
+			for (const form of Object.values(doc.forms))
+				form.caseOperations = form.caseOperations?.map((operation) =>
+					operation.owner === undefined
+						? operation
+						: { ...operation, owner: { kind: "acting-user" } },
+				);
+			return doc;
+		}
+
+		/** The app whose transfer gives each case to its worker: it reads no place, so its reading
+		 *  asks CommCare HQ for none. */
+		async function broughtInByWorker(): Promise<string> {
+			await h.seedProjectMember(MEMBER, E2E_PROJECT, "owner");
+			await seedFixtureConnection(MEMBER);
+			const actor = await authorizeBringIn(MEMBER, E2E_PROJECT);
+			if (actor === null) throw new Error("The member may edit the Project.");
+			const key = fixtureKey(E2E_PROJECT);
+			const served = emission(byWorker(), 2);
+			return withHttpPeer(async (peer) => {
+				serveEmission(peer, served, 2);
+				const read = reviewOf(
+					await readHqAppForReview(actor, key, { onEvent: () => {} }),
+				);
+				expect(read.review.ownerRules).toEqual([]);
+				const created = await createFromReview(
+					actor,
+					createInputFor(key, read),
+					{ onEvent: () => {} },
+				);
+				if (created.kind !== "created")
+					throw new Error(`The create answered ${JSON.stringify(created)}`);
+				return created.receipt.appId;
+			});
+		}
+
+		async function listed(appId: string, changed: ServedHqApp) {
+			const review = await withHttpPeer(async (peer) => {
+				serveEmission(peer, changed);
+				servePlacesOf(peer, 1);
+				return reviewHqChanges(scope(appId), KEY_TARGET, {
+					onEvent: () => {},
+				});
+			});
+			if (review.kind !== "changes")
+				throw new Error(`The review answered ${JSON.stringify(review)}`);
+			return review;
+		}
+
+		function bringIn(
+			appId: string,
+			changed: ServedHqApp,
+			review: Awaited<ReturnType<typeof listed>>,
+			ownerRuleChoices?: Readonly<Record<string, string>>,
+		) {
+			return withHttpPeer(async (peer) => {
+				serveEmission(peer, changed);
+				servePlacesOf(peer, 1);
+				return bringInHqChanges(
+					scope(appId),
+					KEY_TARGET,
+					{
+						readingId: review.readingId,
+						reviewDigest: review.reviewDigest,
+						tableChoices: {},
+						...(ownerRuleChoices !== undefined && { ownerRuleChoices }),
+					},
+					{ onEvent: () => {} },
+				);
+			});
+		}
+
+		/** The list of what the next publish changes that the app's baseline keeps. */
+		async function storedListOf(appId: string) {
+			const row = await h
+				.db()
+				.selectFrom("app_deployment_baselines as baseline")
+				.innerJoin(
+					"app_deployments as deployment",
+					"deployment.id",
+					"baseline.deployment_id",
+				)
+				.select("baseline.first_publish_changes")
+				.where("deployment.app_id", "=", appId)
+				.executeTakeFirstOrThrow();
+			return row.first_publish_changes;
+		}
+
+		/** The owner rule of every case change the app's head holds. */
+		async function ownersAtHead(appId: string) {
+			const head = await headDocOf(appId);
+			return Object.values(head.forms).flatMap((form) =>
+				(form.caseOperations ?? []).flatMap((operation) =>
+					operation.owner === undefined ? [] : [operation.owner.kind],
+				),
+			);
+		}
+
+		it("asks who owns those cases, refuses a bring-in that leaves it unanswered, and commits the worker answer", async () => {
+			const appId = await broughtInByWorker();
+			const before = await headDocOf(appId);
+			/* CommCare HQ now giving each transferred case to the clinic below its owner: one
+			 * emission, served to every read, since an export mints its CommCare HQ ids. */
+			const changed = emission(locationOwnerFixture("direct"), 3);
+			const review = await listed(appId, changed);
+			expect(review.ownerRules).toEqual([
+				{
+					level: "clinic",
+					levelName: expect.any(String),
+					conflict: {
+						kind: "two-places",
+						source: "north_district",
+						places: ["first_clinic", "second_clinic"],
+					},
+					forms: ["Transfer"],
+				},
+			]);
+
+			/* Unanswered: refused in its own words, and the app is as it was. */
+			expect(await bringIn(appId, changed, review)).toEqual({
+				kind: "refused",
+				message: HQ_CHANGES_OWNER_RULE_MISSING,
+			});
+			/* An answer for a level the review does not ask about. */
+			expect(
+				await bringIn(appId, changed, review, {
+					clinic: "worker",
+					region: "worker",
+				}),
+			).toEqual({
+				kind: "refused",
+				message: HQ_CHANGES_OWNER_RULE_NOT_OFFERED,
+			});
+			expect(await headDocOf(appId)).toEqual(before);
+
+			/* Answered: the commit gives every case the rule gave to a clinic to the worker. */
+			const outcome = await bringIn(appId, changed, review, {
+				clinic: "worker",
+			});
+			if (outcome.kind !== "brought-in")
+				throw new Error(`The bring-in answered ${JSON.stringify(outcome)}`);
+			const owners = await ownersAtHead(appId);
+			expect(owners.length).toBeGreaterThan(0);
+			expect(owners.filter((kind) => kind !== "acting-user")).toEqual([]);
+			/* The levels the change newly reads came in with it: the app was born reading no place. */
+			const head = await headDocOf(appId);
+			expect(
+				(head.organizationLevelOrder ?? []).map(
+					(uuid) => head.organizationLevels?.[uuid]?.code,
+				),
+			).toEqual(["region", "district", "clinic"]);
+			/* The next publish gives those cases to the worker in CommCare HQ too, and says so. */
+			expect((await storedListOf(appId))?.ids).toContain(
+				"owner-rule-given-to-worker",
+			);
+		});
+
+		/** `served` as CommCare HQ serves it after a save that reads the same: its counter moved,
+		 *  and the first form's id where `reidentify` (HQ keeps a form's source as the attachment
+		 *  its id names). */
+		function resaved(
+			served: ServedHqApp,
+			version: number,
+			reidentify = false,
+		): ServedHqApp {
+			const body = JSON.parse(String(served.source.body)) as Record<
+				string,
+				unknown
+			>;
+			if (reidentify) {
+				const [menu] = body.modules as Record<string, unknown>[];
+				const [form] = (menu?.forms ?? []) as Record<string, unknown>[];
+				if (form === undefined) throw new Error("The app holds no form.");
+				const attachments = body._attachments as Record<string, unknown>;
+				const id = "e".repeat(32);
+				attachments[`${id}.xml`] = attachments[`${form.unique_id}.xml`];
+				delete attachments[`${form.unique_id}.xml`];
+				form.unique_id = id;
+			}
+			return summarizeServedHqApp({ ...body, version });
+		}
+
+		/** The review of CommCare HQ serving `served`, with `places`, whatever it answers. */
+		function reviewServing(
+			appId: string,
+			served: ServedHqApp,
+			places: readonly Record<string, unknown>[],
+		) {
+			return withHttpPeer(async (peer) => {
+				serveEmission(peer, served);
+				serveLocationLevels(peer, 1);
+				serveHqPlaces(peer, places, {}, 1);
+				return reviewHqChanges(scope(appId), KEY_TARGET, {
+					onEvent: () => {},
+				});
+			});
+		}
+
+		/** The bring-in of `review`, a review that reads the same, recorded. */
+		async function recorded(
+			appId: string,
+			served: ServedHqApp,
+			places: readonly Record<string, unknown>[],
+			review: HqChangesReview,
+		) {
+			if (review.kind !== "nothing" && review.kind !== "changes")
+				throw new Error(`The review answered ${JSON.stringify(review)}`);
+			const outcome = await withHttpPeer(async (peer) => {
+				serveEmission(peer, served);
+				serveLocationLevels(peer, 1);
+				serveHqPlaces(peer, places, {}, 1);
+				return bringInHqChanges(
+					scope(appId),
+					KEY_TARGET,
+					{
+						readingId: review.readingId ?? "",
+						reviewDigest: review.reviewDigest ?? "",
+						tableChoices: {},
+					},
+					{ onEvent: () => {} },
+				);
+			});
+			expect(outcome.kind).toBe("recorded");
+		}
+
+		const OWNER_SENTENCE =
+			FIRST_PUBLISH_SENTENCES["owner-rule-given-to-worker"];
+
+		it("keeps the answered owner change on a later list and in a later review", async () => {
+			const appId = await broughtInByWorker();
+			const changed = emission(locationOwnerFixture("direct"), 3);
+			const review = await listed(appId, changed);
+			const outcome = await bringIn(appId, changed, review, {
+				clinic: "worker",
+			});
+			if (outcome.kind !== "brought-in")
+				throw new Error(`The bring-in answered ${JSON.stringify(outcome)}`);
+			/* A list stored before a review bound its inputs: the review shows what it holds. */
+			const deployment = await h
+				.db()
+				.selectFrom("app_deployments")
+				.select("id")
+				.where("app_id", "=", appId)
+				.executeTakeFirstOrThrow();
+			const stored = await storedListOf(appId);
+			if (stored === null) throw new Error("The take stored no list.");
+			const { reviewedInputs: _bound, ...unbound } = stored;
+			await h
+				.db()
+				.updateTable("app_deployment_baselines")
+				.set({ first_publish_changes: JSON.stringify(unbound) })
+				.where("deployment_id", "=", deployment.id)
+				.execute();
+
+			/* CommCare HQ saved the app again, the same: the review lists the answered change the
+			 * next publish still makes, and the record keeps it. */
+			const again = resaved(changed, 4);
+			const later = await reviewServing(appId, again, TWO_CLINICS);
+			if (later.kind !== "nothing" && later.kind !== "changes")
+				throw new Error(`The review answered ${JSON.stringify(later)}`);
+			expect(later.publishChanges).toContain(OWNER_SENTENCE);
+			await recorded(appId, again, TWO_CLINICS, later);
+			expect((await storedListOf(appId))?.ids).toContain(
+				"owner-rule-given-to-worker",
+			);
+		});
+
+		it("names no owner answer where the author gave a place's cases to the worker in Nova", async () => {
+			/* One clinic below the district: the rule names one place, so no question is asked. */
+			const ONE_CLINIC = TWO_CLINICS.slice(0, 3);
+			await h.seedProjectMember(MEMBER, E2E_PROJECT, "owner");
+			await seedFixtureConnection(MEMBER);
+			const actor = await authorizeBringIn(MEMBER, E2E_PROJECT);
+			if (actor === null) throw new Error("The member may edit the Project.");
+			const key = fixtureKey(E2E_PROJECT);
+			const served = emission(locationOwnerFixture("direct"), 2);
+			const appId = await withHttpPeer(async (peer) => {
+				serveEmission(peer, served, 2);
+				serveLocationLevels(peer, 2);
+				serveHqPlaces(peer, ONE_CLINIC, {}, 2);
+				const read = reviewOf(
+					await readHqAppForReview(actor, key, { onEvent: () => {} }),
+				);
+				expect(read.review.ownerRules).toEqual([]);
+				const created = await createFromReview(
+					actor,
+					createInputFor(key, read),
+					{ onEvent: () => {} },
+				);
+				if (created.kind !== "created")
+					throw new Error(`The create answered ${JSON.stringify(created)}`);
+				return created.receipt.appId;
+			});
+
+			/* The author gives those cases to the worker who fills in the form, in the builder. */
+			const head = await headDocOf(appId);
+			await applyBlueprintChangeProposal({
+				appId,
+				userId: MEMBER,
+				expectedProjectId: E2E_PROJECT,
+				batchId: crypto.randomUUID(),
+				kind: "autosave",
+				guard: { mutations: [...workerOwnerMutations(head, ["clinic"])] },
+			});
+			const owners = await ownersAtHead(appId);
+			expect(owners.length).toBeGreaterThan(0);
+			expect(owners.filter((kind) => kind !== "acting-user")).toEqual([]);
+
+			/* CommCare HQ saved the app again, the same: nothing asked, so nothing answered. */
+			const again = resaved(served, 3, true);
+			const review = await reviewServing(appId, again, ONE_CLINIC);
+			expect(review).toMatchObject({
+				kind: "nothing",
+				reason: "reads-the-same",
+			});
+			if (review.kind !== "nothing")
+				throw new Error(`The review answered ${JSON.stringify(review)}`);
+			expect(review.publishChanges).not.toContain(OWNER_SENTENCE);
+			await recorded(appId, again, ONE_CLINIC, review);
+			expect((await storedListOf(appId))?.ids ?? []).not.toContain(
+				"owner-rule-given-to-worker",
+			);
 		});
 	});
 });
