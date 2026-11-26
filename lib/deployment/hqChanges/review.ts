@@ -1219,9 +1219,13 @@ async function computeWith(
 		return answer(unavailable(reference.kind, since));
 	}
 
-	/* 6. The files the reference publishes, settled by content. */
+	/* 6. The files the reference publishes, settled by content. Each carries its
+	 * size (a byte source no byte is read through here), so a file of the app's
+	 * past its kind's cap is settled by its streamed digest, never refused at
+	 * the cap as another file. */
 	const manifest = await resolveMediaManifest(reference.doc, scope.projectId, {
 		withBytes: false,
+		streamBytes: true,
 		heldPaths: exportIdentityOf(reference.doc, targetIdentity).heldMediaPaths,
 	});
 	const standings = hqMediaStandings({

@@ -29,7 +29,7 @@ import { publishFromSession as publishAppToHq } from "@/lib/deployment/__tests__
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { gunzipSync, gzipSync } from "node:zlib";
+import { crc32, gunzipSync, gzipSync } from "node:zlib";
 import { type Kysely, sql } from "kysely";
 import sharp from "sharp";
 import type { MockAgent } from "undici";
@@ -66,7 +66,7 @@ import {
 	hydratePersistedBlueprint,
 	toPersistableDoc,
 } from "@/lib/doc/fieldParent";
-import type { BlueprintDoc } from "@/lib/domain";
+import { ASSET_SIZE_CAPS_BYTES, type BlueprintDoc } from "@/lib/domain";
 import {
 	eq,
 	gt,
@@ -210,24 +210,53 @@ vi.mock("@/lib/deployment/service", async (importOriginal) => {
 		await importOriginal<typeof import("@/lib/deployment/service")>();
 	return { ...actual, setupArtifactFor: vi.fn(actual.setupArtifactFor) };
 });
+/* The objects a reading streams a file past its kind's cap into, held as the bucket holds them. */
+const stagedObjects = vi.hoisted(() => new Map<string, Buffer>());
 /* The bucket, at its own boundary: an app brought in with a file publishes it there. */
-vi.mock("@/lib/storage/media", () => ({
-	uploadAssetBytes: vi.fn(async () => undefined),
-	deleteAsset: vi.fn(),
-	downloadAssetBytes: vi.fn(),
-	stageAssetBytes: vi.fn(
-		async ({ gcsObjectKey }: { gcsObjectKey: string }) => ({
-			gcsObjectKey,
-			generation: "1",
-			checksum: "staged",
+vi.mock("@/lib/storage/media", async () => {
+	const { bufferBytes } = await import("@/lib/media/randomAccess");
+	return {
+		openStagedAssetWrite: vi.fn(
+			({ gcsObjectKey }: { gcsObjectKey: string }) => {
+				const chunks: Buffer[] = [];
+				return {
+					write: async (chunk: Uint8Array) => {
+						chunks.push(Buffer.from(chunk));
+					},
+					finish: async () => {
+						stagedObjects.set(gcsObjectKey, Buffer.concat(chunks));
+						return { gcsObjectKey, generation: "1", checksum: "staged" };
+					},
+					abort: async () => {
+						stagedObjects.delete(gcsObjectKey);
+					},
+				};
+			},
+		),
+		setStagedContentType: vi.fn(async () => undefined),
+		stagedObjectBytes: vi.fn(({ gcsObjectKey }: { gcsObjectKey: string }) => {
+			const bytes = stagedObjects.get(gcsObjectKey);
+			if (bytes === undefined)
+				throw new Error(`No object is staged at ${gcsObjectKey}.`);
+			return bufferBytes(bytes);
 		}),
-	),
-	copyAssetObjectIfAbsent: vi.fn(async () => ({
-		destinationGeneration: "1",
-		replay: false,
-	})),
-	deleteAssetGeneration: vi.fn(async () => undefined),
-}));
+		uploadAssetBytes: vi.fn(async () => undefined),
+		deleteAsset: vi.fn(),
+		downloadAssetBytes: vi.fn(),
+		stageAssetBytes: vi.fn(
+			async ({ gcsObjectKey }: { gcsObjectKey: string }) => ({
+				gcsObjectKey,
+				generation: "1",
+				checksum: "staged",
+			}),
+		),
+		copyAssetObjectIfAbsent: vi.fn(async () => ({
+			destinationGeneration: "1",
+			replay: false,
+		})),
+		deleteAssetGeneration: vi.fn(async () => undefined),
+	};
+});
 beforeEach(() => {
 	seam.beforeCommit = null;
 	vi.mocked(decrypt).mockReset();
@@ -1868,6 +1897,79 @@ describe("a bring-in of changes made in CommCare HQ", () => {
 		);
 		const baseline = await readAppBaseline(scope, KEY_TARGET);
 		expect(baseline?.mediaFiles).toEqual({ [WIRE_PATH]: "same-image" });
+	}, 30_000);
+
+	it("settles a file of the app's own past its kind's cap that CommCare HQ holds under a new id as the app's, by its digest", async () => {
+		const scope = await broughtInWithIcon();
+		/* The app's picture is one past the picture cap: the pattern with a private chunk before
+		 * its end, as a picture brought in past the cap is held. */
+		const iend = PNG.length - 12;
+		const filler = Buffer.alloc(ASSET_SIZE_CAPS_BYTES.image + 137, 7);
+		const type = Buffer.from("prVt", "latin1");
+		const length = Buffer.alloc(4);
+		length.writeUInt32BE(filler.length);
+		const crc = Buffer.alloc(4);
+		crc.writeUInt32BE(crc32(Buffer.concat([type, filler])));
+		const big = Buffer.concat([
+			PNG.subarray(0, iend),
+			length,
+			type,
+			filler,
+			crc,
+			PNG.subarray(iend),
+		]);
+		const updated = await h
+			.db()
+			.updateTable("media_assets")
+			.set({
+				content_hash: createHash("sha256").update(big).digest("hex"),
+				size_bytes: String(big.length),
+			})
+			.where("project_id", "=", E2E_PROJECT)
+			.executeTakeFirst();
+		expect(updated.numUpdatedRows).toBe(1n);
+		/* CommCare HQ now names the same bytes by another id, as a bulk upload whose processing
+		 * Nova did not see confirmed leaves it. */
+		const BIG = "big-image";
+		const current = changedAnswer(
+			withIcons(fixtureSource(), [ICON]),
+			(body) => {
+				const map = body.multimedia_map as Record<
+					string,
+					Record<string, unknown>
+				>;
+				const entry = map[ICON_PATH];
+				if (entry === undefined) throw new Error("The icon has no map entry.");
+				entry.multimedia_id = BIG;
+				return body;
+			},
+		);
+		const answer = <T>(request: () => Promise<T>) =>
+			withHttpPeer(async (peer) => {
+				/* Only the file's id moved: settled by content, nothing else is read. */
+				serveRead(peer, current, { tables: false });
+				peer
+					.get(FIXTURE_HOST)
+					.intercept({ path: FIXTURE_PATHS.media(BIG), method: "GET" })
+					.reply(200, big, { headers: { "content-type": "image/png" } })
+					.persist();
+				return request();
+			});
+		const listed = await answer(() =>
+			reviewHqChanges(scope, KEY_TARGET, { onEvent: () => {} }),
+		);
+		/* The file is the app's own: the app reads the same, and no file is told as changed. */
+		expect(listed).toMatchObject({ kind: "nothing", reason: "reads-the-same" });
+		if (listed.kind !== "nothing") throw new Error(JSON.stringify(listed));
+		const recorded = await answer(() =>
+			bringIn(scope, {
+				readingId: listed.readingId ?? "",
+				reviewDigest: listed.reviewDigest ?? "",
+			}),
+		);
+		if (recorded.kind !== "recorded") throw new Error(JSON.stringify(recorded));
+		const baseline = await readAppBaseline(scope, KEY_TARGET);
+		expect(baseline?.mediaFiles).toEqual({ [WIRE_PATH]: BIG });
 	}, 30_000);
 
 	describe("a recorded file whose new id CommCare HQ no longer serves", () => {
