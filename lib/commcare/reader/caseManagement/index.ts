@@ -60,7 +60,10 @@ import type { DraftApp, DraftForm, ReadContext } from "../context";
 import { readerDefect } from "../defects";
 import { EXPRESSION_CLAIMS } from "../expressions/findings";
 import { isJsonObject, sameJson } from "../jsonCursor";
-import { keepsRefusedCaseType } from "../menus/modules";
+import {
+	keepsRefusedCaseType,
+	menuKeepsRefusedCaseType,
+} from "../menus/modules";
 import { appPlace } from "../place";
 import { readExpansionSteps, readProjectionInputs } from "../projectionInputs";
 import { provisionalDocument } from "../provisional";
@@ -615,6 +618,12 @@ function settleBasicForm(
 	// which the draft leaves out and the stored actions hold: comparing the two
 	// would name that cause a second time.
 	if (ctx.accounting.hasFindingAt(form.place)) return;
+	// A menu whose case type stands refused keeps it, so its forms are read as
+	// written; Nova's writer plans no basic form of such a menu, and the
+	// menu's finding already stands for what its forms hold.
+	const owning = ctx.draft.modules.find((one) => one.forms.includes(form));
+	if (owning !== undefined && menuKeepsRefusedCaseType(ctx, owning.place))
+		return;
 	const inputs = readProjectionInputs(ctx);
 	let planned: ReturnType<typeof planFormCaseWire>;
 	try {

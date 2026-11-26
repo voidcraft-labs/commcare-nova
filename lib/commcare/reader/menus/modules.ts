@@ -55,6 +55,7 @@ import {
 	unheldText,
 } from "../heldText";
 import { isJsonObject, objectMembers } from "../jsonCursor";
+import { placeKey } from "../place";
 import { readNavMedia } from "./navMedia";
 
 const M = "menus-and-case-lists";
@@ -748,6 +749,22 @@ export function keepsRefusedCaseType(ctx: ReadContext): boolean {
 	return ctx.accounting
 		.findings()
 		.some((finding) => KEPT_REFUSED_CASE_TYPES.has(finding.code));
+}
+
+/** Whether the menu at `place` keeps a refused case type (`keepsRefusedCaseType`):
+ *  its forms are read as written, and Nova's writer cannot plan them again. */
+export function menuKeepsRefusedCaseType(
+	ctx: ReadContext,
+	place: HqPlace,
+): boolean {
+	const key = placeKey(place);
+	return ctx.accounting
+		.findings()
+		.some(
+			(finding) =>
+				KEPT_REFUSED_CASE_TYPES.has(finding.code) &&
+				placeKey(finding.place) === key,
+		);
 }
 
 function readCaseType(ctx: ReadContext, module: DraftModule): void {
