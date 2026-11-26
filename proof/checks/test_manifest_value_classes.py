@@ -1554,7 +1554,21 @@ def _questions():
         model='<bind nodeset="/data/p" type="intent"/><bind nodeset="/data/c" type="intent"/>',
         head=f"""<odkx:intent id="p" class="{classes.PRINT_ACTION}"/>
           <odkx:intent id="c" class="org.example.CALLOUT"/>""",
-        body='<input ref="/data/p"/><input ref="/data/c"/>',
+        body='<input ref="/data/p" appearance="intent:c"/><input ref="/data/c" appearance="intent:p"/>',
+    )
+    meter_questions = form(
+        data="<old_meter/><meter/><count/>",
+        model='<bind nodeset="/data/old_meter" type="intent"/><bind nodeset="/data/meter" type="intent"/>',
+        head="""<odkx:intent id="scanner" class="org.example.MEASURE"/>
+                <odkx:intent id="meter" class="org.example.MEASURE"><response key="reading" ref="/data/count"/></odkx:intent>""",
+        body='<input ref="/data/old_meter" appearance="intent:scanner"/><input ref="/data/meter" appearance="intent:meter"/>',
+    )
+    action_links = form(
+        data="<meter/><auxiliary/><unowned/><stale/>",
+        model='<bind nodeset="/data/meter" type="intent"/>',
+        head='<odkx:intent id="meter" class="org.example.MEASURE"/><odkx:intent id="unowned" class="org.example.OLD"/>',
+        body='<input ref="/data/meter" appearance="intent:meter"/><input ref="/data/auxiliary" appearance="intent:meter"/>'
+             '<input ref="/data/unowned" appearance="intent:unowned"/><input ref="/data/stale" appearance="intent:lost"/>',
     )
     labels = form(
         data="<r/><t/>",
@@ -1630,9 +1644,23 @@ def _questions():
             refused("form", inputs("xsd:long", "xsd:int"), "jr-control:input", "body[1]/input[1]"),
             accepted("form", inputs("xsd:long", "xsd:int"), "jr-control:input", "body[1]/input[2]"),
         ),
+        "questions/intent-id-naming-an-odkx-intent-that-no-callout-question-writes": (
+            refused("form", action_links, "appearance:android/intent:", "body[1]/input[3]/@appearance"),
+            accepted("form", action_links, "appearance:android/intent:", "body[1]/input[2]/@appearance"),
+        ),
+        "questions/intent-id-on-any-input-naming-no-odkx-intent-in-the-form": (
+            refused("form", action_links, "appearance:android/intent:", "body[1]/input[4]/@appearance"),
+            accepted("form", action_links, "appearance:android/intent:", "body[1]/input[3]/@appearance"),
+        ),
+        "questions/android-app-callout-that-cannot-be-recreated": (
+            refused("form", meter_questions, "jr-extension:IntentExtensionParser", "head[1]/odkx:intent[1]"),
+            accepted("form", meter_questions, "jr-extension:IntentExtensionParser", "head[1]/odkx:intent[2]"),
+        ),
         "questions/print-callout-class-org-commcare-dalvik-action-print-extra-cc": (
             refused("form", callouts, "jr-control:input", "body[1]/input[1]"),
             accepted("form", callouts, "jr-control:input", "body[1]/input[2]"),
+            refused("form", callouts, "appearance:android/intent:", "body[1]/input[2]/@appearance"),
+            accepted("form", callouts, "appearance:android/intent:", "body[1]/input[1]/@appearance"),
         ),
         "questions/input-readonly-true-control-attribute": (
             refused("form", labels, "jr-control:input", "body[1]/input[1]"),

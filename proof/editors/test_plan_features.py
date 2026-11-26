@@ -309,3 +309,22 @@ def test_menu_and_form_settings_keep_the_visible_badge_when_the_worker_app_is_sa
             saved_menu, saved_form = owners()
             assert dict(saved_menu.custom_icon.text) == {"en": "New"}
             assert saved_form.custom_icon.xpath == "1234"
+
+
+def test_vellum_changes_an_android_app_argument_and_keeps_shared_result_destinations(hq, editor_driver):
+    document = corpus_document("targeted-android-app-answers")
+    with _published(document, "CUSTOM_INTENTS", True) as opened:
+        form = next(form for form in operations.held_app(opened.state, opened.app_id).get_forms()
+                    if 'class="org.example.MEASURE"' in form.source)
+        run = vellum.open_and_save(editor_driver, opened.state, opened.app_id, form.unique_id, edit={
+            "way": "builder-model", "path": "/data/visits/meter",
+            "property": "androidIntentExtra", "value": {"unit": "'gallons'"},
+        })
+        assert run.loaded and run.saved, (run.load_error, run.save_refusal)
+        (intent,) = etree.fromstring(run.stored_source.encode()).xpath("//*[local-name()='intent' and @id='meter']")
+        assert intent.xpath("./*[local-name()='extra' and @key='unit']/@ref") == ["'gallons'"]
+        assert intent.xpath("./*[local-name()='response' and @key='measurement']/@ref") == [
+            "/data/visits/description", "/data/visits/reading"]
+        assert intent.getparent().getparent().xpath("//*[local-name()='input' and @appearance='intent:meter']/@ref") == [
+            "/data/visits/meter", "/data/visits/verify"]
+        assert not run.question_errors(), run.question_errors()

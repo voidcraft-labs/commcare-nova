@@ -245,6 +245,8 @@ export const PLATFORM_FEATURE_IDS = [
 	"question-pages",
 	"number-keypad",
 	...questionDisplayPlatformIds,
+	"android-app-question",
+	"android-app-answer",
 	"plain-text",
 	"choice-media",
 	"help-media",
@@ -324,6 +326,7 @@ export const REFUSABLE_PLATFORM_FEATURE_IDS = [
 	"connect-app",
 	"case-list-search-text",
 	"window-width",
+	"android-app-question",
 ] as const satisfies readonly PlatformFeatureId[];
 export type RefusablePlatformFeatureId =
 	(typeof REFUSABLE_PLATFORM_FEATURE_IDS)[number];
@@ -692,6 +695,37 @@ export const PLATFORM_FEATURES: Readonly<
 		android: { reading: "runs", note: "each page shows on its own screen" },
 	},
 	...questionDisplayPlatforms,
+	"android-app-question": {
+		label: "Question answered by an Android app",
+		channel: "structure",
+		webApps: {
+			reading: "unavailable",
+			note: "shows a placeholder and cannot open the Android app",
+		},
+		android: {
+			reading: "runs",
+			note: "the worker opens an installed app and returns its answer to the form",
+		},
+		refusal: {
+			what: "opens another app on Android",
+			why: "Web Apps cannot open the app a worker needs to answer this question.",
+			alternative: "let the worker enter the answer directly",
+			pickerLine:
+				"This question needs Android. You can change where the app runs in App settings.",
+		},
+	},
+	"android-app-answer": {
+		label: "Answer from another question’s Android app",
+		channel: "structure",
+		webApps: {
+			reading: "ignored",
+			note: "the worker answers the ordinary question",
+		},
+		android: {
+			reading: "runs",
+			note: "the worker opens the other question’s app to answer this question",
+		},
+	},
 	"number-keypad": {
 		label: "Number keypad",
 		channel: "structure",

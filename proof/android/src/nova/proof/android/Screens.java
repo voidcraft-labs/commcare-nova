@@ -135,6 +135,7 @@ final class Screens {
         Forms.typeRefused = request.optBoolean("typeRefused");
         Forms.keys = request.optBoolean("keys");
         Forms.controls = request.optBoolean("controls");
+        AndroidAppAnswers.start(request.optJSONObject("callouts"));
         JSONObject walks = new JSONObject();
         JSONArray commands = request.optJSONArray("commands");
         if (commands != null) {

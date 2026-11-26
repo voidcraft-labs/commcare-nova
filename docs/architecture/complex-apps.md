@@ -3750,3 +3750,39 @@ text children, including a column named `index`. Inline selection under a
 parent still needs a real edge. Ordinary selection uses the returned case
 elements. Preview and App Tests show the prompts and explain where the search
 runs. They leave the actual search and claim to the connected project space.
+
+## Android answers from another app
+
+A text question can own an Android action, named expression inputs and
+named return destinations. A second input references the owning question by
+UUID and keeps its own datatype. A destination is a question in the same form
+whose concrete repeat row is known at each invoker. The action's head ID,
+input appearance and response paths derive from those identities at emission.
+Copying a group copies its internal request and result references. A callout
+owner's question ID is unique among the form's callout owners.
+
+HQ's `ApplicationBaseValidator._validate_intents` checks the action against
+the three actions in `vellum-app-callout-templates.yml`. Custom integration
+admits every action. Templated integration alone admits those three, including
+an existing configuration of their inputs and outputs. Vellum's
+`intentManager.js` requires the custom feature to create arbitrary actions or
+edit their mappings. Referencing a callout from another ordinary input adds no
+second plan requirement. The standalone control requires Android. On its own
+the auxiliary appearance is ignored in Web Apps.
+
+Android's `IntentWidget` supplies the current invoking answer on relaunch.
+`IntentCallout.processResponse` selects the native identity registration,
+verification or identification parcel, then Simprints registration, then the
+generic result. The latter writes the primary even when absent. Named values
+come from the bundle when supplied, otherwise the direct extras. Destinations
+keep their own datatypes and contextualize at the invoking repeat row.
+Cancellation, a missing handler and an unreadable parcel keep the current
+answers. When two present names fill one answer, Android's handler enumerates
+its form-side response table. Preview uses Android 15 libcore's
+`java.util.Hashtable` traversal of a newly parsed form. Different Android
+versions and restoring the table from a cached form (`ExtWrapMap.readExternal`)
+can change the surviving answer. The inspector identifies overlapping mappings.
+A local Preview result applies those same writes. File results go through the
+entry's attachment staging and submission ownership boundaries. The stored
+schema adds an optional field property, so documents saved before support keep
+their representation and can use the capability on their next edit.

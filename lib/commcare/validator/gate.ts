@@ -119,6 +119,7 @@ export type ValidityClass =
 export const VALIDITY_CLASS_BY_CODE = {
 	// ── App-level ────────────────────────────────────────────────────
 	MENU_FORM_SOURCE_INVALID: "soundness",
+	ANDROID_APP_ANSWER_INVALID: "soundness",
 	ENTRY_POINT_INVALID: "soundness",
 	CASE_LIST_ICON_ACTION_INVALID: "soundness",
 	FORM_BEHAVIOR_TEXT_INVALID: "soundness",

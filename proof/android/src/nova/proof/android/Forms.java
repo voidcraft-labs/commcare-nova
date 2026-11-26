@@ -336,7 +336,7 @@ final class Forms {
     }
 
     /** The form's data as it stands, serialized as the form's own save serializes it. */
-    private static String data() throws java.io.IOException {
+    static String data() throws java.io.IOException {
         return new String(new org.javarosa.model.xform.XFormSerializingVisitor()
                 .serializeInstance(FormEntryActivity.mFormController.getInstance()),
                 java.nio.charset.StandardCharsets.UTF_8);
@@ -739,6 +739,10 @@ final class Forms {
                 int status = FormEntryActivity.mFormController.answerQuestion(prompt.getIndex(), value);
                 entry.put("result", answerResult(status));
                 answered |= status == FormEntryController.ANSWER_OK;
+                continue;
+            }
+            if (AndroidAppAnswers.has(widget)) {
+                answered |= AndroidAppAnswers.give(activity, widget, entry);
                 continue;
             }
             if (Captures.kind(widget) != null) {

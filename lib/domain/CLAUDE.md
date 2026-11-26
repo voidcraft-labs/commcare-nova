@@ -773,3 +773,7 @@ expression that sends it under another name. An established field keeps its
 UUID when changing search source. The country server, project space, service
 ID and credentials are outside the document. The result contract derives
 from the fields read by the menu and its supplied expressions.
+
+### Android app questions
+
+A text question can open an Android app to get its answer. It owns an action name, named input expressions and named result destinations identified by question UUID. A second supported question can use that question's action by UUID. The invoking question supplies the current repeat row for every result. Each sent expression has its own slot keyed by its parameter name and occurrence. Duplicate inputs survive a read and save. Android sends the last value for that name. Copying a group rebinds its internal question references and gives copied action questions form-wide unique IDs.

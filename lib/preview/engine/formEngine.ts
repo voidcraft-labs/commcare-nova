@@ -1,3 +1,5 @@
+import { androidAppInputMember } from "@/lib/domain/fields/androidApp";
+
 /**
  * FormEngine — reactive form engine backed by a Zustand store.
  *
@@ -25,6 +27,7 @@
 
 import { v4 as uuidv4 } from "uuid";
 import { createStore, type StoreApi } from "zustand/vanilla";
+import { androidAppRequest } from "@/lib/commcare";
 import { caseOptionsNodeset } from "@/lib/commcare/caseOptions";
 import { formSharingPlan } from "@/lib/commcare/casePlacementPlan";
 import { emitCasePropertyWirePath } from "@/lib/commcare/casePropertyWire";
@@ -146,6 +149,7 @@ import {
 	snapshotXPathWorkerInstance,
 } from "../xpath/workerProjection";
 import type { XPathWorkerInstances } from "../xpath/workerProtocol";
+import { type AndroidAppReturn, androidAppWrites } from "./androidAppReturn";
 import {
 	type CoreAnswerType,
 	castAnswerText,
@@ -194,6 +198,7 @@ import {
 import {
 	rebaseOntoContext,
 	remapInstancePath,
+	repeatRowsAtPath,
 	stripIndices,
 } from "./instancePaths";
 import {
@@ -1437,7 +1442,11 @@ export class FormEngine {
 	 *  Returns whether the instance takes the answer: false for one the
 	 *  platform's number keypad refused, which changes nothing the form reads
 	 *  and so opens no request. */
-	setValue(path: string, typed: string): boolean {
+	setValue(
+		path: string,
+		typed: string,
+		source: "worker-input" | "android-app" = "worker-input",
+	): boolean {
 		const current = this.store.getState()[path];
 		if (current === undefined || current === DEFAULT_ENGINE_STATE) return false;
 		/* A Text question with a number keypad plays the platform's keypad:
@@ -1445,7 +1454,10 @@ export class FormEngine {
 		 * earlier answer in the instance when its pattern refuses the typed one,
 		 * sends nothing, and shows its message (`answerShapeError`). */
 		const field = this.findField(path);
-		const { shown: value, stores } = this.keypadAnswer(path, typed, field);
+		const { shown: value, stores } =
+			source === "android-app"
+				? { shown: typed, stores: true }
+				: this.keypadAnswer(path, typed, field);
 		const isCapture = field !== undefined && isCaptureFieldKind(field.kind);
 		if (stores) {
 			if (this.asyncRuntime) this.stagedValues.set(path, value);
@@ -1465,8 +1477,11 @@ export class FormEngine {
 				(isCapture && current.captureFileName !== value))
 		) {
 			const cleared =
-				value === "" && this.rules.datePicker === "shows-a-day"
-					? this.findField(path)
+				value === "" &&
+				this.rules.datePicker === "shows-a-day" &&
+				field?.kind === "date" &&
+				field.androidApp === undefined
+					? field
 					: undefined;
 			updates[path] = withKeypadRefused(
 				{
@@ -1794,8 +1809,186 @@ export class FormEngine {
 			this.fieldWrites(field),
 		);
 
-	/** The data type Core gives a field's node, from the bind the XForm
-	 * emitter writes for it. */
+	private androidAppRowKey(path: string): string {
+		return repeatRowsAtPath(path)
+			.map(({ repeat, index }) => {
+				const field = this.findField(repeat);
+				if (field?.kind !== "repeat")
+					throw new Error("The Android app question's repeat row has changed.");
+				return `\u0000${field.uuid}:${this.getRepeatInstanceKey(repeat, index)}`;
+			})
+			.join("");
+	}
+
+	/** Open one installed-app interaction at its concrete worker row. The
+	 * request captures the selected action and the initiating row identities. */
+	private androidAppDefinitionAt(path: string) {
+		const field = this.findField(path);
+		const setting =
+			field && "androidApp" in field ? field.androidApp : undefined;
+		if (!this.rules.androidAppAnswers || !field || !setting) return undefined;
+		const owner =
+			setting.kind === "open-app"
+				? field
+				: this.caseWriteDoc.fields[setting.question];
+		if (owner?.kind !== "text" || owner.androidApp?.kind !== "open-app")
+			return undefined;
+		const action = owner.androidApp;
+		const current = this.getState(path).value;
+		const rowIdentity = this.androidAppRowKey(path);
+		const destinations = action.receive.map((result) => {
+			const template = this.fieldPathsByUuid().get(result.question);
+			if (!template)
+				throw new Error(
+					`The result "${result.name}" has no question in this form.`,
+				);
+			const target = rebaseOntoContext(template, path);
+			const targetField = this.findField(target);
+			if (!targetField)
+				throw new Error(
+					`The result "${result.name}" has no question in this row.`,
+				);
+			return {
+				...result,
+				path: target,
+				kind: targetField.kind,
+				id: targetField.id,
+				capture: isCaptureFieldKind(targetField.kind),
+			};
+		});
+		return {
+			field,
+			action,
+			path,
+			signature: JSON.stringify([
+				path,
+				field.uuid,
+				field.kind,
+				owner.uuid,
+				action,
+				rowIdentity,
+				destinations,
+			]),
+			destinations,
+			current,
+			ownerUuid: owner.uuid,
+		};
+	}
+
+	async openAndroidApp(path: string, evaluateAsync?: FormEngineAsyncEvaluator) {
+		const launch = this.androidAppDefinitionAt(path);
+		if (!launch || !this.effectivelyVisiblePaths().has(path)) return undefined;
+		const action = launch.action;
+		const lastInput = new Map(
+			action.send.map((input, index) => [input.name, index]),
+		);
+		const args = [];
+		for (const index of lastInput.values()) {
+			const input = action.send[index];
+			if (!input) throw new Error("An Android app input was removed.");
+			const source = this.expressions.lower(input.value, {
+				entity: "field",
+				uuid: launch.ownerUuid,
+				slot: "android_app_input",
+				member: androidAppInputMember(action.send, index),
+			});
+			const value = evaluateAsync
+				? await evaluateAsync(source, path)
+				: evaluate(source, this.createEvalContext(path));
+			args.push({
+				name: input.name,
+				text: xpathToString(value),
+				truth: toBoolean(value),
+			});
+		}
+		const destinations = launch.destinations.map((destination) => {
+			const target = this.findField(destination.path);
+			const label =
+				this.getState(destination.path).resolvedLabel ??
+				(target && proseSource(target, "label", this.printDoc));
+			return { ...destination, label: label || destination.id };
+		});
+		return {
+			...launch,
+			destinations,
+			parameters: androidAppRequest(args, launch.current),
+		};
+	}
+
+	androidAppResult(path: string, signature: string, result: AndroidAppReturn) {
+		const launch = this.androidAppDefinitionAt(path);
+		if (
+			launch?.signature !== signature ||
+			!launch ||
+			!this.effectivelyVisiblePaths().has(path)
+		)
+			return undefined;
+		const response = androidAppWrites(
+			launch.field.uuid,
+			launch.action,
+			result,
+			{
+				registration: (outcome) =>
+					runtimeMessage(
+						this.presentationLanguage,
+						{
+							success: "androidAppRegistrationSaved",
+							partial: "androidAppRegistrationPartial",
+							failed: "androidAppRegistrationFailed",
+						}[outcome] as
+							| "androidAppRegistrationSaved"
+							| "androidAppRegistrationPartial"
+							| "androidAppRegistrationFailed",
+					),
+				scanned: (count) =>
+					runtimeMessage(
+						this.presentationLanguage,
+						"androidAppFingersScanned",
+						{ count },
+					),
+			},
+		);
+		const writes = response.writes.map((write) => {
+			const template = this.fieldPathsByUuid().get(write.question);
+			if (!template) throw new Error("A result question was removed.");
+			const target = rebaseOntoContext(template, path);
+			const field = this.findField(target);
+			if (!field) throw new Error("A result question was removed.");
+			const binary =
+				isCaptureFieldKind(field.kind) && write.capture !== undefined;
+			if (binary)
+				return {
+					kind: "capture" as const,
+					field: field.uuid,
+					captureKind: field.kind,
+					path: target,
+					file: write.capture?.file,
+					slotKey: `${field.uuid}\u0000${this.androidAppRowKey(target)}`,
+				};
+			const cast =
+				write.value === ""
+					? { ok: true as const, text: "" }
+					: castAnswerText(
+							this.answerTypeOf(field),
+							write.value,
+							this.castZone,
+						);
+			if (!cast.ok)
+				throw new Error(
+					`The returned value does not fit the question "${field.id}".`,
+				);
+			return {
+				kind: "answer" as const,
+				field: field.uuid,
+				path: target,
+				value: cast.text,
+			};
+		});
+		// A native result leaves one final answer per node. Only its final file needs staging.
+		return [...new Map(writes.map((write) => [write.path, write])).values()];
+	}
+
+	/** The data type Core gives a field’s node from its emitted bind. */
 	private answerTypeOf(field: Field): CoreAnswerType {
 		return coreAnswerType(this.bindTypeOf(field), field.kind);
 	}
@@ -3111,7 +3304,7 @@ export class FormEngine {
 
 	private expressionSource(
 		field: Field,
-		slot: FieldExpressionSlotRef["slot"],
+		slot: Exclude<FieldExpressionSlotRef["slot"], "android_app_input">,
 	): string | undefined {
 		return this.expressions.source({ entity: "field", uuid: field.uuid, slot });
 	}
@@ -6831,7 +7024,9 @@ export class FormEngine {
 				for (const node of nodes) {
 					const nodePath = `${prefix}/${node.field.id}`;
 					paths.set(node.field.uuid, nodePath);
-					if (node.field.kind === "date") this.datePathTemplates.push(nodePath);
+					// An Android app replaces the Date widget, including its suggested day.
+					if (node.field.kind === "date" && node.field.androidApp === undefined)
+						this.datePathTemplates.push(nodePath);
 					if (node.children) walk(node.children, nodePath);
 				}
 			};

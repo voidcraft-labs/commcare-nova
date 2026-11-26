@@ -1,5 +1,7 @@
 import { v4 as uuidv4 } from "uuid";
+import type { FormNodeRef } from "@/lib/domain/expression/types";
 import { walkExpressionTerms } from "@/lib/domain/expression/walk";
+import { suffixUntilFree } from "@/lib/domain/idSlug";
 /**
  * Duplicating a field, planned as ordinary adds.
  *
@@ -19,6 +21,7 @@ import { walkExpressionTerms } from "@/lib/domain/expression/walk";
 import {
 	findContainingForm,
 	findFieldParent,
+	walkFormFieldUuids,
 } from "@/lib/doc/mutations/helpers";
 import { HELD_FIELD_KEYS, type HeldFieldKey } from "@/lib/domain/fields";
 import { submissionLayout } from "@/lib/domain/submissionLayout";
@@ -122,6 +125,65 @@ export function duplicateFieldMutations(
 		for (let suffix = 2; ids.has(field.id); suffix++)
 			field.id = `${desired}_${suffix}`;
 		ids.add(field.id);
+	}
+
+	// Each app question also names a form-wide Android action definition.
+	// Rebind references to copied questions and give copied definitions free
+	// names even when their immediate parents have changed.
+	const actions = cloned.filter(
+		({ field }) =>
+			field.kind === "text" && field.androidApp?.kind === "open-app",
+	);
+	const actionIds = new Set<string>();
+	if (actions.length) {
+		for (const member of walkFormFieldUuids(doc, form)) {
+			const field = doc.fields[member];
+			if (field?.kind === "text" && field.androidApp?.kind === "open-app")
+				actionIds.add(field.id);
+		}
+	}
+	const clonedId = (id: Uuid) => clonedIds.get(id) ?? id;
+	const retarget = (node: FormNodeRef) => {
+		if (node.kind === "field") node.uuid = clonedId(node.uuid);
+		else if ("repeat" in node) node.repeat = clonedId(node.repeat);
+	};
+	for (const { field, parentUuid: into } of cloned) {
+		const app = "androidApp" in field ? field.androidApp : undefined;
+		if (!app) continue;
+		if (app.kind === "use-question") {
+			app.question = clonedId(app.question);
+			continue;
+		}
+		const submittedTo = field.submissionPlacement?.parent ?? into;
+		const taken = new Set(actionIds);
+		for (const sibling of [
+			...(doc.fieldOrder[into] ?? []),
+			...(layout.children.get(submittedTo) ?? []),
+		]) {
+			const existing = doc.fields[sibling];
+			if (existing) taken.add(existing.id);
+		}
+		for (const sibling of cloned) {
+			if (sibling.field === field) continue;
+			const siblingSubmission =
+				sibling.field.submissionPlacement?.parent ?? sibling.parentUuid;
+			if (sibling.parentUuid === into || siblingSubmission === submittedTo)
+				taken.add(sibling.field.id);
+		}
+		field.id = suffixUntilFree(field.id, taken);
+		actionIds.add(field.id);
+		for (const result of app.receive)
+			result.question = clonedId(result.question);
+		for (const parameter of app.send) {
+			walkExpressionTerms(parameter.value, (term) => {
+				if (term.kind === "field") term.uuid = clonedId(term.uuid);
+				if (term.kind === "capture-link") term.field = clonedId(term.field);
+				if (term.kind === "repeat-row") term.repeat = clonedId(term.repeat);
+				if (term.kind === "form-node") retarget(term.node);
+				if ("filters" in term)
+					for (const filter of term.filters ?? []) retarget(filter.step);
+			});
+		}
 	}
 
 	const adds: Mutation[] = cloned.map((entry, index) => ({

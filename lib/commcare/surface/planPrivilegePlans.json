@@ -44,6 +44,8 @@
 		"advanced_v0",
 		"enterprise_v0"
 	],
+	"templated_intents": ["pro_v0", "pro_v1", "advanced_v0", "enterprise_v0"],
+	"custom_intents": ["advanced_v0", "enterprise_v0"],
 	"save_to_case": ["advanced_v0", "enterprise_v0"],
 	"locked_admin_questions": ["advanced_v0", "enterprise_v0"],
 	"locations": ["standard_v0", "pro_v0", "advanced_v0", "enterprise_v0"],

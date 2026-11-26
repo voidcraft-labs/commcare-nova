@@ -1,4 +1,5 @@
 import { CONNECT_XMLNS } from "../../xform/connectActivity";
+import { readNodePath } from "./model";
 /**
  * The join of a form's model and body, as HQ's form builder makes it
  * (Vellum `parser.js`): every data node takes one `NodeRole`, in this order,
@@ -42,6 +43,7 @@ import type { GeneratedValue } from "../expressions";
 import { questionPlace } from "../place";
 import type { ReaderInput, ReaderLookupCatalog, UnreadTable } from "../types";
 import type { XmlCursor } from "../xmlCursor";
+import { readAndroidApp, registerAndroidAppInputs } from "./androidApp";
 import {
 	type AppearanceForm,
 	claimAppearance,
@@ -525,18 +527,38 @@ export function joinForm(input: JoinInput): JoinedForm {
 	// The head's `odkx:intent`s by id, the first of each: a callout question is refused by what its
 	// intent says, the print action (the form builder's print question) or `appearance="quick"`
 	// (which no editor writes) before the callout kind, so its one finding names the decisive cause.
+	const ambiguousActions = new Set<string>();
+	const callouts = new Map<string, ControlNode>();
+	const naming = new Map<string, ControlNode>();
+	for (const control of input.controls.all) {
+		const appearance = control.appearance;
+		if (control.tag !== "input" || !appearance?.startsWith("intent:")) continue;
+		const id = appearance.slice("intent:".length);
+		const type =
+			control.node === undefined
+				? undefined
+				: input.binds.get(control.node)?.type;
+		const into =
+			type !== undefined && stripXsd(type) === "intent" ? callouts : naming;
+		if (!into.has(id)) into.set(id, control);
+		else if (into === callouts) ambiguousActions.add(id);
+	}
 	const intentsById = new Map<string, Element>();
 	for (const element of parsed.head.children) {
 		if (!isTag(element)) continue;
 		if (!isElement(element, parsed.scope(element), ODK_NS, "intent")) continue;
 		const id = element.attribs.id;
-		if (id !== undefined && !intentsById.has(id)) intentsById.set(id, element);
+		if (id === undefined) continue;
+		if (intentsById.has(id)) ambiguousActions.add(id);
+		else intentsById.set(id, element);
 	}
 	const calloutClaim = (control: ControlNode | undefined) => {
 		const appearance = control?.appearance;
 		const intent = appearance?.startsWith("intent:")
 			? intentsById.get(appearance.slice("intent:".length))
 			: undefined;
+		if (intent && ambiguousActions.has(intent.attribs.id ?? ""))
+			return X.refusedKind.intent;
 		if (intent?.attribs.class === PRINT_ACTION)
 			return X.refusedKind.printCallout;
 		if (intent?.attribs.appearance === "quick")
@@ -562,6 +584,22 @@ export function joinForm(input: JoinInput): JoinedForm {
 			inRepeat: inRepeat(parent),
 		};
 		let row: FieldKindRow | undefined = fieldKindOf(facts);
+		const appHead = control?.appearance?.startsWith("intent:")
+			? intentsById.get(control.appearance.slice("intent:".length))
+			: undefined;
+		const app =
+			row?.sites === X.kind.androidApp &&
+			calloutClaim(control) === X.refusedKind.intent &&
+			appHead &&
+			!ambiguousActions.has(appHead.attribs.id ?? "")
+				? readAndroidApp(appHead, node, parsed, tree)
+				: undefined;
+		if (row?.sites === X.kind.androidApp && !app)
+			row = {
+				matches: row.matches,
+				kind: undefined,
+				claim: calloutClaim(control),
+			};
 
 		// A trigger whose appearance is not exactly `minimal` is a label only where its
 		// appearance leaves Android's widget no acknowledge. Otherwise it is a confirmation.
@@ -674,12 +712,24 @@ export function joinForm(input: JoinInput): JoinedForm {
 			if (answerType !== "text" && answerType !== "datetime")
 				field.field.answerType = answerType;
 		}
+		if (app) field.androidApp = { kind: "open-app", app };
 		if (bothSources)
 			field.bothSources = {
 				typeDeferred: bind?.type !== undefined && typeClaim === sites.type,
 			};
 		if (control === undefined) return field;
-		if (control.appearance !== undefined) {
+		const actionId =
+			control.tag === "input" && control.appearance?.startsWith("intent:")
+				? control.appearance.slice("intent:".length)
+				: undefined;
+		// A matching action is claimed once its source and every named result
+		// have been identified. An unusable action must account for its input
+		// appearance as refused at the same place.
+		const pendingApp =
+			actionId !== undefined &&
+			input.intents.callouts.has(actionId) &&
+			intentsById.has(actionId);
+		if (!pendingApp && control.appearance !== undefined) {
 			const verdict = classifyAppearance(
 				control,
 				bind,
@@ -1135,20 +1185,6 @@ export function joinForm(input: JoinInput): JoinedForm {
 	// is refused with the callout, at its question, and one no callout writes with the
 	// appearance that names it.
 	const named = intentIdsOf(parsed.html);
-	const callouts = new Map<string, ControlNode>();
-	const naming = new Map<string, ControlNode>();
-	for (const control of input.controls.all) {
-		const appearance = control.appearance;
-		if (control.tag !== "input" || !appearance?.startsWith("intent:")) continue;
-		const id = appearance.slice("intent:".length);
-		const type =
-			control.node === undefined
-				? undefined
-				: input.binds.get(control.node)?.type;
-		const into =
-			type !== undefined && stripXsd(type) === "intent" ? callouts : naming;
-		if (!into.has(id)) into.set(id, control);
-	}
 	const controlPlace = (control: ControlNode) =>
 		control.node === undefined ? formPlace : placeOf(control.node);
 	for (const element of parsed.head.children) {
@@ -1158,13 +1194,59 @@ export function joinForm(input: JoinInput): JoinedForm {
 		if (id === undefined || !named.has(id)) continue;
 		const callout = callouts.get(id);
 		const by = naming.get(id);
-		if (callout !== undefined)
+		const source = callout && controlField.get(callout);
+		if (
+			source?.androidApp?.kind === "open-app" &&
+			intentsById.get(id) === element
+		) {
+			registerAndroidAppInputs(source.androidApp.app, source);
+			for (const [ctrl, other] of controlField) {
+				if (
+					ctrl === callout ||
+					ctrl.tag !== "input" ||
+					ctrl.appearance !== `intent:${id}` ||
+					other.standIn
+				)
+					continue;
+				const reachable = source.androidApp.app.receive.every(
+					({ ref, node }) => {
+						const target = readNodePath(ref, tree, other.node);
+						return target.kind === "node" && target.node === node;
+					},
+				);
+				if (reachable) other.androidApp = { kind: "use-question", source };
+				else
+					cursor.refuse(
+						{ element: ctrl.element, attribute: "appearance" },
+						X.androidAppRefused.appearance,
+						other.place,
+					);
+			}
+		} else if (callout !== undefined) {
+			const claim = calloutClaim(callout);
+			if (intentsById.get(id) === element) {
+				for (const [ctrl, other] of controlField) {
+					if (
+						ctrl !== callout &&
+						!other.standIn &&
+						ctrl.tag === "input" &&
+						ctrl.appearance === `intent:${id}`
+					)
+						cursor.refuse(
+							{ element: ctrl.element, attribute: "appearance" },
+							claim === X.refusedKind.intent
+								? X.androidAppRefused.appearance
+								: claim,
+							other.place,
+						);
+				}
+			}
 			cursor.refuseSubtree(
 				element,
 				calloutClaim(callout),
 				controlPlace(callout),
 			);
-		else
+		} else
 			cursor.refuseSubtree(
 				element,
 				INTENT_NAMING_ORPHAN,

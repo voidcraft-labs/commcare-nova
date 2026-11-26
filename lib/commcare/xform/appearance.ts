@@ -3,7 +3,7 @@
  * words globally; each widget builds the order the receiving controls need. */
 
 import type { z } from "zod";
-import type { Field, FieldKind } from "@/lib/domain";
+import type { BlueprintDoc, Field, FieldKind } from "@/lib/domain";
 import { isCaptureFieldKind } from "@/lib/domain";
 import type { ChoiceLayout } from "@/lib/domain/choicePresentation";
 import { questionReceiverProperty } from "@/lib/domain/questionDisplay";
@@ -121,6 +121,24 @@ export function writeFieldAppearance(
 	return words.length ? words.join(" ") : undefined;
 }
 
-export function fieldAppearance(field: Field): string | undefined {
-	return writeFieldAppearance(field.kind, field as DisplaySettings);
+function androidAppAppearance(
+	field: Field,
+	fields?: BlueprintDoc["fields"],
+): string | undefined {
+	const answer = "androidApp" in field ? field.androidApp : undefined;
+	if (!answer) return undefined;
+	const source = answer.kind === "open-app" ? field : fields?.[answer.question];
+	if (source?.kind !== "text" || source.androidApp?.kind !== "open-app")
+		throw new Error(`Question ${field.id} has no Android app to open.`);
+	return `intent:${source.id}`;
+}
+
+export function fieldAppearance(
+	field: Field,
+	fields?: BlueprintDoc["fields"],
+): string | undefined {
+	return (
+		androidAppAppearance(field, fields) ??
+		writeFieldAppearance(field.kind, field as DisplaySettings)
+	);
 }

@@ -180,7 +180,11 @@ final class Updates {
             QuestionsView view = activity.getODKView();
             if (view != null) {
                 for (QuestionWidget widget : view.getWidgets()) {
-                    if (widget instanceof StringWidget) {
+                    if (AndroidAppAnswers.has(widget)) {
+                        JSONObject entry = new JSONObject();
+                        AndroidAppAnswers.give(activity, widget, entry);
+                        step.put("answeredApp", entry);
+                    } else if (widget instanceof StringWidget) {
                         ((StringWidget)widget).setAnswer("1");
                     }
                 }

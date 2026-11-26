@@ -389,6 +389,7 @@ export function flatFieldToField(
 		...(q.repeatsPerRow != null && { repeatsPerRow: q.repeatsPerRow }),
 		...(q.textAlignment != null && { textAlignment: q.textAlignment }),
 		...(q.webSignature != null && { webSignature: q.webSignature }),
+		...(q.androidApp != null && { androidApp: q.androidApp }),
 		...(q.keypad != null && { keypad: q.keypad }),
 		...(q.choiceLayout != null && { choiceLayout: q.choiceLayout }),
 		...(q.answerType != null && { answerType: q.answerType }),

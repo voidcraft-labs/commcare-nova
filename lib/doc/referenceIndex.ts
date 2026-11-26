@@ -819,8 +819,11 @@ function extractFieldEdges(sink: EdgeSink, field: Field): void {
 				break;
 			// No field slot names a case property: what a field saves to is
 			// its form's case operations, indexed on the form.
-			case "case-property-ref":
 			case "entity-uuid":
+				for (const value of readSlotStrings(field, slot.path))
+					sink.edge(entityTargetKey(value.text), slot.slot);
+				break;
+			case "case-property-ref":
 			case "relation-path":
 			case "datum-ref":
 			case "worker-property-ref":

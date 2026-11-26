@@ -172,6 +172,8 @@ export function classifyIdentity(
 			return "project-search-parameter";
 		if (pointer === "/change/fields/*/fieldUuid") return "search-input";
 	}
+	if (property === "question" && pointer.includes("/androidApp/"))
+		return "field";
 	if (property === "tableId") return "lookup-table";
 	if (tool.includes("lookup")) {
 		if (

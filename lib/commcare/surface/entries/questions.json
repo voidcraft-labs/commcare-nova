@@ -2743,13 +2743,14 @@
 			"vellum-feature:templated_intents",
 			"vellum-feature:custom_intents",
 			"xform:input",
-			"xform:input@ref"
+			"xform:input@ref",
+			"xform:model/bind@type",
+			"mug:Text"
 		],
 		"valueClass": "android-app-callout",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `callout` field kind (app id, extras, responses)",
-		"subject": "question-types",
-		"owner": "xform",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: The Android app action, values sent, and result questions",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "UNAVAILABLE (unsupported entry; the literal \"Not Supported by Web Entry\" can be submitted) / RUNS",
@@ -2766,6 +2767,40 @@
 			"markers": []
 		},
 		"gates": ["privilege/templated_intents+custom_intents"]
+	},
+	{
+		"id": "questions/android-app-callout-that-cannot-be-recreated",
+		"area": "questions",
+		"section": "Question types",
+		"item": "Android app callout with no reproducible action or question mapping",
+		"surfaceKeys": [
+			"mug:AndroidIntent",
+			"jr-extension:IntentExtensionParser",
+			"appearance:android/intent:"
+		],
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: A device action, source question, argument name or result destination is missing or cannot be recreated by the Android app question editor.",
+		"subject": "question-types",
+		"reasons": [
+			{
+				"kind": "not-hq-editable",
+				"named": "Vellum binds each Android action to a question with the same ID and writes named argument and response pairs."
+			},
+			{
+				"kind": "broken-at-runtime",
+				"named": "Android skips a returned value when its reference does not resolve to one receiving question in the invoking row. The author can choose a reachable question in the form editor."
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": [],
+		"valueClass": "android-app-without-reproducible-action"
 	},
 	{
 		"id": "questions/odkx-intent-appearance-quick",
@@ -7914,10 +7949,9 @@
 		"item": "`intent:<id>` on any `<input>` other than an intent-typed one, where `<id>` is the tag of a callout question in the same form",
 		"surfaceKeys": ["appearance:android/intent:"],
 		"valueClass": "intent-on-other-input",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `Field.appearance`",
-		"subject": "question-appearance",
-		"owner": "xform",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: The question supplying the Android app",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "IGNORED (the ordinary entry) / RUNS (Android builds the intent widget for any input, `WidgetFactory`)",

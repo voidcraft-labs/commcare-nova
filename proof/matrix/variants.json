@@ -31650,6 +31650,85 @@
 		}
 	},
 	{
+		"id": "hq-questions/android-app-answer",
+		"base": "hq-questions",
+		"declaration": { "runsOnlyOn": "android", "splitDatetime": false },
+		"entry": "questions/intent-id-on-any-input-other-than-an-intent-typed-one-where-id",
+		"change": {
+			"op": "named",
+			"name": "android_app_answer"
+		},
+		"holds": [
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["tag_code"]
+				],
+				"pointer": "/androidApp/action",
+				"value": "org.example.SCAN"
+			},
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["full_name"]
+				],
+				"pointer": "/androidApp/kind",
+				"value": "use-question"
+			}
+		]
+	},
+	{
+		"id": "hq-questions/android-app-question",
+		"base": "hq-questions",
+		"declaration": { "runsOnlyOn": "android", "splitDatetime": false },
+		"entry": "questions/android-app-callout-input-appearance-intent-id-bind-type-intent",
+		"change": {
+			"op": "named",
+			"name": "android_app_question"
+		},
+		"holds": [
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["tag_code"]
+				],
+				"pointer": "/androidApp/action",
+				"value": "org.example.SCAN"
+			},
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["tag_code"]
+				],
+				"pointer": "/androidApp/send/0/name",
+				"value": "unit"
+			},
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["tag_code"]
+				],
+				"pointer": "/androidApp/receive/0/name",
+				"value": "measurement"
+			}
+		]
+	},
+	{
 		"id": "hq-questions/appearance-android-inside-held",
 		"base": "hq-questions",
 		"entry": "questions/a-single-string-no-row-names-that-holds-values-android-matches",
@@ -32156,8 +32235,8 @@
 	{
 		"id": "hq-questions/callout",
 		"base": "hq-questions",
-		"entry": "questions/android-app-callout-input-appearance-intent-id-bind-type-intent",
-		"standing": "not-yet",
+		"entry": "questions/android-app-callout-that-cannot-be-recreated",
+		"standing": "fix-in-hq",
 		"place": {
 			"kind": "question",
 			"menu": 0,
@@ -33468,8 +33547,8 @@
 	{
 		"id": "hq-questions/intent-on-other-input",
 		"base": "hq-questions",
-		"entry": "questions/intent-id-on-any-input-other-than-an-intent-typed-one-where-id",
-		"standing": "not-yet",
+		"entry": "questions/android-app-callout-that-cannot-be-recreated",
+		"standing": "fix-in-hq",
 		"place": {
 			"kind": "question",
 			"menu": 0,
@@ -33483,8 +33562,8 @@
 			"name": "intent_on_other_input"
 		},
 		"second": {
-			"entry": "questions/android-app-callout-input-appearance-intent-id-bind-type-intent",
-			"standing": "not-yet",
+			"entry": "questions/android-app-callout-that-cannot-be-recreated",
+			"standing": "fix-in-hq",
 			"place": {
 				"kind": "question",
 				"menu": 0,

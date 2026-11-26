@@ -57,6 +57,7 @@ import {
 	termSchema,
 	valueSchema,
 } from "@/lib/domain/expression/types";
+import { androidAppInputMember } from "@/lib/domain/fields/androidApp";
 import { openingAssignmentName } from "@/lib/domain/formOpeningAssignments";
 import { capturesDeviceLocation } from "@/lib/domain/locationCapture";
 import { menuBadgeSchema } from "@/lib/domain/menuBadge";
@@ -140,10 +141,28 @@ export function authoringEncoders(
 		const content = record.parse(source);
 		const uuid = uuidSchema.safeParse(content.uuid);
 		if (uuid.success && options.doc.fields[uuid.data] !== undefined) {
+			const field = options.doc.fields[uuid.data];
+			if (
+				path[0] === "androidApp" &&
+				path[1] === "send" &&
+				typeof path[2] === "number" &&
+				path[3] === "value" &&
+				field?.kind === "text" &&
+				field.androidApp?.kind === "open-app"
+			) {
+				const input = field.androidApp.send[path[2]];
+				if (input)
+					return {
+						entity: "field",
+						uuid: uuid.data,
+						slot: "android_app_input",
+						member: androidAppInputMember(field.androidApp.send, path[2]),
+					};
+			}
 			const entry = FIELD_REFERENCE_SLOTS.find(
 				(entry) => entry.kind === "expression" && entry.path === path.join("."),
 			);
-			if (entry?.kind === "expression")
+			if (entry?.kind === "expression" && entry.slot !== "android_app_input")
 				return { entity: "field", uuid: uuid.data, slot: entry.slot };
 		}
 		if (options.formUuid !== undefined) {
@@ -807,6 +826,25 @@ export function projectAuthoringRead(args: {
 				scope(findContainingForm(doc, content.uuid)),
 			),
 		);
+		const interaction =
+			"androidApp" in content ? content.androidApp : undefined;
+		if (interaction && result.androidApp) {
+			const pathFor = (question: Uuid) => {
+				const path = computeFieldPath(doc, question);
+				if (path === undefined)
+					throw new Error("The Android app refers to a missing question.");
+				return path;
+			};
+			const projected = record.parse(result.androidApp);
+			if (interaction.kind === "use-question")
+				projected.question = pathFor(interaction.question);
+			else
+				projected.receive = interaction.receive.map((result) => ({
+					...result,
+					question: pathFor(result.question),
+				}));
+			result.androidApp = projected;
+		}
 		if (result.validate !== undefined) {
 			result.validate = {
 				expr: result.validate,

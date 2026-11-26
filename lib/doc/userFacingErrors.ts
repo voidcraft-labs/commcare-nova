@@ -705,6 +705,11 @@ type PlatformBuilderCopy =
 	| { readonly sentence: string };
 
 const PLATFORM_BUILDER_COPY = {
+	"android-app-question": {
+		lead: (subject) =>
+			`${subject} opens another app to answer the question. This needs Android.`,
+		alternative: "let the worker enter the answer directly",
+	},
 	"answer-name-requires-android": {
 		lead: (subject) =>
 			`${subject} has an answer ID that Web Apps reserves for its own instructions.`,
@@ -1156,6 +1161,8 @@ const USER_MESSAGE_BY_CODE: Record<
 			? formBehaviorTextSentence(issue)
 			: `A form setting in ${q(formName(e))} names a question text that no longer works for it. Choose another text or remove the setting.`;
 	},
+	ANDROID_APP_ANSWER_INVALID: (error) =>
+		det(error, "problem", "Review the Android app and its result questions."),
 	ENTRY_POINT_INVALID: (e) => {
 		switch (e.details?.reason) {
 			case "duplicate-id":

@@ -504,7 +504,7 @@ export function extractLogicFields(doc: BlueprintDoc): LogicField[] {
 function logicSource(
 	doc: BlueprintDoc,
 	uuid: Uuid,
-	slot: FieldExpressionSlotRef["slot"],
+	slot: Exclude<FieldExpressionSlotRef["slot"], "android_app_input">,
 ): string | undefined {
 	const ref = { entity: "field" as const, uuid, slot };
 	const expression = expressionSlotValue(doc, ref);

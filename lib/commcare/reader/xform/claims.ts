@@ -552,7 +552,34 @@ export const X = {
 	),
 
 	// ── Field kinds ────────────────────────────────────────────────
+	androidAppRefused: under(
+		"refuse",
+		Q("android-app-callout-that-cannot-be-recreated"),
+		{
+			head: "jr-extension:IntentExtensionParser",
+			appearance: "appearance:android/intent:",
+		},
+	),
+	androidAppHead: one(
+		"take",
+		Q("android-app-callout-input-appearance-intent-id-bind-type-intent"),
+		"jr-extension:IntentExtensionParser",
+	),
+	androidAppAnswer: one(
+		"take",
+		Q("intent-id-on-any-input-other-than-an-intent-typed-one-where-id"),
+		"appearance:android/intent:",
+	),
 	kind: {
+		androidApp: kind(
+			"android-app-callout-input-appearance-intent-id-bind-type-intent",
+			{
+				node: "mug:AndroidIntent",
+				...INPUT,
+				appearance: "appearance:android/intent:",
+			},
+			["Text"],
+		),
 		text: kind("text-input-xsd-string", { node: "mug:Text", ...INPUT }),
 		phone: kind("phone-number-xsd-string-appearance-numeric", {
 			node: "mug:PhoneNumber",
@@ -723,7 +750,7 @@ export const X = {
 		long: one("refuse", Q("long-xsd-long"), "mug:Long"),
 		intent: one(
 			"refuse",
-			Q("android-app-callout-input-appearance-intent-id-bind-type-intent"),
+			Q("android-app-callout-that-cannot-be-recreated"),
 			"mug:AndroidIntent",
 		),
 		/** A callout whose intent names the print action, which the form builder reads as its

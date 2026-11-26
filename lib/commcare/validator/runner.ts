@@ -395,11 +395,7 @@ function runDeepValidation(
 		(deep): ValidationError => {
 			switch (deep.kind) {
 				case "field-xpath":
-					return presentFormLogicFinding(
-						doc,
-						{ entity: "field", uuid: deep.fieldUuid, slot: deep.surface },
-						deep.error,
-					);
+					return presentFormLogicFinding(doc, deep.ref, deep.error);
 				case "field-prose":
 					if (deep.error.slot !== undefined)
 						return presentFormLogicFinding(doc, deep.error.slot, deep.error);

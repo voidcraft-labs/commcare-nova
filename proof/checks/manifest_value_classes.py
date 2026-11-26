@@ -31,6 +31,7 @@ from __future__ import annotations
 import json
 import html
 import re
+import posixpath
 import unicodedata
 from dataclasses import dataclass
 from functools import cache, cached_property
@@ -1292,6 +1293,98 @@ def long_input(use, manifest):
 PRINT_ACTION = "org.commcare.dalvik.action.PRINT"
 
 
+def _android_action_presence(use):
+    """An input's appearance names its action. An intent-typed input using
+    that name owns the definition; ordinary inputs may refer to that owner."""
+    form, element = _form_element(use)
+    if form is None:
+        return None
+    if element.tag != f"{{{XFORMS}}}input" or not (appearance := element.get("appearance", "")).startswith("intent:"):
+        return "other"
+    if appearance[len("intent:"):] not in form.intents:
+        return "missing"
+    if any(control.tag == f"{{{XFORMS}}}input" and control.get("appearance") == appearance
+           and (bind := form.control_bind(control)) is not None and _vellum_type(bind.get("type") or "") == "intent"
+           for controls in form.controls.values() for control in controls):
+        return "owned"
+    return "orphan"
+
+
+def missing_android_action(use, _manifest):
+    state = _android_action_presence(use)
+    return None if state is None else state == "missing"
+
+
+def orphan_android_action(use, _manifest):
+    state = _android_action_presence(use)
+    return None if state is None else state == "orphan"
+
+
+def unreproducible_android_question(use, manifest):
+    """Vellum takes the intent tagged with the question's node ID while Android
+    takes the one named by its appearance. A named result has to resolve at
+    every invoking input, including its concrete repeat row."""
+    form, element = _form_element(use)
+    if form is None:
+        return None
+    if element.tag == f"{{{OPENDATAKIT}}}intent":
+        intent = element
+        action_id = intent.get("id")
+        invoking = None
+    elif element.tag == f"{{{XFORMS}}}input" and (element.get("appearance") or "").startswith("intent:"):
+        invoking = element
+        action_id = element.get("appearance")[len("intent:"):]
+        intent = form.intents.get(action_id)
+    else:
+        return False
+    if intent is None:
+        return False
+    head = form.root.find(f"{{{XHTML}}}head")
+    duplicates = head is not None and sum(
+        el.get("id") == action_id for el in head.findall(f"{{{OPENDATAKIT}}}intent")
+    ) > 1
+    using = [control for controls in form.controls.values() for control in controls
+             if control.tag == f"{{{XFORMS}}}input" and control.get("appearance") == f"intent:{action_id}"]
+    owners = [control for control in using if (bind := form.control_bind(control)) is not None
+              and _vellum_type(bind.get("type") or "") == "intent"]
+    if not owners:
+        return False  # An orphan tag has its own entry.
+    owner = owners[0]
+    owner_path = form.control_path(owner)
+    if len(owners) != 1 or duplicates:
+        return True
+    if intent.get("appearance") == "quick" or intent.get("class") == PRINT_ACTION:
+        return False
+    if (owner_path or "").rsplit("/", 1)[-1] != action_id:
+        return True
+    if not intent.get("class") or set(intent.attrib) - {"id", "class"} or (intent.text or "").strip():
+        return True
+    if intent is not form.intents.get(action_id):
+        return True
+    for tag in ("extra", "response"):
+        keys = [arg.get("key") for arg in _children(intent) if arg.tag == f"{{{XFORMS}}}{tag}"]
+        if "__proto__" in keys or "hasOwnProperty" in keys[:-1]:
+            return True
+    for arg in _children(intent):
+        if arg.tag not in {f"{{{XFORMS}}}extra", f"{{{XFORMS}}}response"} or not arg.get("key") or not arg.get("ref"):
+            return True
+        if set(arg.attrib) - {"key", "ref", f"{{{VELLUM}}}ref"} or _children(arg) or (arg.text or "").strip():
+            return True
+        if arg.tag == f"{{{XFORMS}}}response":
+            ref = arg.get("ref")
+            target = posixpath.normpath(posixpath.join(owner_path, ref))
+            node = form.node(target)
+            if node is None or isinstance(node, tuple) or _children(node):
+                return True
+            for source in ([invoking] if invoking is not None else [owner]):
+                here = form.control_path(source)
+                if here is None or posixpath.normpath(posixpath.join(here, ref)) != target:
+                    return True
+                if any(target.startswith(row + "/") and not here.startswith(row + "/") for row in form.repeat_paths):
+                    return True
+    return False
+
+
 def print_callout(use, manifest):
     """``questions/print-callout-…``: an input Vellum reads as an Android callout (bind type ``intent``)
     whose ``<odkx:intent>`` (by the question's node name, ``intentManager.js::syncMugWithIntent``) has the
@@ -1299,8 +1392,14 @@ def print_callout(use, manifest):
     form, element = _form_element(use)
     if form is None:
         return None
-    if _local(element) != "input":
+    if element.tag != f"{{{XFORMS}}}input":
         return False
+    if use.key == "appearance:android/intent:":
+        # Android follows the input's named action, including an adopted
+        # callout whose action ID differs from Vellum's question node name.
+        appearance = element.get("appearance", "")
+        intent = form.intents.get(appearance.removeprefix("intent:"))
+        return intent is not None and intent.get("class") == PRINT_ACTION and _android_action_presence(use) == "owned"
     if not any(intent.get("class") == PRINT_ACTION for intent in form.intents.values()):
         return False
     bind = form.control_bind(element)
@@ -12103,6 +12202,9 @@ VALUE_CLASSES = {
     "questions/media-form-missing-in-default-language": media_missing_in_default,
     "questions/long-qrcode-or-tts-form-missing-in-default-language": label_text_missing_in_default,
     "questions/empty-media-form-beside-a-translated-file": media_blank_beside_file,
+    "questions/intent-id-naming-an-odkx-intent-that-no-callout-question-writes": orphan_android_action,
+    "questions/intent-id-on-any-input-naming-no-odkx-intent-in-the-form": missing_android_action,
+    "questions/android-app-callout-that-cannot-be-recreated": unreproducible_android_question,
     "questions/print-callout-class-org-commcare-dalvik-action-print-extra-cc": print_callout,
     "questions/input-readonly-true-control-attribute": readonly_input,
     "questions/jr-imagedimensionscaledmax-that-is-not-an-integer-or-is-greater": invalid_image_dimension,

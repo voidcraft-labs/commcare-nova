@@ -378,9 +378,12 @@ function slotHolder(
 			if (typeof holder !== "object" || holder === null) break;
 			if (segment.endsWith("[]")) {
 				const list = (holder as Holder)[segment.slice(0, -2)];
-				holder = Array.isArray(list)
-					? list.find((element) => namedElement(element, ref))
-					: undefined;
+				if (!Array.isArray(list)) holder = undefined;
+				else if (ref.slot === "android_app_input")
+					holder = list.filter((element) => element?.name === ref.member.name)[
+						ref.member.occurrence
+					];
+				else holder = list.find((element) => namedElement(element, ref));
 			} else holder = (holder as Holder)[segment];
 		}
 		if (typeof holder !== "object" || holder === null) continue;

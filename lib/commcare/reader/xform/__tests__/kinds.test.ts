@@ -94,7 +94,7 @@ const CASES: readonly RowCase[] = [
 	{ entry: Q("long-xsd-long"), facts: facts({ bindType: "long" }) },
 	{
 		entry: Q("android-app-callout-input-appearance-intent-id-bind-type-intent"),
-		facts: facts({ bindType: "intent" }),
+		facts: facts({ bindType: "intent", appearance: "intent:q" }),
 	},
 	{
 		entry: Q("input-whose-bind-type-vellum-does-not-write-xsd-decimal-xsd"),
@@ -345,6 +345,9 @@ function sourceOf(one: FieldKindFacts): string {
 			? ""
 			: `<${one.control} ref="${at}"${appearance}${mediatype}>${choices}</${one.control}>`;
 	return xformSource({
+		...(one.bindType === "intent" && {
+			head: '<odkx:intent id="q" class="org.example.MEASURE"/>',
+		}),
 		data: one.inRepeat ? `<r jr:template=""><q/></r>` : "<q/>",
 		model: `${one.inRepeat ? `<bind nodeset="/data/r"/>` : ""}<bind nodeset="${at}"${type}${calculate}/>${
 			one.hasDefault
@@ -361,7 +364,7 @@ describe("a row read from a source written for it", () => {
 	for (const { entry, facts: one } of CASES) {
 		const row = fieldKindOf(one);
 		it(`${entry.slice("questions/".length)} (${JSON.stringify(one)})`, async () => {
-			const reading = await readForm(sourceOf(one));
+			const reading = await readForm(sourceOf(one), { mint: true });
 			const xform = reading.xform;
 			expect(xform).not.toBeNull();
 			const field = readFields(xform ?? ({} as never)).find(

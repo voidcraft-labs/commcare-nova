@@ -2774,3 +2774,11 @@ without writing a fresh event. Android ignores these settings.
 An incomplete save keeps the engine checkpoint, entry key, signed opening and authorized case/session inputs in the current Builder tab. Android home resets navigation while retaining its records. Reopening requires the same saved blueprint and effective worker. The restored engine reuses its answers and repeat identities, while submit still checks current Project access and the signed opening. Drafts keep their attachment entry key and drop its local capture queues on discard, successful submission or scope loss. A successful submission replaces the incomplete record with its completed metadata when the saved list is on.
 
 `FormEngine.savedFormDescriptor` evaluates the carrier in the current language at the form root, as Android's `SaveToDiskTask` calls Core's `FormMetaIndicatorUtil`. The displayed label is saved with the record. An empty label uses the entry's selected case title where available.
+
+### Android app answers
+
+The form engine computes the request in the concrete invoking row. The
+Preview dialog offers local result entry. `androidAppWrites` implements the
+ordered native protocols and tracks the native return flag separately from
+the writes. The controller checks entry and row identity when a return
+arrives. Chosen files use the normal staged capture owner and cleanup.

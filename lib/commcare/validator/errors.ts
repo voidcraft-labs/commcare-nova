@@ -10,6 +10,7 @@
 /** All validation error codes — one per distinct check. */
 export type ValidationErrorCode =
 	| "MENU_FORM_SOURCE_INVALID"
+	| "ANDROID_APP_ANSWER_INVALID"
 	| "ENTRY_POINT_INVALID"
 	| "CASE_LIST_ICON_ACTION_INVALID"
 	| "FORM_BEHAVIOR_TEXT_INVALID"

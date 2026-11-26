@@ -30,6 +30,7 @@ import {
 	type Uuid,
 } from "@/lib/domain";
 import { formOfField } from "@/lib/domain/fieldForm";
+import { BUILT_IN_ANDROID_APP_ACTIONS } from "@/lib/domain/fields/androidApp";
 import {
 	menusUsingWorkerRecord,
 	type WorkerRecordRequirement,
@@ -56,6 +57,8 @@ import { formSourceHoldsSupplyPointText } from "./xform/supplyPointText";
 export const HQ_PLAN_PRIVILEGE_IDS = [
 	"cloudcare",
 	"custom_icon_badges",
+	"templated_intents",
+	"custom_intents",
 	"user_case",
 	"lookup_tables",
 	"child_cases",
@@ -76,7 +79,7 @@ export type HqPlanPrivilegeId = (typeof HQ_PLAN_PRIVILEGE_IDS)[number];
 export interface HqPlanPrivilegeUse {
 	readonly id: HqPlanPrivilegeId;
 	/** The gate entry id in `lib/commcare/surface/entries/gates.json`. */
-	readonly gate: `privilege/${HqPlanPrivilegeId}`;
+	readonly gate: `privilege/${HqPlanPrivilegeId | "templated_intents+custom_intents"}`;
 	/** One sentence per form that needs it, in form order, then the publish's own. */
 	readonly reasons: readonly string[];
 }
@@ -115,6 +118,8 @@ export const PLAN_FEATURE_FOR_PRIVILEGE = {
 	cloudcare: "web-apps",
 	custom_icon_badges: "menu-badges",
 	user_case: "worker-records",
+	templated_intents: "built-in-android-apps",
+	custom_intents: "external-android-apps",
 	lookup_tables: "lookup-tables",
 	child_cases: "child-cases",
 	case_sharing_groups: "case-sharing-groups",
@@ -267,7 +272,14 @@ export function requiredPlanPrivileges(
 	const uses: HqPlanPrivilegeUse[] = [];
 	const add = (id: HqPlanPrivilegeId, reasons: readonly string[]): void => {
 		if (reasons.length === 0) return;
-		uses.push({ id, gate: `privilege/${id}`, reasons });
+		uses.push({
+			id,
+			gate:
+				id === "custom_intents" || id === "templated_intents"
+					? "privilege/templated_intents+custom_intents"
+					: `privilege/${id}`,
+			reasons,
+		});
 	};
 	const forms = formsInOrder(doc);
 	/* The form link context the emitter builds (`expander.ts::expandDoc`),
@@ -299,6 +311,37 @@ export function requiredPlanPrivileges(
 				),
 			];
 		}),
+	);
+
+	// The custom privilege covers all actions, including templates. Ask once
+	// for the least privilege that lets HQ build this entire application.
+	const androidForms = forms.flatMap(({ formUuid }) => {
+		const actions = [...descendantFieldUuids(doc, formUuid)].flatMap((uuid) => {
+			const field = doc.fields[uuid];
+			return field?.kind === "text" && field.androidApp?.kind === "open-app"
+				? [field.androidApp.action]
+				: [];
+		});
+		return actions.length
+			? [
+					{
+						formUuid,
+						custom: actions.some(
+							(action) => !BUILT_IN_ANDROID_APP_ACTIONS.has(action),
+						),
+					},
+				]
+			: [];
+	});
+	const custom = androidForms.some((form) => form.custom);
+	add(
+		custom ? "custom_intents" : "templated_intents",
+		androidForms
+			.filter((form) => !custom || form.custom)
+			.map(
+				({ formUuid }) =>
+					`${formName(doc, formUuid)} opens an Android app to answer a question.`,
+			),
 	);
 
 	/* `user_case`: HQ's build fails for a form that saves to the worker's

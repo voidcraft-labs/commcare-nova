@@ -1011,6 +1011,53 @@ export const PLATFORM_FEATURE_FIXTURES = {
 			}),
 		use: slotUse("answer-name-requires-android", FIELD_OWNER, "id"),
 	},
+	"android-app-question": {
+		with: () =>
+			oneField({
+				kind: "text",
+				id: "answer",
+				label: proseText("Answer"),
+				androidApp: {
+					kind: "open-app",
+					action: "org.example.READING",
+					send: [],
+					receive: [],
+				},
+			}),
+		without: () =>
+			oneField({ kind: "text", id: "answer", label: proseText("Answer") }),
+		use: slotUse("android-app-question", FIELD_OWNER, "androidApp"),
+	},
+	"android-app-answer": {
+		with: () =>
+			survey([
+				f({
+					uuid: testUuid("read-meter-app"),
+					kind: "text",
+					id: "reading",
+					label: proseText("Read meter"),
+					androidApp: {
+						kind: "open-app",
+						action: "org.example.READING",
+						send: [],
+						receive: [],
+					},
+				}),
+				f({
+					uuid: FIXTURE_FIELD,
+					kind: "int",
+					id: "answer",
+					label: proseText("Answer"),
+					androidApp: {
+						kind: "use-question",
+						question: testUuid("read-meter-app"),
+					},
+				}),
+			]),
+		without: () =>
+			oneField({ kind: "int", id: "answer", label: proseText("Answer") }),
+		use: slotUse("android-app-answer", FIELD_OWNER, "androidApp"),
+	},
 	"number-keypad": {
 		with: () =>
 			oneField({

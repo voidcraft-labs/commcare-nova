@@ -62,6 +62,8 @@ NOVA_LABELS = {
     "cloudcare": "Web-Based Apps (CloudCare)",
     "user_case": "Worker records (user cases)",
     "lookup_tables": "Lookup Tables",
+    "templated_intents": "Built-in Integration",
+    "custom_intents": "External Integration Framework",
     "child_cases": "Child Cases",
     "case_sharing_groups": "Case Sharing via Groups",
     "form_link_workflow": "Link to other forms in End of Form Navigation",

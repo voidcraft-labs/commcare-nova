@@ -77,6 +77,7 @@ import type { XPathValue } from "../xpath/types";
 import type { XPathRuntime } from "../xpath/workerClient";
 import { deserializeXPathWorkerValue } from "../xpath/workerProjection";
 import type { XPathWorkerInstances } from "../xpath/workerProtocol";
+import type { AndroidAppReturn } from "./androidAppReturn";
 import { SetvalueRefusal, type SetvalueRefusalDetails } from "./answerCast";
 import type { SubmissionMutation } from "./caseDataBindingTypes";
 import {
@@ -2934,6 +2935,88 @@ export class EngineController {
 			];
 			this.syncPathsToStore(affectedPaths);
 		});
+	}
+
+	async openAndroidApp(entryKey: string, path: string, signal: AbortSignal) {
+		const engine = this.engine;
+		if (
+			!engine ||
+			!(await this.awaitSettled(entryKey)) ||
+			signal.aborted ||
+			engine !== this.engine ||
+			entryKey !== this.currentEntryKey
+		)
+			return undefined;
+		const evaluator =
+			this.xpathRuntime &&
+			this.evaluatorFor(
+				engine,
+				entryKey,
+				this.runtimeRevision,
+				this.lifecycleGeneration,
+				signal,
+			);
+		return engine.openAndroidApp(path, evaluator);
+	}
+
+	androidAppResult(
+		entryKey: string,
+		path: string,
+		signature: string,
+		result: AndroidAppReturn,
+	) {
+		if (
+			!this.entryReady ||
+			this.rebuilding ||
+			this.atomicRevisionsPending ||
+			this.runtimeFault ||
+			entryKey !== this.currentEntryKey ||
+			this.caseDatabaseWait() !== undefined
+		)
+			return undefined;
+		return this.engine?.androidAppResult(path, signature, result);
+	}
+
+	/** All returned answers belong to one native result. Stage every destination
+	 * before asking the ordinary engine to recalculate relevance and validation. */
+	async commitAndroidAppResult(
+		entryKey: string,
+		path: string,
+		signature: string,
+		result: AndroidAppReturn,
+		captures: ReadonlyMap<string, string>,
+		accepted: () => void,
+	): Promise<boolean> {
+		const engine = this.engine;
+		const form = this.activeFormUuid;
+		if (!engine || !form) return false;
+		const writes = this.androidAppResult(entryKey, path, signature, result);
+		if (!writes) return false;
+		const changed = new Set<string>();
+		for (const write of writes) {
+			const value =
+				write.kind === "answer"
+					? write.value
+					: (captures.get(write.path) ?? "");
+			// The device writes the returned data directly to the form instance.
+			if (engine.setValue(write.path, value, "android-app")) {
+				changed.add(write.path);
+				if (this.xpathRuntime) this.pendingValuePaths.add(write.path);
+			}
+		}
+		accepted();
+		this.syncPathsToStore(
+			[...changed].flatMap((p) => [p, ...engine.getAffectedPaths(p)]),
+		);
+		return (
+			this.xpathRuntime === undefined ||
+			this.runAsyncRevision(
+				"value-change",
+				form,
+				async () => engine === this.engine && this.currentEntryKey === entryKey,
+				false,
+			)
+		);
 	}
 
 	async onValueChangeAsync(uuid: string, value: string): Promise<boolean> {

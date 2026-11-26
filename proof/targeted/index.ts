@@ -19,6 +19,7 @@ import {
 	rootCaseBlockNames,
 } from "./documents/advancedModules";
 import { ancestorIndexNames } from "./documents/ancestorIndexNames";
+import { androidAppAnswers } from "./documents/androidAppAnswers";
 import { attributeDisplayCondition } from "./documents/attributeDisplayCondition";
 import { blankLabels } from "./documents/blankLabels";
 import { captureWidgets } from "./documents/captureWidgets";
@@ -343,6 +344,7 @@ export const TARGETED_DOCUMENTS: readonly (() => CorpusDocument)[] = [
 	caseWriteNames,
 	connectDeliverHyphenIds,
 	connectLearnHyphenIds,
+	androidAppAnswers,
 	numberKeypad,
 	questionCalendar,
 	savedFormDescriptor,

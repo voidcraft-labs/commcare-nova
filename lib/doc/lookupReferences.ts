@@ -630,6 +630,8 @@ function extractRegisteredExpressions(
 				else if ("filterUuid" in member) carrierUuid = member.filterUuid;
 				else if ("supplyUuid" in member) carrierUuid = member.supplyUuid;
 				else if ("parameterUuid" in member) carrierUuid = member.parameterUuid;
+				else if ("name" in member)
+					subpath = ["send", member.name, String(member.occurrence)];
 				else carrierUuid = member.searchInputUuid;
 			}
 			if (

@@ -36,6 +36,7 @@ import {
 	formLinkDatumNameSchema,
 	formLinkSelectionName,
 } from "@/lib/domain/expression/types";
+import { androidAppInputMember } from "@/lib/domain/fields/androidApp";
 import { formRootNameSchema } from "@/lib/domain/formAnswerRoot";
 import { lookupTableIdSchema } from "@/lib/domain/lookupIds";
 import { rowTimingSchema } from "@/lib/domain/queryRepeatPlacement";
@@ -186,7 +187,22 @@ function fieldDeclaration(
 function fieldSlot(
 	uuid: Uuid,
 	path: AuthoringPath,
+	field: Input,
 ): FieldExpressionSlotRef | undefined {
+	if (
+		path[0] === "androidApp" &&
+		path[1] === "send" &&
+		typeof path[2] === "number" &&
+		path[3] === "value"
+	) {
+		const inputs = objects.parse(object.parse(field.androidApp).send);
+		return {
+			entity: "field",
+			uuid,
+			slot: "android_app_input",
+			member: androidAppInputMember(inputs, path[2]),
+		};
+	}
 	if (
 		path.length === 1 &&
 		["relevant", "calculate", "default_value", "required"].includes(
@@ -637,9 +653,14 @@ export function prepareFormAuthoring(args: {
 			return fieldSlot(
 				uuidSchema.parse(objects.parse(input.fields)[path[1]].fieldUuid),
 				path.slice(2),
+				objects.parse(input.fields)[path[1]],
 			);
 		if (toolName === "editField" && path[0] === "updates")
-			return fieldSlot(uuidSchema.parse(input.fieldUuid), path.slice(1));
+			return fieldSlot(
+				uuidSchema.parse(input.fieldUuid),
+				path.slice(1),
+				object.parse(input.updates),
+			);
 		if (toolName === "updateForm" && path[0] === "recordName")
 			return recordName?.slot;
 		if (

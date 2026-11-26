@@ -651,6 +651,16 @@ export function reconcileFieldForKind(
 		(toKind === "audio") !== (candidate.captureSource === "record-or-choose")
 	)
 		delete candidate.captureSource;
+	// Only a text question owns an Android action. Other supported inputs
+	// may still invoke a different question's action. The commit gate checks
+	// that no other input is left without its source by this conversion.
+	if (
+		toKind !== "text" &&
+		source.kind === "text" &&
+		source.androidApp?.kind === "open-app"
+	) {
+		delete candidate.androidApp;
+	}
 	const filtered = pickFieldKeysForKind(candidate, toKind);
 	const result = fieldSchema.safeParse(filtered);
 	if (!result.success) return undefined;

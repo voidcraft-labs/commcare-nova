@@ -44,6 +44,11 @@ import { placeKey, whereText } from "../place";
 import { dateRangeGuesses } from "../search/dateRangeGuesses";
 import type { ReadGeneratedNode } from "../types";
 import type { XmlCursor } from "../xmlCursor";
+import {
+	claimAndroidApp,
+	mintAndroidApp,
+	type ReadAndroidApp,
+} from "./androidApp";
 import type { AppearanceForm } from "./appearances";
 import { type ControlNode, readControls } from "./body";
 import { X } from "./claims";
@@ -159,6 +164,10 @@ export interface DraftExpression {
 	readonly slot: FieldExpressionSlotRef["slot"] | ProseSlotRef["slot"];
 	/** For a choice's label, the option's position in the field's inline options. */
 	readonly option?: number;
+	readonly androidAppInput?: {
+		readonly name: string;
+		readonly occurrence: number;
+	};
 	/** HQ's text, as the source holds it. */
 	readonly text: string;
 	/** The node it was read from. */
@@ -175,6 +184,9 @@ export interface DraftExpression {
 
 /** A field as the form reader builds it: its kind's slots, less its logic, which is pending. */
 export interface DraftField {
+	androidApp?:
+		| { readonly kind: "open-app"; readonly app: ReadAndroidApp }
+		| { readonly kind: "use-question"; readonly source: DraftField };
 	readonly node: DataNode;
 	/** A root Question List becomes a section once the form's root is known. */
 	kind: FieldKind;
@@ -1000,7 +1012,46 @@ export function mintFields(ctx: ReadContext): void {
 								"xform:select1/item/value",
 							);
 				}
+				const byNode = new Map(fields.map((field) => [field.node, field]));
+				const refusedActions = new Set<DraftField>();
+				// A second invoking question can come before the question that
+				// owns its action, so settle every owner before binding users.
 				for (const field of fields) {
+					if (
+						field.androidApp?.kind === "open-app" &&
+						!mintAndroidApp(field, byNode)
+					) {
+						refusedActions.add(field);
+					}
+				}
+				for (const field of fields) {
+					const app = field.androidApp;
+					if (app && field.control) {
+						const refused =
+							refusedActions.has(field) ||
+							(app.kind === "use-question" &&
+								(refusedActions.has(app.source) ||
+									!mintAndroidApp(field, byNode)));
+						const appearance = {
+							element: field.control.element,
+							attribute: "appearance",
+						};
+						if (refused)
+							xform.cursor.refuse(
+								appearance,
+								X.androidAppRefused.appearance,
+								field.place,
+							);
+						else {
+							const claim =
+								app.kind === "open-app"
+									? X.kind.androidApp.appearance
+									: X.androidAppAnswer;
+							if (claim) xform.cursor.take(appearance, claim).value;
+						}
+						if (app.kind === "open-app")
+							claimAndroidApp(xform.cursor, app.app, field, !refused);
+					}
 					const uuid = field.uuid;
 					if (uuid === undefined) continue;
 					field.field.uuid = uuid;
@@ -1014,7 +1065,9 @@ export function mintFields(ctx: ReadContext): void {
 								mode: expression.mode,
 								place: field.place,
 								key: expression.key,
-								...(expression.usesOnly === true && { usesOnly: true }),
+								...((expression.usesOnly === true ||
+									(expression.slot === "android_app_input" &&
+										refusedActions.has(field))) && { usesOnly: true }),
 								...(expression.translatedOutput === true && {
 									translatedOutput: true,
 								}),
@@ -1071,6 +1124,15 @@ function draftExpressionRef(
 	uuid: Uuid,
 	expression: DraftExpression,
 ): SlotContextRef | undefined {
+	if (expression.slot === "android_app_input")
+		return (
+			expression.androidAppInput && {
+				entity: "field",
+				uuid,
+				slot: expression.slot,
+				member: expression.androidAppInput,
+			}
+		);
 	if (expression.slot !== "option_label")
 		return { entity: "field", uuid, slot: expression.slot } as SlotContextRef;
 	const source = field.field.optionsSource as

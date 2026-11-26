@@ -11,6 +11,10 @@ import type {
 /** Platform copy is separate from an app's authored translations. Keep this
  * small catalog client/worker safe; unsupported languages fall back honestly. */
 const english = {
+	androidAppRegistrationSaved: "All data stored successfully",
+	androidAppRegistrationFailed: "No data was stored",
+	androidAppRegistrationPartial: "Failed to store some data",
+	androidAppFingersScanned: "Fingerprints scanned: {count}",
 	home: "Home",
 	breadcrumbPath: "Show breadcrumb path",
 	pageNavigation: "Page navigation",
@@ -397,6 +401,12 @@ const english = {
 
 export type RuntimeMessage = keyof typeof english;
 const spanish: Record<RuntimeMessage, string> = {
+	// These strings become submitted answers. HQ's pinned translation catalog has
+	// no Spanish overrides for the Android device's four built-in messages.
+	androidAppRegistrationSaved: english.androidAppRegistrationSaved,
+	androidAppRegistrationFailed: english.androidAppRegistrationFailed,
+	androidAppRegistrationPartial: english.androidAppRegistrationPartial,
+	androidAppFingersScanned: english.androidAppFingersScanned,
 	home: "Inicio",
 	breadcrumbPath: "Mostrar la ruta de navegación",
 	pageNavigation: "Navegación de páginas",

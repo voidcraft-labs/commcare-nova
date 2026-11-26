@@ -62,6 +62,7 @@ DOCUMENTS = (
     "targeted-multi-select-destinations",
     "targeted-number-keypad",
     "targeted-question-calendar",
+    "targeted-android-app-answers",
     "targeted-plain-help",
     "targeted-plain-labels",
     "targeted-named-answer-root",

@@ -1,3 +1,4 @@
+import { androidAppInputMember } from "@/lib/domain/fields/androidApp";
 // lib/domain/referenceSlots.ts
 //
 // The reference-slot registry: one declarative enumeration of every
@@ -273,6 +274,36 @@ const LABEL_TEXT_KINDS = INPUT_KINDS;
 // ── Field slots ───────────────────────────────────────────────────
 
 export const FIELD_REFERENCE_SLOTS = [
+	{
+		entity: "field",
+		slot: "android_app_input",
+		path: "androidApp.send[].value",
+		kind: "expression",
+		appliesTo: ["text"],
+	},
+	{
+		entity: "field",
+		slot: "android_app_result",
+		path: "androidApp.receive[].question",
+		kind: "entity-uuid",
+		appliesTo: ["text"],
+	},
+	{
+		entity: "field",
+		slot: "android_app_question",
+		path: "androidApp.question",
+		kind: "entity-uuid",
+		appliesTo: [
+			"text",
+			"int",
+			"decimal",
+			"date",
+			"datetime",
+			"time",
+			"barcode",
+			"geopoint",
+		],
+	},
 	// Entry order is observable: consumers that walk a field's slots in
 	// registry order (the rename rewriters, the deep validator's scan —
 	// whose error order user-facing surfaces preserve) see slots in this
@@ -1165,6 +1196,8 @@ export function expressionSlotKey(ref: SlotContextRef): string {
 	const base = [ref.entity, ref.uuid, ref.slot];
 	if (!("member" in ref)) return JSON.stringify(base);
 	const member = ref.member;
+	if ("name" in member)
+		return JSON.stringify([...base, member.name, member.occurrence]);
 	if ("optionUuid" in member)
 		return JSON.stringify([...base, member.optionUuid]);
 	if ("datum" in member) {
@@ -1226,6 +1259,21 @@ function expressionRefForEntry(
 ): ExpressionSlotRef | undefined {
 	const uuid = owner.uuid;
 	if (entry.entity === "field") {
+		if (entry.slot === "android_app_input") {
+			const source = ownRecordValue(doc.fields, uuid);
+			if (
+				source?.kind !== "text" ||
+				source.androidApp?.kind !== "open-app" ||
+				indices[0] === undefined
+			)
+				return undefined;
+			return {
+				entity: "field",
+				uuid,
+				slot: entry.slot,
+				member: androidAppInputMember(source.androidApp.send, indices[0]),
+			};
+		}
 		return { entity: "field", uuid, slot: entry.slot };
 	}
 	if (entry.entity === "module") {
@@ -2044,6 +2092,10 @@ export const NON_REFERENCE_FIELD_PATHS: Readonly<
 	"activity.name": "display-text",
 	"activity.description": "display-text",
 	"activity.estimatedHours": "config",
+	"androidApp.kind": "discriminator",
+	"androidApp.action": "config",
+	"androidApp.send[].name": "config",
+	"androidApp.receive[].name": "config",
 	repeat_mode: "discriminator",
 	// A query repeat's held placement: a closed enum, naming nothing.
 	placement: "config",
