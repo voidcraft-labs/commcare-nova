@@ -46,6 +46,7 @@ import { fixedSearchRangeExpression } from "@/lib/commcare/searchRangeStartingVa
 import { RESERVED_SEARCH_INPUT_NAMES } from "@/lib/commcare/suite/case-search/reservedInputNames";
 import { columnNotOnListMessage } from "@/lib/commcare/validator/rules/case-list/columnNotOnList";
 import {
+	addressSearchInputSchema,
 	advancedDateRangeSearchInputSchema,
 	advancedScalarSearchInputSchema,
 	advancedSelectSearchInputSchema,
@@ -584,7 +585,8 @@ function refineSearchInputBoundary(
 				required?: { when?: Expression };
 				validation?: { rule: Expression };
 		  }
-		| { kind: "hidden"; value?: Expression },
+		| { kind: "hidden"; value?: Expression }
+		| { kind: "address" },
 	ctx: z.RefinementCtx,
 ): void {
 	if (input.kind === "hidden") {
@@ -607,6 +609,7 @@ function refineSearchInputBoundary(
 		}
 		return;
 	}
+	if (input.kind === "address") return;
 	if (input.default !== undefined && expressionReadsCaseData(input.default)) {
 		ctx.addIssue({
 			code: "custom",
@@ -760,6 +763,16 @@ export const searchInputDefInputSchema = z
 			...visibleSearchInputSlots,
 			default: valueExpressionInputSchema.optional(),
 		}),
+		addressSearchInputSchema
+			.omit({
+				uuid: true,
+				required: true,
+				validation: true,
+				default: true,
+				hidden: true,
+				addressReceiver: true,
+			})
+			.extend(searchInputUuidSlot),
 		hiddenSearchInputSchema.omit({ uuid: true }).extend({
 			...searchInputUuidSlot,
 			/* The bare AST node, so the wire projection keeps it a `$ref`; a
@@ -812,6 +825,14 @@ export const searchInputUpdateInputSchema = z
 		projectChoiceSearchInput.omit({ uuid: true }).extend({
 			...visibleSearchInputSlots,
 			default: valueExpressionInputSchema.optional(),
+		}),
+		addressSearchInputSchema.omit({
+			uuid: true,
+			required: true,
+			validation: true,
+			default: true,
+			hidden: true,
+			addressReceiver: true,
 		}),
 		hiddenSearchInputSchema.omit({ uuid: true }).extend({
 			value: valueExpressionInputSchema.optional(),

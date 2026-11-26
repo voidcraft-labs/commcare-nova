@@ -213,6 +213,13 @@ a read that depends on the results' order is refused. A form that works on
 several cases reads them as `instance('selected_cases')/results/value`, for
 example under `count(...)`, never as one value.
 
+For an address picker on a case Search screen, use `kind: "address"` and
+`type: "address"`. Give it a stable `searchInputUuid` so a text or lookup
+choice field can use `addressReceiver` with
+`{ kind: "address", source: "<uuid>", parts: ["us_state", "city"] }`.
+Search tries the parts in order. Web Apps fills the connected fields where
+the project space has Geocoder and advanced case search.
+
 Literal opening braces and backslashes are escaped with a backslash. Read
 tools return the same wording and expression format accepted by edits, in
 Nova's standard spelling of what you sent: one space after each comma and on

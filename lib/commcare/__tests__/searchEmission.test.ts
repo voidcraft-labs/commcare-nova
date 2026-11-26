@@ -443,7 +443,11 @@ it.each(["inline", "remote"] as const)(
 		const config = module.caseListConfig;
 		if (config === undefined) throw new Error("Fixture has a case list");
 		const prompt = config.searchInputs[0];
-		if (prompt.kind === "hidden" || prompt.type === "date-range")
+		if (
+			prompt.kind === "hidden" ||
+			prompt.kind === "address" ||
+			prompt.type === "date-range"
+		)
 			throw new Error("Fixture has a visible text prompt");
 		const answer = input(prompt.uuid);
 		config.filter = whenInput(

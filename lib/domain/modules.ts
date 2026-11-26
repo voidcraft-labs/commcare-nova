@@ -1760,6 +1760,40 @@ export function searchInputNameRefusal(name: string): string | undefined {
 		: SEARCH_INPUT_NAME_REJECTION;
 }
 
+export const SEARCH_ADDRESS_PARTS = [
+	"full",
+	"geopoint",
+	"street",
+	"city",
+	"district",
+	"county",
+	"zipcode",
+	"postcode",
+	"region",
+	"state_long",
+	"state_short",
+	"us_state",
+	"us_state_short",
+	"country",
+	"country_short",
+] as const;
+
+export const searchAddressReceiverSchema = z.discriminatedUnion("kind", [
+	z.strictObject({
+		kind: z.literal("address"),
+		source: uuidSchema,
+		parts: z.array(z.enum(SEARCH_ADDRESS_PARTS)).min(1),
+	}),
+	z.strictObject({
+		kind: z.literal("unsubscribed"),
+		topic: z.string().regex(/^[A-Za-z_][A-Za-z0-9_]*$/),
+		fields: z
+			.string()
+			.regex(/^[A-Za-z_][A-Za-z0-9_]*(?:\|\|[A-Za-z_][A-Za-z0-9_]*)*$/),
+	}),
+]);
+export type SearchAddressReceiver = z.infer<typeof searchAddressReceiverSchema>;
+
 // Common slots present on every SearchInputDef arm.
 //
 // `name` is written as an attribute value (`<prompt key="X">`), a string
@@ -1833,6 +1867,7 @@ export type SearchInputValidation = z.infer<typeof searchInputValidationSchema>;
  */
 const visibleSearchInputBase = searchInputBase
 	.extend({
+		addressReceiver: searchAddressReceiverSchema.optional(),
 		hint: z.string().min(1).optional(),
 		required: searchInputRequiredSchema.optional(),
 		validation: searchInputValidationSchema.optional(),
@@ -2079,6 +2114,30 @@ export const hiddenSearchInputSchema = searchInputBase
 	})
 	.strict();
 
+/** A Web Apps search for a place supplies other prompts by identity. It
+ * does not bind an ordinary search answer. */
+export const addressSearchInputSchema = searchInputBase.extend({
+	name: z
+		.string()
+		.regex(
+			/^[A-Za-z_][A-Za-z0-9_]*$/,
+			"Use letters, numbers or underscores in an address field name.",
+		),
+	kind: z.literal("address"),
+	type: z.literal("address"),
+	excludeFromRequest: z.literal(true).optional(),
+	// Match the optional slots read by shared prompt projections without
+	// allowing expressions or answer-entry settings on an address picker.
+	required: z.never().optional(),
+	validation: z.never().optional(),
+	default: z.never().optional(),
+	hidden: z.never().optional(),
+	addressReceiver: z.never().optional(),
+	hint: z.string().min(1).optional(),
+	allowBlank: z.literal(true).optional(),
+});
+export type AddressSearchInput = z.infer<typeof addressSearchInputSchema>;
+
 /**
  * Exact seven-arm union over two authoring dimensions:
  *
@@ -2100,6 +2159,7 @@ export const searchInputDefSchema = z.union([
 	projectScalarSearchInput,
 	projectRangeSearchInput,
 	projectChoiceSearchInput,
+	addressSearchInputSchema,
 	hiddenSearchInputSchema,
 ]);
 export type SimpleScalarSearchInputDef = z.infer<
@@ -2150,7 +2210,7 @@ export function isHiddenSearchInput(
 export function isVisibleSearchInput(
 	input: SearchInputDef,
 ): input is VisibleSearchInputDef {
-	return input.kind !== "hidden";
+	return input.kind !== "hidden" && input.kind !== "address";
 }
 
 export function isSelectSearchInput(
@@ -2181,7 +2241,7 @@ export function searchInputDefault(
 export function searchInputRuntimeValueType(
 	input: SearchInputDef,
 ): CasePropertyDataType {
-	return input.kind === "hidden"
+	return input.kind === "hidden" || input.kind === "address"
 		? "text"
 		: SEARCH_INPUT_RUNTIME_VALUE_TYPES[input.type];
 }
@@ -2203,7 +2263,8 @@ export const SEARCH_INPUT_REQUIRED_DEFAULT_MESSAGE =
 export function searchInputRequiredMessage(
 	input: SearchInputDef,
 ): string | undefined {
-	if (input.kind === "hidden" || input.required === undefined) return undefined;
+	if (!isVisibleSearchInput(input) || input.required === undefined)
+		return undefined;
 	if (input.required.noMessage === true) return "";
 	return input.required.message ?? SEARCH_INPUT_REQUIRED_DEFAULT_MESSAGE;
 }
@@ -2225,7 +2286,7 @@ export const COMMCARE_SEARCH_INVALID_MESSAGE =
 export function searchInputValidationMessage(
 	input: SearchInputDef,
 ): string | undefined {
-	if (input.kind === "hidden" || input.validation === undefined)
+	if (!isVisibleSearchInput(input) || input.validation === undefined)
 		return undefined;
 	return input.validation.message ?? COMMCARE_SEARCH_INVALID_MESSAGE;
 }
@@ -2240,7 +2301,7 @@ export function searchCheckMessageRefusal(
 	input: SearchInputDef,
 ): string | undefined {
 	if (
-		input.kind !== "hidden" &&
+		isVisibleSearchInput(input) &&
 		input.required?.noMessage === true &&
 		input.required.message !== undefined
 	)
@@ -2280,7 +2341,7 @@ export interface SearchInputScreenPredicate {
 export function searchInputScreenExpressions(
 	input: SearchInputDef,
 ): readonly SearchInputScreenPredicate[] {
-	if (input.kind === "hidden") return [];
+	if (!isVisibleSearchInput(input)) return [];
 	const out: SearchInputScreenPredicate[] = [];
 	if (input.required?.when !== undefined) {
 		out.push({ slot: "required", predicate: input.required.when });
@@ -3518,6 +3579,31 @@ export const caseListDeviceLookupSchema = z
 	});
 export type CaseListDeviceLookup = z.infer<typeof caseListDeviceLookupSchema>;
 
+export function searchAddressReceiverProblem(
+	input: VisibleSearchInputDef,
+	inputs: readonly SearchInputDef[],
+): string | undefined {
+	const receiver = input.addressReceiver;
+	if (receiver === undefined) return undefined;
+	if (
+		input.hidden === true ||
+		(input.type !== "text" &&
+			input.type !== "select" &&
+			input.type !== "multi-select")
+	)
+		return "An address can fill a visible text field or a field that chooses from a table.";
+	const active = inputs.some(
+		(source) =>
+			source.kind === "address" &&
+			(receiver.kind === "address"
+				? source.uuid === receiver.source
+				: source.name === receiver.topic),
+	);
+	return active === (receiver.kind === "address")
+		? undefined
+		: "Choose an address field from this Search screen or clear the link.";
+}
+
 export const caseListConfigSchema = z
 	.strictObject({
 		/**
@@ -3582,6 +3668,16 @@ export const caseListConfigSchema = z
 		tile: caseTileLayoutSchema.optional(),
 	})
 	.superRefine((config, ctx) => {
+		for (const [index, input] of config.searchInputs.entries()) {
+			if (!isVisibleSearchInput(input)) continue;
+			const problem = searchAddressReceiverProblem(input, config.searchInputs);
+			if (problem !== undefined)
+				ctx.addIssue({
+					code: "custom",
+					path: ["searchInputs", index, "addressReceiver"],
+					message: problem,
+				});
+		}
 		if (config.deviceLookup && config.tile?.namedSlots)
 			ctx.addIssue({
 				code: "custom",

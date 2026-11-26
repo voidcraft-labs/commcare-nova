@@ -439,6 +439,7 @@ export function searchAnswerFields(
 	const inputs = mod?.caseListConfig?.searchInputs ?? [];
 	const fields: SearchAnswerField[] = [];
 	for (const input of inputs) {
+		if (input.kind === "address") continue;
 		const property =
 			input.kind === "hidden"
 				? hiddenPromptSavesAs(input.name)
@@ -470,7 +471,7 @@ export function searchAnswerFields(
 
 /** The field one prompt's answer is carried in, by the prompt's kind. */
 function searchAnswerField(
-	input: SearchInputDef,
+	input: Exclude<SearchInputDef, { kind: "address" }>,
 	base: {
 		readonly uuid: Uuid;
 		readonly id: string;

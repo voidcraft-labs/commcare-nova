@@ -120,7 +120,7 @@ export function buildSearchRunState(
 		// A hidden input has no draft key: the worker never answers it. Its
 		// value is resolved at submit, and a constraint judged over the draft
 		// seeds it itself (`emitPreviewSearchPredicate`).
-		if (input.kind === "hidden") continue;
+		if (input.kind === "hidden" || input.kind === "address") continue;
 		const shape = `${input.uuid}:${input.type}`;
 		if (input.type === "date-range") {
 			keyShapes.set(`${input.name}:from`, shape);

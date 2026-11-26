@@ -20,6 +20,7 @@ import tablerCalendar from "@iconify-icons/tabler/calendar";
 import tablerCalendarStats from "@iconify-icons/tabler/calendar-stats";
 import tablerCircleDot from "@iconify-icons/tabler/circle-dot";
 import tablerEyeOff from "@iconify-icons/tabler/eye-off";
+import tablerMapPin from "@iconify-icons/tabler/map-pin";
 import tablerSearch from "@iconify-icons/tabler/search";
 import tablerSquareCheck from "@iconify-icons/tabler/square-check";
 import type { ProseProjector } from "@/lib/doc/hooks/useProseProjection";
@@ -119,7 +120,9 @@ export const SEARCH_INPUT_TYPE_ICONS: Record<SearchInputType, IconifyIcon> = {
 export function searchInputIcon(input: SearchInputDef): IconifyIcon {
 	return input.kind === "hidden"
 		? tablerEyeOff
-		: SEARCH_INPUT_TYPE_ICONS[input.type];
+		: input.kind === "address"
+			? tablerMapPin
+			: SEARCH_INPUT_TYPE_ICONS[input.type];
 }
 
 /** Plain-words explanation per field type: what the field looks
@@ -536,7 +539,9 @@ export function deriveSearchInputDecl(
 export function searchInputDecls(
 	rows: readonly SearchInputDef[],
 ): readonly EditorSearchInputDecl[] {
-	return rows.map(deriveSearchInputDecl);
+	return rows
+		.filter((input) => input.kind !== "address")
+		.map(deriveSearchInputDecl);
 }
 
 // ── Default-value expectedType + seed ─────────────────────────────

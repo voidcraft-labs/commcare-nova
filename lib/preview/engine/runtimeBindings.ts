@@ -281,7 +281,11 @@ export function composeRuntimeFilter(
 		searchInputs,
 		inputValues,
 	);
-	const knownInputUuids = new Set(searchInputs.map((input) => input.uuid));
+	const knownInputUuids = new Set(
+		searchInputs
+			.filter((input) => input.kind !== "address")
+			.map((input) => input.uuid),
+	);
 	const clauses: Expression[] = [];
 	for (const input of searchInputs) {
 		const clause = clauseForInput(
@@ -313,6 +317,7 @@ function clauseForInput(
 		// A hidden input seeds the search-input instance for `input(...)`
 		// reads; it never matches a case property of its own.
 		case "hidden":
+		case "address":
 		case "parameter":
 			return undefined;
 		case "simple":
@@ -336,7 +341,7 @@ function clauseForInput(
 					where: "composeRuntimeFilter",
 					family: "SearchInputDef",
 					received: (_exhaustive as { kind?: unknown })?.kind ?? _exhaustive,
-					knownKinds: ["simple", "advanced", "hidden", "parameter"],
+					knownKinds: ["simple", "advanced", "hidden", "address", "parameter"],
 				}),
 			);
 		}

@@ -1615,6 +1615,27 @@ function useController(target: CaseListWorkspaceTarget | null) {
 			sendAnswer: true,
 		});
 	const addHiddenInput = () => insertSearchField(seedHiddenSearchInput(config));
+	const addAddressInput = () => {
+		const names = new Set(
+			config.searchInputs.flatMap((input) =>
+				input.kind === "hidden" ||
+				input.kind === "address" ||
+				input.addressReceiver?.kind !== "unsubscribed"
+					? [input.name]
+					: [input.name, input.addressReceiver.topic],
+			),
+		);
+		let name = "address";
+		for (let index = 2; names.has(name); index++) name = `address_${index}`;
+		return insertSearchField({
+			kind: "address",
+			type: "address",
+			uuid: newUuid(),
+			name,
+			label: "Find an address",
+			excludeFromRequest: true,
+		});
+	};
 	const moveInput = (uuid: SearchInputDef["uuid"], toIndex: number) =>
 		moveSearchInputToIndex(
 			requireRetainedModuleUuid(moduleUuid),
@@ -2341,6 +2362,7 @@ function useController(target: CaseListWorkspaceTarget | null) {
 		addInput,
 		addParameterInput,
 		addHiddenInput,
+		addAddressInput,
 		moveInput,
 		addColumn,
 		addCalculatedColumn,
@@ -2575,6 +2597,7 @@ export function CaseListWorkspaceCanvas() {
 		addInput,
 		addParameterInput,
 		addHiddenInput,
+		addAddressInput,
 		moveInput,
 		addColumn,
 		addCalculatedColumn,
@@ -2650,6 +2673,7 @@ export function CaseListWorkspaceCanvas() {
 								onAddInput={addInput}
 								onAddParameterInput={addParameterInput}
 								onAddHiddenInput={addHiddenInput}
+								onAddAddressInput={addAddressInput}
 								addInputDisabledReason={addDisabledReason}
 								{...(formsAboveSearchNote !== undefined && {
 									formsAboveSearchNote,

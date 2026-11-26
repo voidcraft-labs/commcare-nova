@@ -282,6 +282,10 @@ export const PLATFORM_FEATURE_ENTRIES = {
 	"link-column": [
 		"menus-and-case-lists/10-markdown-any-property-or-expression",
 	],
+	"search-address-picker": [
+		"case-search/address-picker-on-a-search-screen",
+		"case-search/address-picker-receiver-on-a-search-screen",
+	],
 	"search-screen-text": [
 		"case-search/title-label-lang-non-empty",
 		"case-search/title-label-blank-in-some-languages",

@@ -37163,13 +37163,7 @@
 	{
 		"id": "hq-search/address-field",
 		"base": "hq-search",
-		"entry": "case-search/appearance-address-geocoder-broadcast-emitted-input-address",
-		"standing": "not-yet",
-		"place": {
-			"kind": "search",
-			"menu": 0,
-			"name": "Clients"
-		},
+		"entry": "case-search/address-picker-on-a-search-screen",
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/0/search_config/properties/1",
@@ -37194,6 +37188,42 @@
 				"is_group": false,
 				"doc_type": "CaseSearchProperty",
 				"appearance": "address"
+			}
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/searchInputs/1/kind",
+				"value": "address"
+			}
+		]
+	},
+	{
+		"id": "hq-search/address-picker-with-stored-default",
+		"base": "hq-search",
+		"entry": "case-search/appearance-address-geocoder-broadcast-emitted-input-address",
+		"standing": "not-yet",
+		"place": {
+			"kind": "search",
+			"menu": 0,
+			"name": "Clients"
+		},
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/0/search_config/properties/1",
+			"value": {
+				"doc_type": "CaseSearchProperty",
+				"name": "village",
+				"label": {
+					"en": "Village"
+				},
+				"appearance": "address",
+				"default_value": "'Old address'"
 			}
 		}
 	},
@@ -42023,13 +42053,7 @@
 	{
 		"id": "hq-search/value-received",
 		"base": "hq-search",
-		"entry": "case-search/receiver-expression",
-		"standing": "not-yet",
-		"place": {
-			"kind": "search",
-			"menu": 0,
-			"name": "Clients"
-		},
+		"entry": "case-search/address-picker-receiver-on-a-search-screen",
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/0/search_config/properties/1",
@@ -42054,6 +42078,45 @@
 				"is_group": false,
 				"doc_type": "CaseSearchProperty",
 				"receiver_expression": "home-address"
+			}
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/searchInputs/1/addressReceiver",
+				"value": {
+					"kind": "unsubscribed",
+					"topic": "home",
+					"fields": "address"
+				}
+			}
+		]
+	},
+	{
+		"id": "hq-search/value-received-with-invalid-topic",
+		"base": "hq-search",
+		"entry": "case-search/receiver-expression",
+		"standing": "not-yet",
+		"place": {
+			"kind": "search",
+			"menu": 0,
+			"name": "Clients"
+		},
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/0/search_config/properties/1",
+			"value": {
+				"doc_type": "CaseSearchProperty",
+				"name": "village",
+				"label": {
+					"en": "Village"
+				},
+				"receiver_expression": "home||city"
 			}
 		}
 	},

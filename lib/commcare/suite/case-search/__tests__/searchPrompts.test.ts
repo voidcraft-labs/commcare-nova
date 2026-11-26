@@ -350,7 +350,7 @@ it("refuses an internal lookup emission without the required naming snapshot", (
 it("uses readable label and required-message fallbacks without inventing a hint", () => {
 	const { doc, config, expressions } = projection("prompt-widgets");
 	const first = config.searchInputs[0];
-	if (first.kind === "hidden")
+	if (first.kind === "hidden" || first.kind === "address")
 		throw new Error("Fixture starts with a visible prompt");
 	const { hint: _hint, ...withoutHint } = first;
 	config.searchInputs = [{ ...withoutHint, label: "", required: {} }];
@@ -397,7 +397,7 @@ it("uses readable label and required-message fallbacks without inventing a hint"
 it("writes a requirement with no message blank and a check with none of its own with no text", () => {
 	const { doc, config, expressions } = projection("prompt-widgets");
 	const first = config.searchInputs[0];
-	if (first.kind === "hidden")
+	if (first.kind === "hidden" || first.kind === "address")
 		throw new Error("Fixture starts with a visible prompt");
 	const { hint: _hint, ...withoutHint } = first;
 	config.searchInputs = [

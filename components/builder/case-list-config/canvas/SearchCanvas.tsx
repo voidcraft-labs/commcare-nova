@@ -21,6 +21,7 @@ import tablerCalendar from "@iconify-icons/tabler/calendar";
 import tablerChevronDown from "@iconify-icons/tabler/chevron-down";
 import tablerEyeOff from "@iconify-icons/tabler/eye-off";
 import tablerGripVertical from "@iconify-icons/tabler/grip-vertical";
+import tablerMapPin from "@iconify-icons/tabler/map-pin";
 import tablerPlus from "@iconify-icons/tabler/plus";
 import tablerSearch from "@iconify-icons/tabler/search";
 import tablerSquareCheck from "@iconify-icons/tabler/square-check";
@@ -85,6 +86,7 @@ export interface SearchCanvasProps {
 	readonly onAddInput: (property: CaseProperty) => void;
 	/** Adds a hidden value: computed when the search runs, never shown. */
 	readonly onAddHiddenInput: () => void;
+	readonly onAddAddressInput?: () => void;
 	/** Disabled-add hint: `undefined` means add is enabled. */
 	readonly addInputDisabledReason: string | undefined;
 	/** Where Search is available to the worker. */
@@ -121,6 +123,7 @@ export function SearchCanvas({
 	onAddInput,
 	onAddParameterInput,
 	onAddHiddenInput,
+	onAddAddressInput,
 	addInputDisabledReason,
 	formsAboveSearchNote,
 	onMoveInput,
@@ -467,6 +470,7 @@ export function SearchCanvas({
 									properties={properties}
 									onChoose={onAddInput}
 									onChooseHidden={onAddHiddenInput}
+									onChooseAddress={onAddAddressInput}
 									disabledReason={addInputDisabledReason}
 								/>
 							)
@@ -489,7 +493,8 @@ export function SearchCanvas({
 
 type AddSearchFieldChoice =
 	| { readonly kind: "property"; readonly property: CaseProperty }
-	| { readonly kind: "hidden" };
+	| { readonly kind: "hidden" }
+	| { readonly kind: "address" };
 
 /**
  * Search-field creation starts with the one decision Nova cannot infer: which
@@ -502,11 +507,13 @@ export function AddSearchFieldControl({
 	properties,
 	onChoose,
 	onChooseHidden,
+	onChooseAddress,
 	disabledReason,
 }: {
 	readonly properties: readonly CaseProperty[];
 	readonly onChoose: (property: CaseProperty) => void;
 	readonly onChooseHidden: () => void;
+	readonly onChooseAddress?: () => void;
 	readonly disabledReason: string | undefined;
 }) {
 	const projectProse = useProseProjection();
@@ -554,6 +561,20 @@ export function AddSearchFieldControl({
 					};
 				},
 			),
+			...(onChooseAddress === undefined
+				? []
+				: [
+						{
+							id: "address",
+							label: "Address search",
+							detail:
+								"Find an address and fill other Search fields in Web Apps",
+							group: "More options",
+							icon: tablerMapPin,
+							quiet: true,
+							value: { kind: "address" as const },
+						},
+					]),
 			{
 				id: "hidden",
 				label: "Hidden value",
@@ -566,7 +587,7 @@ export function AddSearchFieldControl({
 				value: { kind: "hidden" },
 			},
 		],
-		[orderedProperties, projectProse],
+		[orderedProperties, projectProse, onChooseAddress],
 	);
 
 	if (effectiveDisabledReason !== undefined) {
@@ -586,6 +607,7 @@ export function AddSearchFieldControl({
 			choices={choices}
 			onChoose={(choice) => {
 				if (choice.value.kind === "hidden") onChooseHidden();
+				else if (choice.value.kind === "address") onChooseAddress?.();
 				else onChoose(choice.value.property);
 			}}
 			trigger={

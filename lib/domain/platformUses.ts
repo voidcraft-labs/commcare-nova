@@ -890,6 +890,8 @@ function searchInputUses(
 			uses.push(slotUse("hidden-search-field", owner, `${path}.kind`));
 		return uses;
 	}
+	if (input.kind === "address" && wanted("search-address-picker"))
+		uses.push(slotUse("search-address-picker", owner, `${path}.kind`));
 	if (!isVisibleSearchInput(input)) return uses;
 	if (input.hidden === true && wanted("hidden-search-field"))
 		uses.push(slotUse("hidden-search-field", owner, `${path}.hidden`));

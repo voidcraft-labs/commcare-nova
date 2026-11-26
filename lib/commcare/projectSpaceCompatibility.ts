@@ -776,12 +776,14 @@ export function projectSpaceCompatibilityProbePlan(
 	 * the privilege, which no API key reads, is the `geocoder` plan feature a
 	 * person confirms (`planPrivileges.ts::requiredPlanPrivileges`). An app
 	 * that runs only on Android meets no condition. */
-	for (const { condition, uses } of targetConditionUses(doc)) {
-		if (condition.capability !== "address-search") continue;
+	const addressUses = targetConditionUses(doc).flatMap(({ condition, uses }) =>
+		condition.capability === "address-search" ? uses : [],
+	);
+	if (addressUses.length > 0) {
 		capabilities.push({
 			capability: projectSpaceCapabilityUse(
 				"address-search",
-				addressSearchFormReasons(doc, uses),
+				addressSearchFormReasons(doc, addressUses),
 			),
 			featureFlags: [HQ_PRIVATE_FEATURE_FLAGS["advanced-case-search"]],
 			featureFlagsOff: [],

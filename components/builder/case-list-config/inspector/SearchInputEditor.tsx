@@ -112,10 +112,12 @@ import {
 	isSelectSearchInputType,
 	type LookupOptionsSource,
 	multiSelectSearchInputRefusal,
+	SEARCH_ADDRESS_PARTS,
 	SEARCH_INPUT_REQUIRED_DEFAULT_MESSAGE,
 	SEARCH_INPUT_TYPE_PROPERTY_TYPES,
 	SEARCH_INPUT_TYPES,
 	SEARCH_MODE_PROPERTY_TYPES,
+	type SearchAddressReceiver,
 	type SearchInputDef,
 	type SearchInputMode,
 	type SearchInputRequired,
@@ -336,12 +338,169 @@ export function SearchInputEditor(props: SearchInputEditorProps) {
 			</div>
 		);
 	}
+	if (props.value.kind === "address") {
+		const input = props.value;
+		return (
+			<div className="space-y-5">
+				{props.moduleUuid && <ControlWording owner={input.uuid} />}
+				<FieldRow label="Label">
+					<BlurCommitTextInput
+						value={input.label}
+						onCommit={(label) => props.onChange({ ...input, label })}
+						ariaLabel="Address search label"
+					/>
+				</FieldRow>
+				<FieldRow label="Hint">
+					<BlurCommitTextInput
+						value={input.hint ?? ""}
+						onCommit={(hint) =>
+							props.onChange({ ...input, hint: hint.trim() || undefined })
+						}
+						ariaLabel="Address search hint"
+					/>
+				</FieldRow>
+				<SearchInputPlatformNotes
+					moduleUuid={props.moduleUuid}
+					inputUuid={input.uuid}
+				/>
+			</div>
+		);
+	}
 	return <VisibleSearchInputEditor {...props} value={props.value} />;
 }
 
 interface VisibleSearchInputEditorProps
 	extends Omit<SearchInputEditorProps, "value"> {
 	readonly value: VisibleSearchInputDef;
+}
+
+function AddressFillSetting({
+	inputs,
+	receiver,
+	onChange,
+}: {
+	readonly inputs: readonly SearchInputDef[];
+	readonly receiver: SearchAddressReceiver | undefined;
+	readonly onChange: (receiver: SearchAddressReceiver | undefined) => void;
+}) {
+	const addresses = inputs.filter((input) => input.kind === "address");
+	if (addresses.length === 0 && receiver === undefined) return null;
+	const linked = receiver?.kind === "address" ? receiver : undefined;
+	const source = addresses.find((input) => input.uuid === linked?.source);
+	const label = source?.label || source?.name;
+	return (
+		<FieldRow
+			label="Fill from an address"
+			hint="Workers can still edit the answer in Web Apps."
+		>
+			<DropdownMenu>
+				<DropdownMenuTrigger
+					render={<Button type="button" variant="outline" />}
+				>
+					{label ??
+						(receiver?.kind === "unsubscribed"
+							? receiver.topic
+							: "No address field")}
+				</DropdownMenuTrigger>
+				<DropdownMenuContent>
+					<DropdownMenuRadioGroup
+						value={source?.uuid ?? ""}
+						onValueChange={(choice) => {
+							const selected = addresses.find((input) => input.uuid === choice);
+							onChange(
+								selected === undefined
+									? undefined
+									: {
+											kind: "address",
+											source: selected.uuid,
+											parts: linked?.parts ?? ["city"],
+										},
+							);
+						}}
+					>
+						<DropdownMenuRadioItem value="">
+							No address field
+						</DropdownMenuRadioItem>
+						{addresses.map((input) => (
+							<DropdownMenuRadioItem key={input.uuid} value={input.uuid}>
+								{input.label || input.name}
+							</DropdownMenuRadioItem>
+						))}
+					</DropdownMenuRadioGroup>
+				</DropdownMenuContent>
+			</DropdownMenu>
+			{linked?.parts.map((part, index) => (
+				<DropdownMenu key={part}>
+					<DropdownMenuTrigger
+						render={<Button type="button" variant="outline" />}
+					>
+						{index === 0 ? "Address part" : "If unavailable"} ·{" "}
+						{part.replaceAll("_", " ")}
+					</DropdownMenuTrigger>
+					<DropdownMenuContent>
+						<DropdownMenuRadioGroup
+							value={part}
+							onValueChange={(choice) => {
+								const selected = SEARCH_ADDRESS_PARTS.find(
+									(value) => value === choice,
+								);
+								const parts =
+									selected === undefined
+										? linked.parts.filter((_, position) => position !== index)
+										: linked.parts.map((value, position) =>
+												position === index ? selected : value,
+											);
+								if (parts.length > 0) onChange({ ...linked, parts });
+							}}
+						>
+							{index > 0 && (
+								<DropdownMenuRadioItem value="">
+									Remove fallback
+								</DropdownMenuRadioItem>
+							)}
+							{SEARCH_ADDRESS_PARTS.filter(
+								(candidate) =>
+									candidate === part || !linked.parts.includes(candidate),
+							).map((value) => (
+								<DropdownMenuRadioItem key={value} value={value}>
+									{value.replaceAll("_", " ")}
+								</DropdownMenuRadioItem>
+							))}
+						</DropdownMenuRadioGroup>
+					</DropdownMenuContent>
+				</DropdownMenu>
+			))}
+			{linked && linked.parts.length < SEARCH_ADDRESS_PARTS.length && (
+				<DropdownMenu>
+					<DropdownMenuTrigger
+						render={<Button type="button" variant="ghost" />}
+					>
+						Add fallback
+					</DropdownMenuTrigger>
+					<DropdownMenuContent>
+						<DropdownMenuRadioGroup
+							value=""
+							onValueChange={(choice) => {
+								const part = SEARCH_ADDRESS_PARTS.find(
+									(value) => value === choice,
+								);
+								if (part !== undefined)
+									onChange({ ...linked, parts: [...linked.parts, part] });
+							}}
+						>
+							{SEARCH_ADDRESS_PARTS.filter(
+								(value) => !linked.parts.includes(value),
+							).map((value) => (
+								<DropdownMenuRadioItem key={value} value={value}>
+									{value.replaceAll("_", " ")}
+								</DropdownMenuRadioItem>
+							))}
+						</DropdownMenuRadioGroup>
+					</DropdownMenuContent>
+				</DropdownMenu>
+			)}
+		</FieldRow>
+	);
 }
 
 function VisibleSearchInputEditor({
@@ -970,6 +1129,18 @@ function VisibleSearchInputEditor({
 					</FieldRow>
 				)}
 
+				{value.hidden !== true &&
+					(value.type === "text" ||
+						value.type === "select" ||
+						value.type === "multi-select") && (
+						<AddressFillSetting
+							inputs={siblings}
+							receiver={value.addressReceiver}
+							onChange={(addressReceiver) =>
+								onChange({ ...value, addressReceiver })
+							}
+						/>
+					)}
 				{value.kind === "simple" && (
 					<FieldRow label="Case information">
 						<BindingPicker
@@ -2105,7 +2276,13 @@ function rebuildRow(
 	const allowBlank =
 		"allowBlank" in patch ? patch.allowBlank : value.allowBlank;
 	const hidden = "hidden" in patch ? patch.hidden : value.hidden;
+	const addressReceiver =
+		hidden !== true &&
+		(type === "text" || type === "select" || type === "multi-select")
+			? value.addressReceiver
+			: undefined;
 	const visible = {
+		...(addressReceiver === undefined ? {} : { addressReceiver }),
 		...(hint === undefined ? {} : { hint }),
 		...(required === undefined ? {} : { required }),
 		...(validation === undefined ? {} : { validation }),
