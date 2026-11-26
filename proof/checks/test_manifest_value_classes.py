@@ -6980,7 +6980,41 @@ def _label_texts():
             <text id="q2"><value>B</value></text></translation></itext>""",
         body="""<input ref="/data/q"><label ref="jr:itext('q1')"/></input>""",
     )
+    owned = _form(
+        data="<q/><g/><r/><s/>",
+        model="""<itext><translation lang="en" default="">
+            <text id="q"><value>A</value><value form="long">Question</value></text>
+            <text id="g"><value>B</value><value form="long">Group</value></text>
+            <text id="r"><value>C</value><value form="long">Repeat</value></text>
+            <text id="h"><value>D</value><value form="long">Help</value></text>
+            <text id="m"><value>E</value><value form="long">Message</value></text>
+            <text id="a"><value>F</value><value form="long">Alert</value></text>
+            <text id="c"><value>G</value><value form="long">Choice</value></text>
+            <text id="n"><value>H</value><value form="long">Hint</value></text>
+            <text id="nested"><value>I</value><value form="long">Expression only</value></text>
+            </translation></itext>
+            <bind nodeset="/data/q" jr:constraintMsg="jr:itext('m')"/>""",
+        body="""<input ref="/data/q"><label ref="jr:itext('q')"/>
+            <hint ref="jr:itext('n')"/><help ref="jr:itext('h')"/><alert ref="jr:itext('a')"/></input>
+            <group ref="/data/g"><label ref="jr:itext( &quot;g&quot; )"/></group>
+            <repeat nodeset="/data/r"><label ref="jr:itext('r')"/></repeat>
+            <select1 ref="/data/s"><label ref="concat(jr:itext('nested'), 'suffix')"/>
+            <item><label ref="jr:itext('c')"/><value>one</value></item></select1>""",
+    )
+    long = "itext-form:core/long"
+
+    def value_at(index):
+        return f"translation[1]/text[{index}]/value[2]/@form"
+
     return {
+        "questions/long-form-on-a-group-or-repeat-label": (
+            *(refused("form", owned, long, value_at(index)) for index in (2, 3)),
+            *(accepted("form", owned, long, value_at(index)) for index in (1, 4, 9)),
+        ),
+        "questions/long-form-on-a-hint-help-text-validation-message-or-choice": (
+            *(refused("form", owned, long, value_at(index)) for index in range(4, 9)),
+            *(accepted("form", owned, long, value_at(index)) for index in (1, 2, 9)),
+        ),
         "questions/long-qrcode-or-tts-form-missing-in-default-language": (
             refused("form", texts, "itext-form:core/long", "translation[2]/text[1]/value[2]/@form"),
             refused("form", texts, "itext-form:android/tts", "translation[2]/text[1]/value[3]/@form"),
