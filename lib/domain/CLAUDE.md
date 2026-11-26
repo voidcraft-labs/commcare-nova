@@ -388,7 +388,12 @@ array derives the original menu sequence and worker load with repeatable UUIDs.
 An empty array opens without those loads. A first edit materializes the derived
 sequence with its identities and held tags. `computedDatums` carries each
 opening calculation by UUID and key. Expressions refer to the supplier UUID.
-Changes to order must keep every input ahead of its consumer. A list choice
+Changes to order must keep every input ahead of its consumer. One record's
+starting values (`openingAssignments`) run, export and read back in the order
+CommCare HQ's form builder lists the questions they fill, every question with
+a control and then every Hidden Value, each in the form's order
+(`formOpeningAssignments.ts::openingAssignmentsInRunOrder`), the order its
+Case Management save writes, whatever order they were added in. A list choice
 narrowed by an earlier record (`source.under`) names the record right before
 it, the only one CommCare HQ's form builder can narrow by
 (`formEntryValidation.ts`).

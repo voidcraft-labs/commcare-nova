@@ -7,6 +7,7 @@ import {
 	formContentUuid,
 	implicitFormSelectionId,
 } from "@/lib/domain/formEntryCases";
+import { openingAssignmentsInRunOrder } from "@/lib/domain/formOpeningAssignments";
 import { moduleUuidOfForm } from "@/lib/domain/postSubmit";
 import { xpathToString } from "../xpath/coerce";
 import type { XPathNode } from "../xpath/runtimeValues";
@@ -39,9 +40,11 @@ export function openingCaseAssignments(
 ): readonly OpeningCaseAssignment[] {
 	// A second entry runs its parent's starting values against its own choices,
 	// which keep the parent's identities where they replace them.
-	const rows = doc.forms[formContentUuid(doc, formUuid)]?.openingAssignments;
+	const held = doc.forms[formContentUuid(doc, formUuid)]?.openingAssignments;
 	const menu = moduleUuidOfForm(doc, formUuid);
-	if (!rows?.length || menu === undefined) return [];
+	if (!held?.length || menu === undefined) return [];
+	// The order CommCare runs them, which the export writes.
+	const rows = openingAssignmentsInRunOrder(doc, formUuid, held);
 	const casedb = caseDatabaseXPathInstance(snapshot, doc.caseTypes ?? []);
 	const cases = casedb.root().children("casedb")[0].children("case");
 	const byId = new Map(

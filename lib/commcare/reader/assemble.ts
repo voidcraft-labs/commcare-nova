@@ -34,6 +34,8 @@ import {
 } from "@/lib/domain";
 import { blueprintDocSchema } from "@/lib/domain/blueprint";
 import { effectiveFilterForEmission } from "@/lib/domain/expression/simplify";
+import { openingAssignmentsInRunOrder } from "@/lib/domain/formOpeningAssignments";
+import type { FormOpeningAssignment } from "@/lib/domain/forms";
 import { formWireName } from "@/lib/domain/formWireName";
 import { languageEntries } from "@/lib/domain/localization";
 import { PLATFORM_FEATURES } from "@/lib/domain/platforms";
@@ -656,6 +658,28 @@ export const READER_CANONICAL_CHOICES: readonly ReaderCanonicalChoice[] = [
 		id: "exact-search-mode-is-absent",
 		kind: "one-wire",
 		apply: exactSearchModeIsAbsent,
+	},
+	{
+		/** One record's starting values in any order, and in the order CommCare HQ's form builder
+		 *  lists the questions they fill: the export writes that order
+		 *  (`formOpeningAssignments.ts::openingAssignmentsInRunOrder`), so the reader returns it. */
+		id: "starting-values-in-question-order",
+		kind: "one-wire",
+		apply: (doc) => {
+			const moved: [Uuid, FormOpeningAssignment[]][] = [];
+			for (const formUuid of Object.keys(doc.forms) as Uuid[]) {
+				const held = doc.forms[formUuid]?.openingAssignments;
+				if (held === undefined || held.length < 2) continue;
+				const ordered = openingAssignmentsInRunOrder(doc, formUuid, held);
+				if (ordered.some((one, index) => one !== held[index]))
+					moved.push([formUuid, ordered]);
+			}
+			if (moved.length === 0) return doc;
+			return withCandidate(doc, (draft) => {
+				for (const [formUuid, ordered] of moved)
+					draft.forms[formUuid].openingAssignments = structuredClone(ordered);
+			});
+		},
 	},
 	{
 		/** A registration a list offers after an empty search, anywhere among its menu's forms,

@@ -37,6 +37,7 @@ import { effectiveCaseTypes } from "@/lib/domain/effectiveCaseTypes";
 import type { Expression } from "@/lib/domain/expression/types";
 import { fieldValueType, writesMoment } from "@/lib/domain/fieldValueType";
 import { implicitFormSelectionId } from "@/lib/domain/formEntryCases";
+import { openingAssignmentsInRunOrder } from "@/lib/domain/formOpeningAssignments";
 import type {
 	CaseOperationLink,
 	FormOpeningAssignment,
@@ -461,7 +462,10 @@ function buildPlan(
 		(row) => row.source.kind === "own",
 	);
 	if (assignments?.length) {
-		actions.case_preload.preload = openingMap(assignments, fieldPath);
+		actions.case_preload.preload = openingMap(
+			openingAssignmentsInRunOrder(doc, formUuid, assignments),
+			fieldPath,
+		);
 		actions.case_preload.condition = alwaysCondition();
 	}
 
@@ -737,21 +741,25 @@ function advancedPlan(input: AdvancedPlanInput): AdvancedFormCaseWirePlan {
 					: identity.moduleUniqueId(load.listModule),
 			case_properties: loadProperties[i] ?? {},
 			preload: openingMap(
-				(form.openingAssignments ?? []).filter(({ source }) => {
-					if (source.kind === "own") return load.own;
-					if (source.kind === "worker-record")
-						return (
-							i === advanced.loads.findIndex((candidate) => candidate.worker)
-						);
-					const selected =
-						load.selection?.uuid ??
-						(load.listModule
-							? implicitFormSelectionId(formUuid, load.listModule)
-							: load.worker
-								? implicitFormSelectionId(formUuid, "worker-record")
-								: undefined);
-					return source.selection === selected;
-				}),
+				openingAssignmentsInRunOrder(
+					doc,
+					formUuid,
+					(form.openingAssignments ?? []).filter(({ source }) => {
+						if (source.kind === "own") return load.own;
+						if (source.kind === "worker-record")
+							return (
+								i === advanced.loads.findIndex((candidate) => candidate.worker)
+							);
+						const selected =
+							load.selection?.uuid ??
+							(load.listModule
+								? implicitFormSelectionId(formUuid, load.listModule)
+								: load.worker
+									? implicitFormSelectionId(formUuid, "worker-record")
+									: undefined);
+						return source.selection === selected;
+					}),
+				),
 				fieldPath,
 			),
 			close_condition: loadClose[i] ?? neverCondition(),
