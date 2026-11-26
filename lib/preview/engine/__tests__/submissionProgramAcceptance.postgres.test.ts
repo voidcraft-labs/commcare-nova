@@ -500,7 +500,7 @@ describe("engine → builder → executor acceptance", () => {
 							result.operations.find((row) => row.operationUuid === closeUuid),
 						).toMatchObject({
 							executed: closes,
-							caseId: SESSION_CASE,
+							caseId: closes ? SESSION_CASE : "",
 						});
 					}
 				}
