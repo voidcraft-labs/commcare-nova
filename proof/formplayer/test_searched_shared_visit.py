@@ -5,6 +5,7 @@ from __future__ import annotations
 import copy
 import json
 from dataclasses import replace
+from itertools import product
 
 from lxml import etree
 
@@ -20,7 +21,14 @@ from proof.observe.casedata import document_case_database
 DOCUMENT = "targeted-searched-shared-visit"
 SEARCH_INPUT = "cohort"
 NEW_LABEL = "Household cohort"
+ORIGINAL_SEARCH_LABELS = {"en": "Cohort", "fra": "Cohorte"}
+EDITED_SEARCH_LABELS = {**ORIGINAL_SEARCH_LABELS, "en": NEW_LABEL}
 CASE_NS = "{http://commcarehq.org/case/transaction/v2}"
+DISTRICT_HEADERS = {"en": "District region", "fra": "Région du district"}
+SEARCH_ROWS = [
+    ("household-2", ["Pilot Aster", "West"]),
+    ("household-1", ["Pilot Zinnia", "North"]),
+]
 
 
 def _database(document):
@@ -48,10 +56,10 @@ def _choose(screen, label):
     return [*map(str, screen["selections"]), str(labels.index(label))]
 
 
-def _worker_visits(published, runner, label, child_order, search_label):
+def _worker_visits(published, runner, label, child_order, search_labels):
     from corehq.form_processor.models import CommCareCase
 
-    records = {}
+    records = {locale: {} for locale in DISTRICT_HEADERS}
     routes = (("Visits", "household-1", "person-1"), ("Clinic", "household-2", "person-2"))
     people = [person for _, _, person in routes] + ["person-3"]
 
@@ -62,13 +70,14 @@ def _worker_visits(published, runner, label, child_order, search_label):
         }
 
     with apps.served(published, runner, label=label, database=_database(published.document)) as served:
-        for menu, household, person in routes:
-            with served.run(f"{label}-{menu}"):
-                web = apps.web(runner, served)
+        for locale, (menu, household, person) in product(DISTRICT_HEADERS, routes):
+            with served.run(f"{label}-{locale}-{menu}"):
+                web = apps.web(runner, served, locale=locale)
                 path = ["0"]  # The app has a single root menu, Households.
                 query = web.navigate(path)
                 assert screen_kind(query) == "query", query
                 (prompt,) = query["displays"]
+                search_label = search_labels[locale]
                 assert prompt["id"] == SEARCH_INPUT and prompt["text"] == search_label, prompt
                 query_data = {query["queryKey"]: {"inputs": {SEARCH_INPUT: "Pilot"}, "execute": True}}
                 results = web.navigate(path, query_data=query_data)
@@ -79,14 +88,15 @@ def _worker_visits(published, runner, label, child_order, search_label):
                 ]
                 assert requests, served.hq.searches
                 rows = [(row["id"], row["data"]) for row in results["entities"]]
-                assert rows == [
-                    ("household-2", ["Pilot Aster", "West"]),
-                    ("household-1", ["Pilot Zinnia", "North"]),
-                ], results
+                assert rows == SEARCH_ROWS, results
+                headers = results["headers"]
+                assert headers == ["Household", DISTRICT_HEADERS[locale]], results
 
                 selected = web.navigate([*map(str, results["selections"]), household], query_data=query_data)
-                assert [command["displayText"] for command in selected["commands"] if
-                        command["displayText"] in child_order] == child_order, selected
+                visible_routes = [
+                    command["displayText"] for command in selected["commands"] if command["displayText"] in child_order
+                ]
+                assert visible_routes == child_order, selected
                 members = web.navigate(_choose(selected, menu), query_data=query_data)
                 assert screen_kind(members) == "entities", members
                 assert [row["id"] for row in members["entities"]] == [person], members
@@ -96,23 +106,34 @@ def _worker_visits(published, runner, label, child_order, search_label):
                     if screen_kind(form_or_menu) == "commands" else form_or_menu
                 )
                 assert screen_kind(form) == "form" and form["title"] == "Record visit", form
-                assert household in form["selections"] and person in form["selections"], form
+                assert [value for value in form["selections"] if value in {household, person}] == [
+                    household, person,
+                ], form
 
                 (question,) = [node for node in form["tree"] if node["type"] == "question"]
-                answer = f"Recorded in {menu} during {label}"
+                answer = f"Recorded in {menu} during {label} ({locale})"
                 before = notes(served)
                 received = len(served.hq.submissions)
                 response = web.submit(form["session_id"], {question["ix"]: answer})
                 assert response["status"] == "success", response
                 (receipt,) = served.hq.submissions[received:]
-                assert notes(served) == {**before, person: answer}
+                after = notes(served)
+                assert after == {**before, person: answer}
                 root = etree.fromstring(receipt.instance)
                 (case,) = [block for block in root.iter(f"{CASE_NS}case")]
                 assert case.get("case_id") == person and root.findtext("{*}note") == answer
-                records[menu] = {
-                    "search": {"requests": requests, "rows": rows},
-                    "datums": form["selections"],
+                datums = {key: root.findtext(f"{{*}}{key}") for key in ("selected_household", "selected_person")}
+                assert datums == {"selected_household": household, "selected_person": person}
+                records[locale][menu] = {
+                    "childMenuOrder": visible_routes,
+                    "search": {
+                        "label": search_label, "input": query_data, "requests": requests,
+                        "headers": headers, "rows": rows,
+                    },
+                    "selections": form["selections"],
+                    "datums": datums,
                     "case": case.get("case_id"),
+                    "notes": {"before": before, "after": after},
                     "namespace": etree.QName(root).namespace,
                 }
     return records
@@ -158,6 +179,13 @@ def _read_back(published, evidence):
     expected = copy.deepcopy(stored["doc"])
     household, *_ = expected["moduleOrder"]
     expected["modules"][household]["caseListConfig"]["searchInputs"][0]["label"] = NEW_LABEL
+    # The HQ edit changes the English source and leaves its French translation in place.
+    translated, = (
+        translation for translation in expected["localization"]["translations"]["fra"].values()
+        if translation["value"] == ORIGINAL_SEARCH_LABELS["fra"]
+    )
+    assert translated["sourceFingerprint"] == 'source-v1:text:"Cohort"'
+    translated["sourceFingerprint"] = f"source-v1:text:{json.dumps(NEW_LABEL)}"
     (answer,) = readerbundle.run_reader([{
         "id": DOCUMENT,
         "mode": "read-back",
@@ -177,15 +205,21 @@ def test_a_visit_after_a_parent_search_keeps_both_listed_visit_routes(
 ):
     document = formplayer_documents[DOCUMENT]
     with apps.published(document, core_runner) as published:
-        before = _worker_visits(published, formplayer_runner, "original", ["Visits", "Clinic"], "Cohort")
+        before = _worker_visits(published, formplayer_runner, "original", ["Visits", "Clinic"], ORIGINAL_SEARCH_LABELS)
         with published.unit.operation("reorder-child-menus", DOCUMENT.encode()):
             refusal, lookups = publish.update(
                 published.unit, published.app_id, document.edit.exports["minimum"].update, "B-edit"
             )
             assert refusal is None and (lookups is None or lookups["errors"] == []), (refusal, lookups)
+        reordered = _worker_visits(published, formplayer_runner, "reordered", ["Clinic", "Visits"], ORIGINAL_SEARCH_LABELS)
         _save_search_in_hq(published)
-        after = _worker_visits(published, formplayer_runner, "edited", ["Clinic", "Visits"], NEW_LABEL)
-        evidence("searched-shared-visit", {"before": before, "after": after})
+        after = _worker_visits(published, formplayer_runner, "edited", ["Clinic", "Visits"], EDITED_SEARCH_LABELS)
+        evidence("searched-shared-visit", {"before": before, "reordered": reordered, "after": after})
         _read_back(published, evidence)
-    namespaces = {route["namespace"] for stage in (before, after) for route in stage.values()}
-    assert len(namespaces) == 1 and all(namespaces), (before, after)
+    namespaces = {
+        route["namespace"]
+        for stage in (before, reordered, after)
+        for locale in stage.values()
+        for route in locale.values()
+    }
+    assert len(namespaces) == 1 and all(namespaces), (before, reordered, after)

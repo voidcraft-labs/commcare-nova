@@ -2,10 +2,12 @@ import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import {
 	calculatedColumn,
 	columnSort,
+	makeTranslationUnitId,
 	NEW_APP_SETTINGS,
 	plainColumn,
 	proseText,
 	simpleSearchInputDef,
+	translationUnitsById,
 } from "@/lib/domain";
 import {
 	ancestorPath,
@@ -13,6 +15,7 @@ import {
 	relationStep,
 	term,
 } from "@/lib/domain/expression";
+import { chosenCaseId } from "@/lib/domain/expression/chosenCase";
 import { caseListOf, targetedDocument, targetedUuid } from "../build";
 
 const id = "targeted-searched-shared-visit";
@@ -23,6 +26,17 @@ export function searchedSharedVisit() {
 	const households = uuid("households");
 	const visits = uuid("visits");
 	const clinic = uuid("clinic");
+	const region = calculatedColumn(
+		uuid("district-region"),
+		"District region",
+		term(
+			prop(
+				"household",
+				"region",
+				ancestorPath(relationStep("parent", "district")),
+			),
+		),
+	);
 	const doc = buildDoc({
 		appId: id,
 		appName: "Household visits",
@@ -53,17 +67,7 @@ export function searchedSharedVisit() {
 						plainColumn(uuid("household-name"), "case_name", "Household", {
 							sort: columnSort("asc", 0),
 						}),
-						calculatedColumn(
-							uuid("district-region"),
-							"District region",
-							term(
-								prop(
-									"household",
-									"region",
-									ancestorPath(relationStep("parent", "district")),
-								),
-							),
-						),
+						region,
 					],
 					{
 						searchInputs: [
@@ -113,6 +117,18 @@ export function searchedSharedVisit() {
 								label: proseText("Visit note"),
 								caseWrite: { caseType: "person", property: "visit_note" },
 							}),
+							f({
+								kind: "hidden",
+								uuid: uuid("selected-household"),
+								id: "selected_household",
+								calculate: chosenCaseId(households),
+							}),
+							f({
+								kind: "hidden",
+								uuid: uuid("selected-person"),
+								id: "selected_person",
+								calculate: chosenCaseId(visits),
+							}),
 						],
 					},
 				],
@@ -132,6 +148,35 @@ export function searchedSharedVisit() {
 		doc.modules[child].parentCaseModuleUuid = households;
 	}
 	doc.modules[clinic].formsFromMenu = { menuUuid: visits };
+	const units = translationUnitsById(doc);
+	doc.localization = {
+		sourceLanguage: "eng",
+		defaultLanguage: "eng",
+		languageOrder: ["eng", "fra"],
+		wireCodes: { eng: "en", fra: "fra" },
+		translations: { fra: {} },
+	};
+	for (const [id, value] of [
+		[
+			makeTranslationUnitId("column", region.uuid, "header"),
+			"Région du district",
+		],
+		[
+			makeTranslationUnitId("search-input", uuid("search-name"), "label"),
+			"Cohorte",
+		],
+	] as const) {
+		const unit = units.get(id);
+		if (!unit)
+			throw new Error("The Search fixture is missing a translation unit.");
+		doc.localization.translations.fra[id] = {
+			value,
+			sourceFingerprint: unit.sourceFingerprint,
+			origin: "human",
+			review: "reviewed",
+			translatedFrom: "eng",
+		};
+	}
 	const edit = structuredClone(doc);
 	edit.moduleOrder = [households, clinic, visits];
 	return targetedDocument({
