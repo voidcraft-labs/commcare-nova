@@ -1436,3 +1436,30 @@ describe("text CommCare HQ reads as a data source", () => {
 		);
 	});
 });
+
+describe("a code outside the table", () => {
+	// A finding reaches the renderer from the gate in the same process, but
+	// the table is a plain object: a code naming a member every object
+	// inherits must read the generic line, not call that member.
+	const generic = userFacingError({
+		...richFinding("NO_MODULES"),
+		code: "A_CODE_RETIRED_LONG_AGO" as ValidationErrorCode,
+	});
+	it.each([
+		"constructor",
+		"toString",
+		"hasOwnProperty",
+		"valueOf",
+		"__proto__",
+	])("renders %s as the generic line", (code) => {
+		expect(
+			userFacingError({
+				...richFinding("NO_MODULES"),
+				code: code as ValidationErrorCode,
+			}),
+		).toBe(generic);
+	});
+	it("renders a retired code as the generic line", () => {
+		expect(generic).toMatch(/^Something went wrong/);
+	});
+});

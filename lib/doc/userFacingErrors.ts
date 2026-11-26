@@ -2059,7 +2059,13 @@ const GENERIC_INTERNAL =
  * and logs keep `err.message`; this is the user's voice.
  */
 export function userFacingError(err: ValidationError): string {
-	return (USER_MESSAGE_BY_CODE[err.code] ?? (() => GENERIC_INTERNAL))(err);
+	/* Only the table's own entries render: a code outside it (one retired off
+	 * a historical event log) reads the generic line, never a member every
+	 * object inherits. */
+	const build = Object.hasOwn(USER_MESSAGE_BY_CODE, err.code)
+		? USER_MESSAGE_BY_CODE[err.code]
+		: undefined;
+	return build === undefined ? GENERIC_INTERNAL : build(err);
 }
 
 /** Render a list of findings to their user lines, in order. */
