@@ -1981,7 +1981,7 @@ export async function runDeploymentPreflight(
 		const change = appRemoteChange({
 			legacyLanguageRemoval:
 				legacyLanguagesRemoved.length > 0
-					? `Publishing would remove these languages from CommCare HQ: ${legacyLanguagesRemoved.map(buildProfileLanguageLabel).join(", ")}.`
+					? `Publishing would remove ${legacyLanguagesRemoved.map(buildProfileLanguageLabel).join(", ")} from this app in CommCare HQ.`
 					: undefined,
 			authority: appConfirmationScope(
 				input.access,

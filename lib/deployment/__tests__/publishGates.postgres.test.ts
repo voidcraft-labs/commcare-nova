@@ -2225,7 +2225,7 @@ it("asks before removing a language already held at the earlier cutover", async 
 					novaResourceId: APP,
 					baselineKnown: true,
 					parts: [
-						"Publishing would remove these languages from CommCare HQ: Luganda (lug).",
+						"Publishing would remove Ganda (lug) from this app in CommCare HQ.",
 					],
 				},
 			],
