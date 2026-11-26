@@ -286,6 +286,48 @@ describe("a direct upload of a table CommCare HQ manages", () => {
 		expect(result.managedLookupTables.map((t) => t.tag)).toEqual(["districts"]);
 	});
 
+	it("offers a separate table for a copy tagged types it sends to another project space, and never its tag's ways out", async () => {
+		/* A reading brings in a project space's table tagged `types` as a copy
+		 * CommCare HQ manages, whose indexes CommCare HQ never showed. No
+		 * workbook carries the tag, and the JSON resources need the indexes.
+		 * Nova refuses every edit of the copy, so a new export tag is no way
+		 * out either: Create a separate table is, and it alone is named. */
+		const base = table("types", 5);
+		const types: LookupTableDefinition = {
+			...base,
+			columns: base.columns.map((column) => ({
+				...column,
+				index: "unobserved",
+			})),
+			hq: {
+				...ORIGIN,
+				source: {
+					inventory: "complete",
+					distribution: "global",
+					indexEvidence: "unobserved",
+				},
+			},
+		};
+		const findings = await refused("hq-upload", [types], {
+			lookupTarget: ELSEWHERE,
+		});
+		expect(findings.map((finding) => finding.code)).toEqual([
+			"LOOKUP_WORKER_SOURCE_UNAVAILABLE",
+		]);
+		expect(findings[0].details).toMatchObject({
+			tableId: types.id,
+			separable: "yes",
+		});
+		const line = userFacingError(findings[0]);
+		expect(line).toContain("create a separate table");
+		expect(line).not.toContain("export tag");
+		expect(line).not.toContain("direct publish");
+
+		/* Where CommCare HQ manages it, a direct upload never writes it. */
+		const here = await prepared("hq-upload", [types], { lookupTarget: HERE });
+		expect(here.managedLookupTables.map((t) => t.tag)).toEqual(["types"]);
+	});
+
 	it("ends the trimmed-cell finding with the managed remedy where it sends a managed table, and with Project data for a plain one", async () => {
 		const [managed] = await refused("hq-upload", [DISTRICTS], {
 			lookupTarget: ELSEWHERE,

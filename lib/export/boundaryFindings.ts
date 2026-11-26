@@ -338,8 +338,16 @@ export function exportCarrierFindings(
 				throw new Error("The planned workbook lost its table definition.");
 			const carrier = alternativeLookupCarrier(definition, shape.issue);
 			alternativeKinds.set(table.tableId, carrier.kind);
+			/* A table tagged `types` is refused by its tag
+			 * (`lookupHqReservedTagFindings`), whose ways out are a direct
+			 * publish without a workbook and a new export tag. Neither is open
+			 * to Nova's copy of a table CommCare HQ manages: Nova refuses every
+			 * edit of it, and its indexes CommCare HQ never showed keep it off
+			 * the JSON resources. Create a separate table is its way out, so
+			 * that copy is named here, and its tag is not refused besides. */
 			if (
-				table.tag.toLowerCase() === TYPES_SHEET ||
+				(table.tag.toLowerCase() === TYPES_SHEET &&
+					!separableCopy(definition)) ||
 				textFindings.some((f) => f.details?.tableId === table.tableId)
 			)
 				continue;
@@ -392,7 +400,17 @@ export function exportCarrierFindings(
 			),
 			textFindings,
 			...(lookupWire !== undefined && { fixtures: lookupWire.fixtures }),
-			hqNamings: workbookTables.filter((tables) => tables !== undefined),
+			hqNamings: workbookTables
+				.filter((tables) => tables !== undefined)
+				.map((naming) => ({
+					...naming,
+					tables: naming.tables.filter(
+						(table) =>
+							!alternatives.some(
+								(finding) => finding.details?.tableId === table.tableId,
+							),
+					),
+				})),
 			workbooks: [lookupWorkbook, ...managedWorkbooks].filter(
 				(workbook) => workbook !== undefined,
 			),
