@@ -22,6 +22,7 @@ import { blueprintDocSchema } from "@/lib/domain";
 import {
 	type DeploymentFoldInventory,
 	scanDeploymentFold,
+	verifyDeploymentFold,
 	writeDeploymentAwareFold,
 } from "@/scripts/lib/deploymentFold";
 import {
@@ -50,7 +51,7 @@ async function installCandidate() {
 	const result = await new Migrator({
 		db: h.db(),
 		provider: caseStoreMigrationProvider,
-	}).migrateToLatest();
+	}).migrateTo("20261208050000_preview_search_settings");
 	if (result.error !== undefined) throw result.error;
 }
 
@@ -279,13 +280,17 @@ async function installEarlierProjection() {
 			),
 		)
 		.execute(h.db());
+	await reinstateEarlierProjection();
+	return def;
+}
+
+async function reinstateEarlierProjection() {
 	await sql`CREATE OR REPLACE FUNCTION public.nova_current_app_change_fold_snapshot(text)
 		RETURNS jsonb LANGUAGE sql STABLE AS $f$
 		SELECT (doc - 'appName') || jsonb_build_object('visitTitle', doc->'appName')
 		FROM (SELECT public.witness_candidate_snapshot($1) AS doc) AS candidate $f$`.execute(
 		h.db(),
 	);
-	return def;
 }
 
 async function oldEdit(appId: string, title: string, seq: number) {
@@ -347,6 +352,9 @@ it.each([false, true])(
 		let seq = headSeq;
 		if (hasCertificate) {
 			await installCandidate();
+			// The Connect DDL installs its own fold projection. Continue this
+			// fixture's earlier title dialect until its horizon writer runs.
+			await reinstateEarlierProjection();
 			// A later old release issued a certificate for West in this same old
 			// dialect. East published again above that horizon.
 			seq = await writeHqRoundTripCaseWritesHorizon(
@@ -414,19 +422,27 @@ it.each([false, true])(
 		await oldEdit(appId, "Unpublished name", ++seq);
 		await softDeleteApp(appId, owner);
 		const source = { ...input, headSeq: seq };
-		const scan = (selected = source) =>
+		const scan = (selected = source, readOnlyHeadText?: string) =>
 			h
 				.db()
 				.transaction()
 				.setAccessMode("read only")
 				.setIsolationLevel("repeatable read")
-				.execute((tx) => scanDeploymentFold(tx, selected));
+				.execute((tx) => scanDeploymentFold(tx, selected, readOnlyHeadText));
 		await expect(
 			scan({ ...source, projectId: "a different Project" }),
 		).rejects.toThrow();
 		const receipt = await scan();
 		expect(receipt.usable).toBe(2);
-		if (!hasCertificate) await installCandidate();
+		const exact = await head();
+		expect(await scan(source, exact)).toEqual(receipt);
+		await expect(
+			scan(source, JSON.stringify({ ...JSON.parse(exact), appId: "other" })),
+		).rejects.toThrow("did not reproduce the saved app in this Project");
+		if (!hasCertificate) {
+			await installCandidate();
+			await reinstateEarlierProjection();
+		}
 		expect(await scan()).toEqual(receipt);
 		const write = (selected: typeof source) =>
 			h.withTransaction((tx) =>
@@ -448,6 +464,18 @@ it.each([false, true])(
 			visitTitle: "Unpublished name",
 		});
 		await write(source);
+		const coordinate = { appId, projectId, foldSeq: seq + 1 };
+		await h.withTransaction((tx) =>
+			verifyDeploymentFold(tx, coordinate, receipt),
+		);
+		await expect(
+			h.withTransaction((tx) =>
+				verifyDeploymentFold(tx, coordinate, {
+					...receipt,
+					statesDigest: "0".repeat(64),
+				}),
+			),
+		).rejects.toThrow("deployment comparisons differ after the fold");
 		expect(blueprintDocSchema.parse(JSON.parse(await head())).appName).toBe(
 			"Converted Unpublished name",
 		);

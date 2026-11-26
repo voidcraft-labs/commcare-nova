@@ -36,10 +36,12 @@ import type {
 export function previewCaseChoiceOf(row: {
 	readonly case_id: string;
 	readonly case_name: string;
+	readonly case_type?: string;
 	readonly heldOnDevice?: boolean;
 }): PreviewCaseChoice {
 	return {
 		caseId: row.case_id,
+		...(row.case_type && { caseType: row.case_type }),
 		caseName: row.case_name,
 		...(row.heldOnDevice === false && { claimable: true as const }),
 	};

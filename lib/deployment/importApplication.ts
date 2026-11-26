@@ -134,7 +134,7 @@ export function hqImportApplication(
 	/* The shell meets no source read and no overlay, and holds nothing that
 	 * names the target, an asset or a lookup table. */
 	if (update === null) {
-		const shell = expandAppShell(prepared.doc);
+		const shell = expandAppShell(prepared.doc, input.identity);
 		return { application: shell, ownership: shellOwnership(shell) };
 	}
 	const steps = hqImportApplicationSteps({ ...input, update });

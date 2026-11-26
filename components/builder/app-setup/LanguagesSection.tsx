@@ -89,6 +89,7 @@ import {
 	useTranslationUnitEditor,
 } from "../localization/BuilderLocalizationProvider";
 import { useLanguageRegistrySearch } from "../localization/useLanguageRegistrySearch";
+import { InstallationProfilesSection } from "./InstallationProfilesSection";
 import { LanguagePickerFields } from "./languagePicker/LanguagePickerFields";
 import {
 	duplicateLanguageRefusal,
@@ -140,6 +141,10 @@ const ROLE_LABELS: Readonly<Record<TranslationUnitRole, string>> = {
 	"field-help": "Field help",
 	"field-validation-message": "Validation message",
 	"field-extended-text": "Extended text",
+	"field-extended-hint": "Extended hint",
+	"field-extended-help": "Extended help",
+	"field-extended-validation-message": "Extended validation message",
+	"select-option-extended-text": "Extended choice text",
 	"field-qr-code": "QR code",
 	"field-spoken-text": "Spoken text",
 	"field-first-add-label": "First entry button",
@@ -154,7 +159,9 @@ const ROLE_LABELS: Readonly<Record<TranslationUnitRole, string>> = {
 	"case-list-interval-text": "Case list interval text",
 	"case-list-empty-text": "Empty case list text",
 	"case-list-select-text": "Case list Continue button",
+	"case-list-lookup-result-heading": "Case lookup confidence heading",
 	"search-input-label": "Search field label",
+	"search-input-group-label": "Search heading",
 	"search-input-hint": "Search field hint",
 	"search-input-required-message": "Search field required message",
 	"search-input-validation-message": "Search field check message",
@@ -526,6 +533,17 @@ export function LanguagesSection() {
 				)}
 			</div>
 
+			<InstallationProfilesSection
+				languages={localization.languageOrder}
+				label={(tag) =>
+					languageName(displays.get(tag) ?? languageDisplay(tag, resolver))
+				}
+				commit={(installationProfile) =>
+					commit([
+						{ kind: "setAppSettings", settings: { installationProfile } },
+					])
+				}
+			/>
 			{coverageDiagnostics.length > 0 && (
 				<section
 					aria-labelledby="language-coverage-notes"
@@ -1219,6 +1237,7 @@ function TranslationUnitRow({
 			case "case-list-column":
 				navigate.openCaseList(unit.owner.moduleUuid);
 				break;
+			case "search-input-group":
 			case "search-input":
 				navigate.openSearchConfig(unit.owner.moduleUuid);
 				break;

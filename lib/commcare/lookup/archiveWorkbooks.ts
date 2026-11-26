@@ -34,6 +34,10 @@ import {
 import { hqWouldTrimLookupText } from "./hqCellText";
 import { streamingLookupRowsDigest } from "./rowsDigest";
 import {
+	LOOKUP_RUNTIME_STRING_LIMIT_LINE,
+	lookupRuntimeStringTooLong,
+} from "./runtimeStrings";
+import {
 	type ExpectedLookupData,
 	expectedLookupData,
 	intendedHqRow,
@@ -137,6 +141,7 @@ export async function planLargeWorkbooks(
 	const alternatives: {
 		table: StreamingLookupTable;
 		carrier: LookupCarrierAlternative;
+		runtimeValueTooLong?: true;
 	}[] = [];
 	let group: Planned[] = [],
 		rows = 1;
@@ -214,14 +219,21 @@ export async function planLargeWorkbooks(
 		if (table.count + 3 > MAX_HQ_FIXTURE_WORKBOOK_ROWS)
 			shape.issue =
 				"The complete table exceeds CommCare HQ’s workbook row limit.";
-		for await (const input of table.reader.rows()) {
+		let runtimeValueTooLong = false;
+		scanRows: for await (const input of table.reader.rows()) {
 			if (shape.issue) break;
-			for (const column of lookupLexicalSlots(table.definition))
-				for (const literal of column.values(input.row))
+			for (const column of lookupLexicalSlots(table.definition)) {
+				for (const literal of column.values(input.row)) {
 					if (xmlTextIssue(literal))
 						throw new Error(
 							"A table value contains a character that cannot be installed on a worker’s phone.",
 						);
+					if (lookupRuntimeStringTooLong(literal)) {
+						runtimeValueTooLong = true;
+						break scanRows;
+					}
+				}
+			}
 			const { row, resolve, issue } = workbookRow(input);
 			if (issue) {
 				shape.issue = issue;
@@ -236,6 +248,10 @@ export async function planLargeWorkbooks(
 							throw new Error(
 								"A table value contains a character that cannot be installed on a worker’s phone.",
 							);
+						if (lookupRuntimeStringTooLong(value)) {
+							runtimeValueTooLong = true;
+							break scanRows;
+						}
 						if (value.length > 32767)
 							shape.issue = "A value exceeds the workbook cell limit.";
 						else if (hqWouldTrimLookupText(value))
@@ -249,6 +265,17 @@ export async function planLargeWorkbooks(
 			const intended = intendedHqRow(naming, row);
 			if (resolve) await expectedRows.resolvedRow(intended, resolve);
 			else expectedRows.row(intended);
+		}
+		if (runtimeValueTooLong) {
+			alternatives.push({
+				table,
+				carrier: alternativeLookupCarrier(
+					table.definition,
+					LOOKUP_RUNTIME_STRING_LIMIT_LINE,
+				),
+				runtimeValueTooLong: true,
+			});
+			continue;
 		}
 		if (shape.issue) {
 			alternatives.push({

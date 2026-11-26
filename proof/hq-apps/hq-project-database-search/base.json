@@ -1,0 +1,26 @@
+{
+	"id": "hq-project-database-search",
+	"configuration": {
+		"flags": [
+			"CASE_SEARCH_ADVANCED",
+			"CASE_SEARCH_ENDPOINTS",
+			"PROJECT_DB",
+			"SYNC_SEARCH_CASE_CLAIM"
+		],
+		"namedPrivileges": [
+			"CLOUDCARE"
+		],
+		"commcareVersion": "2.57.0",
+		"commtrack": false,
+		"syncCasesOnFormEntry": false,
+		"caseSearchEnabled": true
+	},
+	"declaration": {
+		"runsOnlyOn": null,
+		"splitDatetime": false
+	},
+	"exhibits": [
+		"case-search/case-search-endpoint-id",
+		"questions/text-input-xsd-string"
+	]
+}

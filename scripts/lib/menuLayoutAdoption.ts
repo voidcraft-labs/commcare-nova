@@ -6,6 +6,17 @@ import type { BlueprintDoc } from "@/lib/domain";
 
 import type { MenuLayoutDecision } from "../migrations/step7-menu-layouts";
 
+export interface MenuLayoutSourceDoc {
+	readonly appSettings: Pick<
+		BlueprintDoc["appSettings"],
+		"firstMenuLayout" | "formMenuLayout"
+	>;
+	readonly moduleOrder: BlueprintDoc["moduleOrder"];
+	readonly modules: Readonly<
+		Record<string, Pick<BlueprintDoc["modules"][string], "menuLayout">>
+	>;
+}
+
 interface MenuLayoutAdoption {
 	readonly settings: MenuLayoutDecision["settings"];
 	readonly gridMenus: MenuLayoutDecision["gridMenus"];
@@ -22,7 +33,7 @@ interface MenuLayoutAdoption {
  * same deployment. A missing or unrecognized menu stays for publish review.
  */
 export function planMenuLayoutAdoption(
-	doc: BlueprintDoc,
+	doc: MenuLayoutSourceDoc,
 	identity: Pick<WireIdentity, "moduleUniqueId">,
 	source: HqAppSource,
 ): MenuLayoutAdoption {

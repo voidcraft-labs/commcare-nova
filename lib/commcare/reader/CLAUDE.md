@@ -562,6 +562,12 @@ search runs as the same filters (`case_search/utils.py::_apply_filter` applies e
 filter). A row the search condition's slot does not admit but an excluded field's does is still
 that field's.
 
+A literal Search order keeps each property, comparison and direction in request order.
+HQ strips all leading signs from a term and takes direction from the first sign.
+Nova publishes only that first sign and records the exact source value under
+`search-order-direction-signs-respelled`. The proof judge only allows a change
+that leaves the rest of the order intact.
+
 `matchingResolver` answers a key the map holds with its UUID and gives any other key a UUID the
 map holds under no key (`identity.ts::freeEntityUuid`): a map holds a renamed entity's UUID, minted
 from its old key, under its new one, so an entity CommCare HQ later adds under the old key must not

@@ -1,11 +1,13 @@
 "use server";
 
+import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { CaseNotFoundError } from "@/lib/case-store";
 import {
 	AppAccessError,
 	resolveAuthorizedAppSnapshot,
 } from "@/lib/db/appAccess";
+import { listIconSelectionModule } from "@/lib/doc/entryPointProjection";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import { extractLookupReferenceTargets } from "@/lib/doc/lookupReferences";
 import {
@@ -16,17 +18,23 @@ import {
 import { readCaseDatabaseSnapshot } from "./engine/caseDataBindingHelpers";
 import { reportUnexpectedActionError } from "./engine/caseDataBindingTelemetry";
 import { previewLookupData } from "./engine/lookupEvaluation";
+import { signReceiptRunTransition } from "./engine/signedFormOpening";
 import { readPreviewLookup } from "./engine/workerLookupScope";
 import { prepareEntryPointLaunch } from "./entryPointLaunch";
 import type {
 	EntryPointLaunchResult,
 	EntryPointSelection,
+	ListIconSource,
 } from "./entryPointLaunchTypes";
 
 const requestSchema = z.strictObject({
 	appId: z.string().min(1),
 	entryPointUuid: uuidSchema,
 	personaUuid: uuidSchema.optional(),
+	listIcon: z
+		.strictObject({ moduleUuid: uuidSchema, columnUuid: uuidSchema })
+		.optional(),
+	listIconRun: z.uuid().optional(),
 	expectedSeq: z.number().int().nonnegative(),
 	creations: z.array(suppliedCaseCreationSchema).optional(),
 	selections: z
@@ -45,6 +53,8 @@ export async function launchEntryPointAction(input: {
 	appId: string;
 	entryPointUuid: string;
 	personaUuid?: string;
+	listIcon?: ListIconSource;
+	listIconRun?: string;
 	expectedSeq: number;
 	selections: readonly EntryPointSelection[];
 	creations?: readonly SuppliedCaseCreation[];
@@ -58,11 +68,12 @@ export async function launchEntryPointAction(input: {
 			message: "Choose an entry point and its required cases, then try again.",
 		};
 	const args = parsed.data;
+	const required = args.listIcon ? "edit" : "view";
 	try {
 		const context = await resolveAuthorizedPreviewContext({
 			appId: args.appId,
 			personaUuid: args.personaUuid,
-			required: "view",
+			required,
 			loadBlueprint: true,
 			device: args.device,
 		});
@@ -81,6 +92,28 @@ export async function launchEntryPointAction(input: {
 				message: "The app changed. Wait for it to finish saving and try again.",
 			};
 		const doc = hydratePersistedBlueprint(context.blueprint);
+		const icon = args.listIcon;
+		if (icon) {
+			const column = doc.modules[icon.moduleUuid]?.caseListConfig?.columns.find(
+				(candidate) => candidate.uuid === icon.columnUuid,
+			);
+			const [selected] = args.selections;
+			if (
+				!rules.caseListIconActions ||
+				column?.kind !== "image-map" ||
+				column.entryPointUuid !== args.entryPointUuid ||
+				args.creations?.length ||
+				args.selections.length !== 1 ||
+				selected.caseIds.length !== 1 ||
+				listIconSelectionModule(doc, icon.moduleUuid, column) !==
+					selected.moduleUuid
+			)
+				return {
+					kind: "refused",
+					message:
+						"This icon's action changed. You can return to the list and try again.",
+				};
+		}
 		const tableIds = extractLookupReferenceTargets(doc).tableIds;
 		const [database, lookup] = await Promise.all([
 			readCaseDatabaseSnapshot(context.store, {
@@ -104,6 +137,18 @@ export async function launchEntryPointAction(input: {
 			),
 		];
 		const notHeld = await readNotHeldCases(context, args.appId, outside);
+		if (icon) {
+			const caseId = args.selections[0].caseIds[0];
+			const selected =
+				database.rows.find((row) => row.case_id === caseId) ??
+				notHeld.rows.find((row) => row.case_id === caseId);
+			if (!selected || selected.status === "closed")
+				return {
+					kind: "refused",
+					message:
+						"This record has closed or left the list. You can refresh the list and try again.",
+				};
+		}
 		const result = prepareEntryPointLaunch({
 			...args,
 			doc,
@@ -121,7 +166,7 @@ export async function launchEntryPointAction(input: {
 		const current = await resolveAuthorizedAppSnapshot(
 			args.appId,
 			context.identity.actorUserId,
-			"view",
+			required,
 		);
 		if (
 			current.baseSeq !== args.expectedSeq ||
@@ -146,6 +191,35 @@ export async function launchEntryPointAction(input: {
 				appId: args.appId,
 				caseIds: result.claimCaseIds,
 			});
+		if (
+			result.kind === "ready" &&
+			icon &&
+			args.listIconRun &&
+			context.sessionId &&
+			result.launch.location.kind === "form"
+		) {
+			return {
+				...result,
+				launch: {
+					...result.launch,
+					receiptRunTransition: signReceiptRunTransition(
+						process.env.BETTER_AUTH_SECRET ?? "",
+						{
+							app: args.appId,
+							project: context.scope.projectId,
+							actor: context.identity.actorUserId,
+							session: context.sessionId,
+							worker: context.identity.ownerId,
+							persona: context.identity.personaUuid ?? null,
+							device: context.device,
+							form: result.launch.location.formUuid,
+							revision: args.expectedSeq,
+						},
+						{ from: randomUUID(), to: args.listIconRun },
+					),
+				},
+			};
+		}
 		return result;
 	} catch (error) {
 		if (error instanceof AppAccessError)

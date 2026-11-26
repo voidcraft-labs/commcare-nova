@@ -20,6 +20,7 @@ import {
 } from "@/lib/domain";
 import { withNavigationWidth } from "@/lib/preview/engine/previewDevice";
 import { useLocation, useNavigate } from "@/lib/routing/hooks";
+import { readBuilderHistoryMove } from "@/lib/routing/useClientPath";
 import {
 	usePreviewDevice,
 	usePreviewEntryPointLaunch,
@@ -29,6 +30,7 @@ import { launchEntryPointAction } from "../entryPointLaunchAction";
 import type {
 	EntryPointLaunchResult,
 	EntryPointSelection,
+	ListIconSource,
 } from "../entryPointLaunchTypes";
 import { invalidateCaseData } from "./caseDataInvalidation";
 import { showFrameFirstMenu } from "./showFrameFirstMenu";
@@ -39,6 +41,7 @@ export function useEntryPointLaunch() {
 	const device = usePreviewDevice();
 	const reconciler = useReconcilerContext()?.reconciler;
 	const navigate = useNavigate();
+	const origin = useLocation();
 	const generation = useRef(0);
 	useEffect(
 		() => () => {
@@ -52,9 +55,16 @@ export function useEntryPointLaunch() {
 			selections: readonly EntryPointSelection[],
 			personaUuid?: string,
 			creations?: readonly import("@/lib/domain").SuppliedCaseCreation[],
+			listIcon?: ListIconSource,
 		): Promise<EntryPointLaunchResult> => {
 			const request = ++generation.current;
 			const before = session.getState();
+			const move = readBuilderHistoryMove();
+			const ownsList = () =>
+				!listIcon ||
+				(move === readBuilderHistoryMove() &&
+					session.getState().previewSessionId === before.previewSessionId &&
+					session.getState().previewing);
 			if (!before.appId || before.accessPhase !== "authorized" || !reconciler)
 				return {
 					kind: "refused",
@@ -66,6 +76,8 @@ export function useEntryPointLaunch() {
 					kind: "refused",
 					message: "Wait for the app to finish saving and try again.",
 				};
+			if (!ownsList())
+				return { kind: "refused", message: "This list is no longer open." };
 			const capturedDoc = doc.getState();
 			const expectedSeq = reconciler.getSnapshot().baseSeq;
 			const result = await launchEntryPointAction({
@@ -74,12 +86,15 @@ export function useEntryPointLaunch() {
 				selections,
 				creations,
 				personaUuid,
+				listIcon,
+				listIconRun: listIcon ? before.previewSessionId : undefined,
 				expectedSeq,
 				device: withNavigationWidth(device),
 			});
 			const current = session.getState();
 			if (
 				request !== generation.current ||
+				!ownsList() ||
 				current.appId !== before.appId ||
 				current.scopeEpoch !== before.scopeEpoch ||
 				current.accessPhase !== "authorized" ||
@@ -115,6 +130,38 @@ export function useEntryPointLaunch() {
 									? { formTarget: { ...formTarget, caseData: new Map() } }
 									: {}),
 							};
+				if (listIcon) {
+					const {
+						previewSessionId,
+						previewMenuCaseSelections,
+						previewSearchStates,
+						previewCaseTarget,
+						previewSelectedCase,
+						previewParentCaseRequest,
+						previewTaskContinuation,
+						previewAfterSubmitStack,
+						previewCaseListRegistrationEntry,
+					} = current;
+					current.installEntryPointLaunch({
+						...launch,
+						listIconReturn: {
+							location: origin,
+							state: {
+								previewSessionId,
+								previewMenuCaseSelections,
+								previewSearchStates,
+								previewCaseTarget,
+								previewSelectedCase,
+								previewParentCaseRequest,
+								previewTaskContinuation,
+								previewAfterSubmitStack,
+								previewCaseListRegistrationEntry,
+							},
+						},
+					});
+					navigate.replace(launch.location);
+					return result;
+				}
 				current.installEntryPointLaunch(launch);
 				/* Back from a form an Android deep link opened ends the visit
 				 * (`previewEntryPointVisit`), so only a menu or case list
@@ -128,7 +175,7 @@ export function useEntryPointLaunch() {
 			}
 			return result;
 		},
-		[device, doc, navigate, reconciler, session],
+		[device, doc, navigate, origin, reconciler, session],
 	);
 }
 
@@ -145,7 +192,16 @@ export function useEntryPointLaunchLifecycle() {
 	useEffect(
 		() =>
 			doc.subscribe(() => {
-				if (!session.getState().previewEntryPointLaunch) return;
+				const active = session.getState().previewEntryPointLaunch;
+				if (!active) return;
+				if (active.listIconReturn) {
+					session.setState({
+						...active.listIconReturn.state,
+						previewEntryPointLaunch: undefined,
+					});
+					navigate.replace(active.listIconReturn.location);
+					return;
+				}
 				session.getState().setPreviewing(false);
 				navigate.replace({ kind: "app-setup", section: "deep-links" });
 			}),
@@ -156,6 +212,7 @@ export function useEntryPointLaunchLifecycle() {
 		previousLaunch.current = launch;
 		if (
 			previous &&
+			!previous.listIconReturn &&
 			!launch &&
 			session.getState().previewing &&
 			JSON.stringify(location) === JSON.stringify(previous.location)

@@ -16,6 +16,7 @@ import {
 import type { RepeatInstanceIdentity } from "@/lib/preview/engine/engineController";
 import { useEngineStateAt } from "@/lib/preview/hooks/useEngineState";
 import { usePresentationHasFields } from "@/lib/preview/hooks/usePresentationDocument";
+import { presentedLabelText } from "@/lib/preview/labelPresentation";
 import { runtimeMessage } from "@/lib/preview/runtimeMessages";
 import { LabelContent } from "@/lib/references/LabelContent";
 import { usePreviewPlatformRules } from "@/lib/session/hooks";
@@ -75,6 +76,11 @@ export function GroupField({
 	// a group inside a repeat instance shows that instance's resolution.
 	const state = useEngineStateAt(field.uuid, path);
 	const textForm = useFieldTextForm(field.uuid);
+	const title = presentedLabelText(
+		field,
+		labelShowsAsTyped(textForm, field),
+		state,
+	);
 	const [toggled, setToggled] = useState(false);
 	const { groupFrame } = usePreviewPlatformRules();
 	const collapse = groupFrame === "as-authored" ? field.collapse : undefined;
@@ -83,7 +89,7 @@ export function GroupField({
 	const headerId = useId();
 	const contentId = useId();
 	const toggleActionId = useId();
-	const childContext = [accessibleContext, field.label && headerId]
+	const childContext = [accessibleContext, title && headerId]
 		.filter(Boolean)
 		.join(" ");
 
@@ -101,7 +107,7 @@ export function GroupField({
 				}}
 			>
 				<div
-					className={`${border ? "border border-pv-input-border" : ""} bg-pv-surface ${field.label || collapse ? "px-3 py-2" : ""} ${
+					className={`${border ? "border border-pv-input-border" : ""} bg-pv-surface ${title || collapse ? "px-3 py-2" : ""} ${
 						collapsed ? "rounded-lg" : "rounded-t-lg border-b-0"
 					}`}
 				>
@@ -130,14 +136,12 @@ export function GroupField({
 						)}
 						<div
 							id={headerId}
-							className={
-								field.label ? CONTAINER_HEADER_STYLES.title : "sr-only"
-							}
+							className={title ? CONTAINER_HEADER_STYLES.title : "sr-only"}
 						>
 							<span className="sr-only">
 								{runtimeMessage(language, "sectionPosition", { position })}{" "}
 							</span>
-							{field.label ? (
+							{title ? (
 								/* `px-[5px] py-[5px]` matches TextEditable's
 								 *  idle/read-only wrapper in edit mode: without
 								 *  this, a labelled group header is exactly 10px
@@ -145,8 +149,8 @@ export function GroupField({
 								 *  the flipbook shifts every child downward. */
 								<div className="px-[5px] py-[5px]">
 									<LabelContent
-										label={field.label}
-										resolvedLabel={state.resolvedLabel}
+										label={title.template}
+										resolvedLabel={title.resolved}
 										isEditMode={false}
 										rendering={labelRendering}
 										plainLabel={labelShowsAsTyped(textForm, field)}

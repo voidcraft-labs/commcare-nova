@@ -1,8 +1,8 @@
 // lib/domain/labelForms.ts
 //
-// A question's label may hold three more texts beside the label itself, each
-// its own prose slot with its own translation, each written as one more form
-// of the label's itext entry:
+// A question's label may hold three more texts, each in a prose slot with
+// its own translation and its own form in the label's itext entry. Group,
+// repeat and section labels carry extended text alone.
 //
 //   - `extended_text` (`<value form="long">`): the text a runtime shows in
 //     place of the label where the label has no markdown form. Core's
@@ -69,8 +69,7 @@ export const LABEL_TEXT_SLOT_LABELS: Readonly<Record<LabelTextSlot, string>> = {
 	spoken_text: "Spoken text",
 };
 
-/** Whether a field kind carries the label text slots: exactly the kinds whose
- *  label carries media, a visible question's label. */
+/** Whether a field kind carries any of the label text slots. */
 export function fieldKindCarriesLabelTexts(kind: FieldKind): boolean {
 	return fieldKindDeclaresKey(kind, "extended_text");
 }
@@ -85,6 +84,18 @@ export function labelTextOf(
 		: undefined;
 }
 
+/** Extended prose carried on the same itext entry as its ordinary wording. */
+export const FIELD_EXTENDED_TEXT_SLOTS = {
+	hint: "extended_hint",
+	help: "extended_help",
+	validate_msg: "extended_validate_msg",
+} as const;
+export type FieldExtendedTextSlot =
+	(typeof FIELD_EXTENDED_TEXT_SLOTS)[keyof typeof FIELD_EXTENDED_TEXT_SLOTS];
+
+/** The option's extended text is identified independently of the option's label. */
+export type ExtendedProseSlot = FieldExtendedTextSlot | "option_extended_text";
+
 /** Every field prose slot but a choice's label, each its own translation
  *  unit keyed by the slot's name: the label, hint, help text and validation
  *  message, then the label's other texts. */
@@ -96,6 +107,7 @@ export const FIELD_PROSE_SLOTS = [
 	"addFirstLabel",
 	"addLabel",
 	...LABEL_TEXT_SLOTS,
+	...Object.values(FIELD_EXTENDED_TEXT_SLOTS),
 ] as const;
 export type FieldProseSlot = (typeof FIELD_PROSE_SLOTS)[number];
 

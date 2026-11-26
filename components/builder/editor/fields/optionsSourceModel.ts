@@ -1,6 +1,7 @@
 import { v4 as uuidv4 } from "uuid";
 import type { EditorLookupTableDecl } from "@/components/builder/shared/lookupTablePresentation";
 import {
+	type AvailableCasesOptionsSource,
 	asUuid,
 	type CaseOptionsSource,
 	type CaseType,
@@ -28,7 +29,8 @@ export interface LookupSourceDraft {
 export type SourceDraft =
 	| InlineOptionsSource
 	| LookupSourceDraft
-	| CaseOptionsSource;
+	| CaseOptionsSource
+	| AvailableCasesOptionsSource;
 
 export function freshInlineSource(): InlineOptionsSource {
 	return {
@@ -55,6 +57,14 @@ export function beginOptionsSource(
 	caseTypes: readonly CaseType[] = [],
 ) {
 	if (next === null) return { kind: "unchanged" as const };
+	if (next === "available-cases")
+		return {
+			kind: "draft" as const,
+			draft:
+				source.kind === "available-cases"
+					? null
+					: { kind: "available-cases" as const },
+		};
 	if (next === "cases") {
 		const type = caseTypes[0];
 		if (!type)

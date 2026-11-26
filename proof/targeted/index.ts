@@ -19,11 +19,17 @@ import {
 	rootCaseBlockNames,
 } from "./documents/advancedModules";
 import { ancestorIndexNames } from "./documents/ancestorIndexNames";
+import { androidAppAnswers } from "./documents/androidAppAnswers";
 import { attributeDisplayCondition } from "./documents/attributeDisplayCondition";
 import { blankLabels } from "./documents/blankLabels";
 import { calculationTextNames } from "./documents/calculationTextNames";
 import { captureWidgets } from "./documents/captureWidgets";
 import { attributeColumns, caseIdColumn } from "./documents/caseIdColumn";
+import {
+	caseListDeviceLookup,
+	caseListDeviceLookupCount,
+} from "./documents/caseListDeviceLookup";
+import { caseListIconAction } from "./documents/caseListIconAction";
 import { caseListMenuItem } from "./documents/caseListMenuItems";
 import { caseListSearchTextDocument } from "./documents/caseListSearchText";
 import { caseMap } from "./documents/caseMap";
@@ -58,6 +64,7 @@ import {
 	expressionPropertyRenames,
 	expressionRenames,
 } from "./documents/expressionRenames";
+import { facePhoto } from "./documents/facePhoto";
 import { formLinkCarriedCase } from "./documents/formLinkCarriedCase";
 import { formLinkChain } from "./documents/formLinkChain";
 import { formLinkHiddenTarget } from "./documents/formLinkHiddenTarget";
@@ -95,11 +102,18 @@ import {
 	hqChangesQuestions,
 	hqChangesResave,
 } from "./documents/hqChanges";
+import {
+	hqChangesCaseFormats,
+	legacyRelatedCaseText,
+} from "./documents/hqChangesCaseFormats";
+import { hqChangesCaseImage } from "./documents/hqChangesCaseImage";
+import { hqChangesCaseTabs } from "./documents/hqChangesCaseTabs";
 import { hqSideLookup } from "./documents/hqSideLookup";
 import { hqSideOwned } from "./documents/hqSideOwned";
 import { hqSideState } from "./documents/hqSideState";
 import { hyphenatedQuestionIds } from "./documents/hyphenatedQuestionIds";
 import { independentFormChoices } from "./documents/independentFormChoices";
+import { indexedLookup } from "./documents/indexedLookup";
 import { inlineSearchReads } from "./documents/inlineSearchReads";
 import { instanceReads } from "./documents/instanceReads";
 import { keptValues } from "./documents/keptValues";
@@ -135,10 +149,12 @@ import { noMatchesReturnIdentity } from "./documents/noMatchesReturnIdentity";
 import { numberKeypad } from "./documents/numberKeypad";
 import { plainHelp } from "./documents/plainHelp";
 import { platformDeclaration } from "./documents/platformDeclaration";
+import { positionedCaseCreate } from "./documents/positionedCaseCreate";
 import { previewAndroidRenders } from "./documents/previewAndroidRenders";
 import { proseValue } from "./documents/proseValue";
 import { qualifiedLookupValues } from "./documents/qualifiedLookupValues";
 import { questionCalendar } from "./documents/questionCalendar";
+import { reachedChoiceColumns } from "./documents/reachedChoiceColumns";
 import {
 	registerFromCaseList,
 	registerFromCaseListWebApps,
@@ -154,6 +170,7 @@ import {
 	repeatCountWhole,
 } from "./documents/repeats";
 import { sameTypeChild } from "./documents/sameTypeChild";
+import { savedFormDescriptor } from "./documents/savedFormDescriptor";
 import { saveToCaseRead } from "./documents/saveToCaseRead";
 import { saveToCaseShapes } from "./documents/saveToCaseShapes";
 import {
@@ -166,6 +183,7 @@ import {
 	syncOnFormEntry,
 	syncOnFormEntryWebApps,
 } from "./documents/searchApps";
+import { searchedSharedVisit } from "./documents/searchedSharedVisit";
 import { searchFieldNames } from "./documents/searchFieldNames";
 import { searchNoTitle } from "./documents/searchNoTitle";
 import {
@@ -178,6 +196,10 @@ import { sessionReads } from "./documents/sessionReads";
 import { severalCaseClose } from "./documents/severalCaseClose";
 import { sharedVisitEntries } from "./documents/sharedVisitEntries";
 import { sortBlanks } from "./documents/sortBlanks";
+import {
+	caseChoiceReopen,
+	sortedCaseChoices,
+} from "./documents/sortedCaseChoices";
 import { independentCaseOrder, sharedPropertySort } from "./documents/sortKeys";
 import { sortLabels } from "./documents/sortLabels";
 import {
@@ -197,6 +219,7 @@ import { plainLabels, textReads } from "./documents/textReads";
 import { tileGroupFilter } from "./documents/tileGroupFilter";
 import { tileRowBound } from "./documents/tileRowBound";
 import { validatedBarcodeSecret } from "./documents/validatedBarcodeSecret";
+import { webFormActivity } from "./documents/webFormActivity";
 import { workerMessages } from "./documents/workerMessages";
 import { workerRecordColumns } from "./documents/workerRecordColumns";
 
@@ -204,13 +227,18 @@ import { workerRecordColumns } from "./documents/workerRecordColumns";
 export const TARGETED_DOCUMENTS: readonly (() => CorpusDocument)[] = [
 	receivingAnswersOnBoth,
 	receivingAnswersOnAndroid,
+	facePhoto,
 	lookupReservedTags,
 	searchHqCompile,
 	validatedBarcodeSecret,
 	workerMessages,
+	webFormActivity,
 	labelSort,
 	calculationTextNames,
 	customTile,
+	caseListDeviceLookup,
+	caseListDeviceLookupCount,
+	caseListIconAction,
 	closeConditions,
 	closeConditionUnparsable,
 	multiSelectDestinations,
@@ -246,6 +274,7 @@ export const TARGETED_DOCUMENTS: readonly (() => CorpusDocument)[] = [
 	connectLearnRename,
 	saveToCaseRead,
 	saveToCaseShapes,
+	positionedCaseCreate,
 	mediaSlots,
 	labelContent,
 	missingMedia,
@@ -318,8 +347,10 @@ export const TARGETED_DOCUMENTS: readonly (() => CorpusDocument)[] = [
 	commtrackAdvanced,
 	formLinkChain,
 	formLinkCarriedCase,
+	indexedLookup,
 	independentFormChoices,
 	sharedVisitEntries,
+	searchedSharedVisit,
 	formLinkOtherwise,
 	hyphenatedQuestionIds,
 	caseTypeNames,
@@ -331,8 +362,12 @@ export const TARGETED_DOCUMENTS: readonly (() => CorpusDocument)[] = [
 	caseWriteNames,
 	connectDeliverHyphenIds,
 	connectLearnHyphenIds,
+	androidAppAnswers,
+	sortedCaseChoices,
+	caseChoiceReopen,
 	numberKeypad,
 	questionCalendar,
+	savedFormDescriptor,
 	detailOnlyColumn,
 	relatedColumns,
 	workerRecordColumns,
@@ -340,6 +375,7 @@ export const TARGETED_DOCUMENTS: readonly (() => CorpusDocument)[] = [
 	searchNoTitle,
 	choiceValueColumns,
 	caseMap,
+	reachedChoiceColumns,
 	relativeCaseDates,
 	sortBlanks,
 	sortLabels,
@@ -360,6 +396,10 @@ export const TARGETED_DOCUMENTS: readonly (() => CorpusDocument)[] = [
 	hqChangesQuestions,
 	hqChangesFormSetting,
 	hqChangesCaseManagement,
+	hqChangesCaseFormats,
+	legacyRelatedCaseText,
+	hqChangesCaseImage,
+	hqChangesCaseTabs,
 	hqChangesMenu,
 	hqChangesMenuLayouts,
 	hqChangesForms,

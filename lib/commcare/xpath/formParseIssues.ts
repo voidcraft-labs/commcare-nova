@@ -23,6 +23,7 @@ export type FormParseIssueCode =
 	| "row-leaves-record"
 	| "unknown-hashtag"
 	| "unknown-search-input"
+	| "search-answer-unloaded"
 	| "search-results-unexcluded"
 	| "search-results-remote"
 	| "unknown-table"

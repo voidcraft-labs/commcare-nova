@@ -847,6 +847,7 @@ def _apply_place_id_workbook(state, member, child_id):
                 row.latitude, row.longitude, row.metadata)
 
     before = row_values(), neighbors(), levels()
+    modified = row.last_modified
     for attempt in range(2):
         book = WorkbookJSONReader(str(path))
         progress = SimpleNamespace(worksheets=book.worksheets, add_progress=lambda *args: None)
