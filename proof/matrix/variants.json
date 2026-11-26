@@ -11260,6 +11260,21 @@
 		]
 	},
 	{
+		"id": "hq-case-lists/lookup-result-with-an-empty-heading-map",
+		"base": "hq-case-lists",
+		"entry": "menus-and-case-lists/lookup-case-id-result-without-a-header-map",
+		"standing": "fix-in-hq",
+		"place": {
+			"kind": "case-list",
+			"menu": 0,
+			"name": "Patients"
+		},
+		"change": {
+			"op": "named",
+			"name": "case_id_callout_without_result_heading"
+		}
+	},
+	{
 		"id": "hq-case-lists/named-callout",
 		"base": "hq-case-lists",
 		"entry": "menus-and-case-lists/lookup-extra-relative-without-case-context",

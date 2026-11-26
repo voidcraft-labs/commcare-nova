@@ -9366,6 +9366,30 @@
 		"gates": []
 	},
 	{
+		"id": "menus-and-case-lists/lookup-case-id-result-without-a-header-map",
+		"area": "menus-and-case-lists",
+		"section": "Case list and case detail",
+		"subsection": "Case list callout",
+		"item": "Case-ID keyed lookup confidence with an empty heading map in a row layout",
+		"surfaceKeys": ["schema:Detail.lookup_display_results"],
+		"valueClass": "case-id-result-column-on-a-plain-list-with-an-empty-heading-map",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: Android cannot install this app. The lookup results header in HQ’s build is missing the text element Android requires.",
+		"subject": "case-list-callout",
+		"reasons": [
+			{
+				"kind": "broken-at-runtime",
+				"named": "Android needs a heading to install this case list. Adding a name for the lookup results column in CommCare HQ supplies it."
+			}
+		],
+		"platforms": { "kind": "none", "cell": "—" },
+		"emission": {
+			"cell": "HQ writes a width-zero header with no text element.",
+			"markers": []
+		},
+		"gates": ["toggle/BIOMETRIC_INTEGRATION", "toggle/CASE_LIST_LOOKUP"]
+	},
+	{
 		"id": "menus-and-case-lists/lookup-display-results-lookup-field-header-lookup-field-template",
 		"area": "menus-and-case-lists",
 		"section": "Case list and case detail",
@@ -9380,7 +9404,7 @@
 		],
 		"valueClass": "lookup-result-column-outside-a-plain-case-id-match",
 		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: results keyed by other expressions, hidden headings or case tiles",
+		"dispositionCell": "**HELD-NEW**: results keyed by other expressions, blank localized text or case tiles",
 		"subject": "case-list-callout",
 		"owner": "case-list-and-detail",
 		"platforms": {

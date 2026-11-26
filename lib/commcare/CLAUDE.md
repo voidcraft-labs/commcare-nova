@@ -2801,7 +2801,11 @@ an HQ edit for the bare name and retains its unsupported finding for other
 calculations. A plain case list can hold a translated
 confidence heading. Its wire template keys the companion's scores by the
 existing case ID. Android displays those scores for matching cases in the
-device's eligible list. The browser Preview has no companion return channel.
+device's eligible list. HQ generates a result header without its required text
+element if the saved heading map is empty, so the reader asks for a heading
+before bringing in that lookup. A stored blank translation carries a locale
+element. Alternate result expressions can decide which cases match the
+companion's reply. The browser Preview has no companion return channel.
 
 ## Case-backed question choices
 

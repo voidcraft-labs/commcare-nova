@@ -392,6 +392,10 @@ export const DETAIL_CLAIMS = defineClaims("caseList.details", {
 		`${A}lookup-extra-relative-without-case-context`,
 		"schema:Detail.lookup_extras",
 	),
+	lookupMissingResultHeader: refuse(
+		`${A}lookup-case-id-result-without-a-header-map`,
+		"schema:Detail.lookup_display_results",
+	),
 	lookupNoExtras: refuse(
 		`${A}callout-with-no-extras-or-no-responses`,
 		"schema:Detail.lookup_extras",
@@ -625,6 +629,20 @@ function textDeviceLookup(
 		}),
 	});
 	return value.success ? { lookup: value.data, heading } : undefined;
+}
+
+/** HQ writes an empty width-zero header for an empty map. Core requires a text child there. */
+function lookupHasEmptyCaseIdResultHeader(detail: JsonCursor): boolean {
+	const header = detail.peek("lookup_field_header");
+	const template = detail.peek("lookup_field_template");
+	return (
+		!detail.peek("case_tile_template") &&
+		detail.peek("lookup_display_results") === true &&
+		isJsonObject(header) &&
+		Object.keys(header).length === 0 &&
+		typeof template === "string" &&
+		sameXPathText(template, lookupCaseKey)
+	);
 }
 
 const LOOKUP_LONG_KEYS = defineClaims(
@@ -1552,9 +1570,7 @@ function readDetailKeys(
 					wording.deviceLookup = detail.take(key, claim, () => lookup).value;
 			}
 		} else {
-			// A callout is one finding: one with no extras or no responses, which HQ's Case List editor
-			// refuses, is refused as that, any other as a callout, and every other key of it is
-			// claimed under that one finding.
+			// Report the decisive failure once and claim the remaining lookup keys under it.
 			const extras = detail.peek("lookup_extras");
 			const responses = detail.peek("lookup_responses");
 			const unready =
@@ -1567,27 +1583,27 @@ function readDetailKeys(
 				typeof detail.peek("lookup_action") === "string" &&
 				typeof detail.peek("lookup_name") === "string" &&
 				lookupHasBareRelativeExtra(extras);
+			let cause: Claim<"refuse">;
 			if (unready) {
-				detail.refuse("lookup_extras", D.lookupNoExtras);
+				cause = D.lookupNoExtras;
+				detail.refuse("lookup_extras", cause);
 				detail.refuse("lookup_responses", D.lookupNoResponses);
 				ctx.accounting.finding(D.lookupNoExtras, detail.place);
 			} else if (relativeExtra) {
-				detail.refuse("lookup_extras", D.lookupRelativeExtra);
+				cause = D.lookupRelativeExtra;
+				detail.refuse("lookup_extras", cause);
+			} else if (lookupHasEmptyCaseIdResultHeader(detail)) {
+				cause = D.lookupMissingResultHeader;
+				detail.refuse("lookup_display_results", cause);
 			} else {
-				detail.refuse("lookup_enabled", LOOKUP_ON_KEYS.lookup_enabled);
+				cause = LOOKUP_ON_KEYS.lookup_enabled;
+				detail.refuse("lookup_enabled", cause);
 				detail.refuse("lookup_action", LOOKUP_ON_KEYS.lookup_action);
 			}
 			claimRestUnderFinding(
 				ctx,
 				detail,
-				{
-					code: unready
-						? D.lookupNoExtras.entry
-						: relativeExtra
-							? D.lookupRelativeExtra.entry
-							: LOOKUP_ON_KEYS.lookup_enabled.entry,
-					place: detail.place,
-				},
+				{ code: cause.entry, place: detail.place },
 				(key) => CALLOUT_KEYS.includes(key),
 			);
 			ok = false;

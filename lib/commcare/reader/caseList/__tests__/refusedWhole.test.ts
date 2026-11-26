@@ -290,6 +290,40 @@ describe("a callout on the case list", () => {
 		]);
 	});
 
+	it.each([
+		[
+			"empty heading map",
+			{},
+			"@case_id",
+			"lookup-case-id-result-without-a-header-map",
+		],
+		[
+			"stored blank heading",
+			{ en: "" },
+			"@case_id",
+			"lookup-enabled-lookup-action",
+		],
+		[
+			"alternate result key",
+			{ en: "Scanned" },
+			"scan_id",
+			"lookup-enabled-lookup-action",
+		],
+	])(
+		"keeps a distinct finding for %s",
+		async (_label, header, template, entry) => {
+			const reading = await readDetails((short) => {
+				Object.assign(short, callout, {
+					lookup_extras: [{ key: "mode", value: "'scan'" }],
+					lookup_responses: [{ key: "result" }],
+					lookup_field_header: header,
+					lookup_field_template: template,
+				});
+			});
+			expect(closedCodes(reading)).toEqual([`${M}${entry}`]);
+		},
+	);
+
 	it("with no extras is one finding, HQ's own refusal", async () => {
 		const reading = await readDetails((short) => {
 			Object.assign(short, callout, {

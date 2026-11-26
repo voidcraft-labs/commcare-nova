@@ -6507,17 +6507,40 @@ def lookup_extra_relative_without_case_context(use, manifest):
     return detail is not None and not _missing_lookup_arguments(detail) and _bare_relative_lookup_extra(detail)
 
 
+def _case_id_result_template(template):
+    parsed = expression_tree(template) if isinstance(template, str) else None
+    return bool(
+        parsed and parsed[:2] == ["path", "relative"] and parsed[3] == []
+        and parsed[4] == [["attribute", "case_id", 0]]
+    )
+
+
+def _empty_case_id_result_header(detail):
+    return (
+        not detail.get("case_tile_template") and detail.get("lookup_display_results") is True
+        and detail.get("lookup_field_header") == {} and _case_id_result_template(detail.get("lookup_field_template"))
+    )
+
+
+def lookup_missing_case_id_result_header(use, manifest):
+    """An ordinary, enabled Android result field where HQ emits no header text element."""
+    detail = _short_lookup(use)
+    return (
+        detail is not None and _empty_case_id_result_header(detail)
+        and not _missing_lookup_arguments(detail) and not _bare_relative_lookup_extra(detail)
+    )
+
+
 def lookup_with_result_column(use, manifest):
     """The active result columns outside the plain-list case-ID carrier."""
     detail = _short_lookup(use)
     if detail is None or detail.get("lookup_display_results") is not True:
         return False
+    if lookup_missing_case_id_result_header(use, manifest):
+        return False
     template, headings = detail.get("lookup_field_template"), detail.get("lookup_field_header")
-    parsed = expression_tree(template) if isinstance(template, str) else None
     return bool(
-        detail.get("case_tile_template") or not parsed
-        or parsed[:2] != ["path", "relative"] or parsed[3] != []
-        or parsed[4] != [["attribute", "case_id", 0]]
+        detail.get("case_tile_template") or not _case_id_result_template(template)
         or not isinstance(headings, dict)
         or not any(isinstance(value, str) and value.strip() for value in headings.values())
     )
@@ -6539,7 +6562,7 @@ def lookup_outside_fixed_text(use, manifest):
     detail = _short_lookup(use)
     if detail is None or _missing_lookup_arguments(detail):
         return False
-    if _bare_relative_lookup_extra(detail):
+    if _bare_relative_lookup_extra(detail) or _empty_case_id_result_header(detail):
         return False
     extras = detail["lookup_extras"]
     return (
@@ -13477,6 +13500,7 @@ VALUE_CLASSES = {
     "menus-and-case-lists/lookup-enabled-lookup-action": lookup_outside_fixed_text,
     "menus-and-case-lists/lookup-extra-relative-without-case-context": lookup_extra_relative_without_case_context,
     "menus-and-case-lists/lookup-extras-key-value": lookup_with_nonliteral_arguments,
+    "menus-and-case-lists/lookup-case-id-result-without-a-header-map": lookup_missing_case_id_result_header,
     "menus-and-case-lists/lookup-display-results-lookup-field-header-lookup-field-template": (
         lookup_with_result_column
     ),
