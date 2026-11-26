@@ -258,6 +258,9 @@ PARENT_FOLLOW_UP = "menus-and-case-lists/case-list-form-pointing-at-a-follow-up-
 CHILD_REGISTRATION = (
     "menus-and-case-lists/case-list-form-pointing-at-a-form-whose-one-registration-of-the-type-is-a-child-case"
 )
+ADVANCED_REGISTRATION = "menus-and-case-lists/case-list-form-on-an-advanced-module-or-naming-an-advanced-form"
+REGISTRATION_ENTRIES = {PARENT_FOLLOW_UP, CHILD_REGISTRATION, ADVANCED_REGISTRATION}
+REGISTRATION_KEYS = {"schema:Module.case_list_form", "schema:AdvancedModule.case_list_form"}
 ADVANCED_TAG_KEYS = frozenset({"schema:AdvancedOpenCaseAction.case_tag", "schema:LoadUpdateAction.case_tag"})
 CASE_TAG = re.compile(r"[A-Za-z][A-Za-z0-9_-]*")
 SUPPLY_POINT_STEPS = [["child", step, 0] for step in ("session", "data", "supply_point_id")]
@@ -324,7 +327,7 @@ def _supplied_point_uses(found, held, entry):
 
 
 def _registration_target(use):
-    """A basic list's pointer to a parent's follow-up or to one root child creation of the list's case type."""
+    """A basic form reached from a list, with the particular selection or creation that supplies its case."""
     at = use.at
     listed = at.value
     form_id = listed.get("form_id") if isinstance(listed, dict) else None
@@ -335,18 +338,23 @@ def _registration_target(use):
         return
     menu = at.owner
     target_menu = at.app.module_of(target)
-    if target_menu is None or target_menu.get("case_type") == menu.get("case_type"):
-        return
     case_type = menu.get("case_type")
-    if not case_type or not target_menu.get("case_type"):
+    if not case_type or target_menu is None or not target_menu.get("case_type"):
         return
     actions = target.get("actions") or {}
+    open_case = ((actions.get("open_case") or {}).get("condition") or {}).get("type")
+    if use.key == "schema:AdvancedModule.case_list_form":
+        if target_menu.get("case_type") == case_type and target.get("requires") == "none" and open_case == "always":
+            return ADVANCED_REGISTRATION
+        return
+    if target_menu.get("case_type") == case_type:
+        return
     parent = menu.get("parent_select") or {}
     if (
         parent.get("active") is True and parent.get("relationship") == "parent"
         and parent.get("module_id") == target_menu.get("unique_id")
         and target.get("requires") == "case"
-        and ((actions.get("open_case") or {}).get("condition") or {}).get("type") == "never"
+        and open_case == "never"
     ):
         return PARENT_FOLLOW_UP
     if target.get("requires") not in {"case", "none"}:
@@ -362,7 +370,7 @@ def _registration_target(use):
 
 def _forms_variant_uses(found, held, entries):
     """Source facts retained variants can decide without the full corpus's runtime observations."""
-    wanted = {LOCATION_WRITE, HYPHEN_TAG, SHADOW_LOAD, SUPPLY_POINT, PARENT_FOLLOW_UP, CHILD_REGISTRATION}.intersection(entries)
+    wanted = {LOCATION_WRITE, HYPHEN_TAG, SHADOW_LOAD, SUPPLY_POINT, *REGISTRATION_ENTRIES}.intersection(entries)
     if not wanted:
         return
     by_id = _entries_by_id(held)
@@ -378,7 +386,7 @@ def _forms_variant_uses(found, held, entries):
                 yield Decided(use, manifest_usage.HELD, (by_id[HYPHEN_TAG],))
         if SHADOW_LOAD in wanted and use.key == "schema:ShadowForm":
             yield from _shadow_default_extra_actions(use, held, by_id[SHADOW_LOAD], places)
-        if wanted.intersection((PARENT_FOLLOW_UP, CHILD_REGISTRATION)) and use.key == "schema:Module.case_list_form":
+        if wanted.intersection(REGISTRATION_ENTRIES) and use.key in REGISTRATION_KEYS:
             if (entry := _registration_target(use)) in wanted:
                 yield Decided(use, manifest_usage.HELD, (by_id[entry],))
     if SUPPLY_POINT in wanted:

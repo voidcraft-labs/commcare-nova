@@ -531,6 +531,10 @@ def test_an_appearance_the_lane_does_not_decide_is_reported_and_not_joined():
             parity.CHILD_REGISTRATION, "hq-case-management/registration-of-a-child-case",
             "schema:Module.case_list_form", "app.json", "/modules/1/case_list_form", HELD, None,
         ),
+        (
+            parity.ADVANCED_REGISTRATION, "hq-case-lists/registration-on-an-advanced-list",
+            "schema:AdvancedModule.case_list_form", "app.json", "/modules/1/case_list_form", HELD, None,
+        ),
     ],
 )
 def test_retained_forms_decide_the_specific_source_fact(
