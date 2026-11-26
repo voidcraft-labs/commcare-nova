@@ -8,11 +8,15 @@ import {
 } from "@/lib/db/appAccess";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import { extractLookupReferenceTargets } from "@/lib/doc/lookupReferences";
-import { uuidSchema } from "@/lib/domain";
-import { getLookupFixtureData } from "@/lib/lookup/service";
+import {
+	type SuppliedCaseCreation,
+	suppliedCaseCreationSchema,
+	uuidSchema,
+} from "@/lib/domain";
 import { readCaseDatabaseSnapshot } from "./engine/caseDataBindingHelpers";
 import { reportUnexpectedActionError } from "./engine/caseDataBindingTelemetry";
 import { previewLookupData } from "./engine/lookupEvaluation";
+import { readPreviewLookup } from "./engine/workerLookupScope";
 import { prepareEntryPointLaunch } from "./entryPointLaunch";
 import type {
 	EntryPointLaunchResult,
@@ -24,6 +28,7 @@ const requestSchema = z.strictObject({
 	entryPointUuid: uuidSchema,
 	personaUuid: uuidSchema.optional(),
 	expectedSeq: z.number().int().nonnegative(),
+	creations: z.array(suppliedCaseCreationSchema).optional(),
 	selections: z
 		.array(
 			z.strictObject({
@@ -42,6 +47,7 @@ export async function launchEntryPointAction(input: {
 	personaUuid?: string;
 	expectedSeq: number;
 	selections: readonly EntryPointSelection[];
+	creations?: readonly SuppliedCaseCreation[];
 	/** The device Preview runs on (`previewDevice.ts`), plain JSON. */
 	device?: PreviewDevice;
 }): Promise<EntryPointLaunchResult> {
@@ -82,7 +88,7 @@ export async function launchEntryPointAction(input: {
 				restoreScope: context.restoreScope,
 			}),
 			tableIds.length
-				? getLookupFixtureData(context.scope, tableIds).then(previewLookupData)
+				? readPreviewLookup(context.scope, tableIds).then(previewLookupData)
 				: undefined,
 		]);
 		/* A chosen case the worker's restore does not hold, read with its
@@ -91,9 +97,10 @@ export async function launchEntryPointAction(input: {
 		const held = new Set(database.rows.map((row) => row.case_id));
 		const outside = [
 			...new Set(
-				args.selections.flatMap((selection) =>
-					selection.caseIds.filter((caseId) => !held.has(caseId)),
-				),
+				[
+					...args.selections.flatMap((selection) => selection.caseIds),
+					...(args.creations ?? []).map((row) => row.caseId),
+				].filter((caseId) => !held.has(caseId)),
 			),
 		];
 		const notHeld = await readNotHeldCases(context, args.appId, outside);

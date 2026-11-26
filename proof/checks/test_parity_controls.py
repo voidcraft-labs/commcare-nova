@@ -27,11 +27,13 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+
+import pytest
 from pathlib import Path
 
 from lxml import etree
 
-from proof.checks import manifest_usage, parity
+from proof.checks import lookup_parity, manifest_usage, observations, parity
 from proof.checks.manifest_usage import HELD, REFUSED, Entry, Manifest, Use
 
 KEY = "schema:Module.case_type"
@@ -56,6 +58,150 @@ MANIFEST = Manifest(
     readers={},
 )
 WHERE = "/modules/0/case_type"
+
+
+def test_lookup_resource_claims_compare_referenced_sources_to_hq_definitions():
+    manifest = parity.manifest()
+    field = {"field_name": "code", "properties": []}
+    rows = {"status": 200, "body": json.dumps({"objects": [{"fields": {"code": "west"}}]})}
+    tags = ["locations", "search_selected_cases", "casedb", "selected_cases_casedb", "ledgerdb", "regions",
+            "input", "LedgerDB", "groups", "results", "registry", "__proto__", "hasOwnProperty", "HasOwnProperty"]
+    tables = {tag: {"tag": tag, "fields": [field], "is_global": True} for tag in tags}
+    tables["groups"]["is_global"] = False
+    tables["results"]["fields"] = []
+    reads = {"projectData": {
+        "lookupTables": {"status": 200, "body": json.dumps({"objects": list(tables.values())})},
+        "fixtureRows": {**dict.fromkeys(tags, rows), "registry": {"status": 500, "body": ""}},
+    }}
+    asked = {*tags, "missing"} - {"search_selected_cases"}
+
+    def claim(tag):
+        return parity.Record("lookup-tables", f"/{tag}/tag", None, lookup_parity.ALIAS_ENTRY, "held")
+
+    # __proto__ is no runtime instance name, so no alias claim holds it: a form's read of it is refused
+    # (lib/lookup/pathNames.ts), and the table itself names no held alias class.
+    assert lookup_parity.differences("sample", manifest, asked, reads, [claim(tag) for tag in ("input", "LedgerDB", "locations")]) == []
+    assert [one.at for one in lookup_parity.differences("sample", manifest, asked, reads, [claim(tag) for tag in ("input", "LedgerDB", "locations", "__proto__")])] == [
+        "/lookup-model:LookupTable.tag/unseen@lookup-tables/__proto__/tag",
+    ]
+    drift = lookup_parity.differences("sample", manifest, asked, reads, [claim(tag) for tag in ("input", "LedgerDB", "groups", "search_selected_cases")])
+    assert [one.at for one in drift] == [
+        "/lookup-model:LookupTable.tag/unseen@lookup-tables/groups/tag",
+        "/lookup-model:LookupTable.tag/unclaimed@lookup-tables/locations/tag",
+        "/lookup-model:LookupTable.tag/unseen@lookup-tables/search_selected_cases/tag",
+    ]
+    reads["projectData"]["fixtureRows"]["registry"] = {"status": 403, "body": ""}
+    assert lookup_parity.differences("sample", manifest, asked, reads, []) == []
+    reads["projectData"]["lookupTables"] = {"status": 403, "body": ""}
+    assert lookup_parity.differences("sample", manifest, asked, reads, []) == []
+    assert lookup_parity.differences("sample", manifest, asked, reads, [claim("locations")])[0].path.endswith("/unseen")
+    del reads["projectData"]["lookupTables"]
+    with pytest.raises(observations.RecordIncomplete, match="lookup definition list"):
+        lookup_parity.differences("sample", manifest, asked, reads, [])
+
+
+def test_lookup_names_claim_their_actual_fields_on_the_referenced_table():
+    manifest = parity.manifest()
+    objects = [
+        {"tag": "meeting.sites", "is_global": True, "fields": [{"field_name": n} for n in ("site.id", "label", "名前")]},
+        {"tag": "unused", "is_global": True, "fields": [{"field_name": "site.id"}]},
+    ]
+    reads = {"projectData": {
+        "lookupTables": {"status": 200, "body": json.dumps({"objects": objects})},
+        "fixtureRows": {"meeting.sites": {"status": 200, "body": json.dumps({"objects": []})}},
+    }}
+    asked = {"meeting.sites"}
+    claims = [
+        parity.Record("lookup-tables", "/meeting.sites/tag", None, lookup_parity.DOTTED_ENTRY, "held"),
+        parity.Record("lookup-tables", "/meeting.sites/fields/0/field_name", None, lookup_parity.DOTTED_ENTRY, "held"),
+        parity.Record("lookup-tables", "/meeting.sites/fields/2/field_name", None, lookup_parity.UNICODE_ENTRY, "held"),
+    ]
+    assert lookup_parity.differences("names", manifest, asked, reads, claims) == []
+    borrowed = parity.Record("lookup-tables", "/unused/fields/0/field_name", None, lookup_parity.DOTTED_ENTRY, "held")
+    found = lookup_parity.differences("names", manifest, asked, reads, [claims[0], claims[2], borrowed])
+    assert [one.at for one in found] == [
+        "/lookup-model:TypeField.name/unclaimed@lookup-tables/meeting.sites/fields/0/field_name",
+        "/lookup-model:TypeField.name/unseen@lookup-tables/unused/fields/0/field_name",
+    ]
+
+
+def _rich_reads(*, is_global=True, attribute_on_every_row=True, details=True):
+    """HQ's answers for one table ``crops`` shaped as ``hq-lookup-data``'s: ``name`` with the property ``lang``
+    and two values a row, the row attribute ``code``, and ``note`` held, held with no value, not held and empty."""
+    definition = {
+        "id": "a" * 32,
+        "tag": "crops",
+        "is_global": is_global,
+        "fields": [{"field_name": "id", "properties": []}, {"field_name": "name", "properties": ["lang"]},
+                   {"field_name": "note", "properties": []}],
+        "item_attributes": ["code"],
+    }
+
+    def values(*texts, lang=None):
+        return {"field_list": [{"field_value": text, "properties": {"lang": lang} if lang else {}} for text in texts]}
+
+    notes = (["Grows fast"], [], None, [""])
+    rows = []
+    for index, note in enumerate(notes):
+        fields = {"id": values(f"crop{index}"), "name": values("En", "Hi", lang="en")}
+        if note is not None:
+            fields["note"] = values(*note)
+        rows.append({"id": f"{index:032x}", "fixture_type": "crops", "fields": fields})
+    detail = {
+        row["id"]: {"status": 200, "body": json.dumps(
+            {"id": row["id"], "item_attributes": {"code": f"c{index}"} if attribute_on_every_row or index else {}}
+        )}
+        for index, row in enumerate(rows)
+    }
+    data = {
+        "lookupTables": {"status": 200, "body": json.dumps({"objects": [definition]})},
+        "fixtureRows": {"crops": {"status": 200, "body": json.dumps({"objects": rows})}},
+    }
+    if details:
+        data["fixtureDetails"] = detail
+    return {"projectData": data}
+
+
+RICH_CLAIMS = [
+    parity.Record("lookup-tables", "/crops/fields/1/properties", None, lookup_parity.FIELD_VALUES_ENTRY, "held"),
+    parity.Record("lookup-tables", "/crops/fields/2", None, lookup_parity.CELL_ABSENCE_ENTRY, "held"),
+    parity.Record("lookup-tables", "/crops/item_attributes", None, lookup_parity.ROW_ATTRIBUTES_ENTRY, "held"),
+]
+
+
+def test_a_rich_tables_content_classes_are_read_off_hqs_answers():
+    """The three content classes land where HQ's definition and rows put them, a missing or misplaced claim is one
+    difference, and a table the reading holds no rows of, or whose restore HQ cannot write, expects none."""
+    manifest = parity.manifest()
+    asked = {"crops"}
+    assert lookup_parity.differences("rich", manifest, asked, _rich_reads(), RICH_CLAIMS) == []
+    found = lookup_parity.differences("rich", manifest, asked, _rich_reads(), RICH_CLAIMS[:1] + [
+        parity.Record("lookup-tables", "/crops/fields/1", None, lookup_parity.CELL_ABSENCE_ENTRY, "held"),
+    ])
+    assert [one.at for one in found] == [
+        "/lookup-model:LookupTableRow.fields/unseen@lookup-tables/crops/fields/1",
+        "/lookup-model:LookupTableRow.fields/unclaimed@lookup-tables/crops/fields/2",
+        "/lookup-model:LookupTable.item_attributes/unclaimed@lookup-tables/crops/item_attributes",
+    ]
+    # Rows HQ keeps per owner are no rows the reading holds; a row without the attribute makes HQ's restore raise.
+    for reads in (_rich_reads(is_global=False), _rich_reads(attribute_on_every_row=False)):
+        assert lookup_parity.differences("rich", manifest, asked, reads, []) == []
+    with pytest.raises(observations.RecordIncomplete, match="detail of a crops row"):
+        lookup_parity.differences("rich", manifest, asked, _rich_reads(details=False), [])
+
+
+def test_a_plain_table_with_every_field_in_every_row_has_no_content_class():
+    manifest = parity.manifest()
+    tables = [{"tag": "plain", "is_global": True, "fields": [{"field_name": "code", "properties": []}]}]
+    reads = {"projectData": {
+        "lookupTables": {"status": 200, "body": json.dumps({"objects": tables})},
+        "fixtureRows": {"plain": {"status": 200, "body": json.dumps({"objects": [{"id": "1", "fields": {"code": ""}}]})}},
+    }}
+    assert lookup_parity.differences("plain", manifest, {"plain"}, reads, []) == []
+    reads["projectData"]["fixtureRows"]["plain"]["body"] = json.dumps({"objects": [{"id": "1", "fields": {}}]})
+    assert [one.at for one in lookup_parity.differences("plain", manifest, {"plain"}, reads, [])] == [
+        "/lookup-model:LookupTableRow.fields/unclaimed@lookup-tables/plain/fields/0",
+    ]
 
 
 def _use(standing=HELD, entries=()):
@@ -251,21 +397,107 @@ def _hq_plain_source():
 
 
 def test_a_variant_s_added_uses_are_the_one_its_change_makes_and_none_for_its_base_again():
-    """Contract: ``parity.added_uses`` gives the uses the lane decides in a variant's source that its base's source
-    does not decide alike: exactly the decided use of the one value a row sets (a badge on a form, which the manifest
-    holds as not yet held, ``forms-and-case-writes/custom-icons-0``), and none for the base's source over itself.
-    The plausible failure: an identity or an extraction that reads a variant's use as already seen in its base, so
-    every row's judged uses come back empty and the join judges nothing (``proof/matrix/parity-decided.json`` then
-    fails by name in the lane; this holds the function without HQ)."""
+    """A variant contributes its own collection and leaves, once, with the class of each changed value."""
     base = _hq_plain_source()
     assert parity.added_uses(base, copy.deepcopy(base)) == []
     variant = copy.deepcopy(base)
     variant["modules"][0]["forms"][1]["custom_icons"] = [
-        {"doc_type": "CustomIcon", "form": "badge", "text": {"en": "New"}, "xpath": ""}
+        {"doc_type": "CustomIcon", "form": "other", "text": {"en": "New"}, "xpath": ""}
     ]
-    [added] = parity.added_uses(base, variant)
-    assert added.use == Use("schema:Form.custom_icons", "app.json", "/modules/0/forms/1/custom_icons")
-    assert (added.standing, [entry.id for entry in added.entries]) == (
-        manifest_usage.HELD_NEW,
-        ["forms-and-case-writes/custom-icons-0"],
+    where = "/modules/0/forms/1/custom_icons"
+    assert [(row.use, row.standing, [entry.id for entry in row.entries]) for row in parity.added_uses(base, variant)] == [
+        (Use("schema:Form.custom_icons", "app.json", where), manifest_usage.HELD, []),
+        (Use("schema:CustomIcon.form", "app.json", where + "/0/form"), manifest_usage.REFUSED,
+         ["menus-and-case-lists/custom-icon-form-other-than-badge"]),
+        (Use("schema:CustomIcon.text", "app.json", where + "/0/text"), manifest_usage.HELD, []),
+        (Use("schema:CustomIcon.xpath", "app.json", where + "/0/xpath"), manifest_usage.HELD, []),
+    ]
+    assert parity.added_uses(variant, copy.deepcopy(variant)) == []
+
+
+def test_each_private_language_and_alias_needs_a_claim_at_its_own_position():
+    from proof.checks.manifest_usage import app_json_uses, Uses
+
+    manifest = parity.manifest()
+    key = "schema:Application.langs"
+    source = {"doc_type": "Application", "langs": ["eng", "en", "qaa", "qtz", "fra", "qua"]}
+    found = Uses()
+    app_json_uses(source, manifest, "app.json", found, authored=True)
+    uses = [one for one in parity.decided_uses(found, manifest)[0] if one.at]
+    assert [one.at for one in uses] == ["/langs/0", "/langs/2", "/langs/3"]
+    claims = [parity.Record("app.json", "/langs", key, parity.PROJECT_LANGUAGE, "held", one.at) for one in uses]
+    assert parity.join(uses, claims) == []
+    # Moving the alias's own claim onto the registered English sibling cannot witness the alias.
+    moved = parity.Record("app.json", "/langs", key, parity.PROJECT_LANGUAGE, "held", "/langs/1")
+    assert _whats(parity.join(uses, [moved, *claims[1:]])) == ["entry"]
+    assert _whats(parity.join(uses, claims[1:])) == ["entry"]
+
+
+ATTRIBUTE_KEY = "xform:input@appearance"
+TOKEN_KEY = "appearance:web-apps/ethiopian"
+ROW_KEY = "appearance:web-apps/\\d+-per-row(\\s|$)"
+WHOLE_ROW = Entry("planted/multi-token", "HELD", "multi-token")
+TOKEN_ROW = Entry("planted/date-ethiopian", "HELD")
+PER_ROW_ROW = Entry("planted/per-row", "HELD")
+REFUSED_ROW = Entry("planted/per-row-refused", "REFUSED", "per-row-class", ("runtime-reads-otherwise",))
+APPEARANCES = Manifest(
+    items={},
+    gated=frozenset(),
+    entries={
+        ATTRIBUTE_KEY: (WHOLE_ROW,),
+        TOKEN_KEY: (TOKEN_ROW,),
+        ROW_KEY: (PER_ROW_ROW, REFUSED_ROW),
+        KEY: (HELD_ENTRY,),
+    },
+    readers={},
+)
+APPEARANCE = "/h:html/h:body[1]/input[2]/@appearance"
+
+
+def _at_appearance(key, standing=HELD, entries=(), where=APPEARANCE):
+    return parity.Decided(Use(key, "form:0.0", where), standing, tuple(entries))
+
+
+def _appearance_log(key, entry, standing="held", where=APPEARANCE):
+    return (
+        json.dumps({"artifact": "form:0.0", "where": where, "key": key, "entry": entry, "standing": standing}) + "\n"
     )
+
+
+def _row(row):
+    return lambda use: row
+
+
+def test_an_appearance_is_joined_once_on_the_row_the_lane_puts_its_value_in():
+    uses = [_at_appearance(ATTRIBUTE_KEY), _at_appearance(TOKEN_KEY), _at_appearance(ROW_KEY)]
+    # The reader's record under that row claims the value, whatever keys the lane's token uses name.
+    token = _appearance_log(TOKEN_KEY, TOKEN_ROW.id)
+    assert parity.join(uses, token, held=APPEARANCES, row_of=_row(TOKEN_ROW.id)) == []
+    whole = _appearance_log(ATTRIBUTE_KEY, WHOLE_ROW.id)
+    assert parity.join(uses, whole, held=APPEARANCES, row_of=_row(WHOLE_ROW.id)) == []
+    # A record under another row, even one naming the same keys, is the wrong row: one difference for the attribute.
+    found = parity.join(uses, whole, held=APPEARANCES, row_of=_row(TOKEN_ROW.id))
+    assert [(d.path, _whats([d])) for d in found] == [(f"/{ATTRIBUTE_KEY}/entry", ["entry"])]
+    # No record at all is unclaimed.
+    assert _whats(parity.join(uses, "", held=APPEARANCES, row_of=_row(TOKEN_ROW.id))) == ["unclaimed"]
+    # A row refused where the reader holds the value, or the reverse, is the standing.
+    refusing = _appearance_log(ROW_KEY, REFUSED_ROW.id, "held")
+    assert _whats(parity.join(uses, refusing, held=APPEARANCES, row_of=_row(REFUSED_ROW.id))) == ["standing"]
+    refused = _appearance_log(ROW_KEY, REFUSED_ROW.id, "never")
+    assert parity.join(uses, refused, held=APPEARANCES, row_of=_row(REFUSED_ROW.id)) == []
+    # The rule is an appearance's alone: a use at any other place is joined on its own key.
+    other = [parity.Decided(Use(TOKEN_KEY, "app.json", WHERE), HELD, ())]
+    assert _whats(parity.join(other, _log((HELD_ENTRY.id, "held")), held=APPEARANCES, row_of=_row(TOKEN_ROW.id))) == [
+        "unclaimed"
+    ]
+
+
+def test_an_appearance_the_lane_does_not_decide_is_reported_and_not_joined():
+    undecided = []
+    uses = [_at_appearance(ATTRIBUTE_KEY), _at_appearance(TOKEN_KEY)]
+    assert parity.join(uses, "", held=APPEARANCES, row_of=_row(None), undecided=undecided) == []
+    assert undecided == [f"form:0.0{APPEARANCE}="]
+    # An appearance none of whose uses the lane decides is judged through the uses it extracted.
+    extracted = [Use(TOKEN_KEY, "form:0.0", APPEARANCE)]
+    found = parity.join([], "", held=APPEARANCES, row_of=_row(TOKEN_ROW.id), extracted=extracted)
+    assert _whats(found) == ["unclaimed"]

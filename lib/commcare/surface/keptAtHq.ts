@@ -315,18 +315,6 @@ export const KEPT_AT_HQ: Readonly<Record<string, KeptRow>> = {
 		elsewhere: defaultsTo("2.0"),
 		base: "starter-health",
 	},
-	"application-and-settings/45p-hq-auto-gps-capture-on-an-app-that-is-not-a-connect-app":
-		{
-			kind: "setting",
-			label: "location-with-every-form",
-			ccz: {
-				does: "mirrors",
-				by: "lib/commcare/xform/metaBlock.ts::addMetaBlock",
-			},
-			preview: noClaim("Preview submits no `meta/location`."),
-			elsewhere: defaultsTo("off"),
-			base: "hq-kept-settings",
-		},
 	"application-and-settings/51-hq-persistent-menu": {
 		kind: "setting",
 		label: "persistent-menu",

@@ -21,6 +21,10 @@
 import type { BlueprintDoc } from "./blueprint";
 import type { Expression } from "./expression/types";
 import type { FieldKind } from "./fields";
+import {
+	questionDisplayPlatformIds,
+	questionDisplayPlatforms,
+} from "./questionDisplayPlatforms";
 
 const connectFormLocation =
 	"every form a worker submits includes the device's location if CommCare has location permission and the device gets a GPS fix";
@@ -28,7 +32,7 @@ const connectFormLocation =
 export const CONNECT_LOCATION_ON_ENABLE = `Once the Connect version is installed on Android, ${connectFormLocation}.`;
 
 export const CONNECT_LOCATION_ON_DISABLE =
-	"Turning off Connect leaves Auto Capture Location as it is in each app on CommCare HQ. To stop automatic capture, turn it off in the app's Android Settings and on any forms that have it on, then build and release a new version for workers to install.";
+	"After Connect is turned off, Android follows this app's location settings. Workers see the change after installing the next released version.";
 
 export const PLATFORMS = ["web-apps", "android"] as const;
 export type Platform = (typeof PLATFORMS)[number];
@@ -159,6 +163,35 @@ export interface PlatformRefusalCopy {
 	readonly pickerLine?: string;
 }
 
+/**
+ * What a project space must have for one platform's reading to hold. The
+ * platform's own reading in the row is the satisfied one; `unavailable` is
+ * what the worker meets where the project space lacks a requirement. The
+ * document gate never reads it: an app is valid whatever project space it
+ * is published to. Publishing checks `capability` and asks a person to
+ * confirm `planFeature` (their public names are in
+ * `lib/publish/projectSpaceCompatibility.ts` and `lib/publish/planFeatures.ts`,
+ * which `lib/commcare/__tests__/targetConditions.test.ts` holds these ids
+ * to), and Preview reads a confirmation on record where it is bound to a
+ * project space.
+ */
+export interface PlatformTargetCondition {
+	/** The platform whose reading depends on the project space. */
+	readonly platform: Platform;
+	/** Why, as a whole sentence a person reads. */
+	readonly reason: string;
+	/** The project-space capability a publish checks before it writes. */
+	readonly capability: "address-search";
+	/** The plan feature a publish asks a person to confirm, since no API key reads a plan. */
+	readonly planFeature: "geocoder";
+	/** What the worker meets where the project space lacks a requirement. */
+	readonly unavailable: {
+		readonly reading: "unavailable";
+		/** A clause that starts lower case and has no final period. */
+		readonly note: string;
+	};
+}
+
 export interface PlatformFeature {
 	readonly label: string;
 	/** Who refuses it: the platform rule (`structure`) or the checker (`expression`). */
@@ -168,6 +201,8 @@ export interface PlatformFeature {
 	readonly refusal?: PlatformRefusalCopy;
 	/** The question kind this feature is, where it is one. */
 	readonly fieldKind?: FieldKind;
+	/** Where one platform's reading holds only on a project space that has what it needs. */
+	readonly targetCondition?: PlatformTargetCondition;
 }
 
 /**
@@ -184,7 +219,10 @@ const CASE_LIST_MENU_ITEM_WEB_APPS_NOTE =
 export const PLATFORM_FEATURE_IDS = [
 	"datetime-question",
 	"case-list-here",
+	"worker-distance",
+	"sort-by-distance",
 	"forms-read-search",
+	"search-on-clear",
 	"list-first",
 	"several-cases",
 	"search-field-single-date",
@@ -199,9 +237,13 @@ export const PLATFORM_FEATURE_IDS = [
 	"video-question",
 	"question-pages",
 	"number-keypad",
+	...questionDisplayPlatformIds,
 	"plain-text",
 	"choice-media",
 	"help-media",
+	"label-inline-video",
+	"label-qr-code",
+	"label-spoken-text",
 	"now",
 	"today",
 	"random-and-unique-id",
@@ -217,22 +259,39 @@ export const PLATFORM_FEATURE_IDS = [
 	"entry-points",
 	"case-list-menu-item",
 	"case-list-registration-media",
+	"menu-badge",
+	"named-case-tile",
+	"details-tile",
+	"raw-custom-tile-field",
 	"tile-grouping",
+	"case-list-empty-text",
+	"case-list-continue-label",
+	"case-list-faster-loading",
 	"tile-alignment",
 	"tile-border-and-shading",
 	"column-hidden-from-results",
 	"case-list-sort-label",
 	"link-column",
+	"formatted-case-text",
+	"case-image-descriptions",
+	"case-map-location",
+	"case-map-fallback-locations",
+	"case-map-layers",
 	"search-screen-text",
 	"search-field-checks",
+	"search-starting-dates",
 	"barcode-search-field",
+	"search-for-blank",
 	"hidden-search-field",
 	"search-first",
 	"search",
 	"skip-to-results",
 	"after-submit-home",
+	"first-menu-previous",
 	"after-submit-several-destinations",
+	"menu-layout",
 	"app-logo",
+	"required-android-apps",
 	"saved-forms",
 	"incomplete-forms",
 	"connect-location-capture",
@@ -243,6 +302,8 @@ export type PlatformFeatureId = (typeof PLATFORM_FEATURE_IDS)[number];
 export const REFUSABLE_PLATFORM_FEATURE_IDS = [
 	"datetime-question",
 	"case-list-here",
+	"worker-distance",
+	"sort-by-distance",
 	"forms-read-search",
 	"list-first",
 	"several-cases",
@@ -291,6 +352,35 @@ export const PLATFORM_FEATURES: Readonly<
 			alternative: "take here() out of this value",
 		},
 	},
+	"worker-distance": {
+		label: "Distance from worker",
+		channel: "structure",
+		webApps: {
+			reading: "unavailable",
+			note: "the worker's current location isn't known there, so a case's distance from it can't be shown",
+		},
+		android: { reading: "runs" },
+		refusal: {
+			what: "shows each case's distance from the worker",
+			why: "Web Apps doesn't know where the worker is, so it can't show how far away each case is.",
+			alternative: "show the saved location instead",
+		},
+	},
+	"sort-by-distance": {
+		label: "Case lists ordered by distance",
+		channel: "structure",
+		webApps: {
+			reading: "unavailable",
+			note: "the worker's current location isn't known there, so cases can't be ordered by their distance from it",
+		},
+		android: { reading: "runs" },
+		refusal: {
+			what: "orders cases by distance from the worker",
+			why: "Web Apps doesn't know the worker's current location.",
+			alternative:
+				"choose a different default order or run this app on Android",
+		},
+	},
 	"forms-read-search": {
 		label: "Forms that read the search",
 		channel: "structure",
@@ -309,6 +399,18 @@ export const PLATFORM_FEATURES: Readonly<
 			why: 'On Android a worker can open only a case the phone already holds, and choosing any other case stops with "Session Refresh Required".',
 			alternative:
 				"turn off Forms read the search, so the menu searches first and each form reads the case it opens",
+		},
+	},
+	"search-on-clear": {
+		label: "Search again after clearing",
+		channel: "structure",
+		webApps: {
+			reading: "runs",
+			note: "clearing searches again on screens at least 992 pixels wide",
+		},
+		android: {
+			reading: "ignored",
+			note: "the search screen has no Clear button",
 		},
 	},
 	"list-first": {
@@ -367,12 +469,13 @@ export const PLATFORM_FEATURES: Readonly<
 		android: {
 			reading: "unavailable",
 			note: "the field isn't shown, so a search runs without it",
-			remedy: "A single-choice Search field runs on both.",
+			remedy: "A checkboxes Search field or a single-choice one runs on both.",
 		},
 		refusal: {
 			what: "lets workers pick several choices",
 			why: "Android doesn't show a multiple-choice Search field, so a search there runs without it.",
-			alternative: "let workers pick one choice, which both platforms show",
+			alternative:
+				"show the choices as checkboxes or let workers pick one, which both platforms show",
 		},
 	},
 	"connect-app": {
@@ -495,6 +598,7 @@ export const PLATFORM_FEATURES: Readonly<
 		webApps: { reading: "ignored", note: "the whole form shows on one page" },
 		android: { reading: "runs", note: "each page shows on its own screen" },
 	},
+	...questionDisplayPlatforms,
 	"number-keypad": {
 		label: "Number keypad",
 		channel: "structure",
@@ -534,6 +638,36 @@ export const PLATFORM_FEATURES: Readonly<
 			note: "it shows only when the help has text",
 		},
 		android: { reading: "runs" },
+	},
+	"label-inline-video": {
+		label: "Inline video on a question",
+		channel: "structure",
+		webApps: {
+			reading: "ignored",
+			note: "the question shows no inline video",
+		},
+		android: {
+			reading: "runs",
+			note: "it plays inside the question, in the place of its QR code or image",
+		},
+	},
+	"label-qr-code": {
+		label: "QR code on a question",
+		channel: "structure",
+		webApps: { reading: "ignored", note: "the question shows no QR code" },
+		android: {
+			reading: "runs",
+			note: "it takes the place of the question's image",
+		},
+	},
+	"label-spoken-text": {
+		label: "Spoken text on a question",
+		channel: "structure",
+		webApps: { reading: "ignored", note: "the question has no speaker button" },
+		android: {
+			reading: "different",
+			note: "the speaker button shows only when the question has no audio",
+		},
 	},
 	now: {
 		label: "now()",
@@ -685,6 +819,69 @@ export const PLATFORM_FEATURES: Readonly<
 		webApps: { reading: "ignored", note: "the button shows its text only" },
 		android: { reading: "runs" },
 	},
+	"menu-badge": {
+		label: "Menu badges",
+		channel: "structure",
+		webApps: { reading: "runs" },
+		android: {
+			reading: "different",
+			note: "a badge that is empty or reads 0 is hidden, and one longer than three characters shows as 999+ when it reads as a whole number, otherwise as its first three characters and two dots",
+		},
+	},
+	"named-case-tile": {
+		label: "Named image and text positions",
+		channel: "structure",
+		webApps: { reading: "runs" },
+		android: {
+			reading: "different",
+			note: "icon fields show the stored image path",
+		},
+	},
+	"details-tile": {
+		label: "Tile layout in Details",
+		channel: "structure",
+		webApps: { reading: "runs" },
+		android: { reading: "ignored", note: "the fields appear in ordinary rows" },
+	},
+	"raw-custom-tile-field": {
+		label: "A raw field in a Results tile",
+		channel: "structure",
+		webApps: { reading: "runs", note: "the field stays hidden" },
+		android: {
+			reading: "different",
+			note: "the cell displays the stored value",
+		},
+	},
+	"case-list-empty-text": {
+		label: "Your own empty case list text",
+		channel: "structure",
+		webApps: { reading: "runs" },
+		android: {
+			reading: "ignored",
+			note: "an empty list keeps the phone's own wording",
+		},
+	},
+	"case-list-continue-label": {
+		label: "Your own Continue label",
+		channel: "structure",
+		webApps: {
+			reading: "different",
+			note: "the label shows only on Continue after choosing several cases",
+		},
+		android: {
+			reading: "ignored",
+			note: "the phone keeps its own wording for Continue",
+		},
+	},
+	"case-list-faster-loading": {
+		label: "Faster case list loading",
+		channel: "structure",
+		webApps: {
+			reading: "different",
+			note: "the whole list loads later and nothing is kept between visits",
+		},
+		android: { reading: "runs" },
+	},
 	"tile-grouping": {
 		label: "Grouped tiles",
 		channel: "structure",
@@ -727,6 +924,51 @@ export const PLATFORM_FEATURES: Readonly<
 		},
 		android: { reading: "runs" },
 	},
+	"case-map-location": {
+		label: "Case map locations",
+		channel: "structure",
+		webApps: {
+			reading: "different",
+			note: "the location is hidden in Results and shown as coordinates in Details, and a project space with the case list map can show each case's first location on a map",
+		},
+		android: { reading: "runs" },
+	},
+	"case-image-descriptions": {
+		label: "Case image descriptions",
+		channel: "structure",
+		webApps: { reading: "runs" },
+		android: {
+			reading: "ignored",
+			note: "a case list image shows without its description",
+		},
+	},
+	"case-map-fallback-locations": {
+		label: "Several case map locations",
+		channel: "structure",
+		webApps: { reading: "runs" },
+		android: {
+			reading: "different",
+			note: "a case whose first location is blank is marked at the next location that holds one",
+		},
+	},
+	"case-map-layers": {
+		label: "Case map boundaries and points",
+		channel: "structure",
+		webApps: {
+			reading: "ignored",
+			note: "the map shows case locations without additional boundaries, points or their colors",
+		},
+		android: { reading: "runs" },
+	},
+	"formatted-case-text": {
+		label: "Formatted case text",
+		channel: "structure",
+		webApps: { reading: "runs" },
+		android: {
+			reading: "different",
+			note: "case lists show the saved Markdown, details format it, and tiles read inline HTML",
+		},
+	},
 	"link-column": {
 		label: "Link columns",
 		channel: "structure",
@@ -757,11 +999,35 @@ export const PLATFORM_FEATURES: Readonly<
 			note: "the search runs without checking the answer",
 		},
 	},
+	"search-starting-dates": {
+		label: "Starting dates for Search",
+		channel: "structure",
+		webApps: {
+			reading: "different",
+			note: "a calculation uses the server's calendar, and the Search screen needs readable dates",
+		},
+		android: {
+			reading: "different",
+			note: "a calculation uses the worker’s time zone, and the Search screen keeps a value it cannot turn into dates",
+		},
+	},
 	"barcode-search-field": {
 		label: "Barcode Search fields",
 		channel: "structure",
 		webApps: { reading: "ignored", note: "it's a plain text box" },
 		android: { reading: "runs", note: "the camera can scan a code into it" },
+	},
+	"search-for-blank": {
+		label: "Searching for blank",
+		channel: "structure",
+		webApps: {
+			reading: "runs",
+			note: "a box under the field also finds cases where it's blank",
+		},
+		android: {
+			reading: "ignored",
+			note: "the Search screen shows the field alone",
+		},
 	},
 	"hidden-search-field": {
 		label: "Hidden Search values",
@@ -811,6 +1077,18 @@ export const PLATFORM_FEATURES: Readonly<
 			note: "after submit, App home opens the CommCare home screen, and First menu opens the app's first menu",
 		},
 	},
+	"first-menu-previous": {
+		label: "Selected case on the first menu",
+		channel: "structure",
+		webApps: {
+			reading: "different",
+			note: "returning to the first menu opens it with a fresh case choice",
+		},
+		android: {
+			reading: "different",
+			note: "returning to the first menu keeps the chosen case for the next form that uses it",
+		},
+	},
 	"after-submit-several-destinations": {
 		label: "Several after-submit destinations",
 		channel: "structure",
@@ -820,11 +1098,35 @@ export const PLATFORM_FEATURES: Readonly<
 		},
 		android: { reading: "runs" },
 	},
+	"menu-layout": {
+		label: "Menu layout",
+		channel: "structure",
+		webApps: {
+			reading: "runs",
+			note: "grids show text and icons without spoken labels",
+		},
+		android: {
+			reading: "runs",
+			note: "workers can press and hold a grid tile to hear its spoken label",
+		},
+	},
 	"app-logo": {
 		label: "App logo",
 		channel: "structure",
 		webApps: { reading: "runs" },
 		android: { reading: "ignored", note: "the app shows no logo" },
+	},
+	"required-android-apps": {
+		label: "Required Android apps",
+		channel: "structure",
+		webApps: {
+			reading: "ignored",
+			note: "workers can open the app in a browser",
+		},
+		android: {
+			reading: "runs",
+			note: "workers need every selected app installed",
+		},
 	},
 	"saved-forms": {
 		label: "Saved forms",
@@ -848,12 +1150,12 @@ export const PLATFORM_FEATURES: Readonly<
 		android: { reading: "runs" },
 	},
 	"connect-location-capture": {
-		label: "Connect location capture",
+		label: "Automatic location",
 		channel: "structure",
 		webApps: { reading: "ignored", note: "forms are sent with no location" },
 		android: {
 			reading: "runs",
-			note: connectFormLocation,
+			note: "includes the device location if the worker allows access and the device gets a fix",
 		},
 	},
 };
@@ -940,9 +1242,27 @@ export function platformSentence(
 			if (behavior.remedy !== undefined) pieces.push(behavior.remedy);
 		} else if (behavior.note !== undefined)
 			pieces.push(`${capitalized(inPlatform(platform))}, ${behavior.note}.`);
+		const condition = PLATFORM_FEATURES[feature].targetCondition;
+		if (condition?.platform === platform)
+			pieces.push(
+				`${condition.reason} Where it doesn't, ${condition.unavailable.note}.`,
+			);
 	}
 	return pieces.join(" ");
 }
+
+/** A feature whose reading on one platform depends on the project space, with its uses' condition. */
+export function targetConditionOf(
+	feature: PlatformFeatureId,
+): PlatformTargetCondition | undefined {
+	return PLATFORM_FEATURES[feature].targetCondition;
+}
+
+/** Every feature with a target condition, in table order. */
+export const TARGET_CONDITIONED_FEATURES: readonly PlatformFeatureId[] =
+	PLATFORM_FEATURE_IDS.filter(
+		(id) => PLATFORM_FEATURES[id].targetCondition !== undefined,
+	);
 
 /** The line a picker or menu shows beside a choice it withholds: what
  * withholds it, then the way forward. */

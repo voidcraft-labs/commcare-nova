@@ -27,7 +27,6 @@ import {
 	literalType,
 	prop,
 	type ScalarType,
-	sessionContext,
 	tableColumn,
 } from "@/lib/domain/expression";
 import { CaseTypeValuePicker } from "../CaseTypeValuePicker";
@@ -53,6 +52,7 @@ import {
 	tableRowInScope,
 } from "../editorSchemas";
 import { removeAndRestoreFocus } from "../focusAfterRemoval";
+import { editorLookupReads } from "../lookupTablePresentation";
 import { membershipLiteralContext } from "../membershipLiteralContext";
 import { appendSlot, appendSlotIndex, type EditorPath } from "../path";
 import { InlineError } from "../primitives/CardShell";
@@ -61,6 +61,7 @@ import { ExpressionPicker } from "../primitives/ExpressionPicker";
 import { LiteralValueInput } from "../primitives/LiteralValueInput";
 import { isSelectionValueList } from "../recordCardShape";
 import { useStableListIdentity } from "../useStableListIdentity";
+import { globalSeedSubject } from "./comparisonSeed";
 import { PredicateVerbMenu } from "./PredicateVerbMenu";
 import {
 	reseedLiteralForConstraint,
@@ -71,7 +72,7 @@ import {
 export function inDefault(ctx: PredicateEditContext): ExpressionOfKind<"in"> {
 	const subjectConstraint = inSubjectConstraint();
 	if (tableRowInScope(ctx)) {
-		const column = ctx.tableScope?.columns.find((candidate) =>
+		const column = editorLookupReads(ctx.tableScope).find((candidate) =>
 			acceptsType(subjectConstraint, candidate.dataType),
 		);
 		if (ctx.tableScope === undefined || column === undefined) {
@@ -90,7 +91,8 @@ export function inDefault(ctx: PredicateEditContext): ExpressionOfKind<"in"> {
 	// A global slot has no case to read; membership on a session value
 	// (text) is the meaningful shape there.
 	if (!caseDataInScope(ctx)) {
-		return isIn(sessionContext("username"), literal(""));
+		const { subject, value } = globalSeedSubject(ctx);
+		return isIn(subject, value);
 	}
 	const ct = ctx.caseTypes.find((c) => c.name === ctx.currentCaseType);
 	const property = ct?.properties.find((candidate) =>

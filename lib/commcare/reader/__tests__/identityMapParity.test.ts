@@ -43,6 +43,7 @@ import {
 import {
 	type BlueprintDoc,
 	type CaseOperation,
+	idMappingColumn,
 	phoneColumn,
 	plainColumn,
 } from "@/lib/domain";
@@ -363,6 +364,9 @@ const NOVA_APPS: Readonly<Record<string, NovaApp>> = {
 						plainColumn(uuid(2), "phone", "Phone"),
 						plainColumn(uuid(3), "phone", "Phone again"),
 						phoneColumn(uuid(4), "phone", "Call"),
+						idMappingColumn(uuid(5), "notes", "Area", [
+							{ value: "a", label: "Area A" },
+						]),
 					],
 					{
 						searchInputs: [
@@ -384,6 +388,34 @@ const NOVA_APPS: Readonly<Record<string, NovaApp>> = {
 							},
 						],
 						search: {},
+						list: {
+							calculatedSorts: [
+								{
+									uuid: uuid(20),
+									expression: term(literal("a")),
+									direction: "asc",
+									priority: 0,
+									label: "Priority",
+								},
+							],
+							detailTabs: [
+								{ uuid: uuid(21), title: "Patient", startColumnUuid: uuid(1) },
+								{ uuid: uuid(22), title: "Contact", startColumnUuid: uuid(4) },
+							],
+							// Two filters on one request key, which count apart.
+							searchFilters: [
+								{
+									uuid: uuid(11),
+									target: { kind: "owner" },
+									value: term(literal("worker-a")),
+								},
+								{
+									uuid: uuid(12),
+									target: { kind: "owner" },
+									value: term(literal("worker-b")),
+								},
+							],
+						},
 					},
 				),
 		},
@@ -414,6 +446,7 @@ const NOVA_APPS: Readonly<Record<string, NovaApp>> = {
 				),
 		},
 		input: {
+			sourceProjectFactories: { locations: "flat" },
 			organization: {
 				levelCodes: LEVELS.map((one) => one.code),
 				levels: LEVELS,

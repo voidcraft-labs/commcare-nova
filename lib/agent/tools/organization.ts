@@ -27,6 +27,8 @@ import {
 	type Uuid,
 	uuidSchema,
 } from "@/lib/domain";
+import { OrganizationError } from "@/lib/organization/errors";
+import { readPlacePage, readPlaceState } from "@/lib/organization/pages";
 import {
 	archiveImpactSchema,
 	createLocationInputSchema,
@@ -37,15 +39,11 @@ import {
 	createLocation,
 	describeArchiveImpact,
 	moveLocation,
-	readOrganization,
 	recoverOrganizationAuthoringReceipt,
 	setLocationArchived,
 	updateLocation,
 } from "@/lib/organization/service";
-import type {
-	OrganizationScope,
-	OrganizationSnapshot,
-} from "@/lib/organization/types";
+import type { OrganizationScope } from "@/lib/organization/types";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import type { ToolInvocationContext } from "../workspace/types";
 import {
@@ -116,6 +114,8 @@ async function commit(
 }
 
 const levelCreateSchema = organizationLevelSchema.omit({ uuid: true }).extend({
+	code: organizationLevelSchema.shape.code.min(1),
+	name: organizationLevelSchema.shape.name.trim().min(1),
 	/** Optional predeclared identity lets one atomic call add a parent and
 	 * children that reference it. Omitted identities remain server-minted. */
 	uuid: z.preprocess(
@@ -132,19 +132,6 @@ const propertyCreateSchema = locationPropertySchema
 		choices: locationPropertySchema.shape.choices.nullable(),
 		levelUuids: locationPropertySchema.shape.levelUuids.nullable(),
 	});
-
-/**
- * The place catalog for a read against a workspace with no app row yet — a
- * genesis change set. No app row means no place row can exist, so an empty
- * catalog at revision 0 is the honest reading rather than a lookup against an
- * app id that does not exist. See the twin in `automations.ts`.
- */
-async function readPlaces(
-	ctx: ToolInvocationContext,
-): Promise<OrganizationSnapshot> {
-	if (ctx.appId === null) return { revision: "0", locations: [] };
-	return readOrganization(scope(ctx));
-}
 
 const ORGANIZATION_PAGE_SIZE = 25;
 const ORGANIZATION_PAGE_MAX = 50;
@@ -166,6 +153,9 @@ const organizationCursorPayloadSchema = z.strictObject({
 	 */
 	shapeDigest: z.string(),
 	offset: z.number().int().nonnegative(),
+	appId: z.string().nullable(),
+	rowCursor: z.string().nullable(),
+	parentId: uuidSchema.nullable().optional(),
 	query: z.string().max(255).nullable(),
 	includeValues: z.boolean(),
 });
@@ -191,9 +181,15 @@ function decodeOrganizationCursor(
 }
 
 export const getOrganizationInputSchema = z.strictObject({
+	parentId: uuidSchema
+		.nullable()
+		.optional()
+		.describe(
+			"Omit to search every place, choose null for roots, or supply a place ID for its immediate children.",
+		),
 	query: z.string().trim().max(255).nullable().optional(),
 	/** Opaque snapshot-bound cursor returned by the preceding page. */
-	cursor: z.string().max(1024).nullable().optional(),
+	cursor: z.string().max(4096).nullable().optional(),
 	limit: z
 		.number()
 		.int()
@@ -213,6 +209,7 @@ export const updateOrganizationLevelInputSchema = z
 		description: z.string().nullable().optional(),
 		parentLevelUuid: uuidSchema.nullable().optional(),
 		caseFlow: levelCaseFlowSchema.optional(),
+		tracksStock: z.boolean().optional(),
 		addressBook: levelAddressBookSchema.optional(),
 	})
 	.refine((input) => Object.keys(input).length > 1, {
@@ -314,7 +311,7 @@ export const getOrganizationTool = {
 			 * app's store, not Blueprint. Each half carries its own generation
 			 * into the cursor, so a page can never mix two. */
 			const doc = ctx.snapshot.doc;
-			const snapshot = await readPlaces(ctx);
+
 			const allLevels = orderedOrganizationLevels(doc);
 			const allPlaceInformation = orderedLocationProperties(doc);
 			const shapeDigest = canonicalJsonDigest({
@@ -327,8 +324,7 @@ export const getOrganizationTool = {
 					: decodeOrganizationCursor(input.cursor);
 			if (
 				cursor !== undefined &&
-				(cursor.revision !== snapshot.revision ||
-					cursor.shapeDigest !== shapeDigest)
+				(cursor.appId !== ctx.appId || cursor.shapeDigest !== shapeDigest)
 			) {
 				return {
 					kind: "read",
@@ -336,7 +332,10 @@ export const getOrganizationTool = {
 						error:
 							"The organization changed between pages. Restart without a cursor to read one complete snapshot.",
 						restart: true,
-						revision: snapshot.revision,
+						revision:
+							ctx.appId !== null
+								? (await readPlaceState(scope(ctx))).revision
+								: "0",
 					},
 				};
 			}
@@ -344,7 +343,8 @@ export const getOrganizationTool = {
 			const requestedIncludeValues = input.includeValues ?? undefined;
 			if (
 				cursor !== undefined &&
-				((input.query !== undefined && requestedQuery !== cursor.query) ||
+				((input.parentId !== undefined && input.parentId !== cursor.parentId) ||
+					(input.query !== undefined && requestedQuery !== cursor.query) ||
 					(requestedIncludeValues !== undefined &&
 						requestedIncludeValues !== cursor.includeValues))
 			) {
@@ -360,15 +360,6 @@ export const getOrganizationTool = {
 			const query = cursor?.query ?? requestedQuery;
 			const includeValues =
 				cursor?.includeValues ?? requestedIncludeValues ?? false;
-			const needle = query?.toLocaleLowerCase();
-			const matching =
-				needle === undefined || needle === ""
-					? snapshot.locations
-					: snapshot.locations.filter((location) =>
-							[location.name, location.siteCode, location.externalId]
-								.filter((value): value is string => value !== null)
-								.some((value) => value.toLocaleLowerCase().includes(needle)),
-						);
 			const start = cursor?.offset ?? 0;
 			const pageEnd = start + input.limit;
 			// One cursor covers one logical stream. Each response therefore carries
@@ -393,22 +384,30 @@ export const getOrganizationTool = {
 				placeInformationEnd,
 			);
 			const shapeCount = allLevels.length + allPlaceInformation.length;
-			const locationStart = Math.min(
-				Math.max(0, start - shapeCount),
-				matching.length,
+			const rowLimit = input.limit - levels.length - placeInformation.length;
+			const parentId = cursor ? cursor.parentId : input.parentId;
+			const snapshot =
+				ctx.appId === null
+					? {
+							locations: [],
+							total: 0,
+							matching: 0,
+							revision: "0",
+							hq: undefined,
+							nextCursor: null,
+						}
+					: await readPlacePage(scope(ctx), {
+							limit: Math.max(rowLimit, 1),
+							query: query ?? undefined,
+							parentId,
+							revision: cursor?.revision,
+							cursor: cursor?.rowCursor ?? undefined,
+						});
+			const locations = (rowLimit > 0 ? snapshot.locations : []).map(
+				({ values, ...place }) =>
+					includeValues ? { ...place, values } : place,
 			);
-			const locationEnd = Math.min(
-				Math.max(0, pageEnd - shapeCount),
-				matching.length,
-			);
-			const locations = matching
-				.slice(locationStart, locationEnd)
-				.map((location) => {
-					if (includeValues) return location;
-					const { values: _values, ...projection } = location;
-					return projection;
-				});
-			const totalItems = shapeCount + matching.length;
+			const totalItems = shapeCount + snapshot.matching;
 			const returned =
 				levels.length + placeInformation.length + locations.length;
 			const complete = pageEnd >= totalItems;
@@ -436,8 +435,8 @@ export const getOrganizationTool = {
 					page: {
 						returned,
 						locationsReturned: locations.length,
-						matching: matching.length,
-						total: snapshot.locations.length,
+						matching: snapshot.matching,
+						total: snapshot.total,
 						levelsReturned: levels.length,
 						levelsTotal: allLevels.length,
 						placeInformationReturned: placeInformation.length,
@@ -448,6 +447,9 @@ export const getOrganizationTool = {
 									revision: snapshot.revision,
 									shapeDigest,
 									offset: pageEnd,
+									appId: ctx.appId,
+									parentId,
+									rowCursor: rowLimit > 0 ? snapshot.nextCursor : null,
 									query,
 									includeValues,
 								})
@@ -456,7 +458,17 @@ export const getOrganizationTool = {
 				},
 			};
 		} catch (error) {
-			return { kind: "read", data: { error: errorMessage(error) } };
+			return {
+				kind: "read",
+				data: {
+					error: errorMessage(error),
+					...(error instanceof OrganizationError &&
+						error.code === "conflict" && {
+							restart: true,
+							revision: error.currentRevision,
+						}),
+				},
+			};
 		}
 	},
 };
@@ -538,7 +550,7 @@ export const addOrganizationLevelsTool = {
 
 export const updateOrganizationLevelTool = {
 	description:
-		"Edit an organization level's name, description or parent. Its code remains fixed.",
+		"Edit the name, parent, stock tracking, worker assignments, case sharing or address book for a place level.",
 	inputSchema: updateOrganizationLevelInputSchema,
 	async execute(
 		input: z.infer<typeof updateOrganizationLevelInputSchema>,

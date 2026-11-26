@@ -1,0 +1,99 @@
+{
+	"levels": [
+		{
+			"name": "District",
+			"code": "district",
+			"parent": null,
+			"shares_cases": false,
+			"view_descendants": false
+		},
+		{
+			"name": "Village",
+			"code": "village",
+			"parent": "district",
+			"shares_cases": false,
+			"view_descendants": false
+		}
+	],
+	"places": [
+		{
+			"location_id": "1e355bf6a53741e7aa73a3e017e951e0",
+			"name": "North",
+			"site_code": "north",
+			"level": "district",
+			"parent": null,
+			"metadata": {},
+			"archived": false
+		},
+		{
+			"location_id": "bc520987b63b43cbbf537b98c1dbb7bf",
+			"name": "South",
+			"site_code": "south",
+			"level": "district",
+			"parent": null,
+			"metadata": {},
+			"archived": false
+		},
+		{
+			"location_id": "36412a60e5c34daa8d7de0a26558b8e3",
+			"name": "Northfield",
+			"site_code": "north-1",
+			"level": "village",
+			"parent": "north",
+			"metadata": {
+				"region_code": "N-1"
+			},
+			"archived": false
+		},
+		{
+			"location_id": "2a1b60fa8cd84e55bfbfaf652d25aea5",
+			"name": "Northbrook",
+			"site_code": "north-2",
+			"level": "village",
+			"parent": "north",
+			"metadata": {
+				"region_code": "N-2"
+			},
+			"archived": false
+		},
+		{
+			"location_id": "f13bda81d1d74d3bb7c78fb407780ede",
+			"name": "Southgate",
+			"site_code": "south-1",
+			"level": "village",
+			"parent": "south",
+			"metadata": {
+				"region_code": "S-1"
+			},
+			"archived": false
+		},
+		{
+			"location_id": "3f2d940c8c974deb96784ef6518dac7c",
+			"name": "Southmere",
+			"site_code": "south-2",
+			"level": "village",
+			"parent": "south",
+			"metadata": {
+				"region_code": "S-2"
+			},
+			"archived": false
+		},
+		{
+			"location_id": "4d3a22a02872467d87d107e3ea7faf47",
+			"name": "Southend",
+			"site_code": "south-3",
+			"level": "village",
+			"parent": "south",
+			"metadata": {
+				"region_code": "S-3"
+			},
+			"archived": true
+		}
+	],
+	"fields": [
+		{
+			"slug": "region_code",
+			"label": "Region code"
+		}
+	]
+}

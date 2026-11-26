@@ -1,3 +1,4 @@
+import { lookupReadSteps } from "@/lib/commcare/lookup/read";
 import { caseOptionsNodeset, fieldTakesCaseChoices } from "../caseOptions";
 import { caseTypeHopMap } from "../caseTypeDepths";
 /**
@@ -88,18 +89,25 @@ import {
 	caseScalarTextGuardIsChecked,
 	caseScalarTextGuards,
 	caseScalarTextSiblings,
+	EMPTY_PROSE_TEMPLATE,
 	expressionSlotValue,
 	expressionSlotValues,
 	type Field,
 	type Form,
 	fieldCaseWriteViews,
+	fieldKindCarriesLabelTexts,
 	fieldKindCarriesValidation,
 	helpShowsAsTyped,
 	isCaptureField,
 	isCaptureFieldKind,
 	isContainer,
+	LABEL_TEXT_SLOTS,
+	LABEL_TEXT_WIRE_FORMS,
+	type LabelTextSlot,
 	labelShowsAsTyped,
+	labelTextOf,
 	type Media,
+	makeTranslationUnitId,
 	type ProseAtomPart,
 	type ProseTemplate,
 	proseTemplateIsEmpty,
@@ -166,6 +174,12 @@ interface ItextRegistration {
 	readonly registered: boolean;
 	readonly protectedConstraint?: WireExpr;
 }
+/** A label's other text, written as one more form of the label's entry
+ *  (`lib/domain/labelForms.ts`). */
+interface LabelTextForm {
+	readonly field: Uuid;
+	readonly slot: LabelTextSlot;
+}
 type AddItext = (
 	id: string,
 	label: ProseTemplate | undefined,
@@ -173,6 +187,7 @@ type AddItext = (
 	force?: boolean,
 	protectConstraint?: boolean,
 	markdown?: boolean,
+	labelTexts?: readonly LabelTextForm[],
 ) => ItextRegistration;
 
 export function whitespaceOutput(
@@ -956,6 +971,7 @@ export function buildXFormSource(
 		force = false,
 		protectConstraint = false,
 		markdown = true,
+		labelTexts: readonly LabelTextForm[] = [],
 	): ItextRegistration => {
 		// Every localized prose value contributes instance reads when its output
 		// attributes are serialized; untranslated or unused text declares nothing.
@@ -977,10 +993,33 @@ export function buildXFormSource(
 				? sourceTemplate
 				: localization.prose(language, unitId),
 		);
+		// Each of the label's other texts, by language, written in every
+		// language wherever the field holds it, a blank one included: Core reads
+		// a present form as it stands, so a blank `long` shows a blank caption,
+		// a blank `qrcode` still takes the image's place and a blank `tts` still
+		// shows the speaker button (`FormEntryCaption.getLongText`,
+		// `MediaLayout.setAVT`), and HQ's form builder keeps a blank form of a
+		// text that holds another (`javaRosa/util.js::getItextItemsFromMugs`
+		// drops only an item empty in every form). A language's blank is filled
+		// from another's first (`translationFill.ts`), as the form builder's
+		// save fills it (`ItextForm.getValueOrDefault`).
+		const otherForms = labelTexts.map(({ field, slot }) => {
+			const slotRef = { entity: "field", uuid: field, slot } as const;
+			const unit = makeTranslationUnitId("field", field, slot);
+			return {
+				form: LABEL_TEXT_WIRE_FORMS[slot],
+				templates: localization.languages.map((language) =>
+					localization.prose(language, unit),
+				),
+				lower: (part: ProseAtomPart): WireExpr =>
+					expressions.prose(part, slotRef),
+			};
+		});
 		if (
 			!force &&
 			localizedTemplates.every(proseTemplateIsEmpty) &&
-			sourceMediaValues.length === 0
+			sourceMediaValues.length === 0 &&
+			otherForms.length === 0
 		)
 			return { registered: false };
 		const protectedMessage = protectConstraint
@@ -1011,7 +1050,22 @@ export function buildXFormSource(
 								),
 							]
 						: []),
-					...itextMediaValues(media, opts.assets, "buildXForm"),
+					...otherForms.map(({ form, templates, lower }) =>
+						el(
+							"value",
+							{ form },
+							buildLabelNodes(
+								templates[index] ?? EMPTY_PROSE_TEMPLATE,
+								lower,
+								context,
+							),
+						),
+					),
+					...itextMediaValues(
+						localization.media(language, media),
+						opts.assets,
+						"buildXForm",
+					),
 					...(protectedMessage?.forms.get(language) ?? []),
 				]),
 			);
@@ -1349,6 +1403,11 @@ function buildFieldParts(
 		textForm,
 		"plainHelp" in field ? field : {},
 	);
+	const labelTexts = fieldKindCarriesLabelTexts(field.kind)
+		? LABEL_TEXT_SLOTS.filter(
+				(slot) => labelTextOf(field, slot) !== undefined,
+			).map((slot) => ({ field: fieldUuid, slot }))
+		: [];
 	const hasLabel =
 		field.kind !== "hidden" &&
 		addItext(
@@ -1358,6 +1417,7 @@ function buildFieldParts(
 			false,
 			false,
 			labelMarkdown,
+			labelTexts,
 		).registered;
 	const hasHint =
 		field.kind !== "hidden" &&
@@ -1947,7 +2007,7 @@ function buildLookupItemset(
 				"label",
 				{
 					xpath: {
-						ref: w.context([w.step(table.wireNameFor(source.labelColumnId))]),
+						ref: w.context(lookupReadSteps(table, source.labelColumnId)),
 					},
 				},
 				context,
@@ -1956,7 +2016,7 @@ function buildLookupItemset(
 				"value",
 				{
 					xpath: {
-						ref: w.context([w.step(table.wireNameFor(source.valueColumnId))]),
+						ref: w.context(lookupReadSteps(table, source.valueColumnId)),
 					},
 				},
 				context,

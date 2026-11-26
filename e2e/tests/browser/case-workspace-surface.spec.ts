@@ -69,6 +69,106 @@ async function savedModule(page: Page) {
 		(await page.getByLabel("Saved module").textContent()) ?? "null",
 	);
 }
+test("a map color, its boundary and a location are saved together from Results", async ({
+	page,
+}) => {
+	await page.goto(`${peer.origin}/?scenario=map`);
+	await page
+		.locator('[data-case-column-select="00000000-0000-7000-8000-000000006001"]')
+		.first()
+		.click();
+	await page
+		.getByRole("button", { name: "Display as: Text", exact: true })
+		.click();
+	await page.getByRole("menuitem", { name: /^Map layer/ }).click();
+	const dialog = page.getByRole("alertdialog", {
+		name: "Set up this map layer",
+	});
+	const save = dialog.getByRole("button", {
+		name: "Save map layer",
+		exact: true,
+	});
+	await expect(save).toBeDisabled();
+	await dialog
+		.getByRole("combobox", { name: "Map layer", exact: true })
+		.click();
+	await page
+		.getByRole("option", { name: "Boundary color", exact: true })
+		.click();
+	await dialog
+		.getByRole("combobox", { name: "Case location", exact: true })
+		.click();
+	await page
+		.getByRole("option", { name: "Home location", exact: true })
+		.click();
+	await expect(save).toBeDisabled();
+	await dialog.getByRole("combobox", { name: "Boundary", exact: true }).click();
+	await page
+		.getByRole("option", { name: "Assigned area", exact: true })
+		.click();
+	await expect
+		.poll(async () =>
+			(await savedModule(page)).caseListConfig.columns.map(
+				(column: { kind: string }) => column.kind,
+			),
+		)
+		.toEqual(["plain", "plain"]);
+	await save.click();
+	await expect(dialog).toBeHidden();
+	await expect
+		.poll(async () => (await savedModule(page)).caseListConfig.columns)
+		.toMatchObject([
+			{
+				kind: "map-layer",
+				field: "priority_color",
+				layer: "boundary-color",
+				visibleInDetail: false,
+			},
+			{ kind: "plain", field: "dob" },
+			{ kind: "map-location", field: "home_point", visibleInDetail: false },
+			{
+				kind: "map-layer",
+				field: "service_area",
+				layer: "boundary",
+				visibleInDetail: false,
+			},
+		]);
+});
+
+test("workers can see a choice label and its saved value in separate case columns", async ({
+	page,
+}) => {
+	await page.goto(`${peer.origin}?scenario=choice-labels-and-values`);
+	const code = page
+		.locator('[data-case-column-select="00000000-0000-7000-8000-000000006002"]')
+		.first();
+	await code.click();
+	const group = page.getByRole("group", { name: "Show choices as" });
+	const saved = group.getByRole("button", { name: "Saved values" });
+	await saved.focus();
+	await saved.press("Space");
+	await expect(saved).toHaveAttribute("aria-pressed", "true");
+	await expect
+		.poll(async () =>
+			(await savedModule(page)).caseListConfig.columns.map(
+				(c: { showChoice?: string }) => c.showChoice ?? "label",
+			),
+		)
+		.toEqual(["label", "saved-value"]);
+	await page
+		.getByRole("button", { name: "Close properties", exact: true })
+		.click();
+	await code.click();
+	await expect(saved).toHaveAttribute("aria-pressed", "true");
+	await group.getByRole("button", { name: "Choice labels" }).click();
+	await expect
+		.poll(
+			async () =>
+				(await savedModule(page)).caseListConfig.columns[1].showChoice,
+		)
+		.toBeUndefined();
+});
+
 async function selectSearchInput(page: Page) {
 	await page
 		.locator('[data-case-search-field="00000000-0000-7000-8000-000000006003"]')
@@ -179,6 +279,44 @@ test("native selection viewer describes saved behavior without editing controls"
 		kind: "multiple",
 		maximum: 8,
 	});
+});
+test("native list action viewer reads the form button's condition once", async ({
+	page,
+}) => {
+	await page.goto(`${peer.origin}?scenario=list-action-viewer`);
+	const setting = page.locator("[data-register-from-list-setting]");
+	await expect(
+		setting.getByRole("heading", { name: "Form button on the list" }),
+	).toBeVisible();
+	await expect(setting.getByText(/^The form button appears/)).toHaveCount(1);
+	await expect(
+		setting.getByRole("button", { name: "When a condition is met" }),
+	).toHaveCount(0);
+});
+test("native list action keeps the button's visibility unsaved until a condition is written", async ({
+	page,
+}) => {
+	await page.goto(`${peer.origin}?scenario=list-action`);
+	const setting = page.locator("[data-register-from-list-setting]");
+	const conditional = setting.getByRole("button", {
+		name: "When a condition is met",
+	});
+	await conditional.click();
+	await expect(conditional).toHaveAttribute("aria-pressed", "true");
+	await setting.getByRole("button", { name: "Add condition" }).click();
+	await expect(conditional).toHaveAttribute("aria-pressed", "true");
+	const slot = (await savedModule(page)).caseListRegistrationForm;
+	expect(slot).toMatchObject({ kind: "always" });
+	expect(slot).not.toHaveProperty("showWhen");
+	await setting
+		.getByRole("button", { name: "Whenever the list opens" })
+		.click();
+	await expect(
+		setting.getByRole("button", { name: "Add condition" }),
+	).toHaveCount(0);
+	expect((await savedModule(page)).caseListRegistrationForm).not.toHaveProperty(
+		"showWhen",
+	);
 });
 test("native Search chooser filters, recovers focus, and creates the selected typed field", async ({
 	page,
@@ -319,6 +457,7 @@ test("native last Search field removal reviews copy and preserves independent as
 test("native Search date-range conversion keeps the saved default until confirmation", async ({
 	page,
 }) => {
+	await page.clock.setFixedTime(new Date(2024, 2, 15, 12));
 	await page.goto(`${peer.origin}?scenario=search-date`);
 	await selectSearchInput(page);
 	const before = await savedModule(page);
@@ -345,10 +484,54 @@ test("native Search date-range conversion keeps the saved default until confirma
 		mode: { kind: "range" },
 		default: undefined,
 	});
+	await page.getByRole("button", { name: "Choose dates" }).click();
+	await page.getByLabel("Start date", { exact: true }).click();
+	await page.getByRole("button", { name: /March 1st, 2024/ }).click();
 	await expect(
-		page.getByRole("button", { name: /starting value for search field/ }),
-	).toHaveCount(0);
+		page.getByRole("button", { name: "Use these dates" }),
+	).toBeDisabled();
+	expect(
+		(await savedModule(page)).caseListConfig.searchInputs[0].default,
+	).toBeUndefined();
+	await page.getByLabel("End date", { exact: true }).click();
+	await page.getByRole("button", { name: /March 31st, 2024/ }).click();
+	await page.getByRole("button", { name: "Use these dates" }).click();
+	await expect
+		.poll(
+			async () =>
+				(await savedModule(page)).caseListConfig.searchInputs[0].default,
+		)
+		.toEqual({
+			kind: "term",
+			term: { kind: "literal", value: "__range__2024-03-01__2024-03-31" },
+		});
+	await expect(
+		page.getByText("2024-03-01 to 2024-03-31", { exact: true }),
+	).toBeVisible();
 });
+test("a human-readable date calculation keeps its worker-zone dates when the picker closes", async ({
+	page,
+}) => {
+	await page.goto(`${peer.origin}?scenario=search-calendar-calculation`);
+	await selectSearchInput(page);
+	const source = (await savedModule(page)).caseListConfig.searchInputs[0]
+		.default;
+	await expect(page.getByRole("button", { name: "Change dates" })).toHaveCount(
+		0,
+	);
+	await page.getByRole("button", { name: "Choose dates" }).click();
+	await expect(
+		page.getByRole("button", { name: "Use these dates" }),
+	).toBeDisabled();
+	await page.getByRole("button", { name: "Cancel", exact: true }).click();
+	expect(
+		(await savedModule(page)).caseListConfig.searchInputs[0].default,
+	).toEqual(source);
+	await expect(
+		page.getByRole("button", { name: "Choose dates" }),
+	).toBeVisible();
+});
+
 test("native compatible Search type edit preserves its saved match and starting value", async ({
 	page,
 }) => {
@@ -850,9 +1033,14 @@ test("native clearing availability confirms once and preserves Search and assign
 	).toBeFocused();
 	const after = await savedModule(page);
 	expect(after.caseSearchConfig).toEqual(before.caseSearchConfig);
-	const { filter: ignored, ...expected } = before.caseListConfig;
-	expect(ignored).toBeDefined();
-	expect(after.caseListConfig).toEqual(expected);
+	const { filter: cleared, ...expected } = before.caseListConfig;
+	expect(cleared).toBeDefined();
+	// The Device list surface is the one cleared: the online search keeps
+	// the condition it sent, now stored as its own.
+	expect(after.caseListConfig).toEqual({
+		...expected,
+		searchCondition: cleared,
+	});
 	await page.getByRole("button", { name: "Search", exact: true }).click();
 	await expect(
 		page.getByText("Search is available from Results", { exact: true }),
@@ -950,6 +1138,49 @@ test("native hidden Search creation persists its computed value and keeps visibl
 	await expect(
 		page.getByRole("button", { name: /Search field 2 type:/ }),
 	).toHaveCount(0);
+});
+
+test("a worker list can show a blank value label and a signed overdue marker", async ({
+	page,
+}) => {
+	await page.goto(peer.origin);
+	const column = (id: string) =>
+		page.locator(`[data-case-column-select="${id}"]`).first();
+	const name = "00000000-0000-7000-8000-000000006001";
+	const birth = "00000000-0000-7000-8000-000000006002";
+	await column(name).click();
+	await page
+		.getByRole("button", { name: "Display as: Text", exact: true })
+		.click();
+	await page.getByRole("menuitem", { name: /^Value labels/ }).click();
+	await page.getByRole("button", { name: "Add value", exact: true }).click();
+	await page
+		.getByRole("textbox", { name: "Value 1 display label", exact: true })
+		.fill("Unspecified");
+	await page.getByRole("button", { name: "Save value", exact: true }).click();
+	await expect
+		.poll(
+			async () => (await savedModule(page)).caseListConfig.columns[0].mapping,
+		)
+		.toEqual([{ uuid: expect.any(String), value: "", label: "Unspecified" }]);
+	await page
+		.getByRole("button", { name: "Close properties", exact: true })
+		.click();
+	await column(birth).click();
+	await page
+		.getByRole("button", { name: "Display as: Text", exact: true })
+		.click();
+	await page.getByRole("menuitem", { name: /^Overdue marker/ }).click();
+	const threshold = page.getByRole("spinbutton", {
+		name: "Days after the date",
+	});
+	await threshold.fill("-2");
+	await threshold.press("Tab");
+	await expect
+		.poll(
+			async () => (await savedModule(page)).caseListConfig.columns[1].afterDays,
+		)
+		.toBe(-2);
 });
 
 test("native Value labels refuses a saved value CommCare HQ's ID mapping can't hold and adds no entry", async ({
@@ -1150,5 +1381,76 @@ test("a column shows information of the case above the listed one", async ({
 	expect(column).toMatchObject({
 		field: "case_name",
 		via: [{ identifier: "parent" }],
+	});
+});
+
+test("a column follows an older case link and keeps its stored property name", async ({
+	page,
+}) => {
+	await page.goto(`${peer.origin}?scenario=related`);
+	await page
+		.locator('[data-case-column-select="00000000-0000-7000-8000-000000006001"]')
+		.first()
+		.click();
+	const from = page.getByRole("combobox", { name: "Read information from" });
+	await from.click();
+	await page.getByRole("option", { name: "Choose another link" }).click();
+	await page.getByLabel("Link name on the case").fill("historic-site");
+	await page.getByRole("button", { name: "Use this link" }).click();
+	await expect(from).toHaveText(/historic-site/);
+	await page.getByRole("button", { name: /^Information from:/ }).click();
+	await page.getByRole("menuitem", { name: "Use a property by name" }).click();
+	await page
+		.getByLabel("Property name on the related case")
+		.fill("outreach_status");
+	await page.getByRole("button", { name: "Use this property" }).click();
+	await expect(
+		page.getByRole("button", { name: /^Information from:/ }),
+	).toContainText(/outreach status/i);
+	await page
+		.getByRole("button", { name: "Leave workspace", exact: true })
+		.click();
+	expect(
+		(await savedModule(page)).caseListConfig.columns.find(
+			(one: { uuid: string }) =>
+				one.uuid === "00000000-0000-7000-8000-000000006001",
+		),
+	).toMatchObject({
+		field: "outreach_status",
+		via: [{ identifier: "historic-site" }],
+	});
+});
+
+test("a case column can show who owns the worker’s own record", async ({
+	page,
+}) => {
+	await page.goto(`${peer.origin}?scenario=related`);
+	const columnUuid = "00000000-0000-7000-8000-000000006001";
+	await page
+		.locator(`[data-case-column-select="${columnUuid}"]`)
+		.first()
+		.click();
+	const source = page.getByRole("combobox", { name: "Read information from" });
+	await source.click();
+	await page
+		.getByRole("option", { name: "The worker’s record", exact: true })
+		.click();
+	await expect(source).toHaveText("The worker’s record");
+	await page.getByRole("button", { name: /^Information from:/ }).click();
+	await page.getByRole("menuitem", { name: /^Owner(?:\s|$)/ }).click();
+	await page.getByRole("combobox", { name: "Show owner as" }).click();
+	await page.getByRole("option", { name: "Name", exact: true }).click();
+	await page
+		.getByRole("button", { name: "Leave workspace", exact: true })
+		.click();
+	const module = await savedModule(page);
+	expect(
+		module.caseListConfig.columns.find(
+			(column: { uuid: string }) => column.uuid === columnUuid,
+		),
+	).toMatchObject({
+		field: "owner_id",
+		readFrom: "worker-record",
+		showOwner: "name",
 	});
 });

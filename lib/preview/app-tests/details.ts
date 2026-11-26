@@ -1,29 +1,51 @@
+import { workerLookupSchemas } from "@/lib/case-store/sql/compileLookup";
 import type { AppTestScope } from "@/lib/db/appTests";
 import {
-	collectLocalizedTranslationUnits,
+	workerLocalizedValues,
+	workerOutputOverrides,
+} from "@/lib/doc/localizationWorkspace";
+import {
 	effectiveCaseTypes,
+	moduleFormsReadSearch,
 	orderedColumns,
+	tileCellOnlyOnAndroid,
+	type Uuid,
 } from "@/lib/domain";
+import { resolveCaseFormContext } from "@/lib/domain/caseFormContext";
+import { availableDetailTabs } from "@/lib/domain/detailTabs";
 import { slotContext } from "@/lib/domain/expression/context";
 import type { CaseQueryReading } from "@/lib/domain/expression/temporalType";
+import { lookupReadTypes } from "@/lib/domain/lookupRead";
 import { projectProseTemplate } from "@/lib/domain/prose";
 import { caseColumnLabel } from "../caseColumnLabel";
+import { ordinaryCaseResultCell } from "../caseMap";
 import { parentCaseConstraint } from "../caseSelectionNavigation";
+import { tileResultsColumns } from "../caseTileRendering";
 import {
 	type ColumnDisplayContext,
 	projectColumnDisplay,
 	resolveCalculatedTemporalType,
 } from "../columnDisplay";
 import { readCaseData } from "../engine/caseDataBindingHelpers";
+import { previewCaseListOrderLocale } from "../engine/caseListOrder";
 import { previewSessionValues } from "../engine/identity";
-import { previewCaseStoreBindings } from "../engine/runtimeBindings";
+import {
+	previewCaseStoreBindings,
+	withSearchInputExpressionValues,
+} from "../engine/runtimeBindings";
 import { recordsReadSearch, searchedReading } from "../engine/serverSearchRead";
 import {
+	columnOutputWording,
 	projectLocalizedCaseProperties,
 	relatedColumnProperties,
 } from "../localizedCaseProperties";
-import { previewMenuCaseContext } from "../menuProjection";
-import { projectWorkerModule } from "../workerModule";
+import {
+	previewMenuCaseContext,
+	previewSelectionsBefore,
+} from "../menuProjection";
+import { previewPinnedCaseTile } from "../pinnedCaseTile";
+import { previewPlatformRules } from "../platform";
+import { projectWorkerColumn, projectWorkerModule } from "../workerModule";
 import type { AppTestContext } from "./context";
 import { readingSurface } from "./dataRefusal";
 import { AppTestActionError } from "./errors";
@@ -45,7 +67,7 @@ export async function appTestDetails(
 	);
 	if (!mod?.caseType)
 		throw new AppTestActionError("This menu has no record type.");
-	const { caseType, caseListConfig } = mod;
+	const { caseListConfig } = mod;
 	const selected = previewMenuCaseContext(
 		context.doc,
 		screen.moduleUuid,
@@ -55,39 +77,14 @@ export async function appTestDetails(
 		throw new AppTestActionError("Select the required parent record first.");
 	const searched = recordsReadSearch(mod, screen.source);
 	const reading = searchedReading(searched);
-	const result = await readingSurface("list", () =>
-		readCaseData(context.store, {
-			appId: scope.appId,
-			caseType,
-			caseId: screen.caseId,
-			// Details of a Search's result is the results row.
-			reading,
-			ancestorDepth: 0,
-			caseListConfig,
-			caseTypeSchemas: context.caseTypeSchemas,
-			bindings: previewCaseStoreBindings(
-				previewSessionValues(context.identity, context.device),
-				context.rules,
-				undefined,
-				undefined,
-				context.clock.timeZone,
-			),
-			lookupTableSchemas: new Map(
-				context.lookup.definitions.map((table) => [
-					table.id,
-					new Map(table.columns.map((column) => [column.id, column.dataType])),
-				]),
-			),
-			// A record chosen from a search's Results reads as the search found it.
-			...(searched
-				? { searchPopulation: { heldBy: context.restoreScope } }
-				: { restoreScope: context.restoreScope }),
-			parentCase: parentCaseConstraint(
-				context.doc,
-				screen.moduleUuid,
-				selected.parentCase,
-			),
-		}),
+	const result = await readDisplayRow(
+		context,
+		scope,
+		mod.uuid,
+		screen.caseId,
+		searched,
+		screen.source.searchAnswers,
+		parentCaseConstraint(context.doc, screen.moduleUuid, selected.parentCase),
 	);
 	const project = appTestCellProjector(
 		context,
@@ -95,9 +92,209 @@ export async function appTestDetails(
 		"detail",
 		reading,
 	);
+	const fields = result.kind === "row" ? project(result.row) : [];
+	const tabs =
+		result.kind === "row"
+			? availableDetailTabs(caseListConfig, fields, result.row.calculated)
+			: undefined;
+	const active =
+		tabs?.find(({ tab }) => tab.uuid === screen.tabUuid) ?? tabs?.[0];
 	return {
 		result,
-		fields: result.kind === "row" ? project(result.row) : [],
+		tabs: tabs?.map(({ tab }) => ({
+			uuid: tab.uuid,
+			title: tab.title,
+			selected: active?.tab.uuid === tab.uuid,
+		})),
+		fields:
+			tabs === undefined
+				? fields
+				: active
+					? fields.slice(active.start, active.end)
+					: [],
+	};
+}
+
+/** The rendered layout can be supplied by another menu. The caller carries
+ * the selected case and its read population separately from that layout. */
+async function readDisplayRow(
+	context: AppTestContext,
+	scope: AppTestScope,
+	moduleUuid: Uuid,
+	caseId: string,
+	searched: boolean,
+	answers?: readonly { name: string; value: string }[],
+	parentCase?: ReturnType<typeof parentCaseConstraint>,
+) {
+	const menu = context.doc.modules[moduleUuid];
+	const config = menu?.caseListConfig;
+	if (!menu?.caseType || !config)
+		throw new AppTestActionError("This case layout is unavailable.");
+	const caseType = menu.caseType;
+	return readingSurface("list", () =>
+		readCaseData(context.store, {
+			appId: scope.appId,
+			caseType,
+			caseId,
+			caseListConfig: config,
+			contextModuleUuid: moduleUuid,
+			reading: searchedReading(searched),
+			ancestorDepth: 0,
+			locale: previewCaseListOrderLocale(
+				context.doc,
+				caseType,
+				context.language,
+			),
+			caseTypeSchemas: context.caseTypeSchemas,
+			parentCase,
+			bindings: previewCaseStoreBindings(
+				previewSessionValues(context.identity, context.device),
+				context.rules,
+				config.searchInputs,
+				withSearchInputExpressionValues(
+					config.searchInputs,
+					new Map(answers?.map((row) => [row.name, row.value])),
+				),
+				context.clock.timeZone,
+			),
+			lookupTableSchemas: workerLookupSchemas(scope.projectId, context.lookup),
+			// A record chosen from a search's Results reads as the search found it.
+			...(searched
+				? { searchPopulation: { heldBy: context.restoreScope } }
+				: { restoreScope: context.restoreScope }),
+		}),
+	);
+}
+
+export async function appTestFormCaseContext(
+	context: AppTestContext,
+	scope: AppTestScope,
+	state: AppTestSessionState,
+) {
+	const screen = state.screen;
+	if (screen.kind !== "form") return;
+	const menuContext = previewMenuCaseContext(
+		context.doc,
+		screen.moduleUuid,
+		state.selections,
+	);
+	const ownMenu = menuContext.selectedByModuleUuid ?? screen.moduleUuid;
+	const before = previewSelectionsBefore(
+		context.doc,
+		screen.moduleUuid,
+		state.selections,
+	).filter((choice) => choice.moduleUuid !== ownMenu);
+	const choices = [
+		...before,
+		...(screen.caseIds.length === 1
+			? [{ moduleUuid: ownMenu, cases: [{ caseId: screen.caseIds[0] }] }]
+			: []),
+	];
+	const chosen = previewPinnedCaseTile(
+		context.doc.modules,
+		choices,
+		"form",
+		context.rules,
+	);
+	if (!chosen) return;
+	const source = resolveCaseFormContext(context.doc.modules, chosen.moduleUuid);
+	if (!source) return;
+	const { sourceModuleUuid: owner, inlineModuleUuid: inline, kind } = source;
+	const selecting = context.doc.modules[chosen.moduleUuid];
+	const history = state.history.findLast(
+		(frame) =>
+			frame.kind === "records" && frame.moduleUuid === chosen.moduleUuid,
+	);
+	const answers =
+		chosen.moduleUuid === screen.moduleUuid
+			? (screen.searchAnswers ??
+				(history?.kind === "records" ? history.searchAnswers : undefined))
+			: history?.kind === "records"
+				? history.searchAnswers
+				: undefined;
+	const searched = moduleFormsReadSearch(selecting) && answers !== undefined;
+	const row = await readDisplayRow(
+		context,
+		scope,
+		owner,
+		chosen.caseId,
+		searched,
+		answers,
+	);
+	const expanded = !!inline && screen.contextExpanded === true;
+	const base = {
+		kind,
+		caseId: chosen.caseId,
+		sourceModuleUuid: owner,
+		selectionModuleUuid: chosen.moduleUuid,
+		expandable: !!inline,
+		expanded,
+	};
+	if (row.kind !== "row") return { ...base, unavailable: true };
+	if (kind === "line")
+		return { ...base, value: row.row.calculated[owner] ?? "" };
+	const reading = searchedReading(searched);
+	const list = appTestCellProjector(context, owner, "list", reading)(row.row);
+	const config = context.doc.modules[owner]?.caseListConfig;
+	const slots = config
+		? tileResultsColumns(orderedColumns(config, "list"), config.tile)
+		: [];
+	const cells = slots.flatMap(({ column }) => {
+		const value = list.find((field) => field.uuid === column.uuid);
+		if (
+			!value ||
+			!column.tile ||
+			(tileCellOnlyOnAndroid(column, column.tile) &&
+				previewPlatformRules(state.platform).searchOnlyTileCell === "hidden")
+		)
+			return [];
+		return [{ ...value, placement: column.tile }];
+	});
+	if (!inline || !expanded) return { ...base, cells };
+	const detail =
+		inline === owner
+			? row
+			: await readDisplayRow(
+					context,
+					scope,
+					inline,
+					chosen.caseId,
+					searched,
+					answers,
+				);
+	const fields =
+		detail.kind === "row"
+			? appTestCellProjector(context, inline, "detail", reading)(detail.row)
+			: [];
+	const projected = projectWorkerModule(context.doc, context.language, inline);
+	const tabs =
+		detail.kind === "row"
+			? availableDetailTabs(
+					projected?.caseListConfig,
+					fields,
+					detail.row.calculated,
+				)
+			: undefined;
+	const active =
+		tabs?.find((span) => span.tab.uuid === screen.contextTabUuid) ?? tabs?.[0];
+	return {
+		...base,
+		cells,
+		details: {
+			moduleUuid: inline,
+			unavailable: detail.kind !== "row",
+			tabs: tabs?.map(({ tab }) => ({
+				uuid: tab.uuid,
+				title: tab.title,
+				selected: tab.uuid === active?.tab.uuid,
+			})),
+			fields:
+				tabs === undefined
+					? fields
+					: active
+						? fields.slice(active.start, active.end)
+						: [],
+		},
 	};
 }
 
@@ -113,7 +310,9 @@ export function appTestCellProjector(
 	const columns = mod.caseListConfig
 		? orderedColumns(mod.caseListConfig, surface).filter((column) =>
 				surface === "list"
-					? column.visibleInList !== false
+					? column.visibleInList !== false &&
+						(mod.caseListConfig?.tile !== undefined ||
+							ordinaryCaseResultCell(column))
 					: column.visibleInDetail !== false,
 			)
 		: [];
@@ -121,22 +320,34 @@ export function appTestCellProjector(
 	// A Search's Results and its Details read results rows; a browse list
 	// and its Details read casedb rows.
 	const columnsReading = reading.columns;
-	const localizedValues = new Map(
-		collectLocalizedTranslationUnits(context.doc, context.language).map(
-			(unit) => [unit.id, unit.effective],
-		),
+	const localizedValues = workerLocalizedValues(context.doc, context.language);
+	const properties = projectLocalizedCaseProperties(
+		mod.caseType,
+		caseTypes.find((type) => type.name === mod.caseType)?.properties ?? [],
+		localizedValues,
 	);
+	const related = relatedColumnProperties(
+		mod.caseListConfig,
+		mod.caseType,
+		caseTypes,
+		localizedValues,
+	);
+	const searchOutput =
+		reading.columns === "results" && !moduleFormsReadSearch(mod);
+	const detail = surface === "detail";
 	const display: ColumnDisplayContext = {
-		caseProperties: projectLocalizedCaseProperties(
-			mod.caseType,
-			caseTypes.find((type) => type.name === mod.caseType)?.properties ?? [],
-			localizedValues,
-		),
-		relatedProperties: relatedColumnProperties(
+		readsCaseImageDescriptions: context.rules.readsCaseImageDescriptions,
+		caseProperties: properties,
+		relatedProperties: related,
+		...columnOutputWording(
 			mod.caseListConfig,
 			mod.caseType,
 			caseTypes,
-			localizedValues,
+			properties,
+			related,
+			workerOutputOverrides(context.doc, context.language),
+			searchOutput,
+			detail,
 		),
 		calculatedTemporalTypes: new Map(
 			columns.flatMap((column) => {
@@ -152,9 +363,7 @@ export function appTestCellProjector(
 					new Map(
 						context.lookup.definitions.map((table) => [
 							table.id,
-							new Map(
-								table.columns.map((column) => [column.id, column.dataType]),
-							),
+							lookupReadTypes(table),
 						]),
 					),
 				);
@@ -178,14 +387,26 @@ export function appTestCellProjector(
 	return (
 		row: import("../engine/caseDataBindingTypes").CaseRowWithCalculated,
 	) =>
-		columns.map((column) => ({
-			uuid: column.uuid,
-			label: caseColumnLabel(
-				column,
-				display.caseProperties,
-				display.projectProse,
-			),
-			format: column.kind,
-			...projectColumnDisplay(column, row, display),
-		}));
+		columns.map((col) => {
+			const column = projectWorkerColumn(
+				col,
+				searchOutput,
+				detail,
+				localizedValues,
+			);
+			return {
+				uuid: column.uuid,
+				label: caseColumnLabel(
+					column,
+					display.caseProperties,
+					display.projectProse,
+					surface,
+				),
+				format:
+					column.kind === "calculated" && column.showAs
+						? column.showAs
+						: column.kind,
+				...projectColumnDisplay(column, row, display),
+			};
+		});
 }

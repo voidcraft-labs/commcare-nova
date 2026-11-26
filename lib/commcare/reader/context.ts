@@ -76,7 +76,7 @@ export interface DraftModule {
 	readonly index: number;
 	readonly uniqueId: string;
 	readonly uuid: Uuid;
-	readonly docType: "Module" | "AdvancedModule";
+	readonly docType: "Module" | "AdvancedModule" | "ShadowModule";
 	readonly json: JsonCursor;
 	readonly place: HqPlace;
 	/** The slots stages set. `assembleDocument` parses the whole with `moduleSchema`. */
@@ -142,9 +142,11 @@ function emptyFacts(input: ReaderInput): MutableReadFacts {
 		unheldMedia: [],
 		pendingMedia: [],
 		unreadTables: [],
-		foldedTranslationKeys: [],
+		unusedTranslationKeys: [],
 		forms: [],
 		sameStateRewrites: [],
+		detailColumnOwners: [],
+		formLinkOwners: [],
 		entryFactsRefused: [],
 		childCasesUnread: [],
 		rewrites: [],

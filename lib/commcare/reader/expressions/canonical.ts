@@ -248,8 +248,20 @@ function choiceSelection(
 function printsCsql(context: ExpressionContext): boolean {
 	return (
 		context.slot.slot === "search_input_predicate" ||
+		context.slot.slot === "case_search_filter" ||
 		(context.slot.slot === "case_list_filter" &&
 			context.profile.targets.has("CS"))
+	);
+}
+
+/** Whether the slot is a search's own condition, which prints as CSQL alone: a
+ *  Search field's condition, or the search condition of a search whose
+ *  condition is its own (`searchConditions.ts::searchConditionSlot`). A row
+ *  of either reads back by one CSQL reading (`csqlRead.ts`). */
+function printsCsqlAlone(context: ExpressionContext): boolean {
+	return (
+		context.slot.slot === "search_input_predicate" ||
+		context.slot.slot === "case_search_filter"
 	);
 }
 
@@ -482,6 +494,7 @@ function modeOf(context: ExpressionContext): WireMode {
 						: "no-case",
 			};
 		if (
+			slot.slot === "form_badge" ||
 			slot.slot === "form_link_condition" ||
 			slot.slot === "form_link_datum_xpath"
 		)
@@ -508,6 +521,7 @@ function simplifiedSlot(context: ExpressionContext): boolean {
 	if (slot.entity !== "module") return false;
 	return (
 		slot.slot === "case_list_filter" ||
+		slot.slot === "case_search_filter" ||
 		slot.slot === "search_button_display_condition" ||
 		slot.slot === "search_input_predicate" ||
 		slot.slot === "search_input_options"
@@ -2300,7 +2314,7 @@ export const PRINT_COLLISIONS: readonly PrintCollision[] = [
 			)
 				return undefined;
 			if (
-				context.slot.slot === "search_input_predicate" &&
+				printsCsqlAlone(context) &&
 				!printsOnDevice(context, at) &&
 				readsSearchRow(node)
 			) {
@@ -2333,7 +2347,7 @@ export const PRINT_COLLISIONS: readonly PrintCollision[] = [
 		id: "csql-anchor-left",
 		rewrite(node, context, at) {
 			if (
-				(context.slot.slot !== "search_input_predicate" &&
+				(!printsCsqlAlone(context) &&
 					!(printsCsql(context) && insideInputPresence(at.tree, at.path))) ||
 				!isComparison(node) ||
 				isCsqlQueryAnchor(node.left) ||
@@ -2872,7 +2886,7 @@ export const PRINT_COLLISIONS: readonly PrintCollision[] = [
 		id: "coerced-literal-type",
 		rewrite(node, context) {
 			if (
-				context.slot.slot !== "search_input_predicate" ||
+				!printsCsqlAlone(context) ||
 				(node.kind !== "date-coerce" && node.kind !== "datetime-coerce")
 			)
 				return undefined;
@@ -2925,21 +2939,33 @@ export const PRINT_COLLISIONS: readonly PrintCollision[] = [
 		// count's, `[<type test> and true()]` with no condition and with
 		// `match-all`, which prints `true()`; a Search field's condition prints
 		// as CSQL, which tells the two apart. A count of child cases keeps the
-		// condition's own print.
+		// condition's own print on a device; in a search's CSQL a count of
+		// child cases of a named type writes its candidates
+		// `(@case_type = '<type>' and (match-all()))` with no condition and with
+		// `match-all` alike (`csql/emitter.ts::subcaseCount`), and the reader
+		// returns the count with none.
 		id: "relation-where-match-all",
 		rewrite(node, context) {
 			if (
 				context.ruleSet !== "record" ||
-				context.slot.slot === "search_input_predicate" ||
 				(node.kind !== "exists" &&
 					node.kind !== "missing" &&
-					!(
-						node.kind === "count" &&
-						typeof node.via === "object" &&
-						"kind" in node.via &&
-						node.via.kind === "ancestor"
-					)) ||
+					node.kind !== "count") ||
 				node.where?.kind !== "match-all"
+			)
+				return undefined;
+			const counted =
+				node.kind === "count" &&
+				typeof node.via === "object" &&
+				"kind" in node.via
+					? node.via.kind
+					: undefined;
+			if (
+				context.slot.slot === "search_input_predicate"
+					? counted !== "subcase"
+					: node.kind === "count" &&
+						counted !== "ancestor" &&
+						!(printsCsqlAlone(context) && counted === "subcase")
 			)
 				return undefined;
 			const { where: _where, ...rest } = node;

@@ -657,6 +657,7 @@ function checkRuntimeNode(
 			});
 			return;
 		case "call":
+		case "case-text":
 		case "itext":
 		case "choice-name":
 		case "here":
@@ -701,6 +702,7 @@ function checkRuntimeNode(
 			return;
 		case "cases":
 		case "table-rows":
+		case "worker-groups":
 		case "locations":
 		case "project":
 			// Held reads of their own rows: their filters read

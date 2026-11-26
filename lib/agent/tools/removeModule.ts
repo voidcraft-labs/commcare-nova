@@ -38,6 +38,7 @@ import { planCaseListRegistrationDependentsOnRemove } from "@/lib/doc/caseListRe
 import { planCaseTypeRetirementOnRemove } from "@/lib/doc/caseTypeRetirement";
 import { planFormLinkDependentsOnRemove } from "@/lib/doc/formLinkDependents";
 import { planModuleChildDependentsOnRemove } from "@/lib/doc/moduleDependents";
+import { withListedMenuHierarchy } from "@/lib/doc/sharedMenuHierarchy";
 import type { Mutation } from "@/lib/doc/types";
 import { removeModuleMutations } from "../blueprintHelpers";
 import type { ToolInvocationContext } from "../workspace/types";
@@ -161,7 +162,7 @@ export const removeModuleTool = {
 			];
 			const commit = await guardedMutate(
 				ctx,
-				mutations,
+				withListedMenuHierarchy(doc, mutations),
 				`module:remove:${moduleUuid}`,
 			);
 			if (!commit.ok) {

@@ -7,6 +7,7 @@
 import tablerClock from "@iconify-icons/tabler/clock";
 import { z } from "zod";
 import type { FieldKindMetadata } from "../kinds";
+import { displaySchemas } from "../questionDisplaySchemas";
 import {
 	formLogicSchema,
 	inputFieldBaseSchema,
@@ -15,6 +16,8 @@ import {
 
 export const timeFieldSchema = inputFieldBaseSchema.extend({
 	kind: z.literal("time"),
+	inputWidth: displaySchemas.inputWidth.optional(),
+	clock: displaySchemas.clock.optional(),
 	validate: formLogicSchema.optional(),
 	validate_msg: proseTemplateSchema.optional(),
 	default_value: formLogicSchema.optional(),

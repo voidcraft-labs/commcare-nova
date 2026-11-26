@@ -38,7 +38,7 @@ RUN --mount=type=cache,id=nova-npm-downloads,target=/root/.npm \
 # Inherit dependency layers instead of copying the full node_modules tree.
 FROM deps AS sources
 COPY . .
-RUN node scripts/harden-agent-react-devtools.mjs
+RUN node scripts/harden-agent-react-devtools.mjs && node scripts/fix-yazl-descriptors.mjs
 
 FROM sources AS migration-build
 RUN npx esbuild scripts/migrate.ts \

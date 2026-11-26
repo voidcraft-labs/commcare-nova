@@ -69,6 +69,9 @@ export interface FormEvaluationContext {
 	/** Internal app-test continuation. Ordinary form checks omit both. */
 	entry?: FormEvaluationEntry;
 	captureEntry?: boolean;
+	/** A worker pressed Submit in this retained entry. Looking at its form
+	 * keeps an untouched date widget separate from the stored answer. */
+	submitting?: boolean;
 	identity: ResolvedPreviewIdentity;
 	/** The device the check or journey session runs on: its platform's
 	 *  screens, recalculation, day numbers and session values. */
@@ -82,8 +85,8 @@ export interface FormEvaluationContext {
 	 * (`searchResultsSnapshot.ts`), read as `results:inline` by the form and
 	 * its after-submit links. Absent, the form has no search results. */
 	searchResults?: SearchResultsSnapshot;
-	/** The Search answers a form of a search-first module reads when the
-	 * input supplies none: each Search field's starting value. */
+	/** The actual completed Search, or the separately opened manager's raw
+	 * starting answers. The form turns this held state into its instance once. */
 	searchAnswers?: readonly { name: string; value: string }[];
 	/** The running session the entry starts from: the app its `uuid()`
 	 * datums are minted in and the menu's case choices

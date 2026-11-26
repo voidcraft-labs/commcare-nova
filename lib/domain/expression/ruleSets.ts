@@ -393,13 +393,13 @@ export type RecordPosition = "condition" | "value";
  * `Boolean` as `BooleanData` whatever the node's bind
  * (`Recalculate.java::wrapData`) and reads it back as that `Boolean`
  * (`XPathPathExpr.java::unpackValue`), so its truth is the calculation's. A
- * read of text never stands as one: Core reads text as true when it is not
- * empty (`FunctionUtils.java::toBoolean`), so a stored `0` would hold.
+ * worker property can also stand alone on a worker menu or list. Core
+ * unpacks a single text value as true when nonempty, including "0".
  */
 export function recordPositionVerdict(
 	kind: Expression["kind"],
 	position: RecordPosition,
-	heldYesNo = false,
+	conditionRead = false,
 ):
 	| { readonly ok: true }
 	| {
@@ -407,7 +407,7 @@ export function recordPositionVerdict(
 			readonly reason: "value-expected" | "condition-expected";
 	  } {
 	if (kind === "if" || kind === "switch") return { ok: true };
-	if (kind === "term" && position === "condition" && heldYesNo)
+	if (kind === "term" && position === "condition" && conditionRead)
 		return { ok: true };
 	const condition = isConditionArm({ kind } as Expression);
 	return condition === (position === "condition")

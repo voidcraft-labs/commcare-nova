@@ -3,9 +3,16 @@ import { testUuid } from "@/__tests__/helpers/uuid";
 import { CaptureSubmissionRejectedError } from "@/lib/case-store/errors";
 import type { CaseOperation } from "@/lib/domain";
 import { eq, formField, literal, term } from "@/lib/domain/expression";
-import { webAppsDevice } from "@/lib/preview/engine/__tests__/fixtures/previewDevices";
+import {
+	androidDevice,
+	webAppsDevice,
+} from "@/lib/preview/engine/__tests__/fixtures/previewDevices";
 import { validateCaptureSubmissionProjection } from "../captureSubmissionValidation";
-import { buildCaseOperationProgramFromDoc } from "../caseDataBindingHelpers";
+import {
+	buildCaseOperationProgramFromDoc,
+	buildSubmissionOperationProgram,
+	submissionEnvelopeArgs,
+} from "../caseDataBindingHelpers";
 import type { SubmissionMutation } from "../caseDataBindingTypes";
 import type { ResolvedPreviewIdentity } from "../identity";
 import {
@@ -31,6 +38,65 @@ const IDENTITY: ResolvedPreviewIdentity = {
 	},
 	usercase: { role: "supervisor" },
 };
+
+describe("automatic submission location", () => {
+	it("records the entry fix separately from answers and refuses a fix outside the committed form or platform", async () => {
+		const { doc, formUuid } = ordinaryAuthorityDoc();
+		const mutation = ordinaryAuthorityMutation(doc, formUuid);
+		const fix = { latitude: 12, longitude: -73, altitude: 7, accuracy: 4 };
+		const requested = {
+			...doc,
+			forms: {
+				...doc.forms,
+				[formUuid]: { ...doc.forms[formUuid], captureLocation: true as const },
+			},
+		};
+		const build = async (
+			blueprint: typeof doc,
+			device: ReturnType<typeof webAppsDevice>,
+			locationFix?: typeof fix,
+		) => {
+			const submitted = {
+				...mutation,
+				...(locationFix !== undefined && { locationFix }),
+			};
+			const built = await buildSubmissionOperationProgram({
+				appId: doc.appId,
+				committedApp: { blueprint, mutation_seq: 2 },
+				blueprintDigest: "b".repeat(64),
+				identity: IDENTITY,
+				device,
+				lookupScope: {
+					projectId: "local-project",
+					actorId: ACTOR,
+					role: "editor",
+				},
+				lookupTableSchemas: new Map(),
+				mutation: submitted,
+				projection: validateCaptureSubmissionProjection(submitted),
+			});
+			return submissionEnvelopeArgs(submitted, doc.appId, built);
+		};
+		expect(
+			(await build(requested, androidDevice(), fix)).submissionLocation,
+		).toEqual(fix);
+		expect(
+			(await build(requested, androidDevice())).submissionLocation,
+		).toBeNull();
+		expect(
+			(await build(requested, webAppsDevice())).submissionLocation,
+		).toBeNull();
+		expect(await build(doc, androidDevice())).not.toHaveProperty(
+			"submissionLocation",
+		);
+		await expect(build(requested, webAppsDevice(), fix)).rejects.toThrow(
+			"device location",
+		);
+		await expect(build(doc, androidDevice(), fix)).rejects.toThrow(
+			"device location",
+		);
+	});
+});
 
 describe("committed program input rejection", () => {
 	it("builds every case change from the committed form, whatever case structure the client sends", () => {
@@ -91,6 +157,30 @@ describe("committed program input rejection", () => {
 		expect(closeProgram?.scopes[0]?.iterations[0]?.formFields).toEqual(
 			new Map([[close.conditionFieldUuid, "done"]]),
 		);
+	});
+
+	it("rejects supplied case IDs when the committed form no longer has the deep link or case operation", () => {
+		const { doc, formUuid } = acceptanceDoc(() => []);
+		const engine = engineFor(doc, formUuid);
+		const mutation = {
+			...engine.computeSubmissionMutation({
+				caseIds: [SESSION_CASE],
+				entryKey: ENTRY_KEY,
+			}),
+			entrySupplies: {
+				entryPointUuid: OP_ROOT,
+				creations: [{ operationUuid: formUuid, caseId: "planned-visit" }],
+			},
+		};
+		expect(() =>
+			buildCaseOperationProgramFromDoc({
+				device: webAppsDevice(),
+				blueprint: doc,
+				mutation,
+				projection: validateCaptureSubmissionProjection(mutation),
+				identity: IDENTITY,
+			}),
+		).toThrow("The deep link no longer opens this form");
 	});
 
 	it("rejects a forged batch-close discriminator against a committed followup form before effects", () => {

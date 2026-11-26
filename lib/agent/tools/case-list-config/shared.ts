@@ -42,6 +42,7 @@
  */
 
 import { z } from "zod";
+import { fixedSearchRangeExpression } from "@/lib/commcare/searchRangeStartingValue";
 import { RESERVED_SEARCH_INPUT_NAMES } from "@/lib/commcare/suite/case-search/reservedInputNames";
 import { columnNotOnListMessage } from "@/lib/commcare/validator/rules/case-list/columnNotOnList";
 import {
@@ -61,17 +62,19 @@ import {
 	type SearchInputType,
 	searchInputRequiredSchema,
 	searchInputValidationSchema,
+	searchStartingDatesSchema,
 	simpleDateRangeSearchInputSchema,
 	simpleScalarSearchInputSchema,
 	simpleSelectSearchInputSchema,
 	TILE_GRID_COLUMNS,
-	TILE_GRID_ROWS,
+	TILE_MIN_ROWS,
 	type TileCell,
 	tileCell,
 	tileCellSchema,
 	type Uuid,
 	uuidSchema,
 } from "@/lib/domain";
+import { caseMappingComparison } from "@/lib/domain/caseMappingRows";
 import {
 	conditionSchema,
 	type Expression,
@@ -132,6 +135,12 @@ const valueExpressionInputSchema = valueSchema as z.ZodType<Expression>;
 const [
 	plainColumnArm,
 	dateColumnArm,
+	dateCountColumnArm,
+	overdueMarkerColumnArm,
+	formattedTextColumnArm,
+	workerDistanceColumnArm,
+	mapLocationColumnArm,
+	mapLayerColumnArm,
 	phoneColumnArm,
 	idMappingColumnArm,
 	imageMapColumnArm,
@@ -225,7 +234,7 @@ const columnViaInput = {
 	via: caseWriteViaInputSchema
 		.optional()
 		.describe(
-			'Show field of the case above this one instead of this case\'s own, one link per step from this case, nearest first. parent needs no type: [{"identifier":"parent"}] reaches this case type\'s parent. Any other link names the case type it reaches: [{"identifier":"host","throughCaseType":"household"}]. Leave it out for this case\'s own property. A menu that offers Search can\'t hold it; a calculated column can read the case above there.',
+			'Show field of the case above this one instead of this case\'s own, one link per step from this case, nearest first. parent needs no type: [{"identifier":"parent"}] reaches this case type\'s parent. Any other link names the case type it reaches: [{"identifier":"host","throughCaseType":"household"}]. Leave it out for this case\'s own property. In a menu that offers Search, a link, an interval, or a plain column showing a choice\'s label can\'t read through it; show the saved value instead.',
 		),
 };
 
@@ -233,7 +242,7 @@ const plainColumnInputArm = plainColumnArm.omit(columnToolOwnedSlots).extend({
 	...columnInputSlots,
 	...columnViaInput,
 	sort: columnSortInput(
-		"This column's order rule. A plain column orders by the saved value, as a number for a number property and as text otherwise; shown on Results over a choice property with options, by the option label it shows.",
+		"This column's order rule. A plain column orders by the saved value, as a number for a number property and as text otherwise; shown on Results over a choice property with options, by the option label it shows unless showChoice requests the saved value.",
 	),
 });
 const dateColumnInputArm = dateColumnArm.omit(columnToolOwnedSlots).extend({
@@ -246,6 +255,69 @@ const dateColumnInputArm = dateColumnArm.omit(columnToolOwnedSlots).extend({
 		"How the date is shown, as a CommCare date pattern such as %Y-%m-%d or %B %e, %Y. It can't hold a straight apostrophe ('); a curved one (’) works.",
 	),
 });
+const dateCountColumnInputArm = dateCountColumnArm
+	.omit(columnToolOwnedSlots)
+	.extend({
+		...columnInputSlots,
+		...columnViaInput,
+		sort: columnSortInput(
+			"Order by the saved date. The worker sees the whole number of periods since or until that date.",
+		),
+	});
+const overdueMarkerColumnInputArm = overdueMarkerColumnArm
+	.omit(columnToolOwnedSlots)
+	.extend({
+		...columnInputSlots,
+		...columnViaInput,
+		afterDays: overdueMarkerColumnArm.shape.afterDays.describe(
+			"Show an asterisk when the saved date is missing or more than this many days have elapsed. Zero means after the date passes. A negative number brings the marker forward.",
+		),
+		sort: columnSortInput(
+			"Order by the marker shown. Results has a narrow marker without a heading. Details shows the authored heading.",
+		),
+	});
+const formattedTextColumnInputArm = formattedTextColumnArm
+	.omit(columnToolOwnedSlots)
+	.extend({
+		...columnInputSlots,
+		...columnViaInput,
+		sort: columnSortInput(
+			"Order by the saved text, including the formatting marks.",
+		),
+	});
+const workerDistanceColumnInputArm = workerDistanceColumnArm
+	.omit(columnToolOwnedSlots)
+	.extend({
+		...columnInputSlots,
+		...columnViaInput,
+		sort: columnSortInput(
+			"Order by the distance in metres. Android shows kilometers from the worker's current position.",
+		),
+	});
+const mapLocationColumnInputArm = mapLocationColumnArm
+	.omit(columnToolOwnedSlots)
+	.extend({
+		...columnInputSlots,
+		...columnViaInput,
+		sort: columnSortInput(
+			"Order by the saved coordinates. Android uses the first location with coordinates. Web Apps uses the first location.",
+		),
+	});
+const mapLayerColumnInputArm = mapLayerColumnArm
+	.omit(columnToolOwnedSlots)
+	.extend({
+		...columnInputSlots,
+		...columnViaInput,
+		sort: columnSortInput("Order by the saved map layer value."),
+		visibleInDetail: z
+			.literal(false)
+			.describe(
+				"Map layers belong to Results. Add a separate text item to show the information in Details.",
+			),
+		layer: mapLayerColumnArm.shape.layer.describe(
+			"Each layer needs a map location in Results. A color also needs the matching boundary or points layer. Add prerequisites and layers together in one batch.",
+		),
+	});
 const phoneColumnInputArm = phoneColumnArm.omit(columnToolOwnedSlots).extend({
 	...columnInputSlots,
 	...columnViaInput,
@@ -259,10 +331,10 @@ const idMappingColumnInputArm = idMappingColumnArm
 		...columnInputSlots,
 		...columnViaInput,
 		sort: columnSortInput(
-			"This column's order rule. Shown on Results, an ID mapping orders by the order of its mapping entries, never by label: cases holding the first entry's value come first when ascending, and a value with no entry counts as no value.",
+			"This column's order rule. By default, a label table sorts by mapping order. With first-match behavior it sorts by the displayed label in the worker’s language, with an unmatched value blank.",
 		),
 		mapping: idMappingColumnArm.shape.mapping.describe(
-			"The value-to-label table, one entry for each saved value. A value is one word with no spaces and can't hold &, <, >, \" or '. Entry order matters: it is the order the list sorts this column by.",
+			"Give each row a label and one saved value or typed condition. By default a value matches a sequence between spaces, including a blank. Choose first-match behavior for whole-value equality or a condition. An unmatched case shows no label. On an update, keep each existing row's uuid, including when changing its rule or position.",
 		),
 	});
 const imageMapColumnInputArm = imageMapColumnArm
@@ -273,8 +345,11 @@ const imageMapColumnInputArm = imageMapColumnArm
 		sort: columnSortInput(
 			"This column's order rule. Shown on Results, an image map orders by the order of its mapping entries: cases holding the first entry's value come first when ascending, and a value with no entry counts as no value.",
 		),
+		entryPointUuid: imageMapColumnArm.shape.entryPointUuid.describe(
+			"Leave this out unless getModule lists listIconDestinations for this column; no other form can be named. Naming one of those deep links makes the image on Results an icon a worker taps to submit that form for the case, in Web Apps only.",
+		),
 		mapping: imageMapColumnArm.shape.mapping.describe(
-			"The value-to-image table, one entry for each saved value. A value is one word with no spaces. Entry order matters: it is the order the list sorts this column by.",
+			"Images in match order. By default each value matches one of the saved choices. Set match to exact to match the entire saved value, including an empty value. For a condition, provide when instead of value and match. Omit assetId to show no image for a match. The first match supplies its image and optional description in Web Apps. Keep that row’s uuid through changes.",
 		),
 	});
 const intervalColumnInputArm = intervalColumnArm
@@ -307,6 +382,9 @@ const calculatedColumnInputArm = calculatedColumnArm
 		sort: columnSortInput(
 			"This column's order rule. A calculated column orders by its result, as a number where the expression gives a number and as text otherwise.",
 		),
+		texts: calculatedColumnArm.shape.texts.describe(
+			"Reusable wording in the calculated field. Give each piece its own UUID and source-language label, then read it using case-text('UUID') in the calculation. Keep each UUID when editing its wording. Translated calculations display and sort in the worker’s language.",
+		),
 		expression: valueExpressionInputSchema,
 	});
 
@@ -332,11 +410,17 @@ export const SEARCH_ANSWER_QUOTE_MARKS_GUIDANCE =
  * `CASE_TILE_HIDDEN_CALCULATED_SORT`, `CASE_LIST_SORT_LABEL_NOT_SHOWN`).
  */
 export const CASE_LIST_ORDER_GUIDANCE =
-	"Order: each column's sort is one rule, and the rule with the lowest priority decides first; the next breaks ties. Cases with no value come first when ascending and last when descending. A list keeps one rule for each value: a second rule over the same property, or over the same calculation, is refused. Where two columns read one property and order differently (a plain column and an ID mapping, say), the rule goes on whichever comes first in Results. With no rule at all, a list orders by its first column shown on Results, ascending. A column hidden from Results can carry a rule, and then orders by the saved value whatever its kind (a calculated column by its result); in a list with a case tile that holds for any column but a calculated one and one over case_id. Workers can also reorder the list from its Sort by menu, which lists each column shown on Results under its header; a column hidden from Results is listed there only under its sort's label, and a label on a column shown on Results is refused.";
+	"The lowest priority decides the default order. Later priorities break ties. With no rules, cases follow the first item shown on Results, ascending. Blanks come first when ascending and last when descending unless the rule changes that choice. A property rule belongs to the first Results field whose order key it uses. A hidden field can order by its saved value. In a tile, hidden calculated columns and hidden case IDs cannot carry a column rule. A named independent calculation in calculatedSorts can order the list without a display column. Two independent choices can use the same value under different names. A visible field is offered in Sort by under its heading. Give a hidden field a sort label to offer it as a worker choice. A sort-only property's menuPosition can place it before other extra fields without changing its priority.";
 
 export const columnInputSchema = z.discriminatedUnion("kind", [
 	plainColumnInputArm,
 	dateColumnInputArm,
+	dateCountColumnInputArm,
+	overdueMarkerColumnInputArm,
+	formattedTextColumnInputArm,
+	workerDistanceColumnInputArm,
+	mapLocationColumnInputArm,
+	mapLayerColumnInputArm,
 	phoneColumnInputArm,
 	idMappingColumnInputArm,
 	imageMapColumnInputArm,
@@ -364,6 +448,12 @@ export type ColumnInput = z.infer<typeof columnInputSchema>;
 export const columnUpdateInputSchema = z.discriminatedUnion("kind", [
 	plainColumnInputArm.omit({ tile: true, columnUuid: true }),
 	dateColumnInputArm.omit({ tile: true, columnUuid: true }),
+	dateCountColumnInputArm.omit({ tile: true, columnUuid: true }),
+	overdueMarkerColumnInputArm.omit({ tile: true, columnUuid: true }),
+	formattedTextColumnInputArm.omit({ tile: true, columnUuid: true }),
+	workerDistanceColumnInputArm.omit({ tile: true, columnUuid: true }),
+	mapLocationColumnInputArm.omit({ tile: true, columnUuid: true }),
+	mapLayerColumnInputArm.omit({ tile: true, columnUuid: true }),
 	phoneColumnInputArm.omit({ tile: true, columnUuid: true }),
 	idMappingColumnInputArm.omit({ tile: true, columnUuid: true }),
 	imageMapColumnInputArm.omit({ tile: true, columnUuid: true }),
@@ -406,7 +496,7 @@ export const tileCellInputSchema = tileCellSchema.extend({
 		`Column the field starts in, counting from 0 at the left edge. The grid is ${TILE_GRID_COLUMNS} columns wide, so x + width may not pass ${TILE_GRID_COLUMNS}.`,
 	),
 	y: tileCellSchema.shape.y.describe(
-		`Row the field starts in, counting from 0 at the top. The grid is ${TILE_GRID_ROWS} rows tall, so y + height may not pass ${TILE_GRID_ROWS}.`,
+		`Row the field starts in, counting from 0 at the top. The grid has a row for each field the tile shows, and at least ${TILE_MIN_ROWS}: y + height may not pass that. A Details tile counts each of its tabs as a field too.`,
 	),
 	width: tileCellSchema.shape.width.describe(
 		"How many columns the field spans. No two fields may cover the same square.",
@@ -429,6 +519,9 @@ export const tileCellInputSchema = tileCellSchema.extend({
 		.describe(
 			"Text size for this field: small, medium or large. Leave it out for medium. A tile's text has its own three sizes and never follows the rest of the list, so set small or large only where a field should recede or stand out.",
 		),
+	androidOnly: tileCellSchema.shape.androidOnly.describe(
+		"Show the raw value in this Results tile cell only on Android. Web Apps keeps its geometry and hides the value. Details tiles use normal rows on Android.",
+	),
 	showBorder: tileCellSchema.shape.showBorder.describe(
 		"Draw a box around this field. Turning it on for ANY field puts the WHOLE tile into boxed layout, which re-spaces every other field on the tile too — so decide it for the tile, not for one field.",
 	),
@@ -452,7 +545,7 @@ export const caseTileLayoutInputSchema = caseTileLayoutSchema.extend({
 				"The name of the case connection to group by, almost always `parent`. Grouping is by a CONNECTION, never by a property value: the heading is drawn from the first case in each group, which is only honest when every case in the group shares it.",
 			),
 			headerRows: caseTileGroupingSchema.shape.headerRows.describe(
-				`How many of the tile's top rows form the group heading. Rows above the line are drawn ONCE per group, from the group's first case; the rows below are drawn for every case. The line must be a clean cut: at least one field above it, at least one below it, and no field crossing it (a crossing field is drawn wholly in the heading, so every other case's value in it disappears). The grid is ${TILE_GRID_ROWS} rows tall.`,
+				`How many of the tile's top rows form the group heading. Rows above the line are drawn ONCE per group, from the group's first case; the rows below are drawn for every case. The line must be a clean cut: at least one field above it, at least one below it, and no field crossing it (a crossing field is drawn wholly in the heading, so every other case's value in it disappears).`,
 			),
 		})
 		.optional()
@@ -486,10 +579,11 @@ function refineSearchInputBoundary(
 				required?: { when?: Expression };
 				validation?: { rule: Expression };
 		  }
-		| { kind: "hidden"; value: Expression },
+		| { kind: "hidden"; value?: Expression },
 	ctx: z.RefinementCtx,
 ): void {
 	if (input.kind === "hidden") {
+		if (input.value === undefined) return;
 		if (expressionReadsCaseData(input.value)) {
 			ctx.addIssue({
 				code: "custom",
@@ -540,6 +634,19 @@ function refineSearchInputBoundary(
 	}
 }
 
+/** What a search for blank does on each kind of visible field. A simple field
+ * sends the blank beside the answer to CommCare HQ's own match; an advanced
+ * field's condition reads the answer as the device holds it, the blank joined
+ * before it (`#,#answer`, or empty with the box alone), and finds nothing
+ * unless it reads that spelling. */
+export const SEARCH_FOR_BLANK_DESCRIPTION =
+	"Web Apps also lets people find cases where this is blank; Android shows the field without the box. Use it on a simple field with exact or range matching (or matching project-space) on its own property under the same name. An advanced field's condition receives the blank joined before the answer (#,#answer, or an empty value when only the box is ticked), so a condition comparing the answer finds nothing; leave it off there unless the condition reads that spelling.";
+
+/** What hiding a field from Web Apps does, and what it can't carry
+ * (`hiddenSearchFieldRefusal`, which the gate enforces). */
+export const HIDDEN_SEARCH_FIELD_DESCRIPTION =
+	"Web Apps doesn't show the field and searches with its starting value as it stands; Android still shows it, where people can change it. A hidden field carries no hint, requirement, check or allowBlank, and a hidden text field matches its own property by its own name exactly (or matching project-space). For a value the search never matches, add a hidden value instead.";
+
 /**
  * The three prompt slots every visible arm shares. The descriptions are
  * shared by all visible input kinds. The tool description explains their
@@ -553,10 +660,16 @@ const visibleSearchInputSlots = {
 		.describe("Helper text under the input on the Search screen."),
 	required: searchInputRequiredSchema
 		.optional()
-		.describe("`{}` always; `when` conditional on sibling inputs."),
+		.describe(
+			"`{}` always; `when` conditional on sibling inputs. Without `message`, workers read Nova's sentence. `noMessage: true` keeps a field brought in with no message at all: Web Apps then waits for the answer without saying why, so don't set it otherwise.",
+		),
 	validation: searchInputValidationSchema
 		.optional()
-		.describe("One rule a nonblank answer must pass, with its message."),
+		.describe(
+			"One rule a nonblank answer must pass, with its message. Without `message`, workers read CommCare's own 'Sorry, this response is invalid!'.",
+		),
+	allowBlank: z.literal(true).optional().describe(SEARCH_FOR_BLANK_DESCRIPTION),
+	hidden: z.literal(true).optional().describe(HIDDEN_SEARCH_FIELD_DESCRIPTION),
 };
 
 const searchInputUuidSlot = {
@@ -572,6 +685,27 @@ const searchInputUuidSlot = {
  * exact seven final arms to both the SA and MCP surfaces.
  * Mirrors `columnInputSchema` for the search-input add / update tools.
  */
+/** The spelling a date range's calculated starting value must produce. The
+ * runtimes read a starting range only as two dates joined by " to "
+ * (`searchRangeAnswer.ts::startingSearchRange`); the gate checks only that the
+ * slot is text, so the model learns the spelling here. */
+export const STARTING_RANGE_EXAMPLE =
+	"concat(format-date(date-add(today(), -30, 'days'), '%Y-%m-%d'), ' to ', format-date(today(), '%Y-%m-%d'))";
+export const STARTING_RANGE_DESCRIPTION = `Where the range starts: {from, to} with ISO calendar dates, or a text calculation that gives the two dates as YYYY-MM-DD joined by ' to ', such as ${STARTING_RANGE_EXAMPLE} for the last 30 days.`;
+
+/** An author can give the two dates directly. A computed or brought-in
+ * starting value keeps its full device expression. Both write one slot. The
+ * description sits on the union, never on the expression node, so the wire
+ * projection keeps that node a `$ref`. */
+const startingRangeSchema = z
+	.union([
+		valueExpressionInputSchema,
+		searchStartingDatesSchema.transform((dates) =>
+			fixedSearchRangeExpression(dates.from, dates.to),
+		),
+	])
+	.describe(STARTING_RANGE_DESCRIPTION);
+
 export const searchInputDefInputSchema = z
 	.union([
 		simpleScalarSearchInputSchema.omit({ uuid: true }).extend({
@@ -580,6 +714,7 @@ export const searchInputDefInputSchema = z
 			default: valueExpressionInputSchema.optional(),
 		}),
 		simpleDateRangeSearchInputSchema.omit({ uuid: true }).extend({
+			default: startingRangeSchema.optional(),
 			...searchInputUuidSlot,
 			...visibleSearchInputSlots,
 		}),
@@ -595,6 +730,7 @@ export const searchInputDefInputSchema = z
 			predicate: predicateInputSchema,
 		}),
 		advancedDateRangeSearchInputSchema.omit({ uuid: true }).extend({
+			default: startingRangeSchema.optional(),
 			...searchInputUuidSlot,
 			...visibleSearchInputSlots,
 			predicate: predicateInputSchema,
@@ -610,7 +746,7 @@ export const searchInputDefInputSchema = z
 			/* The bare AST node, so the wire projection keeps it a `$ref`; a
 			 * `.describe()` here would clone the node past the projection's
 			 * identity map and inline the whole Expression family. */
-			value: valueExpressionInputSchema,
+			value: valueExpressionInputSchema.optional(),
 		}),
 	])
 	.superRefine(refineSearchInputBoundary);
@@ -625,6 +761,7 @@ export const searchInputUpdateInputSchema = z
 			default: valueExpressionInputSchema.optional(),
 		}),
 		simpleDateRangeSearchInputSchema.omit({ uuid: true }).extend({
+			default: startingRangeSchema.optional(),
 			...visibleSearchInputSlots,
 		}),
 		simpleSelectSearchInputSchema.omit({ uuid: true }).extend({
@@ -637,6 +774,7 @@ export const searchInputUpdateInputSchema = z
 			predicate: predicateInputSchema,
 		}),
 		advancedDateRangeSearchInputSchema.omit({ uuid: true }).extend({
+			default: startingRangeSchema.optional(),
 			...visibleSearchInputSlots,
 			predicate: predicateInputSchema,
 		}),
@@ -646,7 +784,7 @@ export const searchInputUpdateInputSchema = z
 			predicate: predicateInputSchema,
 		}),
 		hiddenSearchInputSchema.omit({ uuid: true }).extend({
-			value: valueExpressionInputSchema,
+			value: valueExpressionInputSchema.optional(),
 		}),
 	])
 	.superRefine(refineSearchInputBoundary);
@@ -693,33 +831,58 @@ export function columnListStateRefusal(
  * Used by `addCaseListColumns` (uuid minted via `newUuid`) and
  * `updateCaseListColumn` (uuid carried through from `columnUuid`).
  */
+import { bindWorkerColumn } from "@/lib/domain/columnRelation";
+import type { UserCollections } from "@/lib/domain/users";
+
 export function stampColumnUuid(
 	column: ColumnInput | ColumnUpdateInput,
 	uuid: Uuid,
+	doc?: UserCollections,
+	previous?: Column,
 ): Column {
 	const { columnUuid: _declaredUuid, ...body } = column as ColumnInput;
 	const via = "via" in body ? body.via : undefined;
-	return {
-		...body,
-		...(via !== undefined && { via: toCaseWriteVia(via) }),
-		/* A column off the list is hidden on Results too, so `notOnList`
-		 * writes `visibleInList: false` with it. One sent shown as well is
-		 * `columnListStateRefusal`'s, and left as sent for the gate. */
-		...(body.notOnList === true &&
-			body.visibleInList === undefined && { visibleInList: false }),
-		...(body.tile !== undefined && { tile: tileCellFromInput(body.tile) }),
-		/* A rule is stored in its one form: `blanks` equal to the
-		 * direction's own is left out. */
-		...(body.sort !== undefined && {
-			sort: columnSort(
-				body.sort.direction,
-				body.sort.priority,
-				body.sort.blanks,
-				body.sort.label,
-			),
-		}),
-		uuid,
-	} as Column;
+	return bindWorkerColumn(
+		{
+			...body,
+			...((body.kind === "image-map" || body.kind === "id-mapping") && {
+				mapping: body.mapping.map((row) => {
+					if (row.uuid !== undefined) return row;
+					const prior =
+						previous?.kind === body.kind
+							? previous.mapping.find(
+									(item) =>
+										caseMappingComparison(item) === caseMappingComparison(row),
+								)
+							: undefined;
+					return prior === undefined
+						? { ...row, uuid: newUuid() }
+						: { ...row, ...(prior.uuid && { uuid: prior.uuid }) };
+				}),
+			}),
+			...(via !== undefined && { via: toCaseWriteVia(via) }),
+			/* A column off the list is hidden on Results too, so `notOnList`
+			 * writes `visibleInList: false` with it. One sent shown as well is
+			 * `columnListStateRefusal`'s, and left as sent for the gate. */
+			...(body.notOnList === true &&
+				body.visibleInList === undefined && { visibleInList: false }),
+			...(body.tile !== undefined && { tile: tileCellFromInput(body.tile) }),
+			/* A rule is stored in its one form: `blanks` equal to the
+			 * direction's own is left out. */
+			...(body.sort !== undefined && {
+				sort: columnSort(
+					body.sort.direction,
+					body.sort.priority,
+					body.sort.blanks,
+					body.sort.label,
+					body.sort.comparator,
+					body.sort.menuPosition,
+				),
+			}),
+			uuid,
+		} as Column,
+		Object.values(doc?.userProperties ?? {}),
+	);
 }
 
 /** The cell an input places: its rectangle, with each presentation slot the

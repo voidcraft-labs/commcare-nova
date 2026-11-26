@@ -242,6 +242,7 @@ import {
 	type UploadErrorType,
 } from "../errors";
 import { loadAppBlueprint } from "../loadApp";
+import { fitsReviewResult } from "../paging";
 import { deriveRunId } from "../runId";
 import { registerScopedTool } from "../scopedTool";
 import { assertScope, SCOPES } from "../scopes";
@@ -283,6 +284,7 @@ export const UPLOAD_ERROR_TAGS = {
 	managed_table_handed_back: "managed_table_handed_back",
 	/** The app's organization does not fit the target's levels. */
 	hq_organization_mismatch: "hq_organization_mismatch",
+	hq_place_ids_need_setup: "hq_place_ids_need_setup",
 	/** Required target support is missing or could not be verified. */
 	project_space_incompatible: "project_space_incompatible",
 	/** The current HQ app source could not be read safely for an update. */
@@ -452,42 +454,54 @@ function makeConflictError(
  * stop during the resource push lists nothing: calling again reads CommCare
  * HQ afresh and lists what changed then.
  */
-function makeRemoteChangesError(
+export function makeRemoteChangesError(
 	message: string,
 	appId: string,
 	changes: readonly DeploymentRemoteChange[],
 	answer: PlacementAnswer,
 ): McpToolErrorResult {
+	const body = {
+		error_type: UPLOAD_ERROR_TAGS.hq_changed,
+		message,
+		app_id: appId,
+		remote_changes: changes.map((change) => ({
+			kind: change.kind,
+			nova_resource_id: change.novaResourceId,
+			name: change.name,
+			hq_name: change.identity,
+			parts: change.parts,
+			note: change.note,
+			observed_digest: change.observedDigest,
+			baseline_known: change.baselineKnown,
+			/* What the change is measured against: the last publish, the
+			 * bring-in at `at`, or the last bring-in of changes. */
+			since: change.since,
+			/* Whether `read_hq_changes` can read this change and
+			 * `bring_in_hq_changes` take it: the app's own change over a
+			 * usable pair, and never a table's or a place's. */
+			can_bring_in: change.canBringIn,
+			...(change.requiresReview && { requires_review: true }),
+			/* The parts begin with menu layouts CommCare HQ holds that this
+			 * publish would replace, there since before Nova wrote them. */
+			...(change.replacesMenuLayouts && { replaces_menu_layouts: true }),
+		})),
+		...answer,
+	};
+	// Withhold the overwrite receipt when this surface cannot show all the
+	// app, table or place changes. Publishing in the Builder shows every entry.
+	const response = !fitsReviewResult(body, true)
+		? {
+				error_type: UPLOAD_ERROR_TAGS.hq_changed,
+				app_id: appId,
+				requires_review: true,
+				message:
+					"The complete list of changes in CommCare HQ needs more room. Open Publishing in the Builder to review what would change before choosing which version to keep.",
+				placements: answer.placements,
+			}
+		: body;
 	return {
 		isError: true,
-		content: [
-			{
-				type: "text",
-				text: JSON.stringify({
-					error_type: UPLOAD_ERROR_TAGS.hq_changed,
-					message,
-					app_id: appId,
-					remote_changes: changes.map((change) => ({
-						kind: change.kind,
-						nova_resource_id: change.novaResourceId,
-						name: change.name,
-						hq_name: change.identity,
-						parts: change.parts,
-						note: change.note,
-						observed_digest: change.observedDigest,
-						baseline_known: change.baselineKnown,
-						/* What the change is measured against: the last publish, the
-						 * bring-in at `at`, or the last bring-in of changes. */
-						since: change.since,
-						/* Whether `read_hq_changes` can read this change and
-						 * `bring_in_hq_changes` take it: the app's own change over a
-						 * usable pair, and never a table's or a place's. */
-						can_bring_in: change.canBringIn,
-					})),
-					...answer,
-				}),
-			},
-		],
+		content: [{ type: "text", text: JSON.stringify(response) }],
 	};
 }
 
@@ -791,6 +805,7 @@ export function registerUploadAppToHq(
 					 * omitted and whitespace-only inputs to the blueprint's
 					 * denormalized name, which the schema keeps non-blank. */
 					const outcome = await publishAppToHq({
+						dataGrant: ctx.grant,
 						requireHqImport: () =>
 							assertScope(ctx, SCOPES.hqImport, "upload_app_to_hq"),
 						scope: {

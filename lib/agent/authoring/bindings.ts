@@ -6,16 +6,19 @@ import {
 import {
 	asUuid,
 	type BlueprintDoc,
+	type CaseListConfig,
 	type CaseType,
 	caseDataTypeForFieldKind,
 	caseSelectionCardinality,
 	effectiveCaseTypes,
 	type FieldKind,
 	type Module,
+	menuWithInheritedCaseSettings,
 	moduleUuidOfForm,
 	searchInputRuntimeValueType,
 	type Uuid,
 } from "@/lib/domain";
+import { detailTabForColumn } from "@/lib/domain/detailTabs";
 import {
 	type RecordQueryContext,
 	recordQueryContext,
@@ -33,16 +36,23 @@ import {
 import { formRecordScope } from "@/lib/domain/formRecordScope";
 import {
 	caseReferenceText,
+	HASHTAG_SEGMENT_SOURCE,
 	readCaseReference,
 } from "@/lib/domain/hashtagSegments";
+import { lookupReadTypes } from "@/lib/domain/lookupRead";
 import { isSearchOnlyCaseProperty } from "@/lib/domain/standardCaseProperties";
 import { userPropertiesOf } from "@/lib/domain/users";
 import type { LookupTableDefinition } from "@/lib/lookup/types";
 import { AuthoringInputError } from "./errors";
-import { quoteAuthoringLiteral as quote } from "./expressionSyntax";
+import {
+	parseAuthoringExpression,
+	quoteAuthoringLiteral as quote,
+} from "./expressionSyntax";
 import { fieldNameCandidates, fieldPathCandidates } from "./fieldNames";
-import type { QueryPrintContext } from "./printQueryExpression";
+import { type QueryPrintContext, rowCaseType } from "./printQueryExpression";
 import type { QueryBindings } from "./queryExpressions";
+
+const hashtagSegment = new RegExp(`^${HASHTAG_SEGMENT_SOURCE}$`);
 
 export interface NamedAuthoringField {
 	uuid: Uuid;
@@ -52,21 +62,87 @@ export interface NamedAuthoringField {
 
 /** A nested value inherits its enclosing table and the Search validation slot.
  * Reads and writes use this same scope selection. */
+export function enclosingLookupIdentity(
+	input: unknown,
+	path: readonly (string | number)[],
+	key: "tableId" | "columnId",
+	initial?: string,
+) {
+	let enclosing = input,
+		id = initial;
+	for (const segment of path) {
+		if (enclosing !== null && typeof enclosing === "object") {
+			const object = enclosing as Record<string | number, unknown>;
+			const value = object[key];
+			if (typeof value === "string") id = value;
+			enclosing = object[segment];
+		}
+	}
+	return id;
+}
+
 export function enclosingAuthoringTable(
 	input: unknown,
 	path: readonly (string | number)[],
 	initial?: string,
 ) {
-	let enclosing = input;
-	let tableId = initial;
-	for (const segment of path) {
-		if (enclosing !== null && typeof enclosing === "object") {
-			if ("tableId" in enclosing && typeof enclosing.tableId === "string")
-				tableId = enclosing.tableId;
-			enclosing = (enclosing as Record<string | number, unknown>)[segment];
-		}
+	return enclosingLookupIdentity(input, path, "tableId", initial);
+}
+
+/** The rows a field of a Details tab reads: a child tab's child cases, a
+ *  records tab's cases of one type or its table's rows. A field of a tab of
+ *  places or of the selected case keeps the menu's scope. */
+function detailTabFieldRows(
+	list: object,
+	index: unknown,
+): { caseType?: string; tableId?: string } | undefined {
+	if (typeof index !== "number" || !("detailTabs" in list)) return undefined;
+	const config = list as CaseListConfig;
+	const column = config.columns?.[index];
+	if (!column || !config.detailTabs || !config.detailColumnOrder)
+		return undefined;
+	const source = detailTabForColumn(config, column.uuid)?.rowSource;
+	if (source?.kind === "children") return { caseType: source.caseType };
+	if (source?.kind !== "records" || typeof source.rows !== "object")
+		return undefined;
+	if (source.rows.kind === "table-rows")
+		return { tableId: source.rows.tableId };
+	if (source.rows.kind === "cases") {
+		const caseType = rowCaseType(source.rows);
+		return caseType === undefined ? undefined : { caseType };
 	}
-	return tableId;
+	return undefined;
+}
+
+/** The rows a field added with a tab in one edit reads: the tab's child
+ *  type, or the first argument of its authored `cases(…)` or `table-rows(…)`
+ *  collection, read by the dialect's own parser. */
+function authoredTabRows(
+	tab: object,
+): { caseType?: string; tableId?: string } | undefined {
+	if (!("rowSource" in tab)) return undefined;
+	const source = tab.rowSource as
+		| { kind?: unknown; caseType?: unknown; rows?: unknown }
+		| null
+		| undefined;
+	if (source?.kind === "children" && typeof source.caseType === "string")
+		return { caseType: source.caseType };
+	if (source?.kind !== "records" || typeof source.rows !== "string")
+		return undefined;
+	let rows: ReturnType<typeof parseAuthoringExpression>;
+	try {
+		rows = parseAuthoringExpression(source.rows);
+	} catch {
+		return undefined;
+	}
+	const first = rows.kind === "call" ? rows.args[0] : undefined;
+	if (first?.kind !== "literal" || typeof first.value !== "string")
+		return undefined;
+	if (rows.kind === "call" && rows.name === "cases")
+		return { caseType: first.value };
+	if (rows.kind === "call" && rows.name === "table-rows")
+		return { tableId: first.value };
+	return undefined;
 }
 
 export function authoringValueScope(
@@ -77,15 +153,28 @@ export function authoringValueScope(
 ): AuthoringScope {
 	let enclosing = input;
 	let candidateCaseType: string | undefined;
-	for (const segment of path) {
+	let rowTable: string | undefined;
+	for (const [at, segment] of path.entries()) {
 		if (enclosing !== null && typeof enclosing === "object") {
+			// A Details tab over child cases holds its filter beside the child
+			// type, so the filter reads each child as its row.
 			if (
 				"kind" in enclosing &&
-				enclosing.kind === "cases" &&
+				(enclosing.kind === "cases" || enclosing.kind === "children") &&
 				"caseType" in enclosing &&
 				typeof enclosing.caseType === "string"
 			)
 				candidateCaseType = enclosing.caseType;
+			// A field of a Details tab over other records reads one of them,
+			// whether the tab is saved or authored in the same edit.
+			const rows =
+				segment === "columns"
+					? detailTabFieldRows(enclosing, path[at + 1])
+					: segment === "addFields"
+						? authoredTabRows(enclosing)
+						: undefined;
+			if (rows?.caseType) candidateCaseType = rows.caseType;
+			if (rows?.tableId) rowTable = rows.tableId;
 			enclosing = (enclosing as Record<string | number, unknown>)[segment];
 		}
 	}
@@ -96,7 +185,7 @@ export function authoringValueScope(
 			selectedCaseType: options.currentCaseType,
 			currentCaseType: candidateCaseType,
 		}),
-		tableId: enclosingAuthoringTable(input, path, options.tableId),
+		tableId: rowTable ?? enclosingAuthoringTable(input, path, options.tableId),
 		...(searchValidation &&
 			path.some((part) => part === "required" || part === "validation") && {
 				patternMatching: true,
@@ -122,7 +211,9 @@ export function readScopeOptions(
 		tables,
 		formUuid,
 		moduleUuid: module,
-		currentCaseType: module ? doc.modules[module]?.caseType : undefined,
+		currentCaseType: module
+			? menuWithInheritedCaseSettings(doc, module)?.caseType
+			: undefined,
 		operations: formUuid
 			? (doc.forms[formUuid]?.caseOperations ?? []).map((operation) => ({
 					uuid: operation.uuid,
@@ -211,10 +302,7 @@ export class AuthoringScope implements QueryBindings, QueryPrintContext {
 			}));
 		this.tables = options.tables ?? [];
 		const lookupTables = new Map(
-			this.tables.map((table) => [
-				table.id,
-				new Map(table.columns.map((column) => [column.id, column.dataType])),
-			]),
+			this.tables.map((table) => [table.id, lookupReadTypes(table)]),
 		);
 		const table = options.tableId ? this.table(options.tableId) : undefined;
 		this.formCaseTypes =
@@ -452,11 +540,44 @@ export class AuthoringScope implements QueryBindings, QueryPrintContext {
 			`Column ${name} in ${table.name}`,
 		);
 	}
-	/** The app's menus, in menu order. */
+	memberIdentity(tableId: string, columnId: string | undefined, name: string) {
+		const table = this.table(tableId);
+		const members =
+			columnId === undefined
+				? table.attributes
+				: this.column(table, columnId).properties;
+		const identity = members?.find((member) => member.id === name);
+		return (
+			identity ??
+			one(
+				members ?? [],
+				(member) => member.wireName === name || member.label === name,
+				`Detail ${name} in ${table.name}`,
+			)
+		).id;
+	}
+	memberName(tableId: string, columnId: string | undefined, id: string) {
+		const table = this.table(tableId);
+		const members =
+			columnId === undefined
+				? table.attributes
+				: this.column(table, columnId).properties;
+		const member = members?.find((value) => value.id === id);
+		if (!member) return id;
+		try {
+			return this.memberIdentity(tableId, columnId, member.wireName) === id
+				? member.wireName
+				: id;
+		} catch {
+			return id;
+		}
+	}
+	/** The app's menus, in menu order. A menu listing another menu's forms
+	 *  carries the case type and selection of the menu that supplies them. */
 	private modules(): Module[] {
 		const { doc } = this.options;
 		return doc.moduleOrder
-			.map((uuid) => doc.modules[uuid])
+			.map((uuid) => menuWithInheritedCaseSettings(doc, uuid))
 			.filter((module): module is Module => module !== undefined);
 	}
 	/** A menu by its UUID, its name or its id, matching exactly one module. */
@@ -495,12 +616,25 @@ export class AuthoringScope implements QueryBindings, QueryPrintContext {
 		return { module: module.uuid, caseType: module.caseType };
 	}
 	identity(
-		kind: "table" | "column" | "operation" | "location" | "level" | "module",
+		kind:
+			| "table"
+			| "column"
+			| "operation"
+			| "location"
+			| "level"
+			| "module"
+			| "place-property",
 		name: string,
 		owner?: string,
 	): string {
 		if (kind === "module") return this.module(name).uuid;
 		if (kind === "table") return this.table(name).id;
+		if (kind === "place-property")
+			return one(
+				Object.values(this.options.doc.locationProperties ?? {}),
+				(property) => property.uuid === name || property.slug === name,
+				`Place property ${name}`,
+			).uuid;
 		if (kind === "column") {
 			if (!owner)
 				throw new AuthoringInputError(
@@ -545,12 +679,21 @@ export class AuthoringScope implements QueryBindings, QueryPrintContext {
 		});
 	}
 	name(
-		kind: "table" | "column" | "operation" | "location" | "level" | "module",
+		kind:
+			| "table"
+			| "column"
+			| "operation"
+			| "location"
+			| "level"
+			| "module"
+			| "place-property",
 		id: string,
 		owner?: string,
 	): string {
 		let name: string | undefined;
 		if (kind === "module") name = this.options.doc.modules[id as Uuid]?.name;
+		else if (kind === "place-property")
+			name = this.options.doc.locationProperties?.[id as Uuid]?.slug;
 		else if (kind === "table")
 			name = this.tables.find((table) => table.id === id)?.name;
 		else if (kind === "column")
@@ -574,6 +717,22 @@ export class AuthoringScope implements QueryBindings, QueryPrintContext {
 			}
 		}
 		return id;
+	}
+	forDeviceRecords(caseType?: string): AuthoringScope {
+		return new AuthoringScope({
+			...this.options,
+			currentCaseType: caseType,
+			tableId: undefined,
+		});
+	}
+	forRows(caseType: string): AuthoringScope {
+		const { tableId: _table, ...options } = this.options;
+		return new AuthoringScope({
+			...options,
+			candidateCaseType: caseType,
+			selectedCaseType: this.currentCaseType,
+			currentCaseType: caseType,
+		});
 	}
 	forTable(tableId: string): AuthoringScope {
 		return new AuthoringScope({
@@ -602,10 +761,12 @@ export class AuthoringScope implements QueryBindings, QueryPrintContext {
 		}
 		if (term.kind === "session-user-property") {
 			const property = this.options.doc.userProperties?.[term.userPropertyUuid];
-			return property ? `user(${quote(property.slug)})` : undefined;
+			if (!property) return undefined;
+			const read = `user(${quote(property.slug)})`;
+			return term.source === "worker-record" ? `worker-record(${read})` : read;
 		}
 		if (term.kind === "session-user")
-			return `external-user(${quote(term.field)})`;
+			return `${term.source === "worker-record" ? "worker-record" : "external-user"}(${quote(term.field)})`;
 		if (
 			term.kind === "prop" &&
 			!term.via &&
@@ -622,7 +783,7 @@ export class AuthoringScope implements QueryBindings, QueryPrintContext {
 			const column = this.table(term.tableId).columns.find(
 				(column) => column.id === term.columnId,
 			);
-			if (column) {
+			if (column && hashtagSegment.test(column.wireName)) {
 				try {
 					if (
 						this.column(this.table(term.tableId), column.wireName).id ===

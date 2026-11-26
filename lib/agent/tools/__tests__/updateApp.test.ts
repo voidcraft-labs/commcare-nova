@@ -99,6 +99,54 @@ describe("updateApp", () => {
 		},
 	);
 
+	it("switches menu policies independently and restores the default list", async () => {
+		const harness = makeToolWorkspaceHarness(fixture());
+		const grids = await harness.runTool(updateAppTool, {
+			first_menu_layout: "grid",
+			form_menu_layout: "individual",
+		});
+		expect(grids.result).toEqual({
+			ok: true,
+			summary: { menuLayouts: { first: "grid", forms: "individual" } },
+		});
+		const list = await harness.runTool(updateAppTool, {
+			first_menu_layout: "list",
+		});
+		expect(list.result).toEqual({
+			ok: true,
+			summary: { menuLayouts: { first: "list" } },
+		});
+		expect(harness.currentDoc().appSettings).toEqual({
+			...NEW_APP_SETTINGS,
+			formMenuLayout: "individual",
+		});
+	});
+
+	it.each([true, false])(
+		"sets whether every form requests the device location to %s and names it in the summary",
+		async (on) => {
+			const harness = makeToolWorkspaceHarness(
+				fixture({
+					...NEW_APP_SETTINGS,
+					...(!on && { captureLocation: true as const }),
+				}),
+			);
+			const outcome = await harness.runTool(updateAppTool, {
+				capture_location: on,
+			});
+			expect(outcome.mutations).toEqual([
+				{ kind: "setAppSettings", settings: { captureLocation: on } },
+			]);
+			expect(outcome.result).toEqual({
+				ok: true,
+				summary: { captureLocation: on },
+			});
+			expect(harness.currentDoc().appSettings.captureLocation === true).toBe(
+				on,
+			);
+		},
+	);
+
 	it("names the app and sets both settings in one batch", async () => {
 		const harness = makeToolWorkspaceHarness(fixture());
 		const outcome = await harness.runTool(updateAppTool, {

@@ -41,6 +41,17 @@ compiler briefs, and slice executors are retired. Historical database artifacts
 are retained for inspection; serving code does not translate or execute them.
 The one-time transition is in `docs/architecture/design-format-cutover.md`.
 
+## Project data authoring
+
+The shared lookup tools use the app’s Project and the caller’s live grant.
+The rows-free catalog pages stable column and detail identities. A schema edit
+reviews every referencing app under one Project and table revision.
+Ordinary row pages can return text fragments. Individual value reads and staged
+UTF-8 replacements address the exact row, column or detail and occurrence.
+A staged edit binds the app, caller, grant, operation ID, table revision and value
+digest. A protected source inventory requires its own connected editor or worker
+read. The general catalog carries its availability without counts or source rows.
+
 ## Library discovery and source selection
 
 The shared `listMediaAssets` operation searches the current Project's whole
@@ -343,3 +354,11 @@ An architect that consumes its durable request allowance pauses through the same
 message continuation contract as an ordinary pause. Completed tool effects remain
 acknowledged, reconnect spends no new request, and a new user turn may continue.
 A final accepted response may complete at the exact allowance.
+
+### Question display in shared tools
+
+`toolSchemaGenerator.ts::questionDisplayFields` projects one set of optional display settings into both `addFields` and `editField`. The flat tool schema carries the union of choices and validates each field's values through its kind-specific patch schema. A null clears a setting on an edit. Structured choice layouts, counts, channels and returned fields go to the same mutation slots the visual inspector uses.
+
+The deep-link inventory includes the case creation operations a form can expose and which are supplied. Adding or updating a form link can choose these operation UUIDs in the same gated batch. The source form keeps its choices when its ordinary deep link is removed.
+
+A date-range Search field accepts an inclusive `{from, to}` calendar pair or a text-valued calculation in its `default` argument. The case-list tools turn the pair into a single fixed expression. The app document keeps that expression. The ordinary `getModule` shared read returns an encoded fixed pair as `{from, to}` and any other calculation in its ordinary expression vocabulary, so writing back a human-readable date calculation preserves its worker-zone behavior. A form check that reads search results uses the answers actually submitted by that search, including Web Apps’ formatting of its displayed dates. A form reached separately keeps the original starting answer. Public date overrides use both endpoint keys and reject invalid or reversed dates.

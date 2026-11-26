@@ -135,15 +135,21 @@ describe("targeted-ancestor-index-names", () => {
 		});
 	});
 
-	it("opens each form under its own command and exactly its entry's case values", () => {
+	it("reaches the child selector with the parent datum and the form with the full entry", () => {
 		const expected = document.expected as Expected;
 		expect(expected.intent.length).toBeGreaterThan(0);
 		for (const expectation of expected.intent) {
 			const { command } = hqForm(expectation.form);
 			expect(expectation.request.session?.command).toBe(command);
+			const datums = entryDatums(expectation.form);
 			expect(Object.keys(expectation.request.session?.data ?? {})).toEqual(
-				entryDatums(expectation.form),
+				expectation.request.caseList ? datums.slice(0, 1) : datums,
 			);
+			if (expectation.request.caseList)
+				expect(expectation.expect).toContainEqual({
+					pointer: "/caseList/datum",
+					value: datums[1],
+				});
 		}
 	});
 });

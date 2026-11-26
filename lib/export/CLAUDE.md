@@ -73,9 +73,15 @@ shared registry.
 
 Every mode carries lookup data, so every mode reads rows; what is mode-split is
 the CARRIER and therefore the size verdict. `ccz` builds the embedded fixture
-blocks up front (`lookupWire` carries the naming and the exact serialized
-elements the budget measured) and takes the aggregate 10,000-row /
-100,000-cell / 16 MiB budget (`LOOKUP_FIXTURE_EXPORT_TOO_LARGE`). `hq-json` and
+blocks up front for the tables its snapshot holds inline (`lookupWire` carries
+the naming and the exact serialized elements the budget measured) and walks
+every other complete global table a page at a time into `suite.xml`
+(`streamedTables`, Nova's own and a complete copy of a table CommCare HQ
+manages alike: `lib/lookup/fixtureSnapshot.ts`'s `download-archive`). The
+aggregate 10,000-row / 100,000-cell / 16 MiB budget
+(`LOOKUP_FIXTURE_EXPORT_TOO_LARGE`) bounds only the inline part, which the
+snapshot keeps far below it. The HQ modes stream only Nova's own tables: a
+copy of a table CommCare HQ manages is written by its own rule below. `hq-json` and
 `hq-upload` build the fixapi workbook (`lookupWorkbook`) and take CommCare HQ's
 whole-workbook row ceiling (`LOOKUP_HQ_PUSH_TOO_LARGE`), their one size
 verdict. A 32-character tag pushes, so the workbook builder is total over every
@@ -87,12 +93,14 @@ it. `hq-upload` takes the project space it writes to as `lookupTarget` and
 leaves out of its workbook every table managed in exactly that server and
 domain; CommCare HQ's upload leaves a table it is not sent alone, and a managed
 table of another project space goes in and is made there from Nova's copy.
-`hq-json` is made for no project space, so it puts every managed table in a
-workbook of the project space that manages it (`managedLookupWorkbooks`, one
-per project space, which the HQ app file names
-`lookup-tables-managed-in-<domain>.xlsx` and its guide tells a person to leave
-out only when importing into that space) and the rest in the first. `ccz`
-embeds every table. `managedLookupTables` lists every table the mode left out
+`hq-json` names tables whose source-managed index settings or audience Nova
+cannot reproduce. Its guide identifies the original server and project space and
+how to prepare the same table or choose different data for another destination.
+Portable managed tables go in one workbook per source project space
+(`lookup-tables-managed-in-<domain>.xlsx`). The guide lists each table in its
+actual file. A device can install verified global rows even when source index
+settings are unavailable. Assigned rows need that worker's authorized restore.
+`managedLookupTables` lists every table the mode left out
 of `lookupWorkbook`, in the definitions' order, and `lookupWorkbook` is absent
 where no table goes. The HQ cell-text check, the reserved tag and the workbook
 row ceiling judge only the tables a workbook carries, each workbook over its
@@ -142,3 +150,46 @@ carrying the findings' lines, and it runs in Preview until an edit clears the
 finding. An app that does not declare Android has no `.ccz` at all:
 `chooseDownloadTarget` refuses it with `not-declared-for-android` before any
 project space.
+
+
+## Private files and large exports
+
+The HTTP compile routes and MCP `compile_app` use the same streaming archive and
+`lib/export/artifacts` gateway. Ordinary files up to 1 MiB may travel inline.
+Larger files and named private assignment files have an immutable SHA-256
+manifest with one-hour retention. The gateway reserves Project storage before
+each create-only object write, records its generation and returns only
+authenticated ranges. Preparation can resume an interrupted write from the
+same actor, grant, input revisions and deployed revision. Browser downloads
+support a single HTTP byte range. MCP resources carry bounded 192 KiB chunks.
+A role change, expired session or key, changed app or Project data, target
+mapping or protected destination witness ends access to the old file. Credentials
+and signed object URLs never travel in a manifest. The reclaim operation
+deletes the specific stored generation before returning its physical charge.
+
+Worker assignment exports need an editor, the selected HQ destination and
+verified principals there. A bearer also needs `nova.projects.data.export`.
+Generic import files omit worker rows and explain the destination setup.
+Media streams from ready assets scoped to the Project. Its stored length and
+SHA-256 must match before delivery. Native ZIPs and their multipart upload
+stream one member at a time. Complete local global tables exceeding the inline
+workspace are walked in stable order under their pinned app and Project
+revisions. Streaming XLSX files pack only whole tables within HQ’s physical
+row limit and retain each table’s data and header sheets together.
+
+
+A device install with private fixtures requires the current deployment’s app
+and table mappings. The destination must return the expected ID, tag,
+distribution, fields, occurrence properties and row attributes. A managed
+table may supply its ID at its own origin. The install references the native
+fixture, and each worker receives authorized rows from HQ’s own restore.
+The gateway repeats this check on each range. API-key authority changes rotate
+a durable epoch, including removal and restoration of the same scope.
+
+The direct workbook read-back compares the complete intended definition and
+ordered row digest before the app's content is sent. Both the small workbook
+and streamed workbook derive that digest from the same occurrence and
+attribute projection. An ambiguous or incomplete read retains a recovery
+point for the destination.
+
+The streaming archive writer uses the exact reviewed yazl version. Its postinstall correction keeps the ZIP64 central-directory offset independent of a small member’s data-descriptor width. The Android installer’s Java stream reader chooses that width from the member’s actual compressed and uncompressed lengths. Normal installation, production image assembly and the Linux proof dependency volume each apply the same exact-input correction. Archive tests retain sequential and directory reads beyond the 4 GiB offset.

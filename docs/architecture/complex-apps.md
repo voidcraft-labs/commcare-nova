@@ -162,6 +162,8 @@ It never reassigns cases: removing the last worker merely leaves existing
 `owner_id` values orphaned, matching HQ's warning-only behavior. Because place
 rows are keyed by app rather than Project, the authoritative cross-Project app
 move carries the whole organization without a second retenant operation.
+Organization reads use revision-bound root and child pages with searchable parent paths. Worker Preview selects the physical places and ancestors granted by its persona's address books. Case-owner rules separately prove that each assigned source resolves to exactly one reachable case-owning place. The managed place source pairs the authenticated location v1 and v2 inventories by server, domain, durable location ID and matching observed fields. This preserves external IDs, source lexemes, nullable labels and the worker's native text. Transferring to another space uses that space's levels and mapped locations and keeps target-only information. An external ID travels in a destination-bound organization workbook and is checked again at the v1 detail resource before publication continues.
+
 `lib/domain/CLAUDE.md` and `lib/organization/CLAUDE.md` own the implementation
 detail.
 
@@ -565,6 +567,13 @@ stored Project, strictly replays every later mutation-bearing row, applies
 each Project move only when its source matches the rolling Project, and must
 finish at the current state and `apps.project_id`.
 
+A schema conversion also preserves the comparison for each live HQ deployment.
+Its published revision, the server changes that apply there, the people who
+edited since publication and the case-property renames are captured under the
+same locks as the new fold. A later review starts at that target’s certified
+comparison and folds forward to the current head. The deployment’s published
+revision advances when a publish or a bring-in records what actually landed.
+
 The browser frame is deliberately narrower: reconciliation accepts only
 `autosave | mcp | chat` (`lib/collab/mutationFrame.ts`), and a post-cursor
 suffix containing a server-only kind emits zero mutation frames — the client
@@ -598,9 +607,7 @@ byte accounting, optimistic table revisions, and a Project-wide realtime
 invalidation clock. `lib/lookup` is the sole persistence boundary and speaks Nova
 vocabulary only; `lib/lookup/CLAUDE.md` is its contract.
 
-Caps are 5,000 rows and 8 MiB per table, measured as exact Postgres bytes rather
-than estimated. These bound what a client can be asked to load, which is what
-makes client-side choice evaluation viable.
+Project storage budgets account for committed data and reserved uploads. Each inline operation and each response has its own size limit. Existing rows and large text can be updated through revision-bound projections, addressed patches and staged UTF-8 byte spans.
 
 Table schema governance — deleting a table, removing a column, retyping a column —
 lives in `lib/lookup/schemaGovernance.ts::applyLookupSchemaGovernanceInTransaction`.
@@ -636,9 +643,7 @@ Project, as a permanent subtitle rather than a dismissible notice, because a
 deep link never passes the door.
 
 **Editing is row-shaped, and the row is the unit of concurrency.** The grid is
-a real `<table>` in pages of 50; a selected row edits in the rail with one
-correctly-typed control per column; bulk change goes through atomic CSV
-replacement. A table's optimistic token is
+a real `<table>` in server windows of 25. Search covers the whole table. A selected row opens typed controls in the rail. The large-row inspector pages individual slots and accepts a replacement span or file. CSV replaces scalar rows. Authored structured rows retain each ordered occurrence and its own details. A table's optimistic token is
 `max(definitionRevision, rowsRevision)`, so any concurrent change invalidates
 it; a refused write retries only when a fresh read proves the edit is still
 the same edit — byte-identical row AND unmoved column definitions — while CSV
@@ -725,32 +730,25 @@ condition slot), validated by
 `lib/commcare/validator/rules/displayConditions.ts` and emitted through
 `lib/commcare/suite/displayConditions.ts`.
 
-The validator's restrictions are wire-forced, not stylistic:
+A visibility condition evaluates while the worker chooses a menu or form.
+A menu can query restored case rows and data tables before the worker
+selects a case. A form can use the chosen case, including its linked rows,
+when the physical screen has selected that case and HQ can apply the filter
+to that command. HQ excludes the worker's own restored record from its
+forms-first restriction on case queries. Sign-in values and worker-record
+properties have distinct typed sources. In a case-list filter the case store
+binds a worker-record read to the authorized worker and Project.
 
-- A relevancy expression that throws at render takes down the **entire** Web Apps
-  menu screen, not just the offending item — `MenuLoader::getMenuDisplayables`
-  catches and `MenuScreen::init` rethrows at screen level. Every condition is
-  therefore boolean by construction and checker-gated.
-- HQ rejects any casedb reference in a form filter whose module does not
-  guarantee a selected case (`menus.py`, via `xpath_references_case` after
-  interpolation). Module filters skip that check but hard-reject `#case`,
-  `#parent`, `#host`, **and** bare-dot case shorthand
-  (`app_manager/xpath.py::_ensure_no_case_references`), so an emitted module
-  filter must be dot-free as well as hashtag-free.
-- Counts, `exists`/`missing`, and non-self reads are refused.
-
-The form-condition evaluation locus for a case-first module is the case-list
-screen after selection — including whether a form chosen before the case opens;
-the module screen's form list is a gating site only for the forms-first flow.
-That locus is a product requirement as well as a validator rule, because it
-decides what the editor may offer: `CaseDataScope` is `per-case` (case rows
-and their relatives), `selected-case` (one chosen case's own properties —
-relationship walks, counts, and presence tests withheld with the scope's own
-explanation), or `global` (no case at all). A module condition and a
-forms-first form condition are `global`; a case-first form condition is
-`selected-case`. `PredicateEditProvider` reads the slot's profile
-(`editorAxesForSlot`), so no surface can silently offer a read the commit gate
-would reject.
+A badge on a menu or form has either localizable text or a typed calculation
+in the item's display context. HQ's editor replaces its first custom icon.
+The suite reads its locale key or evaluates its expression. Core requests the
+badge when it lists the item. Web Apps displays its whole text. Android hides
+an empty badge and the exact string `0`. A value over three UTF-16 units
+displays as `999+` if Java can parse it as a 32-bit integer. Other long values
+display their first three units followed by two dots. Case-list commands and
+registration buttons ignore the inherited badge field on their HQ models.
+The publish plan asks for the badge privilege and for worker-record capability
+where the chosen expression reads that record.
 
 A second, independent axis governs **Never match**.
 A navigation condition that is, or starts with, `match-none` is refused by a
@@ -994,10 +992,15 @@ owns at least one fully UUID-identified option, or `lookup`, which owns the
 table UUID, value-column UUID, label-column UUID, and optional row filter.
 Expressions take `table-lookup` value terms and `table-column` comparison terms
 (`lib/commcare/validator/rules/lookupOptionsSource.ts`, `lib/doc/lookupReferences.ts`).
-Form logic reads tables too (`instance('<tag>')/<tag>_list/<tag>[…]` in a
-form, `instance('item-list:<tag>')/…` in a form link), stored by table and
-column UUID, so renaming a table or column keeps the read; those reads join the
-reference edges, the publish push and the `.ccz` fixtures like every carrier.
+Form logic stores the table and column UUIDs. The printed expression reads
+`<tag>_list/<tag>` from the instance declared for `jr://fixture/item-list:<tag>`.
+In a form the instance usually has the table's tag. When the tag could name
+another data source, Nova uses `item-list:<tag>`. A form reads only a tag of
+unaccented letters, digits, `_`, `.` and `-`, the names HQ's form builder reads
+(`lib/lookup/pathNames.ts`); an expression holding a column outside them is
+written with no `vellum:` copy, which the builder keeps as written. Form links always use this
+qualified name. These reads contribute reference edges, publish resources and
+device fixtures. Renaming a table or column preserves the read.
 Source switching is a complete atomic replacement — no inactive source survives
 a switch, and there is no precedence, clear, or fallback state. Field
 duplication remints every inline option UUID while lookup table and column
@@ -1073,6 +1076,15 @@ commcare-core picks an instance's storage by substring
 (`CommCareInstanceInitializer.generateRoot` tests `ledgerdb`, then `casedb`, then
 `fixture`), so a lookup instance named with either word reads the ledger or case
 database and its select lists nothing.
+A table tagged with an id CommCare HQ's form builder holds for itself
+(`lib/lookup/constants.ts::FORM_BUILDER_COLLIDING_TAGS`) takes that id's place in
+every form made in CommCare HQ in its project space at the form's next save, since
+the builder indexes the project space's tables by bare tag beside its own sources
+(harness finding 78, `proof/editors/test_project_space_table_tags.py`). Nova
+refuses the acts that would put such a table there: making or renaming a table it
+manages, taking one over, and publishing one. A table CommCare HQ manages under one
+of those tags comes in, but `hasOwnProperty`, and Nova's own forms read it under
+`item-list:<tag>`, which the builder keeps (`hq-runtime-name-tables`).
 
 ### Atomic submission and resolved identity
 
@@ -1521,6 +1533,7 @@ What a worker sees first when a menu searches is `caseSearchConfig.workflow`,
 read by `lib/domain/modules.ts::searchWorkflow`: absent is search first, the
 Search screen; `skipToResults` runs the search as the menu opens and shows its
 matches; `listFirst` shows the worker's case list with a Search action.
+The Android-only `listFirstWithDefaultResults` also requests default results for the Search action when exported. Android opens the fields and waits for the worker to submit either list-first search.
 Separately, `caseSearchConfig.formsReadSearch: true`
 (`lib/domain/modules.ts::moduleFormsReadSearch`) runs the search as each case
 form of the menu opens, so the forms read what the worker searched for and what
@@ -1529,7 +1542,8 @@ is the one spelling of those two slots on both wire paths:
 
 | Workflow | Forms read the search | `auto_launch` | `default_search` | `inline_search` |
 |---|---|---|---|---|
-| list first | no (the pair is unrepresentable) | false | false | false |
+| list first | no | false | false | false |
+| list first with default results requested (`listFirstWithDefaultResults`) | no | false | true | false |
 | search first | no | true | false | false |
 | search first | yes | true | false | true |
 | skip to results | no | true | true | false |
@@ -1597,6 +1611,10 @@ HQ's related rows excluded) wherever its entry carries the query; a read that
 depends on the order HQ returns its results in is refused
 (`search-results-order`), and Preview supplies the set the search returned,
 capped at HQ's 500.
+
+#### Starting dates on a Search field
+
+A fixed range has two inclusive calendar dates. The editors share one expression slot for its starting value. Fixed dates compile to a single encoded answer that survives the worker’s time zone. Imported calculations can produce a human-readable pair. At the pinned Core revision, `RemoteQuerySessionManager.initUserAnswers` reads it through `DateRangeUtils.formatDateRangeAnswer`. A successful parse uses lenient Java calendar fields and formats the converted midnight in the JVM zone. On parse failure Core retains the evaluated text. Android shows that value and submits it through its query manager. The Web Apps query view decodes the text for its calendars and encodes the visible inputs again on explicit Search. A malformed value can prevent that view from opening. Preview keeps the original answer for an automatic query and identifies the field if Web Apps cannot display it. Its explicit Search encodes every readable piece, including a single date or three dates. Such a value remains visible and replaceable. A simple property criterion refuses an invalid encoded interval. An automatic Search can send an unwrapped value as ordinary property text. Only the saved field’s evaluated answer and its platform’s visible projection may supply a starting answer outside the paired picker.
 
 #### A search with no title
 
@@ -1776,17 +1794,39 @@ returns to Home (`menuForms.ts::caseListRegistrationReturnOf`).
 (`CASE_LIST_REGISTRATION_FORM_NOT_FOUND`); a form that is no registration form of the host's
 type, or holds more than one registration of it (`CASE_LIST_REGISTRATION_NOT_REGISTRATION`);
 a host that shows its forms above (`CASE_LIST_REGISTRATION_HOST_SHOWS_FORMS_ABOVE`); a host
-some form of which needs no case (`CASE_LIST_REGISTRATION_HOST_NOT_CASE_FIRST`); and a host
-or a named form in an advanced menu (`CASE_LIST_REGISTRATION_ADVANCED_MENU`).
+some form of which needs no case (`CASE_LIST_REGISTRATION_HOST_NOT_CASE_FIRST`); and an
+advanced host one of whose forms breaks a case-list-module rule
+(`CASE_LIST_REGISTRATION_ADVANCED_MENU`, naming that form).
+
+**Advanced menus.** A named form in an advanced menu is offered like any other: its one open of
+the host's type outside a repeat is the action's case, and the return frame reads that open's
+`case_session_var` (`workflow.py::CaseListFormWorkflow._get_source_session_var`). An advanced host
+offers only a registration, since an `AdvancedModule` has no parent selection to follow up on
+(`views/modules.py::_case_list_form_options`). CommCare HQ's build holds such a host to six rules
+over each form's loads that select no case on their own
+(`helpers/validators.py::AdvancedModuleValidator.validate_with_raise`): every form loads the same
+case types, loads at least one, each load after the first is indexed to the one before it, the
+last is the host's type, every form keeps the last under one case tag, and the last chooses from
+the host's own list. `caseListRegistration.ts::advancedCaseListHostBreak` checks them over the
+loads Nova's export writes (`advancedSelections.ts::advancedFormLoads`), so a form moved into the
+host, or a tag a publish keeps, is refused with that form named. The Register action and both
+return frames are HQ's for the shape (`tests/data/case_list_form/case-list-form-advanced.xml`):
+the action pushes the form's command and its new case's `uuid()` datum, and the `default` frame
+puts the new case into the host's load datum (`case_id_<tag>`).
 
 **A label with no text.** Where a block made in CommCare HQ holds a label that yields no text
-in a language, HQ's build writes "Create a new Case" there
+in a language, HQ's build writes its fallback words there
 (`app_strings.py::_create_case_list_form_app_strings`): in every language where no language
-holds text, and in each language whose value is an empty string. A label Nova writes always
-holds text: the slot's `label`, else the form's name. The reader of CommCare HQ's apps reads
-such a label as the text HQ's build writes, "Create a new Case" in each of those languages
-(`lib/commcare/reader/menus/registration.ts`, through `modules.ts::labelAsBuilt`), and records
-the spelling the first publish writes in its place under the register row
+holds text, and in each language whose value is an empty string. The words follow the project
+space's FOLLOWUP_FORMS_AS_CASE_LIST_FORM setting: with it on, "Continue To <form name>" (the
+form's name as HQ's build reads it in that language); without it, "Create a new Case". A label
+Nova writes always holds text: the slot's `label`, else the form's name. The reader of CommCare
+HQ's apps reads such a label as the words HQ's build writes for the project space it came from,
+in each of those languages (`lib/commcare/reader/menus/registration.ts::emptyLabelText`, from
+the reading's `caseListActionsApplied`, through `modules.ts::labelAsBuilt`). A reading asks the
+project space for that setting wherever a button's label falls back in some language
+(`lib/commcare/hq/caseListActionSetting.ts::sourceUsesCaseListActionSetting`). The reader
+records the spelling the first publish writes in its place under the register row
 `registration-label-fixed`.
 
 **The button by platform.** Web Apps draws the action's text alone
@@ -1797,7 +1837,9 @@ that plays its audio (`views/EntityActionViewUtils.java`). The platform row
 ### Case tiles
 
 A module's case list is laid out either as a row of columns or as a **tile** — a
-12 × 12 grid where each Results field occupies a rectangle. The layout lives on
+grid twelve columns wide with a row for each field it shows, at least six
+(`lib/domain/modules.ts::tileRowLimit`), where each Results field occupies a
+rectangle. The layout lives on
 `caseListConfig.tile` and its presence IS the switch; each column carries its own
 `tile` cell (`{x, y, width, height}` plus optional alignment, text size, border,
 and shading). Placement is deliberately separate from the case list's two
@@ -1869,8 +1911,23 @@ The wire facts that shape the emitter:
   enforcement is a Knockout dropdown range, and its parity assertion
   (`tests/test_suite_case_tiles.py::SuiteCaseTilesTest.test_case_tile_column_count`)
   lints only the two shipped named templates and never sees a `custom` tile.
-  Nova enforces 12 columns and 12 rows itself, plus no-overlap and full coverage,
-  in `lib/commcare/validator/rules/case-list/caseTileLayout.ts`.
+  Nova enforces 12 columns itself, plus no-overlap and full coverage, in
+  `lib/commcare/validator/rules/case-list/caseTileLayout.ts`.
+- **The rows are the rows HQ's own pages keep.** The Case List and Case Detail
+  pages offer a cell's start row and height from `max(columns + 1, 7)`, the
+  columns being that screen's non-filter columns and, on the case detail, its
+  tabs (`details/bootstrap5/screen.js`, `caseTileRowMax`; `column.js`,
+  `tileRowOptions`, `tileHeightOptions`), each a Knockout `value` with
+  `options` and no `valueAllowUnset`, so a stored start the page does not offer
+  comes back as row 1 and a height it does not offer as 1, and the page's next
+  save writes that (proof 4 over `targeted-tile-row-bound`). So a cell's bottom
+  edge may reach `max(fields, 6)` (`tileRowLimit`; `resultsTileFieldCount`,
+  `detailsTileFieldCount`), and a tile of more than twelve fields is taller than
+  twelve rows, which both runtimes draw to its last cell. A field or tab that
+  leaves a screen takes a row with it, so the batch that removes or hides it
+  fits a cell below the new bottom back in (`lib/doc/detailFieldVisibility.ts`,
+  `fitTileCellIntoRows`); the reader refuses a cell below the rows the page
+  offers (`custom-tile-cell-below-the-rows-hq-s-page-offers`).
 - **Vertical alignment is authored in Nova's words and emitted in the wire's.**
   `top` / `middle` / `bottom` emit as `start` / `center` / `end`, because
   `views.js::getValidFieldAlignment` silently rewrites anything outside
@@ -1892,11 +1949,39 @@ Emitted bytes are asserted against HQ's own fixtures —
 `case_tile_pulldown_session.xml` for `detail-persistent`.
 `lib/commcare/CLAUDE.md` (§ Case-tile emission) owns the emitter detail.
 
-Two scope fences are deliberate. Long-detail tiles stay out: CommCare allows
-`custom` on the case-detail screen, and Nova keeps that screen a field list.
-Pull-down (`detail-inline`) stays out because it is a navigation change rather
-than a layout one — it replaces the case-detail confirm screen by folding the
-long detail into the persistent tile.
+### Detail tabs and case context above a form
+
+Each Details tab has a UUID, localized title and first visible column UUID. All visible
+columns belong to exactly one contiguous tab. HQ stores physical offsets and creates
+one child detail for each span. Nova derives offsets from the current Details order.
+HQ gives a group no ID. During bring-in, its least external member key identifies
+it across title changes, moves and reordering fields within the group.
+A tab's condition reads the selected case. HQ collects instance declarations from
+the entry, its query, referenced detail fields and row sources. A condition alone
+cannot introduce a fixture. Nova checks the routes that open a tab, including
+standalone search and another menu's expanded context. The compiler checks each
+condition's instance ID and source against the finished entry. Its optional row source selects either
+open children through the parent index or a typed collection of cases, table rows
+or places. Each field in that tab reads its displayed row. A direct table column
+keeps its identity when the table column is renamed. Hidden ordering fields on
+an ordinary data tab use ascending text order in physical order. Duplicate wire
+fields take the last position assigned to their first occurrence.
+
+Results supports either a custom grid or the complete ten-position arrangement
+defined by the native reader. On an independent Details grid, cell coordinates
+belong to the Details field UUID and can differ from its Results placement. Web
+Apps draws this grid. Android's long-detail adapter draws labeled rows. Fields
+from distinct tabs at the same grid row require an advanced menu when its
+case selections and existing placement allow it.
+
+A form can retain a chosen case using another menu's Results tile, the local
+persistent tile or a one-line expression. The source menu supplies the display.
+The selecting menu and its chosen case still supply the record. A pull-down
+uses the source's long detail, with the local persistent tile's detail as a
+fallback. It opens the form directly and shows Details when the worker expands
+the context. Project compatibility checks the capabilities required for the
+selected layout and line. The source reader keeps a reachable local fallback
+and reports a dangling or incompatible source at the selection that needs repair.
 
 ### Grouped case tiles
 
@@ -2040,6 +2125,38 @@ it into a date question and a time question joined by a Hidden Value
 calculated by the clock-keeping date, which Core holds as the same
 `DateTimeData` (`lib/doc/datetimeSplit.ts`). A CommCare Connect app runs on
 Android only, because no Connect worker can sign in to Web Apps.
+
+### Question display and worker input
+
+Question settings are properties of the question in the blueprint. The field
+kind declares its available keyboards, choice layout, capture behavior and
+other settings. The mutation and export gates check the combination against
+the writer and both workers. For example, West African phone numbers can
+keep their leading zero in a text answer, and a civil date picked with the
+Ethiopian calendar saves as the same ISO date as an ordinary date question.
+An unanswered Android date widget shows the device's local civil day. The
+instance takes that day when the worker leaves the displayed screen or
+submits it. Gregorian with a clear button can send an empty answer. A new
+visit constructs its picker from the stored answer again. Web Apps sends a
+date only after the worker chooses one.
+
+CommCare's form editor determines the question type from the complete
+appearance of a control. Web Apps matches individual words and sometimes
+their position, while Android uses several whole-string and substring
+comparisons. The adapter in `lib/commcare/xform/readDisplaySettings.ts`
+compares a candidate spelling with the source on the same control, including
+both choice widgets, keyboard and editor type. A picture may collect a
+signature in Web Apps and a photograph on Android. A searchable single-choice
+question can use a different match rule on each platform. Their blueprint
+values describe those behaviors, so moving the question or changing the text
+keeps its display and saved answers.
+
+Web Apps displays an ordinary group's collapsible header, border and row
+width. A group with a directly nested repeat can distribute its repeated
+rows across a line. Core's wrapping group around the repeat transfers its
+label only. An ordered channel stores a name and a returned property. Web
+Apps delivers a selected address or filename within the current form and
+nearest concrete repeat, using each receiver's own choice labels.
 
 ### Media
 
@@ -2532,6 +2649,13 @@ forms preserves it. The fifteen other settings keep the project space's
 values. A newly created target receives Nova's defaults for missing
 settings. A target Nova brought in keeps them absent on both an HQ update
 and an archive built for that target.
+Required Android apps have one generated package name in every language.
+A destination's UI translation replaces the name only for its own language.
+The default archive locale merges each language's generated and translated
+names in reverse build order, as HQ's app strings writer does. Android
+Preview reads destination text as Core reads the resulting locale record,
+including its escaped number signs and line breaks.
+
 In `translations`, of the keys HQ generates Nova writes only
 `app.display.name` and `homescreen.title`, each only in a language whose
 localized app name differs from `appName`, and it writes every current
@@ -3034,11 +3158,11 @@ gate enforces the
 one-tier topology; `lib/domain/CLAUDE.md` and `lib/doc/CLAUDE.md` own the
 topology, mutation, replay, and deletion contracts.
 
-Menu parentage organizes navigation; case-type parentage selects related data.
-The two may coincide, but neither implies the other. Preview keeps menu-scoped
-case selections separately from its menu tree, reuses a selected case only for
-a same-case-type child, and runs the existing parent-case-first flow for a
-different child case type. Home shows roots, a parent menu shows its own content
+Menu nesting organizes navigation. A separate menu identity determines whether
+a worker chooses another record before this menu lists its cases. A basic list
+follows the saved records' direct non-extension indexes to that choice; an
+advanced list follows its named index. A menu with no forms contributes no
+form datums to its child. Home shows roots, a parent menu shows its own content
 plus child-menu tiles, and UUID-addressed screens, breadcrumbs, search, recovery,
 and Builder placement controls keep their identity through reorder or reparent.
 `components/builder/CLAUDE.md`, `lib/routing/CLAUDE.md`,
@@ -3061,6 +3185,21 @@ containment supplies the parent gate. `lib/commcare/CLAUDE.md` owns the lowering
 and its pinned HQ fixture provenance, and `content/docs/nested-menus.mdx` is the
 user-facing guide.
 
+#### Menu layouts
+
+The first menu and the other menus each have their own layout. Other menus can all
+use lists, all use grids, or use individual choices. App settings hold the policies.
+Each ordinary menu keeps its individual grid choice when the app-wide policy changes.
+A new app and a menu without an individual choice start with lists.
+
+A layout belongs to the screen the worker sees. HQ assigns a style to each menu
+contribution by its actual suite id. On a shared screen, Core ignores absent styles,
+so a grid contribution from a child showing forms above also lays out the parent's
+choices as a grid. HQ adds an empty styled first menu if the first menu has no
+explicit contribution. The local package follows both rules. Android workers hold
+a tile to hear its spoken label. Web Apps offers the player on list rows and omits
+it on grid tiles. Both keep each choice's name, image and navigation.
+
 #### Forms in the menu above
 
 `Module.formsInMenuAbove` is CommCare HQ's `put_in_root` (`ModuleBase.put_in_root`, offered
@@ -3076,7 +3215,7 @@ the setting, and Nova writes or refuses each:
 | 2 | An above menu's `<menu>` has that id and no `root` attribute; a menu not above has `root="<menu_id(P)>"`, which is `root` under an above parent | `menus.py::get_module_contributions`, `_generate_menu` | `compiler.ts`; such a submenu lists on the first menu (`menuTileScreenOf`) |
 | 3 | An above submenu's `<menu>` takes P's name where P is not above, and keeps its own image and audio locales | `suite_xml/utils.py::_should_use_root_display`; `_generate_menu` | `compiler.ts`; the menu's own name and media are shown nowhere |
 | 4 | An above submenu's condition is `(own) and (P's)`, or P's alone where it has none; nothing else is conjoined | `_generate_menu` | `compiler.ts`; `menuScreens.ts::conditionModulesOf` |
-| 5 | The case list of an above menu gets no Register action and no Search action | `details.py::build_detail` | `FORMS_IN_MENU_ABOVE_WITH_SEARCH`, `CASE_LIST_REGISTRATION_HOST_SHOWS_FORMS_ABOVE` |
+| 5 | The case list of an above menu gets no Register action and no Search action. Its ordinary remote request and the form-entry claim on a project space that syncs cases when a form opens survive. | `details.py::build_detail`, `entries.py::include_post_in_entry` | `shortDetail.ts`, `menuAboveSearch`, `formEntrySyncReasons` |
 | 6 | The build refuses an above menu with an endpoint or with inline search | `validators.py::validate_display_only_forms` | `FORMS_IN_MENU_ABOVE_NOT_A_DESTINATION`, `FORMS_IN_MENU_ABOVE_WITH_SEARCH` |
 | 7 | The build refuses the after-submit `module` in an above menu and `parent_module` under an above parent; the form page offers neither; the link editor never lists an above menu as a target, and lists its forms | `validators.py::FormBaseValidator`; `views/forms.py::get_form_view_context`, `_get_linkable_forms_context` | two reasons of `POST_SUBMIT_NOT_OFFERED`; `menuTargetOffered` |
 | 8 | A frame's module command is the menu id; where that is `root` there is none, and the common datums are those of every form of every above menu in the app, ahead of the form's command | `workflow.py::WorkflowHelper.get_frame_children`, `_root_module_datums` | `formLinkProjection.ts`; a frame that would open with a chosen case is refused at its source (`firstMenuSharedCase`) |
@@ -3225,15 +3364,7 @@ Preview replays the collection over the suite's datums
 (`lib/preview/engine/caseListEntryListing.ts::caseListEntryStillNeedsDatum`), and
 `proof/native/core/MenuScreensRuntimeTest.java` holds Preview's listing to Core's.
 
-**No chosen case ahead of a command.** Core keeps what a frame collected (`syncState`), and an
-entry's next question is its first datum whose id the session lacks (`getFirstMissingDatum`).
-A frame that held a chosen case and no command would leave that case on the first menu, where
-the next form that asks under the same datum id would take it without asking. Formplayer
-rebuilds its session from empty (`MenuSessionFactory.rebuildSessionFromFrame`), so Web Apps
-keeps nothing there. Nova writes no such frame: the previous screen is not offered to a form
-listed on the first menu, a submenu whose screen would open with the first menu's shared case
-is not offered as its forms' own module after submit, and a link, an entry point or a Register
-return that would open with that case is refused at its source.
+**A chosen case on the first menu.** Core retains a commandless Previous frame’s selected datum. Choosing a form or another menu whose command requests that datum reuses the case. Formplayer rebuilds the first menu with a fresh case choice. Nova offers Previous for forms listed on the first menu and describes the difference alongside the destination. An Android command that would load another record type under the same datum needs a fresh first-menu choice. The gate places that finding on the form. Links, menu endpoints and Register actions whose frames would put the first menu’s shared case before their first command retain their own eligibility checks.
 
 ### Multi-select case workflows
 
@@ -3513,3 +3644,26 @@ ordinary choice widget can appear unanswered until another path needs the
 selection. A leading empty multi-select token fails during initialization.
 The pinned evidence and retained regression are recorded in
 `docs/research/inline-choice-starting-values.md`.
+
+For a tab over an explicit collection, HQ’s `get_child_case_types` independently reads the tab’s child type from every search-enabled menu of the matching case type. Nova keeps it as `rowSource.includeChildrenOfType`. Search expansion includes related cases even when the detail collection does not display them.
+
+## Forms listed in another menu
+
+One form may appear under several menus. A route refers to the source menu and forms by UUID. Both menus open the same form identity, namespace, edits and case writes. A route can exclude source forms and own separate deep links, case details and search. Child routes follow the source hierarchy while retaining their own settings. HQ `models/modules.py::ShadowModule`, `views/utils.py::handle_shadow_child_modules`, `suite_xml/sections/entries.py::get_datum_meta_module` and `suite_xml/post_process/endpoints.py` define the wire behavior. The reader binds stored exclusions and endpoint references to real source IDs from the application API and keeps those deployment identities through subsequent reads.
+
+### Case creation IDs supplied by deep links
+
+A source form can choose case creations whose IDs an external link supplies. Each choice names a case operation UUID. HQ stores these choices even when the source form has no deep link of its own. `entryPointProjection.ts` resolves the UUID on the actual ordered frame after parent alignment. The writers put the resulting argument ID in HQ's form and the suite. A computed ID replaces its own value on the navigation frame. Only eligible selection arguments create claim frames. The deployment manifest retains this argument order with the verified suite signature. Preview validates the operations and checks ID availability in the app and Project before installing selections or writing claims. The case transaction allocates a supplied ID only for the creation the committed form exposes, refuses an occupied ID, and replays the receipt for the same submission.
+### Automatic location on submitted forms
+
+Ordinary apps can request an Android device location for all forms, or on
+individual forms. Turning the app setting off reveals each form’s independent
+choice. Connect requests location on every form. HQ’s basic and advanced form
+settings keep their own value even when the app requests location. Its build adds
+a metadata node, geopoint bind, and targeted sensor action whenever either
+switch requests it. A geopoint question still records what the worker answers.
+On Android, the sensor can supply a fix if permission and a reading are
+available. Web Apps submits no automatic fix. Nova Preview and app tests accept
+a simulated fix and return the committed submission location separately from
+question answers. These behaviors originate in HQ’s `FormBase.get_auto_gps_capture`
+and `XForm._add_meta_2`, and Android’s `PollSensorController`.

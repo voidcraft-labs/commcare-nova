@@ -33,6 +33,7 @@ import {
 	proseText,
 } from "@/lib/domain";
 import { NON_REFERENCE_FIELD_PATHS } from "@/lib/domain/referenceSlots";
+import { fieldDisplayOptionsFor } from "../fieldDisplay";
 
 /** The field configuration keys that are not a question display setting, each
  *  with why: what the registry holds is a closed choice about how a
@@ -52,7 +53,10 @@ function admittedStrings(schema: unknown): string[] {
 	if (Array.isArray(node.enum))
 		for (const value of node.enum)
 			if (typeof value === "string") found.push(value);
-	if (typeof node.const === "string") found.push(node.const);
+	if (typeof node.const === "string" || node.const === true)
+		found.push(String(node.const));
+	const properties = node.properties as Record<string, unknown> | undefined;
+	if (properties?.kind) found.push(...admittedStrings(properties.kind));
 	for (const key of ["anyOf", "oneOf", "allOf"])
 		if (Array.isArray(node[key]))
 			for (const branch of node[key] as unknown[])
@@ -79,7 +83,7 @@ describe("FIELD_DISPLAY_SETTINGS", () => {
 				].sort();
 				expect([kind, admitted]).toEqual([
 					kind,
-					Object.keys(setting.values).sort(),
+					Object.keys(fieldDisplayOptionsFor(kind, setting)).sort(),
 				]);
 			}
 		});
@@ -106,9 +110,16 @@ describe("FIELD_DISPLAY_SETTINGS", () => {
 	it("gives each kind its settings in registry order, and a kind with none an empty list", () => {
 		expect(fieldDisplaySettingsFor("text").map((s) => s.key)).toEqual([
 			"keypad",
+			"inputWidth",
+			"addressLookup",
+			"sendTopics",
+			"receiveFrom",
+			"hintPlacement",
+			"banner",
+			"itemsPerRow",
+			"textAlignment",
 		]);
-		expect(fieldDisplaySettingsFor("int")).toEqual([]);
-		expect(fieldDisplaySettingsFor("group")).toEqual([]);
+		expect(fieldDisplaySettingsFor("hidden")).toEqual([]);
 	});
 });
 

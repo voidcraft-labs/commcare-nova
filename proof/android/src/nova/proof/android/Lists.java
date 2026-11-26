@@ -296,6 +296,13 @@ final class Lists {
         }
         list.put("header", headers);
         list.put("count", adapter.getCurrentCount());
+        EntityDatum datum = org.commcare.gis.EntityMapUtils.getNeededEntityDatum();
+        if (datum != null) {
+            Detail detail = CommCareApplication.instance().getCurrentSession().getDetail(datum.getShortDetail());
+            if (detail != null && java.util.Arrays.asList(detail.getTemplateForms()).contains("address")) {
+                list.put("caseMap", CaseMaps.read(datum, detail));
+            }
+        }
         JSONArray shown = new JSONArray();
         // The words searched for are the list's own, whatever order it shows its rows in: every word of every
         // row, in the words' own order.

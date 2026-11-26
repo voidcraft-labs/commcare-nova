@@ -86,6 +86,7 @@ function guardDirectTerm(
 				"case-index",
 				"table-column",
 				"location-field",
+				"worker-group-field",
 			].includes(value.kind);
 	} else if (
 		(role.kind === "item" &&

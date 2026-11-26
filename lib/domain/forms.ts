@@ -1,4 +1,5 @@
 // lib/domain/forms.ts
+
 import { z } from "zod";
 import { formIconRefSchema } from "./builtinIcons";
 import { authoredCasePropertyNameSchema } from "./casePropertyName";
@@ -15,7 +16,12 @@ import {
 } from "./expression/types";
 import { firstModuleListingForm } from "./formMembership";
 import { persistableJsonPositiveIntegerSchema } from "./jsonNumber";
+import { menuBadgeSchema } from "./menuBadge";
 import { mediaAssetIdSchema } from "./multimedia";
+import {
+	formerNavigationMediaSchema,
+	navigationMediaSchema,
+} from "./navigationMedia";
 import {
 	type CasePlacement,
 	casePlacementSchema,
@@ -794,6 +800,9 @@ export type ConnectTask = z.infer<typeof connectTaskSchema>;
 
 export const formSchema = z.strictObject({
 	entryPoint: formEntryPointSchema.optional(),
+	/** Case creations whose IDs a caller supplies when opening this form through a deep link.
+	 * The source form owns these choices even when only a second menu offers the link. */
+	entryCaseCreations: z.array(uuidSchema).min(1).optional(),
 	uuid: uuidSchema,
 	id: z.string(),
 	name: z.string(),
@@ -805,6 +814,7 @@ export const formSchema = z.strictObject({
 	 * terms are meaningful for this form's navigation position.
 	 */
 	displayCondition: conditionSchema.optional(),
+	badge: menuBadgeSchema.optional(),
 	/**
 	 * Present when the form is off the menu: no menu lists it, whatever
 	 * `displayCondition` says. The condition keeps applying once the form
@@ -812,6 +822,8 @@ export const formSchema = z.strictObject({
 	 * after-submit link and from an entry point.
 	 */
 	hiddenFromMenu: z.literal(true).optional(),
+	/** Independently requests device location when this form opens on Android. */
+	captureLocation: z.literal(true).optional(),
 	/** Text formatting is off for the whole form: no label, choice or help text writes a markdown
 	 *  form, so each shows as its platform shows a text without one. */
 	plainText: z.literal(true).optional(),
@@ -866,6 +878,8 @@ export const formSchema = z.strictObject({
 	 * affordance within a module's menu.
 	 */
 	icon: formIconRefSchema.optional(),
+	mediaByLanguage: navigationMediaSchema(formIconRefSchema).optional(),
+	mediaByFormerCode: formerNavigationMediaSchema(formIconRefSchema).optional(),
 	/** Audio version of the form's menu label, for audio-prompt playback. */
 	audioLabel: mediaAssetIdSchema.optional(),
 });

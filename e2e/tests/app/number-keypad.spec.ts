@@ -131,3 +131,158 @@ test("the Phone number entry, its keypad switch, and each platform's keypad in P
 		await expect(main.getByText(REFUSAL)).toHaveCount(0);
 	});
 });
+
+test("a date keeps its calendar through a keyboard edit, undo and an Android preview", {
+	tag: "@seed:sections",
+}, async ({ scenario, page }) => {
+	test.setTimeout(120_000);
+	const seed = seedFor(scenario, "sections");
+	const appId = seed.formSections.appId;
+	const main = page.locator("main");
+	await openBuilder(page, seed.formSections.route);
+	await openQuestionMenu(page);
+	await page
+		.getByRole("menuitem", { name: "Date & Time", exact: true })
+		.hover();
+	const added = savedWith(page, appId, [
+		'"kind":"addField"',
+		'"id":"new_date"',
+	]);
+	await page.getByRole("menuitem", { name: "Date", exact: true }).click();
+	expect((await added).ok()).toBe(true);
+
+	await page.getByRole("button", { name: "Calendar", exact: true }).click();
+	const calendar = page.getByRole("combobox", {
+		name: "Calendar",
+		exact: true,
+	});
+	const selected = savedWith(page, appId, ['"calendar":"ethiopian"']);
+	await calendar.focus();
+	await calendar.press("Enter");
+	await page
+		.getByRole("option", { name: "Ethiopian", exact: true })
+		.press("Enter");
+	expect((await selected).ok()).toBe(true);
+	await expect(calendar).toContainText("Ethiopian");
+
+	await page
+		.getByRole("button", { name: "Items per row", exact: true })
+		.click();
+	const count = page.getByRole("textbox", {
+		name: "Items per row",
+		exact: true,
+	});
+	const two = savedWith(page, appId, ['"itemsPerRow":"2"']);
+	await count.fill("2");
+	await count.press("Tab");
+	expect((await two).ok()).toBe(true);
+	await expect(calendar).toContainText("Ethiopian");
+
+	await page.getByRole("button", { name: "Preview", exact: true }).click();
+	const date = main.locator('[data-instance-path$="/new_date"]');
+	const picker = date.getByRole("button").first();
+	await picker.click();
+	const firstDay = page
+		.getByRole("button", { pressed: false })
+		.filter({ hasText: /^1$/ })
+		.first();
+	const dayLabel = await firstDay.getAttribute("aria-label");
+	if (!dayLabel)
+		throw new Error("The first calendar day needs its displayed date.");
+	await firstDay.click();
+	await expect(picker).toHaveText(dayLabel);
+
+	await page.getByRole("button", { name: "Back to edit", exact: true }).click();
+	const undone = savedWith(page, appId, ['"itemsPerRow":null']);
+	await page.getByRole("button", { name: "Undo", exact: true }).click();
+	expect((await undone).ok()).toBe(true);
+	await expect(calendar).toContainText("Ethiopian");
+	await page.getByRole("button", { name: "Preview", exact: true }).click();
+	const identity = page.getByRole("button", { name: /^Running as / });
+	await identity.click();
+	await page.getByRole("menuitemradio", { name: /^Android/ }).click();
+	await main.getByRole("button", { name: "Start", exact: true }).click();
+	await main
+		.getByRole("button", {
+			name: new RegExp(`^${FORM_SECTIONS_SEED.moduleName}`),
+		})
+		.click();
+	await main
+		.getByRole("button", { name: FORM_SECTIONS_SEED.formName, exact: true })
+		.click();
+	await expect(
+		main.getByRole("navigation", { name: "Sections" }),
+	).toBeVisible();
+	if (!(await date.count())) {
+		await main
+			.getByRole("textbox", { name: FORM_SECTIONS_SEED.aboutYou.nameLabel })
+			.fill("Ada");
+		await main.getByRole("button", { name: "Next", exact: true }).click();
+	}
+	await page.setViewportSize({ width: 390, height: 844 });
+	await picker.click();
+	await expect(
+		page.getByRole("button", { name: dayLabel, exact: true }),
+	).toBeVisible();
+	await page.getByRole("button", { name: dayLabel, exact: true }).click();
+	await expect(picker).toHaveText(dayLabel);
+});
+
+test("a worker gets a dropdown in Web Apps and an editable picture grid on Android", {
+	tag: "@seed:sections",
+}, async ({ scenario, page }) => {
+	const seed = seedFor(scenario, "sections");
+	const appId = seed.formSections.appId;
+	await openBuilder(page, seed.formSections.route);
+	await openQuestionMenu(page);
+	await page.getByRole("menuitem", { name: "Choice", exact: true }).hover();
+	const added = savedWith(page, appId, [
+		'"kind":"addField"',
+		'"kind":"single_select"',
+	]);
+	await page
+		.getByRole("menuitem", { name: "Single Select", exact: true })
+		.click();
+	expect((await added).ok()).toBe(true);
+	const layout = page.getByRole("combobox", {
+		name: "Choice layout",
+		exact: true,
+	});
+	await layout.click();
+	const split = savedWith(page, appId, ['"kind":"platforms"']);
+	await page
+		.getByRole("option", { name: "Different layouts by platform", exact: true })
+		.click();
+	expect((await split).ok()).toBe(true);
+	const platforms = page.getByRole("combobox", {
+		name: "Platform layouts",
+		exact: true,
+	});
+	await platforms.click();
+	const pair = savedWith(page, appId, [
+		'"web":{"kind":"dropdown"}',
+		'"android":{"kind":"grid"}',
+	]);
+	await page
+		.getByRole("option", {
+			name: "Dropdown in Web Apps, grid on Android",
+			exact: true,
+		})
+		.click();
+	expect((await pair).ok()).toBe(true);
+	const columns = page.getByRole("textbox", { name: "Columns", exact: true });
+	const three = savedWith(page, appId, ['"kind":"platforms"', '"columns":3']);
+	await columns.fill("3");
+	await columns.press("Tab");
+	expect((await three).ok()).toBe(true);
+	const advance = savedWith(page, appId, [
+		'"columns":3',
+		'"advanceOnChoice":true',
+	]);
+	await page
+		.getByRole("switch", { name: "Advance after a choice", exact: true })
+		.click();
+	expect((await advance).ok()).toBe(true);
+	await expect(platforms).toHaveText("Dropdown in Web Apps, grid on Android");
+	await expect(columns).toHaveValue("3");
+});

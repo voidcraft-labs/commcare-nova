@@ -166,7 +166,7 @@ describe("a row read on its own", () => {
 		);
 	});
 
-	it("names the uses of a refused row too, a system date against a date by the project's day", () => {
+	it("reads a system date against a date by the project space’s day", () => {
 		const doc = csqlVectorDoc();
 		const reading = readSearchRowConjuncts(
 			csqlRow("date_opened > '2024-01-01'"),
@@ -174,8 +174,8 @@ describe("a row read on its own", () => {
 			rowEnv(doc),
 		);
 		expect(reading).toMatchObject({
-			ok: false,
-			claim: { entryId: DATE_ONLY, key: "csql-metadata:date_opened" },
+			ok: true,
+			rewrites: [],
 		});
 		expect(reading.uses).toEqual(
 			expect.arrayContaining([

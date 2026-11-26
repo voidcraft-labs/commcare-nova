@@ -93,7 +93,7 @@ final class Captures {
         });
     }
 
-    private static String digest(File file) throws Exception {
+    static String digest(File file) throws Exception {
         java.security.MessageDigest sha = java.security.MessageDigest.getInstance("SHA-256");
         return new java.math.BigInteger(1, sha.digest(java.nio.file.Files.readAllBytes(file.toPath()))).toString(16);
     }
@@ -129,6 +129,10 @@ final class Captures {
         if ("signature".equals(kind)) {
             return sign(activity, widget, entry);
         }
+        if ((widget instanceof ImageWidget || widget instanceof VideoWidget) &&
+                Answers.valuesFor(widget.getPrompt()).contains("camera")) {
+            return camera(activity, widget, kind, entry);
+        }
         View choose = chooser(widget);
         if (widget instanceof CommCareAudioWidget && (choose == null || choose.getVisibility() != View.VISIBLE)) {
             // An audio question records from the microphone unless its appearance offers a file.
@@ -161,6 +165,47 @@ final class Captures {
         shadow.receiveResult(opened.intent, Activity.RESULT_OK, result);
         settle(activity);
         told(toasts, entry);
+        return took(widget, name, entry);
+    }
+
+    /** A real capture-button click, followed by the camera app's result. The
+     * emulated sensor provides the same image or video the file picker offers. */
+    private static boolean camera(FormEntryActivity activity, QuestionWidget widget, String kind,
+                                  JSONObject entry) throws Exception {
+        ShadowActivity form = Shadows.shadowOf((Activity)activity);
+        ((View)Screens.field(widget, "mCaptureButton")).performClick();
+        ShadowLooper.idleMainLooper();
+        Intent permission = form.peekNextStartedActivity();
+        if (permission != null && permission.hasExtra(Sensors.REQUESTED)) {
+            form.getNextStartedActivity();
+            Sensors.answer(activity, permission);
+            ShadowLooper.idleMainLooper();
+        }
+        ShadowActivity.IntentForResult started = form.getNextStartedActivityForResult();
+        if (started == null) {
+            throw new AssertionError("Camera button opened no activity for " + widget.getPrompt().getIndex());
+        }
+        Intent opened = started.intent;
+        entry.put("camera", opened.getComponent() == null ? opened.getAction() : opened.getComponent().getClassName());
+        String name = file(kind);
+        File media = new File(System.getProperty(DIRECTORY), name);
+        Intent result = new Intent();
+        if ("image".equals(kind)) {
+            Uri output = opened.getParcelableExtra(android.provider.MediaStore.EXTRA_OUTPUT);
+            if (output == null) {
+                output = opened.getParcelableExtra(
+                        org.commcare.activities.camera.CameraOverlayActivity.OUTPUT_FILE_URI_EXTRA);
+            }
+            if (output == null) throw new AssertionError("Image capture provided no output URI");
+            try (java.io.OutputStream target = activity.getContentResolver().openOutputStream(output)) {
+                if (target == null) throw new AssertionError("Camera could not open " + output);
+                java.nio.file.Files.copy(media.toPath(), target);
+            }
+        } else {
+            result.setData(Uri.fromFile(media));
+        }
+        form.receiveResult(opened, Activity.RESULT_OK, result);
+        settle(activity);
         return took(widget, name, entry);
     }
 
@@ -235,6 +280,9 @@ final class Captures {
         // Stopping saves the recording where the screen offers no pause; where it does, the screen offers its
         // save button.
         View save = recorder.getView() == null ? null : recorder.getView().findViewById(R.id.positive_action_button);
+        if (Forms.controls) {
+            entry.put("offeredSaveAfterStop", save != null && save.getVisibility() == View.VISIBLE);
+        }
         if (save != null && save.getVisibility() == View.VISIBLE) {
             save.performClick();
         }
@@ -313,7 +361,7 @@ final class Captures {
     }
 
     /** The widget's own button that opens a file picker, or null where it has none. */
-    private static View chooser(QuestionWidget widget) throws Exception {
+    static View chooser(QuestionWidget widget) throws Exception {
         if (widget instanceof CommCareAudioWidget) {
             return widget.findViewById(R.id.choose_file);
         }

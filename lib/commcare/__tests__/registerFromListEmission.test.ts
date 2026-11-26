@@ -20,6 +20,7 @@ import { validateHqJson } from "@/lib/commcare/validator/hqJsonOracle";
 import { runValidation } from "@/lib/commcare/validator/runner";
 import { validateSuite } from "@/lib/commcare/validator/suiteOracle";
 import { parseXml } from "@/lib/commcare/xmlParse";
+import { removeCaseOperationMutation } from "@/lib/doc/caseOperationMutations";
 import { rebuildFieldParent } from "@/lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import type {
@@ -27,8 +28,25 @@ import type {
 	BlueprintDoc,
 	PostSubmitDestination,
 } from "@/lib/domain";
+import { eligibleCaseListAction } from "@/lib/domain/caseListActionTargets";
+import {
+	count,
+	eq,
+	gt,
+	literal,
+	prop,
+	sessionContext,
+} from "@/lib/domain/expression";
 import { asMediaAssetId } from "@/lib/domain/multimedia";
 import { proseText } from "@/lib/domain/prose";
+import {
+	caseListActionChoices,
+	caseListActionCreatedDatum,
+} from "@/lib/preview/caseListRegistration";
+import {
+	caseListActionRolesFixture,
+	actionRoleIds as roleIds,
+} from "./caseListActionRolesFixture";
 import { manifestFor } from "./compilerEvidence";
 import { TEST_RUNTIME_TARGET } from "./runtimeTargetFixture";
 
@@ -457,6 +475,80 @@ describe("a case list that always offers another menu's registration form", () =
 	});
 });
 
+describe("an advanced menu's list offering another advanced menu's registration form", () => {
+	/** HQ's `test_case_list_registration_form_advanced`
+	 *  (`tests/data/case_list_form/case-list-form-advanced.xml`): both menus
+	 *  advanced, the follow-up menu's list offering the other's registration. */
+	function advancedDoc(afterSubmit: AlwaysOfferedRegistration["afterSubmit"]) {
+		const basic = registerFromListDoc({ afterSubmit });
+		const doc: BlueprintDoc = {
+			...basic,
+			modules: Object.fromEntries(
+				Object.entries(basic.modules).map(([uuid, mod]) => [
+					uuid,
+					{ ...mod, heldKind: "advanced" as const },
+				]),
+			),
+		};
+		expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
+		return doc;
+	}
+
+	/** The datum the host's form asks its case under: HQ's `case_id_<tag>`. */
+	function hostLoadDatum(suiteDoc: ReturnType<typeof parseXml>): string {
+		const session = childElements(entry(suiteDoc, "m0-f0"), "session")[0];
+		const [datum] = childElements(session as Element, "datum");
+		const id = datum?.attribs.id;
+		if (id === undefined) throw new Error("The host's form asks no case.");
+		return id;
+	}
+
+	it("writes HQ's case_list_form on the advanced host", () => {
+		const { hq } = compiled(advancedDoc("new-case"));
+		const [host, registration] = hq.modules;
+		expect(host?.doc_type).toBe("AdvancedModule");
+		expect(host?.case_list_form).toMatchObject({
+			form_id: registration?.forms[0]?.unique_id,
+			post_form_workflow: "default",
+		});
+	});
+
+	it("pushes the advanced registration's own command and new case id, as HQ's fixture does", () => {
+		const { suiteDoc } = compiled(advancedDoc("new-case"));
+		const actions = childElements(detail(suiteDoc, "m0_case_short"), "action");
+		expect(actions).toHaveLength(1);
+		expect(registerAction(actions[0] as Element).push).toEqual([
+			{ name: "command", value: "'m1-f0'" },
+			{ name: "datum", id: "case_id_new_patient_0", value: "uuid()" },
+			{ name: "datum", id: "return_to", value: "'m0'" },
+		]);
+	});
+
+	it("returns into the host's load with the new case, or to its command without one", () => {
+		const { suiteDoc } = compiled(advancedDoc("new-case"));
+		expect(frames(entry(suiteDoc, "m1-f0"))).toEqual([
+			{
+				if: `${RETURN_TO} and ${NEW_CASE_ROW} > 0`,
+				children: [
+					{ name: "command", value: "'m0'" },
+					{ name: "datum", id: hostLoadDatum(suiteDoc), value: NEW_CASE },
+				],
+			},
+			{
+				if: `${RETURN_TO} and ${NEW_CASE_ROW} = 0`,
+				children: [{ name: "command", value: "'m0'" }],
+			},
+		]);
+	});
+
+	it("writes one `case_list` frame back to the host's list", () => {
+		const { suiteDoc } = compiled(advancedDoc("case-list"));
+		expect(frames(entry(suiteDoc, "m1-f0"))).toEqual([
+			{ if: RETURN_TO, children: [{ name: "command", value: "'m0'" }] },
+		]);
+	});
+});
+
 describe("a submenu's list under a menu that chooses a case first", () => {
 	const RETURN_TO_PEOPLE =
 		"count(instance('commcaresession')/session/data/return_to) = 1 and instance('commcaresession')/session/data/return_to = 'm1'";
@@ -501,5 +593,155 @@ describe("a submenu's list under a menu that chooses a case first", () => {
 				],
 			},
 		]);
+	});
+});
+
+it.each([false, true])(
+	"offers the exact created child and opens the chosen parent through its own entry, advanced = %s",
+	(advanced) => {
+		const doc = caseListActionRolesFixture(advanced);
+		const id = roleIds;
+		expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
+		const { suiteDoc, hq } = compiled(doc);
+		expect(hq.modules[1]?.case_list_form?.form_id).toBe(
+			hq.modules[3]?.forms[1]?.unique_id,
+		);
+		expect(hq.modules[2]?.case_list_form?.form_id).toBe(
+			hq.modules[3]?.forms[0]?.unique_id,
+		);
+		const childId = caseListActionCreatedDatum(
+			doc,
+			id.registerList,
+			id.register,
+		);
+		const homeId = caseListActionCreatedDatum(doc, id.parentList, id.edit);
+		expect(childId).toBeTruthy();
+		expect(homeId).toBeUndefined();
+		expect(
+			frames(entry(suiteDoc, "m3-f1")).some((frame) =>
+				frame.if?.includes(`/session/data/${childId}`),
+			),
+		).toBe(true);
+		// Both return frames open the members of the household the form
+		// created: HQ matches the list's household datum to the form's new
+		// household (`_find_best_match`), not to the household chosen before.
+		const returns = frames(entry(suiteDoc, "m3-f1"));
+		expect(returns).toHaveLength(2);
+		for (const frame of returns)
+			expect(
+				frame.children.find((child) => child.id === "parent_id")?.value,
+			).toBe(
+				"instance('commcaresession')/session/data/case_id_new_household_0",
+			);
+		expect(
+			frames(entry(suiteDoc, "m3-f0")).some((frame) =>
+				frame.if?.includes("return_to"),
+			),
+		).toBe(false);
+		const chosen = { caseType: "household", cases: [{ caseId: "house-A" }] };
+		expect(
+			caseListActionChoices(doc, id.parentList, id.edit, {
+				[id.households]: chosen,
+				[id.parentList]: {
+					caseType: "person",
+					cases: [{ caseId: "unrelated" }],
+				},
+			}),
+		).toEqual({ [id.householdForms]: chosen });
+		expect(
+			eligibleCaseListAction(doc, id.registerList, id.register)?.target,
+		).toEqual({ kind: "created-case", operationUuid: id.newPerson });
+		expect(
+			removeCaseOperationMutation(doc, id.register, id.newPerson),
+		).toMatchObject({
+			ok: false,
+			reason: "case-list-action",
+			message: expect.stringContaining("New members"),
+		});
+		delete doc.modules[id.registerList].caseListRegistrationForm;
+		expect(
+			removeCaseOperationMutation(doc, id.register, id.newPerson),
+		).toMatchObject({ ok: true });
+	},
+);
+
+describe("a list action's condition and the instances the list loads", () => {
+	const ada = eq(sessionContext("username"), literal("ada"));
+
+	it("admits a session read where the list's own selection reads the session", () => {
+		const doc = caseListActionRolesFixture();
+		const slot = doc.modules[roleIds.registerList].caseListRegistrationForm;
+		if (slot?.kind !== "always") throw new Error("Missing the list action.");
+		slot.showWhen = { kind: "condition", condition: ada };
+		expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
+	});
+
+	it("refuses a session read on a list that loads no session, which HQ's build would leave undeclared", () => {
+		const doc = caseListActionRolesFixture();
+		doc.modules[roleIds.households].caseListRegistrationForm = {
+			kind: "always",
+			formUuid: roleIds.register,
+			showWhen: { kind: "condition", condition: ada },
+			afterSubmit: "case-list",
+		};
+		const findings = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
+		expect(findings).toMatchObject([
+			{
+				code: "CASE_LIST_ACTION_CONDITION_INVALID",
+				location: { moduleUuid: roleIds.households },
+				details: {
+					reason: "instance-not-on-the-list",
+					instances: "commcaresession",
+				},
+			},
+		]);
+		expect(findings[0]?.message).toContain("the worker's session");
+		// A count of the worker's records reads the casedb the list loads.
+		doc.modules[roleIds.households].caseListRegistrationForm = {
+			kind: "always",
+			formUuid: roleIds.register,
+			showWhen: {
+				kind: "condition",
+				condition: gt(
+					count({ kind: "cases", source: "casedb", where: [] }),
+					literal(0),
+				),
+			},
+			afterSubmit: "case-list",
+		};
+		expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
+	});
+
+	it("refuses one value read from the worker's records, which Core stops at when several match", () => {
+		const doc = caseListActionRolesFixture();
+		const households = {
+			kind: "cases" as const,
+			source: "casedb" as const,
+			where: [],
+		};
+		doc.modules[roleIds.households].caseListRegistrationForm = {
+			kind: "always",
+			formUuid: roleIds.register,
+			showWhen: {
+				kind: "condition",
+				condition: eq(
+					{
+						kind: "project",
+						of: households,
+						value: prop("household", "case_name"),
+					},
+					literal("North"),
+				),
+			},
+			afterSubmit: "case-list",
+		};
+		const findings = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
+		expect(findings).toMatchObject([
+			{
+				code: "CASE_LIST_ACTION_CONDITION_INVALID",
+				location: { moduleUuid: roleIds.households },
+			},
+		]);
+		expect(findings[0]?.message).toContain("can hold several");
 	});
 });

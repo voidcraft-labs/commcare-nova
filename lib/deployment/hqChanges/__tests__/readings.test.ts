@@ -146,14 +146,12 @@ function noProjectData(): ReadingProjectData {
 				projectRevision: "0" as LookupRevision,
 				rowsByTable: {},
 				apps: {},
-				keptColumns: {},
 				siblings: [],
 				mayAdminister: true,
 			},
 			hqTags: [],
 			hqLevels: [],
 			hqPlaces: [],
-			placesPastLimit: null,
 		},
 	};
 }
@@ -393,7 +391,7 @@ function plan(missing: readonly string[]): ReadingMediaPlan {
 		verdicts: Object.fromEntries(
 			missing.map((id) => [`CommCareImage/${id}`, { kind: "missing" }]),
 		),
-		kept: new Map(),
+		staged: new Map(),
 		published: {},
 	};
 }

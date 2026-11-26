@@ -113,9 +113,42 @@ written, so `*`, `#` and numbered lines stay as you typed them. A label's
 beside the choice. Web Apps still formats a choice, and the builder notes it where
 you turn formatting off.
 
+A question's label can also carry three more texts, which you can add from
+the inspector under **Extended text**, **QR code** and **Spoken text**, each
+translated like the label:
+
+- **Extended text** shows in place of the label wherever the label's
+  **Format text** is off.
+- **QR code** is the text Android draws as a QR code beside the question, in
+  place of the label's image. Web Apps shows no QR code.
+- **Spoken text** is what Android reads aloud from a speaker button beside a
+  question whose label has no audio. Web Apps shows no speaker button.
+
+Each can show an answer or a calculated value, like the label. In Preview,
+Android shows the QR code's text and a speaker button that reads the spoken
+text aloud.
+
+A question's label media can also hold an **Inline video**, which you can
+attach beside its image, audio and video, and choose per language like them.
+Android plays it inside the question, in place of the QR code and the label's
+image. Web Apps doesn't show it. A help text and a choice hold no inline
+video; you can attach a video there instead, which plays from a button.
+
 You can type `<`, `>` and `&` directly in your wording. With formatting off,
 spellings such as `&amp;` and `&#65;` also stay as written. With formatting on,
 the platform’s Markdown renderer interprets supported character references.
+
+## Choose how a question looks
+
+You can select a question in the Builder and find **Appearance** in the inspector to change its display. You can also describe what the worker should do, such as “Let me search for a district by name” or “Show three choices across on Android and move ahead when I choose one.” Choosing **Ordinary display** or **Ordinary choices** restores the question's usual control. The question keeps its answers and choice values. When a question brought in from CommCare HQ draws different choices on each platform, its display lists both controls. You can keep that pairing, adjust the layout, or restore ordinary choices. Nova keeps existing spacing and search settings when both workers can read them. On Android, a Web Apps row setting leaves the ordinary screen layout in place.
+
+- **Finding a choice.** A dropdown saves space. A search box lets a worker narrow a long list. **Several words** matches complete words in Web Apps and parts of words on Android. **Similar spellings** uses the search of the platform the worker is using. An Android grid shows pictures. Give each choice an image so workers can tell the tiles apart. A grid can advance immediately after a choice. If you choose **Different layouts by platform**, you can set the grid columns or search matching for the platform that uses it. Android keeps a fixed number of grid columns only when the question has no other display setting; otherwise it fits as many columns as the screen allows. Table headings display the choices as column labels.
+- **Dates and times.** An Ethiopian date question stores the same day as an ordinary date question. If you also set **Items per row**, Web Apps keeps the Ethiopian calendar and Android uses its usual date picker. Clearing the row setting brings back the Ethiopian picker on Android. Nepali and alternate Gregorian pickers are Android choices. **Gregorian with a clear button** lets the worker erase a selected day directly from the question. On Android an unanswered date opens on today. Leaving that page or finishing the form saves the day shown. Clear leaves the answer empty on this visit. Returning to the empty question opens the picker on today again. In Web Apps an unanswered date stays empty until the worker picks a day. **12-hour clock** shows AM and PM in Web Apps.
+- **Laying out a form.** In Web Apps, **Items per row** places neighboring questions across the screen. A group can have a border and start open or closed. A group with a repeat can set **Repeat items per row**. On Android, a compact group shows each question's label beside its answer, one question per screen. A banner draws attention to a prompt.
+- **Capturing an answer.** A barcode question can open the Android scanner immediately or let the worker edit the scanned code. When Preview runs as Android, you can type the code only where the question lets workers edit it, or where your browser can't scan. Picture and video questions can ask workers to use the camera. An audio question can allow a recording to be paused and resumed, or let the worker choose an audio file.
+- **Filling a related answer.** In Web Apps, an uploaded file can send its original filename to a text question. Give the file a channel under **Send updates to**. On the text question, choose the same channel under **Fill from a channel** and use `filename` as the returned field. A worker clearing the file clears that related answer. Inside a repeat, the change stays within the current entry. A text, password or barcode question can **Find an address** in Web Apps: the worker searches and chooses an address, and the question can send that address's parts, such as its street, city or postcode, to other questions. Web Apps runs the search only where the project space has advanced case search and the Geocoder plan feature. Before publishing sends anything, it checks the first and asks you to confirm the second, and it stops where the project space lacks advanced case search. Without them, Web Apps saves “Not Supported by Web Entry” as the answer. Android workers type the answer. Preview searches with its own map provider, so the addresses it offers can differ from the ones Web Apps offers.
+
+In Preview you can switch between **Web Apps** and **Android** to try the controls your workers will see. If two settings would make a question behave differently from your choices, the Builder explains which settings can work together.
 
 ## Try the app in Preview
 
@@ -213,6 +246,15 @@ Preview uses your real case records; the recorded journeys use separate test
 records. Disposable records and places do not appear in ordinary Preview, and
 the recorded view cannot rerun submissions.
 
+In **App settings → Required Android apps**, you can choose which apps workers need
+on their phone and set the order workers see them. In Android Preview, the phone
+lists any that are missing. Choose **Install in Preview** to try opening the app
+with them installed. The worker menu also lets you change which apps the Preview
+phone has. Workers using Web Apps can open the app in their browser. If a
+project space you publish to loses App Dependencies, CommCare HQ stops listing
+these apps; when you check for changes from CommCare HQ, Nova keeps your
+selection, since no one chose to remove it.
+
 ### Preview on Web Apps and Android
 
 Preview runs your app the way Web Apps does, or the way the CommCare app on
@@ -250,6 +292,32 @@ finds its case, as it does for a worker. On Android the closest matches come
 first. In Web Apps the list keeps the order it shows, its own or the item a
 worker picked in **Sort by**, and closeness decides only between cases that
 order places equally.
+
+For record searches, open the **Running as** menu and choose **Preview search and map
+settings**. The project space sets its own time zone, maximum results, and
+which record properties use fuzzy matching or ignore particular text. A team
+member with edit access can record the settings your project space uses. They
+appear as supplied by your team. For a list with an address, you can also record whether the project space offers the Web Apps record map. Leave it unrecorded if your team has yet to check. Android uses the list’s address independently. Choose a named time zone such as Asia/Kolkata or America/New_York so Preview can follow daylight saving time. You can browse matching rules in order and save a single setting while keeping the other rules. If a setting changes in CommCare HQ, you can
+update it here. Publishing always uses CommCare HQ's current settings.
+
+An app you bring in keeps its searches. If a search needs an unrecorded setting,
+you can supply it and try again. For an app on several project spaces you can
+choose the destination you want to test. For an app with no destination you can
+choose **Local Preview**, which starts in UTC with exact matching and a limit of
+500 records. Project members share the settings they record for each destination.
+If a teammate saves while you're editing, you can review their settings, then
+choose **Keep my edits** to keep each setting you changed over theirs, or **Use
+latest settings** to start again from theirs.
+
+A search for similar spellings finds the records CommCare HQ would find. Words
+are separated by spaces only, so "Mary-Jane" and "O'Brien" stay whole words, and
+accents count as letters of their own. A record matches when it shares a whole
+word with the search, or when one of its words starts with the same two
+characters as the whole search and differs from it by at most one character for
+a search of three to five characters, or two for a longer one. CommCare checks
+at most 100 saved words close to what was typed. When more are close, Preview
+can't tell which records CommCare would find, and says so for that search. A
+longer or more exact search lets you preview it.
 
 A case list in Preview has the **Sort by** menu each platform gives it. On
 Android it lists every item Results shows and each hidden item you named in
@@ -450,7 +518,26 @@ or MKV video. Nova checks each file as you add it and shows where it plays: ICO
 and AVIF images play only in Web Apps, and AAC, AMR and MIDI audio, MP4 with
 HEVC or MPEG-4 Part 2 video and MKV play only on Android. A file goes in an app
 where it plays on every platform the app runs on. SVG images can't be used,
-because CommCare HQ can't store them.
+because CommCare HQ can't store them, and neither can a picture of more than
+178,956,970 pixels (about 13,000 by 13,000), whatever its file size.
+
+## Automatic location on Android
+
+**App settings → Request location for every form** asks the phone for a location
+when each form opens. With the switch off, **Form settings → Request location for
+this form** lets each form choose. Each form keeps its own switch if you change
+the app-wide setting. Connect requests location for every form.
+
+Android includes a fix in the submission when the worker grants location permission
+and the phone gets a fix. Workers can still send a form when the phone has no fix.
+Web Apps leaves automatic location empty. A location question records the point the
+worker answers independently.
+
+In Android Preview, open the worker menu and choose **Device location**. Enter the
+coordinates of a simulated phone fix or choose **Use unavailable location**. After
+sending a form that records location, the worker menu shows the submitted fix or
+says that no fix was available.
+The next form you open uses that choice. You can ask Nova to test both outcomes.
 
 ## Asking for a date and a time separately
 
@@ -554,7 +641,10 @@ Apps.
 
 A formula in a form can read a Project data table by its export tag. For
 example, `instance('facilities')/facilities_list/facilities[code = #form/facility]/name`
-reads the name of the facility a worker chose. Nova keeps the table and its
+reads the name of the facility a worker chose. If the table shares a name with
+another source in the app, the formula can identify it with `item-list:`.
+For a table tagged `locations`, `instance('item-list:locations')/locations_list/locations/name`
+reads the table's name column. Nova keeps the table and its
 columns themselves rather than their names, so renaming the table's export tag
 or a column's export name keeps the formula reading them, and a table or column
 a formula reads can't be removed until that formula changes. Choices and record

@@ -1,6 +1,7 @@
 import { v7 as uuidv7 } from "uuid";
 import { expect, it, vi } from "vitest";
 import { z } from "zod";
+import { expectAdmittedDoc } from "@/lib/agent/__tests__/admittedFixture";
 import { makeAuthoringHarness } from "@/lib/agent/__tests__/authoringHarness";
 import {
 	echoLookupDefinitions,
@@ -8,10 +9,20 @@ import {
 } from "@/lib/agent/__tests__/fixtures";
 import { namedFormFixture } from "@/lib/agent/__tests__/namedFormFixture";
 import {
+	ENDPOINT_FORM,
+	endpointWireFixture,
+} from "@/lib/commcare/__tests__/endpointWireFixture";
+import {
+	ROUTE,
+	twoMenus,
+	VISIT,
+} from "@/lib/commcare/__tests__/menuFormRoutesFixture";
+import {
 	type BlueprintDoc,
 	orderedCaseOperations,
 	translationUnitsById,
 } from "@/lib/domain";
+import { eq, literal, prop } from "@/lib/domain/expression";
 import {
 	lookupColumnIdSchema,
 	lookupTableIdSchema,
@@ -31,6 +42,22 @@ function authoring(
 	}
 	return { ...harness, call };
 }
+
+it("chooses a supplied creation by the operation name on the deep link's form", async () => {
+	const doc = endpointWireFixture("registration");
+	const operation = doc.forms[ENDPOINT_FORM].caseOperations?.find(
+		(row) => row.action === "own",
+	);
+	if (!operation) throw new Error("Missing registration operation");
+	const h = authoring({}, doc);
+	await h.call("updateEntryPoint", {
+		entryPointUuid: "visit",
+		patch: { caseCreationUuids: [operation.id] },
+	});
+	expect(h.currentDoc().forms[ENDPOINT_FORM].entryCaseCreations).toEqual([
+		operation.uuid,
+	]);
+});
 
 it("uses scoped short names for nested questions, wording, conditions, edits and insertion anchors", async () => {
 	const h = authoring(
@@ -514,6 +541,64 @@ it("loads the table scope for a lookup filter even when the condition uses no ro
 	});
 });
 
+it("loads the table scope for a count of a table's rows in a menu badge and conditions", async () => {
+	const table = {
+		id: lookupTableIdSchema.parse(uuidv7()),
+		name: "Clinics",
+		tag: "clinics",
+		definitionRevision: parseLookupRevision("0"),
+		columns: [
+			{
+				id: lookupColumnIdSchema.parse(uuidv7()),
+				wireName: "name",
+				label: "name",
+				dataType: "text" as const,
+			},
+		],
+	};
+	const lookupCatalog = vi.fn(async () => ({
+		projectId: "project-test",
+		projectRevision: parseLookupRevision("1"),
+		definitions: [table],
+	}));
+	const h = authoring(
+		{ lookupCatalog, lookupDefinitions: echoLookupDefinitions([table]) },
+		namedFormFixture([
+			{ name: "Clinics", forms: [{ name: "Survey", type: "survey" }] },
+		]),
+	);
+	await h.call("updateModule", {
+		moduleUuid: "Clinics",
+		badge: {
+			kind: "calculation",
+			expression: "count(table-rows('Clinics'))",
+		},
+		displayCondition: "count(table-rows('Clinics')) > 0",
+	});
+	await h.call("updateForm", {
+		moduleUuid: "Clinics",
+		formUuid: "Survey",
+		displayCondition: "count(table-rows('Clinics')) > 0",
+	});
+	expect(lookupCatalog).toHaveBeenCalled();
+	const doc = h.currentDoc();
+	const menu = Object.values(doc.modules).find(
+		(module) => module.name === "Clinics",
+	);
+	const form = Object.values(doc.forms).find(
+		(one) => one.displayCondition !== undefined,
+	);
+	expect({
+		badge: JSON.stringify(menu?.badge),
+		menuCondition: JSON.stringify(menu?.displayCondition),
+		formCondition: JSON.stringify(form?.displayCondition),
+	}).toEqual({
+		badge: expect.stringContaining(table.id),
+		menuCondition: expect.stringContaining(table.id),
+		formCondition: expect.stringContaining(table.id),
+	});
+});
+
 it.each(["outer", "outer/inner"])(
 	"binds full parent path %s when descendants share its leaf name",
 	async (parentPath) => {
@@ -782,4 +867,148 @@ it("uses each translation unit's own form and preserves inserted identities", as
 	).toMatchObject({
 		items: [{ status: "ready", effective: "Salut {{name}}" }],
 	});
+	const wording = {
+		operation: "set",
+		unitId: unit.id,
+		expectedSourceFingerprint: current.sourceFingerprint,
+		value: "Salut {{name}}, {{name}}",
+	};
+	const setTarget = (changeShownValues: boolean) =>
+		h.call("updateTranslations", {
+			language: { language: "fra" },
+			updates: [{ ...wording, changeShownValues }],
+		});
+	await expect(setTarget(false)).rejects.toThrow();
+	await setTarget(true);
+	expect(h.currentDoc().localization?.translations.fra[unit.id]).toMatchObject({
+		valueMode: "independent-values",
+		review: "needs-review",
+	});
+	await h.call("editField", {
+		moduleUuid: "Visit",
+		formUuid: "Survey",
+		fieldUuid: "hello",
+		updates: { label: "Hello {{name}}, {{name}}" },
+	});
+	const matching = await readRevision();
+	await reviewCall(matching.revision);
+	expect(
+		h.currentDoc().localization?.translations.fra[unit.id],
+	).not.toHaveProperty("valueMode");
+});
+
+it("keeps a translation that shows values of its own until an edit says what to do with them", async () => {
+	const fixture = namedFormFixture([
+		{ name: "Visit", forms: [{ name: "Survey", type: "survey" }] },
+	]);
+	const h = authoring({}, fixture);
+	await h.call("addFields", {
+		moduleUuid: "Visit",
+		formUuid: "Survey",
+		fields: [
+			{ kind: "text", id: "name", label: "Name" },
+			{ kind: "text", id: "family", label: "Family" },
+			{ kind: "label", id: "hello", label: "Hello {{name}}" },
+		],
+	});
+	await h.call("removeField", {
+		moduleUuid: "Visit",
+		formUuid: "Survey",
+		fieldUuid: "fixture_placeholder",
+	});
+	const unit = [...translationUnitsById(h.currentDoc()).values()].find(
+		(unit) => unit.role === "field-label" && unit.context.fieldId === "hello",
+	);
+	if (!unit) throw new Error("Missing translation source.");
+	await h.call("addLanguage", { language: { language: "fra" } });
+	const read = async () =>
+		z
+			.object({
+				items: z.array(
+					z.object({
+						sourceFingerprint: z.string(),
+						explicit: z
+							.object({ showsOwnValues: z.literal(true).optional() })
+							.nullable()
+							.optional(),
+					}),
+				),
+			})
+			.parse(
+				await h.call("getTranslatableContent", {
+					language: { language: "fra" },
+					query: "Hello",
+					limit: 10,
+				}),
+			).items[0];
+	const setInput = async (value: string, changeShownValues?: boolean) => ({
+		language: { language: "fra" },
+		updates: [
+			{
+				operation: "set",
+				unitId: unit.id,
+				expectedSourceFingerprint: (await read()).sourceFingerprint,
+				value,
+				...(changeShownValues !== undefined && { changeShownValues }),
+			},
+		],
+	});
+	const set = async (value: string, changeShownValues?: boolean) =>
+		h.call("updateTranslations", await setInput(value, changeShownValues));
+	await set("Bonjour {{family}}", true);
+	expect((await read()).explicit?.showsOwnValues).toBe(true);
+	const own = structuredClone(h.currentDoc());
+	/* A translation of the source, as a model re-translating it writes it. */
+	const refused = await makeAuthoringHarness({}, h.currentDoc()).call(
+		"updateTranslations",
+		await setInput("Bonjour {{name}} !"),
+	);
+	expect(refused).toMatchObject({
+		error: expect.stringContaining("Set changeShownValues to true"),
+	});
+	await expect(set("Bonjour {{name}} !")).rejects.toThrow();
+	expect(h.currentDoc()).toEqual(own);
+	/* Rewording while keeping its own values says so. */
+	await set("Salut {{family}}", true);
+	expect(h.currentDoc().localization?.translations.fra[unit.id]).toMatchObject({
+		valueMode: "independent-values",
+	});
+	/* Showing the source's values again says so too. */
+	await set("Bonjour {{name}} !", false);
+	expect(
+		h.currentDoc().localization?.translations.fra[unit.id],
+	).not.toHaveProperty("valueMode");
+	expect((await read()).explicit?.showsOwnValues).toBeUndefined();
+});
+
+it("adds a deep link to a form a menu lists from another menu, through that listing menu", async () => {
+	const doc = twoMenus();
+	const route = doc.modules[ROUTE];
+	if (route?.formsFromMenu === undefined) throw new Error("Missing route");
+	route.formsFromMenu = { ...route.formsFromMenu, entryPoints: undefined };
+	const h = authoring({}, expectAdmittedDoc(doc));
+	await h.call("addEntryPoint", {
+		target: { kind: "form", moduleUuid: ROUTE, formUuid: VISIT },
+		id: "clinic-visit",
+	});
+	expect(
+		h.currentDoc().modules[ROUTE].formsFromMenu?.entryPoints,
+	).toMatchObject([{ formUuid: VISIT, entryPoint: { id: "clinic-visit" } }]);
+});
+
+it("reads and writes #case on a menu that lists another menu's forms as that menu's case type", async () => {
+	const h = authoring({}, expectAdmittedDoc(twoMenus()));
+	await h.call("setCaseListFilter", {
+		moduleUuid: ROUTE,
+		filter: "#case/case_name = 'Ada'",
+	});
+	expect(h.currentDoc().modules[ROUTE].caseListConfig?.filter).toEqual(
+		eq(prop("patient", "case_name"), literal("Ada")),
+	);
+	const read = (await h.call("getModule", { moduleUuid: ROUTE })) as {
+		case_type: string;
+		case_list_config: { filter: unknown };
+	};
+	expect(read.case_type).toBe("patient");
+	expect(read.case_list_config.filter).toBe("(#case/case_name = 'Ada')");
 });

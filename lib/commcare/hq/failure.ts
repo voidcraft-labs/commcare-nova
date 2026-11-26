@@ -207,15 +207,15 @@ export function hqReadCircumstance(failure: HqFailure): ReadCircumstance {
 		 * Nova could not read. */
 		case "not-found":
 			return APP_REQUESTS.has(failure.request) ? "app-gone" : "hq-unavailable";
-		/* `too-large` words the app itself; the rows of the tables one request
-		 * reads, together past what Nova brings in, are the app's lookup data;
-		 * a long list is no app. */
+		/* `too-large` words the app itself; a long list is no app. No size of
+		 * lookup data stops a read: a table's rows past one inline read answer
+		 * `past-limit`, and the table comes in as its confirmed definition
+		 * (`reading/projectData/lookupTableStore.ts`), so `too-large` on a rows
+		 * read is an answer Nova could not read like any other. */
 		case "too-large":
 			return APP_BODY_REQUESTS.has(failure.request)
 				? "too-large"
-				: failure.request === "lookup-rows"
-					? "lookup-data-too-large"
-					: "hq-unavailable";
+				: "hq-unavailable";
 		case "hq-unavailable":
 		case "timed-out":
 		case "answer-unreadable":

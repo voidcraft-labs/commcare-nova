@@ -30,6 +30,7 @@ import { SimpleTooltip } from "@/components/shadcn/tooltip";
 import type { Column } from "@/lib/domain";
 import type { LanguageTag } from "@/lib/domain/localization";
 import { isOpenableAddress } from "@/lib/links/openableAddress";
+import { PREVIEW_LABEL_RENDERING, PreviewMarkdown } from "@/lib/markdown";
 import {
 	type CalculatedTemporalType,
 	type ColumnDisplayContext,
@@ -44,6 +45,8 @@ import type {
 	CaseRowWithCalculated,
 } from "@/lib/preview/engine/caseDataBindingTypes";
 import { runtimeMessage } from "@/lib/preview/runtimeMessages";
+import { parsePoint } from "@/lib/preview/xpath/javaRosaGeo";
+import { NativeTileText } from "./NativeTileText";
 /**
  * Render one column's cell for one row. Dispatches on the
  * column's `kind` discriminator; each branch handles the
@@ -64,6 +67,24 @@ export function renderColumnCell(
 	context: ColumnDisplayContext,
 ): React.ReactNode {
 	const displayed = projectColumnDisplay(column, row, context);
+	if (
+		column.kind === "formatted-text" ||
+		(column.kind === "calculated" && column.showAs === "formatted-text")
+	) {
+		if (!displayed.text || displayed.kind !== "value")
+			return renderPreviewValue(displayed, context.language);
+		if (context.tileText === "html")
+			return <NativeTileText value={displayed.text} />;
+		if (context.linkColumnInList === "raw-text") return displayed.text;
+		return (
+			<PreviewMarkdown
+				rendering={context.markdownRendering ?? PREVIEW_LABEL_RENDERING}
+				inline
+			>
+				{displayed.text}
+			</PreviewMarkdown>
+		);
+	}
 	if (column.kind === "link" && context.linkColumnInList === "raw-text") {
 		/* Android's list draws the column's markdown as written. */
 		return displayed.text === ""
@@ -76,7 +97,7 @@ export function renderColumnCell(
 		// than a link to nowhere, matching what the emitted `if(… = '', '', …)`
 		// guard does on the device.
 		const address = (
-			column.via === undefined
+			column.via === undefined && !column.readFrom && !column.showOwner
 				? caseRowDisplayValue(row, column.field)
 				: columnRawText(column, row, context.reading)
 		).trim();
@@ -99,6 +120,34 @@ export function renderColumnCell(
 			renderEmptyCell(context.language)
 		);
 	}
+	if (
+		column.kind === "map-location" &&
+		context.caseLocationDetail === "show-address" &&
+		!context.linkColumnInList &&
+		!context.tileText
+	) {
+		const address = columnRawText(column, row, context.reading);
+		let target = `geo:0,0?q=${encodeURIComponent(address)}`;
+		try {
+			const point = parsePoint(address);
+			const pair = `${point.latitude},${point.longitude}`;
+			target = `geo:${pair}?q=${pair}`;
+		} catch {
+			// Android asks its map app to search for a non-coordinate address.
+		}
+		return (
+			<span className="inline-flex flex-wrap items-center gap-2">
+				{address}
+				<a
+					href={target}
+					className="inline-flex min-h-11 items-center text-nova-violet-bright underline"
+				>
+					{runtimeMessage(context.language, "showCaseAddress")}
+				</a>
+			</span>
+		);
+	}
+
 	if (column.kind === "phone") {
 		const phoneNumber = displayed.text.trim();
 		return phoneNumber ? (
@@ -134,7 +183,7 @@ function renderPreviewValue(
 			<SimpleTooltip content={value.text}>
 				<ProjectMediaImage
 					assetId={value.assetId}
-					alt={value.text}
+					alt={value.altText ?? value.text}
 					className="inline-block size-5 rounded-sm object-cover"
 				/>
 			</SimpleTooltip>

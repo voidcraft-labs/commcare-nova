@@ -90,7 +90,7 @@ import type {
 	MutationResult,
 	PlacementHoldEntry,
 } from "@/lib/doc/types";
-import { recordFromEntries } from "@/lib/domain";
+import { FIELD_PROSE_SLOTS, recordFromEntries } from "@/lib/domain";
 import {
 	APP_GENESIS_FALLBACK_NAME,
 	NEW_APP_SETTINGS,
@@ -445,6 +445,7 @@ function affectsCaseWriteProjection(
 		case "declareCaseType":
 		case "retireCaseType":
 		case "addCaseProperty":
+		case "moveCaseProperty":
 		case "removeCaseProperty":
 		case "setCaseProperty":
 		case "setCaseTypeMeta":
@@ -507,6 +508,9 @@ function affectsCaseWriteProjection(
 		case "removeOption":
 		case "moveOption":
 		case "setCaseListMeta":
+		case "addCalculatedSort":
+		case "updateCalculatedSort":
+		case "removeCalculatedSort":
 		case "addColumn":
 		case "updateColumn":
 		case "removeColumn":
@@ -517,6 +521,10 @@ function affectsCaseWriteProjection(
 		case "moveSearchInput":
 		case "addLanguage":
 		case "removeLanguage":
+		case "rebindLanguageCodes":
+		case "rebaseSourceLanguage":
+		case "setProjectLanguageDirection":
+		case "moveLanguage":
 		case "setDefaultLanguage":
 		case "setTranslation":
 		case "reviewTranslation":
@@ -727,7 +735,7 @@ export function createBlueprintDocStore() {
 		/* Clearing one of these removes its translation unit and may prune an
 		 * authored target entry. A slot-only inverse could not reconstruct that
 		 * dependent entry, so keep the complete diff for this uncommon case. */
-		for (const key of ["label", "hint", "help", "validate_msg"]) {
+		for (const key of FIELD_PROSE_SLOTS) {
 			if (patch[key] === null) return undefined;
 		}
 

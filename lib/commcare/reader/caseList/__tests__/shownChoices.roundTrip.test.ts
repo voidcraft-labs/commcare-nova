@@ -1,18 +1,6 @@
-/**
- * Contract: a plain column over a property select questions write reads back to the document it
- * was emitted from, after the reader's canonical choices, with no finding. Where the catalog gives
- * the property choices, the column shows their labels and its `enum` is the export's only evidence
- * of them: the catalog's choices, their order, their labels and each label's translations are
- * read from it, never from the select questions' choices. Where the catalog gives it none, the
- * column shows the values, and the property keeps no choices. A plain column that shows a
- * property's values beside one that shows its labels is the finding Nova's column can't be.
- *
- * The failure it catches: a select question's choice translations copied onto the case property's
- * choices, which no export carries (a different document with no finding); a property the select
- * questions give choices to read under a column that shows its values (the finding
- * `1p-plain-over-a-property-select-questions-write`, or a catalog whose emission shows labels);
- * the select questions' labels read over the labels the column shows.
- */
+/** A property can supply independently ordered stored tokens and translated labels to the same list.
+ * The labels its column shows are a native source of catalog choices. A raw column preserves
+ * writer-derived choices and keeps its identity across an HQ layout edit. */
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
@@ -184,6 +172,46 @@ async function expectReadsBack(doc: BlueprintDoc): Promise<void> {
 }
 
 describe("a plain column over a property select questions write", () => {
+	it("keeps the label and saved value columns' identities after HQ changes their order", async () => {
+		const doc = patients(
+			[option("well", "Well"), option("sick", "Sick")],
+			new Map(),
+		);
+		const config = doc.modules[doc.moduleOrder[0]].caseListConfig;
+		if (!config) throw new Error("Expected the patient list.");
+		const raw = plainColumn(
+			testUuid("shown-raw"),
+			"condition_level",
+			"Status",
+			{ showChoice: "saved-value" },
+		);
+		config.columns.push(raw);
+		config.listColumnOrder.push(raw.uuid);
+		config.detailColumnOrder.push(raw.uuid);
+		const answer = await readBack(doc, (modules) =>
+			modules.map((module) => {
+				const pair = module.case_details as {
+					short: { columns: unknown[] };
+					long: { columns: unknown[] };
+				};
+				pair.short.columns.reverse();
+				pair.long.columns.reverse();
+				return module;
+			}),
+		);
+		expect(answer.defects).toEqual([]);
+		expect(answer.kind === "account" ? answer.findings : []).toEqual([]);
+		expect(answer.kind).toBe("read");
+		if (answer.kind !== "read") return;
+		const read = answer.draft.doc;
+		expect(
+			read.modules[read.moduleOrder[0]].caseListConfig?.columns,
+		).toMatchObject([
+			{ uuid: raw.uuid, showChoice: "saved-value" },
+			{ uuid: COLUMN },
+		]);
+	});
+
 	it("reads the labels' translations from the column, not from the select's choices", async () => {
 		await expectReadsBack(
 			patients(
@@ -218,15 +246,17 @@ describe("a plain column over a property select questions write", () => {
 		);
 	});
 
-	it("shows the values where the catalog gives the property no choices, and keeps none", async () => {
+	it("keeps a raw display when the reading rediscovers choices from the writer", async () => {
 		const doc = patients(undefined, new Map([[choiceUnit(WELL), "Bien"]]));
 		await expectReadsBack(doc);
 		const outcome = await readBack(doc);
 		if (outcome.kind !== "read") return;
-		expect(shownFacts(outcome.draft.doc).property?.options).toBeUndefined();
+		expect(
+			shownFacts(outcome.draft.doc).property?.options?.map((one) => one.value),
+		).toEqual(["well", "sick"]);
 	});
 
-	it("is a finding where another column of the menu shows the property's labels", async () => {
+	it("keeps raw values and translated labels as separate columns over the same property", async () => {
 		const doc = patients(
 			[option("well", "Well"), option("sick", "Sick")],
 			new Map(),
@@ -246,16 +276,21 @@ describe("a plain column over a property select questions write", () => {
 				return module;
 			}),
 		);
-		expect(
-			(outcome.kind === "account" ? outcome.findings : []).map((finding) => [
-				finding.code,
-				finding.place.kind,
-			]),
-		).toEqual([
-			[
-				"menus-and-case-lists/1p-plain-over-a-property-select-questions-write",
-				"case-detail",
-			],
+		expect(outcome.kind === "account" ? outcome.findings : []).toEqual([]);
+		expect(outcome.defects).toEqual([]);
+		expect(outcome.kind).toBe("read");
+		if (outcome.kind !== "read") return;
+		const read = outcome.draft.doc;
+		const columns = read.modules[read.moduleOrder[0]].caseListConfig?.columns;
+		expect(columns).toMatchObject([
+			{ kind: "plain", field: "condition_level", visibleInDetail: false },
+			{
+				kind: "plain",
+				field: "condition_level",
+				showChoice: "saved-value",
+				notOnList: true,
+			},
 		]);
+		await expectReadsBack(read);
 	});
 });

@@ -10,6 +10,7 @@
  * typing fact is cached per document, and documents are replaced, never
  * changed in place. Pure; it never throws for an app's content.
  */
+
 import { freeze, produce } from "immer";
 import {
 	hydratePersistedBlueprint,
@@ -66,6 +67,11 @@ import {
 	EMISSION_REWRITES,
 	type EmissionRewriteId,
 } from "../../emissionRewrites";
+import {
+	lookupFixtureId,
+	lookupFixtureSrc,
+	lookupXformInstanceId,
+} from "../../lookup/naming";
 import { inventoryIndex } from "../../surface/inventory";
 import {
 	formDisplayCondition,
@@ -73,6 +79,7 @@ import {
 } from "../../validator/rules/displayConditions";
 import { rethrowWorkStop } from "../../workMeter";
 import type { FormSyntax } from "../../xpath/formSyntax";
+import { instanceSourcesAfterScan } from "../../xpath/instanceSources";
 import { noteProperty } from "../caseManagement/catalog";
 import { type HandOffKind, sameJson } from "../jsonCursor";
 import {
@@ -111,6 +118,7 @@ import { levelControl, type PrintLevel } from "./printLevel";
 import {
 	type BoundSlot,
 	bindSlot,
+	instanceSourcesOf,
 	judgeSlot,
 	lookupTypes,
 	printSlot,
@@ -131,6 +139,7 @@ import {
 } from "./surfaceUses";
 
 export interface ExpressionReadEnv {
+	readonly factories?: import("../../xpath/instanceSources").InstanceFactories;
 	readonly lookup: LookupDefinitionIndex;
 	/** Per form: the source's own names, from which the binding projection is built. */
 	readonly sourceNames: ReadonlyMap<Uuid, ReadSourceNames>;
@@ -138,6 +147,8 @@ export interface ExpressionReadEnv {
 	readonly itextUnits: ReadonlyMap<Uuid, ReadonlyMap<string, ItextUnit>>;
 	/** Per form: each declared instance id to its `src`. */
 	readonly instanceSources: ReadonlyMap<Uuid, ReadonlyMap<string, string>>;
+	/** Declarations and scanned factory instances in each rendered XForm. */
+	readonly formReadSources?: ReadonlyMap<Uuid, ReadonlyMap<string, string>>;
 	/** Per form: a generated sibling the form reader set aside, by absolute path, with its calculate. */
 	readonly generatedValues: ReadonlyMap<
 		Uuid,
@@ -319,7 +330,11 @@ function namedElement(element: unknown, ref: SlotContextRef): boolean {
 		"linkUuid",
 		"operationUuid",
 		"columnUuid",
+		"sortUuid",
+		"rowUuid",
+		"tabUuid",
 		"searchInputUuid",
+		"filterUuid",
 		"optionUuid",
 	])
 		if (member[key] !== undefined && item.uuid === member[key]) return true;
@@ -403,6 +418,7 @@ function proseTemplate(
  *  prose template the i-th registration under that template names. */
 type Site =
 	| { readonly kind: "slot" }
+	| { readonly kind: "translation" }
 	| { readonly kind: "prose"; readonly part: number };
 
 function sitesOf(
@@ -414,6 +430,7 @@ function sitesOf(
 		const ref = registration.ref;
 		if (!isProseSlotRef(ref))
 			return slotHolder(doc, ref) === undefined ? undefined : { kind: "slot" };
+		if (registration.translatedOutput === true) return { kind: "translation" };
 		const key = JSON.stringify(ref);
 		const ordinal = seen.get(key) ?? 0;
 		seen.set(key, ordinal + 1);
@@ -438,7 +455,12 @@ function written(
 		for (const [index, tree] of trees) {
 			const site = sites[index];
 			const registration = pending[index];
-			if (site === undefined || registration === undefined) continue;
+			if (
+				site === undefined ||
+				site.kind === "translation" ||
+				registration === undefined
+			)
+				continue;
 			if (site.kind === "slot") {
 				const held = slotHolder(draft, registration.ref);
 				if (held !== undefined) held.holder[held.key] = tree;
@@ -470,7 +492,16 @@ function registrationName(
 	const ref = registration.ref;
 	if (ref.entity === "module") {
 		const config = doc.modules[ref.uuid]?.caseListConfig;
-		if (ref.slot === "case_list_column_expression") {
+		if (ref.slot === "case_list_sort_expression") {
+			const sort = config?.calculatedSorts?.find(
+				(rule) => rule.uuid === ref.member.sortUuid,
+			);
+			return sort?.label ?? "Default order";
+		}
+		if (
+			ref.slot === "case_list_column_expression" ||
+			ref.slot === "case_list_mapping_condition"
+		) {
 			const column = config?.columns.find(
 				(candidate) => candidate.uuid === ref.member.columnUuid,
 			);
@@ -491,6 +522,7 @@ type Resolution =
 			readonly kind: "entry";
 			readonly entryId: string;
 			readonly reason: string;
+			readonly name?: string;
 			/** The surface key the entry is answered under, where the reader
 			 *  that answered it named one. */
 			readonly key?: string;
@@ -560,14 +592,12 @@ function slotDefault(
 /** What the slot's form declares beside its expressions. */
 function declarationsOf(
 	doc: BlueprintDoc,
-	ref: SlotContextRef,
+	pending: PendingExpression,
 	env: ExpressionReadEnv,
 ): FormDeclarations {
-	const form = slotForm(doc, ref);
+	const form = slotForm(doc, pending.ref);
 	return {
-		instanceSources:
-			(form === undefined ? undefined : env.instanceSources.get(form)) ??
-			new Map(),
+		instanceSources: instanceSourcesOf(doc, pending, env) ?? new Map(),
 		computedDatums:
 			(form === undefined ? undefined : env.computedDatums.get(form)) ??
 			new Set(),
@@ -583,6 +613,14 @@ function refusalOf(
 	pending: PendingExpression,
 	env: ExpressionReadEnv,
 ): Resolution {
+	if (cause.kind === "lookup-name")
+		return {
+			kind: "entry",
+			entryId: cause.entryId,
+			key: cause.key,
+			name: cause.name,
+			reason: "lookup-name",
+		};
 	if (cause.kind === "no-case-datum")
 		return { kind: "unrecognized", reason: "no-case-datum" };
 	const issue =
@@ -601,7 +639,7 @@ function refusalOf(
 						to: pending.text.length,
 						message: "",
 					};
-	const declarations = declarationsOf(doc, pending.ref, env);
+	const declarations = declarationsOf(doc, pending, env);
 	// A read of a table the catalog lacks is project data's to judge: the
 	// table is one finding however many slots read it.
 	const table =
@@ -961,9 +999,30 @@ export function* readExpressionsSteps(
 		withdrawn.forEach((taken, index) => {
 			if (!settled.has(index)) taken.clear();
 		});
-		for (const [at, index] of bindable.entries()) {
-			if (at > 0 && at % SLOTS_PER_STEP === 0) yield;
+		// A Details tab's records are the rows its fields read, so each field's
+		// scope comes from the tab's bound collection: the collections bind
+		// first, and every other slot binds over the document holding them.
+		const supplies = (index: number) =>
+			(pending[index] as PendingExpression).ref.slot === "case_detail_tab_rows";
+		let bound = 0;
+		for (const index of bindable.filter(supplies)) {
+			if (bound > 0 && bound % SLOTS_PER_STEP === 0) yield;
+			bound += 1;
 			bindAt(start, index);
+		}
+		const supplied = new Map(
+			bindable.filter(supplies).flatMap((index) => {
+				const tree = bindings.get(index)?.candidate;
+				return tree === undefined ? [] : [[index, tree] as const];
+			}),
+		);
+		const scoped =
+			supplied.size === 0 ? start : written(start, pending, sites, supplied);
+		for (const index of bindable) {
+			if (supplies(index)) continue;
+			if (bound > 0 && bound % SLOTS_PER_STEP === 0) yield;
+			bound += 1;
+			bindAt(scoped, index);
 		}
 		yield;
 		current = writtenAdmitted();
@@ -1223,9 +1282,7 @@ export function* readExpressionsSteps(
 					kind: "refused",
 					resolution: {
 						kind: "entry",
-						entryId: readsWorkerRecord(candidate)
-							? WORKER_RECORD_IN_RECORD_SLOT
-							: slotDefault(checked, registration.ref, () => M3),
+						entryId: slotDefault(checked, registration.ref, () => M3),
 						reason: `dialect:${answer}`,
 					},
 				});
@@ -1343,11 +1400,20 @@ export function* readExpressionsSteps(
 		if (outcome.kind === "held") {
 			bound[index] = outcome.tree;
 			held.set(index, outcome.tree);
-			const entryId = slotEntries(registration.ref.slot).held(
-				checked,
-				registration.ref,
-				outcome.tree,
-			);
+			const workerProperty =
+				[
+					"form_display_condition",
+					"module_display_condition",
+					"case_list_filter",
+					"case_list_column_expression",
+				].includes(registration.ref.slot) && readsWorkerRecord(outcome.tree);
+			const entryId = workerProperty
+				? WORKER_RECORD_IN_RECORD_SLOT
+				: slotEntries(registration.ref.slot).held(
+						checked,
+						registration.ref,
+						outcome.tree,
+					);
 			if (entryId !== undefined) {
 				claimed.add(registration.key);
 				claims.push({
@@ -1358,7 +1424,10 @@ export function* readExpressionsSteps(
 					detail: { name },
 				});
 			}
-		} else if (outcome.resolution.kind === "unrecognized")
+		} else if (
+			outcome.resolution.kind === "unrecognized" ||
+			outcome.resolution.entryId === "unrecognized"
+		)
 			circumstances.push({
 				source: index,
 				code: "unrecognized",
@@ -1427,7 +1496,10 @@ export function* readExpressionsSteps(
 					refusal: {
 						entryId: resolution.entryId,
 						key: refusalKey,
-						detail: { name, reason: resolution.reason },
+						detail: {
+							name: resolution.name ?? name,
+							reason: resolution.reason,
+						},
 						...(handOff !== undefined && { handOff }),
 					},
 				});
@@ -1437,7 +1509,7 @@ export function* readExpressionsSteps(
 					entryId: resolution.entryId,
 					place: registration.place,
 					key: registration.key,
-					detail: { name, reason: resolution.reason },
+					detail: { name: resolution.name ?? name, reason: resolution.reason },
 					...(handOff !== undefined && { handOff }),
 				});
 			}
@@ -1971,9 +2043,8 @@ function surfaceUseFactsOf(
 				: form !== undefined && childOfInlineSearchMenu(doc, form)
 					? "child-of-inline"
 					: "other",
-		instanceSources:
-			(form === undefined ? undefined : env.instanceSources.get(form)) ??
-			new Map(),
+		instanceSources: instanceSourcesOf(doc, registration, env) ?? new Map(),
+		formInstancesOnly: instanceSourcesOf(doc, registration, env) !== undefined,
 		shorthand:
 			registration.mode.target === "hq-json" &&
 			registration.mode.interpolation !== "none" &&
@@ -1996,7 +2067,7 @@ function declarationClaims(
 	 * form rather than found again per form. */
 	const readByForm = new Map<string, Set<string>>();
 	pending.forEach((registration, index) => {
-		if (!held.has(index)) return;
+		if (!held.has(index) || registration.mode.target !== "xform") return;
 		const form = slotForm(doc, registration.ref);
 		if (form === undefined) return;
 		const read = readByForm.get(form) ?? new Set<string>();
@@ -2137,6 +2208,7 @@ function readBack(
 	let text: string;
 	try {
 		text = printSlot(doc, pending.ref, candidate, env, {
+			bindCalculationText: true,
 			...(form !== undefined && names !== undefined
 				? { projection: sourceNodeProjection(doc, form, names) }
 				: {}),
@@ -2147,13 +2219,37 @@ function readBack(
 	}
 	if (!readFormSyntax(text).ok) return candidate;
 	const print: PendingExpression = { ...pending, text };
+	// This second read is of Nova’s own print. Its form declares Nova’s
+	// local IDs, even when the adopted source used an entirely different alias.
+	let printEnv = env;
+	if (form !== undefined && pending.mode.target === "xform") {
+		const declarations = new Map<string, string>();
+		walkExpression(candidate, {
+			visitExpression(node) {
+				if (node.kind === "table-rows" || node.kind === "table-lookup") {
+					const table = env.lookup.get(node.tableId);
+					if (table !== undefined)
+						declarations.set(
+							lookupXformInstanceId(table.tag),
+							lookupFixtureSrc(lookupFixtureId(table.tag)),
+						);
+				}
+			},
+		});
+		printEnv = {
+			...env,
+			formReadSources: new Map([
+				[form, instanceSourcesAfterScan(declarations, { xmlValue: text })],
+			]),
+		};
+	}
 	const withdrawn = new Set<string>();
 	// Each turn withdraws a site not withdrawn before, and a binding uses
 	// finitely many, so the loop ends.
 	for (;;) {
-		const again = bindSlot(doc, print, env, withdrawn);
+		const again = bindSlot(doc, print, printEnv, withdrawn);
 		if (again.kind === "refused") return candidate;
-		const judged = judgeSlot(doc, print, env, again.bound);
+		const judged = judgeSlot(doc, print, printEnv, again.bound);
 		if (judged.kind !== "bound") return candidate;
 		if (judged.equal) return judged.candidate;
 		if (judged.withdraw === undefined || withdrawn.has(judged.withdraw))

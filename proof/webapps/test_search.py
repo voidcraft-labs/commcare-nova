@@ -64,6 +64,8 @@ from __future__ import annotations
 
 import dataclasses
 
+import pytest
+
 from proof.editors import pages
 from proof.observe import casedata
 from proof.webapps import hq as webapps_hq
@@ -186,6 +188,66 @@ def test_a_list_search_in_web_apps_finds_a_hidden_columns_value_and_shows_no_col
         assert all(len(row["cells"]) == 1 for row in shown["rows"])
 
 
+def test_a_saved_choice_and_its_label_show_in_default_order(
+    hq, core_runner, formplayer_runner, editor_driver, webapps_documents, evidence
+):
+    document = webapps_documents["targeted-case-choice-values"]
+    database = casedata.database_of_restore((document.root / "restore.xml").read_bytes())
+    with webapps_hq.project(document) as project:
+        with project.released(formplayer_runner, database=database) as release:
+            run = Session(release, editor_driver).run([
+                *steps.open_app("Village visits"), *steps.choose("Members"), steps.SCREEN,
+            ])
+    assert run.page_errors == []
+    listed = run.screens[0]["list"]
+    evidence("saved-choice-and-label", listed)
+    assert [header["text"] for header in listed["headers"]] == ["Name", "Village", "Village code", "Unassigned", "Zone", "Visit priority", "Visit image", "Visit label"]
+    assert [[cell["text"] for cell in row["cells"]] for row in listed["rows"]] == [
+        ["Ana", "West", "a", "", "River zone", "Priority", "", "Visit Ana"],
+        ["Cy", "past", "past", "Unassigned", "", "Routine", "", "Visit Cy"],
+        ["Bea", "East", "z", "", "", "Routine", "", "Visit Bea"],
+    ]
+    image_cells = [row["cells"][6] for row in listed["rows"]]
+    assert [cell["drawn"] for cell in image_cells] == [True, False, False]
+    assert image_cells[0]["alt"] == "Assigned to east bank"
+
+
+def test_web_apps_shows_signed_relative_case_dates(
+    hq, core_runner, formplayer_runner, editor_driver, webapps_documents, evidence
+):
+    document = webapps_documents["targeted-relative-case-dates"]
+    database = casedata.database_of_restore((document.root / "restore.xml").read_bytes())
+    with webapps_hq.project(document) as project:
+        with project.released(formplayer_runner, database=database) as release:
+            run = Session(release, editor_driver).run([
+                *steps.open_app("Visit reminders"), *steps.choose("Members"), steps.SCREEN,
+            ])
+    assert run.page_errors == []
+    listed = run.screens[0]["list"]
+    evidence("relative-case-dates", listed)
+    assert [header["text"] for header in listed["headers"]] == ["Name", "Months until", "Weeks since", "", "Message"]
+    assert [[cell["text"] for cell in row["cells"]] for row in listed["rows"]] == [
+        ["Ana", "1", "-4", "", "Bring the card"], ["Bea", "0", "0", "*", ""], ["Cy", "", "", "*", ""],
+    ]
+
+
+def test_an_independent_order_calculation_orders_the_visible_cases(
+    hq, core_runner, formplayer_runner, editor_driver, webapps_documents, evidence
+):
+    document = webapps_documents["targeted-independent-case-order"]
+    database = casedata.database_of_restore((document.root / "restore.xml").read_bytes())
+    with webapps_hq.project(document) as project:
+        with project.released(formplayer_runner, database=database) as release:
+            run = Session(release, editor_driver).run([*steps.open_app("Appointments"), *steps.choose("Visits"), steps.SCREEN])
+    (screen,) = run.screens
+    shown = screen["list"]
+    evidence("independent-order", shown)
+    assert run.page_errors == []
+    assert [header["text"] for header in shown["headers"]] == ["Name"]
+    assert [row["id"] for row in shown["rows"]] == ["row-earlier-c", "row-earlier-z", "row-later", "row-missing"]
+    assert all(len(row["cells"]) == 1 for row in shown["rows"])
+
+
 def test_web_apps_shows_no_header_and_no_cell_for_a_sort_only_column(
     hq, core_runner, formplayer_runner, editor_driver, webapps_documents, evidence
 ):
@@ -242,6 +304,147 @@ def test_web_apps_lists_a_lookup_prompts_choices_in_label_order(
     evidence("lookup-choices", {"prompts": prompts, "query": run.screens[-1].get("query")})
     assert run.page_errors == [] and run.screens[-1].get("query") is not None
     assert prompts["Region"] == prompts["Regions"] == ["East", "North & coast"]
+
+
+CHECKED_REGIONS = """() => [...document.querySelectorAll("fieldset.query-field input[type=checkbox]")].map(box =>
+    [box.value, box.labels[0].textContent.trim(), box.checked])"""
+
+
+def test_web_apps_submits_the_checked_regions_in_their_displayed_order(
+    hq, core_runner, formplayer_runner, editor_driver, webapps_documents, evidence
+):
+    document = webapps_documents["prompt-checkboxes"]
+    database = casedata.document_case_database(document)
+    database = dataclasses.replace(
+        database, user_data=(*((k, v) for k, v in database.user_data if k != "region_group"), ("region_group", "A"))
+    )
+    opening = [*steps.open_app("Inline"), *steps.choose("Followup"), steps.SCREEN]
+    checking = steps.type_prompt(0, "east#,#north")
+    with webapps_hq.project(document) as project:
+        with project.released(formplayer_runner, database=database) as release:
+            run = Session(release, editor_driver).run([
+                *opening, {"eval": CHECKED_REGIONS}, *checking, {"eval": CHECKED_REGIONS},
+                *steps.run_search(), steps.SCREEN,
+            ])
+    boxes = [run.value(len(opening)), run.value(len(opening) + 1 + len(checking))]
+    requests = _menu_requests(run)
+    submitted = [entry["inputs"]["regions"] for request in requests if request["searched"]
+                 for entry in request["queryData"].values() if isinstance(entry, dict) and entry.get("execute")]
+    evidence("checkbox-search", {"boxes": boxes, "submitted": submitted})
+    assert run.page_errors == []
+    assert boxes == [
+        [["east", "East", False], ["north", "North & coast", True]],
+        [["east", "East", True], ["north", "North & coast", True]],
+    ]
+    assert submitted == ["east#,#north"], requests
+
+
+def test_search_shows_both_starting_ranges_and_sends_the_dates(hq, core_runner, formplayer_runner, editor_driver, webapps_documents, evidence):
+    document = webapps_documents["prompt-periods"]
+    opening = [*steps.open_app("Inline"), *steps.choose("Followup"), steps.SCREEN]
+    observe = {"eval": "() => [...document.querySelectorAll('input.daterange')].map(field => field.value)"}
+    with webapps_hq.project(document) as project:
+        with project.released(formplayer_runner, database=casedata.document_case_database(document)) as release:
+            run = Session(release, editor_driver).run([*opening, observe, *steps.run_search(), steps.SCREEN])
+    displayed = run.value(len(opening))
+    submitted = [entry["inputs"] for request in _menu_requests(run) if request["searched"]
+                 for entry in request["queryData"].values() if isinstance(entry, dict) and entry.get("execute")]
+    evidence("starting-search-ranges", {"displayed": displayed, "submitted": submitted})
+    assert run.page_errors == []
+    assert displayed == ["1/1/2024 to 12/31/2024", "3/10/2024 to 3/11/2024"]
+    assert [(input["period"], input["visit_date"]) for input in submitted] == [
+        ("__range__2024-01-01__2024-12-31", "__range__2024-03-10__2024-03-11")
+    ]
+
+
+def test_web_apps_shows_each_readable_date_before_the_worker_replaces_the_range(
+    hq, core_runner, formplayer_runner, editor_driver, webapps_documents, evidence
+):
+    document = webapps_documents["prompt-period-spellings"]
+    fields = "document.querySelectorAll('input.daterange')"
+    opening = [*steps.open_app("Inline"), *steps.choose("Followup"), steps.SCREEN]
+    read = {"eval": f"() => [...{fields}].map(field => field.value)"}
+    # Setting a new pair and firing change runs the page's own date formatter
+    # and query model handlers before its real Search button gathers the fields.
+    replace = {"eval": f"""() => {{
+        for (const input of {fields}) {{
+            input.value = '6/1/2024 to 6/30/2024';
+            input.dispatchEvent(new Event('change', {{bubbles: true}}));
+        }}
+    }}"""}
+    with webapps_hq.project(document) as project:
+        with project.released(formplayer_runner, database=casedata.document_case_database(document)) as release:
+            run = Session(release, editor_driver).run([*opening, read, replace, *steps.run_search(), steps.SCREEN])
+    displayed = run.value(len(opening))
+    submitted = [entry["inputs"] for request in _menu_requests(run) if request["searched"]
+                 for entry in request["queryData"].values() if isinstance(entry, dict) and entry.get("execute")]
+    evidence("readable-search-dates", {"displayed": displayed, "submitted": submitted})
+    assert run.page_errors == []
+    assert displayed == ["1/2/2024 to 2/12/2024 to 5/21/2024", "3/10/2024"]
+    assert [(item["period"], item["visit_date"]) for item in submitted] == [
+        ("__range__2024-06-01__2024-06-30", "__range__2024-06-01__2024-06-30")
+    ]
+
+
+def test_web_apps_submits_a_workers_range_with_midnight_rollover_and_hour_offset(
+    hq, core_runner, formplayer_runner, editor_driver, webapps_documents, evidence
+):
+    document = webapps_documents["prompt-period-held"]
+    database = casedata.document_case_database(document)
+    raw = "__range__2024-01-02T24:00:00Z__2024-01-04T00:00:00+00"
+    database = dataclasses.replace(database, user_data=(
+        *((key, value) for key, value in database.user_data if key != "region_group"),
+        ("region_group", raw),
+    ))
+    opening = [*steps.open_app("Inline"), *steps.choose("Followup"), steps.SCREEN]
+    observe = {"eval": "() => document.querySelector('input.daterange').value"}
+    with webapps_hq.project(document) as project:
+        with project.released(formplayer_runner, database=database) as release:
+            run = Session(release, editor_driver).run([*opening, observe, *steps.run_search(), steps.SCREEN])
+    shown = run.value(len(opening))
+    submitted = [entry["inputs"]["period"] for request in _menu_requests(run) if request["searched"]
+                 for entry in request["queryData"].values() if isinstance(entry, dict) and entry.get("execute")]
+    evidence("midnight-starting-dates", {"raw": raw, "displayed": shown, "submitted": submitted})
+    assert run.page_errors == []
+    assert shown == "1/3/2024 to 1/4/2024"
+    assert submitted == ["__range__2024-01-03__2024-01-04"]
+
+
+BLANK_BOX = """() => [...document.querySelectorAll("input.search-for-blank")].map(box =>
+    [box.id, box.labels[0].textContent.trim(), box.checked])"""
+
+
+def test_web_apps_sends_a_ticked_search_for_blank_before_the_answer(
+    hq, core_runner, formplayer_runner, editor_driver, webapps_documents, evidence
+):
+    """Nova's Name field allows a search for blank: Web Apps draws HQ's box under it and sends the blank before the
+    answer (``query.js::encodeValue``), the value Nova's Preview sends for the same answers
+    (``completedSearchRequest.test.ts``)."""
+    document = webapps_documents["prompt-checkboxes"]
+    database = casedata.document_case_database(document)
+    database = dataclasses.replace(
+        database, user_data=(*((k, v) for k, v in database.user_data if k != "region_group"), ("region_group", "A"))
+    )
+    opening = [*steps.open_app("Inline"), *steps.choose("Followup"), steps.SCREEN]
+    naming = steps.type_prompt(1, "Amina")
+    ticking = steps.click("input.search-for-blank")
+    with webapps_hq.project(document) as project:
+        with project.released(formplayer_runner, database=database) as release:
+            run = Session(release, editor_driver).run([
+                *opening, {"eval": BLANK_BOX}, *naming, *ticking, {"eval": BLANK_BOX},
+                *steps.run_search(), steps.SCREEN,
+            ])
+    boxes = [run.value(len(opening)), run.value(len(opening) + 1 + len(naming) + len(ticking))]
+    requests = _menu_requests(run)
+    submitted = [entry["inputs"].get("first_name") for request in requests if request["searched"]
+                 for entry in request["queryData"].values() if isinstance(entry, dict) and entry.get("execute")]
+    evidence("search-for-blank", {"boxes": boxes, "submitted": submitted})
+    assert run.page_errors == []
+    assert [[label for _, label, _ in shown] for shown in boxes] == [
+        ["Include results where 'Name' is blank"]
+    ] * 2
+    assert [[checked for _, _, checked in shown] for shown in boxes] == [[False], [True]]
+    assert submitted == ["#,#Amina"], requests
 
 
 DEFAULT_SEARCH = "targeted-search-workflow"
@@ -322,3 +525,51 @@ def test_web_apps_forces_the_sidebars_search_and_runs_the_default_search_again_a
         if request["queryData"] and request not in executed and request["selections"] == ["2"]
     ]
     assert checked and not any(request["searched"] for request in checked), requests
+
+@pytest.mark.parametrize("enabled", [False, True])
+def test_web_apps_case_map_follows_the_project_space_toggle(
+    enabled, hq, core_runner, webapps_documents, formplayer_runner, editor_driver, evidence,
+):
+    document = webapps_documents["targeted-case-map"]
+    database = casedata.database_of_restore((document.root / "restore.xml").read_bytes())
+    with webapps_hq.project(document, case_list_map=enabled) as project:
+        with project.released(formplayer_runner, database=database) as release:
+            run = Session(release, editor_driver).run([
+                *steps.open_app("Coverage map"), *steps.choose("Places"), steps.SCREEN,
+            ])
+    assert run.page_errors == []
+    listed = run.screens[0]["list"]
+    evidence("project-map-enabled" if enabled else "project-map-disabled", listed)
+    assert listed["mapOffered"] is enabled
+    assert len(listed["rows"]) == 2
+
+def test_clear_search_requests_new_results_only_from_a_desktop_query(
+    hq, core_runner, formplayer_runner, editor_driver, webapps_documents, evidence
+):
+    with webapps_hq.project(webapps_documents[DEFAULT_SEARCH]) as project:
+        with project.released(formplayer_runner) as release:
+            for width in (991, 992):
+                small = steps.open_sidebar() if width < 992 else []
+                run = Session(release, editor_driver).run(
+                    [
+                        *TO_RECENT,
+                        *small,
+                        *steps.type_prompt(0, TYPED),
+                        *steps.run_search(),
+                        *small,
+                        *steps.clear_prompts(),
+                        steps.SCREEN,
+                    ],
+                    viewport={"width": width, "height": 760},
+                )
+                searched = [request for request in _menu_requests(run) if request["searched"]]
+                evidence(f"clear-search-{width}", {"requests": searched, "screen": run.screens[-1]})
+                # One default search as the menu opens, one explicit submission with the named patient,
+                # and a separate cleared request only on the wide screen.
+                assert len(searched) == (3 if width == 992 else 2), searched
+                sent = next(entry for entry in searched[1]["queryData"].values() if entry.get("execute"))
+                assert TYPED in sent["inputs"].values(), sent
+                if width == 992:
+                    cleared = next(entry for entry in searched[2]["queryData"].values() if entry.get("execute"))
+                    assert not any((cleared.get("inputs") or {}).values()), cleared
+                assert not run.page_errors, run.page_errors

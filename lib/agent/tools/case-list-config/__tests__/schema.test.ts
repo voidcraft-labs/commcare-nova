@@ -3,6 +3,7 @@
  * optional-count or native wire claim. */
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
+import { authoringJsonSchema } from "@/lib/agent/authoring/schema";
 import { addCaseListColumnsTool } from "../addCaseListColumns";
 import { addSearchInputsTool } from "../addSearchInputs";
 import { configureCaseSelectionTool } from "../configureCaseSelection";
@@ -16,6 +17,7 @@ import {
 	caseTileLayoutInputSchema,
 	columnInputSchema,
 	columnUpdateInputSchema,
+	SEARCH_FOR_BLANK_DESCRIPTION,
 	stampColumnUuid,
 	tileCellFromInput,
 	tileCellInputSchema,
@@ -24,6 +26,22 @@ import { updateCaseListColumnTool } from "../updateCaseListColumn";
 import { updateSearchInputTool } from "../updateSearchInput";
 
 const MODULE_UUID = "11111111-1111-4111-8111-111111111111";
+
+// The search for blank is admitted on every visible arm, so its one
+// description tells the model what an advanced field's condition receives.
+it.each([
+	["add_search_inputs", addSearchInputsTool.inputSchema],
+	["update_search_input", updateSearchInputTool.inputSchema],
+])(
+	"%s describes the search for blank an advanced field receives",
+	(_, schema) => {
+		const served = JSON.stringify(authoringJsonSchema(schema));
+		expect(served).toContain(JSON.stringify(SEARCH_FOR_BLANK_DESCRIPTION));
+		expect(SEARCH_FOR_BLANK_DESCRIPTION).toContain(
+			"An advanced field's condition receives the blank joined before the answer (#,#answer",
+		);
+	},
+);
 
 describe("case-list author command boundaries", () => {
 	// ── Representative-payload smoke tests ────────────────────────────
@@ -334,7 +352,7 @@ describe("case-list author command boundaries", () => {
 		expect(result.success).toBe(true);
 	});
 
-	it.each(["select", "multi-select"])(
+	it.each(["select", "multi-select", "checkboxes"])(
 		"requires lookup options for %s inputs on both authored arms",
 		(type) => {
 			const options = {
@@ -376,7 +394,7 @@ describe("case-list author command boundaries", () => {
 			moduleUuid: MODULE_UUID,
 			searchInputUuid: "11111111-1111-4111-8111-111111111111",
 		};
-		const scalarDefault = updateSearchInputTool.inputSchema.safeParse({
+		const rangeDefault = updateSearchInputTool.inputSchema.safeParse({
 			...base,
 			searchInput: {
 				kind: "simple",
@@ -385,7 +403,7 @@ describe("case-list author command boundaries", () => {
 				type: "date-range",
 				property: "visit_date",
 				mode: { kind: "range" },
-				default: { kind: "today" },
+				default: { from: "2024-03-01", to: "2024-04-01" },
 			},
 		});
 		const missingMode = updateSearchInputTool.inputSchema.safeParse({
@@ -421,7 +439,10 @@ describe("case-list author command boundaries", () => {
 			},
 		});
 
-		expect(scalarDefault.success).toBe(false);
+		expect(rangeDefault.data?.searchInput).toHaveProperty("default", {
+			kind: "term",
+			term: { kind: "literal", value: "__range__2024-03-01__2024-04-01" },
+		});
 		expect(missingMode.success).toBe(false);
 		expect(wrongWidget.success).toBe(false);
 		expect(validRange.success).toBe(true);
@@ -471,11 +492,21 @@ describe("case-list author command boundaries", () => {
 /** Each arm's own `sort` text, keyed by the column kind. */
 const SORT_DESCRIPTIONS = {
 	plain:
-		"This column's order rule. A plain column orders by the saved value, as a number for a number property and as text otherwise; shown on Results over a choice property with options, by the option label it shows.",
+		"This column's order rule. A plain column orders by the saved value, as a number for a number property and as text otherwise; shown on Results over a choice property with options, by the option label it shows unless showChoice requests the saved value.",
+	"worker-distance":
+		"Order by the distance in metres. Android shows kilometers from the worker's current position.",
+	"map-location":
+		"Order by the saved coordinates. Android uses the first location with coordinates. Web Apps uses the first location.",
+	"map-layer": "Order by the saved map layer value.",
+	"formatted-text": "Order by the saved text, including the formatting marks.",
+	"overdue-marker":
+		"Order by the marker shown. Results has a narrow marker without a heading. Details shows the authored heading.",
+	"date-count":
+		"Order by the saved date. The worker sees the whole number of periods since or until that date.",
 	date: "This column's order rule. A date column orders by the saved date, whatever pattern shows it.",
 	phone: "This column's order rule. A phone column orders by the saved value.",
 	"id-mapping":
-		"This column's order rule. Shown on Results, an ID mapping orders by the order of its mapping entries, never by label: cases holding the first entry's value come first when ascending, and a value with no entry counts as no value.",
+		"This column's order rule. By default, a label table sorts by mapping order. With first-match behavior it sorts by the displayed label in the worker’s language, with an unmatched value blank.",
 	"image-map":
 		"This column's order rule. Shown on Results, an image map orders by the order of its mapping entries: cases holding the first entry's value come first when ascending, and a value with no entry counts as no value.",
 	interval:
@@ -522,10 +553,10 @@ describe("case-list tool descriptions", () => {
 				"How the date is shown, as a CommCare date pattern such as %Y-%m-%d or %B %e, %Y. It can't hold a straight apostrophe ('); a curved one (’) works.",
 			);
 			expect(idMapping.shape.mapping.description).toBe(
-				"The value-to-label table, one entry for each saved value. A value is one word with no spaces and can't hold &, <, >, \" or '. Entry order matters: it is the order the list sorts this column by.",
+				"Give each row a label and one saved value or typed condition. By default a value matches a sequence between spaces, including a blank. Choose first-match behavior for whole-value equality or a condition. An unmatched case shows no label. On an update, keep each existing row's uuid, including when changing its rule or position.",
 			);
-			expect(imageMap.shape.mapping.description).toBe(
-				"The value-to-image table, one entry for each saved value. A value is one word with no spaces. Entry order matters: it is the order the list sorts this column by.",
+			expect(imageMap.shape.mapping.description).toContain(
+				"the entire saved value",
 			);
 		}
 	});

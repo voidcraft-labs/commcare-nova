@@ -214,6 +214,34 @@ def test_a_row_names_a_menu_or_a_form_by_position_only_where_the_lane_resolves_i
     )
 
 
+def test_a_row_names_a_project_file_only_as_a_whole_holds_value():
+    """Contract: a holds value may be a file of the base's Project named by its path (``{"$projectFile": path}``),
+    which the reading keys by the media id HQ minted when the base was authored, and nothing else names one. The
+    plausible failures: such a value refused as a malformed menu or form reference, so no row can hold a language's
+    file, and one in a change, a key or inside a larger value, read as the literal object."""
+    image = {"$projectFile": "jr://file/commcare/image/a.png"}
+    holding = {key: item for key, item in ROW.items() if key not in ("standing", "place")} | {
+        "holds": [{"key": ["module", {"$menu": 0}], "pointer": "/icon", "value": image}],
+    }
+    path = _rows([holding])
+    try:
+        (accepted,) = registry.load_variants(path, named={"made": made})
+    finally:
+        path.unlink()
+    assert accepted.holds[0]["value"] == image
+    for misplaced in (
+        {**holding, "holds": [{"key": ["module", {"$menu": 0}], "pointer": "/icon", "value": {"files": [image]}}]},
+        {**holding, "holds": [{"key": ["module", image], "pointer": "/icon", "value": "x"}]},
+        {**ROW, "change": {"op": "set-json", "pointer": "/modules/0/media_image", "value": image}},
+    ):
+        _refused([misplaced], {"made": made}, "Project file")
+    _refused(
+        [{**holding, "holds": [{"key": "x", "pointer": "/icon", "value": {"$projectFile": 1}}]}],
+        {"made": made},
+        "by position",
+    )
+
+
 def test_a_reference_is_the_id_the_app_holds_at_its_position_when_set_and_the_id_the_read_serves_when_judged():
     """Contract: ``ops.set_json`` writes the id the stored app holds at a reference's position; the lane judges a
     value served where HQ's source read holds, at each reference, the id that read serves for the same menu (whose id

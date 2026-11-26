@@ -6,6 +6,8 @@ import {
 	effectiveCaseTypes,
 	featuresNotOffered,
 	isStandardCaseListProperty,
+	menuFormUuidsOf,
+	menuWithInheritedCaseSettings,
 	orderedAutomations,
 	orderedLocationProperties,
 	orderedOrganizationLevels,
@@ -16,6 +18,7 @@ import {
 	STANDARD_CASE_LIST_PROPERTY_DATA_TYPES,
 	STANDARD_CASE_PROPERTY_DESCRIPTIONS,
 } from "@/lib/domain";
+import { ANDROID_APP_NAMES } from "@/lib/domain/requiredAndroidApps";
 
 import { workerReadiness } from "@/lib/domain/workerReadiness";
 
@@ -29,8 +32,19 @@ export function appOverview(doc: BlueprintDoc) {
 		name: doc.appName,
 		...(doc.connectType && { connect: doc.connectType }),
 		settings: {
+			firstMenuLayout: doc.appSettings.firstMenuLayout ?? "list",
+			formMenuLayout: doc.appSettings.formMenuLayout ?? "list",
 			showSavedForms: doc.appSettings.showSavedForms,
 			showIncompleteForms: doc.appSettings.showIncompleteForms,
+			requiredAndroidApps: (doc.appSettings.requiredAndroidApps ?? []).map(
+				(app) => ({ app, name: ANDROID_APP_NAMES[app] }),
+			),
+			/** Every form requests the Android device location; a Connect app's
+			 * forms request it whatever this says. */
+			captureLocation: doc.appSettings.captureLocation === true,
+			/** A new case a form gives the default owner goes to the worker's
+			 * one case-sharing group. */
+			caseSharing: doc.appSettings.caseSharing === true,
 		},
 		/** Where workers use the app, and the features that declaration refuses. */
 		platforms: declaredPlatforms(doc),
@@ -47,6 +61,7 @@ export function appOverview(doc: BlueprintDoc) {
 		})),
 		caseTypes: effectiveCaseTypes(doc).map((type) => ({
 			name: type.name,
+			...(type.relations?.length && { links: type.relations }),
 			...(type.parent_type && {
 				parent: type.parent_type,
 				relationship: type.relationship ?? "child",
@@ -59,10 +74,21 @@ export function appOverview(doc: BlueprintDoc) {
 				})),
 		})),
 		modules: doc.moduleOrder.map((uuid) => {
-			const module = doc.modules[uuid];
+			// A menu listing another menu's forms takes its case type and
+			// selection from that menu, and lists the forms it shows there.
+			const module =
+				menuWithInheritedCaseSettings(doc, uuid) ?? doc.modules[uuid];
+			const source = module.formsFromMenu;
 			return {
 				uuid,
 				name: module.name,
+				...(source && {
+					formsFromMenu: {
+						menuUuid: source.menuUuid,
+						name: doc.modules[source.menuUuid]?.name ?? "",
+						excludedFormUuids: source.excludedFormUuids ?? [],
+					},
+				}),
 				...(module.purpose && { purpose: module.purpose }),
 				...(module.parentModuleUuid && { parentUuid: module.parentModuleUuid }),
 				...(module.parentCaseModuleUuid && {
@@ -80,7 +106,10 @@ export function appOverview(doc: BlueprintDoc) {
 						}),
 					},
 				}),
-				forms: (doc.formOrder[uuid] ?? []).map((formUuid) => {
+				forms: (source
+					? menuFormUuidsOf(doc, uuid)
+					: (doc.formOrder[uuid] ?? [])
+				).map((formUuid) => {
 					const form = doc.forms[formUuid];
 					return {
 						uuid: formUuid,

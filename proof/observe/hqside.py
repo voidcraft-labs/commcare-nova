@@ -59,6 +59,7 @@ or form named by its place in the app HQ holds:
   (``views/forms.py::edit_form_actions``: the actions as HQ holds them, through ``make_multi``, and each new mapping
   as the ``case_mapping_diff``);
 - ``moduleAttribute``: the menu's name posted to ``views/modules.py::edit_module_attr``;
+- ``moduleLayout``: the menu's own Menu Display (``display_style``) posted to the same view;
 - ``moduleDetail``: the Case List page's save of its columns with one added at the end
   (``views/modules.py::edit_module_detail_screens``), the list's own settings posted as HQ holds them;
 - ``formsAddedAndRemoved``: a form deleted (``views/forms.py::delete_form``), a survey added
@@ -475,7 +476,7 @@ def questions(unit, app_id, value):
 
 
 # The form attributes the harness saves, each a key ``views/forms.py::_edit_form_attr`` stores as posted.
-FORM_ATTRIBUTES = ("post_form_workflow", "form_filter", "post_form_workflow_fallback")
+FORM_ATTRIBUTES = ("post_form_workflow", "form_filter", "post_form_workflow_fallback", "auto_gps_capture")
 
 
 def form_attribute(unit, app_id, value):
@@ -549,6 +550,25 @@ def module_attribute(unit, app_id, value):
             body,
             content_type,
             f"the name of menu {module_id}",
+        )
+    ]
+
+
+def module_layout(unit, app_id, value):
+    """A menu's own display style, as the menu settings page posts it (``views/modules.py::edit_module_attr``,
+    ``display_style``), which HQ shows where the app's form menus are set per menu (``grid_form_menus`` ``some``)."""
+    app = _operations().held_app(unit, app_id)
+    module_id = app.get_module(value["module"]).unique_id
+    body, content_type = _form_body([("display_style", value["displayStyle"])])
+    return [
+        _answer(
+            unit,
+            "POST",
+            "edit_module_attr",
+            [unit.domain, app_id, module_id, "display_style"],
+            body,
+            content_type,
+            f"the display style of menu {module_id}",
         )
     ]
 
@@ -745,6 +765,7 @@ SAVES = (
     ("formAttribute", _in_operation(form_attribute)),
     ("formActions", _in_operation(form_actions)),
     ("moduleAttribute", _in_operation(module_attribute)),
+    ("moduleLayout", _in_operation(module_layout)),
     ("moduleDetail", _in_operation(module_detail)),
     ("formsAddedAndRemoved", _in_operation(forms_added_and_removed)),
     ("order", _in_operation(order)),
@@ -755,7 +776,7 @@ FORM_BUILDER_SAVES = ("formLabel", "formResave")
 # What ``hq-side.json`` states beside the saves: what Nova's next publish over them does, where its review finds
 # nothing to bring in, what the review answers, and, where it brings them in, the document the bring-in gives, the
 # changes of the next publish the review lists, and whether the capture also publishes over the same saves.
-STATEMENTS = ("republish", "stopCode", "recorded", "bringsIn", "publishChanges", "alsoPublishesOver")
+STATEMENTS = ("republish", "stopCode", "recorded", "bringsIn", "publishChanges", "removedFileReferences", "alsoPublishesOver")
 
 
 def save(unit, ops, app_id, saves, *, driver=None):

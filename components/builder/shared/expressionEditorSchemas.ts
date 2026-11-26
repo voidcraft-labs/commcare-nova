@@ -1,3 +1,5 @@
+import { CaseTextCard } from "./cards/expression/CaseTextCard";
+import { editorLookupReads } from "./lookupTablePresentation";
 // components/builder/shared/expressionEditorSchemas.ts
 //
 // Declarative registry mapping every Expression kind to its
@@ -197,6 +199,19 @@ export const expressionCardSchemas: {
 			kind: "negate",
 			value: { kind: "term", term: { kind: "literal", value: 0 } },
 		}),
+	},
+	"case-text": {
+		kind: "case-text",
+		label: "Translated text",
+		icon: tablerVariable,
+		description: "Use this field’s wording in the worker’s language",
+		component: CaseTextCard,
+		defaultValue: (ctx) => {
+			const first = ctx.expressionContext.caseTexts?.[0];
+			if (!first)
+				throw new Error("Add translated text to this calculated field first.");
+			return { kind: "case-text", textUuid: first.uuid };
+		},
 	},
 	here: {
 		kind: "here",
@@ -417,6 +432,8 @@ export function isAuthorableExpressionKind(
 		);
 	// The worker's location has a handler only in a case list's calculated
 	// column, which the slot's profile says (`SlotProfile.here`).
+	if (kind === "case-text")
+		return Boolean(ctx?.expressionContext?.caseTexts?.length);
 	if (kind === "here") return ctx?.expressionContext?.profile.here === true;
 	// A case list's search text reaches a form's questions and Connect
 	// settings after exactly one case list
@@ -446,7 +463,9 @@ export function isAuthorableExpressionKind(
 	if (kind === "table-lookup") {
 		return (
 			ctx?.tableScope === undefined &&
-			(ctx?.lookupTables ?? []).some((table) => table.columns.length > 0)
+			(ctx?.lookupTables ?? []).some(
+				(table) => editorLookupReads(table).length > 0,
+			)
 		);
 	}
 	return true;

@@ -6,7 +6,10 @@ import {
 	formLinkProjectionContext,
 	formLinkTargetDatumIds,
 } from "@/lib/commcare/formLinkProjection";
-import { projectFormExpression } from "@/lib/doc/expressionText";
+import {
+	fixedSearchRangeDates,
+	projectFormExpression,
+} from "@/lib/doc/expressionText";
 import type { FieldWithChildren } from "@/lib/doc/fieldWalk";
 import { prepareFormRecordName } from "@/lib/doc/formRecordName";
 import { extractLookupReferenceTargets } from "@/lib/doc/lookupReferences";
@@ -23,6 +26,7 @@ import {
 	formIconRefSchema,
 	formLinkEntries,
 	formSchema,
+	isFieldProseSlot,
 	languageTag,
 	localizedValueSchema,
 	moduleIconRefSchema,
@@ -48,6 +52,8 @@ import {
 	termSchema,
 	valueSchema,
 } from "@/lib/domain/expression/types";
+import { capturesDeviceLocation } from "@/lib/domain/locationCapture";
+import { menuBadgeSchema } from "@/lib/domain/menuBadge";
 import { referenceNames } from "@/lib/domain/referenceNames";
 import { log } from "@/lib/logger";
 import {
@@ -222,13 +228,7 @@ export function authoringEncoders(
 		if (!uuid.success || options.doc.fields[uuid.data] === undefined)
 			return undefined;
 		const [slot] = path;
-		if (
-			path.length === 1 &&
-			(slot === "label" ||
-				slot === "hint" ||
-				slot === "help" ||
-				slot === "validate_msg")
-		)
+		if (path.length === 1 && typeof slot === "string" && isFieldProseSlot(slot))
 			return { entity: "field", uuid: uuid.data, slot };
 		if (
 			path.length === 4 &&
@@ -413,6 +413,7 @@ const readProjectors: {
 	getAuthoringGuide: passthrough,
 	getLanguages: passthrough,
 	getLookupTables: passthrough,
+	getWorkerGroups: passthrough,
 	getLookupTableRows: passthrough,
 	evaluateForm: passthrough,
 	readAppTest: passthrough,
@@ -421,6 +422,7 @@ const readProjectors: {
 	readSource: passthrough,
 	getUsers: passthrough,
 	getOrganization: passthrough,
+	getPreviewSearchSettings: passthrough,
 	getAutomations: (data, { project, scope }) =>
 		data.map((item) => ({
 			...item,
@@ -443,12 +445,7 @@ const readProjectors: {
 				if (!source)
 					throw new Error("The searched field is no longer in this app.");
 				const slot = item.field;
-				if (
-					slot === "label" ||
-					slot === "hint" ||
-					slot === "help" ||
-					slot === "validate_msg"
-				) {
+				if (typeof slot === "string" && isFieldProseSlot(slot)) {
 					const value = record.parse(source)[slot];
 					return {
 						...item,
@@ -478,6 +475,7 @@ const readProjectors: {
 			openCondition,
 			closeCondition,
 			ownClosePlacement: _heldClose,
+			captureLocation,
 			plainText,
 			...form
 		} = data.form;
@@ -515,6 +513,11 @@ const readProjectors: {
 				}),
 				// Read under the name an edit takes, so a read sent back
 				// through `updateForm` keeps it.
+				capture_location: captureLocation === true,
+				captures_device_location_on_android: capturesDeviceLocation(
+					doc,
+					data.form,
+				),
 				...(plainText === true && { plain_text: true }),
 				...(closeCondition !== undefined && {
 					closeCondition: formCondition(
@@ -529,19 +532,39 @@ const readProjectors: {
 	},
 	getModule(data, { project, scope }) {
 		const options = scope(undefined, data.uuid);
+		const list = data.case_list_config;
+		const projectedList =
+			list && record.parse(project(caseListConfigSchema, list, options));
+		if (
+			list &&
+			projectedList &&
+			list.searchInputs.some(
+				(field) =>
+					field.kind !== "hidden" &&
+					field.type === "date-range" &&
+					fixedSearchRangeDates(field.default),
+			)
+		) {
+			const searchInputs = records.parse(projectedList.searchInputs);
+			projectedList.searchInputs = searchInputs.map((field, index) => {
+				const input = list.searchInputs[index];
+				const dates =
+					input.kind !== "hidden" &&
+					input.type === "date-range" &&
+					fixedSearchRangeDates(input.default);
+				return dates ? { ...field, default: dates } : field;
+			});
+		}
 		return {
 			...data,
 			icon: project(moduleIconRefSchema.nullable(), data.icon, options),
+			badge: project(menuBadgeSchema.nullable(), data.badge, options),
 			display_condition: project(
 				conditionSchema.nullable(),
 				data.display_condition,
 				options,
 			),
-			case_list_config: project(
-				caseListConfigSchema.nullable(),
-				data.case_list_config,
-				options,
-			),
+			case_list_config: projectedList,
 			case_search_config: project(
 				caseSearchConfigSchema.nullable(),
 				data.case_search_config,
@@ -562,6 +585,17 @@ const readProjectors: {
 				data.caseListRegistrationForm?.kind === "always"
 					? {
 							...data.caseListRegistrationForm,
+							...(data.caseListRegistrationForm.showWhen?.kind ===
+								"condition" && {
+								showWhen: {
+									kind: "condition",
+									condition: project(
+										conditionSchema,
+										data.caseListRegistrationForm.showWhen.condition,
+										options,
+									),
+								},
+							}),
 							icon: project(
 								formIconRefSchema.nullable(),
 								data.caseListRegistrationForm.icon,
@@ -640,6 +674,12 @@ const readProjectors: {
 						review: explicit.review,
 						translatedFrom: explicit.translatedFrom,
 						value: localized(explicit.value),
+						/* The author chose for this language to show answers or
+						 * calculations of its own; a set keeps that only when
+						 * it says so (`changeShownValues`). */
+						...(explicit.valueMode === "independent-values" && {
+							showsOwnValues: true,
+						}),
 					},
 					protectedParts:
 						unit.valueKind === "prose"

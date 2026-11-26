@@ -27,6 +27,7 @@ import { LabelContent } from "@/lib/references/LabelContent";
 import { usePreviewPlatformRules } from "@/lib/session/hooks";
 import { InteractiveFormRenderer } from "../InteractiveFormRenderer";
 import { depthPadding } from "../virtual/rowStyles";
+import { QuestionBanners } from "./QuestionBanners";
 import { SectionHeading, sectionKicker } from "./SectionHeading";
 
 interface SectionPageProps {
@@ -115,6 +116,7 @@ export function SectionPage({
 					/>
 				</div>
 			</div>
+			<QuestionBanners uuid={page.uuid} path={page.path} />
 			<InteractiveFormRenderer
 				parentEntityId={page.uuid}
 				prefix={page.path}

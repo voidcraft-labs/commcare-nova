@@ -109,6 +109,15 @@ def test_a_list_holds_each_item_in_its_place_and_a_value_is_itself():
     assert not retain.holds(None, {"path": "p"})
 
 
+def test_an_appended_value_is_read_at_the_list_s_last_item():
+    # A row that appends (``/-``) is served where the source read's list ends, so a variant whose
+    # reading fails reports that failure rather than a value HQ never served.
+    source = {"columns": [{"field": "name"}, {"field": "@case_id"}]}
+    assert retain._value_at(source, "/columns/-") == {"field": "@case_id"}
+    assert retain.holds(retain._value_at(source, "/columns/-"), {"field": "@case_id"})
+    assert retain._value_at({"columns": []}, "/columns/-") is retain._MISSING
+
+
 def _worker(user_id, username, *, practice):
     return SimpleNamespace(_id=user_id, raw_username=username, is_demo_user=practice)
 

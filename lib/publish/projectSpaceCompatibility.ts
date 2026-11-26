@@ -21,8 +21,15 @@ export type ProjectSpaceCapabilityId =
 	| "multi-select-case-lists"
 	| "related-case-search"
 	| "case-tiles"
+	| "calculated-case-order"
+	| "detail-tab-rows"
+	| "case-form-context"
+	| "empty-case-list-text"
+	| "case-list-optimizations"
+	| "case-list-icon-actions"
 	| "save-only-edited-answers"
-	| "same-type-child-links";
+	| "same-type-child-links"
+	| "address-search";
 
 export type ProjectSpaceAdvisoryId = "large-search-performance";
 
@@ -67,9 +74,9 @@ export const PROJECT_SPACE_CAPABILITIES: Readonly<
 	},
 	"registration-after-empty-search": {
 		id: "registration-after-empty-search",
-		label: "Registration offered after an empty search",
+		label: "Forms offered on a case list",
 		description:
-			"Lets a case list offer its registration form only when a search finds no matches.",
+			"Lets a case list offer a form for its selected parent or a registration form when a search finds no matches.",
 	},
 	"multi-select-case-lists": {
 		id: "multi-select-case-lists",
@@ -82,10 +89,47 @@ export const PROJECT_SPACE_CAPABILITIES: Readonly<
 		description:
 			"Lets a search filter on, or show, cases related to the ones it lists.",
 	},
+	"detail-tab-rows": {
+		id: "detail-tab-rows",
+		label: "Records in a detail tab",
+		description:
+			"Shows related cases or a collection of records in case details.",
+	},
+	"case-form-context": {
+		id: "case-form-context",
+		label: "Case context above forms",
+		description:
+			"Shows a one-line value from the case while workers fill out a form.",
+	},
+	"empty-case-list-text": {
+		id: "empty-case-list-text",
+		label: "Your own empty case list text",
+		description:
+			"Shows workers the case list's own words when it has no cases.",
+	},
+	"case-list-optimizations": {
+		id: "case-list-optimizations",
+		label: "Faster case list loading",
+		description:
+			"Lets a phone keep some case list values between visits or work them out after the list shows.",
+	},
+	"case-list-icon-actions": {
+		id: "case-list-icon-actions",
+		label: "Case list icons that submit a form",
+		description:
+			"Lets a worker tap an icon on a case list to submit a form for that case.",
+	},
+
 	"case-tiles": {
 		id: "case-tiles",
 		label: "Case tiles",
 		description: "Lets a case list draw each case as a tile.",
+	},
+	"calculated-case-order": {
+		id: "calculated-case-order",
+		label: "Order cases by a calculation",
+		description:
+			"Lets a case list use a calculation to decide which cases workers see first.",
 	},
 	"save-only-edited-answers": {
 		id: "save-only-edited-answers",
@@ -98,6 +142,12 @@ export const PROJECT_SPACE_CAPABILITIES: Readonly<
 		label: "Links between cases of the same type",
 		description:
 			"Keeps the link from a new case to the case of the same type it was made from.",
+	},
+	"address-search": {
+		id: "address-search",
+		label: "Address search",
+		description:
+			"Lets a question in Web Apps search for an address, with the Geocoder plan feature beside it.",
 	},
 };
 
@@ -418,8 +468,15 @@ const CAPABILITY_IDS = new Set<ProjectSpaceCapabilityId>([
 	"multi-select-case-lists",
 	"related-case-search",
 	"case-tiles",
+	"calculated-case-order",
+	"detail-tab-rows",
+	"case-form-context",
+	"empty-case-list-text",
+	"case-list-optimizations",
+	"case-list-icon-actions",
 	"save-only-edited-answers",
 	"same-type-child-links",
+	"address-search",
 ]);
 const ADVISORY_IDS = new Set<ProjectSpaceAdvisoryId>([
 	"large-search-performance",

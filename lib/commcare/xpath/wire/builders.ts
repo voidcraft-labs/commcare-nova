@@ -100,6 +100,7 @@ export const w = {
 	nextInput: (steps: readonly WireStep[] = []) =>
 		path({ k: "next-input" }, steps),
 	context: (steps: readonly WireStep[] = []) => path({ k: "context" }, steps),
+	hqWorker: (property: string) => path({ k: "hq-worker" }, [step(property)]),
 	hqCase: (steps: readonly WireStep[] = []) => path({ k: "hq-case" }, steps),
 	form: (
 		parts: readonly string[] | readonly WireStep[],
@@ -120,6 +121,10 @@ export const w = {
 	nextInputVar: (): WireExpr => ({ k: "next-input-var" }),
 	calculatedPropertyVar: (): WireExpr => ({ k: "calculated-property-var" }),
 	enumLabelVar: (index: number) => indexVariable("enum-label-var", index),
+	imageMappingVariable: (key: string): WireExpr => ({
+		k: "image-mapping-variable",
+		key,
+	}),
 	imageAltVar: (value: string): WireExpr => ({ k: "image-alt-var", value }),
 	hqEnumVar: (index: number) => indexVariable("hq-enum-var", index),
 	endpointArgumentVar: (name: string): WireExpr => ({

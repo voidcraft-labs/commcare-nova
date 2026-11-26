@@ -46,6 +46,7 @@ import {
 	organizationLevelsOf,
 	ownRecordValue,
 } from "@/lib/domain";
+import { menusUsingWorkerRecord } from "@/lib/domain/workerRecordRequirements";
 import type { OrganizationSnapshot } from "@/lib/organization/types";
 import {
 	DISTANCE_SEARCH_SETUP_CAVEATS,
@@ -208,6 +209,12 @@ function levelCaseFlowSteps(
 ): string[] {
 	const steps: string[] = [];
 	const flow = level.caseFlow;
+	if (level.tracksStock !== undefined)
+		steps.push(
+			level.tracksStock
+				? "Tick “Tracks Stock” for this level."
+				: "Leave “Tracks Stock” unticked for this level.",
+		);
 	steps.push(
 		flow.ownsCases ? "Tick “Owns Cases”." : "Leave “Owns Cases” unticked.",
 	);
@@ -870,21 +877,27 @@ function workerRecordSection(
 	input: SetupArtifactInput,
 ): SetupArtifactSection | null {
 	const forms = formsUsingWorkerRecord(input.doc);
-	if (forms.length === 0) return null;
+	const menus = menusUsingWorkerRecord(input.doc);
+	if (forms.length === 0 && menus.length === 0) return null;
 	return {
 		id: "worker-record",
 		title: workerRecordSetup.title,
 		summary: workerRecordSetup.detail,
 		url: null,
-		steps: forms.map((form) =>
-			step(form.formUuid, form.name, [
-				form.reads && form.writes
-					? "Reads and saves worker information"
-					: form.reads
-						? "Reads worker information"
-						: "Saves worker information",
-			]),
-		),
+		steps: [
+			...forms.map((form) =>
+				step(form.formUuid, form.name, [
+					form.reads && form.writes
+						? "Reads and saves worker information"
+						: form.reads
+							? "Reads worker information"
+							: "Saves worker information",
+				]),
+			),
+			...menus.map((menu) =>
+				step(menu.uuid, menu.name, ["Shows worker information in a case view"]),
+			),
+		],
 		caveats: [workerRecordSetup.consequences],
 	};
 }

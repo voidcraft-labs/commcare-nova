@@ -402,8 +402,8 @@ function LevelRow({
 	return (
 		<EntryRow
 			triggerRef={rowFocusRef}
-			summary={level.name}
-			detail={summarize(level)}
+			summary={level.name || level.code}
+			detail={`${level.code} · ${summarize(level)}`}
 			open={open}
 			onOpenChange={onOpenChange}
 			keepMounted={false}
@@ -439,6 +439,13 @@ function LevelRow({
 							. The code stays the same when you rename this level.
 						</FieldDescription>
 					</Field>
+					<Choice
+						label="Track stock at these places"
+						hint="When publishing, Nova checks the stock setting for this level in your project space."
+						checked={level.tracksStock === true}
+						disabled={!canEdit}
+						onChange={(tracksStock) => commitPatch({ tracksStock })}
+					/>
 
 					<div className="flex flex-col gap-1.5">
 						<Label

@@ -36,6 +36,14 @@ function finding(feature: PlatformFeatureId): ValidationError {
 describe("each refusable structural feature in the builder's words", () => {
 	it.each([
 		[
+			"worker-distance",
+			"Column \"Distance\" shows how far each case is from the worker. Web Apps can't read the worker's location. You can show the saved location instead, or set the app to run only on Android in App settings.",
+		],
+		[
+			"sort-by-distance",
+			"Column \"Coordinates\" uses the worker's location to put nearby cases first. Web Apps can't read that location. You can choose a different order, or set the app to run only on Android in App settings.",
+		],
+		[
 			"datetime-question",
 			'"answer" asks for a date and time, which Web Apps can\'t show. You can ask for the date and the time separately, or set the app to run only on Android in App settings.',
 		],
@@ -57,7 +65,7 @@ describe("each refusable structural feature in the builder's words", () => {
 		],
 		[
 			"search-field-multiple-choice",
-			'Search field "regions" takes several choices, which Android doesn\'t show. You can let workers pick one choice, or set the app to run only in Web Apps in App settings.',
+			'Search field "regions" takes several choices, which Android doesn\'t show. You can show the choices as checkboxes or let workers pick one, or set the app to run only in Web Apps in App settings.',
 		],
 		[
 			"connect-app",

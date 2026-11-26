@@ -31,6 +31,7 @@ import { useAppName } from "@/lib/doc/hooks/useAppName";
 import { useAppSettings } from "@/lib/doc/hooks/useAppSettings";
 import { useMaterializableCaseTypes } from "@/lib/doc/hooks/useCaseTypes";
 import { makeTranslationUnitId } from "@/lib/domain";
+import { generatedWordingId } from "@/lib/domain/generatedWording";
 import {
 	type DeviceHomeButton,
 	deviceHomeButtons,
@@ -55,10 +56,15 @@ const HOME_BUTTON_CLS =
 export function DeviceHomeScreen() {
 	const canonicalAppName = useAppName();
 	const localizedValues = useLocalizedValues();
+	// A phone shows `app.display.name`: the app name's own wording there, else its name.
 	const appName =
+		(localizedValues.get(generatedWordingId("app", "appDisplayName")) as
+			| string
+			| undefined) ??
 		(localizedValues.get(makeTranslationUnitId("app", "name")) as
 			| string
-			| undefined) ?? canonicalAppName;
+			| undefined) ??
+		canonicalAppName;
 	const { language } = useBuilderLanguage();
 	const appSettings = useAppSettings();
 	const buttons = deviceHomeButtons(appSettings, language);

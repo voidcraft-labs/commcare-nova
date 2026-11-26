@@ -422,3 +422,91 @@ export function mediaWireFixture(
 	if (findings.length) throw new Error(JSON.stringify(findings));
 	return { doc, assets };
 }
+
+/** A small worker journey with distinct file bytes on a menu, a form, its
+ * question and a written choice. The other menu keeps the home screen. */
+export function localizedMediaWireFixture() {
+	const assets = mediaManifest();
+	const doc = buildDoc({
+		appName: "Two language visits",
+		modules: [
+			{
+				name: "Visits",
+				forms: [
+					{
+						name: "Record visit",
+						type: "survey",
+						fields: [
+							f({
+								id: "answer",
+								kind: "text",
+								label: proseText("Street"),
+								help: proseText("Find the visiting point"),
+								label_media: {
+									image: mediaIds.label,
+									mediaByLanguage: { fra: { image: mediaIds.option } },
+								},
+								help_media: {
+									image: mediaIds.icon,
+									mediaByLanguage: { fra: { image: mediaIds.label } },
+								},
+							}),
+							f({
+								id: "colour",
+								kind: "single_select",
+								label: proseText("Choose"),
+								options: [
+									{
+										value: "one",
+										label: "First",
+										media: {
+											image: mediaIds.option,
+											mediaByLanguage: { fra: { image: mediaIds.label } },
+										},
+									},
+									{ value: "two", label: "Second" },
+								],
+							}),
+						],
+					},
+					{
+						name: "Notes",
+						type: "survey",
+						fields: [f({ id: "note", kind: "text", label: proseText("Note") })],
+					},
+				],
+			},
+			{
+				name: "Support",
+				forms: [
+					{
+						name: "Ask",
+						type: "survey",
+						fields: [
+							f({ id: "message", kind: "text", label: proseText("Message") }),
+						],
+					},
+				],
+			},
+		],
+	});
+	doc.localization = {
+		sourceLanguage: "eng",
+		defaultLanguage: "eng",
+		languageOrder: ["eng", "fra"],
+		wireCodes: { eng: "en", fra: "fra" },
+		translations: { fra: {} },
+	};
+	const mod = doc.modules[doc.moduleOrder[0]];
+	mod.icon = mediaIds.label;
+	mod.mediaByLanguage = { fra: { icon: mediaIds.option } };
+	const form = doc.forms[doc.formOrder[mod.uuid][0]];
+	form.icon = mediaIds.option;
+	form.mediaByLanguage = { fra: { icon: mediaIds.icon } };
+	blueprintDocSchema.parse(toPersistableDoc(doc));
+	const findings = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE, {
+		mediaAssets: mediaRecords(assets),
+	});
+	if (findings.length) throw new Error(JSON.stringify(findings));
+	return { doc, assets };
+}

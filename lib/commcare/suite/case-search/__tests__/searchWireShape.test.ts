@@ -58,6 +58,11 @@ const ROWS: readonly (readonly [
 		{ autoLaunch: false, defaultSearch: false, inlineSearch: false },
 	],
 	[
+		"list first with default results requested",
+		{ workflow: "listFirstWithDefaultResults" },
+		{ autoLaunch: false, defaultSearch: true, inlineSearch: false },
+	],
+	[
 		"search first",
 		{},
 		{ autoLaunch: true, defaultSearch: false, inlineSearch: false },
@@ -137,7 +142,11 @@ describe("the platform table's restatement", () => {
 				appName: "Search shape",
 				appSettings: {
 					...NEW_APP_SETTINGS,
-					runsOnlyOn: search.workflow === "listFirst" ? "android" : "web-apps",
+					runsOnlyOn:
+						search.workflow === "listFirst" ||
+						search.workflow === "listFirstWithDefaultResults"
+							? "android"
+							: "web-apps",
 				},
 				modules: [
 					{
@@ -181,7 +190,7 @@ describe("the platform table's restatement", () => {
 					...(shape.autoLaunch && !shape.defaultSearch && !shape.inlineSearch
 						? ["search-first"]
 						: []),
-					...(shape.defaultSearch && !shape.inlineSearch
+					...(shape.autoLaunch && shape.defaultSearch && !shape.inlineSearch
 						? ["skip-to-results"]
 						: []),
 				].sort(),

@@ -102,7 +102,10 @@ public class LookupRuntimeTest {
             return new EvaluationContext(null, instances);
         }
         FormParseInit form(String suffix) throws Exception {
-            FormParseInit parsed = new FormParseInit("/lookup/lookup-app" + suffix);
+            return form("lookup-app", suffix);
+        }
+        FormParseInit form(String name, String suffix) throws Exception {
+            FormParseInit parsed = new FormParseInit("/lookup/" + name + suffix);
             parsed.getFormDef().initialize(true, this);
             parsed.getFormDef().getLocalizer().setLocale("en");
             return parsed;
@@ -281,6 +284,27 @@ public class LookupRuntimeTest {
             Case record = runtime.sandbox.getCaseStorage().getRecordForValue(Case.INDEX_CASE_ID, "patient-1");
             assertEquals(region.equals("north") ? "Northland" : region.equals("south") ? "Southland" : "", record.getPropertyString("resolved"));
             assertNull(runtime.sandbox.getCaseStorage().getRecordForValue(Case.INDEX_CASE_ID, "patient-2").getProperty("resolved"));
+        }
+    }
+
+    @Test public void workerChoosesAnAttributeAndAPropertyQualifiedOccurrence() throws Exception {
+        for (String suffix : Arrays.asList(".xml", ".hq.xml")) {
+            Runtime runtime = new Runtime("north", "north");
+            runtime.install("lookup-rich", false);
+            FormParseInit parsed = runtime.form("lookup-rich", suffix);
+            FormEntryController controller = parsed.getFormEntryController();
+            controller.jumpToIndex(FormIndex.createBeginningOfFormIndex());
+            boolean observed = false;
+            for (int step = 0; step < 80 && controller.stepToNextEvent() != FormEntryController.EVENT_END_OF_FORM; step++) {
+                if (parsed.getFormEntryModel().getEvent() != FormEntryController.EVENT_QUESTION) continue;
+                FormEntryPrompt prompt = parsed.getFormEntryModel().getQuestionPrompt();
+                if ("all_regions".equals(prompt.getQuestion().getBind().getReference().getNameLast())) {
+                    assertEquals(Arrays.asList("north=Choix Northland", "south=Choix Southland", "east=Choix Eastland"), values(prompt));
+                    observed = true;
+                    break;
+                }
+            }
+            assertTrue("Reached the rich lookup question in " + suffix, observed);
         }
     }
 

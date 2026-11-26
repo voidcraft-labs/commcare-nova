@@ -26,7 +26,6 @@ import { deploymentDisplaysAsReached } from "../stateMachine";
 import {
 	admitWorkerWrite,
 	applyDeploymentObservation,
-	beginDeploymentContentWrite,
 	type DeploymentScope,
 	finishDeploymentContentWrite,
 	foldDeploymentAttempt,
@@ -52,6 +51,7 @@ import type {
 	DeploymentResource,
 	ResourceBaselineWrite,
 } from "../types";
+import { admitEntryPointImport } from "./entryPointWrite";
 import { readable } from "./readableRecord";
 
 const h = setupAppStateTestDb("deployments_", {
@@ -1840,8 +1840,8 @@ describe("tenancy", () => {
 describe("entry point release evidence", () => {
 	it("invalidates before dependencies change and rejects a stale observation", async () => {
 		const scope = await seed();
-		await publish(scope, "hq-1", 1);
-		const generation = await beginDeploymentContentWrite(
+		const token = pushToken(await publish(scope, "hq-1", 1));
+		const { generation } = await admitEntryPointImport(
 			scope,
 			TARGET,
 			NEVER_ENDED,
@@ -1871,14 +1871,14 @@ describe("entry point release evidence", () => {
 			releasedBuildId: "build-1",
 			releasedVersion: 1,
 		};
-		expect(await recordEntryPointObservation(scope, TARGET, observation)).toBe(
-			true,
-		);
-		await beginDeploymentContentWrite(scope, TARGET, NEVER_ENDED);
+		expect(
+			await recordEntryPointObservation(scope, TARGET, token, observation),
+		).toBe(true);
+		await admitEntryPointImport(scope, TARGET, NEVER_ENDED);
 		expect((await readEntryPointEvidence(scope, TARGET)).manifest).toBeNull();
-		expect(await recordEntryPointObservation(scope, TARGET, observation)).toBe(
-			false,
-		);
+		expect(
+			await recordEntryPointObservation(scope, TARGET, token, observation),
+		).toBe(false);
 		expect((await readEntryPointEvidence(scope, TARGET)).observation).toEqual(
 			observation,
 		);
@@ -1886,8 +1886,12 @@ describe("entry point release evidence", () => {
 	it("a superseded completion invalidates a newer manifest instead of blessing uncertain remote write order", async () => {
 		const scope = await seed();
 		await publish(scope, "hq-1", 1);
-		const first = await beginDeploymentContentWrite(scope, TARGET, NEVER_ENDED);
-		const second = await beginDeploymentContentWrite(
+		const { generation: first } = await admitEntryPointImport(
+			scope,
+			TARGET,
+			NEVER_ENDED,
+		);
+		const { generation: second } = await admitEntryPointImport(
 			scope,
 			TARGET,
 			NEVER_ENDED,
@@ -1926,8 +1930,8 @@ describe("entry point release evidence", () => {
 	});
 	it("refuses entry point evidence when the persisted source sequence has advanced", async () => {
 		const scope = await seed();
-		await publish(scope, "hq-1", 1);
-		const generation = await beginDeploymentContentWrite(
+		const token = pushToken(await publish(scope, "hq-1", 1));
+		const { generation } = await admitEntryPointImport(
 			scope,
 			TARGET,
 			NEVER_ENDED,
@@ -1949,7 +1953,7 @@ describe("entry point release evidence", () => {
 			h.db(),
 		);
 		expect(
-			await recordEntryPointObservation(scope, TARGET, {
+			await recordEntryPointObservation(scope, TARGET, token, {
 				generation,
 				remoteAppId: "hq-1",
 				entryPointUuid: "entry",
@@ -2078,64 +2082,79 @@ describe("baselines", () => {
 		expect(await readAppBaseline(scope, TARGET)).toBeNull();
 	});
 
-	it("keeps the newer read when two publishes record out of order, and a discard with it", async () => {
-		const scope = await seed();
-		await create(scope);
-		const record = (baseline: AppBaselineWrite) =>
-			recordRemoteResource(scope, TARGET, {
-				...NEVER_ENDED,
-				kind: "app",
-				novaResourceId: scope.appId,
-				remoteId: "hq-app",
-				ownership: "nova-created",
-				pushedRevision: 1,
-				uploadedAt: AT,
-				remoteRevision: null,
-				baseline,
+	it.each(["known", "unknown"] as const)(
+		"orders late publish observations when HQ save counters are %s, retaining any discard",
+		async (ordering) => {
+			const scope = await seed();
+			await create(scope);
+			const record = (counter: number, baseline: AppBaselineWrite) =>
+				recordRemoteResource(scope, TARGET, {
+					...NEVER_ENDED,
+					kind: "app",
+					novaResourceId: scope.appId,
+					remoteId: "hq-app",
+					ownership: "nova-created",
+					pushedRevision: 1,
+					uploadedAt: AT,
+					remoteRevision: ordering === "known" ? counter : null,
+					baseline: { ...baseline, novaRevision: 1 },
+				});
+			await record(
+				2,
+				readBaseline("hq-app", "Newer", {
+					observedAt: LATER,
+					discard: { digest: "e".repeat(64) },
+				}),
+			);
+			await record(1, readBaseline("hq-app", "Older", { observedAt: AT }));
+			expect(await readAppBaseline(scope, TARGET)).toMatchObject(
+				ordering === "known"
+					? {
+							origin: "push",
+							novaRevision: 1,
+							source: expect.objectContaining({ name: "Newer" }),
+							observedAt: LATER,
+						}
+					: { origin: "unread", novaRevision: null, observedAt: LATER },
+			);
+			/* A later read of the same app keeps the discard record it does not
+			 * carry; a read of another app replaces it. */
+			await record(
+				3,
+				readBaseline("hq-app", "Latest", {
+					observedAt: "2026-08-06T00:10:00.000Z",
+				}),
+			);
+			expect(await readAppBaseline(scope, TARGET)).toMatchObject({
+				origin: "push",
+				source: expect.objectContaining({ name: "Latest" }),
+				novaRevision: 1,
 			});
-		await record(
-			readBaseline("hq-app", "Newer", {
-				observedAt: LATER,
-				discard: { digest: "e".repeat(64) },
-			}),
-		);
-		await record(readBaseline("hq-app", "Older", { observedAt: AT }));
-		expect(await readAppBaseline(scope, TARGET)).toMatchObject({
-			origin: "push",
-			source: expect.objectContaining({ name: "Newer" }),
-			observedAt: LATER,
-		});
-		/* A later read of the same app keeps the discard record it does not
-		 * carry; a read of another app replaces it. */
-		await record(
-			readBaseline("hq-app", "Latest", {
-				observedAt: "2026-08-06T00:10:00.000Z",
-			}),
-		);
-		const db = h.db();
-		const kept = await db
-			.selectFrom("app_deployment_baselines")
-			.select(["discarded_digest", "discarded_by"])
-			.executeTakeFirstOrThrow();
-		expect(kept).toEqual({
-			discarded_digest: "e".repeat(64),
-			discarded_by: "u1",
-		});
-		await recordCreatedRemoteApp(scope, TARGET, {
-			...NEVER_ENDED,
-			remoteId: "hq-other",
-			baseline: unreadBaseline("hq-other", AT),
-		});
-		const replaced = await db
-			.selectFrom("app_deployment_baselines")
-			.select(["remote_app_id", "origin", "discarded_digest"])
-			.executeTakeFirstOrThrow();
-		expect(replaced).toEqual({
-			remote_app_id: "hq-other",
-			origin: "unread",
-			discarded_digest: null,
-		});
-	});
+			const db = h.db();
+			const kept = await db
+				.selectFrom("app_deployment_baselines")
+				.select(["discarded_digest", "discarded_by"])
+				.executeTakeFirstOrThrow();
+			expect(kept).toEqual({
+				discarded_digest: "e".repeat(64),
+				discarded_by: "u1",
+			});
+			await recordCreatedRemoteApp(scope, TARGET, {
+				...NEVER_ENDED,
+				remoteId: "hq-other",
+				baseline: unreadBaseline("hq-other", AT),
+			});
+			const replaced = await db
+				.selectFrom("app_deployment_baselines")
+				.select(["remote_app_id", "origin", "discarded_digest"])
+				.executeTakeFirstOrThrow();
+			expect(replaced).toEqual({
+				remote_app_id: "hq-other",
+				origin: "unread",
+				discarded_digest: null,
+			});
+		},
+	);
 
 	it("reads a stored source whose digest does not verify as unread", async () => {
 		const scope = await seed();

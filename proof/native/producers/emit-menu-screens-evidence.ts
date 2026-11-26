@@ -25,7 +25,7 @@
  * registration form also writes `<name>.offers.json`: each host's menu, the
  * offered form's command, and where Preview lands a worker who registered
  * from the list, with a case created and without
- * (`engine/caseListRegisterAction.ts::alwaysOfferedRegistrationReturn`).
+ * (`engine/caseListRegisterAction.ts::caseListActionReturn`).
  * `MenuScreensRuntimeTest` and `RegisterFromListRuntimeTest` hold Core to
  * them.
  *
@@ -76,6 +76,8 @@ import AdmZip from "adm-zip";
 import { testUuid } from "../../../__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "../../../lib/__tests__/docHelpers";
 import type { CaseRow } from "../../../lib/case-store";
+import { caseListActionRolesFixture } from "../../../lib/commcare/__tests__/caseListActionRolesFixture";
+import { twoMenus } from "../../../lib/commcare/__tests__/menuFormRoutesFixture";
 import { compileCcz } from "../../../lib/commcare/compiler";
 import { expandDoc } from "../../../lib/commcare/expander";
 import {
@@ -124,7 +126,8 @@ import {
 	sessionUser,
 	term,
 } from "../../../lib/domain/expression";
-import { alwaysOfferedRegistrationReturn } from "../../../lib/preview/engine/caseListRegisterAction";
+import { menuWithInheritedCaseSettings } from "../../../lib/domain/listedForms";
+import { caseListActionReturn } from "../../../lib/preview/engine/caseListRegisterAction";
 import { previewDataRefusalOf } from "../../../lib/preview/engine/dataRefusal";
 import {
 	type NavigationDeviceCases,
@@ -276,7 +279,7 @@ function chosenFirst(doc: BlueprintDoc, screen: MenuScreen): boolean {
 function deviceCasesOf(doc: BlueprintDoc): DeviceCase[] {
 	const types = new Set<string>();
 	for (const moduleUuid of doc.moduleOrder) {
-		const caseType = doc.modules[moduleUuid]?.caseType;
+		const caseType = menuWithInheritedCaseSettings(doc, moduleUuid)?.caseType;
 		if (
 			caseType !== undefined &&
 			moduleHasOwnScreen(doc, moduleUuid) &&
@@ -304,7 +307,8 @@ function readingsOf(
 	if (screen.kind !== "menu" || !chosenFirst(doc, screen))
 		return workers.map((user) => ({ user }));
 	const { moduleUuid } = screen;
-	const caseType = doc.modules[moduleUuid]?.caseType;
+	// A menu listing another menu's forms chooses its source's case type.
+	const caseType = menuWithInheritedCaseSettings(doc, moduleUuid)?.caseType;
 	const chosen = cases.filter((held) => held.type === caseType);
 	if (chosen.length === 0)
 		throw new Error(
@@ -991,16 +995,25 @@ function offersOf(doc: BlueprintDoc, ctx: FormLinkProjectionContext) {
 		 * frame whose guard holds, or, where the form's own after-submit is
 		 * in force, that after-submit's frame. */
 		const landed = (created: boolean) => {
-			const landing = alwaysOfferedRegistrationReturn(
+			const landing = caseListActionReturn(
 				doc,
 				slot.formUuid,
 				{ hostModuleUuid: host },
 				created ? "registered-case" : undefined,
 			);
+			/* The host's list is passed with the case chosen where the frame
+			 * makes the host's selection, or holds a case on the first menu
+			 * that the host's entries read under the same datum
+			 * (`frameLanding.ts::firstMenuCases`): Core finds that datum set
+			 * and asks for no case on the host. */
 			if (landing !== undefined)
 				return {
 					command: commandOfLanding(doc, ctx, landing),
-					selectsHost: landing.selectingModuleUuids.includes(host),
+					selectsHost:
+						landing.selectingModuleUuids.includes(host) ||
+						(landing.firstMenuCases ?? []).some((held) =>
+							held.consumers.includes(host),
+						),
 				};
 			const own = formLanding(doc, ctx, formModule, slot.formUuid);
 			if (returnTo.kind !== "own" || own === undefined)
@@ -1065,6 +1078,11 @@ function write(name: string, doc: BlueprintDoc, readings: Readings): void {
 		resolve(output, `${name}.suite.xml`),
 		zip.readAsText("suite.xml"),
 	);
+	if (name === "menu-badge-readings")
+		writeFileSync(
+			resolve(output, `${name}.properties`),
+			zip.readAsText("en/app_strings.txt"),
+		);
 	const ctx = formLinkProjectionContext(doc);
 	if (readings.kind === "roles") {
 		assertEveryMenuConditionHolds(name, doc);
@@ -1152,9 +1170,18 @@ for (const [name, make] of [
 		);
 }
 
-/** The step-back control: built past the gate, which refuses its link
- *  (`FORM_LINK_TARGET_SHARES_FIRST_MENU_CASE`). */
-function stepBackControl(): BlueprintDoc {
+for (const advanced of [false, true]) {
+	write(
+		`case-list-action-roles-${advanced ? "advanced" : "basic"}`,
+		caseListActionRolesFixture(advanced),
+		NONE,
+	);
+}
+
+/** Both siblings sharing the chosen case type and the otherwise identical
+ * control whose other command would read that ID as a different type. */
+function linkedFirstMenu(distinctTypes: boolean): BlueprintDoc {
+	const secondType = distinctTypes ? "beta" : "alpha";
 	const followUp = (uuid: string, name: string, extra: object = {}) => ({
 		uuid,
 		name,
@@ -1180,7 +1207,7 @@ function stepBackControl(): BlueprintDoc {
 			{
 				uuid: "step-beta-above",
 				name: "Beta above",
-				caseType: "beta",
+				caseType: secondType,
 				caseListConfig: list(),
 				forms: [followUp("step-beta-above-form", "Beta check")],
 			},
@@ -1206,7 +1233,7 @@ function stepBackControl(): BlueprintDoc {
 			{
 				uuid: "step-beta",
 				name: "Beta",
-				caseType: "beta",
+				caseType: secondType,
 				caseListConfig: list(),
 				forms: [followUp("step-beta-form", "Beta visit")],
 			},
@@ -1297,7 +1324,99 @@ function twoRegistrationsControl(): BlueprintDoc {
 	return doc;
 }
 
-write("step-back-control", stepBackControl(), NONE);
+/** The first menu lists a case-loading form directly. Previous ends at a
+ * commandless frame; the ordinary menu's follow-up consumes the same datum. */
+function previousOnFirstMenu(): BlueprintDoc {
+	const doc = buildDoc({
+		appName: "Return to visits",
+		caseTypes: [{ name: "patient", properties: [] }],
+		modules: ["Daily visits", "Reviews"].map((name, i) => ({
+			uuid: `first-menu-previous-menu-${i}`,
+			name,
+			caseType: "patient",
+			caseListConfig: caseListConfig([{ field: "case_name", header: "Name" }]),
+			forms: [
+				{
+					uuid: `first-menu-previous-form-${i}`,
+					name: i === 0 ? "Visit patient" : "Review visit",
+					type: "followup",
+					fields: [f({ kind: "text", id: "note", label: proseText("Note") })],
+				},
+			],
+		})),
+	});
+	doc.modules[testUuid("first-menu-previous-menu-0")].formsInMenuAbove = true;
+	doc.forms[testUuid("first-menu-previous-form-0")].postSubmit = "previous";
+	return doc;
+}
+function submenuOnFirstMenu(registration: boolean): BlueprintDoc {
+	const doc = buildDoc({
+		appName: "Patient reviews",
+		caseTypes: [{ name: "patient", properties: [] }],
+		modules: [
+			...["Visits", "Reviews"].map((name, i) => ({
+				uuid: `first-menu-submenu-${i}`,
+				name,
+				caseType: "patient",
+				caseListConfig: caseListConfig([
+					{ field: "case_name", header: "Name" },
+				]),
+				forms: [
+					{
+						uuid: `first-menu-submenu-form-${i}`,
+						name: i === 0 ? "Visit" : "Review",
+						type: "followup" as const,
+						fields: [f({ kind: "text", id: "note", label: proseText("Note") })],
+					},
+				],
+			})),
+			...(registration
+				? [
+						{
+							uuid: "first-menu-registration",
+							name: "Registration",
+							caseType: "patient",
+							caseListConfig: caseListConfig([
+								{ field: "case_name", header: "Name" },
+							]),
+							forms: [
+								{
+									uuid: "first-menu-register",
+									name: "Register patient",
+									type: "registration" as const,
+									fields: [
+										f({
+											kind: "text",
+											id: "patient",
+											label: proseText("Patient name"),
+											caseWrite: { caseType: "patient", property: "case_name" },
+										}),
+									],
+								},
+							],
+						},
+					]
+				: []),
+		],
+	});
+	const above = testUuid("first-menu-submenu-0"),
+		host = testUuid("first-menu-submenu-1");
+	doc.modules[above].formsInMenuAbove = true;
+	doc.modules[host].parentModuleUuid = above;
+	if (registration)
+		doc.modules[host].caseListRegistrationForm = {
+			kind: "always",
+			formUuid: testUuid("first-menu-register"),
+			afterSubmit: "new-case",
+		};
+	else doc.forms[testUuid("first-menu-submenu-form-1")].postSubmit = "module";
+	return admitted("first menu patient reviews", doc);
+}
+write("first-menu-previous", previousOnFirstMenu(), ROLES);
+write("first-menu-static", submenuOnFirstMenu(false), ROLES);
+write("first-menu-registration", submenuOnFirstMenu(true), ROLES);
+write("first-menu-link", linkedFirstMenu(false), ROLES);
+write("step-back-control", linkedFirstMenu(true), NONE);
 write("two-registrations-control", twoRegistrationsControl(), NONE);
 
 /** A survey menu of one form with one question. */
@@ -1315,6 +1434,76 @@ function surveyMenu(key: string, name: string, extra: object = {}) {
 			},
 		],
 	};
+}
+
+/** Core reads both badge carriers, first on the home screen and again on
+ * the chosen menu. The same installed app runs with one and two records. */
+{
+	const doc = buildDoc({
+		appName: "Visit records",
+		modules: [
+			surveyMenu("badge-visits", "Visits"),
+			surveyMenu("badge-notes", "Notes"),
+		],
+	});
+	doc.modules[testUuid("badge-visits")].badge = {
+		kind: "calculation",
+		expression: {
+			kind: "count",
+			via: { kind: "cases", source: "casedb", where: [] },
+		},
+	};
+	doc.modules[testUuid("badge-notes")].badge = { kind: "text", text: "New" };
+	doc.forms[testUuid("badge-visits-form")].badge = {
+		kind: "text",
+		text: "Ready",
+	};
+	doc.forms[testUuid("badge-notes-form")].badge =
+		doc.modules[testUuid("badge-visits")].badge;
+	const verdict = mutationCommitVerdict(doc, [], lookupContextOf(undefined));
+	if (!verdict.ok) throw new Error(JSON.stringify(verdict));
+	write("menu-badge-readings", doc, NONE);
+}
+
+/** A command on a forms-first screen reads the worker's own restored case.
+ * Core's control uses a contrary sign-in value and a second worker's case. */
+{
+	const district = {
+		kind: "term" as const,
+		term: {
+			kind: "session-user" as const,
+			field: "district",
+			source: "worker-record" as const,
+		},
+	};
+	const rule = {
+		kind: "eq" as const,
+		left: district,
+		right: {
+			kind: "term" as const,
+			term: { kind: "literal" as const, value: "north" },
+		},
+	};
+	const visits = surveyMenu("district-visits", "Visits");
+	const options = surveyMenu("district-options", "Options");
+	const doc = buildDoc({
+		appName: "District work",
+		modules: [
+			visits,
+			{
+				...options,
+				forms: [
+					options.forms[0],
+					{
+						...surveyMenu("district-north", "North visit").forms[0],
+						displayCondition: rule,
+					},
+				],
+			},
+		],
+	});
+	doc.modules[testUuid("district-visits")].displayCondition = rule;
+	write("worker-record-menu-readings", doc, NONE);
 }
 
 /** The worker data of a worker assigned to `place`, which HQ writes as all
@@ -2320,3 +2509,5 @@ if (loneFormStepBacks === 0)
 	throw new Error(
 		"No step back is read on a case-first screen that lists one form; give a document a case-first menu of one form.",
 	);
+
+write("listed-source-forms", twoMenus(), ROLES);

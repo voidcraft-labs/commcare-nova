@@ -31,6 +31,10 @@ import type {
 } from "@/lib/domain";
 import type { ScalarHeld } from "@/lib/domain/expression/typeChecker";
 import type { Expression as DomainExpression } from "@/lib/domain/expression/types";
+import {
+	type DeviceLocation,
+	deviceLocationSchema,
+} from "@/lib/domain/locationCapture";
 import type { LookupTableSchemas } from "./sql/compileLookup";
 import type { DeviceCaseDatabase } from "./store";
 
@@ -169,6 +173,11 @@ export interface OwnCaseProgram {
  * with `validateResolvedCaseOperationTypeSequence` before any write.
  */
 export interface CaseOperationProgram {
+	readonly groupDefaults?: {
+		readonly owner: string;
+		readonly operations: readonly Uuid[];
+		readonly revisions?: { project: string; places: string };
+	};
 	/** The authored-key identity scope half the operations share. */
 	readonly formUuid: Uuid;
 	/**
@@ -189,6 +198,8 @@ export interface CaseOperationProgram {
 	 * Server-derived from the committed entry's datums.
 	 */
 	readonly entryCaseKeys?: ReadonlyMap<Uuid, string>;
+	/** IDs supplied for exposed creations by this form’s authorized deep-link launch. */
+	readonly suppliedCaseIds?: ReadonlyMap<Uuid, string>;
 	readonly scopes: ReadonlyArray<OperationScopeIterations>;
 	/** The loaded case a `session` target addresses; absent when the
 	 * form loads none. */
@@ -231,6 +242,8 @@ export interface CaseOperationProgram {
 }
 
 export interface ApplySubmissionArgs {
+	/** Empty when the requested location was unavailable; absent when the form requested none. */
+	readonly submissionLocation?: DeviceLocation | null;
 	readonly appId: string;
 	readonly ordinary: OrdinarySubmissionAction;
 	readonly operations?: CaseOperationProgram;
@@ -311,6 +324,8 @@ export interface CreatedChildCaseReceipt {
 }
 
 export interface SubmissionEnvelopeResult {
+	/** Empty when the requested location was unavailable; absent when the form requested none. */
+	readonly submissionLocation?: DeviceLocation | null;
 	/** The case the registration's own arm created with the id its entry
 	 * minted, the ordered followup/close selection, or an empty collection for
 	 * `kind: "none"` and for a registration whose open condition did not
@@ -394,6 +409,9 @@ export function parseSubmissionEnvelopeResult(
 				(caseId) => typeof caseId !== "string" || caseId.length === 0,
 			)) ||
 		!Array.isArray((parsed as { operations?: unknown }).operations) ||
+		("submissionLocation" in parsed &&
+			!deviceLocationSchema.nullable().safeParse(parsed.submissionLocation)
+				.success) ||
 		("primaryCaseIds" in parsed &&
 			!Array.isArray(
 				(parsed as { primaryCaseIds?: unknown }).primaryCaseIds,

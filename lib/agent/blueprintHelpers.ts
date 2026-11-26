@@ -1,3 +1,4 @@
+import { searchContentWithoutInputs } from "@/lib/domain/searchConditions";
 /**
  * blueprintHelpers — SA-only pure helpers over `BlueprintDoc`.
  *
@@ -16,6 +17,8 @@
  */
 
 import { addModuleMutation } from "@/lib/doc/addModuleMutation";
+import { reorderDetailTabFields } from "@/lib/doc/caseDetailTabMutations";
+import { retireCaseFormContextTile } from "@/lib/doc/caseFormContextMutations";
 import {
 	columnAddMutation,
 	columnContentEqualIgnoringGranularSlots,
@@ -27,6 +30,7 @@ import {
 	cleanupCaseSearchAfterFinalInputMutation,
 	enableCaseSearchMutation,
 } from "@/lib/doc/caseSearchConfigMutations";
+import { withDetailFieldLayout } from "@/lib/doc/detailFieldVisibility";
 import {
 	type FieldRemovalPlan,
 	planFieldRemoval,
@@ -70,7 +74,6 @@ import {
 	isOwnerOnlyCaseSearchConfig,
 	slugifyId,
 } from "@/lib/domain";
-import { effectiveFilterForEmission } from "@/lib/domain/expression";
 import {
 	removeByUuid,
 	reorderByUuid,
@@ -168,7 +171,10 @@ export function removeModuleMutations(
 	moduleUuid: Uuid,
 ): Mutation[] {
 	if (doc.modules[moduleUuid] === undefined) return [];
-	return [{ kind: "removeModule", uuid: moduleUuid }];
+	return [
+		...retireCaseFormContextTile(doc, moduleUuid, true),
+		{ kind: "removeModule", uuid: moduleUuid },
+	];
 }
 
 /** Patch module fields. Keys mirror the domain Module shape (camelCase).
@@ -326,7 +332,10 @@ export function addColumnsMutation(
 		detailTail = column.uuid;
 		return mutation;
 	});
-	return { ok: true, mutations };
+	return {
+		ok: true,
+		mutations: withDetailFieldLayout(mod.uuid, config, mutations),
+	};
 }
 
 /**
@@ -371,7 +380,7 @@ export function updateColumnMutation(
 	mutations.push(...columnSortMutations(current, nextColumn, mod.uuid));
 	return {
 		ok: true,
-		mutations,
+		mutations: withDetailFieldLayout(mod.uuid, mod.caseListConfig, mutations),
 	};
 }
 
@@ -393,9 +402,9 @@ export function removeColumnMutation(
 	if ("error" in op) return { error: op.error };
 	return {
 		ok: true,
-		mutations: [
+		mutations: withDetailFieldLayout(mod.uuid, mod.caseListConfig, [
 			{ kind: "removeColumn", moduleUuid: mod.uuid, uuid: columnUuid },
-		],
+		]),
 	};
 }
 
@@ -436,6 +445,12 @@ export function reorderColumnsMutation(
 			? (requested.shift() ?? uuid)
 			: uuid,
 	);
+	if (surface === "detail" && mod.caseListConfig?.detailTabs) {
+		const result = reorderDetailTabFields(mod.uuid, mod.caseListConfig, target);
+		return "error" in result
+			? result
+			: { ok: true, mutations: result.mutations };
+	}
 	const mutations: Mutation[] = sequenceMovesTo(current, target).map((move) => {
 		return {
 			kind: "moveColumn",
@@ -522,9 +537,9 @@ export function removeSearchInputMutation(
 						cleanupCaseSearchAfterFinalInputMutation({
 							uuid: mod.uuid,
 							config: mod.caseSearchConfig,
-							hasCasesAvailableCondition:
-								effectiveFilterForEmission(mod.caseListConfig?.filter) !==
-								undefined,
+							hasCasesAvailableCondition: searchContentWithoutInputs(
+								mod.caseListConfig,
+							),
 						}),
 					] satisfies Mutation[])
 				: []),
@@ -569,6 +584,7 @@ export interface NewFormInput {
 	purpose?: string;
 	postSubmit?: PostSubmitDestination;
 	/** Text formatting off for the whole form. */
+	captureLocation?: true;
 	plainText?: true;
 }
 
@@ -603,6 +619,7 @@ export function addFormMutations(
 		type: input.type,
 		...(input.purpose !== undefined && { purpose: input.purpose }),
 		...(input.postSubmit !== undefined && { postSubmit: input.postSubmit }),
+		...(input.captureLocation === true && { captureLocation: true }),
 		...(input.plainText === true && { plainText: true }),
 		...(own !== undefined && { caseOperations: [own] }),
 	};
@@ -645,6 +662,7 @@ export function updateFormMutations(
 		closeCondition: Form["closeCondition"] | null;
 		postSubmit: PostSubmitDestination | null;
 		purpose: string | null;
+		captureLocation: true | null;
 		plainText: true | null;
 	}>,
 ): Mutation[] {
@@ -669,6 +687,8 @@ export function updateFormMutations(
 	if (patch.purpose !== undefined) {
 		reducerPatch.purpose = patch.purpose === null ? null : patch.purpose;
 	}
+	if (patch.captureLocation !== undefined)
+		reducerPatch.captureLocation = patch.captureLocation;
 	if (patch.plainText !== undefined) reducerPatch.plainText = patch.plainText;
 	if (Object.keys(reducerPatch).length > 0) {
 		mutations.push({ kind: "updateForm", uuid: formUuid, patch: reducerPatch });

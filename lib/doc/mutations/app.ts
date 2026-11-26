@@ -1,5 +1,7 @@
-import type { Draft } from "immer";
+import { current, type Draft } from "immer";
 import { deepEqual } from "@/lib/doc/deepEqual";
+import { spliceAfter } from "@/lib/doc/mutations/sequence";
+import { rebaseSourceLanguage } from "@/lib/doc/sourceLanguage";
 import type { BlueprintDoc, Mutation } from "@/lib/doc/types";
 import {
 	type AppLocalization,
@@ -7,7 +9,20 @@ import {
 	effectiveAppLocalization,
 	languageTag,
 } from "@/lib/domain";
-import { translationSourceFingerprintsEqual } from "@/lib/domain/localization";
+import { compareCaseRelations } from "@/lib/domain/caseRelations";
+import {
+	rebaseFormMediaLanguages,
+	rebaseNavigationMedia,
+} from "@/lib/domain/formMediaLanguages";
+import {
+	editableLanguageEntries,
+	reboundLanguageCodes,
+	translationSourceFingerprintsEqual,
+} from "@/lib/domain/localization";
+import {
+	reviewedTranslationValueMode,
+	translationUnitsById,
+} from "@/lib/domain/translationUnits";
 
 /**
  * App-level mutations: name, connect mode, case-type catalog, logo, app
@@ -36,6 +51,10 @@ export function applyAppMutation(
 				| "relabelSourceLanguage"
 				| "addLanguage"
 				| "removeLanguage"
+				| "moveLanguage"
+				| "rebindLanguageCodes"
+				| "rebaseSourceLanguage"
+				| "setProjectLanguageDirection"
 				| "setDefaultLanguage"
 				| "setTranslation"
 				| "reviewTranslation"
@@ -43,6 +62,7 @@ export function applyAppMutation(
 				| "retireCaseType"
 				| "addCaseProperty"
 				| "setCaseProperty"
+				| "moveCaseProperty"
 				| "removeCaseProperty"
 				| "setCaseTypeMeta";
 		}
@@ -67,12 +87,36 @@ export function applyAppMutation(
 		case "setAppSettings":
 			// Each named key replaces its value; a key the patch leaves out
 			// keeps the document's.
+			if (mut.settings.captureLocation === true)
+				draft.appSettings.captureLocation = true;
+			else if (mut.settings.captureLocation === false)
+				delete draft.appSettings.captureLocation;
+			if (mut.settings.caseSharing === null)
+				delete draft.appSettings.caseSharing;
+			else if (mut.settings.caseSharing !== undefined)
+				draft.appSettings.caseSharing = mut.settings.caseSharing;
 			if (mut.settings.showSavedForms !== undefined) {
 				draft.appSettings.showSavedForms = mut.settings.showSavedForms;
 			}
 			if (mut.settings.showIncompleteForms !== undefined) {
 				draft.appSettings.showIncompleteForms =
 					mut.settings.showIncompleteForms;
+			}
+			if (mut.settings.firstMenuLayout === null)
+				delete draft.appSettings.firstMenuLayout;
+			else if (mut.settings.firstMenuLayout !== undefined)
+				draft.appSettings.firstMenuLayout = mut.settings.firstMenuLayout;
+			if (mut.settings.formMenuLayout === null)
+				delete draft.appSettings.formMenuLayout;
+			else if (mut.settings.formMenuLayout !== undefined)
+				draft.appSettings.formMenuLayout = mut.settings.formMenuLayout;
+			if (mut.settings.requiredAndroidApps !== undefined) {
+				if (mut.settings.requiredAndroidApps.length === 0)
+					delete draft.appSettings.requiredAndroidApps;
+				else
+					draft.appSettings.requiredAndroidApps = [
+						...mut.settings.requiredAndroidApps,
+					];
 			}
 			// `null` clears the declaration to Web Apps and Android, the
 			// absent key; a value narrows the app to one platform.
@@ -84,11 +128,22 @@ export function applyAppMutation(
 			const current = effectiveAppLocalization(draft.localization);
 			if (current.languageOrder.length !== 1) return;
 			const tag = languageTag(mut.language);
+			rebaseNavigationMedia(draft, current, tag, [tag], current.sourceLanguage);
+			rebaseFormMediaLanguages(
+				draft.fields,
+				current.sourceLanguage,
+				[current.sourceLanguage],
+				current.defaultLanguage,
+				current.defaultLanguage,
+			);
 			draft.localization = {
 				sourceLanguage: tag,
 				defaultLanguage: tag,
 				languageOrder: [tag],
 				translations: {},
+				...(draft.localization?.generatedSourceWording && {
+					generatedSourceWording: draft.localization.generatedSourceWording,
+				}),
 				wireCodes: { [tag]: mut.wireCode },
 			};
 			return;
@@ -116,26 +171,91 @@ export function applyAppMutation(
 			) {
 				return;
 			}
+			rebaseNavigationMedia(
+				draft,
+				localization,
+				localization.sourceLanguage,
+				localization.languageOrder.filter((tag) => tag !== mut.code),
+			);
 			localization.languageOrder = localization.languageOrder.filter(
 				(code) => code !== mut.code,
 			);
+			rebaseFormMediaLanguages(
+				draft.fields,
+				localization.sourceLanguage,
+				localization.languageOrder,
+				localization.defaultLanguage,
+				localization.defaultLanguage,
+			);
 			delete localization.translations[mut.code];
 			delete localization.wireCodes[mut.code];
+			if (localization.rtlProjectLanguages) {
+				delete localization.rtlProjectLanguages[mut.code];
+				if (!Object.keys(localization.rtlProjectLanguages).length)
+					delete localization.rtlProjectLanguages;
+			}
 			return;
 		}
-		case "setDefaultLanguage": {
+		case "rebindLanguageCodes": {
+			const codes = effectiveAppLocalization(draft.localization).wireCodes;
+			const rebound = reboundLanguageCodes(
+				new Map(Object.entries(codes)),
+				mut.changes,
+			);
+			if (rebound)
+				materializeLocalization(draft).wireCodes = Object.fromEntries(rebound);
+			return;
+		}
+		case "rebaseSourceLanguage": {
+			if (
+				effectiveAppLocalization(draft.localization).sourceLanguage === mut.from
+			)
+				rebaseSourceLanguage(draft, current(draft), mut.to, "saved-document");
+			return;
+		}
+		case "setProjectLanguageDirection": {
+			const localization = draft.localization;
+			if (
+				!localization?.languageOrder.includes(mut.code) ||
+				!mut.code.startsWith("project:")
+			)
+				return;
+			if (mut.direction === "rtl") {
+				localization.rtlProjectLanguages ??= {};
+				localization.rtlProjectLanguages[mut.code] = true;
+			} else if (localization.rtlProjectLanguages) {
+				delete localization.rtlProjectLanguages[mut.code];
+				if (!Object.keys(localization.rtlProjectLanguages).length)
+					delete localization.rtlProjectLanguages;
+			}
+			return;
+		}
+		case "setDefaultLanguage":
+		case "moveLanguage": {
 			const localization = materializeLocalization(draft);
 			if (!localization.languageOrder.includes(mut.code)) return;
-			localization.defaultLanguage = mut.code;
-			localization.languageOrder = [
-				mut.code,
-				...localization.languageOrder.filter((code) => code !== mut.code),
-			];
+			const after = mut.kind === "setDefaultLanguage" ? null : mut.after;
+			const order = spliceAfter(localization.languageOrder, mut.code, after);
+			// A file inherited from the form default keeps showing the same
+			// file when the first language changes.
+			rebaseFormMediaLanguages(
+				draft.fields,
+				localization.sourceLanguage,
+				localization.languageOrder,
+				localization.defaultLanguage,
+				order[0],
+			);
+			localization.languageOrder = order;
+			localization.defaultLanguage = order[0];
 			return;
 		}
 		case "setTranslation": {
 			const localization = materializeLocalization(draft);
-			const translations = localization.translations[mut.language];
+			const translations = editableLanguageEntries(
+				localization,
+				mut.language,
+				mut.entry !== null,
+			);
 			if (translations === undefined) return;
 			if (mut.entry === null) delete translations[mut.unitId];
 			else translations[mut.unitId] = structuredClone(mut.entry);
@@ -143,7 +263,11 @@ export function applyAppMutation(
 		}
 		case "reviewTranslation": {
 			const localization = materializeLocalization(draft);
-			const entry = localization.translations[mut.language]?.[mut.unitId];
+			const translations =
+				mut.language === localization.sourceLanguage
+					? localization.generatedSourceWording
+					: localization.translations[mut.language];
+			const entry = translations?.[mut.unitId];
 			if (
 				entry === undefined ||
 				!translationSourceFingerprintsEqual(
@@ -157,9 +281,15 @@ export function applyAppMutation(
 			// Translation maps are normalized null-prototype records. A stored
 			// entry may remain a frozen shared value until this exact key is
 			// replaced, so never mutate its nested fields in place.
-			const translations = localization.translations[mut.language];
 			if (translations === undefined) return;
+			const unit =
+				entry.valueMode === undefined
+					? undefined
+					: translationUnitsById(draft).get(mut.unitId);
 			translations[mut.unitId] = {
+				...(unit === undefined
+					? {}
+					: reviewedTranslationValueMode(unit, entry)),
 				value: structuredClone(mut.value),
 				sourceFingerprint: mut.sourceFingerprint,
 				origin: entry.origin,
@@ -224,6 +354,20 @@ export function applyAppMutation(
 			else ct.properties[idx] = property;
 			return;
 		}
+		case "moveCaseProperty": {
+			const ct = findCaseType(draft, mut.caseType);
+			if (!ct || mut.property === mut.after) return;
+			const from = ct.properties.findIndex((p) => p.name === mut.property);
+			const anchor =
+				mut.after === null
+					? -1
+					: ct.properties.findIndex((p) => p.name === mut.after);
+			if (from < 0 || (mut.after !== null && anchor < 0)) return;
+			const [property] = ct.properties.splice(from, 1);
+			if (property)
+				ct.properties.splice(anchor < from ? anchor + 1 : anchor, 0, property);
+			return;
+		}
 		case "removeCaseProperty": {
 			const ct = findCaseType(draft, mut.caseType);
 			if (!ct) return;
@@ -244,6 +388,25 @@ export function applyAppMutation(
 			if (mut.relationship !== undefined) {
 				if (mut.relationship === null) delete ct.relationship;
 				else ct.relationship = mut.relationship;
+			}
+			if (mut.relationChange !== undefined) {
+				const { action, edge } = mut.relationChange;
+				const defaultMatches =
+					edge.identifier === "parent" &&
+					ct.parent_type === edge.targetType &&
+					(ct.relationship ?? "child") === edge.relationship;
+				if (defaultMatches && action === "remove") {
+					delete ct.parent_type;
+					delete ct.relationship;
+				}
+				if (defaultMatches && action === "add") return;
+				const relations = (ct.relations ?? []).filter(
+					(one) => compareCaseRelations(one, edge) !== 0,
+				);
+				if (action === "add") relations.push({ ...edge });
+				if (relations.length)
+					ct.relations = relations.sort(compareCaseRelations);
+				else delete ct.relations;
 			}
 			return;
 		}

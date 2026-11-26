@@ -894,7 +894,6 @@ above keep explicit negative controls. The parent plan owns the shared release r
 | `forms-and-case-writes` | `an-advanced-load-s-update-or-preload-or-an-open-action-s-name-or` | F3 |
 | `forms-and-case-writes` | `index-identifier-outside-an-xml-element-name` | F3 |
 | `forms-and-case-writes` | `caseindex-relationship-question-relationship-question-the-index-naming-a` | F3 |
-| `forms-and-case-writes` | `an-advanced-open-action-s-parent-index-against-a-menu-s-parent-selection` | F3 |
 | `forms-and-case-writes` | `arbitrary-datums-datum-id-datum-function` | F1 |
 | `forms-and-case-writes` | `shadow-parent-form-id-naming-an-advancedform-that-is-not-a` | F2 |
 | `forms-and-case-writes` | `extra-actions-load-update-cases-repeating-a-parent-tag-overrides` | F2 |

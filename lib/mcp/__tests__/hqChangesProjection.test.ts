@@ -30,11 +30,12 @@ import {
 	hqChangesUnavailableLine,
 	NEXT_PUBLISH_LEAD,
 	nothingToBringInLine,
-	renamedInNovaLine,
+	renameRecoveryLine,
 } from "@/lib/publish/hqChangesCopy";
 import {
 	HQ_CHANGE_HELD,
 	HQ_CHANGES_UNAVAILABLE,
+	renameNamesReused,
 } from "@/lib/publish/hqChangesKinds";
 import { ACCOUNT_CHECK_AGAIN_LINE } from "@/lib/publish/hqFindingCopy";
 import {
@@ -42,7 +43,12 @@ import {
 	FINDING_NAME_MAX_LENGTH,
 	type Finding,
 } from "@/lib/publish/hqFindings";
-import { PAGE_LIMIT_CHARS } from "../paging";
+import {
+	OWNER_RULE_OTHERWISE,
+	OWNER_RULE_WORKER_DETAIL,
+	OWNER_RULE_WORKER_LABEL,
+} from "@/lib/publish/ownerRuleCopy";
+import { PAGE_LIMIT_CHARS, reviewedPageDigest } from "../paging";
 import { MAX_RESULT_SIZE_CHARS } from "../resultSize";
 import {
 	CHANGED_NOW_PAGED_NEXT,
@@ -50,6 +56,7 @@ import {
 } from "../tools/bringInHqChanges";
 import {
 	changesPageFor,
+	changesPageSubject,
 	describeHqChangesReview,
 	type HqChangesCall,
 	LINE_PART_MAX_CHARS,
@@ -64,6 +71,8 @@ import {
 	stopProjection,
 	tableProjection,
 } from "../tools/readingProjection";
+
+import { makeRemoteChangesError } from "../tools/uploadAppToHq";
 
 const CALL: HqChangesCall = {
 	scope: {
@@ -116,6 +125,7 @@ function changes(
 		observedDigest: "b".repeat(64),
 		renamedInNova: [],
 		tables: [],
+		ownerRules: [],
 		projectName: "Field team",
 		readingId: READING_ID,
 		reviewDigest: DIGEST,
@@ -157,6 +167,7 @@ describe("a review of changes made in CommCare HQ", () => {
 				nova_changes_total: 45,
 				renamed_in_nova_total: 0,
 				tables_total: 0,
+				owner_rules: [],
 				made_by_total: 5,
 				next_page: null,
 				cut_line: null,
@@ -182,6 +193,70 @@ describe("a review of changes made in CommCare HQ", () => {
 	 * under the limit, with each list's lines put back together from the
 	 * parts of a cut line.
 	 */
+	it("asks each owner-rule question in the changes by its level, with the one answer a client relays", () => {
+		const served = projected(
+			changes({
+				ownerRules: [
+					{
+						level: "clinic",
+						levelName: "Clinic",
+						conflict: {
+							kind: "two-places",
+							source: "East",
+							places: ["East A", "East B"],
+						},
+						forms: ["Transfer"],
+					},
+				],
+			}),
+		);
+		expect(served.owner_rules).toEqual([
+			{
+				level: "clinic",
+				title: "Who owns the cases for Clinic",
+				body: "The form “Transfer” gives each case to the Clinic below the place that owns it. In clinic, both East A and East B are below East, so the rule can't tell which one to use.",
+				answer: {
+					value: "worker",
+					label: OWNER_RULE_WORKER_LABEL,
+					detail: OWNER_RULE_WORKER_DETAIL,
+				},
+				otherwise: OWNER_RULE_OTHERWISE,
+			},
+		]);
+	});
+
+	it("explains how to recover an unread claimed target", () => {
+		const answer = projected({
+			kind: "unavailable",
+			reason: "baseline-unread",
+			since: { kind: "published" },
+			requiresReview: true,
+		});
+		for (const step of [
+			"Project admin or owner",
+			"Stop publishing here",
+			"publish in progress finishes",
+			"new Nova app",
+			"different project space",
+		])
+			expect(answer.message).toContain(step);
+	});
+
+	it("preserves a mandatory first-publish review and the concrete references it asks the member to approve", () => {
+		const listed = changes({
+			requiresReview: true,
+			hqChanges: ["Publishing removes the old picture reference."],
+			publishChanges: ["This publish removes 1 unused file reference."],
+		});
+		expect(projected(listed)).toMatchObject({
+			kind: "changes",
+			requires_review: true,
+			hq_changes: listed.hqChanges,
+			publish_changes: listed.publishChanges,
+			review_digest: listed.reviewDigest,
+		});
+	});
+
 	function followPages(review: Extract<HqChangesReview, { kind: "changes" }>) {
 		const lists = { hq_changes: [] as string[], nova_changes: [] as string[] };
 		const rest = {
@@ -198,7 +273,7 @@ describe("a review of changes made in CommCare HQ", () => {
 		const seen = new Set<string>();
 		do {
 			const parsed = cursor === null ? null : parseAccountPage(cursor);
-			const page = changesPageFor(review, parsed);
+			const page = changesPageFor(review, parsed, HEAD.domain);
 			if (page === null) throw new Error("The cursor named no page.");
 			expect(page.restarted).toBe(false);
 			const served = describeHqChangesReview(review, HEAD, {
@@ -216,19 +291,15 @@ describe("a review of changes made in CommCare HQ", () => {
 				made_by_line:
 					review.madeBy.length > 0 ? madeByLine(review.madeBy) : null,
 				reading_id: READING_ID,
-				review_digest: DIGEST,
+				review_digest: served.next_page === null ? DIGEST : null,
+				observed_digest:
+					served.next_page === null ? review.observedDigest : null,
 			});
-			/* The sentence over the renames names this page's. */
+			/* Each page with rename evidence gives the recovery for this review. */
 			expect(served.renamed_in_nova_line).toBe(
 				served.renamed_in_nova.length === 0
 					? null
-					: renamedInNovaLine(
-							served.renamed_in_nova.map((rename) => ({
-								caseType: rename.case_type,
-								from: rename.from,
-								to: rename.to,
-							})),
-						),
+					: renameRecoveryLine(renameNamesReused(review.renamedInNova)),
 			);
 			rest.renamed_in_nova.push(...served.renamed_in_nova);
 			rest.tables.push(...served.tables);
@@ -414,7 +485,10 @@ describe("a review of changes made in CommCare HQ", () => {
 			throw new Error("one page held both lists");
 		const cursor = parseAccountPage(first.next_page);
 		const now = { ...long("Follow-up"), reviewDigest: "c".repeat(64) };
-		expect(changesPageFor(now, cursor)).toEqual({ from: 0, restarted: true });
+		expect(changesPageFor(now, cursor, HEAD.domain)).toEqual({
+			from: 0,
+			restarted: true,
+		});
 		expect(
 			describeHqChangesReview(now, HEAD, {
 				...FIRST_PAGE,
@@ -425,7 +499,20 @@ describe("a review of changes made in CommCare HQ", () => {
 			restarted: true,
 			restarted_message: expect.stringContaining("from the start"),
 		});
-		expect(changesPageFor(before, { from: 3001, digest: DIGEST })).toBeNull();
+		expect(
+			changesPageFor(
+				before,
+				{
+					from: 3001,
+					digest: reviewedPageDigest(
+						"changes",
+						changesPageSubject(before, HEAD.domain),
+						3001,
+					),
+				},
+				HEAD.domain,
+			),
+		).toBeNull();
 	});
 
 	it("says nothing would be removed where Nova's list is empty, and names no one", () => {
@@ -438,6 +525,169 @@ describe("a review of changes made in CommCare HQ", () => {
 		expect(served.publish_changes_lead).toBeNull();
 	});
 
+	it("keeps the reused-name recovery on every rename page even when the conflicting move is on another page", () => {
+		const renames = Array.from({ length: 640 }, (_, index) => ({
+			caseType: "patient_referral_followup",
+			from: `household_referral_progress_before_the_followup_${index}`,
+			to: `household_referral_progress_after_the_followup_${index}`,
+		}));
+		renames.push({ ...renames[0], from: "later" });
+		const review = changes({ renamedInNova: renames });
+		const first = describeHqChangesReview(review, HEAD, FIRST_PAGE);
+		if (first.kind !== "changes")
+			throw new Error("Expected a review of HQ changes.");
+		expect(first.next_page).not.toBeNull();
+		expect(first.renamed_in_nova.some((move) => move.from === "later")).toBe(
+			false,
+		);
+		expect(first.renamed_in_nova_line).toContain(
+			"reversing the listed changes could move the wrong case values",
+		);
+		expect(followPages(review).pages).toBeGreaterThan(1);
+	});
+
+	it("reconstructs a 355-property recovery list across case types and a fragmented rename", () => {
+		const moves = Array.from({ length: 355 }, (_, i) => ({
+			caseType: "a".repeat(90),
+			from: `p${i}`,
+			to: `q${i}`,
+		}));
+		moves.push({ caseType: "b", from: "last", to: "newlast" });
+		const old = 'Before "'.repeat(11000),
+			to = "After \n".repeat(14000);
+		moves.push({ caseType: "b", from: old, to });
+		moves.push({ caseType: "b", from: "new-name", to: "newlast" });
+		const review = changes({ renamedInNova: moves });
+		const rows: { case_type: string; from: string; to: string }[] = [];
+		let sections: string[] = [];
+		let page: { from: number; restarted: boolean } = FIRST_PAGE.page;
+		let continued = 0;
+		for (;;) {
+			const shown = describeHqChangesReview(review, HEAD, {
+				...FIRST_PAGE,
+				page,
+			});
+			if (shown.kind !== "changes")
+				throw new Error("A changes review was expected.");
+			expect(
+				JSON.stringify({
+					content: [{ type: "text", text: JSON.stringify(shown) }],
+				}).length,
+			).toBeLessThanOrEqual(PAGE_LIMIT_CHARS);
+			if (shown.renamed_in_nova.length || shown.rename_parts?.length)
+				expect(shown.renamed_in_nova_line).toContain(
+					"move the wrong case values",
+				);
+			rows.push(...shown.renamed_in_nova);
+			for (const part of shown.rename_parts ?? []) {
+				expect(part.item).toBe(356);
+				expect(part.part).toBe(sections.length + 1);
+				sections.push(part.text);
+				if (part.parts === part.part) {
+					rows.push(JSON.parse(sections.join("")));
+					sections = [];
+				}
+			}
+			if (!shown.next_page) {
+				expect(shown.review_digest).toBe(DIGEST);
+				break;
+			}
+			expect(shown.review_digest).toBeNull();
+			const next = changesPageFor(
+				review,
+				parseAccountPage(shown.next_page),
+				HEAD.domain,
+			);
+			if (!next || next.restarted)
+				throw new Error("The unchanged review should continue.");
+			page = next;
+			continued++;
+		}
+		expect(continued).toBeGreaterThan(1);
+		expect(sections).toHaveLength(0);
+		expect(rows).toHaveLength(moves.length);
+		expect(rows).toEqual(
+			moves.map(({ caseType, from, to }) => ({
+				case_type: caseType,
+				from,
+				to,
+			})),
+		);
+	});
+
+	it("restarts fragmented table choices and contributor names after their presentation changes", () => {
+		const wide = "Project " + "x".repeat(48),
+			short = "Visits";
+		const tables: ReviewTable[] = Array.from({ length: 7 }, (_, i) => ({
+			tag: `table_${i}`,
+			standing: "choice",
+			hqDigest: DIGEST,
+			projectTable: null,
+			choice: {
+				differs: ["rows"],
+				apps: [{ appId: "other", appName: "Registration", deleted: false }],
+				options: {
+					"use-commcare-hq": {
+						offered: true,
+						goneColumns: [],
+						retypedColumns: Array.from(
+							{ length: 238 },
+							(_, j) => `column_${j}_${"x".repeat(108)}`,
+						),
+					},
+					"use-project": { offered: false, why: "needs-admin", name: null },
+				},
+			},
+		}));
+		const before = changes({
+			tables,
+			projectName: wide,
+			hqChanges: [],
+			madeBy: ["Å", "B"],
+		});
+		const first = describeHqChangesReview(before, HEAD, FIRST_PAGE);
+		if (first.kind !== "changes") throw new Error("Expected table choices.");
+		expect(first.table_parts?.map((x) => [x.item, x.part])).toEqual([
+			[0, 1],
+			[0, 2],
+			[1, 1],
+			[1, 2],
+		]);
+		const cursor = parseAccountPage(first.next_page ?? "");
+		const after = { ...before, projectName: short };
+		const start = changesPageFor(after, cursor, HEAD.domain);
+		expect(start).toEqual({ from: 0, restarted: true });
+		const seen: string[] = [];
+		let page = start;
+		while (page) {
+			const got = describeHqChangesReview(after, HEAD, { ...FIRST_PAGE, page });
+			if (got.kind !== "changes")
+				throw new Error("Expected the table choices.");
+			seen.push(...got.tables.map((row) => row.tag));
+			if (!got.next_page) {
+				expect(got.review_digest).toBe(before.reviewDigest);
+				break;
+			}
+			expect(got.review_digest).toBeNull();
+			page = changesPageFor(
+				after,
+				parseAccountPage(got.next_page),
+				HEAD.domain,
+			);
+		}
+		expect(seen).toEqual(tables.map((t) => t.tag));
+		for (const changed of [
+			{ ...before, madeBy: ["A\u030a", "B"] },
+			{ ...before, madeBy: ["Å", "É"] },
+			{ ...before, madeBy: ["B", "Å"] },
+			{ ...before, hqChanges: ["A different physical reference"] },
+		])
+			expect(changesPageFor(changed, cursor, HEAD.domain)).toEqual({
+				from: 0,
+				restarted: true,
+			});
+	});
+
 	it("names each case property renamed in Nova and the sentence that holds the bring-in back", () => {
 		const renames = [
 			{ caseType: "mother", from: "edd", to: "due_date" },
@@ -448,7 +698,7 @@ describe("a review of changes made in CommCare HQ", () => {
 			{ case_type: "mother", from: "edd", to: "due_date" },
 			{ case_type: "mother", from: "lmp", to: "last_period" },
 		]);
-		expect(served.renamed_in_nova_line).toBe(renamedInNovaLine(renames));
+		expect(served.renamed_in_nova_line).toBe(renameRecoveryLine(false));
 	});
 
 	it("lists a table the changed app newly reads as read_hq_app lists one, naming the app's Project", () => {
@@ -480,6 +730,86 @@ describe("a review of changes made in CommCare HQ", () => {
 			),
 		]);
 	});
+
+	it.each(["reads-the-same", "already-here"] as const)(
+		"pages a recordable %s reading losslessly and withholds its receipt until the final identity line",
+		async (reason) => {
+			const long = '"☀😀\n'.repeat(25000);
+			const lines = [
+				"This form moved.",
+				long,
+				...Array.from(
+					{ length: 30 },
+					(_, i) => `File ${i}: ${(i % 2 === 0 ? "\\" : "x").repeat(6000)}`,
+				),
+			];
+			const review = {
+				kind: "nothing",
+				reason,
+				since: { kind: "published" },
+				hqChanges: lines,
+				publishChanges: [],
+				readingId: READING_ID,
+				reviewDigest: DIGEST,
+			} as const;
+			const nested = await describeHqChangesOutcome(
+				{ kind: "changed", now: review, editedBy: '"'.repeat(80_000) },
+				CALL,
+			);
+			expect(nested).toMatchObject({
+				kind: "changed",
+				now: { kind: "nothing", review_digest: null },
+				next: CHANGED_NOW_PAGED_NEXT,
+			});
+			expect(
+				JSON.stringify({
+					content: [{ type: "text", text: JSON.stringify(nested) }],
+				}).length,
+			).toBeLessThanOrEqual(PAGE_LIMIT_CHARS);
+			const collected: string[] = [];
+			let cursor: string | null = null;
+			let pages = 0;
+			do {
+				const at = changesPageFor(
+					review,
+					cursor === null ? null : parseAccountPage(cursor),
+					HEAD.domain,
+				);
+				if (!at) throw new Error("Expected the same reading to continue.");
+				const result = describeHqChangesReview(review, HEAD, {
+					...FIRST_PAGE,
+					page: at,
+					envelope: (now) => ({ kind: "changed", now }),
+				});
+				if (result.kind !== "nothing")
+					throw new Error("Expected unchanged document");
+				expect(
+					JSON.stringify({ kind: "changed", now: result }).length,
+				).toBeLessThanOrEqual(PAGE_LIMIT_CHARS);
+				cursor = result.next_page ?? null;
+				expect(
+					JSON.stringify({
+						content: [
+							{
+								type: "text",
+								text: JSON.stringify({ kind: "changed", now: result }),
+							},
+						],
+					}).length,
+				).toBeLessThanOrEqual(PAGE_LIMIT_CHARS);
+				expect(result.review_digest).toBe(cursor === null ? DIGEST : null);
+				expect(result.next !== null).toBe(cursor === null);
+				expect(result.hq_changes_total).toBe(lines.length);
+				if (result.cut_line && result.cut_line.part > 1)
+					collected[collected.length - 1] += result.hq_changes[0];
+				else collected.push(...result.hq_changes);
+				pages++;
+				if (pages > 40) throw new Error("The unchanged page did not advance.");
+			} while (cursor);
+			expect(pages).toBeGreaterThan(2);
+			expect(collected).toEqual(lines);
+		},
+	);
 
 	it("says why there is nothing to bring in, for each reason", () => {
 		for (const reason of [
@@ -530,6 +860,28 @@ describe("a review of changes made in CommCare HQ", () => {
 				message: hqChangesHeldLine(reason, runs),
 			});
 		}
+	});
+
+	it("identifies the saved phrase to review before a language becomes original", () => {
+		const translation = {
+			language: { kind: "project" as const, language: "qaa" },
+			languageName: "qaa",
+			unitId: "tu1:3:app4:name",
+			breadcrumb: ["Clinic", "App name"],
+		};
+		expect(
+			projected({
+				kind: "held",
+				reason: "stale-source-translation",
+				runs: null,
+				translation,
+			}),
+		).toMatchObject({
+			kind: "held",
+			reason: "stale-source-translation",
+			translation,
+			message: expect.stringContaining("Clinic › App name"),
+		});
 	});
 
 	it("words each review Nova cannot make against what the change is measured from", () => {
@@ -617,7 +969,7 @@ describe("an account a page at a time", () => {
 		let pages = 0;
 		do {
 			const parsed = cursor === null ? null : parseAccountPage(cursor);
-			const page = changesPageFor(review, parsed);
+			const page = changesPageFor(review, parsed, HEAD.domain);
 			if (page === null) throw new Error("The cursor named no page.");
 			expect(page.restarted).toBe(false);
 			const served = describeHqChangesReview(review, HEAD, {
@@ -654,7 +1006,7 @@ describe("an account a page at a time", () => {
 			Array.from({ length: 300 }, (_, index) => longest(index + 1)),
 		);
 		expect(accountDigest(now)).not.toBe(accountDigest(before));
-		const page = changesPageFor(now, cursor);
+		const page = changesPageFor(now, cursor, HEAD.domain);
 		expect(page).toEqual({ from: 0, restarted: true });
 		const served = describeHqChangesReview(now, HEAD, {
 			...FIRST_PAGE,
@@ -665,12 +1017,16 @@ describe("an account a page at a time", () => {
 			restarted: true,
 			restarted_message: expect.stringContaining("from the start"),
 		});
-		expect(changesPageFor(changes(), cursor)).toEqual({
+		expect(changesPageFor(changes(), cursor, HEAD.domain)).toEqual({
 			from: 0,
 			restarted: true,
 		});
 		expect(
-			changesPageFor(before, { from: 300, digest: accountDigest(before) }),
+			changesPageFor(
+				before,
+				{ from: 300, digest: accountDigest(before) },
+				HEAD.domain,
+			),
 		).toBeNull();
 	});
 
@@ -697,6 +1053,19 @@ describe("an account a page at a time", () => {
 			message:
 				"CommCare HQ's version of this app takes more checking than Nova gives one app, so Nova brought nothing in.",
 		});
+	});
+
+	it("leads with the account's count where its one finding is a file past what Nova reads, as the panel does", () => {
+		const file = circumstanceFinding(
+			"media-file-too-large",
+			{ kind: "media", path: "jr://file/commcare/video/visit.mp4" },
+			{
+				name: "jr://file/commcare/video/visit.mp4 (over 1 GB, the most Nova reads of a video)",
+			},
+		);
+		expect(
+			describeHqChangesReview(account([file], 0), HEAD, FIRST_PAGE),
+		).toMatchObject({ kind: "account", message: cannotBringInLead(1) });
 	});
 
 	it("links no place into CommCare HQ where the deployment names no app there", () => {
@@ -800,7 +1169,7 @@ describe("a bring-in's answers that name no deployment", () => {
 		expect(answered.now.next_page).not.toBeNull();
 		expect(answered.now.nova_changes.length).toBeLessThan(3000);
 		const cursor = parseAccountPage(answered.now.next_page ?? "");
-		expect(changesPageFor(now, cursor)).toEqual({
+		expect(changesPageFor(now, cursor, HEAD.domain)).toEqual({
 			from: answered.now.hq_changes.length + answered.now.nova_changes.length,
 			restarted: false,
 		});
@@ -829,7 +1198,11 @@ describe("a bring-in's answers that name no deployment", () => {
 				),
 			},
 			{ kind: "unavailable", reason: "nova-defect", since: null },
-			{ kind: "held", reason: "languages-reordered", runs: null },
+			{
+				kind: "held",
+				reason: "runs-elsewhere",
+				runs: { app: ["android", "web-apps"], hq: ["android"] },
+			},
 		];
 		for (const now of stopped) {
 			/* No name rides a review the person can't act on here: one that is
@@ -847,4 +1220,39 @@ describe("a bring-in's answers that name no deployment", () => {
 			});
 		}
 	});
+});
+
+it("withholds all overwrite receipts when many changed places and lookup tables need a larger review", () => {
+	const placements = { recorded: 0, moved: 0 };
+	const changes = Array.from({ length: 500 }, (_, i) => ({
+		kind: i % 2 === 0 ? ("location" as const) : ("lookup-table" as const),
+		novaResourceId: `resource-${i}`,
+		name: `Resource ${i}`,
+		identity: `resource_${i}`,
+		parts: ["Its name changed in CommCare HQ."],
+		note: null,
+		observedDigest: "c".repeat(64),
+		baselineKnown: true,
+		since: { kind: "published" as const },
+		canBringIn: false,
+	}));
+	const render = (rows: typeof changes) =>
+		makeRemoteChangesError("HQ holds changes.", "visits", rows, {
+			placements,
+			placement_moves: null,
+		});
+	const partial = render(changes.slice(0, 1));
+	expect(JSON.parse(partial.content[0].text)).toMatchObject({
+		remote_changes: [{ observed_digest: "c".repeat(64) }],
+	});
+	const response = render(changes);
+	expect(JSON.stringify(response).length).toBeLessThanOrEqual(PAGE_LIMIT_CHARS);
+	const body = JSON.parse(response.content[0].text);
+	expect(body).toMatchObject({
+		error_type: "hq_changed",
+		requires_review: true,
+		placements,
+	});
+	expect(body).not.toHaveProperty("remote_changes");
+	expect(response.content[0].text).not.toContain("c".repeat(64));
 });

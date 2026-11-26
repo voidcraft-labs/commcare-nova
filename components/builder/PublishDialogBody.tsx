@@ -274,7 +274,10 @@ export interface PublishDialogProps {
 		domain: string | undefined,
 		signal: AbortSignal,
 	) => Promise<PublishProjectSpaceCompatibilityOutcome>;
-	onDownloadJson: (server?: CommCareServer) => Promise<PublishDownloadOutcome>;
+	onDownloadJson: (
+		server?: CommCareServer,
+		privateDomain?: string,
+	) => Promise<PublishDownloadOutcome>;
 	/** A CCZ is made for one project space this app is published to. */
 	onDownloadCcz: (target: {
 		readonly server: CommCareServer;
@@ -433,6 +436,7 @@ export function PublishDialogBody({
 	const [status, setStatus] = useState<PublishStatus>({ type: "idle" });
 	const [appName, setAppName] = useState(storeAppName);
 	const [selectedDomain, setSelectedDomain] = useState("");
+	const [privateDomain, setPrivateDomain] = useState("");
 	const [downloadServer, setDownloadServer] = useState<CommCareServer | "">("");
 	const [downloadTargets, setDownloadTargets] = useState<DownloadTargets>({
 		type: "loading",
@@ -1465,7 +1469,12 @@ export function PublishDialogBody({
 			setStatus({ type: "downloading", target: downloadTarget });
 			const outcome = await (cczTarget !== null && downloadTarget === "mobile"
 				? onDownloadCcz(cczTarget)
-				: onDownloadJson(downloadServer || undefined));
+				: onDownloadJson(
+						privateDomain
+							? (connectionServer ?? undefined)
+							: downloadServer || undefined,
+						privateDomain || undefined,
+					));
 			if (operationGenerationRef.current !== generation) return;
 			if (!outcome.ok) {
 				setStatus({ type: "idle" });
@@ -1488,7 +1497,14 @@ export function PublishDialogBody({
 				manualImportGuide: outcome.manualImportGuide,
 			});
 		},
-		[onDownloadCcz, onDownloadJson, downloadServer, cczTarget],
+		[
+			onDownloadCcz,
+			onDownloadJson,
+			downloadServer,
+			cczTarget,
+			privateDomain,
+			connectionServer,
+		],
 	);
 
 	const isWorking =
@@ -1664,7 +1680,9 @@ export function PublishDialogBody({
 									CommCare HQ server
 								</FieldLabel>
 								<Select
-									value={downloadServer}
+									value={
+										privateDomain ? (connectionServer ?? "") : downloadServer
+									}
 									items={[
 										{ value: "", label: "Use published destination" },
 										...(["production", "india", "eu"] as const).map(
@@ -1678,7 +1696,7 @@ export function PublishDialogBody({
 										setDownloadServer((value ?? "") as CommCareServer | "");
 										setStatus({ type: "idle" });
 									}}
-									disabled={isWorking}
+									disabled={isWorking || Boolean(privateDomain)}
 								>
 									<SelectTrigger id="download-server">
 										<SelectValue />
@@ -1700,6 +1718,49 @@ export function PublishDialogBody({
 								</FieldDescription>
 							</Field>
 						)}
+						{target === "web" &&
+							canEdit &&
+							connectionServer &&
+							availableDomains.length > 0 && (
+								<Field className="mt-4 gap-1.5">
+									<FieldLabel htmlFor="download-private-data">
+										Worker assignments
+									</FieldLabel>
+									<Select
+										value={privateDomain}
+										items={[
+											{ value: "", label: "Connect data after importing" },
+											...availableDomains.map((d) => ({
+												value: d.name,
+												label: d.name,
+											})),
+										]}
+										onValueChange={(val) => {
+											setPrivateDomain(val ?? "");
+											setStatus({ type: "idle" });
+										}}
+										disabled={isWorking}
+									>
+										<SelectTrigger id="download-private-data">
+											<SelectValue />
+										</SelectTrigger>
+										<SelectContent>
+											<SelectItem value="">
+												Connect data after importing
+											</SelectItem>
+											{availableDomains.map((d) => (
+												<SelectItem key={d.name} value={d.name}>
+													{d.name}
+												</SelectItem>
+											))}
+										</SelectContent>
+									</Select>
+									<FieldDescription>
+										Choose a project space to include its verified worker
+										assignments in a private download.
+									</FieldDescription>
+								</Field>
+							)}
 						{target === "mobile" && !downloadComplete && (
 							<CczTargetField
 								state={downloadTargets}
@@ -3084,7 +3145,9 @@ function confirmsRemoteChange(
 	discard: RemoteChangeDiscard,
 	change: DeploymentRemoteChange,
 ): boolean {
-	if (sameRemoteChange(discard, change)) return true;
+	if (sameRemoteChange(discard, change)) return !change.requiresReview;
+	// Only a completed review offers its own receipt here. The short
+	// preview and the receipt for all disclosed files have distinct digests.
 	return (
 		change.kind === "app" &&
 		change.canBringIn &&
@@ -3160,19 +3223,22 @@ function RemoteChangeChoice({
 				const id = `discard-${change.kind}-${change.novaResourceId}`;
 				const item = (
 					<>
-						{change.baselineKnown ? (
+						{change.parts.length > 0 && (
 							<ul className="mt-1.5 flex list-disc flex-col gap-1 pl-4 text-xs leading-relaxed text-nova-text-secondary">
 								{change.parts.map((part, index) => (
 									// biome-ignore lint/suspicious/noArrayIndexKey: two parts can name forms of the same name, so the text is no key.
 									<li key={index}>{part}</li>
 								))}
 							</ul>
-						) : (
+						)}
+						{!change.baselineKnown && (
 							<p className="mt-1.5 text-xs leading-relaxed text-nova-text-secondary">
 								{baselineUnknownSentence(change.since, viewerDriftDate())}
 							</p>
 						)}
-						{change.kind === "app" && !change.canBringIn ? (
+						{change.kind === "app" &&
+						!change.canBringIn &&
+						!change.requiresReview ? (
 							<p className="mt-1.5 text-xs leading-relaxed text-nova-text-secondary">
 								{hqChangesUnavailableLine("no-reference", {
 									domain,
@@ -3186,24 +3252,26 @@ function RemoteChangeChoice({
 								{change.note}
 							</p>
 						) : null}
-						<label
-							htmlFor={id}
-							className="mt-1 flex min-h-11 cursor-pointer items-center gap-2.5 text-[13px] text-nova-text"
-						>
-							<Checkbox
-								id={id}
-								checked={discarded.some((entry) =>
-									sameRemoteChange(entry, change),
-								)}
-								onCheckedChange={(next) =>
-									onDiscardChange(change, next === true)
-								}
-							/>
-							<span>
-								Publish over this
-								<span className="sr-only"> {change.name}</span>
-							</span>
-						</label>
+						{!change.requiresReview && (
+							<label
+								htmlFor={id}
+								className="mt-1 flex min-h-11 cursor-pointer items-center gap-2.5 text-[13px] text-nova-text"
+							>
+								<Checkbox
+									id={id}
+									checked={discarded.some((entry) =>
+										sameRemoteChange(entry, change),
+									)}
+									onCheckedChange={(next) =>
+										onDiscardChange(change, next === true)
+									}
+								/>
+								<span>
+									Publish over this
+									<span className="sr-only"> {change.name}</span>
+								</span>
+							</label>
+						)}
 						{change.kind === "app" && stop !== null ? (
 							<DriftStop
 								canStop={stop.canStop}
@@ -3226,7 +3294,15 @@ function RemoteChangeChoice({
 								({change.identity})
 							</span>
 						</p>
-						{change.kind === "app" && change.canBringIn && panel !== null ? (
+						{/* Menu layouts CommCare HQ holds that this publish replaces
+						 * are no change since the reading the panel compares, so its
+						 * review cannot show them; the item lists them with their
+						 * tick, and the person matches them in Nova or publishes
+						 * over them. */}
+						{change.kind === "app" &&
+						change.canBringIn &&
+						!change.replacesMenuLayouts &&
+						panel !== null ? (
 							/* A new refusal is a new review: keyed by the state it read. */
 							<HqChangesPanel
 								key={change.observedDigest}

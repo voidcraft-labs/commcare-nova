@@ -54,11 +54,13 @@ import type { Uuid } from "@/lib/domain/uuid";
 import { matchModeRunsOnDevice } from "../../csql/matchModes";
 import { type RewriteControl, rewriteWithheld } from "../../emissionRewrites";
 import type { LookupWireNaming } from "../../lookup/naming";
+import { lookupReadSteps } from "../../lookup/read";
 import {
 	ABSENT_CAPABLE_SESSION_CONTEXT_FIELDS,
 	CASE_LIST_SEARCH_TEXT_DATA_NAME,
 } from "../../sessionContext";
 import { USERCASE_CASE_SELECTOR } from "../../usercaseWire";
+import { GROUPS_INSTANCE, workerGroupFieldSteps } from "../../workerGroupsWire";
 import type { FormNodeProjection } from "../formNodeProjection";
 import { w } from "./builders";
 import {
@@ -173,6 +175,15 @@ const comparison: Record<
 export function toWire(expr: Expression, ctx: WireBuildContext): WireExpr {
 	const { normalized, context } = prepareWire(expr, ctx);
 	return emitExpression(normalized, context);
+}
+/** `toWire` for a consumer that reads the expression as a node-set: a
+ * detail's `nodeset`, which Core evaluates as the rows it lists. A read of an
+ * instance built from its rows alone stays bare there, as it does inside
+ * `count`, since Core counts an empty instance's rows as none and the value
+ * guard's `''` branch is no node-set. */
+export function toWireNodes(expr: Expression, ctx: WireBuildContext): WireExpr {
+	const { normalized, context } = prepareWire(expr, ctx);
+	return emitExpression(normalized, context, "nodes");
 }
 /**
  * A date and time written to a case, as the text CommCare HQ stores
@@ -432,12 +443,13 @@ function rowLeafSteps(input: Term, ctx: Context): readonly WireStep[] {
 				throw new Error(
 					"A projected table column needs the Project lookup naming catalog.",
 				);
-			return [
-				w.step(
-					lookup.naming.tableFor(input.tableId).wireNameFor(input.columnId),
-				),
-			];
+			return lookupReadSteps(
+				lookup.naming.tableFor(input.tableId),
+				input.columnId,
+			);
 		}
+		case "worker-group-field":
+			return workerGroupFieldSteps(input.field);
 		case "location-field":
 			return locationSteps(input, ctx);
 		default:
@@ -519,12 +531,32 @@ function term(input: Term, ctx: Context): WireExpr {
 				);
 			return w.str(level.code);
 		}
+		case "worker-group-field":
+			return w.context(workerGroupFieldSteps(input.field));
 		case "location-field":
 			return w.context(locationSteps(input, ctx));
 		case "prop": {
 			const self = input.via === undefined || input.via.kind === "self";
 			if (self && bindings.emitSelfProperty !== undefined)
 				return bindings.emitSelfProperty(input);
+			if (input.readReached && input.via?.kind === "ancestor") {
+				// The walk starts at the case the slot reads: a case list's row
+				// (`current()`), or, in a form, the case its menu chose
+				// (`rootCaseIdWireExpr`), since a form bind's `current()` is
+				// its own node and holds no index.
+				if (bindings.lookup?.rowScope?.caseAnchor.kind === "unaddressable")
+					throw new Error(
+						`Case property '${input.property}' is read inside a lookup-row filter whose case cannot be addressed from current(). Validation should reject this shape before emission.`,
+					);
+				return w.append(
+					buildAncestorJoinNodeset(
+						input.via.via.map(({ identifier }) => ({ identifier })),
+						root,
+						origin(ctx),
+					),
+					[casePropertyStep(input.property)],
+				);
+			}
 			const anchored = bindings.caseProperty?.(
 				input,
 				root,
@@ -562,10 +594,18 @@ function term(input: Term, ctx: Context): WireExpr {
 			if (via === undefined || via.kind === "self") return w.context([leaf]);
 			switch (via.kind) {
 				case "ancestor":
-					return w.append(buildAncestorJoinNodeset(via.via, root), [leaf]);
+					return w.append(
+						buildAncestorJoinNodeset(via.via, root, origin(ctx)),
+						[leaf],
+					);
 				case "subcase":
 					return w.append(
-						buildSubcaseJoinNodeset(via.identifier, root, via.ofCaseType),
+						buildSubcaseJoinNodeset(
+							via.identifier,
+							root,
+							via.ofCaseType,
+							origin(ctx),
+						),
 						[leaf],
 					);
 				case "any-relation":
@@ -688,11 +728,9 @@ function term(input: Term, ctx: Context): WireExpr {
 				throw new Error(
 					`Lookup column reads table '${input.tableId}' inside the row scope of '${row.tableId}'.`,
 				);
-			return w.context([
-				w.step(
-					lookup.naming.tableFor(input.tableId).wireNameFor(input.columnId),
-				),
-			]);
+			return w.context(
+				lookupReadSteps(lookup.naming.tableFor(input.tableId), input.columnId),
+			);
 		}
 	}
 }
@@ -998,6 +1036,8 @@ function lowerExpression(expr: Expression, ctx: Context, use: Use): WireExpr {
 				? nodes()
 				: guardAbsentNode(nodes([w.num(1)]), nodes());
 		}
+		case "case-text":
+			return { k: "case-text-variable", textUuid: expr.textUuid };
 		case "itext": {
 			const id = ctx.bindings.itextId?.(expr.unit);
 			if (id === undefined)
@@ -1053,6 +1093,16 @@ function lowerExpression(expr: Expression, ctx: Context, use: Use): WireExpr {
 				],
 			);
 		}
+		case "worker-groups": {
+			const child = queryContext(expr, ctx);
+			return w.instance(GROUPS_INSTANCE, [
+				w.step("groups"),
+				w.step(
+					"group",
+					expr.where.map((x) => emitExpression(x, child)),
+				),
+			]);
+		}
 		case "locations": {
 			const child = queryContext(expr, ctx);
 			return w.instance(locationsInstance(), [
@@ -1094,10 +1144,13 @@ function lowerExpression(expr: Expression, ctx: Context, use: Use): WireExpr {
 			);
 		case "term": {
 			const input = expr.term;
+			// A reached read walks its links to whatever case each reaches, of any type: no
+			// declared destination to canonicalize it toward.
 			if (
 				input.kind !== "prop" ||
 				input.via === undefined ||
-				input.via.kind === "self"
+				input.via.kind === "self" ||
+				input.readReached
 			)
 				return term(input, ctx);
 			const scope = relationScope(ctx);
@@ -1108,6 +1161,11 @@ function lowerExpression(expr: Expression, ctx: Context, use: Use): WireExpr {
 			return term({ ...input, via: relation.via }, ctx);
 		}
 		case "today":
+			if (expr.clock === "project-space")
+				throw new Error(
+					"The project space’s day is read on the search server.",
+				);
+			return w.call("today");
 		case "now":
 			return w.call(expr.kind);
 		case "acting-user":
@@ -1270,7 +1328,7 @@ function lowerExpression(expr: Expression, ctx: Context, use: Use): WireExpr {
 				[
 					w.step(table.listElementName),
 					w.step(table.rowElementName, [...filters, w.num(1)]),
-					w.step(table.wireNameFor(expr.resultColumnId)),
+					...lookupReadSteps(table, expr.resultColumnId),
 				],
 			);
 		}

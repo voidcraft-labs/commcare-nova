@@ -52,7 +52,6 @@ const ISSUES: Readonly<Record<FormParseIssueCode, true>> = {
 	variable: true,
 	"instance-unknown": true,
 	"instance-argument": true,
-	"groups-held": true,
 	"form-root": true,
 	"unknown-field": true,
 	"ambiguous-field": true,
@@ -254,6 +253,14 @@ function refs(): readonly SlotContextRef[] {
 			case "excluded_owner_ids":
 				all.push({ entity: "module", uuid: MENU as never, slot });
 				break;
+			case "case_list_mapping_condition":
+				all.push({
+					entity: "module",
+					uuid: MENU as never,
+					slot,
+					member: { columnUuid: member, rowUuid: testUuid("mapping-row") },
+				});
+				break;
 			case "case_list_column_expression":
 				all.push({
 					entity: "module",
@@ -411,9 +418,15 @@ describe("a parse issue's entry, by what the text and the form hold", () => {
 		expect(declared(text, {})).toBe(
 			"expressions-and-data/referenced-undeclared-instance-id-with-no-known-scheme-or-one",
 		);
-		expect(declared("instance('ledgerdb')/ledgerdb", {})).toBe(
-			"expressions-and-data/ledgerdb-vellum-id-ledger",
-		);
+		/* A form's sources are the ones HQ's build leaves it with: an undeclared
+		 * `ledgerdb` is added from its fixed source
+		 * (`suite_xml/post_process/instances.py::INSTANCE_KWARGS_BY_ID`,
+		 * `xform.py::add_missing_instances`), so it reads as the ledger. */
+		expect(
+			declared("instance('ledgerdb')/ledgerdb", {
+				ledgerdb: "jr://instance/ledgerdb",
+			}),
+		).toBe("expressions-and-data/ledgerdb-vellum-id-ledger");
 	});
 
 	it("reads supply_point_id by whether the advanced form computes it", () => {

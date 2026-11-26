@@ -37,6 +37,7 @@ import tablerChevronRight from "@iconify-icons/tabler/chevron-right";
 import tablerPlus from "@iconify-icons/tabler/plus";
 import tablerRepeat from "@iconify-icons/tabler/repeat";
 import tablerTrash from "@iconify-icons/tabler/trash";
+import type { CSSProperties } from "react";
 import { useCallback, useId } from "react";
 import {
 	useBuilderLanguage,
@@ -54,6 +55,7 @@ import { useEngineController } from "@/lib/preview/hooks/useEngineController";
 import { useEngineStateAt } from "@/lib/preview/hooks/useEngineState";
 import { usePresentationHasFields } from "@/lib/preview/hooks/usePresentationDocument";
 import { useVisibleRepeatInstances } from "@/lib/preview/hooks/useVisibleFieldOrder";
+import { questionColumnWidth } from "@/lib/preview/questionRows";
 import { refusalCopy, runtimeMessage } from "@/lib/preview/runtimeMessages";
 import { LabelContent } from "@/lib/references/LabelContent";
 import { usePreviewPlatformRules } from "@/lib/session/hooks";
@@ -65,6 +67,7 @@ import { runWithAttachmentEntryWriteAuthority } from "./attachment/attachmentCli
 import { useAttachmentEntryWriteAuthority } from "./attachment/useAttachmentEntryWriteAuthority";
 
 interface RepeatFieldProps {
+	repeatsPerRow?: string;
 	/** The repeat field entity from the normalized doc. */
 	field: RepeatFieldEntity;
 	/** XForm data path prefix: we append `[idx]` per instance. */
@@ -154,6 +157,7 @@ function InstanceDivider({
 // ── RepeatField ──────────────────────────────────────────────────────
 
 export function RepeatField({
+	repeatsPerRow,
 	field,
 	path,
 	fieldPath,
@@ -372,54 +376,73 @@ export function RepeatField({
 							}}
 						/>
 
-						{visibleInstances.map((idx) => {
-							const instanceKey = controller.getRepeatInstanceKey(
-								field.uuid,
-								idx,
-								path,
-							);
-							return (
-								<div key={instanceKey}>
-									<InstanceDivider
-										idx={idx}
-										depth={depth + 1}
-										onRemove={
-											isUserControlled && count > 1
-												? () => removeInstance(idx, instanceKey)
-												: undefined
+						<div
+							className={
+								repeatsPerRow === undefined
+									? undefined
+									: "md:grid md:grid-cols-12"
+							}
+						>
+							{visibleInstances.map((idx) => {
+								const instanceKey = controller.getRepeatInstanceKey(
+									field.uuid,
+									idx,
+									path,
+								);
+								return (
+									<div
+										key={instanceKey}
+										style={
+											{
+												"--repeat-columns": Math.min(
+													12,
+													questionColumnWidth(repeatsPerRow) || 12,
+												),
+											} as CSSProperties
 										}
-										removeDisabled={writeAuthority === undefined}
-										instanceLabelId={`${instanceLabelBaseId}-${idx}`}
-										accessibleContext={accessibleContext}
-										repeatHeaderId={`${headerId} ${titleId}`}
-									/>
-									{hasChildren ? (
-										<InteractiveFormRenderer
-											parentEntityId={field.uuid}
-											prefix={`${path}[${idx}]`}
-											parentPath={fieldPath}
+										className="min-w-0 md:col-span-(--repeat-columns)"
+									>
+										<InstanceDivider
+											idx={idx}
 											depth={depth + 1}
-											leadingGap={false}
-											instanceScopeKey={`${instanceScopeKey}\u0000${field.uuid}:${instanceKey}`}
-											repeatInstances={[
-												...repeatInstances,
-												{ fieldUuid: field.uuid, instanceKey },
-											]}
-											accessibleContext={[
-												accessibleContext,
-												headerId,
-												titleId,
-												`${instanceLabelBaseId}-${idx}`,
-											]
-												.filter(Boolean)
-												.join(" ")}
+											onRemove={
+												isUserControlled && count > 1
+													? () => removeInstance(idx, instanceKey)
+													: undefined
+											}
+											removeDisabled={writeAuthority === undefined}
+											instanceLabelId={`${instanceLabelBaseId}-${idx}`}
+											accessibleContext={accessibleContext}
+											repeatHeaderId={`${headerId} ${titleId}`}
 										/>
-									) : (
-										<div className="h-[72px]" />
-									)}
-								</div>
-							);
-						})}
+										{hasChildren ? (
+											<InteractiveFormRenderer
+												parentEntityId={field.uuid}
+												prefix={`${path}[${idx}]`}
+												parentPath={fieldPath}
+												depth={depth + 1}
+												leadingGap={false}
+												instanceScopeKey={`${instanceScopeKey}\u0000${field.uuid}:${instanceKey}`}
+												repeatInstances={[
+													...repeatInstances,
+													{ fieldUuid: field.uuid, instanceKey },
+												]}
+												accessibleContext={[
+													accessibleContext,
+													headerId,
+													titleId,
+													`${instanceLabelBaseId}-${idx}`,
+												]
+													.filter(Boolean)
+													.join(" ")}
+											/>
+										) : (
+											<div className="h-[72px]" />
+										)}
+									</div>
+								);
+							})}
+						</div>
 
 						{/* Add button: depth+1 to align with instance content.
 						 *  `mb-6` gives 24px before the close cap, matching the

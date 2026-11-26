@@ -6,6 +6,7 @@ import {
 	lookupFixtureId,
 	lookupFixtureSrc,
 	lookupWireNaming,
+	lookupXformInstanceId,
 } from "../naming";
 
 const TABLE = "018f0000-0000-7000-8000-0000000000a1" as LookupTableId;
@@ -36,6 +37,20 @@ describe("lookupFixtureId / lookupFixtureSrc", () => {
 		expect(lookupFixtureSrc("item-list:statuses")).toBe(
 			"jr://fixture/item-list:statuses",
 		);
+	});
+});
+
+describe("lookupXformInstanceId", () => {
+	it("declares a tag that names an instance CommCare provides under the fixture id", () => {
+		expect(lookupXformInstanceId("locations")).toBe("item-list:locations");
+		expect(lookupXformInstanceId("search_selected_cases")).toBe(
+			"item-list:search_selected_cases",
+		);
+	});
+
+	it("keeps any other tag, dotted and hyphenated ones included", () => {
+		for (const tag of ["zones", "meeting.1", "health-facility-v2", "_x"])
+			expect(lookupXformInstanceId(tag)).toBe(tag);
 	});
 });
 

@@ -22,10 +22,11 @@ import { type BlueprintDoc, operationCaseType } from "@/lib/domain";
 import type { MediaAssetId } from "@/lib/domain/multimedia";
 import type { Uuid } from "@/lib/domain/uuid";
 import type { PreparedExportBoundary } from "@/lib/export/boundaryValidation";
-import type {
-	FirstPublishChangeId,
-	FirstPublishView,
-	StoredFirstPublish,
+import {
+	type FirstPublishChangeId,
+	type FirstPublishView,
+	hasRegisteredPublishInputs,
+	type StoredFirstPublish,
 } from "@/lib/publish/firstPublishChangeIds";
 import { attachmentUrlTarget } from "./attachmentTarget";
 import {
@@ -38,8 +39,10 @@ import {
 import {
 	normalizedHqAppSource,
 	normalizeHqAppSource,
+	removedHqFiles,
 } from "./hqSourceBaseline";
 import { hqImportApplicationSteps } from "./importApplication";
+import { observedMenuLayoutOwnership } from "./legacyMenuLayouts";
 import type { DeploymentTargetKey } from "./store";
 import type {
 	AppBaselineWrite,
@@ -430,6 +433,20 @@ interface AdoptedBaselineOwnershipInput {
 	readonly identity: WireIdentity;
 }
 
+/** The concrete native references lost by the chosen first import. Used
+ * for the prospective declaration and for recording its accepted birth. */
+export function adoptionFileRemovals(
+	source: HqAppSource,
+	prepared: Pick<PreparedExportBoundary, "doc" | "assets">,
+) {
+	return removedHqFiles(source.raw, {
+		published: publishedMediaFiles(
+			bulkUploadAssets(prepared.doc, prepared.assets),
+		),
+		recorded: null,
+	});
+}
+
 /** `adoptedBaselineOwnership` a part at a time, its import's emission
  *  stopping between its parts (`importApplication.ts::hqImportApplicationSteps`). */
 export function* adoptedBaselineOwnershipSteps(
@@ -447,7 +464,12 @@ export function* adoptedBaselineOwnershipSteps(
 		 * reaches one. */
 		keyedCaseIdPrefixes: new Map(),
 	});
-	return imported.ownership;
+	return observedMenuLayoutOwnership(
+		imported.ownership,
+		input.prepared.doc,
+		input.identity,
+		input.source,
+	);
 }
 
 /**
@@ -485,8 +507,13 @@ export function adoptedAppBaselineWrite(input: {
 }): AppBaselineWrite & { readonly origin: "read" } {
 	const normalized = adoptedSourceNormalized(input.remoteAppId, input.source);
 	const ownership = adoptedBaselineOwnership(input);
+	const ids = input.firstPublish.ids.filter((id) => !DECLARATION_IDS.has(id));
+	const removed = adoptionFileRemovals(input.source, input.prepared);
 	const list: StoredFirstPublish = {
-		ids: input.firstPublish.ids.filter((id) => !DECLARATION_IDS.has(id)),
+		...(removed.length && { removedFiles: removed.map((file) => file.digest) }),
+		...(hasRegisteredPublishInputs(ids) && { reviewedInputs: 1 as const }),
+		reviewed: 1,
+		ids,
 		webAppsOnInHq: input.source.cloudcareEnabled,
 		of: "first-publish",
 	};
@@ -524,6 +551,12 @@ export function adoptedAppBaselineWrite(input: {
  * and Save to Case where the source holds no Save to Case block. The first
  * publish leaves each of these as the source has it, so asking would change
  * nothing a person could decide.
+ *
+ * Geocoder is never recorded: an address question in the source says nothing
+ * about the plan, since HQ's form builder offers it on every plan and Web
+ * Apps then saves "Not Supported by Web Entry" in its place
+ * (`cloudcare/views.py::has_geocoder_privs`). The review and the first
+ * publish ask a person instead.
  */
 export function adoptionPlanFeatureConfirmations(input: {
 	readonly doc: BlueprintDoc;
@@ -543,7 +576,7 @@ export function adoptionPlanFeatureConfirmations(input: {
 				? input.sourceWebAppsOn
 				: feature.id === "advanced-case-actions"
 					? input.sourceHoldsSaveToCase
-					: true,
+					: feature.id !== "geocoder",
 		)
 		.map((feature) => ({ kind: "plan-feature", subject: feature.id }));
 }

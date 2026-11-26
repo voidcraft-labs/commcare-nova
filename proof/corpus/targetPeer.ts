@@ -29,7 +29,8 @@
  *   404 with `CASE_SEARCH_DISABLED_MSG`; with both on, a `text/xml` fixture.
  * - `POST /a/<domain>/fixtures/fixapi/` (`fixtures/views.py::upload_fixture_api`):
  *   recorded, read as HQ's upload reads the workbook (its `types` sheet and
- *   each table's sheet), and answered with HQ's success verdict (code 200).
+ *   each table’s sheet). Supplied owners are resolved in the selected project space.
+ *   Unknown owners leave the row in place and produce HQ’s partial verdict (code 402).
  *   The peer applies it as `fixtures/upload/run_upload.py::_run_upload`
  *   with `replace` does: a table whose definition
  *   (`run_upload.py::table_key`: whether it is global, its tag, its fields
@@ -40,10 +41,11 @@
  *   every table the peer holds, each with its id, tag, `is_global`, its
  *   fields with their properties and its row attributes, in one page.
  * - `GET /a/<domain>/api/fixture/v1/?fixture_type_id=<id>`
- *   (`fixtures/resources/v0_1.py::FixtureResource`): that table's rows in
- *   order, each field as its one value
- *   (`fixtures/models.py::LookupTableRow.fields_without_attributes`), with
- *   `meta.total_count`, in one page.
+ *   (`fixtures/resources/v0_1.py::FixtureResource`): that table’s rows in
+ *   native order. A row with multiple occurrences uses field lists. Other rows
+ *   return one scalar per field. Selected lookup_table_item detail reads return
+ *   all occurrences, their properties, row attributes and sort keys. No REST
+ *   list or detail response is a worker’s authenticated restore.
  *
  * The table list and the rows read answer a publish's `managed-data` edge as
  * they answer its `project-data` edge: from the tables the peer holds, which
@@ -127,7 +129,6 @@ import { createConnection } from "node:net";
 import AdmZip from "adm-zip";
 import { type Document, type Element, isTag, Text } from "domhandler";
 import { Agent, getGlobalDispatcher, setGlobalDispatcher } from "undici";
-import * as XLSX from "xlsx";
 import type { CommCareCredentials } from "@/lib/commcare/client";
 import { APP_SHELL_KEYS } from "@/lib/commcare/expander";
 import { HQ_PRIVATE_FEATURE_FLAG_SYMBOLS } from "@/lib/commcare/projectSpaceCompatibility";
@@ -139,6 +140,7 @@ import { parseXml } from "@/lib/commcare/xmlParse";
 import type { AssetKind } from "@/lib/domain";
 import { ACCEPTED_FORMATS } from "@/lib/domain/multimedia";
 import type { HqFormPlace, HqSideContentSaves, HqSideSaves } from "./documents";
+import { readPeerWorkbook, type WorkbookOwner } from "./lookupWorkbook";
 
 /** `ota/views.py::CASE_SEARCH_DISABLED_MSG`. */
 const CASE_SEARCH_DISABLED_MSG = "Case search is not enabled for this project";
@@ -157,6 +159,7 @@ export interface PeerRequest {
 
 /** What the peer holds of the target project space. */
 export interface TargetState {
+	readonly lookupOwners?: readonly WorkbookOwner[];
 	readonly credentials: CommCareCredentials;
 	readonly domain: string;
 	/** Feature flags on for the domain, by symbol (`corehq/toggles/__init__.py`). */
@@ -297,6 +300,7 @@ export interface PeerFieldValue {
 
 /** One row of a lookup table as HQ holds it (`fixtures/models.py::LookupTableRow`). */
 export interface PeerRow {
+	readonly owners?: readonly WorkbookOwner[];
 	readonly id: string;
 	readonly fields: Readonly<Record<string, readonly PeerFieldValue[]>>;
 	readonly itemAttributes: Readonly<Record<string, string>>;
@@ -310,10 +314,69 @@ export interface PeerTable {
 	readonly fields: readonly {
 		readonly name: string;
 		readonly properties: readonly string[];
+		readonly isIndexed?: true;
 	}[];
 	readonly itemAttributes: readonly string[];
 	readonly description: string;
 	readonly rows: readonly PeerRow[];
+}
+
+/** Tastypie's collection metadata. Links retain the selected table predicate. */
+function tastypiePage<T>(url: URL, items: readonly T[], defaultLimit: number) {
+	const offset = Number(url.searchParams.get("offset") ?? 0),
+		limit = Number(url.searchParams.get("limit") ?? defaultLimit);
+	if (
+		!Number.isSafeInteger(offset) ||
+		offset < 0 ||
+		!Number.isSafeInteger(limit) ||
+		limit <= 0
+	)
+		throw Error("Invalid fixture pagination.");
+	const page = (start: number) => {
+		const next = new URL(url);
+		next.searchParams.set("limit", String(limit));
+		next.searchParams.set("offset", String(start));
+		return next.pathname + next.search;
+	};
+	return {
+		meta: {
+			limit,
+			offset,
+			total_count: items.length,
+			next: offset + limit < items.length ? page(offset + limit) : null,
+			previous: offset > 0 ? page(Math.max(0, offset - limit)) : null,
+		},
+		objects: items.slice(offset, offset + limit),
+	};
+}
+/** LookupTableItemResource always emits the complete list of decorated values.
+ * FixtureResource uses a scalar per field unless any field has multiple values. */
+function detailedFields(row: PeerRow) {
+	return Object.fromEntries(
+		Object.entries(row.fields).map(([field, values]) => [
+			field,
+			{
+				field_list: values.map((item) => ({
+					field_value: item.value,
+					properties: item.properties,
+				})),
+			},
+		]),
+	);
+}
+function fixtureListFields(row: PeerRow) {
+	if (Object.values(row.fields).some((values) => values.length > 1))
+		return detailedFields(row);
+	return Object.fromEntries(
+		Object.entries(row.fields).map(([field, values]) => {
+			const first = values[0];
+			if (!first)
+				throw Error(
+					"HQ's scalar fixture list cannot project a field with no occurrence.",
+				);
+			return [field, first.value];
+		}),
+	);
 }
 
 /** The classes of media HQ stores (`hqmedia/models.py::CommCareMultimedia.get_doc_types`). */
@@ -562,98 +625,14 @@ function tableKey(table: Omit<PeerTable, "id" | "rows">): string {
 	return JSON.stringify([
 		table.isGlobal,
 		table.tag,
-		table.fields,
+		table.fields.map((field) => [
+			field.name,
+			field.properties,
+			field.isIndexed === true,
+		]),
 		table.itemAttributes,
 		table.description,
 	]);
-}
-
-/** One sheet's rows as text, each cell as HQ's workbook reader reads it. */
-function sheetRows(book: XLSX.WorkBook, name: string): string[][] {
-	const sheet = book.Sheets[name];
-	if (sheet === undefined) {
-		throw new Error(
-			`The lookup workbook Nova's push sent has no sheet named ${name}, which HQ's upload reads.`,
-		);
-	}
-	return XLSX.utils.sheet_to_json<string[]>(sheet, {
-		header: 1,
-		raw: false,
-		defval: "",
-	});
-}
-
-/** The column of `header` holding `name`, or -1. */
-function columnOf(header: readonly string[], name: string): number {
-	return header.indexOf(name);
-}
-
-/**
- * The tables a workbook Nova's push sent defines, each with its rows, read as
- * `fixtures/upload/workbook.py::_FixtureWorkbook` reads Nova's sheets: the
- * `types` sheet's `table_id`, `is_global?` and `field <n>` columns, and on
- * each table's sheet (named by its tag) the `field: <name>` columns. Nova's
- * workbook writes no field property, no row attribute and no owner
- * (`lib/commcare/lookup/workbook.ts`), so a header naming one is refused.
- */
-/** One table a workbook defines, and its rows' values by field. */
-interface WorkbookTable {
-	readonly definition: Omit<PeerTable, "id" | "rows">;
-	readonly rows: readonly Readonly<Record<string, string>>[];
-}
-
-function workbookTables(bytes: Uint8Array): WorkbookTable[] {
-	const book = XLSX.read(bytes, { type: "array" });
-	const [header = [], ...types] = sheetRows(book, "types");
-	const tagColumn = columnOf(header, "table_id");
-	const globalColumn = columnOf(header, "is_global?");
-	const fieldColumns = header.flatMap((name, index) =>
-		/^field \d+$/.test(name) ? [index] : [],
-	);
-	if (
-		tagColumn === -1 ||
-		globalColumn === -1 ||
-		fieldColumns.length + 3 !== header.length
-	) {
-		throw new Error(
-			`The lookup workbook's types sheet has the headers ${JSON.stringify(header)}, and the peer reads only the ones Nova's workbook writes (Delete(Y/N), table_id, is_global?, field <n>).`,
-		);
-	}
-	return types.map((row) => {
-		const tag = row[tagColumn] ?? "";
-		const fields = fieldColumns
-			.map((index) => row[index] ?? "")
-			.filter((name) => name !== "");
-		const [sheetHeader = [], ...sheet] = sheetRows(book, tag);
-		const unread = sheetHeader.filter(
-			(name) =>
-				name !== "UID" &&
-				name !== "Delete(Y/N)" &&
-				!fields.some((field) => name === `field: ${field}`),
-		);
-		if (unread.length > 0) {
-			throw new Error(
-				`The lookup workbook's ${tag} sheet has the headers ${JSON.stringify(unread)}, which the peer does not read.`,
-			);
-		}
-		return {
-			definition: {
-				tag,
-				isGlobal: (row[globalColumn] ?? "").toLowerCase() === "yes",
-				fields: fields.map((name) => ({ name, properties: [] })),
-				itemAttributes: [],
-				description: "",
-			},
-			rows: sheet.map((cells) =>
-				Object.fromEntries(
-					fields.map((field) => [
-						field,
-						cells[columnOf(sheetHeader, `field: ${field}`)] ?? "",
-					]),
-				),
-			),
-		};
-	});
 }
 
 // ── A person's saves to the app's content ────────────────────────────
@@ -889,6 +868,8 @@ function moved<T>(items: readonly T[], from: number, to: number): T[] {
  *   property not yet mapped);
  * - `moduleAttribute`: the menu's name in the app's first language
  *   (`edit_module_attr`, `name`, under the `lang` cookie HQ's pages set);
+ * - `moduleLayout`: the menu's `display_style` as posted
+ *   (`edit_module_attr`, `display_style`);
  * - `moduleDetail`: the column appended to the menu's short details
  *   (`_update_short_details`, `DetailColumn.from_json` of a column that
  *   names every key HQ stores of one);
@@ -971,6 +952,10 @@ export function sourceAfterContentSaves(
 			...((module.name ?? {}) as Json),
 			[lang()]: saves.moduleAttribute.name,
 		};
+	}
+	if (saves.moduleLayout !== undefined) {
+		const module = moduleAt(next, saves.moduleLayout.module);
+		module.display_style = saves.moduleLayout.displayStyle;
 	}
 	if (saves.moduleDetail !== undefined) {
 		const module = moduleAt(next, saves.moduleDetail.module);
@@ -1140,7 +1125,12 @@ export class TargetPeer {
 	private mint(kind: "table" | "row" | "media"): string {
 		const minted = this.holding.minted + 1;
 		this.holding = { ...this.holding, minted };
-		return `nova-proof-${kind}-${minted}`;
+		return kind === "media"
+			? `nova-proof-${kind}-${minted}`
+			: createHash("sha256")
+					.update(`nova-proof-${kind}-${minted}`)
+					.digest("hex")
+					.slice(0, 32);
 	}
 
 	/**
@@ -1532,8 +1522,12 @@ export class TargetPeer {
 	}
 
 	/** HQ's upload of a workbook with `replace`, over what the peer holds. */
-	private uploadWorkbook(bytes: Uint8Array): void {
-		for (const { definition, rows } of workbookTables(bytes)) {
+	private uploadWorkbook(bytes: Uint8Array) {
+		const { tables, missingOwners } = readPeerWorkbook(
+			bytes,
+			this.state.lookupOwners ?? [],
+		);
+		for (const { definition, rows } of tables) {
 			const held = this.holding.tables.find(
 				(table) => table.tag === definition.tag,
 			);
@@ -1543,16 +1537,7 @@ export class TargetPeer {
 			const table: PeerTable = {
 				...definition,
 				id,
-				rows: rows.map((values) => ({
-					id: this.mint("row"),
-					fields: Object.fromEntries(
-						Object.entries(values).map(([name, value]) => [
-							name,
-							[{ value, properties: {} }],
-						]),
-					),
-					itemAttributes: {},
-				})),
+				rows: rows.map((row) => ({ ...row, id: this.mint("row") })),
 			};
 			this.holding = {
 				...this.holding,
@@ -1568,6 +1553,7 @@ export class TargetPeer {
 						],
 			};
 		}
+		return missingOwners;
 	}
 
 	async answer(request: PeerRequest): Promise<Answer> {
@@ -1602,54 +1588,77 @@ export class TargetPeer {
 			if (!(file instanceof Blob)) {
 				return json(400, { code: 400, message: "no file-to-upload" });
 			}
-			this.uploadWorkbook(new Uint8Array(await file.arrayBuffer()));
-			return json(200, { code: 200, message: "Lookup tables uploaded." });
+			const missing = this.uploadWorkbook(
+				new Uint8Array(await file.arrayBuffer()),
+			);
+			return missing.length
+				? json(200, {
+						code: 402,
+						message: `Unknown lookup owners: ${missing.join(", ")}`,
+					})
+				: json(200, { code: 200, message: "Done" });
 		}
-		if (route === `GET ${domainPath}/api/lookup_table/v1/`) {
-			return json(200, {
-				meta: {
-					limit: this.holding.tables.length,
-					next: null,
-					offset: 0,
-					previous: null,
-					total_count: this.holding.tables.length,
-				},
-				objects: this.holding.tables.map((table) => ({
-					fields: table.fields.map((field) => ({
-						field_name: field.name,
-						properties: field.properties,
-					})),
-					id: table.id,
-					is_global: table.isGlobal,
-					item_attributes: table.itemAttributes,
-					tag: table.tag,
+		const tableRoot = `${domainPath}/api/lookup_table/v1/`;
+		if (request.method === "GET" && url.pathname.startsWith(tableRoot)) {
+			const selected = url.pathname.slice(tableRoot.length);
+			const definition = (table: PeerTable) => ({
+				id: table.id,
+				tag: table.tag,
+				is_global: table.isGlobal,
+				item_attributes: table.itemAttributes,
+				fields: table.fields.map((f) => ({
+					field_name: f.name,
+					properties: f.properties,
 				})),
+				resource_uri: `${tableRoot}${table.id}/`,
 			});
+			if (selected === "")
+				return json(
+					200,
+					tastypiePage(url, this.holding.tables.map(definition), 100),
+				);
+			const found = this.holding.tables.find(
+				(table) => selected === `${table.id}/`,
+			);
+			return found ? json(200, definition(found)) : json(404, {});
+		}
+		const detailRoot = `${domainPath}/api/lookup_table_item/v1/`;
+		if (request.method === "GET" && url.pathname.startsWith(detailRoot)) {
+			const id = url.pathname.slice(detailRoot.length).split("/");
+			if (id.length !== 2 || !id[0] || id[1] !== "") return json(404, {});
+			for (const table of this.holding.tables) {
+				const index = table.rows.findIndex((row) => row.id === id[0]);
+				if (index !== -1) {
+					const row = table.rows[index];
+					return json(200, {
+						id: row.id,
+						data_type_id: table.id,
+						fields: detailedFields(row),
+						item_attributes: row.itemAttributes,
+						sort_key: index,
+					});
+				}
+			}
+			return json(404, {});
 		}
 		if (route === `GET ${domainPath}/api/fixture/v1/`) {
 			const table = this.holding.tables.find(
 				(held) => held.id === url.searchParams.get("fixture_type_id"),
 			);
 			const rows = table?.rows ?? [];
-			return json(200, {
-				meta: {
-					limit: rows.length,
-					next: null,
-					offset: 0,
-					previous: null,
-					total_count: rows.length,
-				},
-				objects: rows.map((row) => ({
-					fields: Object.fromEntries(
-						Object.entries(row.fields).map(([name, values]) => [
-							name,
-							values[0]?.value ?? "",
-						]),
-					),
-					fixture_type: table?.tag ?? null,
-					id: row.id,
-				})),
-			});
+			return json(
+				200,
+				tastypiePage(
+					url,
+					rows.map((row) => ({
+						fields: fixtureListFields(row),
+						fixture_type: table?.tag ?? null,
+						id: row.id,
+						resource_uri: `${domainPath}/api/fixture/v1/${row.id}/`,
+					})),
+					1000,
+				),
+			);
 		}
 		if (
 			route ===

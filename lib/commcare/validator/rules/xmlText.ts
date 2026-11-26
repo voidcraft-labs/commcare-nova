@@ -37,17 +37,26 @@ export function authoredXmlText(doc: BlueprintDoc): ValidationError[] {
 	};
 	visit(doc.appName, "appName", "The app name");
 	visit(doc.caseTypes, "caseTypes", "The case information");
-	for (const [language, entries] of Object.entries(
-		doc.localization?.translations ?? {},
-	)) {
-		for (const [unit, entry] of Object.entries(entries)) {
-			visit(
-				entry.value,
-				`localization.translations.${language}.${unit}.value`,
-				"The translated text",
-			);
+	const localization = doc.localization;
+	if (localization)
+		for (const language of localization.languageOrder) {
+			const source = language === localization.sourceLanguage;
+			const entries = source
+				? localization.generatedSourceWording
+				: localization.translations[language];
+			const path = source
+				? "localization.generatedSourceWording"
+				: `localization.translations.${language}`;
+			for (const [unit, entry] of Object.entries(entries ?? {})) {
+				if (entry.workerFallback)
+					visit(
+						entry.workerFallback.value,
+						`${path}.${unit}.workerFallback.value`,
+						"The worker-facing text",
+					);
+				visit(entry.value, `${path}.${unit}.value`, "The translated text");
+			}
 		}
-	}
 	for (const [id, module] of Object.entries(doc.modules)) {
 		const { purpose: _purpose, ...definition } = module;
 		visit(definition, `modules.${id}`, `The module "${module.name}"`);

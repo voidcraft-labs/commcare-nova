@@ -332,11 +332,17 @@ def test_an_xform_uses_what_cores_parser_and_hqs_reader_read_and_its_answer_data
         "xpath-token:LBRACK",
     } <= keys
     assert "xpath-expr:XPathFilterExpr" not in keys
-    # Appearance tokens by each reader's own rule, and a token no reader reads.
+    # Appearance tokens by each reader's own rule.
     assert {"appearance:web-apps/numeric", "appearance:web-apps/minimal"} <= keys
     # Android reads numeric and minimal only as the whole appearance (WidgetFactory.buildBasicWidget, buildSelectOne).
     assert not {"appearance:android/numeric", "appearance:android/minimal"} & keys
-    assert "appearance:*/frobnicate" in keys and "appearance:*/numeric" not in keys
+    # Dropping frobnicate leaves numeric and minimal read as written, so the value is the class whose unread words
+    # Nova's reader drops (manifest_value_classes.unread_words_dropped), judged as the input's appearance; a token no
+    # reader reads on its own is a use of its own.
+    assert "appearance:*/frobnicate" not in keys and "appearance:*/numeric" not in keys
+    alone = manifest_usage.Uses()
+    manifest_usage.xform_uses(FORM.replace(b'"numeric minimal frobnicate"', b'"frobnicate"'), manifest, "form:0.0", alone)
+    assert "appearance:*/frobnicate" in _keys(alone)
     # The XForm vocabulary, each element and attribute as the surface keys it: a dispatched element by its
     # handler table's name, whatever its namespace (h:title is title), attributes whatever family also
     # classifies their value, and the namespaces Core reads.
@@ -802,7 +808,7 @@ def test_each_local_archive_is_its_own_artifact(tmp_path, hq, manifest, core_run
     """Two local exports of one document are two artifacts: a use only the second makes is the second's."""
     root = tmp_path / "two-archives"
     root.mkdir()
-    for name, appearance in (("local.ccz", b"minimal"), ("local-again.ccz", b"minimal frobnicate")):
+    for name, appearance in (("local.ccz", b"minimal"), ("local-again.ccz", b"frobnicate")):
         with zipfile.ZipFile(root / name, "w") as archive:
             archive.writestr("modules-0/forms-0.xml", FORM.replace(b"numeric minimal frobnicate", appearance))
             archive.writestr("media/logo.png", b"not read")
@@ -1712,19 +1718,132 @@ def test_the_observation_reads_each_file_hq_holds_for_the_app_it_made_by_its_map
 
 
 def test_a_form_s_read_takes_its_scheme_from_its_id_or_from_the_source_it_declares(manifest):
-    """Contract: a form's read of an instance takes the scheme of its id where HQ registers one, and else the scheme
-    of the name HQ's factory declares the form's own source under, as Nova's reader classes the read by the declared
-    source (a table Nova declares by its tag reads as ``item-list``). The plausible failure: Nova's own lookup read
-    used under a scheme no item holds, which the check would report unnamed on every export that reads a table."""
+    """HQ keeps a declared source even when the id names another registered factory. Exercise both directions
+    of that collision alongside HQ's conventional hierarchical locations name and its legacy search input."""
     declared = {
         "regions": "jr://fixture/item-list:regions",
+        "groups": "jr://fixture/item-list:groups",
+        "item-list:places": "jr://fixture/locations",
+        "item-list:legacy": "jr://fixture/commtrack:locations",
+        "item-list:query": "jr://instance/search-input",
         "locations": "jr://fixture/commtrack:locations",
         "casedb": "jr://instance/casedb",
         "plain": "jr://example/plain",
+        "item-list:selected": "jr://instance/selected-entities/item-list:regions",
+        "looks_native": "jr://instance/selected-entities/locations",
+        "item-list:remote": "jr://instance/remote/item-list:regions",
+        "results": "jr://fixture/results",
     }
     read = {instance_id: manifest_usage.read_scheme(manifest, instance_id, declared) for instance_id in declared}
-    assert read == {"regions": "item-list", "locations": "locations", "casedb": "casedb", "plain": "plain"}
+    assert read == {
+        "regions": "item-list", "groups": "item-list", "locations": "locations", "casedb": "casedb",
+        "item-list:places": "locations", "item-list:legacy": "commtrack", "item-list:query": "search-input", "plain": None,
+        "item-list:selected": "selected_cases", "looks_native": "selected_cases",
+        "item-list:remote": None, "results": None,
+    }
     assert manifest_usage.read_scheme(manifest, "regions", {}) == "regions"
+
+
+def test_a_grouped_suite_lookup_uses_its_own_requests_scanned_instances(manifest):
+    grouped = "instance((('item-list:zones')))/zones_list/zones"
+    canonical = "instance('item-list:zones')/zones_list/zones"
+    # The selection's configured table is not an expression read, even when a source is available for it.
+    configured = "instance('item-list:other')/other_list/other"
+    first = {"itemset": {"instance_id": "item-list:other", "nodeset": grouped}}
+    neighbor = {"required": {"test": canonical}}
+    parsed = {"instancePaths": [{"instance": "item-list:zones"}]}
+    for siblings, tags in (([neighbor], {"zones"}), ([{**neighbor, "is_group": True}], set()), ([], set())):
+        search = {"properties": [first, *siblings, {"required": {"test": configured}}]}
+        module = {"search_config": search, "forms": [{"form_filter": canonical}]}
+        texts = set()
+        observed_manifest.app_expressions(module, texts)
+        assert grouped in texts
+        scope = (("Module", module), ("CaseSearch", search), ("CaseSearchProperty", first),
+                 ("Itemset", first["itemset"]))
+        found = manifest_usage.Uses()
+        for key, value in first["itemset"].items():
+            at = manifest_usage.JsonAt(None, scope, key)
+            manifest_usage._special("Itemset", key, value, "/" + key, manifest, "app", found, at)
+        assert len(found.expressions) == 1
+        expression, = found.expressions
+        assert expression.text == grouped
+        manifest_usage._expression_uses(expression, parsed, manifest, found)
+        assert found.lookup_tags == tags
+
+
+def test_calculated_column_uses_only_its_reaching_entries_declarations(manifest):
+    from lxml import etree
+
+    field = {"useXpathExpression": True, "field": "instance((('alias')))/zones_list/zones"}
+    detail = {"columns": [field]}
+    module = {"case_details": {"short": detail}}
+    scope = (("Module", module), ("Detail", detail), ("DetailColumn", field))
+    group = "<session><datum detail-select='m0_case_short'/></session>"
+    other = "<session><datum detail-select='m1_case_long'/></session>"
+    instance = "<instance id='alias' src='jr://fixture/item-list:zones'/>"
+    for second, clone, expected in (
+        (instance, "", {"zones"}), ("", "", set()),
+        (instance, "<detail id='m0_search_short'/><remote-request><session>"
+                   "<datum detail-select='m0_search_short'/></session></remote-request>", set()),
+    ):
+        app = manifest_usage.App({"modules": [module]}, "app.json")
+        source = manifest_usage.Form(etree.XML("<form/>"), "form")
+        source.entry_suites = (etree.XML(
+            f"<suite><detail id='m0_case_short'/><detail id='m1_case_long'/>{clone}"
+            f"<entry>{instance}{group}</entry><remote-request>{second}{group}</remote-request>"
+            f"<entry>{instance}{other}</entry></suite>"
+        ),)
+        app.forms["form"] = source
+        at = manifest_usage.JsonAt(app, scope, "field")
+        found = manifest_usage.Uses()
+        found.expression("app", "/field", field["field"], {}, schemes_only=True, at=at)
+        manifest_usage._expression_uses(found.expressions[0], {"instancePaths": [{"instance": "alias"}]}, manifest, found)
+        assert found.lookup_tags == expected
+
+
+def test_only_deliverable_form_instances_request_lookup_resources(manifest):
+    from lxml import etree
+
+    # One undeclared canonical read matches the scanner elsewhere in the whole form.
+    # Dotted IDs survive only when declared, and selected entities carry a different root.
+    root = etree.fromstring(b"""<h:html xmlns:h="http://www.w3.org/1999/xhtml"
+        xmlns="http://www.w3.org/2002/xforms"><h:head><model>
+        <instance><data/></instance><instance id="alias" src="jr://fixture/item-list:actual.1"/>
+        <instance id="selected" src="jr://instance/selected-entities/item-list:false"/>
+        <instance id="item-list:inline"><inline/></instance>
+        <bind relevant="instance('item-list:from_elsewhere')"/>
+        </model></h:head><h:body/></h:html>""")
+    form = manifest_usage.Form(root, "form")
+    form.app_form = (manifest_usage.App({"langs": ["en"]}, "app"), {})
+    form.scans = {'["en"]': {"names": ["item-list:from_elsewhere", "item-list:inline"]}}
+    at = manifest_usage.XmlAt(form, root)
+    names = ["alias", "selected", "item-list:missing.1", "item-list:inline", "item-list:from_elsewhere"]
+    parsed = {"instancePaths": [{"instance": name} for name in names]}
+    expression = manifest_usage.Expression("form", "@condition", "", form.declared_instances, False, at, True)
+    found = manifest_usage.Uses()
+    manifest_usage._expression_uses(expression, parsed, manifest, found)
+    assert found.lookup_tags == {"actual.1", "from_elsewhere"}
+    assert {use.key for use in found.uses} == {"instance-scheme:item-list", "instance-scheme:selected_cases"}
+
+
+def test_compiled_form_instances_follow_authentic_post_scan_declarations(manifest):
+    from lxml import etree
+
+    root = etree.fromstring(
+        b'<h:html xmlns:h="http://www.w3.org/1999/xhtml" xmlns="http://www.w3.org/2002/xforms"><h:head><model><instance><data/></instance></model></h:head></h:html>'
+    )
+    form = manifest_usage.Form(root, "form")
+    form.app_form = (
+        manifest_usage.App({"langs": ["en"], "build_profiles": {"es": {"langs": ["es"]}}}, "app"),
+        {"doc_type": "Form"},
+    )
+    form.scans = {'["en"]': {"names": ["casedb", "results:missing"]}, '["es"]': {"names": []}}
+    form.built_instances = [{"commcaresession": "jr://instance/session", "casedb": "jr://instance/casedb"}]
+    expression = manifest_usage.Expression("form", "@test", "", (), False, manifest_usage.XmlAt(form, root), True)
+    parsed = {"instancePaths": [{"instance": key} for key in ("commcaresession", "casedb", "results:missing")]}
+    found = manifest_usage.Uses()
+    manifest_usage._expression_uses(expression, parsed, manifest, found)
+    assert {use.key for use in found.uses} == {"instance-scheme:commcaresession"}
 
 
 def test_a_profile_property_use_joins_the_reader_s_record_under_the_one_entry_naming_it(manifest):

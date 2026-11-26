@@ -28,6 +28,7 @@ import {
 	calculatedColumn,
 	columnSort,
 	hiddenSearchInputDef,
+	imageMapColumn,
 	linkColumn,
 	type Module,
 	NEW_APP_SETTINGS,
@@ -50,6 +51,7 @@ import {
 	lookupColumnIdSchema,
 	lookupTableIdSchema,
 } from "@/lib/domain/lookupIds";
+import { NAMED_TILE_SLOTS, namedTileSlotsSchema } from "../modules";
 
 export interface PlatformFeatureFixture {
 	/** A document holding exactly one use of the feature. */
@@ -67,6 +69,7 @@ export const FIXTURE_FORM = testUuid("platform-fixture-form");
 export const FIXTURE_FIELD = testUuid("platform-fixture-field");
 export const FIXTURE_COLUMN = testUuid("platform-fixture-column");
 export const FIXTURE_INPUT = testUuid("platform-fixture-input");
+const FIXTURE_MAP_LOCATION = testUuid("platform-fixture-map-location");
 const REGISTER_FORM = testUuid("platform-fixture-register");
 const DATE_FIELD = testUuid("platform-fixture-date");
 const ASSET = testMediaAssetId("platform-fixture-asset");
@@ -328,6 +331,27 @@ function fieldKindPair(
 	};
 }
 
+function questionSettingPair(
+	feature: PlatformFeatureId,
+	kind: FieldSpec["kind"],
+	slot: string,
+	value: unknown,
+): PlatformFeatureFixture {
+	const field: FieldSpec = { kind, id: "visit", label: "Visit" };
+	if (kind === "single_select" || kind === "multi_select")
+		field.options = [
+			{ value: "east", label: "East" },
+			{ value: "west", label: "West" },
+		];
+	if (kind === "group")
+		field.children = [f({ kind: "text", id: "note", label: "Note" })];
+	return {
+		with: () => oneField({ ...field, [slot]: value }),
+		without: () => oneField(field),
+		use: slotUse(feature, FIELD_OWNER, slot),
+	};
+}
+
 function calculatePair(
 	feature: PlatformFeatureId,
 	withCalculate: string,
@@ -392,7 +416,88 @@ const tiled =
 const SKIP_FILTER = eq(prop("patient", "status"), literal("open"));
 
 export const PLATFORM_FEATURE_FIXTURES = {
+	"menu-layout": {
+		with: () =>
+			survey([], {
+				appSettings: { ...NEW_APP_SETTINGS, firstMenuLayout: "grid" },
+			}),
+		without: () => survey([]),
+		use: slotUse("menu-layout", { kind: "app" }, "appSettings.firstMenuLayout"),
+	},
 	"datetime-question": fieldKindPair("datetime-question", "datetime"),
+	"worker-distance": {
+		with: () =>
+			caseApp({
+				columns: [
+					{
+						kind: "worker-distance",
+						uuid: FIXTURE_COLUMN,
+						field: "coordinates",
+						header: "Distance",
+					},
+				],
+				fields: [
+					f({
+						kind: "geopoint",
+						id: "coordinates",
+						caseWrite: { caseType: "patient", property: "coordinates" },
+					}),
+				],
+			}),
+		without: () =>
+			caseApp({
+				columns: [plainColumn(FIXTURE_COLUMN, "coordinates", "Coordinates")],
+				fields: [
+					f({
+						kind: "geopoint",
+						id: "coordinates",
+						caseWrite: { caseType: "patient", property: "coordinates" },
+					}),
+				],
+			}),
+		use: slotUse(
+			"worker-distance",
+			COLUMN_OWNER,
+			"caseListConfig.columns[1].kind",
+		),
+	},
+	"sort-by-distance": {
+		with: () =>
+			caseApp({
+				columns: [
+					plainColumn(FIXTURE_COLUMN, "coordinates", "Coordinates", {
+						sort: columnSort("asc", 0, undefined, undefined, "distance"),
+					}),
+				],
+				fields: [
+					f({
+						kind: "geopoint",
+						id: "coordinates",
+						caseWrite: { caseType: "patient", property: "coordinates" },
+					}),
+				],
+			}),
+		without: () =>
+			caseApp({
+				columns: [
+					plainColumn(FIXTURE_COLUMN, "coordinates", "Coordinates", {
+						sort: columnSort("asc", 0),
+					}),
+				],
+				fields: [
+					f({
+						kind: "geopoint",
+						id: "coordinates",
+						caseWrite: { caseType: "patient", property: "coordinates" },
+					}),
+				],
+			}),
+		use: slotUse(
+			"sort-by-distance",
+			COLUMN_OWNER,
+			"caseListConfig.columns[1].sort.comparator",
+		),
+	},
 	"case-list-here": {
 		with: () =>
 			caseApp({
@@ -436,6 +541,23 @@ export const PLATFORM_FEATURE_FIXTURES = {
 			"forms-read-search",
 			MODULE_OWNER,
 			"caseSearchConfig.formsReadSearch",
+		),
+	},
+	"search-on-clear": {
+		with: () =>
+			caseApp({
+				searchInputs: [input("text")],
+				module: { caseSearchConfig: { searchOnClear: true } },
+			}),
+		without: () =>
+			caseApp({
+				searchInputs: [input("text")],
+				module: { caseSearchConfig: {} },
+			}),
+		use: slotUse(
+			"search-on-clear",
+			MODULE_OWNER,
+			"caseSearchConfig.searchOnClear",
 		),
 	},
 	"list-first": {
@@ -570,6 +692,207 @@ export const PLATFORM_FEATURE_FIXTURES = {
 			]),
 		use: slotUse("question-pages", FIELD_OWNER, "kind"),
 	},
+	"choice-grid": questionSettingPair(
+		"choice-grid",
+		"single_select",
+		"choiceLayout",
+		{ kind: "grid" },
+	),
+	"choice-advance": questionSettingPair(
+		"choice-advance",
+		"single_select",
+		"choiceLayout",
+		{ kind: "advance-on-choice" },
+	),
+	"choice-multiword": questionSettingPair(
+		"choice-multiword",
+		"single_select",
+		"choiceLayout",
+		{ kind: "search", matchWords: "multiword" },
+	),
+	"choice-fuzzy": questionSettingPair(
+		"choice-fuzzy",
+		"single_select",
+		"choiceLayout",
+		{ kind: "search", matchWords: "fuzzy" },
+	),
+	"choice-row": questionSettingPair(
+		"choice-row",
+		"multi_select",
+		"choiceLayout",
+		{ kind: "row" },
+	),
+	"choice-cycle": questionSettingPair(
+		"choice-cycle",
+		"single_select",
+		"choiceLayout",
+		{ kind: "buttons" },
+	),
+	"question-receiver": questionSettingPair(
+		"question-receiver",
+		"text",
+		"receiveFrom",
+		{ channel: "visit", field: "city" },
+	),
+	"secret-keypad": questionSettingPair(
+		"secret-keypad",
+		"secret",
+		"keypad",
+		"numbers",
+	),
+	"android-keypad": questionSettingPair(
+		"android-keypad",
+		"text",
+		"keypad",
+		"android-numbers",
+	),
+	"short-input": questionSettingPair(
+		"short-input",
+		"text",
+		"inputWidth",
+		"short",
+	),
+	"medium-input": questionSettingPair(
+		"medium-input",
+		"int",
+		"inputWidth",
+		"medium",
+	),
+	"address-lookup": questionSettingPair(
+		"address-lookup",
+		"text",
+		"addressLookup",
+		true,
+	),
+	"question-sender": questionSettingPair(
+		"question-sender",
+		"image",
+		"sendTopics",
+		["visit"],
+	),
+	"barcode-text-options": questionSettingPair(
+		"barcode-text-options",
+		"barcode",
+		"keypad",
+		"numbers",
+	),
+	"placeholder-hint": questionSettingPair(
+		"placeholder-hint",
+		"text",
+		"hintPlacement",
+		"placeholder",
+	),
+	"hide-web-hint": questionSettingPair(
+		"hide-web-hint",
+		"date",
+		"hintPlacement",
+		"hidden-on-web",
+	),
+	"auto-scan": questionSettingPair("auto-scan", "barcode", "scanOnOpen", true),
+	"android-calendar": questionSettingPair(
+		"android-calendar",
+		"date",
+		"calendar",
+		"nepali",
+	),
+	"twelve-hour-clock": questionSettingPair(
+		"twelve-hour-clock",
+		"time",
+		"clock",
+		"twelve-hour",
+	),
+	"android-map": questionSettingPair(
+		"android-map",
+		"geopoint",
+		"locationPicker",
+		"map",
+	),
+	"edit-scan": questionSettingPair("edit-scan", "barcode", "canEditScan", true),
+	"camera-only": questionSettingPair(
+		"camera-only",
+		"image",
+		"captureSource",
+		"camera",
+	),
+	"photo-overlay": questionSettingPair(
+		"photo-overlay",
+		"image",
+		"overlaySize",
+		"small",
+	),
+	"classic-recorder": questionSettingPair(
+		"classic-recorder",
+		"audio",
+		"recorder",
+		"legacy",
+	),
+	"record-or-choose": questionSettingPair(
+		"record-or-choose",
+		"audio",
+		"captureSource",
+		"record-or-choose",
+	),
+	"long-recording": questionSettingPair(
+		"long-recording",
+		"audio",
+		"pauseRecording",
+		true,
+	),
+	"select-label-text": questionSettingPair(
+		"select-label-text",
+		"label",
+		"selectableText",
+		true,
+	),
+	"question-banner": questionSettingPair(
+		"question-banner",
+		"text",
+		"banner",
+		"caution",
+	),
+	"hidden-label": questionSettingPair(
+		"hidden-label",
+		"label",
+		"banner",
+		"hidden",
+	),
+	"compact-group": questionSettingPair(
+		"compact-group",
+		"group",
+		"compact",
+		true,
+	),
+	"collapse-group": questionSettingPair(
+		"collapse-group",
+		"group",
+		"collapse",
+		"open",
+	),
+	"group-border": questionSettingPair("group-border", "group", "border", true),
+	"questions-across": questionSettingPair(
+		"questions-across",
+		"text",
+		"itemsPerRow",
+		"2",
+	),
+	"repeats-across": questionSettingPair(
+		"repeats-across",
+		"group",
+		"repeatsPerRow",
+		"3",
+	),
+	"question-alignment": questionSettingPair(
+		"question-alignment",
+		"text",
+		"textAlignment",
+		"center",
+	),
+	"combined-question-display": questionSettingPair(
+		"combined-question-display",
+		"single_select",
+		"choiceLayout",
+		{ kind: "platforms", web: { kind: "dropdown" }, android: { kind: "grid" } },
+	),
 	"number-keypad": {
 		with: () =>
 			oneField({
@@ -647,6 +970,55 @@ export const PLATFORM_FEATURE_FIXTURES = {
 				help: "Ask twice",
 			}),
 		use: slotUse("help-media", FIELD_OWNER, "help_media"),
+	},
+	"label-inline-video": {
+		with: () =>
+			oneField({
+				kind: "label",
+				id: "card",
+				label: proseText("Watch how to fold it"),
+				label_media: { image: ASSET, videoInline: ASSET },
+			}),
+		without: () =>
+			oneField({
+				kind: "label",
+				id: "card",
+				label: proseText("Watch how to fold it"),
+				label_media: { image: ASSET, video: ASSET },
+			}),
+		use: slotUse("label-inline-video", FIELD_OWNER, "label_media"),
+	},
+	"label-qr-code": {
+		with: () =>
+			oneField({
+				kind: "label",
+				id: "card",
+				label: proseText("Show this card"),
+				qr_code: "PATIENT-17",
+			}),
+		without: () =>
+			oneField({
+				kind: "label",
+				id: "card",
+				label: proseText("Show this card"),
+			}),
+		use: slotUse("label-qr-code", FIELD_OWNER, "qr_code"),
+	},
+	"label-spoken-text": {
+		with: () =>
+			oneField({
+				kind: "text",
+				id: "answer",
+				label: proseText("Answer"),
+				spoken_text: "Say the answer",
+			}),
+		without: () =>
+			oneField({
+				kind: "text",
+				id: "answer",
+				label: proseText("Answer"),
+			}),
+		use: slotUse("label-spoken-text", FIELD_OWNER, "spoken_text"),
 	},
 	now: calculatePair("now", "now()"),
 	today: calculatePair("today", "today()"),
@@ -754,6 +1126,70 @@ export const PLATFORM_FEATURE_FIXTURES = {
 			"caseListRegistrationForm.icon",
 		),
 	},
+	"menu-badge": {
+		with: () =>
+			survey([f({ kind: "text", id: "answer", label: proseText("Answer") })], {
+				configure: (doc) => {
+					const form = doc.forms[FIXTURE_FORM];
+					if (form !== undefined) form.badge = { kind: "text", text: "New" };
+				},
+			}),
+		without: () =>
+			survey([f({ kind: "text", id: "answer", label: proseText("Answer") })]),
+		use: slotUse("menu-badge", FORM_OWNER, "badge"),
+	},
+	"named-case-tile": {
+		with: () =>
+			caseApp({
+				list: (config) => {
+					const columns = NAMED_TILE_SLOTS.map((slot) => ({
+						...config.columns[0],
+						uuid: testUuid(slot),
+					}));
+					config.columns = columns;
+					config.listColumnOrder = columns.map((column) => column.uuid);
+					config.detailColumnOrder = [...config.listColumnOrder];
+					config.tile = {
+						namedSlots: namedTileSlotsSchema.parse(
+							Object.fromEntries(
+								NAMED_TILE_SLOTS.map((slot, i) => [slot, columns[i].uuid]),
+							),
+						),
+					};
+				},
+			}),
+		without: () => caseApp(),
+		use: slotUse(
+			"named-case-tile",
+			MODULE_OWNER,
+			"caseListConfig.tile.namedSlots",
+		),
+	},
+	"details-tile": {
+		with: () =>
+			caseApp({
+				list: (config) => {
+					config.detailTile = {
+						cells: Object.fromEntries(
+							config.columns
+								.filter((c) => c.visibleInDetail !== false)
+								.map((c, i) => [c.uuid, tileCell(0, i, 12, 1)]),
+						),
+					};
+				},
+			}),
+		without: () => caseApp(),
+		use: slotUse("details-tile", MODULE_OWNER, "caseListConfig.detailTile"),
+	},
+	"raw-custom-tile-field": {
+		with: () => caseApp({ list: tiled({ androidOnly: true }) }),
+		without: () => caseApp({ list: tiled({}) }),
+		use: slotUse(
+			"raw-custom-tile-field",
+			COLUMN_OWNER,
+			"caseListConfig.columns[0].tile.androidOnly",
+		),
+	},
 	"tile-grouping": {
 		with: () =>
 			caseApp({
@@ -764,6 +1200,48 @@ export const PLATFORM_FEATURE_FIXTURES = {
 			}),
 		without: () => caseApp({ list: tiled({ verticalAlign: "middle" }) }),
 		use: slotUse("tile-grouping", MODULE_OWNER, "caseListConfig.tile.grouping"),
+	},
+	"case-list-faster-loading": {
+		with: () =>
+			caseApp({
+				list: (config) => {
+					config.optimizations = true;
+				},
+			}),
+		without: () => caseApp({}),
+		use: slotUse(
+			"case-list-faster-loading",
+			MODULE_OWNER,
+			"caseListConfig.optimizations",
+		),
+	},
+	"case-list-empty-text": {
+		with: () =>
+			caseApp({
+				list: (config) => {
+					config.emptyText = "No patients yet";
+				},
+			}),
+		without: () => caseApp({}),
+		use: slotUse(
+			"case-list-empty-text",
+			MODULE_OWNER,
+			"caseListConfig.emptyText",
+		),
+	},
+	"case-list-continue-label": {
+		with: () =>
+			caseApp({
+				list: (config) => {
+					config.selectButtonText = "Visit these patients";
+				},
+			}),
+		without: () => caseApp({}),
+		use: slotUse(
+			"case-list-continue-label",
+			MODULE_OWNER,
+			"caseListConfig.selectButtonText",
+		),
 	},
 	"tile-alignment": {
 		with: () => caseApp({ list: tiled({ verticalAlign: "top" }) }),
@@ -853,6 +1331,189 @@ export const PLATFORM_FEATURE_FIXTURES = {
 			caseApp({ columns: [plainColumn(FIXTURE_COLUMN, "website", "Website")] }),
 		use: slotUse("link-column", COLUMN_OWNER, "caseListConfig.columns[1].kind"),
 	},
+	"case-map-location": {
+		with: () =>
+			caseApp({
+				columns: [
+					{
+						kind: "map-location",
+						uuid: FIXTURE_COLUMN,
+						field: "coordinates",
+						header: "Location",
+					},
+				],
+				fields: [
+					f({
+						kind: "geopoint",
+						id: "coordinates",
+						caseWrite: { caseType: "patient", property: "coordinates" },
+					}),
+				],
+			}),
+		without: () =>
+			caseApp({
+				columns: [plainColumn(FIXTURE_COLUMN, "coordinates", "Location")],
+				fields: [
+					f({
+						kind: "geopoint",
+						id: "coordinates",
+						caseWrite: { caseType: "patient", property: "coordinates" },
+					}),
+				],
+			}),
+		use: slotUse(
+			"case-map-location",
+			COLUMN_OWNER,
+			"caseListConfig.columns[1].kind",
+		),
+	},
+	"case-image-descriptions": {
+		with: () =>
+			caseApp({
+				columns: [
+					imageMapColumn(FIXTURE_COLUMN, "priority", "Priority", [
+						{ value: "urgent", assetId: ASSET, altText: "Urgent case" },
+					]),
+				],
+			}),
+		without: () =>
+			caseApp({
+				columns: [
+					imageMapColumn(FIXTURE_COLUMN, "priority", "Priority", [
+						{ value: "urgent", assetId: ASSET },
+					]),
+				],
+			}),
+		use: slotUse(
+			"case-image-descriptions",
+			COLUMN_OWNER,
+			"caseListConfig.columns[1].mapping[0].altText",
+		),
+	},
+	"case-map-fallback-locations": {
+		with: () => {
+			const doc = caseApp({
+				columns: [
+					{
+						kind: "map-location",
+						uuid: FIXTURE_MAP_LOCATION,
+						field: "coordinates",
+						header: "Home",
+					},
+					{
+						kind: "map-location",
+						uuid: FIXTURE_COLUMN,
+						field: "coordinates",
+						header: "Clinic",
+					},
+				],
+				fields: [
+					f({
+						kind: "geopoint",
+						id: "coordinates",
+						caseWrite: { caseType: "patient", property: "coordinates" },
+					}),
+				],
+			});
+			const module = doc.modules[FIXTURE_MODULE];
+			if (module) module.heldKind = "advanced";
+			return doc;
+		},
+		without: () =>
+			caseApp({
+				columns: [
+					{
+						kind: "map-location",
+						uuid: FIXTURE_MAP_LOCATION,
+						field: "coordinates",
+						header: "Home",
+					},
+				],
+				fields: [
+					f({
+						kind: "geopoint",
+						id: "coordinates",
+						caseWrite: { caseType: "patient", property: "coordinates" },
+					}),
+				],
+			}),
+		use: slotUse(
+			"case-map-fallback-locations",
+			COLUMN_OWNER,
+			"caseListConfig.columns[2].kind",
+		),
+	},
+	"case-map-layers": {
+		with: () =>
+			caseApp({
+				columns: [
+					{
+						kind: "map-layer",
+						uuid: FIXTURE_COLUMN,
+						field: "coordinates",
+						header: "Points",
+						layer: "points",
+						visibleInDetail: false,
+					},
+					{
+						kind: "map-location",
+						uuid: FIXTURE_MAP_LOCATION,
+						field: "coordinates",
+						header: "Location",
+					},
+				],
+				fields: [
+					f({
+						kind: "geopoint",
+						id: "coordinates",
+						caseWrite: { caseType: "patient", property: "coordinates" },
+					}),
+				],
+			}),
+		without: () =>
+			caseApp({
+				columns: [
+					{
+						kind: "map-location",
+						uuid: FIXTURE_MAP_LOCATION,
+						field: "coordinates",
+						header: "Location",
+					},
+				],
+				fields: [
+					f({
+						kind: "geopoint",
+						id: "coordinates",
+						caseWrite: { caseType: "patient", property: "coordinates" },
+					}),
+				],
+			}),
+		use: slotUse(
+			"case-map-layers",
+			COLUMN_OWNER,
+			"caseListConfig.columns[1].layer",
+		),
+	},
+	"formatted-case-text": {
+		with: () =>
+			caseApp({
+				columns: [
+					{
+						kind: "formatted-text",
+						uuid: FIXTURE_COLUMN,
+						field: "notes",
+						header: "Notes",
+					},
+				],
+			}),
+		without: () =>
+			caseApp({ columns: [plainColumn(FIXTURE_COLUMN, "notes", "Notes")] }),
+		use: slotUse(
+			"formatted-case-text",
+			COLUMN_OWNER,
+			"caseListConfig.columns[1].kind",
+		),
+	},
 	"search-screen-text": {
 		with: () =>
 			caseApp({
@@ -879,6 +1540,38 @@ export const PLATFORM_FEATURE_FIXTURES = {
 			"caseListConfig.searchInputs[0].required",
 		),
 	},
+	"search-starting-dates": {
+		with: () =>
+			caseApp({
+				searchInputs: [
+					simpleSearchInputDef(
+						FIXTURE_INPUT,
+						"dob",
+						"Review dates",
+						"date-range",
+						"dob",
+						{ default: term(literal("2024-03-10 to 2024-03-11")) },
+					),
+				],
+			}),
+		without: () =>
+			caseApp({
+				searchInputs: [
+					simpleSearchInputDef(
+						FIXTURE_INPUT,
+						"dob",
+						"Review dates",
+						"date-range",
+						"dob",
+					),
+				],
+			}),
+		use: slotUse(
+			"search-starting-dates",
+			INPUT_OWNER,
+			"caseListConfig.searchInputs[0].default",
+		),
+	},
 	"barcode-search-field": {
 		with: () => caseApp({ searchInputs: [input("barcode")] }),
 		without: () => caseApp({ searchInputs: [input("text")] }),
@@ -886,6 +1579,38 @@ export const PLATFORM_FEATURE_FIXTURES = {
 			"barcode-search-field",
 			INPUT_OWNER,
 			"caseListConfig.searchInputs[0].type",
+		),
+	},
+	"search-for-blank": {
+		with: () =>
+			caseApp({
+				searchInputs: [
+					simpleSearchInputDef(
+						FIXTURE_INPUT,
+						"dob",
+						"Date of birth",
+						"date-range",
+						"dob",
+						{ allowBlank: true },
+					),
+				],
+			}),
+		without: () =>
+			caseApp({
+				searchInputs: [
+					simpleSearchInputDef(
+						FIXTURE_INPUT,
+						"dob",
+						"Date of birth",
+						"date-range",
+						"dob",
+					),
+				],
+			}),
+		use: slotUse(
+			"search-for-blank",
+			INPUT_OWNER,
+			"caseListConfig.searchInputs[0].allowBlank",
 		),
 	},
 	"hidden-search-field": {
@@ -951,6 +1676,20 @@ export const PLATFORM_FEATURE_FIXTURES = {
 			}),
 		use: slotUse("after-submit-home", FORM_OWNER, "postSubmit"),
 	},
+	"first-menu-previous": {
+		with: () => {
+			const doc = caseApp();
+			doc.modules[FIXTURE_MODULE].formsInMenuAbove = true;
+			doc.forms[FIXTURE_FORM].postSubmit = "previous";
+			return doc;
+		},
+		without: () => {
+			const doc = caseApp();
+			doc.modules[FIXTURE_MODULE].formsInMenuAbove = true;
+			return doc;
+		},
+		use: slotUse("first-menu-previous", FORM_OWNER, "postSubmit"),
+	},
 	"after-submit-several-destinations": {
 		with: () =>
 			survey([f({ kind: "text", id: "answer", label: proseText("Answer") })], {
@@ -978,6 +1717,24 @@ export const PLATFORM_FEATURE_FIXTURES = {
 		without: () =>
 			survey([f({ kind: "text", id: "answer", label: proseText("Answer") })]),
 		use: slotUse("app-logo", { kind: "app" }, "logo"),
+	},
+	"required-android-apps": {
+		with: () =>
+			survey([f({ kind: "text", id: "answer", label: proseText("Answer") })], {
+				appSettings: {
+					...NEW_APP_SETTINGS,
+					requiredAndroidApps: ["commcare-toolkit"],
+				},
+			}),
+		without: () =>
+			survey([f({ kind: "text", id: "answer", label: proseText("Answer") })], {
+				appSettings: { ...NEW_APP_SETTINGS },
+			}),
+		use: slotUse(
+			"required-android-apps",
+			{ kind: "app" },
+			"appSettings.requiredAndroidApps",
+		),
 	},
 	"saved-forms": {
 		with: () =>

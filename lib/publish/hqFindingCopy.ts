@@ -73,7 +73,6 @@ export const SUBJECT_LABELS: Readonly<Record<Subject, string>> = {
 	"case-list-registration": "Registration from the case list",
 	"case-list-setup": "Case list setup",
 	"case-list-sorting": "Case list order",
-	"case-list-text": "Case list wording",
 	"case-preloads": "Loading case values into questions",
 	"case-property-names": "Case property names",
 	"case-sharing": "Case sharing",
@@ -97,7 +96,6 @@ export const SUBJECT_LABELS: Readonly<Record<Subject, string>> = {
 	"hierarchical-locations": "The older organization list",
 	"instance-text": "Text read as a data source",
 	"language-codes": "Language codes",
-	"list-and-search-filters": "Case list and search filters",
 	"lookup-selection": "Choosing from a lookup table first",
 	"lookup-tables": "Lookup tables",
 	"media-by-language": "Media by language",
@@ -162,10 +160,7 @@ export const FINDING_COPY: Readonly<
 		never:
 			"This uses a destination after the form is sent, which Nova doesn't bring in.",
 	},
-	"android-app-dependencies": {
-		"not-yet":
-			"This uses a list of Android apps the phone must have, which Nova can't hold yet.",
-	},
+	"android-app-dependencies": {},
 	"app-document": {
 		never:
 			"A menu here has no ID in CommCare HQ, so Nova has nothing to keep it by.",
@@ -192,8 +187,8 @@ export const FINDING_COPY: Readonly<
 			"This uses pictures or files saved on a case itself, which Nova doesn't bring in.",
 	},
 	"case-detail-tabs": {
-		"not-yet":
-			"This uses tabs on the case detail screen, which Nova can't hold yet.",
+		never:
+			"A tab on the case detail screen here lists records, or shows under a condition, that doesn't lead to one kind of record, which Nova doesn't bring in.",
 	},
 	"case-list-callout": {
 		"not-yet":
@@ -209,23 +204,17 @@ export const FINDING_COPY: Readonly<
 	},
 	"case-list-optimizations": {
 		never: "This uses a case list speed setting, which Nova doesn't bring in.",
-		"not-yet":
-			"This uses a case list speed setting, which Nova can't hold yet.",
 	},
 	"case-list-registration": {
-		"not-yet":
-			"This uses a way of offering a form from the case list, which Nova can't hold yet.",
+		never:
+			"The form offered from a case list here returns through the first menu with a case the form doesn't give, or one another form reads as a different kind of case, which Nova doesn't bring in.",
 	},
 	"case-list-setup": {
 		"not-yet": "This case list is set up in a way Nova can't hold yet.",
 	},
 	"case-list-sorting": {
-		"not-yet":
-			"This uses a way of ordering the case list, which Nova can't hold yet.",
-	},
-	"case-list-text": {
-		"not-yet":
-			"This uses its own wording for an empty list or the Continue button, which Nova can't hold yet.",
+		never:
+			"This orders the case list by a value whose kind Nova can't tell, which Nova doesn't bring in.",
 	},
 	"case-preloads": {
 		"not-yet":
@@ -236,10 +225,10 @@ export const FINDING_COPY: Readonly<
 			"A form here saves to a case property named like one of a case's own details, such as status or date_opened, which Nova doesn't bring in.",
 		"not-yet": "A case property name here is one Nova can't hold yet.",
 	},
-	"case-sharing": {
-		"not-yet": "This uses case sharing, which Nova can't hold yet.",
-	},
+	"case-sharing": {},
 	"case-tiles": {
+		never:
+			"A case tile here is missing a field one of its positions needs, or shows the case above a form in a way CommCare can't settle, which Nova doesn't bring in.",
 		"not-yet": "This uses a case tile layout, which Nova can't hold yet.",
 	},
 	"case-types": {},
@@ -269,17 +258,15 @@ export const FINDING_COPY: Readonly<
 	},
 	"deep-links": {
 		never:
-			"A deep link ID on a mirror menu here has a space at its start or end, which Nova can't keep exactly.",
-		"not-yet":
-			"This uses a deep link with its own arguments, which Nova can't hold yet.",
+			"A deep link here has an ID with a space at its start or end, or an argument that names no case its form creates, which Nova can't keep exactly.",
 	},
 	"display-conditions": {
-		"not-yet":
-			"A display condition here is more than Nova can read as a condition yet.",
+		never:
+			"This condition reads a value that the worker’s menu cannot use. In CommCare HQ, choose a condition that uses the information available on that menu, then bring the app in again.",
 	},
 	"display-only-forms": {
-		"not-yet":
-			"A form here goes back to, or opens through, the menu above in a way Nova can't hold yet.",
+		never:
+			"A case chosen on the first menu here would reach a form or case list that reads a different kind of case, or a different number of them, under the same name, which Nova doesn't bring in.",
 	},
 	expressions: {
 		never:
@@ -305,13 +292,7 @@ export const FINDING_COPY: Readonly<
 			"This uses the older, nested list of places, which Nova doesn't bring in.",
 	},
 	"instance-text": {},
-	"language-codes": {
-		"not-yet": "A language code here is one Nova can't hold yet.",
-	},
-	"list-and-search-filters": {
-		"not-yet":
-			"The case list here filters cases its search doesn't, which Nova can't hold yet.",
-	},
+	"language-codes": {},
 	"lookup-selection": {
 		never:
 			"This uses choosing from a lookup table before the case list, which Nova doesn't bring in.",
@@ -320,31 +301,21 @@ export const FINDING_COPY: Readonly<
 		"not-yet":
 			"A lookup table here uses something Nova can't hold yet, or is larger than Nova takes.",
 	},
-	"media-by-language": {
-		"not-yet":
-			"This uses a picture or sound that differs by language, which Nova can't hold yet.",
-	},
-	"media-files": {
-		"not-yet":
-			"A media file here is larger than Nova takes, or this app has more media than Nova takes.",
-	},
+	"media-by-language": {},
+	"media-files": {},
 	"menu-badges": {
-		"not-yet":
-			"This uses a badge on a menu or form, which Nova can't hold yet.",
+		never:
+			"This badge has no label or value Nova can show on the worker’s menu. In CommCare HQ, choose a badge label or a calculation that uses data available on that menu, then bring the app in again.",
 	},
-	"menu-display": {
-		"not-yet": "This uses grid menus, which Nova can't hold yet.",
-	},
+	"menu-display": {},
 	"menu-settings": {},
 	"menu-structure": {
 		never:
 			"The menus here are in an order that separates a menu from the one above it.",
-		"not-yet": "How this menu is nested is something Nova can't hold yet.",
 	},
 	"mirror-menus": {
 		never:
 			"This uses the older kind of mirror menu, which Nova doesn't bring in.",
-		"not-yet": "This uses a mirror menu, which Nova can't hold yet.",
 	},
 	"missing-media-files": {},
 	"mobile-reports": {
@@ -353,7 +324,6 @@ export const FINDING_COPY: Readonly<
 	"parent-selection": {
 		never:
 			"This uses a first case that is no parent of the second, which Nova doesn't bring in.",
-		"not-yet": "This chooses a parent case first in a way Nova can't hold yet.",
 	},
 	"print-templates": {
 		never: "This uses a print template, which Nova doesn't bring in.",
@@ -446,6 +416,7 @@ export const FIX_IN_HQ_STEMS: Readonly<Partial<Record<Subject, string>>> = {
 	"android-app-dependencies": "The Android apps this app depends on are",
 	"app-logos": "An app logo is",
 	"app-settings": "An app setting is",
+	"menu-display": "The menu layout is",
 	"auto-select": "Choosing a case automatically is",
 	"case-detail-tabs": "A tab on the case detail screen is",
 	"case-list-callout": "A lookup from the case list is",
@@ -468,9 +439,9 @@ export const FIX_IN_HQ_STEMS: Readonly<Partial<Record<Subject, string>>> = {
 	"form-settings": "A form setting is",
 	"form-source": "Part of this form's source is",
 	"lookup-tables": "A lookup table is",
+	"menu-badges": "A menu badge is",
 	"menu-settings": "A menu setting is",
 	"menu-structure": "How this menu is nested is",
-	"mirror-menus": "A mirror menu is",
 	"parent-selection": "Choosing a parent case first is",
 	"question-appearance": "A question's display style is",
 	"question-choices": "A question's choices are",
@@ -503,6 +474,12 @@ export const FIX_CAUSE_CLAUSES: Readonly<
 export const FIX_IN_HQ_SENTENCES: Readonly<
 	Partial<Record<Subject, Partial<Record<FixCause, string>>>>
 > = {
+	"media-by-language": {
+		"hq-refuses":
+			"A media slot is blank in one language and has a file in another. CommCare HQ fills the blank when it saves the form. Choose the file you want for each language in CommCare HQ, save the form and try again.",
+		"breaks-when-run":
+			"A translation uses a media file whose type has no entry in the form’s default language. In CommCare HQ, add a file of that type in the default language or remove it from the translation, then try again.",
+	},
 	"app-document": {
 		"hq-refuses":
 			"Part of how this app is stored is something CommCare HQ can't save or build.",
@@ -548,6 +525,10 @@ export const FIX_IN_HQ_SENTENCES: Readonly<
 		"hq-refuses":
 			"A media file here is kept at a path CommCare HQ can't build into the app.",
 	},
+	"mirror-menus": {
+		"hq-refuses":
+			"In this mirror menu’s settings on CommCare HQ, check the source menu, the forms and submenus it lists, and whether it shows a separate case list. Nova can bring the menu in once CommCare HQ can keep these choices.",
+	},
 	"missing-media-files": {
 		"breaks-when-run":
 			"The app points at a media file here that CommCare HQ doesn't have. Workers meet a missing file there, and Android may not start the app at all.",
@@ -572,6 +553,25 @@ export const FIX_IN_HQ_SENTENCES: Readonly<
 		either:
 			"A key in the app's translations starts or ends with a space, or holds =, # or a line break. CommCare HQ writes it so devices read its wording as another text's or as none, and some such keys stop CommCare HQ's build. Removing the key, or writing it without those characters, in CommCare HQ fixes it.",
 	},
+};
+
+/**
+ * A whole sentence for one manifest entry, read in place of its subject's:
+ * an entry whose refusal turns on one exact rule a person can act on (a name
+ * HQ's own checks can't read) says that rule, where it applies and how to
+ * get past it. `findingLine` adds the name itself ("In CommCare HQ: …").
+ */
+export const FIX_IN_HQ_ENTRY_SENTENCES: Readonly<Record<string, string>> = {
+	"expressions-and-data/non-ascii-lookup-name-in-a-condition-hq-checks":
+		"A menu or form display condition here reads a lookup table or column whose name holds a letter outside unaccented a to z, and CommCare HQ checks those conditions with a reader that can't read it, so it won't build the app. Renaming the table or column in CommCare HQ to unaccented letters, digits, _, . and -, or changing the condition, fixes it.",
+	"expressions-and-data/non-ascii-lookup-name-in-a-search-option-hq-checks":
+		"The search button's display condition, or the owners a search leaves out, reads a lookup table or column whose name holds a letter outside unaccented a to z. CommCare HQ's Search options page can't save such an expression, so the search couldn't be changed there. Renaming the table or column in CommCare HQ to unaccented letters, digits, _, . and -, or changing the expression, fixes it.",
+	"expressions-and-data/tag-has-own-property":
+		"CommCare HQ's form builder doesn't open any form in this project space, because a lookup table here is tagged hasOwnProperty, so Nova can't bring in an app from it. Nova can bring the app in once no table in the project space carries that tag.",
+	"expressions-and-data/tag-proto-read-by-a-form":
+		"A form here reads a lookup table tagged __proto__. CommCare HQ's form builder drops that table from the form when it saves it, and CommCare HQ then won't build the form. Reading the table from a case list, a column or a display condition instead keeps it working.",
+	"expressions-and-data/non-ascii-lookup-name-a-form-reads":
+		"A form here reads a lookup table whose export tag holds a letter outside unaccented a to z. CommCare HQ's form builder loses that table from the form when it saves, and CommCare HQ then won't build the form. Renaming the tag in CommCare HQ to unaccented letters, digits, _, . and - fixes it.",
 };
 
 /** The sentence a `fix-in-hq` finding of this subject and cause reads. */
@@ -664,6 +664,8 @@ function manifestSentence(
 	code: string,
 ): string {
 	if (standing === "fix-in-hq") {
+		if (Object.hasOwn(FIX_IN_HQ_ENTRY_SENTENCES, code))
+			return FIX_IN_HQ_ENTRY_SENTENCES[code];
 		if (cause === undefined)
 			throw new Error(
 				`The finding for "${code}" is something to change in CommCare HQ but carries no cause, so there is no sentence to choose. A manifest finding takes its cause from fixCauseOf(entry).`,
@@ -798,11 +800,6 @@ export const CIRCUMSTANCE_COPY: Readonly<
 		body: "Nova is reading other apps from CommCare HQ right now and ran out of room to read {app} as well, so it stopped. Nothing was changed, in Nova or in CommCare HQ.",
 		next: "You can check again in a minute or two.",
 	},
-	"lookup-data-too-large": {
-		title: "This app reads more lookup data than Nova brings in",
-		body: "{app} reads more lookup data than Nova brings in. That limit is Nova's, not the app's.",
-		next: "There is nothing for you to change in the app. If you'd like Nova to bring in an app with this much lookup data, you can tell the team through Give feedback in Nova's account menu.",
-	},
 	"too-large": {
 		title: "This app is larger than Nova brings in",
 		body: "{app} is larger than the apps Nova brings in. That limit is Nova's, not the app's.",
@@ -823,6 +820,16 @@ export const CIRCUMSTANCE_COPY: Readonly<
 		body: "CommCare HQ returned an error where its own summary of this app's forms should be, so Nova has nothing sure to check its reading against.",
 		next: "Opening the app's forms in CommCare HQ's form builder usually shows which one is broken. If they all open, Dimagi support (support@dimagi.com) can help. Then you can check again.",
 	},
+	"form-data-source-conflict": {
+		title: "A form uses one name for two data sources",
+		body: "CommCare HQ uses {name} to fill in submission details or case data. This form gives that name to a different source, so workers can receive different values.",
+		next: "You can give the other source its own name in CommCare HQ and update the questions that read it, then check again.",
+	},
+	"unbuildable-data-source-name": {
+		title: "CommCare HQ cannot build this data source",
+		body: "CommCare HQ reads {name} as one of its built-in sources and cannot build an app with this reference.",
+		next: "You can give the source and its references a distinct name in CommCare HQ, then check again.",
+	},
 	"shadow-disagrees": {
 		title: "A question's logic says two things",
 		body: "This question's logic and the copy the form builder keeps of it don't match, so Nova can't tell which one the author meant.",
@@ -832,6 +839,16 @@ export const CIRCUMSTANCE_COPY: Readonly<
 		title: "CommCare HQ doesn't have this file",
 		body: "The app points at {name}, and CommCare HQ has no file there, so the app can't show or play it either.",
 		next: "You can upload the file again in CommCare HQ, or remove it from the app there, then check again.",
+	},
+	"media-file-too-large": {
+		title: "This file is larger than Nova reads",
+		body: "The app points at {name}, and Nova reads no file that large. That limit is Nova's, not the app's.",
+		next: "You can save a smaller copy of it in CommCare HQ, then check again.",
+	},
+	"media-picture-too-many-pixels": {
+		title: "This picture is larger than CommCare HQ stores",
+		body: "The app points at {name}. CommCare HQ takes no new picture that large, so Nova couldn't publish it.",
+		next: "You can save a smaller copy of it in CommCare HQ, then check again.",
 	},
 	"media-not-played-where-app-runs": {
 		title: "A media file doesn't play where this app runs",
@@ -868,20 +885,20 @@ export const CIRCUMSTANCE_COPY: Readonly<
 		body: "This uses {name}. Part of this app runs only in Web Apps and part only on Android, so workers on either would meet something that doesn't work.",
 		next: "You can change one of these in CommCare HQ so one platform runs everything, then check again.",
 	},
-	"places-over-nova-limit": {
-		title: "This project space has more places than Nova takes",
-		body: "{app} reads places, and {space} has {name}. Nova holds up to 10,000 for an app.",
-		next: "There is nothing for you to change. You can check again after a Nova update.",
+	"place-hierarchy-inconsistent": {
+		title: "The place lists disagree",
+		body: "Nova checked twice. A place, parent or level in {space} still disagrees with the rest of the organization.",
+		next: "You can check the affected places and levels in CommCare HQ, then try again.",
 	},
-	"place-not-holdable": {
-		title: "A place or level is one Nova can't hold yet",
-		body: "{name} in {space} has a code, a name or a value Nova can't hold yet.",
-		next: "There is nothing for you to change. You can check again after a Nova update.",
+	"place-field-unusable": {
+		title: "Some place information needs a change",
+		body: "{name} in {space} contains a name or value that the app cannot carry.",
+		next: "You can change that field in CommCare HQ, then check again.",
 	},
-	"owner-rule-needs-one-place": {
-		title: "An owner rule needs exactly one place",
-		body: "{app} gives a case to the place at the level {name} below its current owner. In {space} that isn't exactly one place everywhere, and Nova holds the rule only where it is.",
-		next: "There is nothing for you to change. You can check again after a Nova update.",
+	"place-value-order-unknown": {
+		title: "A place field's worker text is unclear",
+		body: "CommCare HQ sends {name} in {space} with its entries sorted. A worker sees them in their original order.",
+		next: "You can store the intended worker text in that field in CommCare HQ, then check again.",
 	},
 	unrecognized: {
 		title: "Nova met something it doesn't know",

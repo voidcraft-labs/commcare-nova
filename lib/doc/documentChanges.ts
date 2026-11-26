@@ -16,6 +16,7 @@
  * joined by "/", since an id is unique only among its siblings.
  */
 
+import { deepEqual } from "@/lib/doc/deepEqual";
 import {
 	type BlueprintDoc,
 	type CaseListConfig,
@@ -26,6 +27,10 @@ import {
 	type PersistableDoc,
 	type Uuid,
 } from "@/lib/domain";
+import {
+	effectiveAppLocalization,
+	languageEntries,
+} from "@/lib/domain/localization";
 import { type AssetRef, walkAssetRefs } from "@/lib/domain/mediaRefs";
 import {
 	type DocumentDifference,
@@ -145,6 +150,7 @@ export const MENU_KEY_PARTS = {
 	uuid: null,
 	id: "settings",
 	name: "name",
+	formsFromMenu: "settings",
 	parentModuleUuid: "settings",
 	parentCaseModuleUuid: "case-list",
 	caseType: "settings",
@@ -152,12 +158,16 @@ export const MENU_KEY_PARTS = {
 	caseListRegistrationForm: "case-list",
 	purpose: "note",
 	displayCondition: "settings",
+	badge: "settings",
 	hiddenFromMenu: "settings",
 	formsInMenuAbove: "settings",
+	menuLayout: "settings",
 	caseListConfig: "case-list",
 	caseSearchConfig: "search",
 	icon: "settings",
 	audioLabel: "settings",
+	mediaByLanguage: "settings",
+	mediaByFormerCode: "settings",
 	heldKind: "settings",
 } as const satisfies Record<keyof Module, MenuPart | null>;
 
@@ -167,12 +177,21 @@ export const MENU_KEY_PARTS = {
  * `columnParts`).
  */
 export const CASE_LIST_KEY_PARTS = {
+	calculatedSorts: "case-list",
 	columns: "case-list",
 	listColumnOrder: "case-list",
 	detailColumnOrder: "case-details",
+	detailTabs: "case-details",
+	detailTile: "case-details",
+	contextAboveForm: "case-details",
 	filter: "case-list",
 	searchInputs: "search",
+	searchFilters: "search",
+	searchCondition: "search",
 	selection: "case-list",
+	emptyText: "case-list",
+	selectButtonText: "case-list",
+	optimizations: "case-list",
 	tile: "case-list",
 } as const satisfies Record<keyof CaseListConfig, MenuPart>;
 
@@ -183,13 +202,16 @@ export const CASE_LIST_KEY_PARTS = {
  */
 export const FORM_KEY_PARTS = {
 	entryPoint: "settings",
+	entryCaseCreations: "settings",
 	uuid: null,
 	id: "settings",
 	name: "name",
 	type: "case-changes",
 	purpose: "note",
 	displayCondition: "settings",
+	badge: "settings",
 	hiddenFromMenu: "settings",
+	captureLocation: "settings",
 	plainText: "settings",
 	openCondition: "case-changes",
 	closeCondition: "case-changes",
@@ -201,6 +223,8 @@ export const FORM_KEY_PARTS = {
 	caseOperations: "case-changes",
 	icon: "settings",
 	audioLabel: "settings",
+	mediaByLanguage: "settings",
+	mediaByFormerCode: "settings",
 } as const satisfies Record<keyof Form, FormPart | null>;
 
 /** Where a key of the document's root is filed: an app part, or one of the walks below. */
@@ -314,22 +338,42 @@ function formFieldOrder(doc: BlueprintDoc, form: string): string[] {
 /** The slot path of each media reference `walkAssetRefs` visits. */
 function mediaSlotPath(doc: BlueprintDoc, ref: AssetRef): readonly string[] {
 	const location = ref.location;
+	const language =
+		location.language === undefined
+			? []
+			: [
+					location.formerLanguage ? "mediaByFormerCode" : "mediaByLanguage",
+					location.language,
+				];
 	switch (location.kind) {
 		case "app_logo":
 			return ["logo"];
 		case "module_icon":
-			return ["modules", location.moduleUuid, "icon"];
+			return ["modules", location.moduleUuid, ...language, "icon"];
 		case "module_audio_label":
-			return ["modules", location.moduleUuid, "audioLabel"];
+			return ["modules", location.moduleUuid, ...language, "audioLabel"];
 		case "case_list_icon":
-			return ["modules", location.moduleUuid, "caseListMenuItem", "icon"];
+			return [
+				"modules",
+				location.moduleUuid,
+				"caseListMenuItem",
+				...language,
+				"icon",
+			];
 		case "case_list_audio_label":
-			return ["modules", location.moduleUuid, "caseListMenuItem", "audioLabel"];
+			return [
+				"modules",
+				location.moduleUuid,
+				"caseListMenuItem",
+				...language,
+				"audioLabel",
+			];
 		case "case_list_registration_icon":
 			return [
 				"modules",
 				location.moduleUuid,
 				"caseListRegistrationForm",
+				...language,
 				"icon",
 			];
 		case "case_list_registration_audio_label":
@@ -337,14 +381,21 @@ function mediaSlotPath(doc: BlueprintDoc, ref: AssetRef): readonly string[] {
 				"modules",
 				location.moduleUuid,
 				"caseListRegistrationForm",
+				...language,
 				"audioLabel",
 			];
 		case "form_icon":
-			return ["forms", location.formUuid, "icon"];
+			return ["forms", location.formUuid, ...language, "icon"];
 		case "form_audio_label":
-			return ["forms", location.formUuid, "audioLabel"];
+			return ["forms", location.formUuid, ...language, "audioLabel"];
 		case "field_media_bundle":
-			return ["fields", location.fieldUuid, location.bundleKey, ref.slotKind];
+			return [
+				"fields",
+				location.fieldUuid,
+				location.bundleKey,
+				...language,
+				ref.role ?? ref.slotKind,
+			];
 		case "option_media": {
 			const field = doc.fields[location.fieldUuid];
 			const options =
@@ -362,7 +413,8 @@ function mediaSlotPath(doc: BlueprintDoc, ref: AssetRef): readonly string[] {
 				"options",
 				String(at),
 				"media",
-				ref.slotKind,
+				...language,
+				ref.role ?? ref.slotKind,
 			];
 		}
 		case "image_map_mapping": {
@@ -407,7 +459,12 @@ function mediaSlotIdentity(
 ): readonly string[] {
 	const location = ref.location;
 	if (location.kind === "option_media")
-		return ["option", location.optionUuid, ref.slotKind];
+		return [
+			"option",
+			location.optionUuid,
+			...(location.language ? [location.language] : []),
+			ref.role ?? ref.slotKind,
+		];
 	if (location.kind === "image_map_mapping")
 		return ["image-map", location.columnUuid];
 	return path;
@@ -837,7 +894,7 @@ function translationEntries(
 	doc: BlueprintDoc,
 	language: string,
 ): readonly string[] {
-	const map = doc.localization?.translations[language];
+	const map = languageEntries(doc.localization, language);
 	return map === undefined ? [] : Object.keys(map);
 }
 
@@ -857,11 +914,37 @@ function fileLocalizationDifference(
 			collector.translations.set(key, kind);
 	};
 	if (path.length === 1) {
-		collector.app.add("languages");
+		// The root appears or goes with its first or last stored wording; the languages change
+		// only where the effective catalog does.
+		const languagesOf = (doc: BlueprintDoc) => {
+			const {
+				translations: _translations,
+				generatedSourceWording: _wording,
+				...languages
+			} = effectiveAppLocalization(doc.localization);
+			return languages;
+		};
+		if (!deepEqual(languagesOf(before.doc), languagesOf(after.doc)))
+			collector.app.add("languages");
 		for (const doc of [before.doc, after.doc]) {
-			for (const language of Object.keys(doc.localization?.translations ?? {}))
+			for (const language of doc.localization?.languageOrder ?? [])
 				for (const unit of translationEntries(doc, language))
 					noteUnit(language, unit, "text");
+		}
+		return;
+	}
+	if (path[1] === "generatedSourceWording") {
+		for (const { doc } of [before, after]) {
+			const loc = doc.localization;
+			if (!loc) continue;
+			for (const unit of path[2]
+				? [path[2]]
+				: Object.keys(loc.generatedSourceWording ?? {}))
+				noteUnit(
+					loc.sourceLanguage,
+					unit,
+					path.length <= 3 || path[3] === "value" ? "text" : "review",
+				);
 		}
 		return;
 	}

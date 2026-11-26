@@ -32,6 +32,7 @@ import {
 	type DisplayConditionCarrier,
 	emitFormDisplayConditionForSuite,
 	emitModuleDisplayCondition,
+	menuBadgeExpression,
 } from "@/lib/commcare/suite/displayConditions";
 import { serializeWire } from "@/lib/commcare/xpath/wire/serialize";
 import type { WireExpr } from "@/lib/commcare/xpath/wire/tree";
@@ -39,7 +40,7 @@ import type { BlueprintDoc, CaseType, Uuid } from "@/lib/domain";
 import { displayConditionForEmission } from "@/lib/domain/expression";
 import type { ExpressionContext } from "@/lib/domain/expression/context";
 import type { DatumRef, Expression } from "@/lib/domain/expression/types";
-import { toBoolean } from "../xpath/coerce";
+import { toBoolean, xpathToString } from "../xpath/coerce";
 import { evaluate } from "../xpath/evaluator";
 import { invokeGeneratedJavaRosaFunction } from "../xpath/generatedJavaRosaFunctions";
 import type { XPathInstance } from "../xpath/runtimeValues";
@@ -194,7 +195,53 @@ function conditionVisibility(
 	// other condition is evaluated as stored.
 	const effective = displayConditionForEmission(args.condition);
 	if (effective === undefined) return "shown";
-	if (awaitsPreviewIdentity(args.session)) return "pending";
+	const value = navigationValue(
+		args,
+		effective,
+		(naming) => emit({ displayCondition: effective }, naming),
+		sessionData,
+	);
+	if (value === undefined) return "pending";
+	return toBoolean(value) ? "shown" : "hidden";
+}
+
+/** A calculation is evaluated on the menu's existing frame, before any datums
+ * of the form it might open. Undefined means the device data is still loading. */
+export function navigationBadgeValue(
+	args: Omit<VisibilityArgs, "condition"> & {
+		readonly expression: Expression;
+		readonly selectedCase?: NavigationSelectedCase | undefined;
+	},
+): string | undefined {
+	const selected = args.selectedCase;
+	const sessionData = selected
+		? { ...selected.sessionData, [selected.datumId]: selected.caseId }
+		: {};
+	const value = navigationValue(
+		args,
+		args.expression,
+		(naming) =>
+			menuBadgeExpression(
+				args.expression,
+				args.types,
+				naming,
+				selected?.datumId,
+				selected?.datumIds,
+			),
+		sessionData,
+	);
+	return value === undefined ? undefined : xpathToString(value);
+}
+
+function navigationValue(
+	args: Omit<VisibilityArgs, "condition">,
+	effective: Expression,
+	emit: (
+		naming: PreviewLookupData["naming"] | undefined,
+	) => WireExpr | undefined,
+	sessionData: Readonly<Record<string, string>>,
+) {
+	if (awaitsPreviewIdentity(args.session)) return undefined;
 
 	/* A carrier-bearing condition is decidable only over a snapshot that
 	 * COVERS its identities: a bare "data exists" test is not enough,
@@ -205,13 +252,13 @@ function conditionVisibility(
 	 * transient; a COVERED snapshot with a broken identity still throws
 	 * loudly below (a genuine validator bypass). */
 	const data = args.lookup.kind === "data" ? args.lookup.data : undefined;
-	if (!predicateLookupsCovered(effective, data)) return "pending";
+	if (!predicateLookupsCovered(effective, data)) return undefined;
 	const snapshot = args.deviceCases?.snapshot ?? null;
 	if (snapshot === null && expressionReadsCaseDatabase(effective))
-		return "pending";
+		return undefined;
 
-	const wire = emit({ displayCondition: effective }, data?.naming);
-	if (wire === undefined) return "shown";
+	const wire = emit(data?.naming);
+	if (wire === undefined) return true;
 	const instances = new Map<string, XPathInstance>([
 		[
 			"commcaresession",
@@ -224,14 +271,10 @@ function conditionVisibility(
 			"casedb",
 			caseDatabaseInstance(snapshot, args.deviceCases.caseTypes),
 		);
-	return toBoolean(
-		evaluate(
-			serializeWire(wire, { target: "preview" }).text,
-			navigationEvalContext(instances, args.session),
-		),
-	)
-		? "shown"
-		: "hidden";
+	return evaluate(
+		serializeWire(wire, { target: "preview" }).text,
+		navigationEvalContext(instances, args.session),
+	);
 }
 
 /* A menu evaluates every item's condition on each render over the same

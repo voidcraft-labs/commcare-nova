@@ -1,24 +1,14 @@
-// components/builder/case-list-config/cards/column/PlainColumnCard.tsx
-//
-// Renders the `plain` Column kind: the case-list cell shows the
-// property's raw value as a string, no formatting applied. The
-// default kind for any displayed column.
-//
-// Slots:
-//   - `field`: case-property name. Plain accepts every property
-//     type (`applicableForAny`), so the picker surfaces every
-//     declared property without filtering.
-//   - `header`: column display label.
-//
-// No per-kind extras beyond the shared field/header pair. The
-// optional common slots (`sort`, visibility, and tile presentation)
-// belong to the surrounding display workspace: every column kind
-// shares those regardless of its body shape.
-
 "use client";
-import type { Column } from "@/lib/domain";
-import { plainColumn } from "@/lib/domain";
-import type { ColumnEditContext } from "../../columnEditorSchemas";
+
+import {
+	INSPECTOR_LABEL_CLS,
+	SegmentedRow,
+} from "@/components/builder/inspector/inspectorChrome";
+import type { Column, ColumnVia } from "@/lib/domain";
+import {
+	type ColumnEditContext,
+	resolveColumnProperty,
+} from "../../columnEditorSchemas";
 import { columnWithSource } from "../../columnSources";
 import { ColumnFieldRow } from "./ColumnFieldRow";
 
@@ -29,56 +19,76 @@ interface PlainColumnCardProps {
 	readonly errors?: readonly string[];
 }
 
-/**
- * Plain column card. Routes every mutation through `plainColumn`
- * so the constructed shape always matches the schema. The `ctx`
- * prop is unused at the leaf level (PropertyPicker reads from
- * the surrounding `PredicateEditProvider` context the parent
- * editor mounts) but stays in the signature for parity with
- * cards that need it.
- */
 export function PlainColumnCard({
 	value,
 	onChange,
+	ctx,
 	errors,
 }: PlainColumnCardProps) {
-	const setField = (next: string) =>
-		onChange(plainColumn(value.uuid, next, value.header, slotsFrom(value)));
-	const setHeader = (next: string) =>
-		onChange(plainColumn(value.uuid, value.field, next, slotsFrom(value)));
-	return (
-		<ColumnFieldRow
-			via={value.via}
-			onSourceChange={(via, field) =>
-				onChange(columnWithSource(value, via, field))
-			}
-			field={value.field}
-			onFieldChange={setField}
-			header={value.header}
-			onHeaderChange={setHeader}
-			errors={errors}
-		/>
-	);
-}
-
-/** Re-extract the column's optional common slots so each builder call
- *  threads through them verbatim. The schema's strip-mode parse omits
- *  absent keys; the builder's `slots` object preserves whichever slots
- *  the value already carries. */
-function slotsFrom(value: Extract<Column, { kind: "plain" }>): {
-	sort?: typeof value.sort;
-	visibleInList?: typeof value.visibleInList;
-	visibleInDetail?: typeof value.visibleInDetail;
-	notOnList?: typeof value.notOnList;
-	tile?: typeof value.tile;
-	via?: typeof value.via;
-} {
-	return {
-		sort: value.sort,
-		visibleInList: value.visibleInList,
-		visibleInDetail: value.visibleInDetail,
-		notOnList: value.notOnList,
-		tile: value.tile,
-		via: value.via,
+	const isChoice = (
+		field: string,
+		via?: ColumnVia,
+		readFrom?: "worker-record",
+	) => {
+		const type = resolveColumnProperty(ctx, field, via, readFrom)?.data_type;
+		return type === "single_select" || type === "multi_select";
 	};
+	const { showChoice, ...automatic } = value;
+	const setSource = (
+		via: ColumnVia | undefined,
+		field: string,
+		readFrom?: "worker-record",
+		showOwner?: "name",
+	) =>
+		onChange(
+			columnWithSource(
+				isChoice(field, via, readFrom) ? value : automatic,
+				via,
+				field,
+				readFrom,
+				showOwner,
+			),
+		);
+	return (
+		<div className="space-y-4">
+			<ColumnFieldRow
+				via={value.via}
+				readFrom={value.readFrom}
+				showOwner={value.showOwner}
+				onSourceChange={setSource}
+				field={value.field}
+				onFieldChange={(field) =>
+					setSource(
+						value.via,
+						field,
+						value.readFrom,
+						field === value.field ? value.showOwner : undefined,
+					)
+				}
+				header={value.header}
+				onHeaderChange={(header) => onChange({ ...value, header })}
+				errors={errors}
+			/>
+			{isChoice(value.field, value.via, value.readFrom) && (
+				<div>
+					<div className={`mb-2 ${INSPECTOR_LABEL_CLS}`}>Show choices as</div>
+					<SegmentedRow
+						legend="Show choices as"
+						options={[
+							{ value: "label", label: "Choice labels" },
+							{ value: "saved-value", label: "Saved values" },
+						]}
+						value={showChoice ?? "label"}
+						onChange={(display) =>
+							onChange(
+								display === "saved-value"
+									? { ...automatic, showChoice: display }
+									: automatic,
+							)
+						}
+					/>
+				</div>
+			)}
+		</div>
+	);
 }

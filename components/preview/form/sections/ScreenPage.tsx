@@ -30,6 +30,7 @@ import { runtimeMessage } from "@/lib/preview/runtimeMessages";
 import { FormScreenScopeContext } from "../FormScreenScope";
 import { InteractiveFormRenderer } from "../InteractiveFormRenderer";
 import { depthPadding } from "../virtual/rowStyles";
+import { QuestionBanners } from "./QuestionBanners";
 
 /** One labeled container around a screen, outermost first. */
 interface HeaderPart {
@@ -163,6 +164,7 @@ export function ScreenPage({
 							})}
 				</h2>
 			</div>
+			<QuestionBanners uuid={page.uuid} path={page.path} />
 			<FormScreenScopeContext.Provider value={page.path}>
 				<InteractiveFormRenderer parentEntityId={formUuid} />
 			</FormScreenScopeContext.Provider>

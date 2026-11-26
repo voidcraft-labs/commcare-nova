@@ -10,10 +10,21 @@ themselves.
 
 from __future__ import annotations
 
+import json
+import os
+from pathlib import Path
+
 import pytest
 
 # Every corpus document a test of this package reads, by id, and no other.
 DOCUMENTS = (
+    "hq-question-display",
+    "media-language-files",
+    "case-list-action-advanced",
+    "case-list-action-basic",
+    "prompt-periods",
+    "prompt-period-spellings",
+    "prompt-period-fallback",
     "case-operation-conditional",
     "case-operation-key",
     "case-operation-query",
@@ -24,17 +35,36 @@ DOCUMENTS = (
     "expander-form-hashtag-expansion-records-no-case-id-load-39a69840-0",
     "localization-bilingual",
     "navigation-base",
+    "targeted-menu-badges",
+    "prompt-checkboxes",
     "targeted-form-link-hidden-target",
+    "targeted-forms-in-menu-above-one-case",
+    "targeted-case-choice-values",
+    "targeted-case-map",
+    "targeted-relative-case-dates",
     "targeted-hidden-column",
+    "targeted-independent-case-order",
+    "targeted-nearest-clinics",
     "targeted-hidden-from-menu",
+    "targeted-listed-forms",
+    "targeted-menu-layouts",
     "targeted-missing-media",
     "targeted-multi-select-destinations",
     "targeted-number-keypad",
+    "targeted-question-calendar",
     "targeted-plain-help",
     "targeted-plain-labels",
     "targeted-preview-android-renders",
+    "targeted-search-workflow",
+    "targeted-search-workflow-android",
     "targeted-styled-value",
     "targeted-tile-hidden-order",
+    "tile-detail-layout",
+    "tile-detail-tabs",
+    "tile-named-layout",
+    "tile-persistent-external",
+    "tile-persistent-inline",
+    "tile-persistent-line",
 )
 
 
@@ -60,3 +90,13 @@ def android_documents():
             " the Android reader's own tests read. Name documents the corpus holds."
         )
     return _Named({document_id: found[document_id] for document_id in DOCUMENTS})
+
+@pytest.fixture
+def android_walk_evidence(request):
+    """The unchanged device walk, including its stopping screen or native exception."""
+    def write(walk):
+        directory = Path(os.environ.get("PROOF_OUT") or "/tmp") / "android" / request.node.name
+        directory.mkdir(parents=True, exist_ok=True)
+        (directory / "walk.json").write_text(json.dumps(walk, ensure_ascii=False, indent=1), encoding="utf-8")
+
+    return write

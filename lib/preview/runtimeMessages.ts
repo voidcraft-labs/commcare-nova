@@ -16,6 +16,7 @@ const english = {
 	pageNavigation: "Page navigation",
 	formGettingReady: "This form is getting ready.",
 	searchGettingReady: "This search is getting ready.",
+	retrySearchStartingDates: "Try loading starting dates again",
 	answersLocked: "Answers are locked while this submission finishes.",
 	freshFormStarting: "A fresh form entry is opening.",
 	caseDataRefreshing: "Case data is refreshing. Your answers are still here.",
@@ -45,8 +46,17 @@ const english = {
 	resultRange: "{start}–{end} of {total}",
 	showingResults: "Showing {count}",
 	resultsFound: "{count} found",
+	showCaseMap: "Show map",
+	hideCaseMap: "Hide map",
+	caseMap: "Case locations",
+	caseMapUnavailable:
+		"The map could not open. You can still choose a case from the list.",
+	invalidMapInformation: "Some saved map information could not be drawn.",
+	showCaseAddress: "Show address",
 	pageFilterScope:
 		"This filter checks the {count} on this page. Go to another page to check more cases.",
+	expandCaseDetails: "Show case details",
+	collapseCaseDetails: "Hide case details",
 	viewCaseDetails: "View details for {name}",
 	continueWithCase: "Continue with {name}",
 	chooseCase: "Choose {name}",
@@ -113,6 +123,7 @@ const english = {
 	noCasesYet: "No cases yet",
 	createCase: "Create a case or add sample cases in Case data",
 	askCreateCase: "Ask an app editor to create a case or add sample cases",
+	noChoicesMatch: "No choices match your search",
 	noSearchMatches: "No cases match your search",
 	retrySearch: "Check your spelling, clear a field, or try a broader search",
 	retrySearchOrRegister:
@@ -177,6 +188,9 @@ const english = {
 	submit: "Submit",
 	submitting: "Submitting",
 	clear: "Clear",
+	cancel: "Cancel",
+	previousMonth: "Previous month",
+	nextMonth: "Next month",
 	clearAnswers: "Clear answers",
 	clearForm: "Clear form",
 	startingFresh: "Starting fresh",
@@ -190,6 +204,9 @@ const english = {
 	questionPosition: "Question {position}.",
 	sectionPosition: "Section {position}.",
 	requiredLabel: "Required.",
+	// Web Apps' box under a Search field that allows a search for blank
+	// (`cloudcare/partials/query/item.html`, HQ's `es` catalog for Spanish).
+	searchForBlank: "Include results where '{label}' is blank",
 	expand: "Expand",
 	collapse: "Collapse",
 	untitledGroup: "Untitled group",
@@ -215,6 +232,8 @@ const english = {
 	addressSearchMinimum:
 		"You can type at least {count} characters to see places",
 	addressNoResults: "No matching places",
+	addressChooseFromList: "Choose an address from the list",
+	clearAddress: "Clear the address",
 	locationGuidance:
 		"You can search for an address or click the map to drop a pin",
 	hereColumnsWaiting:
@@ -254,6 +273,8 @@ const english = {
 		"{subject} a place, and you're assigned nowhere, so a phone stops here. You can preview as a persona who has a place.",
 	dataRefusalOwnerPlacePersona:
 		"This form moves the case to {worker}'s place, and {worker} is assigned nowhere, so the case has no owner to move to and a phone stops here. You can give {worker} a place under Users and personas in App setup.",
+	dataRefusalGroupCount:
+		"This form needs one group to own its new cases. You can check the worker’s case-sharing groups in Project data and their places in App setup.",
 	dataRefusalOwnerPlaceMe:
 		"This form moves the case to your place, and you're assigned nowhere, so the case has no owner to move to and a phone stops here. You can preview as a persona who has a place.",
 	dataRefusalTable:
@@ -264,12 +285,16 @@ const english = {
 		"Search field “{input}” gets its choices from “{table}”, which has no rows, so a phone won't open this search. You can add rows to “{table}” in Project data.",
 	dataRefusalSearchAnswers:
 		"{subject} a search answer that was left blank, so a phone stops here. You can search again with that answer filled in.",
+	dataRefusalStartingRange:
+		"Web Apps couldn’t open the starting dates for “{input}”. You can choose two dates or change its calculation in Search fields.",
 	dataRefusalStartingChoice:
 		"Search field “{input}” starts on a choice its list doesn't offer. CommCare sets such a choice aside only on a search with more than one field, so a phone won't open this search. You can give “{input}” a starting value its list offers.",
 	dataRefusalWorkerPersona:
 		"{subject} worker information {worker} doesn't have, so a phone stops here. If it reads {worker}'s place, you can give {worker} a place under Users and personas in App setup.",
 	dataRefusalWorkerMe:
 		"{subject} worker information you don't have, so a phone stops here. If it reads your place, you can preview as a persona who has a place.",
+	dataRefusalCaseLocation:
+		"A saved case location has coordinates a phone can’t read. A project editor can correct the location in the case data or choose another way to order the list.",
 	dataRefusalOther:
 		"{subject} a value a phone doesn't have at this point, so a phone stops here.",
 	thisQuestion: "this question",
@@ -311,9 +336,16 @@ const english = {
 	// Android's barcode question.
 	scanBarcode: "Scan",
 	// Android's capture widgets (`R.string.capture_image` and its siblings).
+	photoFrameGuide:
+		"Line up the subject inside the rectangle. The photo includes the whole frame.",
+	cameraUnavailable:
+		"The camera could not open. Check camera access and try again.",
 	takePicture: "Take picture",
 	chooseImage: "Choose image",
 	removeImage: "Remove image",
+	chooseAudio: "Choose audio",
+	pauseRecording: "Pause recording",
+	resumeRecording: "Resume recording",
 	recordSound: "Record sound",
 	startRecording: "Start recording",
 	stopRecording: "Stop recording",
@@ -335,6 +367,7 @@ const spanish: Record<RuntimeMessage, string> = {
 	pageNavigation: "Navegación de páginas",
 	formGettingReady: "El formulario se está preparando.",
 	searchGettingReady: "La búsqueda se está preparando.",
+	retrySearchStartingDates: "Volver a cargar las fechas iniciales",
 	answersLocked: "Las respuestas están bloqueadas mientras termina el envío.",
 	freshFormStarting: "Se está abriendo una nueva entrada del formulario.",
 	caseDataRefreshing:
@@ -367,8 +400,17 @@ const spanish: Record<RuntimeMessage, string> = {
 	resultRange: "{start}–{end} de {total}",
 	showingResults: "Mostrando {count}",
 	resultsFound: "Resultados: {count}",
+	showCaseMap: "Mostrar mapa",
+	hideCaseMap: "Ocultar mapa",
+	caseMap: "Ubicaciones de los registros",
+	caseMapUnavailable:
+		"No se pudo abrir el mapa. Puede elegir un registro de la lista.",
+	invalidMapInformation: "No se pudieron mostrar algunos datos del mapa.",
+	showCaseAddress: "Mostrar dirección",
 	pageFilterScope:
 		"Este filtro busca en esta página ({count}). Puede ir a otra página para buscar más registros.",
+	expandCaseDetails: "Mostrar detalles del caso",
+	collapseCaseDetails: "Ocultar detalles del caso",
 	viewCaseDetails: "Ver detalles de {name}",
 	continueWithCase: "Continuar con {name}",
 	chooseCase: "Seleccionar {name}",
@@ -442,6 +484,7 @@ const spanish: Record<RuntimeMessage, string> = {
 		"Puede crear un registro o añadir registros de ejemplo en los datos de registros",
 	askCreateCase:
 		"Puede pedir a un editor de la aplicación que cree un registro o añada registros de ejemplo",
+	noChoicesMatch: "Ninguna opción coincide con su búsqueda",
 	noSearchMatches: "Ningún registro coincide con la búsqueda",
 	retrySearch:
 		"Puede revisar la ortografía, borrar un campo o ampliar la búsqueda",
@@ -509,6 +552,9 @@ const spanish: Record<RuntimeMessage, string> = {
 	submit: "Enviar",
 	submitting: "Enviando",
 	clear: "Borrar",
+	cancel: "Cancelar",
+	previousMonth: "Mes anterior",
+	nextMonth: "Mes siguiente",
 	clearAnswers: "Borrar respuestas",
 	clearForm: "Borrar formulario",
 	startingFresh: "Empezando de nuevo",
@@ -522,6 +568,7 @@ const spanish: Record<RuntimeMessage, string> = {
 	questionPosition: "Pregunta {position}.",
 	sectionPosition: "Sección {position}.",
 	requiredLabel: "Obligatoria.",
+	searchForBlank: "Incluir resultados donde '{label}' está en blanco",
 	expand: "Expandir",
 	collapse: "Contraer",
 	untitledGroup: "Grupo sin título",
@@ -546,6 +593,8 @@ const spanish: Record<RuntimeMessage, string> = {
 	addressSearching: "Buscando",
 	addressSearchMinimum: "Puedes buscar con al menos {count} caracteres",
 	addressNoResults: "No hay lugares que coincidan",
+	addressChooseFromList: "Elige una dirección de la lista",
+	clearAddress: "Borrar la dirección",
 	locationGuidance:
 		"Puedes buscar una dirección o tocar el mapa para marcar un punto",
 	hereColumnsWaiting:
@@ -588,6 +637,8 @@ const spanish: Record<RuntimeMessage, string> = {
 		"{subject} un lugar, y usted no tiene ningún lugar asignado, así que un teléfono se detiene aquí. Puede ver la vista previa como una persona que tenga un lugar.",
 	dataRefusalOwnerPlacePersona:
 		"Este formulario mueve el caso al lugar de {worker}, y {worker} no tiene ningún lugar asignado, así que el caso no tiene a qué propietario moverse y un teléfono se detiene aquí. Puede darle un lugar a {worker} en Usuarios y personas, en la configuración de la app.",
+	dataRefusalGroupCount:
+		"Este formulario necesita un solo grupo para sus nuevos casos. Puede revisar los grupos de esta persona en Datos del proyecto y sus lugares en la configuración de la aplicación.",
 	dataRefusalOwnerPlaceMe:
 		"Este formulario mueve el caso a su lugar, y usted no tiene ningún lugar asignado, así que el caso no tiene a qué propietario moverse y un teléfono se detiene aquí. Puede ver la vista previa como una persona que tenga un lugar.",
 	dataRefusalTable:
@@ -598,12 +649,16 @@ const spanish: Record<RuntimeMessage, string> = {
 		"El campo de búsqueda «{input}» toma sus opciones de «{table}», que no tiene filas, así que un teléfono no abrirá esta búsqueda. Puede añadir filas a «{table}» en los datos del proyecto.",
 	dataRefusalSearchAnswers:
 		"{subject} una respuesta de búsqueda que quedó en blanco, así que un teléfono se detiene aquí. Puede buscar de nuevo con esa respuesta.",
+	dataRefusalStartingRange:
+		"Web Apps no pudo abrir las fechas iniciales de «{input}». Puede elegir dos fechas o cambiar el cálculo en los campos de búsqueda.",
 	dataRefusalStartingChoice:
 		"El campo de búsqueda «{input}» empieza con una opción que su lista no ofrece. CommCare deja de lado esa opción solo en una búsqueda de más de un campo, así que un teléfono no abrirá esta búsqueda. Puede darle a «{input}» un valor inicial que su lista ofrezca.",
 	dataRefusalWorkerPersona:
 		"{subject} información del trabajador que {worker} no tiene, así que un teléfono se detiene aquí. Si lee el lugar de {worker}, puede darle un lugar a {worker} en Usuarios y personas, en la configuración de la app.",
 	dataRefusalWorkerMe:
 		"{subject} información del trabajador que usted no tiene, así que un teléfono se detiene aquí. Si lee su lugar, puede ver la vista previa como una persona que tenga un lugar.",
+	dataRefusalCaseLocation:
+		"Una ubicación guardada tiene coordenadas que el teléfono no puede leer. Una persona con permiso para editar el proyecto puede corregir la ubicación en los datos del caso o elegir otro orden para la lista.",
 	dataRefusalOther:
 		"{subject} un valor que un teléfono no tiene en este punto, así que un teléfono se detiene aquí.",
 	thisQuestion: "esta pregunta",
@@ -636,9 +691,16 @@ const spanish: Record<RuntimeMessage, string> = {
 	altitudeLine: "Altitud: {m}m",
 	accuracyLine: "Precisión: {m}m",
 	scanBarcode: "Escanear",
+	photoFrameGuide:
+		"Coloque el motivo dentro del rectángulo. La foto incluye todo el encuadre.",
+	cameraUnavailable:
+		"No se pudo abrir la cámara. Compruebe el acceso y vuelva a intentarlo.",
 	takePicture: "Tomar foto",
 	chooseImage: "Elegir imagen",
 	removeImage: "Quitar imagen",
+	chooseAudio: "Elegir audio",
+	pauseRecording: "Pausar grabación",
+	resumeRecording: "Continuar grabación",
 	recordSound: "Grabar sonido",
 	startRecording: "Empezar a grabar",
 	stopRecording: "Detener la grabación",
@@ -798,6 +860,10 @@ export function dataRefusalCopy(
 						? body("dataRefusalPlacesMe")
 						: body("dataRefusalPlacesPersona", { worker: names.worker }),
 			};
+		case "group-count":
+			return { title, body: body("dataRefusalGroupCount") };
+		case "invalid-case-location":
+			return { title, body: body("dataRefusalCaseLocation") };
 		case "owner-place":
 			return {
 				title,
@@ -829,6 +895,11 @@ export function dataRefusalCopy(
 			};
 		case "search-answers":
 			return { title, body: body("dataRefusalSearchAnswers") };
+		case "starting-range":
+			return {
+				title,
+				body: body("dataRefusalStartingRange", { input: subject.input }),
+			};
 		case "starting-choice":
 			return {
 				title,

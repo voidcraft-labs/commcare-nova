@@ -32,7 +32,10 @@ import {
 	HqChangesDiscardMismatchError,
 	type HqChangesOutcome,
 } from "@/lib/deployment/hqChanges";
-import { LOOKUP_TABLE_CHOICES } from "@/lib/deployment/reading/projectData/reviewTypes";
+import {
+	LOOKUP_TABLE_CHOICES,
+	OWNER_RULE_CHOICES,
+} from "@/lib/deployment/reading/projectData/reviewTypes";
 import { READING_ID_PATTERN } from "@/lib/deployment/reading/types";
 import {
 	deploymentAppIdSchema,
@@ -56,7 +59,8 @@ import {
 	arrayItemChars,
 	cutPage,
 	fitPiece,
-	PAGE_LIMIT_CHARS,
+	fitsReviewResult,
+	toolResultChars,
 	toolText,
 } from "../paging";
 import { LARGE_RESULT_META } from "../resultSize";
@@ -207,6 +211,8 @@ async function landedDeployment(
 /** The cursor that reads the rest of a projected review, where it is a first page. */
 function nextPageOf(now: HqChangesReviewProjection): string | null {
 	switch (now.kind) {
+		case "nothing":
+			return now.next_page ?? null;
 		case "changes":
 			return now.next_page;
 		case "account":
@@ -237,7 +243,7 @@ export async function describeHqChangesOutcome(
 				...receipt,
 				deployment: await landedDeployment(call, outcome.deployment),
 			};
-			if (JSON.stringify(answer).length <= PAGE_LIMIT_CHARS) return answer;
+			if (fitsReviewResult(answer)) return answer;
 			return {
 				...receipt,
 				deployment: null,
@@ -245,9 +251,13 @@ export async function describeHqChangesOutcome(
 			};
 		}
 		case "changed": {
+			const editor =
+				"editedBy" in outcome && outcome.editedBy
+					? fitPiece(outcome.editedBy, 4096)
+					: null;
 			const changedMessage =
 				"editedBy" in outcome
-					? hqChangesMovedLine(outcome.editedBy)
+					? hqChangesMovedLine(editor)
 					: HQ_CHANGES_NOTHING_TAKEN_LINE;
 			const now = describeHqChangesReview(outcome.now, reviewHead(call), {
 				projectId: call.scope.projectId,
@@ -258,7 +268,7 @@ export async function describeHqChangesOutcome(
 				envelope: (projected) => ({
 					kind: "changed",
 					message: changedMessage,
-					...("editedBy" in outcome && { edited_by: outcome.editedBy }),
+					...("editedBy" in outcome && { edited_by: editor }),
 					now: projected,
 					next: CHANGED_NOW_PAGED_NEXT,
 				}),
@@ -270,7 +280,7 @@ export async function describeHqChangesOutcome(
 				 * HQ, an account, a held or unavailable change) nothing need
 				 * have moved, and `now` says why nothing was brought in. */
 				message: changedMessage,
-				...("editedBy" in outcome && { edited_by: outcome.editedBy }),
+				...("editedBy" in outcome && { edited_by: editor }),
 				now,
 				next: nextPageOf(now) === null ? null : CHANGED_NOW_PAGED_NEXT,
 			};
@@ -292,7 +302,7 @@ export async function describeHqChangesOutcome(
 			cutPage({
 				count: outcome.details.length,
 				from: 0,
-				shellChars: JSON.stringify(shell).length,
+				shellChars: toolResultChars(shell),
 				pieceChars: (index, taken) => arrayItemChars(fitted(index), taken),
 				take: (index) => findings.push(fitted(index)),
 			});
@@ -313,7 +323,7 @@ export function registerBringInHqChanges(
 		"bring_in_hq_changes",
 		{
 			description:
-				"Bring the changes `read_hq_changes` listed in to this Nova app. Send back its `reading_id` and `review_digest`. Set `discard_nova_changes` to false when `nova_changes` was empty. When it was not empty, bringing the changes in removes every change listed there and Nova can't put them back: set it to true only after the user has read that list and said yes. It also records a `nothing` review that holds a `review_digest`: the answer is `recorded`, and the app is unchanged. An answer of `changed` brought nothing in: `now` is the review as it stands now, and its own message says why (CommCare HQ or the app moved since the read, or reading CommCare HQ again stopped). Show the user `message` and `now`, and ask again. Where `next` is not null, `now` is only the first page of its lists: read the rest with `read_hq_changes`, passing the `next_page` in `now` as `page`, and show the user every line before you ask again. `gate` lists what would stop working; the user can change that in Nova and you can read again.",
+				"Bring the changes `read_hq_changes` listed in to this Nova app. Send back its `reading_id` and `review_digest`. Set `discard_nova_changes` to false when `nova_changes` was empty. When it was not empty, bringing the changes in removes every change listed there and Nova can't put them back: set it to true only after the user has read that list and said yes. Send `table_choices` and `owner_rule_choices` with the user's own answer for each table choice and each entry of `owner_rules` the review listed, and `{}` for either where it listed none; never answer one for them. It also records a `nothing` review that holds a `review_digest`: the answer is `recorded`, and the app is unchanged. An answer of `changed` brought nothing in: `now` is the review as it stands now, and its own message says why (CommCare HQ or the app moved since the read, or reading CommCare HQ again stopped). Show the user `message` and `now`, and ask again. Where `next` is not null, `now` is only the first page of its lists: read the rest with `read_hq_changes`, passing the `next_page` in `now` as `page`, and show the user every line before you ask again. `gate` lists what would stop working; the user can change that in Nova and you can read again.",
 			inputSchema: z.strictObject({
 				app_id: deploymentAppIdSchema.describe(
 					"The Nova app: the app_id read_hq_changes was given.",
@@ -341,6 +351,11 @@ export function registerBringInHqChanges(
 					.describe(
 						"The user's answer for each lookup table in the review's tables whose entry has a choice, by tag. {} where none has.",
 					),
+				owner_rule_choices: z
+					.record(z.string(), z.enum(OWNER_RULE_CHOICES))
+					.describe(
+						"The user's answer for each entry of the review's owner_rules, by its level. \"worker\" gives those cases to the worker who fills in the form. {} where owner_rules is empty.",
+					),
 			}),
 			_meta: LARGE_RESULT_META,
 		},
@@ -360,6 +375,7 @@ export function registerBringInHqChanges(
 							readingId: args.reading_id,
 							reviewDigest: args.review_digest,
 							tableChoices: args.table_choices,
+							ownerRuleChoices: args.owner_rule_choices,
 							discardNovaChanges: args.discard_nova_changes,
 						},
 						{ onEvent: hqChangesProgress(extra) },

@@ -24,11 +24,19 @@ export interface TranslationSink {
 		kind: "text" | "prose",
 		byLanguage: ReadonlyMap<LanguageTag, LocalizedValue>,
 	): void;
-	/** Every unit given, in the order first given. */
+	/** Marks a generated wording unit's value in a language as the unit's own wording, read from
+	 *  an override CommCare HQ holds for its key: an entry even where it equals the text the
+	 *  unit's base gives there, since the app holds it apart from the base. */
+	own(unit: TranslationUnitId, language: LanguageTag): void;
+	/** How many times a value was given: a reading of the sink at one revision
+	 *  reads what any other reading at that revision reads. */
+	revision(): number;
+	/** Every unit given, in the order first given, with the languages its own wording stands in. */
 	units(): readonly {
 		readonly unit: TranslationUnitId;
 		readonly kind: "text" | "prose";
 		readonly byLanguage: ReadonlyMap<LanguageTag, LocalizedValue>;
+		readonly own: ReadonlySet<LanguageTag>;
 	}[];
 }
 
@@ -38,8 +46,17 @@ export function translationSink(): TranslationSink {
 		TranslationUnitId,
 		{ kind: "text" | "prose"; byLanguage: Map<LanguageTag, LocalizedValue> }
 	>();
+	const owned = new Map<TranslationUnitId, Set<LanguageTag>>();
+	let revision = 0;
 	return {
+		own(unit, language) {
+			revision += 1;
+			const held = owned.get(unit) ?? new Set<LanguageTag>();
+			held.add(language);
+			owned.set(unit, held);
+		},
 		set(unit, kind, byLanguage) {
+			revision += 1;
 			const known = units.get(unit);
 			if (known === undefined) {
 				units.set(unit, { kind, byLanguage: new Map(byLanguage) });
@@ -49,11 +66,13 @@ export function translationSink(): TranslationSink {
 			for (const [language, value] of byLanguage)
 				known.byLanguage.set(language, value);
 		},
+		revision: () => revision,
 		units: () =>
 			[...units].map(([unit, { kind, byLanguage }]) => ({
 				unit,
 				kind,
 				byLanguage,
+				own: owned.get(unit) ?? new Set<LanguageTag>(),
 			})),
 	};
 }
@@ -74,6 +93,25 @@ function isBlank(value: LocalizedValue): boolean {
  * either end, and never blank-looking where its role requires text, so the
  * entry is one Nova's gate admits.
  */
+/** The entry a generated unit's own wording makes in a language (`TranslationSink.own`): the
+ *  value as given, equal to the text the unit's base gives or not; none for a blank value where
+ *  that text is not blank. */
+export function ownWordingEntryFor(
+	kind: "text" | "prose",
+	fallback: LocalizedValue,
+	target: LocalizedValue,
+	sourceLanguage: LanguageTag,
+): TranslationEntry | undefined {
+	if (isBlank(target) && !isBlank(fallback)) return undefined;
+	return {
+		value: target,
+		sourceFingerprint: translationSourceFingerprint(kind, fallback),
+		origin: "human",
+		review: "reviewed",
+		translatedFrom: sourceLanguage,
+	};
+}
+
 export function translationEntryFor(
 	kind: "text" | "prose",
 	source: LocalizedValue,

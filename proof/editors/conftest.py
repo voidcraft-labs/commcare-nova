@@ -70,7 +70,9 @@ DOCUMENTS = (
     "case-extension-multiple-repeat",
     "navigation-base",
     "targeted-label-sort",
+    "prompt-checkboxes",
     "prompt-widgets",
+    "prompt-periods",
     "case-capture-query",
     "form-link-unconditional",
     "case-operation-query",
@@ -78,8 +80,10 @@ DOCUMENTS = (
     "case-list-inline",
     "search-multiple",
     "targeted-custom-tile",
+    "targeted-independent-case-order",
     "targeted-supply-point-text",
     "targeted-plain-help",
+    "targeted-menu-badges",
 )
 
 _TIMINGS: dict[str, list[float]] = {}

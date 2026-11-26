@@ -40,10 +40,12 @@ export function MappingEmptyNotice({ children }: { children: ReactNode }) {
  *  order rule and keeps the mapping position as its key, so the list orders
  *  by the table's entry order on every runtime and in Preview
  *  (`lib/domain/caseListOrder.ts::caseListOrdersByMapping`). */
-export function MappingOrderNote() {
+export function MappingOrderNote({ byLabel = false }: { byLabel?: boolean }) {
 	return (
 		<p className="text-[13px] leading-5 text-nova-text-muted">
-			This list orders by the table's own order
+			{byLabel
+				? "This list sorts by the label each worker sees"
+				: "This list orders by the table's own order"}
 		</p>
 	);
 }

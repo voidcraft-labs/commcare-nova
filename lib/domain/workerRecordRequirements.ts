@@ -6,7 +6,9 @@ import { isProseTemplate } from "./prose";
 import {
 	FORM_REFERENCE_SLOTS,
 	fieldReferenceSlotsFor,
+	MODULE_REFERENCE_SLOTS,
 	readSlotValues,
+	translatedFieldProse,
 } from "./referenceSlots";
 
 /** One form that reads or saves to the worker's own record. */
@@ -18,7 +20,11 @@ export interface WorkerRecordRequirement {
 	readonly writes: boolean;
 }
 
-function readsWorkerRecord(value: unknown): boolean {
+/**
+ * Whether a slot value reads the worker's own record: a worker-record read
+ * in an expression, or a prose reference to worker information.
+ */
+export function readsWorkerRecord(value: unknown): boolean {
 	if (isProseTemplate(value))
 		return value.parts.some(
 			(part) =>
@@ -54,10 +60,11 @@ export function savesToWorkerRecord(
 
 /**
  * The forms that read or save to the worker's own record, in the document's
- * form order. A form's XPath and prose read it, its form links' conditions
+ * form order. A form's XPath and prose read it, in any language's
+ * translation that shows values of its own as well, its form links' conditions
  * and link datums among them; an update of the worker's record among its case
- * operations saves to it. Record-scope predicates read session data instead
- * and never count.
+ * operations saves to it. A property explicitly read from the worker's record also counts in a
+ * navigation expression.
  */
 export function workerRecordRequirements(
 	doc: BlueprintDoc,
@@ -77,7 +84,13 @@ export function workerRecordRequirements(
 						readSlotValues(field, slot.path).some(({ value }) =>
 							readsWorkerRecord(value),
 						),
-					) || fieldsRead(uuid)
+					) ||
+				/* A translation that shows values of its own reads them in its
+				 * language, where the source may read none. */
+				translatedFieldProse(doc.localization, field).some(({ template }) =>
+					readsWorkerRecord(template),
+				) ||
+				fieldsRead(uuid)
 			);
 		});
 	}
@@ -106,4 +119,26 @@ export function workerRecordRequirements(
 		}
 	}
 	return requirements;
+}
+
+/** Navigation, list columns and filters can read a restored worker record
+ * before a form opens. Include an entirely formless case list as its own use. */
+export function menusUsingWorkerRecord(doc: BlueprintDoc) {
+	return doc.moduleOrder.flatMap((uuid) => {
+		const mod = doc.modules[uuid];
+		if (!mod) return [];
+		const readsColumn = mod.caseListConfig?.columns.some(
+			(column) => "readFrom" in column && column.readFrom === "worker-record",
+		);
+		const readsExpression = MODULE_REFERENCE_SLOTS.some(
+			(slot) =>
+				slot.kind === "expression" &&
+				readSlotValues(mod, slot.path).some(({ value }) =>
+					readsWorkerRecord(value),
+				),
+		);
+		return readsColumn || readsExpression
+			? [{ uuid, name: mod.name.trim() || mod.id, reads: true, writes: false }]
+			: [];
+	});
 }

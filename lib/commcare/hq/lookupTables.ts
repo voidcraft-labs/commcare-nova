@@ -1,5 +1,6 @@
 import { recordFromEntries } from "@/lib/domain/records";
 import { withHqRequestDeadline } from "./deadline";
+import { multipartFileStream } from "./uploadStream";
 import "server-only";
 
 /**
@@ -41,17 +42,16 @@ import {
 	HQ_LOOKUP_UPLOAD_ACK_MAX_BYTES,
 } from "./bounds";
 import {
-	baseUrl,
 	type CommCareApiError,
 	type CommCareCredentials,
 	type HqAnswer,
+	hqDomainPath,
 	hqTextFacts,
 	INVALID_DOMAIN_SLUG,
 	isValidDomainSlug,
 	logAndReturnError,
 	readAnswerJson,
 	sendHq,
-	WAF_PADDING,
 	writeMayHaveLanded,
 } from "./http";
 import {
@@ -83,6 +83,9 @@ export interface HqLookupTable {
  * properties (`LookupTableItemResource.dehydrate_fields`).
  */
 export interface HqFixtureRow {
+	/** Present only when verified by the selected row’s detail. */
+	readonly sortKey?: number;
+	readonly itemAttributes?: Readonly<Record<string, string>>;
 	readonly id: string;
 	readonly fields: Readonly<
 		Record<
@@ -128,7 +131,7 @@ function stringList(value: unknown): readonly string[] | null {
  * since reading any of them as a plain table would let a publish push over
  * what HQ holds and a bring-in read a table as simpler than it is.
  */
-function toHqLookupTable(raw: unknown): HqLookupTable | null {
+export function toHqLookupTable(raw: unknown): HqLookupTable | null {
 	if (
 		!isHqObject(raw) ||
 		typeof raw.id !== "string" ||
@@ -198,7 +201,7 @@ export async function listHqLookupTables(
 
 	const list = await readHqCollection(creds, {
 		label: "lookup table list",
-		firstUrl: `${baseUrl(creds)}/a/${domain}/api/lookup_table/v1/?limit=${LOOKUP_TABLE_PAGE_SIZE}`,
+		firstUrl: `${hqDomainPath(domain)}/api/lookup_table/v1/?limit=${LOOKUP_TABLE_PAGE_SIZE}`,
 		maxPages: MAX_LOOKUP_TABLE_PAGES,
 		maxRows: HQ_LOOKUP_TABLE_LIST_MAX_ROWS,
 		maxBytes: HQ_LOOKUP_TABLE_LIST_MAX_BYTES,
@@ -227,7 +230,7 @@ const MAX_FIXTURE_ROW_PAGES = 1_000;
 /** How many tables' rows a publish reads from CommCare HQ at once. */
 export const LOOKUP_ROWS_READ_CONCURRENCY = 4;
 
-function toFixtureRowFields(
+export function toFixtureRowFields(
 	raw: Record<string, unknown>,
 ): HqFixtureRow["fields"] | null {
 	const fields: [string, HqFixtureRow["fields"][string]][] = [];
@@ -270,7 +273,7 @@ export interface HqLookupRows {
 }
 
 /** One row of one table, or null where it is not a row of that table as `FixtureResource` serves it. */
-function toHqFixtureRow(raw: unknown, tag: string): HqFixtureRow | null {
+export function toHqFixtureRow(raw: unknown, tag: string): HqFixtureRow | null {
 	if (
 		!isHqObject(raw) ||
 		typeof raw.id !== "string" ||
@@ -319,7 +322,7 @@ export async function readHqLookupTableRows(
 		return INVALID_DOMAIN_SLUG;
 	const read = await readHqCollection(creds, {
 		label: "lookup table rows",
-		firstUrl: `${baseUrl(creds)}/a/${domain}/api/fixture/v1/?fixture_type_id=${encodeURIComponent(table.id)}`,
+		firstUrl: `${hqDomainPath(domain)}/api/fixture/v1/?fixture_type_id=${encodeURIComponent(table.id)}`,
 		maxPages: MAX_FIXTURE_ROW_PAGES,
 		maxRows: options.maxRows,
 		maxBytes: options.maxBytes,
@@ -461,7 +464,7 @@ export const FIXTURE_UPLOAD_UPGRADE_REQUIRED_STATUS = 426;
 export async function uploadLookupTableWorkbook(
 	creds: CommCareCredentials,
 	domain: string,
-	workbook: Uint8Array,
+	workbook: Uint8Array | AsyncIterable<Uint8Array>,
 	options: { readonly replace: boolean },
 ): Promise<FixtureUploadResult | FixtureUploadRefusal> {
 	if (!isValidDomainSlug(domain))
@@ -472,32 +475,22 @@ export async function uploadLookupTableWorkbook(
 			upgradeRequired: false,
 		};
 
-	const form = new FormData();
-	/* First, so the workbook's own bytes start past the WAF's body
-	 * inspection window. An `.xlsx` is a ZIP of XML parts, which is the
-	 * same shape that already tripped the rule on the media bundle. */
-	form.append("waf_padding", WAF_PADDING);
-	form.append(
-		"file-to-upload",
-		new Blob([new Uint8Array(workbook)], {
-			type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-		}),
-		"lookup-tables.xlsx",
-	);
-	form.append("replace", options.replace ? "true" : "false");
-
 	return withHqRequestDeadline(async (signal) => {
 		let res: HqAnswer;
 		try {
-			res = await sendHq(
-				creds,
-				`${baseUrl(creds)}/a/${domain}/fixtures/fixapi/`,
-				{
-					method: "POST",
-					body: form,
+			res = await sendHq(creds, `${hqDomainPath(domain)}/fixtures/fixapi/`, {
+				method: "POST",
+				...multipartFileStream(
+					workbook instanceof Uint8Array
+						? (async function* () {
+								yield workbook;
+							})()
+						: workbook,
 					signal,
-				},
-			);
+					options.replace ? "replace" : "append",
+				),
+				signal,
+			});
 		} catch (error) {
 			log.error("[commcare] lookup table upload unreachable", undefined, {
 				domain,

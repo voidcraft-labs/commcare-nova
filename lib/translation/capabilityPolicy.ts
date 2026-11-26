@@ -69,6 +69,7 @@ if (launchCodes.size !== AUTOMATIC_TRANSLATION_LAUNCH_LANGUAGES.length) {
 export function automaticTranslationLaunchLanguage(
 	identity: AppLanguageIdentity,
 ): string | undefined {
+	if (identity.kind === "project") return undefined;
 	return launchCodes.has(identity.language) ? identity.language : undefined;
 }
 
@@ -112,7 +113,9 @@ export function automaticTranslationCapability(
 		targetLanguage,
 		status: "not-evaluated",
 		explanation:
-			"Nova can translate automatically between 57 languages so far, and this pair isn't covered yet.",
+			sourceLanguage.kind === "project" || targetLanguage.kind === "project"
+				? "You can copy or translate this text by hand. Automatic translation needs a reviewed language name and writing system for both languages."
+				: "Nova can translate automatically between 57 languages so far, and this pair isn't covered yet.",
 	};
 }
 

@@ -7,6 +7,7 @@
  * is a registration the case list always offers. Each label reads as the
  * text HQ's build writes for it.
  */
+
 import type { HqApplication } from "@/lib/commcare";
 import {
 	type BlueprintDoc,
@@ -14,12 +15,15 @@ import {
 	makeTranslationUnitId,
 	type Uuid,
 } from "@/lib/domain";
+import { advancedRegistrationTarget } from "@/lib/domain/caseListActionTargets";
 import { NO_ENTRIES, recordFromEntries } from "@/lib/domain/records";
 import { caseListFormLabelUnit } from "../../emissionPlan";
+import { formChoosesCase } from "../../hq/entryFacts";
 import { emptyShortListColumns } from "../../hqJson/caseList";
 import { hqXPath, serializeHqModule } from "../../hqJson/xpath";
 import { detailPair, moduleShell } from "../../hqShells";
 import { repeatForLanguages } from "../../localization";
+import { caseListActionUndeclaredInstances } from "../../suite/case-list/actionCondition";
 import { EMPTY_CASE_LIST_TEXT } from "../../suite/case-list/detailTexts";
 import {
 	NEVER_RELEVANT,
@@ -32,8 +36,17 @@ import {
 	caseListRegistrationForm,
 	caseListRegistrationFormInModule,
 } from "../../validator/rules/case-search/caseListRegistration";
+import { caseListReturnFirstMenuCase } from "../../validator/rules/formsInMenuAbove";
 import { serializeWire } from "../../xpath/wire/serialize";
-import { type Claim, defineClaims, drop, refuse, take } from "../claims";
+import { withCandidate } from "../candidate";
+import {
+	type Claim,
+	defineClaims,
+	derived,
+	drop,
+	refuse,
+	take,
+} from "../claims";
 import type { DraftApp, DraftForm, DraftModule, ReadContext } from "../context";
 import {
 	recordTextRewrite,
@@ -41,6 +54,7 @@ import {
 	refuseUnheldText,
 } from "../heldText";
 import { isJsonObject, objectMembers, sameJson } from "../jsonCursor";
+import { pendingPlaceholder } from "../pendingExpressions";
 import { keptMediaPaths } from "../projectionInputs";
 import { sameXPathText } from "../syntaxCompare";
 import {
@@ -48,7 +62,6 @@ import {
 	caseListPlaceOf,
 	draftFormByReadId,
 	effectiveNames,
-	formChoosesCase,
 	heldLabel,
 	labelAsBuilt,
 	labelMap,
@@ -65,7 +78,7 @@ import { readNavMedia, shownBlockMedia } from "./navMedia";
 
 const M = "menus-and-case-lists";
 
-type MenuClass = "Module" | "AdvancedModule";
+type MenuClass = DraftModule["docType"];
 
 /** The registration rows that read the whole block, each per host class. */
 function blockClaims<U extends "take" | "refuse" | "drop">(
@@ -74,6 +87,7 @@ function blockClaims<U extends "take" | "refuse" | "drop">(
 ): Readonly<Record<MenuClass, Claim<U>>> {
 	return {
 		Module: make(`${M}/${entry}`, "schema:Module.case_list_form"),
+		ShadowModule: make(`${M}/${entry}`, "schema:ShadowModule.case_list_form"),
 		AdvancedModule: make(
 			`${M}/${entry}`,
 			"schema:AdvancedModule.case_list_form",
@@ -104,7 +118,7 @@ const REGISTRATION = {
 		"case-list-form-on-a-module-whose-forms-do-not-all-require-a-case",
 	),
 	advanced: blockClaims(
-		refuse,
+		take,
 		"case-list-form-on-an-advanced-module-or-naming-an-advanced-form",
 	),
 	advancedRulesBroken: refuse(
@@ -112,23 +126,31 @@ const REGISTRATION = {
 		"schema:AdvancedModule.case_list_form",
 	),
 	childCase: blockClaims(
-		refuse,
+		take,
 		"case-list-form-pointing-at-a-form-whose-one-registration-of-the-type-is-a-child-case",
 	),
 	anotherList: blockClaims(
-		refuse,
+		take,
 		"case-list-form-naming-a-form-another-list-offers-after-an-empty-search",
 	),
-	sharesFirstMenuCase: refuse(
+	sharedFirstMenuCase: derived(
 		`${M}/case-list-form-on-a-host-under-a-menu-that-shares-the-first-menu-s-case`,
 		"schema:Module.case_list_form",
 	),
+	sharesFirstMenuCase: refuse(
+		`${M}/first-menu-registration-return-without-a-compatible-case`,
+		"schema:Module.case_list_form",
+	),
 	parentFollowUp: blockClaims(
-		refuse,
+		take,
 		"case-list-form-pointing-at-a-follow-up-form-of-the-parent-case",
 	),
-	hiddenDefault: blockClaims(
+	missingCreatedResult: blockClaims(
 		refuse,
+		"case-list-form-return-search-needs-the-created-case",
+	),
+	hiddenDefault: blockClaims(
+		take,
 		"case-list-form-post-form-workflow-default-on-the-hidden-module-shape",
 	),
 	multiSelectDefault: blockClaims(
@@ -170,13 +192,13 @@ const REGISTRATION = {
 		`${M}/case-list-form-relevancy-expression-without-that-toggle`,
 		"schema:CaseListForm.relevancy_expression",
 	),
-	relevancyHeld: refuse(
+	relevancyHeld: take(
 		`${M}/case-list-form-relevancy-expression-with-followup-forms-as-case`,
 		"schema:CaseListForm.relevancy_expression",
 	),
-	customIcons: refuse(
-		`${M}/custom-icons-0-badge-localized-text-or-xpath`,
-		"schema:CustomIcon",
+	customIcons: drop(
+		`${M}/case-list-action-badges`,
+		"schema:CaseListForm.custom_icons",
 	),
 } as const;
 
@@ -198,6 +220,24 @@ defineClaims(
  *  (`app_strings.py::_create_case_list_form_app_strings`). */
 const CREATE_A_NEW_CASE = "Create a new Case";
 
+/**
+ * HQ's build's words, in each language, for a list button with no text of
+ * its own (`app_strings.py::_create_case_list_form_app_strings`): where the
+ * source project space has FOLLOWUP_FORMS_AS_CASE_LIST_FORM, "Continue To"
+ * and the form's name as that language's build reads it (`clean_trans`, the
+ * first of the language and the app's languages that holds a name, else the
+ * first held), and "Create a new Case" otherwise. Where the setting was never
+ * read, the reading keeps HQ's words without it.
+ */
+function emptyLabelText(
+	ctx: ReadContext,
+	formNames: unknown,
+): string | ((lang: string) => string) {
+	if (ctx.input.caseListActionsApplied !== true) return CREATE_A_NEW_CASE;
+	const names = labelAsBuilt(labelMap(formNames), appLanguageCodes(ctx), "");
+	return (lang) => `Continue To ${names[lang] ?? ""}`;
+}
+
 type JsonObject = Readonly<Record<string, unknown>>;
 
 function textOf(value: unknown): string {
@@ -218,33 +258,69 @@ const NO_MATCHES_TEXT = serializeWire(NO_MATCHES_RELEVANCY, {
 	interpolation: "none",
 }).text;
 
-/** How a form registers `caseType`: each root registration it makes of the type. */
+type RegistrationSource =
+	| { kind: "own" }
+	| { kind: "child"; index: number }
+	| { kind: "advanced"; tag: string };
+type ListTargetSource =
+	| RegistrationSource
+	| { kind: "parent"; moduleUuid: Uuid };
+
+/** The registration actions HQ considers, including a stored basic subcase
+ * outside a repeat whose condition no longer runs. Its presence still affects
+ * the form's eligibility (Form.get_registration_actions). */
 function registrationsOf(
 	form: JsonObject,
 	formMenuType: string,
-	caseType: string,
-): readonly ("own" | "child")[] {
+	caseType?: string,
+): RegistrationSource[] {
 	const actions = isJsonObject(form.actions) ? form.actions : NO_ENTRIES;
-	const active = (action: unknown) => {
-		const condition =
-			isJsonObject(action) && isJsonObject(action.condition)
-				? action.condition
-				: NO_ENTRIES;
-		return condition.type === "always" || condition.type === "if";
-	};
-	const atRoot = (one: JsonObject) => blank(one.repeat_context);
 	if (form.doc_type === "AdvancedForm") {
-		const opens = objectMembers(actions.open_cases) ?? [];
-		return opens
-			.filter((open) => open.case_type === caseType && atRoot(open))
-			.map(() => "own" as const);
+		const opens = (objectMembers(actions.open_cases) ?? []).map((open) => ({
+			tag: textOf(open.case_tag),
+			parents: (objectMembers(open.case_indices) ?? []).map((index) =>
+				textOf(index.tag),
+			),
+			caseType: textOf(open.case_type),
+			repeat: !blank(open.repeat_context),
+		}));
+		const candidates = opens.filter(
+			(open) =>
+				(!open.repeat || open.parents.length === 0) &&
+				(caseType === undefined || caseType === open.caseType),
+		);
+		if (candidates.length === 1) {
+			const loads = (objectMembers(actions.load_update_cases) ?? []).map(
+				(load) => ({
+					tag: textOf(load.case_tag),
+					parents:
+						isJsonObject(load.case_index) && !blank(load.case_index.tag)
+							? [textOf(load.case_index.tag)]
+							: [],
+					auto: isJsonObject(load.auto_select),
+				}),
+			);
+			if (!advancedRegistrationTarget(candidates[0], opens, loads)) return [];
+		}
+		return candidates.map((open) => ({ kind: "advanced", tag: open.tag }));
 	}
-	const found: ("own" | "child")[] = [];
-	if (active(actions.open_case) && formMenuType === caseType) found.push("own");
-	const subcases = objectMembers(actions.subcases) ?? [];
-	for (const subcase of subcases)
-		if (subcase.case_type === caseType && atRoot(subcase) && active(subcase))
-			found.push("child");
+	const found: RegistrationSource[] = [];
+	const own =
+		isJsonObject(actions.open_case) && isJsonObject(actions.open_case.condition)
+			? actions.open_case.condition.type
+			: undefined;
+	if (
+		(own === "always" || own === "if") &&
+		(caseType === undefined || formMenuType === caseType)
+	)
+		found.push({ kind: "own" });
+	(objectMembers(actions.subcases) ?? []).forEach((subcase, index) => {
+		if (
+			(caseType === undefined || subcase.case_type === caseType) &&
+			blank(subcase.repeat_context)
+		)
+			found.push({ kind: "child", index });
+	});
 	return found;
 }
 
@@ -264,9 +340,16 @@ function hostParentType(
 	const select = isJsonObject(host.parent_select)
 		? host.parent_select
 		: NO_ENTRIES;
-	if (select.active !== true) return undefined;
+	if (
+		select.active !== true ||
+		(select.relationship !== "parent" && select.relationship != null)
+	)
+		return undefined;
 	const type = textOf(rawModuleById(ctx, select.module_id)?.case_type);
-	return type === "" ? undefined : type;
+	return type === "" ||
+		(select.relationship === "parent" && type === host.case_type)
+		? undefined
+		: type;
 }
 
 /** Whether the media maps of a block hold any path. */
@@ -465,9 +548,11 @@ interface ReadBlock {
 	readonly hidden?: DraftModule;
 	/** Whether a media map's asset was read, so the stored maps are compared. */
 	readonly media: boolean;
+	readonly source?: ListTargetSource;
 }
 
 const READINGS = new WeakMap<ReadContext, ReadBlock[]>();
+const CONDITIONS = new WeakMap<ReadContext, Map<Uuid, number>>();
 
 /** The label of a block, read as HQ's build writes it, with its record where the source
  *  spelling differs from Nova's. Absent where it is the form's name in every language. */
@@ -484,7 +569,7 @@ function readLabel(
 		Object.values(stored).some((text) => textOf(text) !== "");
 	const claim = anyText ? REGISTRATION.label : REGISTRATION.labelEmpty;
 	cursor.take("label", claim, (value) => value).value;
-	const asBuilt = labelAsBuilt(stored, langs, CREATE_A_NEW_CASE);
+	const asBuilt = labelAsBuilt(stored, langs, emptyLabelText(ctx, formNames));
 	const held = heldLabel(ctx, asBuilt, "case-list-registration-label");
 	// A label Nova's gate admits no spelling of (`heldText.ts::unheldText`) is one finding at the
 	// case list, whose settle then compares nothing there, and is kept as built here.
@@ -565,6 +650,7 @@ export function readCaseListRegistration(
 	const stored = rawModules(ctx);
 	const blocks: ReadBlock[] = [];
 	READINGS.set(ctx, blocks);
+	CONDITIONS.set(ctx, new Map());
 	const hiddenNamed = new Map<DraftForm, DraftModule>();
 	const candidates: {
 		host: DraftModule;
@@ -585,7 +671,11 @@ export function readCaseListRegistration(
 		candidates.push({ host, block, named });
 		if (named !== undefined) {
 			const menu = stored[named.module.index] ?? NO_ENTRIES;
-			if (hiddenMenuShape(ctx, json, block, menu))
+			if (
+				ctx.input.caseListActionsApplied === true &&
+				hiddenMenuShape(ctx, json, block, menu) &&
+				!hiddenNamed.has(named.form)
+			)
 				hiddenNamed.set(named.form, host);
 		}
 	}
@@ -602,19 +692,24 @@ export function readCaseListRegistration(
 		}
 		const formMenu = stored[named.module.index] ?? NO_ENTRIES;
 		const form = rawForms(formMenu)[named.form.index] ?? NO_ENTRIES;
-		const parentType = hostParentType(ctx, json);
-		if (formChoosesCase(form)) {
-			if (parentType !== undefined && textOf(formMenu.case_type) === parentType)
-				refuseBlock(REGISTRATION.parentFollowUp);
-			else refuseBlock(REGISTRATION.missing);
-			continue;
+		const formMenuType = textOf(formMenu.case_type);
+		const registrations = registrationsOf(form, formMenuType, caseType);
+		let source: ListTargetSource | undefined =
+			registrations.length === 1 ? registrations[0] : undefined;
+		if (
+			source === undefined &&
+			ctx.input.caseListActionsApplied === true &&
+			formChoosesCase(form) &&
+			hostParentType(ctx, json) === formMenuType &&
+			registrationsOf(form, formMenuType).length !== 1 &&
+			isJsonObject(json.parent_select)
+		) {
+			const parentId = json.parent_select.module_id;
+			const parent = app.modules.find((item) => item.uniqueId === parentId);
+			if (parent !== undefined)
+				source = { kind: "parent", moduleUuid: parent.uuid };
 		}
-		const registrations = registrationsOf(
-			form,
-			textOf(formMenu.case_type),
-			caseType,
-		);
-		if (registrations.length !== 1) {
+		if (!source) {
 			refuseBlock(REGISTRATION.missing);
 			continue;
 		}
@@ -633,32 +728,36 @@ export function readCaseListRegistration(
 			refuseBlock(REGISTRATION.notCaseFirst);
 			continue;
 		}
-		if (cls === "AdvancedModule" || named.module.docType === "AdvancedModule") {
-			if (cls === "AdvancedModule" && caseListModuleRulesBreak(json))
-				host.json.refuse(
-					"case_list_form",
-					REGISTRATION.advancedRulesBroken,
-					undefined,
-					listPlace,
-				);
-			else refuseBlock(REGISTRATION.advanced);
-			continue;
-		}
-		if (registrations[0] === "child") {
-			refuseBlock(REGISTRATION.childCase);
+		if (cls === "AdvancedModule" && caseListModuleRulesBreak(json)) {
+			host.json.refuse(
+				"case_list_form",
+				REGISTRATION.advancedRulesBroken,
+				undefined,
+				listPlace,
+			);
 			continue;
 		}
 		const hiddenHost = hiddenNamed.get(named.form);
-		if (hiddenHost !== undefined && hiddenHost !== host) {
-			refuseBlock(REGISTRATION.anotherList);
+
+		// An authored form destination takes precedence over the list's return.
+		// A dormant list choice supplies no scalar case to a collection.
+		const hasOwnFrame =
+			source.kind === "parent" ||
+			["root", "module", "parent_module", "previous_screen"].includes(
+				textOf(form.post_form_workflow),
+			) ||
+			(form.post_form_workflow === "form" &&
+				(objectMembers(form.form_links) ?? []).length > 0);
+		if (
+			block.post_form_workflow !== "case_list" &&
+			selectsSeveral(json) &&
+			!hasOwnFrame
+		) {
+			refuseBlock(REGISTRATION.multiSelectDefault);
 			continue;
 		}
 		if (hiddenHost === host) {
-			if (block.post_form_workflow === "default") {
-				refuseBlock(REGISTRATION.hiddenDefault);
-				continue;
-			}
-			readHidden(ctx, host, named.module, named.form, form);
+			readHidden(ctx, host, named.module, named.form, form, block);
 			blocks.push({
 				host,
 				kind: "after-empty-search",
@@ -668,12 +767,18 @@ export function readCaseListRegistration(
 			});
 			continue;
 		}
-		if (block.post_form_workflow !== "case_list" && selectsSeveral(json)) {
-			refuseBlock(REGISTRATION.multiSelectDefault);
-			continue;
-		}
-		const media = readAlways(ctx, host, named.form, form, block);
-		blocks.push({ host, kind: "always", form: named.form, media });
+		const claim =
+			source.kind === "parent"
+				? REGISTRATION.parentFollowUp
+				: source.kind === "child"
+					? REGISTRATION.childCase
+					: cls === "AdvancedModule" || source.kind === "advanced"
+						? REGISTRATION.advanced
+						: hiddenHost !== undefined
+							? REGISTRATION.anotherList
+							: REGISTRATION.always;
+		const media = readAlways(ctx, host, named.form, form, block, claim[cls]);
+		blocks.push({ host, kind: "always", form: named.form, media, source });
 	}
 }
 
@@ -684,11 +789,13 @@ function readHidden(
 	menu: DraftModule,
 	form: DraftForm,
 	stored: JsonObject,
+	block: JsonObject,
 ): void {
+	const newCase = block.post_form_workflow === "default";
 	const cursor = host.json.object(
 		"case_list_form",
 		"CaseListForm",
-		REGISTRATION.hidden[host.docType],
+		(newCase ? REGISTRATION.hiddenDefault : REGISTRATION.hidden)[host.docType],
 		caseListPlaceOf(host),
 	);
 	cursor.take("form_id", REGISTRATION.hiddenFormId, (value) => value).value;
@@ -706,6 +813,7 @@ function readHidden(
 			caseListRegistrationForm: {
 				kind: "after-empty-search",
 				formUuid: form.uuid,
+				...(newCase && { afterSubmit: "new-case" }),
 				...(label === undefined ? {} : { label }),
 			},
 		});
@@ -719,11 +827,12 @@ function readAlways(
 	form: DraftForm,
 	stored: JsonObject,
 	block: JsonObject,
+	claim: Claim<"take">,
 ): boolean {
 	const cursor = host.json.object(
 		"case_list_form",
 		"CaseListForm",
-		REGISTRATION.always[host.docType],
+		claim,
 		caseListPlaceOf(host),
 	);
 	cursor.take("form_id", REGISTRATION.alwaysFormId, (value) => value).value;
@@ -731,11 +840,51 @@ function readAlways(
 		block.post_form_workflow === "case_list" ? "case-list" : "new-case";
 	cursor.take("post_form_workflow", REGISTRATION.workflow, (value) => value)
 		.value;
-	if (!blank(block.relevancy_expression))
-		cursor.refuse("relevancy_expression", REGISTRATION.relevancyHeld);
-	else cursor.drop("relevancy_expression", REGISTRATION.relevancyInert);
+	const text = block.relevancy_expression;
+	let showWhen: import("@/lib/domain").AlwaysOfferedRegistration["showWhen"];
+	if (
+		ctx.input.caseListActionsApplied === true &&
+		typeof text === "string" &&
+		text.trim() !== ""
+	) {
+		if (
+			formsReadSearch(rawModules(ctx)[host.index] ?? NO_ENTRIES) &&
+			sameXPathText(text, NO_MATCHES_TEXT)
+		) {
+			cursor.take(
+				"relevancy_expression",
+				REGISTRATION.relevancyHeld,
+				(value) => value,
+			).value;
+			showWhen = { kind: "empty-search" };
+		} else {
+			const index = ctx.pending.register(
+				{
+					ref: {
+						entity: "module",
+						uuid: host.uuid,
+						slot: "case_list_action_condition",
+					},
+					text,
+					mode: { target: "hq-json", interpolation: "none" },
+					place: caseListPlaceOf(host),
+					key: "schema:CaseListForm.relevancy_expression",
+				},
+				{ json: cursor, key: "relevancy_expression" },
+			);
+			CONDITIONS.get(ctx)?.set(host.uuid, index);
+			showWhen = {
+				kind: "condition",
+				condition: pendingPlaceholder("condition"),
+			};
+		}
+	} else if (!blank(text) && ctx.input.caseListActionsApplied !== false) {
+		ctx.accounting.circumstance("unrecognized", caseListPlaceOf(host), {
+			name: "schema:CaseListForm.relevancy_expression",
+		});
+	} else cursor.drop("relevancy_expression", REGISTRATION.relevancyInert);
 	if (Array.isArray(block.custom_icons) && block.custom_icons.length > 0)
-		cursor.refuse("custom_icons", REGISTRATION.customIcons);
+		cursor.drop("custom_icons", REGISTRATION.customIcons);
 	const label = readLabel(ctx, cursor, host, stored.name);
 	const media = readNavMedia(
 		ctx,
@@ -751,16 +900,80 @@ function readAlways(
 			caseListRegistrationForm: {
 				kind: "always",
 				formUuid: form.uuid,
+				...(showWhen === undefined ? {} : { showWhen }),
 				...(label === undefined ? {} : { label }),
-				...(media.icon === undefined ? {} : { icon: media.icon }),
-				...(media.audioLabel === undefined
-					? {}
-					: { audioLabel: media.audioLabel }),
+				...media,
 				afterSubmit,
 			},
 		});
 	});
 	return media.icon !== undefined || media.audioLabel !== undefined;
+}
+
+/** Each source operation now has its stable UUID and its original HQ placement.
+ * Bind by that exact position or case tag, never by a display name or case type. */
+export function bindCaseListActionTargets(ctx: ReadContext): void {
+	for (const read of READINGS.get(ctx) ?? []) {
+		const source = read.source;
+		const slot = read.host.module.caseListRegistrationForm;
+		if (!source || source.kind === "own" || slot?.kind !== "always") continue;
+		if (source.kind === "parent") {
+			ctx.writeDraft(() => {
+				slot.target = { kind: "chosen-parent", moduleUuid: source.moduleUuid };
+				// HQ's page offers a follow-up no other return, and its build writes
+				// none (`parentFollowUpsReturnToTheList`).
+				slot.afterSubmit = "case-list";
+			});
+			continue;
+		}
+		const operation = read.form.form.caseOperations?.find(({ placement }) =>
+			source.kind === "advanced"
+				? placement?.kind === "advanced" && placement.tag === source.tag
+				: placement?.kind === "basic" &&
+					placement.slot === "subcase" &&
+					placement.index === source.index,
+		);
+		if (operation?.action === "own") continue;
+		if (operation?.action === "create") {
+			ctx.writeDraft(() => {
+				slot.target = { kind: "created-case", operationUuid: operation.uuid };
+			});
+		} else {
+			ctx.accounting.circumstance("unrecognized", caseListPlaceOf(read.host), {
+				name: "schema:CaseListForm.form_id",
+			});
+		}
+	}
+}
+
+export function settleCaseListActionConditions(ctx: ReadContext): void {
+	const conditions = CONDITIONS.get(ctx);
+	if (ctx.doc === undefined || !conditions?.size) return;
+	ctx.doc = withCandidate(ctx.doc, (draft) => {
+		for (const [host, index] of conditions) {
+			const condition = ctx.pending.outcome(index).expression;
+			const slot = draft.modules[host]?.caseListRegistrationForm;
+			if (slot?.kind === "always" && condition !== undefined)
+				slot.showWhen = { kind: "condition", condition };
+		}
+	});
+	/* HQ's build declares no instance for what only the condition reads, so
+	 * a condition reading one fails the list on the device: no document of
+	 * Nova's holds it (`caseListActionVisibility`), and the reading stops. */
+	const doc = ctx.doc;
+	for (const host of conditions.keys()) {
+		const slot = doc.modules[host]?.caseListRegistrationForm;
+		if (slot?.kind !== "always") continue;
+		if (
+			caseListActionUndeclaredInstances(doc, host, slot.showWhen).length === 0
+		)
+			continue;
+		const block = READINGS.get(ctx)?.find((read) => read.host.uuid === host);
+		if (block === undefined) continue;
+		ctx.accounting.circumstance("unrecognized", caseListPlaceOf(block.host), {
+			name: "schema:CaseListForm.relevancy_expression",
+		});
+	}
 }
 
 // ── Acceptance ──────────────────────────────────────────────────────────
@@ -789,6 +1002,19 @@ function gateFindings(
 		);
 		if (found.length === 0) continue;
 		refused.add(block.host.uuid);
+		if (
+			found.some(
+				(error) =>
+					error.code === "CASE_LIST_REGISTRATION_REQUIRES_CREATED_RESULT",
+			)
+		) {
+			ctx.accounting.findingAt(
+				REGISTRATION.missingCreatedResult[block.host.docType],
+				caseListPlaceOf(block.host),
+				`${block.host.json.pointer}/case_list_form`,
+			);
+			continue;
+		}
 		const shared = found.find(
 			(error) =>
 				(error.details as { reason?: unknown } | undefined)?.reason ===
@@ -853,9 +1079,10 @@ export function settleRegistrations(
 			continue;
 		}
 		// Each label as the reading holds it (`modules.ts::heldLabel`).
+		const empty = emptyLabelText(ctx, block.form.json.peek("name"));
 		const builtSource = heldLabel(
 			ctx,
-			labelAsBuilt(labelMap(source.label), langs, CREATE_A_NEW_CASE),
+			labelAsBuilt(labelMap(source.label), langs, empty),
 			"case-list-registration-label",
 		);
 		const builtOurs = heldLabel(
@@ -867,7 +1094,7 @@ export function settleRegistrations(
 					labelMap(emitted.label),
 				),
 				langs,
-				CREATE_A_NEW_CASE,
+				empty,
 			),
 			"case-list-registration-label",
 		);
@@ -879,11 +1106,22 @@ export function settleRegistrations(
 			unrecognized("schema:CaseListForm.label");
 			continue;
 		}
-		if (source.post_form_workflow !== emitted.post_form_workflow) {
+		// A selected parent's follow-up returns to the list whatever HQ holds
+		// (`parentFollowUpsReturnToTheList`): HQ's build reads the value for
+		// no such form, and a spelling rule of the proof lane erases it
+		// (`proof/rules/case_list_form_follow_up_return.py`).
+		const followUpReturn =
+			block.source?.kind === "parent" &&
+			source.post_form_workflow === "default" &&
+			emitted.post_form_workflow === "case_list";
+		if (
+			source.post_form_workflow !== emitted.post_form_workflow &&
+			!followUpReturn
+		) {
 			unrecognized("schema:CaseListForm.post_form_workflow");
 			continue;
 		}
-		if (block.kind === "after-empty-search") {
+		if (ctx.input.caseListActionsApplied === true) {
 			if (
 				!sameValue(source.relevancy_expression, emitted.relevancy_expression)
 			) {
@@ -906,6 +1144,15 @@ export function settleRegistrations(
 				unrecognized(`schema:CaseListForm.${differs}`);
 				continue;
 			}
+		}
+		if (caseListReturnFirstMenuCase(doc, block.host.uuid)?.conflict === false) {
+			const claim = REGISTRATION.sharedFirstMenuCase;
+			ctx.accounting.claimEntryClass(
+				{ json: block.host.json, key: "case_list_form" },
+				claim.entry,
+				`schema:${block.host.docType}.case_list_form`,
+				listPlace,
+			);
 		}
 		if (block.hidden !== undefined) {
 			const menu = stored[block.hidden.index] ?? NO_ENTRIES;
@@ -952,4 +1199,36 @@ export function registrationFormLast(doc: BlueprintDoc): BlueprintDoc {
 		changed = true;
 	}
 	return changed ? { ...doc, formOrder } : doc;
+}
+
+/**
+ * A list action that opens a selected parent's follow-up returns to the list
+ * whatever it stores: CommCare HQ's menu settings page offers only "Go back to
+ * case list" for a form that registers nothing of the list's type
+ * (`module_view.js::caseListFormModel`), so Nova writes `case_list` for it
+ * (`expander.ts`), and HQ's build writes no return frame for it
+ * (`workflow.py::CaseListFormWorkflow`). A document storing `new-case` there
+ * prints what one storing `case-list` prints; the reader returns `case-list`.
+ */
+export function parentFollowUpsReturnToTheList(
+	doc: BlueprintDoc,
+): BlueprintDoc {
+	const held = (
+		slot: BlueprintDoc["modules"][string]["caseListRegistrationForm"],
+	) => slot?.kind === "always" && slot.target?.kind === "chosen-parent";
+	if (
+		!Object.values(doc.modules).some(
+			(module) =>
+				held(module.caseListRegistrationForm) &&
+				module.caseListRegistrationForm?.afterSubmit !== "case-list",
+		)
+	)
+		return doc;
+	return withCandidate(doc, (draft) => {
+		for (const module of Object.values(draft.modules)) {
+			const slot = module.caseListRegistrationForm;
+			if (slot?.kind === "always" && slot.target?.kind === "chosen-parent")
+				slot.afterSubmit = "case-list";
+		}
+	});
 }

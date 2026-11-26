@@ -147,6 +147,29 @@ export function replaceOptionPlainLabel<T extends SelectOption>(
 		return (plain ? { ...base, plainLabel: true } : base) as T;
 	});
 }
+/**
+ * The rows as the options write stores them: every choice the field already
+ * holds keeps its stored files. The inspector's rows come from the worker
+ * language's projection, where each choice carries the one file per role
+ * that language sees and no `mediaByLanguage`; writing those back whole
+ * would drop every language's own files, or, under another language, make
+ * that language's file the shared one. A choice's files change only through
+ * `setFieldMedia`, so a new row keeps whatever its draft holds.
+ */
+export function withStoredOptionMedia<T extends SelectOption>(
+	stored: readonly SelectOption[] | undefined,
+	next: readonly T[],
+): T[] {
+	const byUuid = new Map(stored?.map((option) => [option.uuid, option]));
+	return next.map((option) => {
+		const saved = byUuid.get(option.uuid);
+		if (saved === undefined) return option;
+		const { media: _projected, ...base } = option;
+		return (
+			saved.media === undefined ? base : { ...base, media: saved.media }
+		) as T;
+	});
+}
 export function removeOptionDraft<T extends SelectOption>(
 	draft: T[],
 	index: number,

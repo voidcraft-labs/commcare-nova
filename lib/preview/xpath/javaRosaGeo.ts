@@ -112,7 +112,7 @@ function requiredPointAndPolygon(
 	return { point: canonicalize(point), polygon: parsePolygon(polygonText) };
 }
 
-function parsePoint(value: string): Point {
+export function parsePoint(value: string): Point {
 	const coordinates = splitPointCoordinates(value);
 	if (coordinates.length < 2) {
 		throw new Error("Fewer than two coordinates provided.");
@@ -128,7 +128,7 @@ function parsePoint(value: string): Point {
 	return { latitude, longitude };
 }
 
-function parsePolygon(value: string): readonly Point[] {
+export function parsePointList(value: string): Point[] {
 	const coordinates = splitPolygonCoordinates(value);
 	if (coordinates.length % 2 !== 0) {
 		throw new Error("A polygon requires latitude/longitude pairs.");
@@ -142,6 +142,11 @@ function parsePolygon(value: string): readonly Point[] {
 		validateCoordinates(point);
 		polygon.push(canonicalize(point));
 	}
+	return polygon;
+}
+
+export function parsePolygon(value: string): readonly Point[] {
+	const polygon = parsePointList(value);
 	if (
 		polygon.length > 2 &&
 		!samePoint(polygon[0], polygon[polygon.length - 1])

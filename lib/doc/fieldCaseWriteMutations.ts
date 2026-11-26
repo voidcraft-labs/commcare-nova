@@ -58,6 +58,7 @@ import {
 import { resolveRelationDestination } from "@/lib/domain/expression/relationDestination";
 import { caseOperationMultiplicityScopes } from "./caseOperationOrder";
 import { deepEqual } from "./deepEqual";
+import { entryCaseCreationsLeftBy } from "./entryCaseCreationCascade";
 import { descendantFieldUuids } from "./fieldWalk";
 import { catalogMutationsForOperations } from "./scaffolds";
 import type { Mutation } from "./types";
@@ -750,6 +751,7 @@ function finish(draft: PlanDraft): string | undefined {
 		}),
 	);
 	draft.mutations.unshift(...catalog);
+	draft.mutations.push(...entryCaseCreationsLeftBy(ctx.form, draft.operations));
 	return undefined;
 }
 

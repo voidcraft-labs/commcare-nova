@@ -22,6 +22,9 @@
  *   `auto_gps_capture` from the Connect type
  *   (`lib/commcare/expander.ts::expandDoc` into
  *   `lib/commcare/hqShells.ts::applicationShell`);
+ * - an edit of the app's menu layouts (`setAppSettings` with
+ *   `firstMenuLayout` or `formMenuLayout`) reaches every module, whose
+ *   menu's style the layouts decide;
  * - a form reaches the module(s) holding it on either side, since a
  *   module's wire lists its forms;
  * - a case list registration form reaches the synthetic module the
@@ -110,8 +113,8 @@ import { emissionPlan } from "@/lib/commcare/emissionPlan";
 import { expandDoc } from "@/lib/commcare/expander";
 import { moduleExpressionContexts } from "@/lib/commcare/expressionContext";
 import {
-	alwaysOfferedReturnFrames,
-	alwaysOfferedTarget,
+	caseListActionReturnFrames,
+	caseListActionTarget,
 	caseListSessionDatums,
 	commonPrefixById,
 	entryFrameDatums,
@@ -126,8 +129,17 @@ import {
 	lookupWireNaming,
 } from "@/lib/commcare/lookup/naming";
 import type { SessionDatum } from "@/lib/commcare/session";
+import { detailBindings } from "@/lib/commcare/suite/case-list/detailBindings";
+import { detailTabRowNodes } from "@/lib/commcare/suite/case-list/detailTabRows";
+import {
+	caseContextDetailIds,
+	caseContextLineDetail,
+} from "@/lib/commcare/suite/case-list/formContext";
+import { buildLongDetail } from "@/lib/commcare/suite/case-list/longDetail";
+import { buildShortDetail } from "@/lib/commcare/suite/case-list/shortDetail";
 import { moduleUsesInlineSearch } from "@/lib/commcare/suite/case-search/inlineSearch";
 import { searchNeedsSupportingCases } from "@/lib/commcare/suite/case-search/relatedCaseProjection";
+import type { WireTermBindings } from "@/lib/commcare/xpath/wire/fromExpression";
 import { toWire } from "@/lib/commcare/xpath/wire/fromExpression";
 import { InstanceSink } from "@/lib/commcare/xpath/wire/instances";
 import { serializeWire } from "@/lib/commcare/xpath/wire/serialize";
@@ -150,7 +162,6 @@ import {
 	collectTranslationUnits,
 	type EntryPointTarget,
 	effectiveAppLocalization,
-	effectiveCaseSearchConfig,
 	emptyCaseListConfig,
 	entityTargetKey,
 	entryPointByUuid,
@@ -167,6 +178,10 @@ import {
 	type Uuid,
 	userPropertyTargetKey,
 } from "@/lib/domain";
+import {
+	caseContextLine,
+	resolveCaseFormContext,
+} from "@/lib/domain/caseFormContext";
 import {
 	type ExpressionContext,
 	substituteUnansweredSearchInputs,
@@ -242,7 +257,8 @@ export interface Footprint {
 	 * profile properties Nova derives, or the add-ons the app needs.
 	 */
 	readonly app: boolean;
-	/** Every entity in the footprint: modules, forms, fields and the other carriers. */
+	/** Every entity in the footprint: modules, forms, fields and the other carriers, and the tag of each
+	 *  language the batch recodes. */
 	readonly entities: readonly string[];
 	/** The footprint's modules on either side's wire (synthetic ones by their derived uuid). */
 	readonly modules: readonly string[];
@@ -254,6 +270,10 @@ const APP_WIDE_KINDS: ReadonlySet<Mutation["kind"]> = new Set([
 	"addLanguage",
 	"removeLanguage",
 	"setDefaultLanguage",
+	"moveLanguage",
+	"rebindLanguageCodes",
+	"rebaseSourceLanguage",
+	"setProjectLanguageDirection",
 	"relabelSourceLanguage",
 	"setConnectType",
 ]);
@@ -266,6 +286,7 @@ const APP_LEVEL_KINDS: ReadonlySet<Mutation["kind"]> = new Set([
 	"retireCaseType",
 	"addCaseProperty",
 	"setCaseProperty",
+	"moveCaseProperty",
 	"removeCaseProperty",
 	"setCaseTypeMeta",
 	"renameCaseProperties",
@@ -340,6 +361,7 @@ function decidedEntities(
 			return sides.flatMap((doc) =>
 				catalogReaders(doc, mutation.caseType, mutation.property.name),
 			);
+		case "moveCaseProperty":
 		case "removeCaseProperty":
 			return sides.flatMap((doc) =>
 				catalogReaders(doc, mutation.caseType, mutation.property),
@@ -410,10 +432,10 @@ function wireSide(
 	return {
 		wire,
 		layout: wireLayout(doc),
-		links: formLinkProjectionContext(
-			wire,
-			lookupNaming === undefined ? {} : { lookupNaming },
-		),
+		links: formLinkProjectionContext(wire, {
+			expressionDoc: doc,
+			...(lookupNaming !== undefined && { lookupNaming }),
+		}),
 		lookupNaming,
 	};
 }
@@ -602,16 +624,20 @@ const ownCaseType: ModuleDerivation = {
  *   input dependency substituted away first
  *   (`lib/commcare/suite/case-list/nodesetFilter.ts::emitNodesetFilter` and
  *   `emitExcludedOwnerFilterExpression`);
- * - `caseListConfig.tile.persistOnForms`: the datum's `detail-persistent`.
+ * - the selected record's form context: its persistent detail and any inline
+ *   expansion, resolved from the local and referenced menu. A line's text
+ *   affects the detail itself; only the reference reaches the datum.
  *
  * The instances the filter and owner exclusion reach are declared by the
  * module's case-loading entries (`ownEntryInstances`).
  */
 const selectionDatum: ModuleDerivation = {
-	settings: (_side, module) => ({
+	settings: (side, module) => ({
 		filter: module.caseListConfig?.filter,
 		excludedOwnerIds: module.caseSearchConfig?.excludedOwnerIds,
-		persistOnForms: module.caseListConfig?.tile?.persistOnForms,
+		formContext: caseContextDetailIds(side.wire, module.uuid, (uuid) =>
+			side.layout.findIndex((held) => held.uuid === uuid),
+		),
 	}),
 	holders: selectionForms,
 	framed: false,
@@ -778,8 +804,10 @@ const groupingConnection: ModuleDerivation = {
  *
  * - the filter's and the owner exclusion's, each with its search inputs
  *   substituted away as the nodeset reads it;
- * - the search button's display condition's, on a module whose forms do
- *   not read the search (`compileCcz` drops it on one whose forms do);
+ * - not the search button's display condition's: the commit gate admits a
+ *   condition only where every entry showing the list already declares what
+ *   it reads (`suite/case-search/buttonCondition.ts`, HQ's build declaring
+ *   none for an action's `relevant`), so it adds no instance to an entry;
  * - each emitted calculated column's, under the module's search input
  *   instance (through its own column expression slot).
  *
@@ -800,27 +828,26 @@ const ownEntryInstances: ModuleDerivation = {
 		const instances = (
 			expression: Parameters<typeof toWire>[0],
 			types: ExpressionContext,
+			bindings?: WireTermBindings,
 		) =>
 			new InstanceSink(
 				serializeWire(
 					toWire(expression, {
 						target: "suite",
 						types,
-						bindings:
-							naming === undefined
-								? {}
-								: {
-										lookup: { naming, instanceScope: "suite" },
-									},
+						bindings: {
+							...bindings,
+							...(naming && {
+								lookup: { naming, instanceScope: "suite" as const },
+							}),
+						},
 					}),
 					{ target: "suite" },
 				).instances,
 			)
 				.declarations()
 				.map(({ id }) => id);
-		const searchButton = moduleUsesInlineSearch(module)
-			? undefined
-			: effectiveCaseSearchConfig(module)?.searchButtonDisplayCondition;
+		const bindings = detailBindings(side.wire, module);
 		const calculated = new Set<string>();
 		for (const column of module.caseListConfig?.columns ?? []) {
 			if (
@@ -835,11 +862,38 @@ const ownEntryInstances: ModuleDerivation = {
 					slot: "case_list_column_expression",
 					member: { columnUuid: column.uuid },
 				}),
+				bindings,
 			)) {
 				calculated.add(id);
 			}
 		}
+		const tabSources = new Set<string>();
+		for (const tab of module.caseListConfig?.detailTabs ?? []) {
+			const nodes = detailTabRowNodes(
+				tab,
+				moduleUsesInlineSearch(module) ? "results:inline" : "casedb",
+				expressions,
+				naming,
+				bindings,
+			);
+			if (nodes)
+				for (const decl of serializeWire(nodes, { target: "suite" }).instances)
+					tabSources.add(decl.id);
+		}
+		const context = resolveCaseFormContext(side.wire.modules, module.uuid);
+		const line =
+			context?.kind === "line"
+				? caseContextLine(module.caseListConfig?.contextAboveForm)
+				: undefined;
 		return {
+			tabSources: [...tabSources],
+			formContext: line
+				? instances(
+						line,
+						expressions({ slot: "case_form_context_line" }),
+						bindings,
+					)
+				: [],
 			filter:
 				filter === undefined
 					? []
@@ -853,13 +907,6 @@ const ownEntryInstances: ModuleDerivation = {
 					: instances(
 							substituteUnansweredSearchInputs(owners),
 							expressions({ slot: "excluded_owner_ids" }),
-						),
-			searchButton:
-				searchButton === undefined
-					? []
-					: instances(
-							searchButton,
-							expressions({ slot: "search_button_display_condition" }),
 						),
 			calculatedColumns: [...calculated],
 		};
@@ -984,13 +1031,17 @@ const commonFrameDatums: ModuleDerivation = {
  * that form stands in a menu of the projection.
  */
 const offeredRegistrationForms: Holders = (side, moduleUuid) => {
-	const target = alwaysOfferedTarget(side.wire, side.links, moduleUuid as Uuid);
+	const target = caseListActionTarget(
+		side.wire,
+		side.links,
+		moduleUuid as Uuid,
+	);
 	return target === undefined ? [] : [target.formUuid];
 };
 
 /**
  * The return frames the module's case list registration writes into the
- * entry of the form it always offers (`alwaysOfferedReturnFrames`, as
+ * entry of the form it always offers (`caseListActionReturnFrames`, as
  * `CaseListFormWorkflow.case_list_forms_frames` writes them): its arm's
  * form and After registering, the form's own after-submit, and the commands
  * and datums of the module and its parent the frames carry. Read through
@@ -1000,9 +1051,9 @@ const offeredRegistrationForms: Holders = (side, moduleUuid) => {
  */
 const registrationReturnFrames: ModuleDerivation = {
 	settings: (side, _module, moduleUuid) => {
-		const target = alwaysOfferedTarget(side.wire, side.links, moduleUuid);
+		const target = caseListActionTarget(side.wire, side.links, moduleUuid);
 		if (target === undefined) return undefined;
-		const frames = alwaysOfferedReturnFrames(
+		const frames = caseListActionReturnFrames(
 			side.wire,
 			side.links,
 			moduleUuid,
@@ -1114,6 +1165,7 @@ function editedTargetKeys(
 					casePropertyTargetKey(mutation.caseType, mutation.property.name),
 				);
 				break;
+			case "moveCaseProperty":
 			case "removeCaseProperty":
 				keys.add(casePropertyTargetKey(mutation.caseType, mutation.property));
 				break;
@@ -1136,6 +1188,81 @@ interface DerivedForms {
 	readonly framed: ReadonlySet<string>;
 }
 
+/** The source of a persistent tile may be a different menu anywhere in the
+ * app. Its physical short/long detail decides which instances the consuming
+ * form's entry declares. A shared earlier selection can carry a context too. */
+function formContextInstances(side: WireSide): Map<string, readonly string[]> {
+	const byForm = new Map<string, readonly string[]>();
+	if (
+		!Object.values(side.wire.modules).some(
+			(module) =>
+				module.caseListConfig?.contextAboveForm ||
+				module.caseListConfig?.tile?.persistOnForms,
+		)
+	)
+		return byForm;
+	const details = new Map<string, () => readonly string[]>();
+	for (const [index, held] of side.layout.entries()) {
+		const module = side.wire.modules[held.uuid as Uuid];
+		if (!module?.caseListConfig) continue;
+		const args = {
+			doc: side.wire,
+			moduleIndex: index,
+			module,
+			lookupNaming: side.lookupNaming,
+			...(moduleUsesInlineSearch(module) && {
+				caseSource: "results:inline" as const,
+			}),
+		};
+		details.set(`m${index}_case_short`, () =>
+			buildShortDetail(args).instances.map((d) => d.id),
+		);
+		details.set(`m${index}_case_long`, () =>
+			buildLongDetail(args).instances.map((d) => d.id),
+		);
+		details.set(`m${index}_persistent_case_context`, () => {
+			const expressions = moduleExpressionContexts(
+				side.wire,
+				module.uuid,
+				side.lookupNaming,
+			);
+			return (
+				caseContextLineDetail(
+					module,
+					index,
+					expressions,
+					side.lookupNaming,
+					detailBindings(side.wire, module),
+				)?.instances.map((d) => d.id) ?? []
+			);
+		});
+	}
+	const cached = new Map<string, readonly string[]>();
+	for (const held of side.layout)
+		for (const form of held.forms) {
+			const ids = new Set<string>();
+			for (const datum of entrySessionDatums(
+				side.wire,
+				side.links,
+				held.uuid as Uuid,
+				form as Uuid,
+			)) {
+				for (const id of [datum.detailPersistent, datum.detailInline]) {
+					if (!id) continue;
+					const decls = cached.get(id) ?? details.get(id)?.();
+					if (!decls)
+						throw new Error(
+							`Form context references a missing detail '${id}'.`,
+						);
+					cached.set(id, decls);
+					for (const instance of decls) ids.add(instance);
+				}
+			}
+			if (ids.size) byForm.set(form, [...ids].sort());
+		}
+	return byForm;
+}
+
 /**
  * The forms whose wire Nova derives from what the batch changed in its
  * modules (`MODULE_DERIVATIONS`, each reaching the holders of the setting
@@ -1152,6 +1279,14 @@ function moduleDerivedForms(
 	const sides = [wireSide(before, lookupNaming), wireSide(after, lookupNaming)];
 	const forms = new Set<string>();
 	const framed = new Set<string>();
+	const [beforeContext, afterContext] = sides.map(formContextInstances);
+	for (const uuid of new Set([
+		...beforeContext.keys(),
+		...afterContext.keys(),
+	])) {
+		if (!isDeepStrictEqual(beforeContext.get(uuid), afterContext.get(uuid)))
+			forms.add(uuid);
+	}
 	const reach = (moduleUuid: string, holders: Holders, isFramed: boolean) => {
 		for (const side of sides) {
 			if (side.wire.modules[moduleUuid as Uuid] === undefined) continue;
@@ -1222,6 +1357,15 @@ export function batchFootprint(
 			applyMutations(draft, [mutation]);
 		});
 		for (const uuid of subjectsOf(mutation, state, next)) touched.add(uuid);
+		// The app's menu layouts style every menu's screen
+		// (`compiler.ts`, `menuScreens.ts::menuContributionLayout`).
+		if (
+			mutation.kind === "setAppSettings" &&
+			("firstMenuLayout" in mutation.settings ||
+				"formMenuLayout" in mutation.settings)
+		)
+			for (const doc of [state, next])
+				for (const uuid of Object.keys(doc.modules)) touched.add(uuid);
 		for (const uuid of movedDestinations(state, next)) touched.add(uuid);
 		for (const uuid of decidedEntities(mutation, d, dPrime)) {
 			decided.add(uuid);
@@ -1327,6 +1471,17 @@ export function batchFootprint(
 	);
 	for (const form of derived.forms) entities.add(form);
 	for (const reader of readersOf(derived.framed)) entities.add(reader);
+	/* A language the batch recodes keeps its tag and takes another code
+	 * (`rebindLanguageCodes`, and the temporary code a source-language rebase
+	 * passes through): its code on the wire is the batch's, and the identity
+	 * check pairs every other language with itself by its unchanged code. */
+	const codes = new Map(
+		wireLanguages(before).map((language) => [language.tag, language.code]),
+	);
+	for (const { tag, code } of wireLanguages(after)) {
+		const was = codes.get(tag);
+		if (was !== undefined && was !== code) entities.add(tag);
+	}
 
 	const modules = new Set<string>();
 	const forms = new Set<string>();

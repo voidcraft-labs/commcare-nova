@@ -197,7 +197,15 @@ describe("a form's answers", () => {
 				appearance: null,
 				counted: true,
 			},
-			{ path: "/data/r", kind: "group", appearance: null, counted: false },
+			/* A group whose rows repeat: the Web Apps row layout for repeats
+			 * reads it. */
+			{
+				path: "/data/r",
+				kind: "group",
+				appearance: null,
+				counted: false,
+				hasRepeatingRows: true,
+			},
 			{
 				path: "/data/r/item",
 				kind: "repeat",
@@ -452,4 +460,33 @@ describe("Core's type classes", () => {
 		}
 		expect(CORE_BIND_TYPE_CLASSES.size).toBe(52);
 	});
+});
+
+it("reads a listing menu's case type from its source, whatever its stored key holds", () => {
+	const app = application([]);
+	const listing = (caseType: string | null) => ({
+		doc_type: "ShadowModule",
+		unique_id: "menu-2",
+		source_module_id: "menu-1",
+		case_type: caseType,
+		forms: [],
+	});
+	// HQ's `ShadowModule.case_type` is the source module's, so the key an app
+	// saved earlier stored, and one it never stored, read the same.
+	for (const stored of [null, "household", "anything"])
+		expect(
+			sourceIdentity({
+				...app,
+				modules: [...(app.modules as unknown[]), listing(stored)],
+			}).menus[1]?.caseType,
+		).toBe("household");
+	expect(
+		sourceIdentity({
+			...app,
+			modules: [
+				...(app.modules as unknown[]),
+				{ ...listing("household"), source_module_id: "gone" },
+			],
+		}).menus[1]?.caseType,
+	).toBeNull();
 });

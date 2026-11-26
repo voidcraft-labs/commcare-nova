@@ -2,11 +2,13 @@
  * Judging a reading's media files against a CommCare HQ peer the test holds
  * open: the real media reader, the real gate, a loopback socket.
  *
- * A window that lets memory follow the app, a read that stores, bytes kept for
- * a file that will not come in, an unbounded fetch, a wrong retry rule and work
- * that outlives its request are what these cases catch.
+ * A window that lets memory follow the app, a read that stores, bytes staged
+ * for a file that will not come in, bytes held after they are staged, an
+ * unbounded fetch, a count of files that stops the read, a wrong retry rule and
+ * work that outlives its request are what these cases catch.
  */
 
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { join } from "node:path";
@@ -21,23 +23,34 @@ import {
 	type MediaKind,
 } from "@/lib/domain/multimedia";
 import { validateSniffedMediaBytes } from "@/lib/media/validate";
-import { deleteAsset, uploadAssetBytes } from "@/lib/storage/media";
+import {
+	deleteAsset,
+	type StagedObject,
+	stageAssetBytes,
+	uploadAssetBytes,
+} from "@/lib/storage/media";
 import { unionPlan, withJudged } from "../../../hqChanges/review";
 import { provisionalReadingMediaId } from "../../mediaIds";
 import {
 	adoptedMediaFiles,
 	type HqMediaReference,
-	mediaBudgetFinding,
+	type JudgedMediaFile,
 	planReadingMedia,
 	type ReadingMediaPlan,
 	readingMediaFindings,
 	readingMediaRows,
 } from "../media";
-import { judgeReadingMedia } from "../mediaStore";
+import {
+	judgeReadingMedia,
+	type MediaStaging,
+	memoryMediaStaging,
+} from "../mediaStore";
 
 vi.mock("@/lib/storage/media", () => ({
 	uploadAssetBytes: vi.fn(),
 	deleteAsset: vi.fn(),
+	stageAssetBytes: vi.fn(),
+	deleteAssetGeneration: vi.fn(),
 }));
 vi.mock("@/lib/media/validate", async (importOriginal) => {
 	const actual = await importOriginal<typeof import("@/lib/media/validate")>();
@@ -89,7 +102,7 @@ function planOf(
 			provisionalId: provisionalReadingMediaId(APP, TYPE[kind], id),
 		})),
 		verdicts: {},
-		kept: new Map(),
+		staged: new Map(),
 		published: {},
 	};
 }
@@ -171,17 +184,41 @@ async function withPeer<T>(run: (peer: Peer) => Promise<T>): Promise<T> {
 	return withSocketHttpPeer(HOST, peer.onRequest, () => run(peer));
 }
 
+/** A create's staging held in the test: what it was handed, each staged under a key of its
+ *  own, never written. */
+function recordingStaging(): MediaStaging & {
+	readonly calls: { readonly file: JudgedMediaFile; readonly bytes: Buffer }[];
+} {
+	const calls: { readonly file: JudgedMediaFile; readonly bytes: Buffer }[] =
+		[];
+	return {
+		...memoryMediaStaging(),
+		calls,
+		stage: async (file, bytes): Promise<StagedObject> => {
+			calls.push({ file, bytes });
+			return {
+				gcsObjectKey: `pending/project/${calls.length}${file.extension}`,
+				generation: String(calls.length),
+				checksum: "staged",
+			};
+		},
+	};
+}
+
 /** Calls `judgeReadingMedia`, counting verdicts as they come in for the peer to wait on. */
 function judge(
 	peer: Peer,
 	plan: ReadingMediaPlan,
-	options: { readonly keep?: boolean; readonly cancel?: AbortSignal } = {},
+	options: {
+		readonly stage?: MediaStaging;
+		readonly cancel?: AbortSignal;
+	} = {},
 ) {
 	const progress: number[] = [];
 	const answer = judgeReadingMedia({
 		creds: CREDS,
 		plan,
-		keep: options.keep ?? false,
+		...(options.stage !== undefined && { stage: options.stage }),
 		onProgress: (done, total) => {
 			expect(total).toBe(plan.files.length);
 			progress.push(done);
@@ -193,7 +230,9 @@ function judge(
 }
 
 afterEach(() => {
+	/* Judging writes nothing to the bucket itself: a create's staging is its caller's. */
 	expect(uploadAssetBytes).not.toHaveBeenCalled();
+	expect(stageAssetBytes).not.toHaveBeenCalled();
 	expect(deleteAsset).not.toHaveBeenCalled();
 	vi.mocked(validateSniffedMediaBytes).mockClear();
 });
@@ -240,7 +279,9 @@ describe("judgeReadingMedia", () => {
 		expect(both.plan.files.map((file) => file.paths)).toEqual([[shared]]);
 
 		await withPeer(async (peer) => {
-			const { answer } = judge(peer, only.plan, { keep: true });
+			const { answer } = judge(peer, only.plan, {
+				stage: recordingStaging(),
+			});
 			await peer.until(() => peer.all.length === 2);
 			for (const request of peer.all) {
 				// Invalid image bytes from a successful source-only read still settle availability.
@@ -256,7 +297,7 @@ describe("judgeReadingMedia", () => {
 				"CommCareImage/file": { kind: "available" },
 				"CommCareImage/gone": { kind: "missing" },
 			});
-			expect(result.plan.kept.size).toBe(0);
+			expect(result.plan.staged.size).toBe(0);
 			expect(vi.mocked(validateSniffedMediaBytes)).not.toHaveBeenCalled();
 			expect(adoptedMediaFiles(result.plan)).toEqual([]);
 			expect(readingMediaRows(result.plan).size).toBe(0);
@@ -277,7 +318,9 @@ describe("judgeReadingMedia", () => {
 			const oldHeld = planned([ref(hint, "form")]).plan;
 			const renamed = unionPlan(oldHeld, both.plan);
 			expect(renamed).toEqual(union);
-			const { answer } = judge(peer, renamed, { keep: true });
+			const { answer } = judge(peer, renamed, {
+				stage: recordingStaging(),
+			});
 			await peer.until(() => peer.all.length === 1);
 			const [request] = peer.all;
 			if (!request) throw new Error("The file request was lost");
@@ -295,13 +338,13 @@ describe("judgeReadingMedia", () => {
 				kind: "available",
 			});
 			expect(adoptedMediaFiles(before)).toEqual([]);
-			expect(before.kept.size).toBe(0);
+			expect(before.staged.size).toBe(0);
 			expect(
 				adoptedMediaFiles(withJudged(both.plan, result.plan)).map(
 					(file) => file.hqPath,
 				),
 			).toEqual([shared]);
-			expect(result.plan.kept.size).toBe(1);
+			expect(result.plan.staged.size).toBe(1);
 		});
 	});
 	it("holds every fetch to four requests and 64 MiB of the kinds' limits, a video beside at most one sound", async () => {
@@ -367,31 +410,33 @@ describe("judgeReadingMedia", () => {
 			expect(
 				Object.values(result.plan.verdicts).map((verdict) => verdict.kind),
 			).toEqual(order.map(() => "held"));
-			expect(result.plan.kept.size).toBe(0);
+			expect(result.plan.staged.size).toBe(0);
 		});
 	});
 
-	it("keeps the bytes of each held file in a create, and no other file's", async () => {
+	it("stages the bytes of each held file in a create, and no other file's", async () => {
+		const big = Buffer.alloc(ASSET_SIZE_CAPS_BYTES.image + 1);
 		const plan = planOf([
 			["image", "held"],
 			["image", "gone"],
 			["image", "big"],
 			["audio", "picture"],
 		]);
-		for (const keep of [false, true]) {
+		for (const create of [false, true]) {
+			const staging = recordingStaging();
 			await withPeer(async (peer) => {
-				const { answer } = judge(peer, plan, { keep });
+				const { answer } = judge(peer, plan, create ? { stage: staging } : {});
 				await peer.until(() => peer.open().length === 4);
 				for (const held of peer.open()) {
 					if (held.id === "held") peer.answer(held, 200);
 					else if (held.id === "gone") peer.answer(held, 404, Buffer.alloc(0));
-					else if (held.id === "big")
-						peer.answer(
-							held,
-							200,
-							Buffer.alloc(ASSET_SIZE_CAPS_BYTES.image + 1),
-						);
+					else if (held.id === "big") peer.answer(held, 200, big);
 					else peer.answer(held, 200, BYTES.image);
+				}
+				if (create) {
+					/* A create streams the file past its cap into its staging, and judges it there. */
+					await peer.until(() => peer.open().length === 1);
+					peer.answer(peer.open()[0] as Held, 200, big);
 				}
 				const result = await answer;
 				expect(result.kind).toBe("done");
@@ -409,37 +454,128 @@ describe("judgeReadingMedia", () => {
 				expect(result.plan.verdicts["CommCareImage/gone"]).toEqual({
 					kind: "missing",
 				});
-				expect(result.plan.verdicts["CommCareImage/big"]).toEqual({
-					kind: "over-limit",
-					mediaKind: "image",
-					capBytes: ASSET_SIZE_CAPS_BYTES.image,
-				});
+				expect(result.plan.verdicts["CommCareImage/big"]).toEqual(
+					create
+						? {
+								kind: "refused",
+								reason: "magic-bytes-sniff-failed",
+								sniffedMime: null,
+							}
+						: {
+								kind: "over-limit",
+								mediaKind: "image",
+								capBytes: ASSET_SIZE_CAPS_BYTES.image,
+							},
+				);
 				expect(result.plan.verdicts["CommCareAudio/picture"]).toEqual({
 					kind: "wrong-kind",
 					sniffedKind: "image",
 				});
 				const held = result.plan.verdicts["CommCareImage/held"];
 				if (held?.kind !== "held") throw new Error("the file was not held");
-				/* Kept by the content the budget counts, not by the file's key. */
-				expect([...result.plan.kept.keys()]).toEqual(
-					keep ? [held.file.contentHash] : [],
+				/* Staged by the content, not by the file's key. */
+				expect([...result.plan.staged.keys()]).toEqual(
+					create ? [held.file.contentHash] : [],
 				);
-				if (keep)
-					expect(result.plan.kept.get(held.file.contentHash)).toEqual(
-						BYTES.image,
-					);
+				expect(staging.calls.map((call) => call.bytes)).toEqual(
+					create ? [BYTES.image] : [],
+				);
+				expect(staging.calls.map((call) => call.file)).toEqual(
+					create ? [held.file] : [],
+				);
 			});
 		}
 	});
 
-	it("keeps one buffer for files of three ids that hold the same bytes, exactly what the budget counts", async () => {
+	it("streams a sound past its kind's cap into the staging, judges it there, and keeps it only in a create", async () => {
+		/* An M4A whose `free` box takes it past the audio cap. */
+		const padding = ASSET_SIZE_CAPS_BYTES.audio + 1;
+		const free = Buffer.alloc(8 + padding);
+		free.writeUInt32BE(8 + padding, 0);
+		free.write("free", 4, "latin1");
+		const large = Buffer.concat([fixture("tone.m4a"), free]);
+		const plan = planOf([["audio", "long"]]);
+		for (const mode of ["create", "read", "neither"] as const) {
+			const memory = memoryMediaStaging();
+			const opened: string[] = [];
+			const released: string[] = [];
+			const staging: MediaStaging = {
+				...memory,
+				open: () => {
+					const write = memory.open();
+					return {
+						...write,
+						async finish() {
+							const object = await write.finish();
+							opened.push(object.gcsObjectKey);
+							return object;
+						},
+					};
+				},
+				async release(object) {
+					released.push(object.gcsObjectKey);
+					await memory.release(object);
+				},
+			};
+			await withPeer(async (peer) => {
+				const answer = judgeReadingMedia({
+					creds: CREDS,
+					plan,
+					...(mode === "create" && { stage: staging }),
+					...(mode === "read" && { spill: staging }),
+					onProgress: () => peer.notify(),
+				});
+				await peer.until(() => peer.open().length === 1);
+				peer.answer(peer.open()[0] as Held, 200, large);
+				if (mode !== "neither") {
+					await peer.until(() => peer.open().length === 1);
+					peer.answer(peer.open()[0] as Held, 200, large);
+				}
+				const result = await answer;
+				if (result.kind !== "done") throw new Error("the file was not judged");
+				const verdict = result.plan.verdicts["CommCareAudio/long"];
+				if (mode === "neither") {
+					expect(verdict).toEqual({
+						kind: "over-limit",
+						mediaKind: "audio",
+						capBytes: ASSET_SIZE_CAPS_BYTES.audio,
+					});
+					expect(peer.all).toHaveLength(1);
+					return;
+				}
+				expect(verdict).toMatchObject({
+					kind: "held",
+					file: {
+						kind: "audio",
+						mimeType: "audio/mp4",
+						mediaFormat: "m4a",
+						sizeBytes: large.byteLength,
+						contentHash: createHash("sha256").update(large).digest("hex"),
+					},
+				});
+				expect(opened).toHaveLength(1);
+				if (mode === "create") {
+					expect(released).toEqual([]);
+					expect(
+						[...result.plan.staged.values()].map((one) => one.gcsObjectKey),
+					).toEqual(opened);
+				} else {
+					expect(released).toEqual(opened);
+					expect(result.plan.staged.size).toBe(0);
+				}
+			});
+		}
+	});
+
+	it("stages once for files of three ids that hold the same bytes", async () => {
 		const plan = planOf([
 			["image", "one"],
 			["image", "two"],
 			["image", "three"],
 		]);
+		const staging = recordingStaging();
 		await withPeer(async (peer) => {
-			const { answer } = judge(peer, plan, { keep: true });
+			const { answer } = judge(peer, plan, { stage: staging });
 			await peer.until(() => peer.open().length === 3);
 			for (const held of peer.open()) peer.answer(held, 200);
 			const result = await answer;
@@ -450,16 +586,13 @@ describe("judgeReadingMedia", () => {
 				),
 			);
 			expect(hashes.size).toBe(1);
-			expect(result.plan.kept.size).toBe(1);
-			const kept = [...result.plan.kept.values()];
-			expect(kept.reduce((sum, bytes) => sum + bytes.byteLength, 0)).toBe(
-				BYTES.image.byteLength,
-			);
+			expect(result.plan.staged.size).toBe(1);
+			expect(staging.calls).toHaveLength(1);
 		});
 	});
 
-	it("leaves the request's lease charged for exactly the buffers it keeps: one per content in a create, none in a review", async () => {
-		for (const keep of [true, false]) {
+	it("gives every byte it read back to the request's lease once the file is judged and staged, in a create as in a review", async () => {
+		for (const create of [true, false]) {
 			const meter = new MemoryMeter({ heap: 64 * MIB, external: 64 * MIB });
 			const lease = meter.open();
 			const plan = planOf([
@@ -467,8 +600,11 @@ describe("judgeReadingMedia", () => {
 				["image", "two"],
 				["audio", "three"],
 			]);
+			const staging = recordingStaging();
 			await withPeer(async (peer) => {
-				const { answer } = runInLease(lease, () => judge(peer, plan, { keep }));
+				const { answer } = runInLease(lease, () =>
+					judge(peer, plan, create ? { stage: staging } : {}),
+				);
 				await peer.until(() => peer.open().length === 3);
 				for (const held of peer.open())
 					peer.answer(
@@ -479,110 +615,93 @@ describe("judgeReadingMedia", () => {
 				const result = await answer;
 				if (result.kind !== "done")
 					throw new Error("the files were not judged");
-				const kept = [...result.plan.kept.values()].reduce(
-					(sum, bytes) => sum + bytes.byteLength,
-					0,
-				);
-				expect(kept).toBe(
-					keep ? BYTES.image.byteLength + BYTES.audio.byteLength : 0,
-				);
-				expect(lease.held()).toEqual({ heap: 0, external: kept });
+				expect(result.plan.staged.size).toBe(create ? 2 : 0);
+				expect(lease.held()).toEqual({ heap: 0, external: 0 });
 			});
 			lease.end();
 			expect(meter.held()).toEqual({ heap: 0, external: 0 });
 		}
 	});
 
-	it("keeps a file an earlier step read as that read's own bytes, never a copy", async () => {
+	it("stages a file an earlier step read from that read's own bytes, never a copy", async () => {
 		const plan = planOf([["image", "settled"]]);
 		const read = new Uint8Array(BYTES.image);
+		const staging = recordingStaging();
 		const result = await judgeReadingMedia({
 			creds: CREDS,
 			plan,
-			keep: true,
+			stage: staging,
 			onProgress: () => {},
 			fetched: new Map([["settled", { kind: "read", bytes: read }]]),
 		});
 		if (result.kind !== "done") throw new Error("the file was not judged");
-		const [kept] = [...result.plan.kept.values()];
-		expect(kept?.buffer).toBe(read.buffer);
+		expect(result.plan.staged.size).toBe(1);
+		expect(staging.calls[0]?.bytes.buffer).toBe(read.buffer);
 	});
 
-	it("asks for nothing over Nova's count of files", async () => {
-		const plan = planOf(
-			Array.from(
-				{ length: MAX_MEDIA_EXPORT_ASSETS + 1 },
-				(_, i) => ["image", `i${i}`] as const,
+	it("asks for every file however many the app names, past what one in-memory export takes", async () => {
+		const total = MAX_MEDIA_EXPORT_ASSETS + 1;
+		const plan = {
+			...planOf(
+				Array.from({ length: total }, (_, i) => ["image", `i${i}`] as const),
 			),
-		);
+		};
+		const only = {
+			...plan,
+			files: plan.files.map((file) => ({
+				...file,
+				availabilityOnly: true as const,
+			})),
+		};
 		await withPeer(async (peer) => {
-			const { answer } = judge(peer, plan);
-			expect(await answer).toEqual({ kind: "done", plan });
-			expect(peer.all).toEqual([]);
-			const only = {
-				...plan,
-				files: plan.files.map((file) => ({
-					...file,
-					availabilityOnly: true as const,
-				})),
-			};
-			expect(mediaBudgetFinding(only, {})).toMatchObject({ code: "too-large" });
-			expect(await judge(peer, only).answer).toEqual({
-				kind: "done",
-				plan: only,
-			});
-			expect(peer.all).toEqual([]);
+			const { answer, progress } = judge(peer, only);
+			while (progress.length < total) {
+				await peer.until(
+					() => peer.open().length > 0 || progress.length === total,
+				);
+				for (const held of peer.open())
+					peer.answer(held, 200, Buffer.from("x"));
+			}
+			const result = await answer;
+			if (result.kind !== "done") throw new Error("the files were not judged");
+			expect(peer.all).toHaveLength(total);
+			expect(peer.breaches).toEqual([]);
+			expect(
+				Object.values(result.plan.verdicts).every(
+					(verdict) => verdict.kind === "available",
+				),
+			).toBe(true);
 		});
 	});
 
-	it("starts no file once the held files pass Nova's media budget, and lets those in flight finish", async () => {
-		const actual = vi.mocked(validateSniffedMediaBytes).getMockImplementation();
-		let hash = 0;
-		vi.mocked(validateSniffedMediaBytes).mockImplementation(async (bytes) => {
-			const judged = await (actual as typeof validateSniffedMediaBytes)(bytes);
-			if (!judged.ok) return judged;
-			hash += 1;
-			return {
-				ok: true,
-				validated: {
-					...judged.validated,
-					contentHash: `h${hash}`,
-					sizeBytes: 60 * MIB,
+	it("ends the call with a staging's failure, once the requests in flight settle, and stages nothing more", async () => {
+		const plan = planOf([
+			["image", "one"],
+			["audio", "two"],
+		]);
+		let staged = 0;
+		await withPeer(async (peer) => {
+			const { answer } = judge(peer, plan, {
+				stage: {
+					...memoryMediaStaging(),
+					stage: async () => {
+						staged += 1;
+						throw new Error("The bucket refused the staged object.");
+					},
 				},
-			};
-		});
-		try {
-			const plan = planOf(
-				Array.from({ length: 10 }, (_, i) => ["image", `i${i}`] as const),
-			);
-			await withPeer(async (peer) => {
-				const { answer, progress } = judge(peer, plan);
-				// One answer at a time: 60, 120 and 180 MB held each let one more file start, and
-				// 240 MB lets none.
-				for (let answered = 0; answered < 7; answered += 1) {
-					await peer.until(() => peer.open().length > 0);
-					peer.answer(peer.open()[0] as Held, 200);
-					await peer.until(() => progress.length === answered + 1);
-				}
-				const result = await answer;
-				expect(peer.all.map((each) => each.id).sort()).toEqual([
-					"i0",
-					"i1",
-					"i2",
-					"i3",
-					"i4",
-					"i5",
-					"i6",
-				]);
-				expect(result.kind).toBe("done");
-				if (result.kind === "done")
-					expect(Object.keys(result.plan.verdicts)).toHaveLength(7);
 			});
-		} finally {
-			vi.mocked(validateSniffedMediaBytes).mockImplementation(
-				actual as typeof validateSniffedMediaBytes,
+			const settled = answer.then(
+				() => null,
+				(error: unknown) => error,
 			);
-		}
+			await peer.until(() => peer.open().length === 2);
+			peer.answer(peer.open()[0] as Held, 200);
+			await peer.until(() => peer.open().every((held) => held.closed));
+			expect(await settled).toMatchObject({
+				message: "The bucket refused the staged object.",
+			});
+			expect(staged).toBe(1);
+		});
 	});
 
 	it("asks once more for a file CommCare HQ could not send, and the verdict stands", async () => {

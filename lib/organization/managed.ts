@@ -29,13 +29,13 @@ import {
 	reverseLocationOwnerIssue,
 	reverseLocationOwnerVerdict,
 } from "./ownerTargetVerdicts";
-import {
-	canonicalCoordinate,
-	MAX_LOCATIONS_PER_APP,
-	SITE_CODE_MAX_LENGTH,
-} from "./schema";
-import { locationsOwningCases } from "./service";
-import type { OrganizationRevision, OrganizationScope } from "./types";
+import { canonicalCoordinate, SITE_CODE_MAX_LENGTH } from "./schema";
+import { readSourceObservation } from "./storedLocation";
+import type {
+	OrganizationRevision,
+	OrganizationScope,
+	PlaceSourceObservation,
+} from "./types";
 import { locationValueCatalogIssue } from "./valueCatalog";
 import {
 	advanceOrganizationRevision,
@@ -56,6 +56,8 @@ import {
 
 /** One place of CommCare HQ's, as the copy holds it. */
 export interface ManagedPlaceWrite {
+	readonly externalId?: string | null;
+	readonly source?: PlaceSourceObservation;
 	readonly hqLocationId: string;
 	readonly siteCode: string;
 	readonly name: string;
@@ -235,7 +237,10 @@ async function insertPlaces(
 					parent_id: insert.parentId,
 					site_code: insert.place.siteCode,
 					name: insert.place.name,
-					external_id: null,
+					external_id: insert.place.externalId ?? null,
+					hq_observation: insert.place.source
+						? JSON.stringify(insert.place.source)
+						: null,
 					latitude: insert.place.latitude,
 					longitude: insert.place.longitude,
 					// A jsonb column crosses Kysely as a string on the way in.
@@ -273,12 +278,6 @@ export async function writeManagedPlacesInTransaction(
 ): Promise<OrganizationRevision> {
 	const { appId, actorUserId, origin, plan, at } = input;
 	assertPlanWritable(plan);
-	if (plan.places.length > MAX_LOCATIONS_PER_APP) {
-		throw new Error(
-			`A plan of ${plan.places.length} places reached the writer, past the ${MAX_LOCATIONS_PER_APP} an app holds.`,
-		);
-	}
-
 	const ids = await mintLocationIds(tx, plan.places.length);
 	const idBySiteCode = new Map<string, string>();
 	const depthBySiteCode = new Map<string, number>();
@@ -568,65 +567,6 @@ async function writeSiteCodes(
 }
 
 /**
- * The archived rows a refresh lets go of to stay within
- * {@link MAX_LOCATIONS_PER_APP}: `count` of them where that many can go, in
- * layers to delete in order. Only a row that ends the refresh archived and
- * that `kept` does not hold can go (nothing names it, and no case is owned by
- * it); the longest archived goes first (a row this refresh archives counts as
- * archived at `at`), then by id, and a row goes only in a layer after every
- * row standing under it once the refresh is done, so each layer's delete
- * leaves the parent key whole. A kept row therefore keeps its ancestors too.
- *
- * Its Nova id goes with it: were CommCare HQ to list the place again, the
- * copy would take it as a new place.
- */
-function shedArchivedRows(input: {
-	readonly rows: readonly LocationRow[];
-	readonly endsArchived: (row: LocationRow) => boolean;
-	/** Rows that must stay: named by an `app_location_references` edge, or a case's owner. */
-	readonly kept: ReadonlySet<string>;
-	/** Each existing row's parent once the refresh is done. */
-	readonly parentOf: (id: string) => string | null;
-	/** The parent of each place the refresh inserts. */
-	readonly newParents: readonly (string | null)[];
-	readonly at: Date;
-	readonly count: number;
-}): string[][] {
-	const children = new Map<string, number>();
-	const addChild = (parent: string | null, delta: number) => {
-		if (parent !== null)
-			children.set(parent, (children.get(parent) ?? 0) + delta);
-	};
-	for (const row of input.rows) addChild(input.parentOf(row.id), 1);
-	for (const parent of input.newParents) addChild(parent, 1);
-	const archivedAt = (row: LocationRow): number =>
-		(row.archived_at ?? input.at).getTime();
-	const candidates = input.rows
-		.filter((row) => input.endsArchived(row) && !input.kept.has(row.id))
-		.sort(
-			(left, right) =>
-				archivedAt(left) - archivedAt(right) || compareText(left.id, right.id),
-		);
-	const shed = new Set<string>();
-	const layers: string[][] = [];
-	while (shed.size < input.count) {
-		const layer: string[] = [];
-		for (const row of candidates) {
-			if (shed.size + layer.length >= input.count) break;
-			if (shed.has(row.id) || (children.get(row.id) ?? 0) > 0) continue;
-			layer.push(row.id);
-		}
-		if (layer.length === 0) break;
-		for (const id of layer) {
-			shed.add(id);
-			addChild(input.parentOf(id), -1);
-		}
-		layers.push(layer);
-	}
-	return layers;
-}
-
-/**
  * Bring CommCare HQ's places into the copy: the one writer of a managed copy
  * after its birth.
  *
@@ -650,15 +590,6 @@ function shedArchivedRows(input: {
  * writes the document, so it never unassigns a persona: the person moves the
  * persona and refreshes again.
  *
- * Where the copy would pass {@link MAX_LOCATIONS_PER_APP} rows, the archived
- * rows nothing names and no case is owned by go, longest archived first and
- * each after every row under it ({@link shedArchivedRows}): in a managed copy
- * each is a place CommCare HQ no longer lists, which no author can bring back,
- * and keeping them would let CommCare HQ replacing its places refuse every
- * later refresh. A row that is a saved case's owner, open or closed
- * (`service.ts::locationsOwningCases`), stays, so no case is left owned by a
- * place Nova no longer has.
- *
  * Where the stored digest equals the plan's and the left-out counts are the
  * same, only the two refresh columns move and the revision does not.
  *
@@ -670,7 +601,11 @@ function shedArchivedRows(input: {
 export async function refreshManagedPlacesInTransaction(
 	tx: Transaction<AppDatabase>,
 	scope: OrganizationScope,
-	input: { readonly plan: ManagedPlacePlan; readonly at: Date },
+	input: {
+		readonly plan: ManagedPlacePlan;
+		readonly at: Date;
+		readonly origin?: { server: string; domain: string };
+	},
 ): Promise<ManagedPlacesRefresh> {
 	const { plan, at } = input;
 	assertPlanWritable(plan);
@@ -682,6 +617,15 @@ export async function refreshManagedPlacesInTransaction(
 	if (hq === null) {
 		throw new Error(
 			"The organization lock for a refresh returned an app with no CommCare HQ origin.",
+		);
+	}
+	if (
+		input.origin &&
+		(input.origin.server !== hq.server || input.origin.domain !== hq.domain)
+	) {
+		throw new OrganizationError(
+			"rejected",
+			"The source project space changed while Nova was reading its places. Refresh from the current source.",
 		);
 	}
 	if (hq.refreshedAt !== null && hq.refreshedAt > at) {
@@ -775,6 +719,9 @@ export async function refreshManagedPlacesInTransaction(
 			row.name !== place.name ||
 			row.level_uuid !== place.levelUuid ||
 			row.parent_id !== parentId ||
+			row.external_id !== (place.externalId ?? null) ||
+			canonicalJsonDigest(readSourceObservation(row.hq_observation)) !==
+				canonicalJsonDigest(place.source ?? null) ||
 			!sameCoordinate(row.latitude, place.latitude) ||
 			!sameCoordinate(row.longitude, place.longitude) ||
 			!sameValues(row.values, place.values);
@@ -834,44 +781,6 @@ export async function refreshManagedPlacesInTransaction(
 		(id) => !goneIds.has(id) && byId.get(id)?.hq_gone_at !== null,
 	);
 
-	// The bound counts every row, archived ones too, since every whole-tree
-	// read reads them; a managed copy makes room by letting go of archived
-	// rows nothing names and no case is owned by. A case's `owner_id` holds a
-	// place's id, so deleting such a row would leave the case owned by no
-	// place; it stays archived, as an archive in Nova leaves it.
-	const excess =
-		locked.locationCount + newPlaces.length - MAX_LOCATIONS_PER_APP;
-	const endsArchived = (row: LocationRow): boolean =>
-		!matchedIds.has(row.id) && !keptIds.has(row.id);
-	const shedLayers =
-		excess > 0
-			? shedArchivedRows({
-					rows,
-					endsArchived,
-					kept: new Set([
-						...referenced,
-						...(await locationsOwningCases(
-							tx,
-							scope.appId,
-							rows
-								.filter((row) => endsArchived(row) && !referenced.has(row.id))
-								.map((row) => row.id),
-						)),
-					]),
-					parentOf: (id) => finalParent.get(id) ?? null,
-					newParents: newPlaces.map(parentIdOf),
-					at,
-					count: excess,
-				})
-			: [];
-	const shedCount = shedLayers.reduce((sum, layer) => sum + layer.length, 0);
-	if (shedCount < excess) {
-		throw new OrganizationError(
-			"limit",
-			`Refreshing would take this app past ${MAX_LOCATIONS_PER_APP.toLocaleString("en-US")} places, which is as many as Nova stores for one app: CommCare HQ's places, the ones Nova keeps because this app still uses them and the ones saved cases belong to come to more than that. You can move or change what uses the places CommCare HQ no longer has, then refresh again. Nova kept its copy as it was.`,
-		);
-	}
-
 	// Site codes. A row CommCare HQ no longer lists gives up a code CommCare HQ
 	// now gives another place; a matched row whose code changed first takes a
 	// placeholder no site code can spell (`~` is outside `SITE_CODE_PATTERN`),
@@ -894,7 +803,11 @@ export async function refreshManagedPlacesInTransaction(
 		.filter(
 			(update) => byId.get(update.id)?.site_code !== update.place.siteCode,
 		)
-		.map((update) => ({ id: update.id, siteCode: `~${update.id}` }));
+		.map((update) => {
+			const siteCode = releasedSiteCode(`~${update.id}`, takenCodes);
+			takenCodes.add(siteCode);
+			return { id: update.id, siteCode };
+		});
 
 	// A new place takes its slot among its final siblings by name. A slot
 	// whose key would grow past the bound rebalances that sibling set, and
@@ -977,6 +890,8 @@ export async function refreshManagedPlacesInTransaction(
 				parent_id = v.parent_id,
 				latitude = v.latitude,
 				longitude = v.longitude,
+				external_id = v.external_id,
+				hq_observation = v.hq_observation,
 				"values" = v.values,
 				hq_gone_at = NULL,
 				order_key = v.order_key,
@@ -986,9 +901,9 @@ export async function refreshManagedPlacesInTransaction(
 			FROM (VALUES ${sql.join(
 				chunk.map(
 					(update) =>
-						sql`(${update.id}::uuid, ${update.place.siteCode}::text, ${update.place.name}::text, ${update.place.levelUuid}::uuid, ${update.parentId}::uuid, ${update.place.latitude}::numeric, ${update.place.longitude}::numeric, ${JSON.stringify(update.place.values)}::jsonb, ${finalOrderKey.get(update.id) ?? ""}::text)`,
+						sql`(${update.id}::uuid, ${update.place.siteCode}::text, ${update.place.name}::text, ${update.place.levelUuid}::uuid, ${update.parentId}::uuid, ${update.place.latitude}::numeric, ${update.place.longitude}::numeric, ${update.place.externalId ?? null}::text, ${update.place.source ? JSON.stringify(update.place.source) : null}::text, ${JSON.stringify(update.place.values)}::jsonb, ${finalOrderKey.get(update.id) ?? ""}::text)`,
 				),
-			)}) AS v(id, site_code, name, level_uuid, parent_id, latitude, longitude, "values", order_key)
+			)}) AS v(id, site_code, name, level_uuid, parent_id, latitude, longitude, external_id, hq_observation, "values", order_key)
 			WHERE l.app_id = ${scope.appId} AND l.id = v.id
 		`.execute(tx);
 	}
@@ -1036,26 +951,13 @@ export async function refreshManagedPlacesInTransaction(
 				.execute();
 		}
 	}
-	// Last, once every row has its final parent: a layer holds no parent of a
-	// row still standing, so the parent key never refuses a delete.
-	for (const layer of shedLayers) {
-		for (let start = 0; start < layer.length; start += WRITE_CHUNK) {
-			await tx
-				.deleteFrom("app_locations")
-				.where("app_id", "=", scope.appId)
-				.where("id", "in", layer.slice(start, start + WRITE_CHUNK))
-				.execute();
-		}
-	}
-
 	const rowsChanged =
 		newPlaces.length > 0 ||
 		updates.length > 0 ||
 		archiveIds.length > 0 ||
 		released.length > 0 ||
 		goneMarks.length > 0 ||
-		goneCleared.length > 0 ||
-		shedCount > 0;
+		goneCleared.length > 0;
 	if (rowsChanged) {
 		const app = await loadAppInTransaction(tx, scope.appId);
 		if (app === null) throw organizationNotFound();
@@ -1081,7 +983,7 @@ export async function refreshManagedPlacesInTransaction(
 		.where("app_id", "=", scope.appId)
 		.execute();
 	if (rowsChanged || leftOutChanged) {
-		await commitOrganizationChange(tx, scope, newPlaces.length - shedCount);
+		await commitOrganizationChange(tx, scope, newPlaces.length);
 	}
 	return {
 		added,

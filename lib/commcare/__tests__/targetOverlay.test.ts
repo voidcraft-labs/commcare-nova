@@ -282,6 +282,30 @@ describe("add-ons", () => {
 });
 
 describe("profile", () => {
+	it("sets, reorders and clears the required apps beside the target's other features", () => {
+		const current = {
+			features: {
+				credentials: "L1",
+				dependencies: ["org.rdtoolkit", "com.simprints.id"],
+			},
+		};
+		const changed = application({
+			profile: {
+				features: { dependencies: ["com.simprints.id", "org.rdtoolkit"] },
+			},
+		});
+		expect(
+			projectProfileForTarget(changed, current, "unverified", NOVA_SEEDS)
+				?.features,
+		).toEqual({
+			credentials: "L1",
+			dependencies: ["com.simprints.id", "org.rdtoolkit"],
+		});
+		expect(
+			projectProfileForTarget(application(), current, "missing", NOVA_SEEDS)
+				?.features,
+		).toEqual({ credentials: "L1" });
+	});
 	it("keeps a seeded setting the target holds, seeds one HQ's build writes nothing for, and always writes Nova's two", () => {
 		const current: HqApplicationProfile = {
 			properties: {
@@ -467,6 +491,34 @@ describe("the whole body and its ownership", () => {
 		expect([translations, add_ons, profile]).not.toContain(undefined);
 	});
 
+	it("turns case sharing off on a target that shares cases where the app shares none, and writes nothing otherwise", () => {
+		const sharing = source({ raw: { case_sharing: true } });
+		const { application: off } = projectApplicationForTarget(
+			application(),
+			sharing,
+			"available",
+			NOVA_FILL,
+		);
+		expect(off.case_sharing).toBe(false);
+		expect(Object.keys(off).at(-1)).toBe("_attachments");
+		const { application: on } = projectApplicationForTarget(
+			application({ case_sharing: true }),
+			sharing,
+			"available",
+			NOVA_FILL,
+		);
+		expect(on.case_sharing).toBe(true);
+		for (const raw of [{}, { case_sharing: false }]) {
+			const { application: body } = projectApplicationForTarget(
+				application(),
+				source({ raw }),
+				"available",
+				NOVA_FILL,
+			);
+			expect(Object.hasOwn(body, "case_sharing")).toBe(false);
+		}
+	});
+
 	it("leaves out each key that equals the target's", () => {
 		const input = application();
 		const { application: first } = projectApplicationForTarget(
@@ -515,7 +567,7 @@ describe("the whole body and its ownership", () => {
 		).toBe(false);
 	});
 
-	it("records what Nova set: the needed add-ons, its two settings and the derived key it sets", () => {
+	it("records what Nova set: the needed add-ons, its settings, case sharing and the derived key it sets", () => {
 		const { ownership } = projectApplicationForTarget(
 			application({ add_ons: { subcases: true, display_conditions: true } }),
 			source({ addOns: { menu_mode: true, calc_xpaths: true } }),
@@ -523,10 +575,13 @@ describe("the whole body and its ownership", () => {
 			NOVA_FILL,
 		);
 		expect(ownership).toEqual({
+			menuLayouts: true,
 			addOns: ["display_conditions", "subcases"],
 			profileProperties: ["cc-show-saved", "cc-show-incomplete"],
 			profileCustomProperties: ["cc-index-case-search-results"],
+			profileFeatures: ["dependencies"],
 			autoGpsCapture: false,
+			caseSharing: true,
 		});
 		for (const state of ["missing", "not-needed", "unverified"] as const)
 			expect(
@@ -543,16 +598,17 @@ describe("the whole body and its ownership", () => {
 		).toBe(true);
 	});
 
-	it("names no add-on and no profile key for the shell, and its Auto Capture Location", () => {
+	it("names no add-on and no profile key for the shell, and owns its Auto Capture Location", () => {
+		// Every shell writes `auto_gps_capture`, false included, so a later
+		// publish that clears the switch is compared on the key it wrote.
 		const shell = expandAppShell(buildDoc({ appName: "Visits" }));
+		expect(shell.auto_gps_capture).toBe(false);
 		expect(shellOwnership(shell)).toEqual({
 			addOns: [],
 			profileProperties: [],
 			profileCustomProperties: [],
-			autoGpsCapture: false,
+			autoGpsCapture: true,
 		});
-		expect(shellOwnership({ auto_gps_capture: true }).autoGpsCapture).toBe(
-			true,
-		);
+		expect(shellOwnership({}).autoGpsCapture).toBe(false);
 	});
 });

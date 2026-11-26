@@ -15,15 +15,18 @@ import { recordFromEntries } from "@/lib/domain/records";
 import { type SourceTable, tableOf } from "../../sourceKeys";
 import { inventoryIndex } from "../../surface/inventory";
 import { rethrowWorkStop } from "../../workMeter";
-import { canonicalInstanceId } from "../../xpath/formPathBinding";
-import type { FormSyntax } from "../../xpath/formSyntax";
+import { type FormSyntax, literalInstanceId } from "../../xpath/formSyntax";
 import {
 	CSQL_QUERY_FUNCTIONS,
 	CSQL_VALUE_FUNCTIONS,
 } from "../../xpath/functionCapabilities";
 import { sharedFormSyntax } from "../syntaxRead";
 import { searchRowCsql } from "./csqlRead";
-import { EXPRESSION_CLAIMS, visitSyntax } from "./findings";
+import {
+	classifiedInstanceId,
+	EXPRESSION_CLAIMS,
+	visitSyntax,
+} from "./findings";
 
 const C = EXPRESSION_CLAIMS;
 
@@ -159,7 +162,9 @@ function bare(node: FormSyntax): FormSyntax {
 
 /** The scheme an instance id is read under: the text before its first colon. */
 function scheme(id: string): string {
-	return id.split(":")[0] ?? id;
+	return !id.includes(":") && id.includes("selected_cases")
+		? "selected_cases"
+		: (id.split(":")[0] ?? id);
 }
 
 /** The path a node roots at an `instance()` call, as that call's id and the
@@ -187,9 +192,8 @@ function instancePath(
 		}
 		break;
 	}
-	if (at.kind !== "call" || at.name !== "instance") return undefined;
-	const first = at.args[0] === undefined ? undefined : bare(at.args[0]);
-	return first?.kind === "string" ? { id: first.value, steps } : undefined;
+	const id = literalInstanceId(at);
+	return id === undefined ? undefined : { id: id.value, steps };
 }
 
 /** What decides the class of a use beyond its syntax and its slot, from the
@@ -209,6 +213,7 @@ export interface SurfaceUseFacts {
 	/** The source the slot's form declares for each instance id it names, by
 	 *  id; empty outside a form. */
 	readonly instanceSources: ReadonlyMap<string, string>;
+	readonly formInstancesOnly?: boolean;
 	/** Whether HQ's build reads the slot's text through its shorthand
 	 *  (`xpath.py::interpolate_xpath`: a menu's and a form's display condition,
 	 *  the case list's filter, a detail tab's filter over a case type's
@@ -232,16 +237,6 @@ const NO_FACTS: SurfaceUseFacts = {
 	shorthand: false,
 	fixtureValue: false,
 };
-
-/** The id an `instance()` read is classed under: in a form, the id the source
- *  it declares for the id names, since Core reads the instance its source
- *  gives (a table's `jr://fixture/item-list:<tag>` under the bare tag Nova
- *  writes is `item-list:<tag>`); elsewhere, and for a source no id names,
- *  the id as written. */
-function classedInstanceId(id: string, facts: SurfaceUseFacts): string {
-	const source = facts.instanceSources.get(id);
-	return (source === undefined ? undefined : canonicalInstanceId(source)) ?? id;
-}
 
 /** The session path key and class a path through the session instance makes. */
 function sessionUse(
@@ -281,6 +276,7 @@ function sessionUse(
  *  where the slot's menu stands to a search. */
 function instanceClass(
 	id: string,
+	source: string | undefined,
 	context: ExpressionContext,
 	facts: SurfaceUseFacts,
 ): string | undefined {
@@ -297,8 +293,12 @@ function instanceClass(
 			return slot === "lookup_options_source" || slot === "search_input_options"
 				? "typed-lookup-carrier"
 				: "other-expression";
+		case "groups":
+			return "user-groups-fixture";
 		case "locations":
-			return "flat-locations";
+			return source === "jr://fixture/commtrack:locations"
+				? "hierarchical-locations"
+				: "flat-locations";
 		case "commtrack":
 			return id === "commtrack:locations"
 				? "hierarchical-locations"
@@ -480,14 +480,25 @@ function xpathUses(
 				if (node.args.length > 1) token("COMMA");
 				if (node.name === "instance" || node.name === "current") {
 					uses.add("xpath-expr:XPathPathExpr", "instance-or-current-root");
-					const id =
-						node.args[0] === undefined ? undefined : bare(node.args[0]);
-					if (node.name === "instance" && id?.kind === "string") {
-						const classed = classedInstanceId(id.value, facts);
-						uses.add(
-							`instance-scheme:${scheme(classed)}`,
-							instanceClass(classed, context, facts),
+					const id = literalInstanceId(node);
+					if (id !== undefined) {
+						const classed = classifiedInstanceId(
+							id.value,
+							facts.instanceSources.get(id.value),
 						);
+						if (
+							classed !== undefined &&
+							(!facts.formInstancesOnly || facts.instanceSources.has(id.value))
+						)
+							uses.add(
+								`instance-scheme:${scheme(classed)}`,
+								instanceClass(
+									classed,
+									facts.instanceSources.get(id.value),
+									context,
+									facts,
+								),
+							);
 					}
 				} else if (HANDLERS.has(node.name))
 					uses.add(
@@ -566,7 +577,11 @@ function xpathUses(
 				token(node.descendant ? "DBL_SLASH" : "SLASH");
 				if (node.descendant) uses.add("xpath-axis:AXIS_DESCENDANT_OR_SELF");
 				const path = instancePath(node);
-				if (path !== undefined) {
+				if (
+					path !== undefined &&
+					classifiedInstanceId(path.id, facts.instanceSources.get(path.id)) ===
+						"commcaresession"
+				) {
 					const session = sessionUse(path.steps, context, facts);
 					if (session !== undefined) uses.add(session.key, session.valueClass);
 				}
@@ -665,9 +680,8 @@ function csqlUses(
 	// The device works out a row while the query is built, with the Search
 	// fields' answers: each read of them is that class, whatever the row's CSQL.
 	visitSyntax(wrapper, (node) => {
-		if (node.kind !== "call" || node.name !== "instance") return;
-		const first = node.args[0] === undefined ? undefined : bare(node.args[0]);
-		if (first?.kind === "string" && scheme(first.value) === "search-input")
+		const id = literalInstanceId(node);
+		if (id !== undefined && scheme(id.value) === "search-input")
 			uses.add("instance-scheme:search-input", "query-build");
 	});
 	const row = searchRowCsql(wrapper);
@@ -716,7 +730,10 @@ function csqlUses(
 			if (shape?.type === "datetime") return held;
 			return "non-date-value";
 		}
-		if (at.kind === "call") return held;
+		if (at.kind === "call")
+			return at.name === "today" || at.name === "date"
+				? "project-timezone-date"
+				: held;
 		return "non-date-value";
 	};
 	const visit = (
@@ -908,11 +925,15 @@ export function instanceIdsRead(text: string): readonly string[] {
 		return [];
 	}
 	if (!read.ok || read.node === undefined) return [];
+	return instanceIdsIn(read.node);
+}
+
+/** Every literal instance id in an already parsed XPath expression. */
+export function instanceIdsIn(syntax: FormSyntax): readonly string[] {
 	const ids: string[] = [];
-	visitSyntax(read.node, (node) => {
-		if (node.kind !== "call" || node.name !== "instance") return;
-		const first = node.args[0] === undefined ? undefined : bare(node.args[0]);
-		if (first?.kind === "string") ids.push(first.value);
+	visitSyntax(syntax, (node) => {
+		const id = literalInstanceId(node);
+		if (id !== undefined) ids.push(id.value);
 	});
 	return ids;
 }

@@ -12,8 +12,9 @@
  * a line holding the marker, an unknown claim or entry printed as given, or a
  * template that drifted fails by its text. The defects a stage raises from
  * what it reads (a source Nova's parser refuses, an `xmlns` that differs) are
- * provoked through the forms stage, each with its one finding, and the text stage's translation that Nova's own rule
- * refuses after the pairing passed it through every stage; the expression
+ * provoked through the forms stage, each with its one finding. A translation
+ * whose references differ from its source's is no defect: it shows values of
+ * its own (`valueMode: "independent-values"`), held through every stage; the expression
  * stage's two are provoked in `provisional.test.ts`, the assembly's in
  * `assemble.test.ts`. A relation finding the manifest no longer permits names
  * its claim's surface key, or the object its place stands in, never an entry.
@@ -376,7 +377,7 @@ describe("a defect the forms stage raises", () => {
 });
 
 describe("a defect the text stage raises", () => {
-	it("stands behind a translation Nova's own rule refuses after the pairing passed it", async () => {
+	it("holds a translation whose references the source no longer matches as showing its own values, with no defect", async () => {
 		const label = (lang: string, text: string) =>
 			`<translation lang="${lang}"${lang === "en" ? ' default=""' : ""}><text id="q-label"><value>${text} <output value="/data/who"/></value></text></translation>`;
 		const source = xformSource({
@@ -416,9 +417,9 @@ describe("a defect the text stage raises", () => {
 		const ctx = readContext({ ...input, recordDialect: () => undefined });
 		for (const stage of STAGES) {
 			if (stage === finishText) {
-				// The French text pairs its one output with the English one, so the
-				// pairing passes it; the English label then holds the reference twice,
-				// which a translation holding it once does not keep.
+				// The French text pairs its one output with the English one; the
+				// English label then holds the reference twice, so the French label,
+				// holding it once, shows values of its own.
 				ctx.doc = produce(ctx.doc as BlueprintDoc, (doc) => {
 					for (const field of Object.values(doc.fields)) {
 						if (field.id !== "q" || !("label" in field)) continue;
@@ -433,17 +434,14 @@ describe("a defect the text stage raises", () => {
 			stage(ctx);
 		}
 		const { findings, defects } = ctx.close();
-		const question = findings.find(
-			(finding) => finding.place.kind === "question",
-		)?.place;
-		if (question === undefined) throw new Error("No finding at the question.");
-		expect(defects.map((defect) => defect.why)).toEqual([
-			readerDefect.translation(question, "field-label", 1, "protected-content"),
-		]);
+		expect(defects).toEqual([]);
 		expect(
-			findings
-				.filter((finding) => finding.code === "unrecognized")
-				.map((finding) => [finding.place, finding.detail.name]),
-		).toEqual([[question, "xform:model/itext/translation/text/value"]]);
+			findings.filter((finding) => finding.code === "unrecognized"),
+		).toEqual([]);
+		const doc = ctx.doc as BlueprintDoc;
+		const french = Object.values(doc.localization?.translations.fra ?? {});
+		expect(french.map((entry) => entry.valueMode)).toEqual([
+			"independent-values",
+		]);
 	});
 });

@@ -38,8 +38,9 @@
 		"application-and-settings/rev-domain-copy-of-version",
 		"application-and-settings/target-derived-profile-properties-posturl-posttesturl-ota",
 		"application-and-settings/translations-app-display-name",
-		"application-and-settings/translations-generated-key-over-one-text",
 		"application-and-settings/translations-generated-key-with-no-effect",
+		"application-and-settings/translations-generated-wording",
+		"application-and-settings/translations-homescreen-title",
 		"expressions-and-data/xpath-location-paths",
 		"forms-and-case-writes/case-references-data-load",
 		"forms-and-case-writes/form-requires-none-no-case-action",
@@ -54,6 +55,7 @@
 		"forms-and-case-writes/usercase-update-with-condition-never",
 		"forms-and-case-writes/version",
 		"forms-and-case-writes/xmlns-form-json-and-xform-data-node",
+		"menus-and-case-lists/custom-icons-0-badge-localized-text-or-xpath",
 		"menus-and-case-lists/detail-columns-long",
 		"menus-and-case-lists/detail-columns-short",
 		"menus-and-case-lists/detail-display",
@@ -84,9 +86,10 @@
 	"firstPublish": [
 		"forms-and-settings-rewritten",
 		"list-settings-respelled",
-		"translation-overrides-folded",
+		"unused-translation-keys-removed",
 		"blank-translations-filled",
 		"names-respelled",
+		"badge-respelled",
 		"text-spaces-dropped"
 	]
 }

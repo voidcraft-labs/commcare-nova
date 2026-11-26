@@ -25,6 +25,7 @@ import {
 	fieldCaseWriteViews,
 	fieldPreload,
 	formConnectIds,
+	LABEL_TEXT_SLOTS,
 	type LanguageTag,
 	type Module,
 	makeTranslationUnitId,
@@ -107,7 +108,7 @@ export const DATETIME_SPLIT_REFUSAL_MESSAGES: Readonly<
 const TIME_OF_DAY_PATTERN = "%H:%M:%S.%3";
 
 /** The translatable slots each new question copies from the original. */
-const COPIED_SLOTS = ["label", "hint", "help"] as const;
+const COPIED_SLOTS = ["label", "hint", "help", ...LABEL_TEXT_SLOTS] as const;
 
 function refusal(reason: DatetimeSplitRefusal): DatetimeSplitPlan {
 	return {
@@ -381,6 +382,13 @@ export function planDatetimeSplit(
 		...(original.label_media !== undefined && {
 			label_media: structuredClone(original.label_media),
 		}),
+		...Object.fromEntries(
+			LABEL_TEXT_SLOTS.flatMap((slot) =>
+				original[slot] === undefined
+					? []
+					: [[slot, structuredClone(original[slot])]],
+			),
+		),
 		...(original.hint !== undefined && {
 			hint: structuredClone(original.hint),
 		}),

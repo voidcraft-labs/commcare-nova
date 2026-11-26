@@ -108,6 +108,7 @@ export interface PreviewCaseChoice {
 }
 
 export interface PreviewCaseTarget {
+	entrySupplies?: import("@/lib/domain").CaseCreationLaunch;
 	formUuid: Uuid;
 	cases?: readonly PreviewCaseChoice[];
 	/** The Register action that opened a case list registration form: the
@@ -274,6 +275,15 @@ export type PreviewSearchState =
 			/** Set once the no-matches form registers a case: Results then
 			 * shows that one case, as the wire's return frame does. */
 			readonly registeredCaseId?: string;
+			/** Set beside `registeredCaseId` where the return frame ends on
+			 * this search (a list action returning to the list): Web Apps
+			 * lands on that list with no row, though the search holds the
+			 * registered case. Formplayer rebuilds the frame counting no query
+			 * step toward a full entity screen
+			 * (`MenuSessionFactory.rebuildSessionFromFrame`), and Core lists no
+			 * reference on a screen it did not fully build
+			 * (`EntityScreen.initListSubScreen`). */
+			readonly listsNoRow?: true;
 			/** The menu's default search, which the list ran as it opened:
 			 *  no answer the worker gave, so history taking it back runs the
 			 *  default search again, whatever answers were given since
@@ -297,12 +307,14 @@ export interface PreviewSearchLaunch {
 /** Which case list's Register action opened a form it always offers. */
 export interface PreviewCaseListRegistrationLaunch {
 	readonly hostModuleUuid: Uuid;
+	/** Exactly the earlier selections the invoking list maps into this entry. */
+	readonly selections?: Readonly<Record<string, PreviewMenuCaseSelection>>;
 }
 
 /**
  * The one entry of a form that a case list's Register action opened, which
  * after submit returns where that list's choice says
- * (`lib/preview/engine/caseListRegisterAction.ts::alwaysOfferedRegistrationReturn`).
+ * (`lib/preview/engine/caseListRegisterAction.ts::caseListActionReturn`).
  * It names the form it opened, in its own menu, so a form screen reached any
  * other way is by construction not this launch, and it lasts while the
  * running app stays on that launch's own path

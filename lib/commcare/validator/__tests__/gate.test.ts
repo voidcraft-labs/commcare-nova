@@ -106,7 +106,7 @@ function minDoc(): BlueprintDoc {
 
 /** Two valid top-level modules; tests reparent the second under a form-less
  * case-list-only root so the gate sees the topology change atomically. */
-function caseListRootDoc(childCaseType: "household" | "visit"): BlueprintDoc {
+function caseListRootDoc(childCaseType: string): BlueprintDoc {
 	return valid(
 		buildDoc({
 			appName: "Nested case list",
@@ -255,44 +255,26 @@ function docWithEmptyForm(formUuid = "form-e1"): BlueprintDoc {
 // ── evaluateCommit ─────────────────────────────────────────────────
 
 describe("evaluateCommit", () => {
-	it("rejects a different-case child under a form-less case-list root", () => {
-		const doc = caseListRootDoc("visit");
-		const [rootUuid, childUuid] = doc.moduleOrder;
-		if (rootUuid === undefined || childUuid === undefined) {
-			throw new Error("missing nested-menu gate fixture modules");
-		}
-		const verdict = gateCommit(doc, [
-			{
-				kind: "moveModule",
-				uuid: childUuid,
-				parentModuleUuid: rootUuid,
-				after: null,
-			},
-		]);
-		expect(codes(verdict)).toEqual([
-			"NESTED_MENU_CROSS_TYPE_ROOT_REQUIRES_FORM",
-		]);
-		if (verdict.ok) throw new Error("Expected the nested menu to be refused");
-		expect(verdict.findings[0].location.moduleUuid).toBe(childUuid);
-	});
-
-	it("accepts a same-case child under a form-less case-list root", () => {
-		const doc = caseListRootDoc("household");
-		const [rootUuid, childUuid] = doc.moduleOrder;
-		if (rootUuid === undefined || childUuid === undefined) {
-			throw new Error("missing nested-menu gate fixture modules");
-		}
-		expect(
-			gateCommit(doc, [
-				{
-					kind: "moveModule",
-					uuid: childUuid,
-					parentModuleUuid: rootUuid,
-					after: null,
-				},
-			]),
-		).toMatchObject({ ok: true });
-	});
+	it.each(["household", "visit"])(
+		"opens a %s child under a form-less case-list root",
+		(caseType) => {
+			const doc = caseListRootDoc(caseType);
+			const [rootUuid, childUuid] = doc.moduleOrder;
+			if (rootUuid === undefined || childUuid === undefined) {
+				throw new Error("missing nested-menu gate fixture modules");
+			}
+			expect(
+				gateCommit(doc, [
+					{
+						kind: "moveModule",
+						uuid: childUuid,
+						parentModuleUuid: rootUuid,
+						after: null,
+					},
+				]),
+			).toMatchObject({ ok: true });
+		},
+	);
 
 	it("a new EMPTY_FORM (completeness) is rejected — an entity lands complete or not at all", () => {
 		const doc = minDoc();

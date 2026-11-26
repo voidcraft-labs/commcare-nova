@@ -64,6 +64,7 @@ CHECK = "proof4"
 DOCUMENTS = (
     "arithmetic",
     "case-capture-repeat",
+    "case-list-action-basic",
     "case-extension-registration",
     "case-list-inline",
     "case-list-local",
@@ -74,6 +75,7 @@ DOCUMENTS = (
     "nested-menu-registration-children",
     "standard-case-reads",
     "targeted-advanced-module",
+    "targeted-hq-side-owned",
     "targeted-plain-help",
     "targeted-sync-on-form-entry",
     "tile-boxed",
@@ -208,8 +210,8 @@ def published(document, core_runner, configuration="minimum"):
         app_id, refusal, lookups = publish.create(unit, export)
         assert refusal is None, refusal
         assert lookups is None or lookups["errors"] == [], lookups
-        if export.content.media is not None:
-            media = operations.apply_media_upload(unit, app_id, export.content.media.upload())
+        for request, _ in export.content.media_uploads():
+            media = operations.apply_media_upload(unit, app_id, request.upload())
             assert media.status == 200, media.response
         yield Published(document, export, unit, app_id)
 

@@ -22,9 +22,11 @@ import "server-only";
  * Pure: it reads its arguments and nothing else.
  */
 
+import { isDeepStrictEqual } from "node:util";
 import { recordDialectRoundTrip } from "@/lib/agent/authoring/recordRoundTrip";
 import type { HqAlignedModule } from "@/lib/commcare/hq/appReading";
 import type { HqAppSource } from "@/lib/commcare/hq/appSource";
+import { lookupWireNaming } from "@/lib/commcare/lookup/naming";
 import {
 	knownCaseTypesOf,
 	knownLanguageCodesOf,
@@ -47,6 +49,7 @@ import { isMediaKind } from "@/lib/domain/multimedia";
 import { PLATFORMS, type Platform } from "@/lib/domain/platforms";
 import type { Finding } from "@/lib/publish/hqFindings";
 import type { HqMediaPath } from "../hqMedia";
+import { normalizedHqAppSource } from "../hqSourceBaseline";
 import { readingAppStrings } from "../reading/appStrings";
 import { readerLookupContext } from "../reading/gather";
 import {
@@ -112,6 +115,7 @@ export interface HqChangeReadingsInput {
 	readonly data: ReadingProjectData;
 	/** The flag answer where the source now holds a write saved only if changed. */
 	readonly saveOnlyEditedApplied?: boolean;
+	readonly caseListActionsApplied?: boolean;
 	readonly reference: Extract<ReferenceDocument, { readonly kind: "ok" }>;
 	/** The entities of the deployment's target-identity record (`store.ts::readTargetIdentity`). */
 	readonly overrides: readonly WireIdentityOverride[];
@@ -303,11 +307,13 @@ export function* makeHqChangeReadingsSteps(
 	input: HqChangeReadingsInput,
 ): Generator<void, HqChangeReadingsResult, void> {
 	const { appId, reference, data } = input;
+	const lookup = readerLookupContext(data);
 	const resolver = matchingResolver(
 		appId,
 		externalIdentityMap(
 			reference.identityDoc,
 			targetWireIdentity(input.overrides),
+			lookupWireNaming(lookup.definitions),
 		),
 	);
 	const shared = {
@@ -316,19 +322,31 @@ export function* makeHqChangeReadingsSteps(
 		resolver,
 		lookup: data.lookups,
 		organization: data.organization,
-		appStrings: readingAppStrings(readerLookupContext(data)),
+		sourceProjectFactories: data.sourceProjectFactories,
+		appStrings: readingAppStrings(lookup),
 		recordDialect: recordDialectRoundTrip,
 		knownCaseTypes: knownCaseTypesOf(reference.doc),
 		knownLanguageCodes: knownLanguageCodesOf(reference.doc),
 		...(input.saveOnlyEditedApplied !== undefined && {
 			saveOnlyEditedApplied: input.saveOnlyEditedApplied,
 		}),
+		...(input.caseListActionsApplied !== undefined && {
+			caseListActionsApplied: input.caseListActionsApplied,
+		}),
 	} satisfies Omit<ReaderInput, "source" | "modules" | "media">;
 
 	const baseSource = sourceFromBaseline(input.baselineSource);
 	yield;
+	const current =
+		data.suiteDetails && normalizedHqAppSource(input.now.source.raw);
 	const baseInput: ReaderInput = {
 		...shared,
+		suiteDetails:
+			current &&
+			"normalized" in current &&
+			isDeepStrictEqual(current.normalized, input.baselineSource)
+				? data.suiteDetails
+				: undefined,
 		source: baseSource,
 		modules: alignedFromSource(baseSource),
 		media: baseIndex(
@@ -342,6 +360,7 @@ export function* makeHqChangeReadingsSteps(
 	yield;
 	const nowInput: ReaderInput = {
 		...shared,
+		suiteDetails: data.suiteDetails,
 		source: nowSource,
 		modules: input.now.modules,
 		media: nowIndex(nowSource, appId, input.media.published, input.media.now),
@@ -351,7 +370,21 @@ export function* makeHqChangeReadingsSteps(
 		input.heldExpansions === undefined
 			? {}
 			: { heldExpansions: input.heldExpansions };
-	const base = yield* readHqAppSteps(baseInput, options);
+	/* A reference that holds no level was read with none: its reading read no places, so Nova
+	 * holds no level for it. The base is read as it was then, so the levels CommCare HQ's change
+	 * newly reads come in as that change's own, beside the rule that reads them. A base that
+	 * reads a level all the same is read with the Project's levels, as before. */
+	const levelless =
+		(reference.doc.organizationLevelOrder ?? []).length === 0 &&
+		data.organization.levels.length > 0;
+	let base = yield* readHqAppSteps(
+		levelless
+			? { ...baseInput, organization: { levelCodes: [], levels: [] } }
+			: baseInput,
+		options,
+	);
+	if (levelless && base.kind === "account")
+		base = yield* readHqAppSteps(baseInput, options);
 	if (base.kind === "account")
 		return {
 			kind: "no-base",

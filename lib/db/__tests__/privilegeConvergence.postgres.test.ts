@@ -729,6 +729,29 @@ describe("database privilege convergence", () => {
 				originalPush.rows[0].push_token,
 			);
 
+			const guardAccess = await sql<{ role: string; can_execute: boolean }>`
+				SELECT role, has_function_privilege(role, 'public.nova_reject_deployment_fold_reference_update()', 'EXECUTE') AS can_execute
+				FROM unnest(${sql.val([config.migrationRole, config.runtimeRole, config.cleanupRole, config.auditRole])}::text[]) AS role
+			`.execute(runtime.db);
+			expect(guardAccess.rows).toEqual([
+				{ role: config.migrationRole, can_execute: true },
+				{ role: config.runtimeRole, can_execute: false },
+				{ role: config.cleanupRole, can_execute: false },
+				{ role: config.auditRole, can_execute: false },
+			]);
+			const referenceAccess = await sql<{
+				privilege: string;
+				allowed: boolean;
+			}>`
+				SELECT privilege, has_table_privilege(current_user, 'public.app_deployment_fold_references', privilege) AS allowed
+				FROM unnest(ARRAY['SELECT','INSERT','UPDATE','DELETE']) AS privilege
+			`.execute(runtime.db);
+			expect(
+				referenceAccess.rows
+					.filter(({ allowed }) => allowed)
+					.map(({ privilege }) => privilege),
+			).toEqual(["SELECT"]);
+
 			const genesisProof = await sql<{
 				baselines: string;
 				digest_matches: boolean;
@@ -963,6 +986,57 @@ describe("database privilege convergence", () => {
 			).rejects.toThrow(
 				/snapshot does not equal current app state|exact horizon or genesis marker|duplicate key/,
 			);
+
+			/* A migration runs while the previous revision serves, and the
+			 * tables it creates carry no runtime grant until convergence
+			 * commits. The ledger triggers it attaches to tables that revision
+			 * already writes must therefore write their own new table as its
+			 * owner: withdraw the runtime's write grants on those ledgers, as
+			 * before convergence, and the previous revision's writes still
+			 * land and are still counted. */
+			await sql`
+				REVOKE INSERT, UPDATE, DELETE ON TABLE public.lookup_storage_budgets,
+					public.export_target_versions, public.auth_apikey_grant_epoch
+				FROM ${sql.id(config.runtimeRole)}
+			`.execute(h.db);
+			const windowKeyId = `window-key-${crypto.randomUUID()}`;
+			for (const statement of [
+				sql`INSERT INTO lookup_tables (project_id, name, tag,
+						definition_revision, rows_revision, column_count,
+						created_by, updated_by)
+					VALUES (${probeProjectId}, 'Window table', 'window_table', 1, 1, 0,
+						${probeUserId}, ${probeUserId})`,
+				sql`UPDATE app_deployments SET state = state
+					WHERE id = ${ledgerDeployment}::uuid`,
+				sql`INSERT INTO auth_apikey (id, key, "referenceId", "configId",
+						"createdAt", "updatedAt", enabled, permissions)
+					VALUES (${windowKeyId}, 'window-key-hash', ${probeUserId},
+						'default', now(), now(), true, '{}')`,
+			]) {
+				await expect(statement.execute(runtime.db)).resolves.toMatchObject({
+					numAffectedRows: BigInt(1),
+				});
+			}
+			const ledgers = await sql<{
+				budget: boolean;
+				target: boolean;
+				epoch: boolean;
+			}>`
+				SELECT
+					EXISTS (SELECT 1 FROM lookup_storage_budgets
+						WHERE project_id = ${probeProjectId} AND used_bytes > 0) AS budget,
+					EXISTS (SELECT 1 FROM export_target_versions
+						WHERE project_id = ${probeProjectId} AND app_id = ${genesis.appId}) AS target,
+					EXISTS (SELECT 1 FROM auth_apikey_grant_epoch
+						WHERE key_id = ${windowKeyId}) AS epoch
+			`.execute(h.db);
+			expect(ledgers.rows).toEqual([
+				{ budget: true, target: true, epoch: true },
+			]);
+			/* Serving code reads a key's grant epoch and never writes it. */
+			await expect(
+				sql`DELETE FROM auth_apikey_grant_epoch`.execute(runtime.db),
+			).rejects.toMatchObject({ code: "42501" });
 
 			cleanup = await createRoleDatabase(config.cleanupRole);
 			const cleanupProbe = await runCaptureCleanupSchemaProbe(

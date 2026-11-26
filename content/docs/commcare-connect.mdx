@@ -34,16 +34,10 @@ what else that choice decides.
 
 ### Turning off automatic location capture
 
-Turning off Connect in Nova leaves Auto Capture Location as it is in each app on
-CommCare HQ. To stop automatic capture on workers' devices:
-
-1. Publish the app with Connect turned off. In the app's settings in CommCare
-   HQ, open **Advanced Settings → Android Settings** and turn off **Auto Capture
-   Location (all forms)**.
-2. If an individual form still has **Auto Capture Location** on, turn it off in
-   that form's **Settings → Advanced**.
-3. Build and release a new version in CommCare HQ. The change takes effect on
-   each worker's device when they install that version.
+After Connect is turned off, **App settings → Request location for every form**
+controls the app. With that switch off, each form uses its own **Request location
+for this form** switch. Publish the app, then build and release its new version
+in CommCare HQ. Workers use the new settings when they install that version.
 
 ## Deliver units and tasks
 

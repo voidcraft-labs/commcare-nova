@@ -10,12 +10,14 @@
 import { makeTranslationUnitId } from "@/lib/domain";
 import { resolvedLanguageDisplayLabel } from "@/lib/domain/languageRegistry/names";
 import { ownRecordValue, recordFromEntries } from "@/lib/domain/records";
+import { requiredAndroidAppsFromProfile } from "../androidAppDependencies";
 import {
 	hqCatalogMayHold,
 	isRuntimeUiStringKey,
 	translationKeyOwner,
 } from "../appStringKeys";
 import type { NovaOwnedDerivedProfilePropertyKey } from "../derivedProfile";
+import { sourceMenuLayouts } from "../hq/menuLayout";
 import { isLocaleFileKey } from "../localeFile";
 import { type SourceTable, tableOf } from "../sourceKeys";
 import { inventoryIndex } from "../surface/inventory";
@@ -121,9 +123,6 @@ const ACCOUNTED: readonly AccountedKeys[] = [
 	["vellum-case-management", ["vellum_case_management"]],
 	["comment-app", ["comment"]],
 	["smart-lang-display", ["smart_lang_display"]],
-	["39-hq-case-sharing", ["case_sharing"]],
-	["46-hq-use-grid-menus", ["use_grid_menus"]],
-	["47-hq-grid-form-menus-none-all-some", ["grid_form_menus"]],
 	["51-hq-persistent-menu", ["persistent_menu"]],
 	["52-hq-show-breadcrumbs", ["show_breadcrumbs"]],
 	["35-hq-practice-mobile-worker-id", ["practice_mobile_worker_id"]],
@@ -222,6 +221,20 @@ const CLAIMS = defineClaims("appShell", {
 		`${A}/attachments-entry-for-a-form-no-longer-in-the-app`,
 		key("_attachments"),
 	),
+	caseSharing: take(`${A}/39-hq-case-sharing`, key("case_sharing")),
+	firstMenuLayout: take(`${A}/46-hq-use-grid-menus`, key("use_grid_menus")),
+	formMenuLayout: take(
+		`${A}/47-hq-grid-form-menus-none-all-some`,
+		key("grid_form_menus"),
+	),
+	invalidFirstMenuLayout: refuse(
+		`${A}/menu-layout-outside-editor-choices`,
+		key("use_grid_menus"),
+	),
+	invalidFormMenuLayout: refuse(
+		`${A}/menu-layout-outside-editor-choices`,
+		key("grid_form_menus"),
+	),
 	cloudcareEnabled: take(
 		`${A}/40-hq-cloudcare-enabled`,
 		key("cloudcare_enabled"),
@@ -283,7 +296,9 @@ const TRANSLATION_CLAIMS = defineClaims("appShell.translations", {
 		`${A}/translations-lang-code-any-other-value-or-absent-where-hq-s`,
 		TRANSLATIONS,
 	),
-	homescreenTitle: account(`${A}/translations-homescreen-title`, TRANSLATIONS),
+	/** A language's `homescreen.title` equal to its `app.display.name`, both the app name's
+	 *  translation: Nova writes it from that translation. */
+	homescreenTitle: derived(`${A}/translations-homescreen-title`, TRANSLATIONS),
 	/** A runtime's UI key some language holds, which HQ's build fills from its own catalog in an
 	 *  app language that holds no text for it (`readCatalogFills`). */
 	hqCatalogKey: account(
@@ -446,6 +461,14 @@ const PROFILE_CLAIMS = defineClaims("appShell.profile", {
 	otherCustomProperty: refuse(
 		`${A}/profile-custom-properties-any-other-entry-incl-formplayer-keys`,
 		PROFILE,
+	),
+	duplicateAndroidApp: refuse(
+		`${A}/repeated-android-app-dependency`,
+		"setting:features.dependencies",
+	),
+	androidApps: take(
+		`${A}/31-features-dependencies`,
+		"setting:features.dependencies",
 	),
 	showSaved: take(
 		`${A}/20-properties-cc-show-saved`,
@@ -842,6 +865,29 @@ function readProfile(ctx: ReadContext): void {
 				bag.refuse(name, outside, { name });
 				continue;
 			}
+			if (setting === "setting:features.dependencies") {
+				if (Array.isArray(value) && new Set(value).size !== value.length) {
+					bag.refuse(name, PROFILE_CLAIMS.duplicateAndroidApp, { name });
+					continue;
+				}
+				if (
+					outside !== undefined &&
+					requiredAndroidAppsFromProfile(value) === undefined
+				) {
+					bag.refuse(name, outside, { name });
+					continue;
+				}
+				const apps = bag.take(
+					name,
+					PROFILE_CLAIMS.androidApps,
+					requiredAndroidAppsFromProfile,
+				).value;
+				if (apps?.length)
+					ctx.writeDraft(() => {
+						ctx.draft.appSettings.requiredAndroidApps = apps;
+					});
+				continue;
+			}
 			if (setting === "setting:properties.cc-show-saved") {
 				const read = bag.take(name, PROFILE_CLAIMS.showSaved, yesNo).value;
 				if (read !== undefined) showSaved = read;
@@ -904,8 +950,8 @@ function translationKeyKind(
 	if (codes.has(name)) return "language-name";
 	if (name === "app.display.name") return "app-display-name";
 	if (name === "homescreen.title") return "homescreen-title";
-	if (isRuntimeUiStringKey(name)) return "runtime-ui-string";
 	if (translationKeyOwner(name, codes) === "generated") return "generated";
+	if (isRuntimeUiStringKey(name)) return "runtime-ui-string";
 	return "unread";
 }
 
@@ -949,8 +995,11 @@ function readTranslations(
 	const codes = new Set(languages.codes);
 	const appNames = new Map<string, string>();
 	const appName = name?.value;
-	let firstLanguageName: Admitted<string> | undefined;
-	let firstLanguageNamePointer = "";
+	/* Each language's two strings HQ's build writes from the app's name, as stored. */
+	const nameStrings = new Map<
+		string,
+		{ json: JsonCursor; display?: unknown; title?: unknown }
+	>();
 	const byLanguage = ctx.app.map(
 		"translations",
 		"Application.translations",
@@ -1007,27 +1056,14 @@ function readTranslations(
 					else strings.account(key, TRANSLATION_CLAIMS.languageNameOther);
 					continue;
 				}
-				case "app-display-name": {
-					if (typeof value !== "string") continue;
-					const read = strings.take(
-						key,
-						TRANSLATION_CLAIMS.appDisplayName,
-						(v) => v as string,
-					);
-					const text = read.value;
-					/* Blank, or in the source language equal to `name`, it is the string HQ's
-					 * build writes from `name`. */
-					if (!appliedDisplayName(text)) continue;
-					if (language !== languages.source) appNames.set(language, text);
-					else if (text !== appName) {
-						firstLanguageName = read;
-						firstLanguageNamePointer = `${strings.pointer}/${pointerToken(key)}`;
-					}
+				case "app-display-name":
+				case "homescreen-title": {
+					const pair = nameStrings.get(language) ?? { json: strings };
+					if (kind === "app-display-name") pair.display = value;
+					else pair.title = value;
+					nameStrings.set(language, pair);
 					continue;
 				}
-				case "homescreen-title":
-					strings.account(key, TRANSLATION_CLAIMS.homescreenTitle);
-					continue;
 				case "runtime-ui-string": {
 					const claim = uiStringClaim(key);
 					if (claim !== undefined) strings.account(key, claim);
@@ -1040,23 +1076,36 @@ function readTranslations(
 		}
 	}
 	readCatalogFills(ctx, languages);
-	if (firstLanguageName !== undefined) {
-		const override = firstLanguageName;
-		ctx.writeDraft(() => {
-			ctx.draft.appName = override;
-		});
-		ctx.facts.foldedTranslationKeys.push(firstLanguageNamePointer);
+	/* A language other than the source holding both strings with one text other than `name` is
+	 * what Nova writes for the app name's translation there (`expander.ts::appLevelValues`), so it
+	 * reads as that translation. Every other stored one is that string's own wording, the generated
+	 * key's (`generatedWording.ts::appNameWordingKeys`), which Nova writes back as stored. */
+	for (const [language, pair] of nameStrings) {
+		const { json: strings, display, title } = pair;
+		if (
+			language !== languages.source &&
+			appliedDisplayName(display) &&
+			title === display &&
+			display !== appName
+		) {
+			const translated = strings.take(
+				"app.display.name",
+				TRANSLATION_CLAIMS.appDisplayName,
+				(v) => v as string,
+			).value;
+			strings.derived("homescreen.title", TRANSLATION_CLAIMS.homescreenTitle);
+			appNames.set(language, translated);
+			continue;
+		}
+		for (const [key, value] of [
+			["app.display.name", display],
+			["homescreen.title", title],
+		] as const)
+			if (value !== undefined)
+				held.push({ language, key, value, json: strings });
 	}
 	const translated = new Map(
-		[
-			...holdAppName(
-				ctx,
-				languages,
-				name,
-				appNames,
-				firstLanguageName !== undefined,
-			),
-		].flatMap(([code, text]) => {
+		[...holdAppName(ctx, languages, name, appNames)].flatMap(([code, text]) => {
 			const tag = languages.tagOf.get(code);
 			return tag === undefined || languages.refused.has(code)
 				? []
@@ -1085,10 +1134,11 @@ function readCatalogFills(ctx: ReadContext, languages: HqLanguages): void {
 	const stored = ctx.app.peek("translations");
 	if (!isJsonObject(stored)) return;
 	const maps = Object.values(stored).filter(isJsonObject);
+	const codes = new Set(languages.codes);
 	const keys = new Set(
 		maps
 			.flatMap((strings) => Object.keys(strings))
-			.filter(isRuntimeUiStringKey),
+			.filter((key) => translationKeyKind(key, codes) === "runtime-ui-string"),
 	);
 	for (const code of languages.codes) {
 		if (languages.refused.has(code)) continue;
@@ -1129,7 +1179,6 @@ function holdAppName(
 	languages: HqLanguages,
 	name: Admitted<string> | undefined,
 	appNames: ReadonlyMap<string, string>,
-	fromDisplayName: boolean,
 ): ReadonlyMap<string, string> {
 	const source = languages.source;
 	const sourceName = ctx.draft.appName?.value;
@@ -1180,7 +1229,7 @@ function holdAppName(
 	for (const code of languages.codes) {
 		const before = shown.get(code);
 		if (before === undefined || before === held.printed[code]) continue;
-		const own = code === source ? fromDisplayName : appNames.has(code);
+		const own = code !== source && appNames.has(code);
 		recordTextRewrite(
 			ctx,
 			own
@@ -1192,6 +1241,16 @@ function holdAppName(
 			"names-respelled",
 			held.workersSeeAnother,
 		);
+		if (own)
+			recordTextRewrite(
+				ctx,
+				{
+					entry: TRANSLATION_CLAIMS.homescreenTitle.entry,
+					path: `/translations/${pointerToken(code)}/homescreen.title`,
+				},
+				"names-respelled",
+				false,
+			);
 	}
 	return held.translations;
 }
@@ -1294,6 +1353,15 @@ export function readApplication(ctx: ReadContext): void {
 		});
 	const languages = readLanguages(ctx);
 	const attachments = readAttachments(ctx);
+	const sharing = app.take(
+		"case_sharing",
+		CLAIMS.caseSharing,
+		(value) => value === true,
+	);
+	if (sharing.value)
+		ctx.writeDraft(() => {
+			ctx.draft.appSettings.caseSharing = true;
+		});
 	const cloudcare = app.take(
 		"cloudcare_enabled",
 		CLAIMS.cloudcareEnabled,
@@ -1301,6 +1369,36 @@ export function readApplication(ctx: ReadContext): void {
 	);
 	ctx.facts.webAppsOnInHq = cloudcare.value;
 	const generatedKeys = readTranslations(ctx, languages, name);
+	const { firstMenuLayout, formMenuLayout } = sourceMenuLayouts({
+		use_grid_menus: app.peek("use_grid_menus"),
+		grid_form_menus: app.peek("grid_form_menus"),
+	});
+	if (firstMenuLayout === "unreadable")
+		app.refuse("use_grid_menus", CLAIMS.invalidFirstMenuLayout);
+	else {
+		const layout = app.take(
+			"use_grid_menus",
+			CLAIMS.firstMenuLayout,
+			() => firstMenuLayout,
+		).value;
+		if (layout === "grid")
+			ctx.writeDraft(() => {
+				ctx.draft.appSettings.firstMenuLayout = layout;
+			});
+	}
+	if (formMenuLayout === "unreadable")
+		app.refuse("grid_form_menus", CLAIMS.invalidFormMenuLayout);
+	else {
+		const layout = app.take(
+			"grid_form_menus",
+			CLAIMS.formMenuLayout,
+			() => formMenuLayout,
+		).value;
+		if (layout !== "list")
+			ctx.writeDraft(() => {
+				ctx.draft.appSettings.formMenuLayout = layout;
+			});
+	}
 	readProfile(ctx);
 	readBuildSpec(ctx);
 	readLogos(ctx);

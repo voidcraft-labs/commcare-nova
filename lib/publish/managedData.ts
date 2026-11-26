@@ -18,6 +18,17 @@ import { namesInWords } from "./planFeatures";
 // Shared pieces
 // ---------------------------------------------------------------------------
 
+/**
+ * The note on a lookup table change whose discard replaces a table HQ still
+ * holds under that tag and id: a change to its definition or rows, or one
+ * whose baseline Nova could not read. HQ's table key holds a description
+ * and each field's indexed flag (`fixtures/upload/run_upload.py::table_key`),
+ * which no API-key read returns and no workbook carries a description of,
+ * so the push makes such a table again without them.
+ */
+export const LOOKUP_DISCARD_NOTE =
+	"If it has a description or indexed fields in CommCare HQ, publishing removes them: CommCare HQ doesn't show those to Nova, and a lookup upload can't carry a description.";
+
 /** An app as these sentences name it: its name, and where it is when it is in the trash. */
 export type NamedApp = Pick<LookupReferencingAppSummary, "appName" | "deleted">;
 
@@ -97,10 +108,36 @@ export function managedTableUnsupported(holds: string): string {
 	return `This table now holds ${holds} in CommCare HQ, which Nova can't hold yet. Nova kept its copy as it was.`;
 }
 
-/** A refresh over a cap. `phrases` are the caps' phrases without the tag, joined with " and ". */
-export function managedTableOverCap(phrases: readonly string[]): string {
-	return `This table now has ${phrases.join(" and ")} in CommCare HQ. Nova kept its copy as it was.`;
-}
+/**
+ * A refresh from a table's page of a table larger than one inline read, where
+ * the paged refresh that reads it cannot start: the request carried no
+ * sign-in grant to check each page against.
+ */
+export const managedTablePastInlineRead =
+	"This table is larger than Nova copies in one read, so Nova reads it in pages, and that needs your current sign-in. Nova kept its copy as it was. You can sign in again and refresh it.";
+
+/**
+ * A takeover of a copy whose table in CommCare HQ grew past one inline read:
+ * a refresh from the table's page reads it in pages, and the takeover then
+ * takes the table it stored.
+ */
+export const managedTakeOverPastInlineRead =
+	"This table has grown in CommCare HQ past what Nova reads in one go, so nothing changed. You can refresh it in Project data, then take it over.";
+
+/**
+ * A hand-back of a table Nova manages whose table in CommCare HQ is past one
+ * inline read: a hand-back reads CommCare HQ's table in one go, and has no
+ * paged path.
+ */
+export const managedHandBackPastInlineRead =
+	"This table in CommCare HQ is larger than Nova reads in one go, and Nova can't hand back a table that large yet. Nothing changed, and Nova still manages it.";
+
+/**
+ * Use the table from CommCare HQ, where CommCare HQ's table is past one
+ * inline read: the change reads it in one go, and has no paged path.
+ */
+export const useHqTablePastInlineRead =
+	"This table in CommCare HQ is larger than Nova reads in one go, so Nova can't use it in place of this table yet. Nothing changed, and this table stays as it is.";
 
 /** A refresh that finds the table holds no column in CommCare HQ. */
 export const MANAGED_TABLE_NO_COLUMNS =
@@ -132,7 +169,7 @@ export function manageInNovaTitle(name: string): string {
 
 /**
  * Manage in Nova's confirmation, its body before the facts a push clears. The dialog follows these with
- * `LOOKUP_DISCARD_NOTE` (`lib/deployment/remoteChanges.ts`), unchanged, and
+ * `LOOKUP_DISCARD_NOTE` unchanged, and
  * then `appsThatReadIt`.
  */
 export function manageInNovaBody(domain: string): readonly string[] {
@@ -178,6 +215,147 @@ export function columnsBecomeText(columns: readonly string[]): string | null {
 /** The hand-back's confirmation, its two buttons. */
 export const LET_HQ_MANAGE_CONFIRM = "Let CommCare HQ manage it";
 export const KEEP_MANAGING_IN_NOVA = "Keep managing it in Nova";
+
+// ---------------------------------------------------------------------------
+// Use the table from CommCare HQ, and Create a separate table
+// ---------------------------------------------------------------------------
+
+/** The action on a Nova table a publish put in a project space, and its confirmation's title. */
+export const USE_HQ_TABLE = "Use the table from CommCare HQ";
+/** Use the table from CommCare HQ, before a project space is chosen. */
+export const USE_HQ_TABLE_CHOOSE =
+	"You can choose the project space whose table Nova uses for this one.";
+export function takeHqTableTitle(name: string, domain: string): string {
+	return `Use the table in ${domain} for ${name}?`;
+}
+
+/** Its first line. */
+export function takeHqTableBody(domain: string): string {
+	return `Nova takes the columns and rows of the table in ${domain} as they are right now, and CommCare HQ manages it from then on. Nova never changes that table there, and you refresh Nova's copy from it.`;
+}
+
+/**
+ * What taking CommCare HQ's table does to Nova's, one line each, in the order
+ * a person reads them; a change that does not happen has no line.
+ */
+export function takeHqTableChanges(input: {
+	readonly domain: string;
+	readonly rowsBefore: number;
+	readonly rowsAfter: number;
+	readonly addedColumns: readonly string[];
+	readonly removedColumns: readonly string[];
+	readonly keptColumns: readonly string[];
+	readonly typedColumns: readonly string[];
+	readonly assignmentsRemoved: boolean;
+	readonly assignedInHq: boolean;
+	readonly otherDomains: readonly string[];
+}): readonly string[] {
+	const lines: string[] = [];
+	if (input.rowsBefore !== input.rowsAfter)
+		lines.push(
+			`The table there has ${count(input.rowsAfter)} ${input.rowsAfter === 1 ? "row" : "rows"}, and Nova's has ${count(input.rowsBefore)}.`,
+		);
+	if (input.addedColumns.length > 0)
+		lines.push(
+			`${namesInWords(input.addedColumns)} ${input.addedColumns.length === 1 ? "comes" : "come"} in from CommCare HQ.`,
+		);
+	if (input.removedColumns.length > 0)
+		lines.push(
+			`${namesInWords(input.removedColumns)} ${input.removedColumns.length === 1 ? "is" : "are"} removed, since the table there doesn't have ${input.removedColumns.length === 1 ? "it" : "them"}.`,
+		);
+	if (input.keptColumns.length > 0)
+		lines.push(
+			`${namesInWords(input.keptColumns)} ${input.keptColumns.length === 1 ? "stays" : "stay"} with no values, because apps read ${input.keptColumns.length === 1 ? "it" : "them"}. Their next publish to ${input.domain} stops until the table there has ${input.keptColumns.length === 1 ? "it" : "them"} or they stop reading ${input.keptColumns.length === 1 ? "it" : "them"}.`,
+		);
+	const becomeText = columnsBecomeText(input.typedColumns);
+	if (becomeText !== null) lines.push(becomeText);
+	if (input.assignmentsRemoved)
+		lines.push(
+			"The worker assignments of its rows in Nova are removed, and CommCare HQ decides who receives each row.",
+		);
+	else if (input.assignedInHq)
+		lines.push(
+			"CommCare HQ sends its rows only to the workers it assigns them to.",
+		);
+	if (input.otherDomains.length > 0)
+		lines.push(
+			`A publish also put this table in ${namesInWords(input.otherDomains)}. Publishing there afterwards needs the table prepared in that project space, since CommCare HQ doesn't tell Nova which of its columns are indexed.`,
+		);
+	return lines;
+}
+
+/** Its two buttons. */
+export const USE_HQ_TABLE_CONFIRM = "Use the table from CommCare HQ";
+export const KEEP_NOVA_TABLE = "Keep Nova's table";
+
+/** The last sentence of a drift item on a Nova table a publish put in that project space. */
+export const USE_HQ_TABLE_OFFERED =
+	"You can also choose Use the table from CommCare HQ on the table's page to take CommCare HQ's version.";
+
+/** Use the table from CommCare HQ on a table that came from there: its banner offers who manages it. */
+export const TABLE_HAS_HQ_ORIGIN =
+	"This table came from CommCare HQ, so its page offers who manages it instead.";
+
+/** The action offered where no publish holds the table in any project space. */
+export const USE_HQ_TABLE_NO_SOURCE =
+	"No publish of this Project's apps holds this table in a project space under its export name, so there is no table in CommCare HQ to take. You can publish an app that reads it first.";
+
+/** The answer where the chosen project space holds the table no longer. */
+export function takeHqTableSourceMoved(domain: string): string {
+	return `A publish no longer holds this table in ${domain}, so Nova changed nothing. You can choose another project space.`;
+}
+
+/** The action on any table every worker receives, and its confirmation's title. */
+export const SEPARATE_TABLE = "Create a separate table";
+export function separateTableTitle(name: string): string {
+	return `Create a separate table from ${name}?`;
+}
+
+/** Its first line. */
+export function separateTableBody(name: string): string {
+	return `Nova makes a new Project table with the columns and rows ${name} has now, and the apps you choose read the new table instead. ${name} and every other app stay as they are.`;
+}
+
+/** Its line for a table whose indexes CommCare HQ never showed Nova. */
+export const SEPARATE_TABLE_INDEXES =
+	"CommCare HQ didn't tell Nova which of its columns are indexed, so the new table indexes none. You can choose indexes on the new table's page.";
+
+/** Its line about who manages the new table. */
+export const SEPARATE_TABLE_OWNED =
+	"Nova manages the new table, and each publish of those apps sends it under its own export name.";
+
+/** Its two buttons. */
+export const SEPARATE_TABLE_CONFIRM = "Create the table";
+export const KEEP_ONE_TABLE = "Keep one table";
+
+/** A separate table asked for with no app to read it. */
+export const SEPARATE_TABLE_NO_APPS =
+	"Choose at least one app to read the new table.";
+
+/** A separate table of a table no app reads. */
+export const SEPARATE_TABLE_NO_READERS =
+	"No app reads this table, so there is no app to point at a separate one. You can create a new table instead.";
+
+/** A separate table of a table whose rows go to certain workers. */
+export const SEPARATE_TABLE_ASSIGNED =
+	"Nova can make a separate table only from a table every worker receives, since it can't carry who receives each row. You can create a new table instead.";
+
+/** A separate table of a table larger than one change copies. */
+export const SEPARATE_TABLE_TOO_LARGE =
+	"This table is larger than one change can copy. You can create a new table and import its rows in parts.";
+
+/** A separate table of a table CommCare HQ manages whose current rows Nova doesn't hold. */
+export const SEPARATE_TABLE_ROWS_UNAVAILABLE =
+	"Nova doesn't hold this table's current rows yet. You can refresh it in Project data, then create a separate table.";
+
+/** A separate table whose rows would run past the Project's lookup storage. */
+export const SEPARATE_TABLE_NO_ROOM =
+	"This Project doesn't have room for another copy of this table's rows, so nothing changed. You can free space in Project data, then create the separate table.";
+
+/** A separate table where an app it rebinds changed meanwhile. */
+export function separateTableAppChanged(appName: string): string {
+	return `${appName} changed while the table was being made, so Nova changed nothing. You can try again.`;
+}
 
 /** The header badge of a column CommCare HQ's table no longer has. */
 export const COLUMN_GONE_IN_HQ = "Gone in CommCare HQ";
@@ -465,17 +643,15 @@ export function managedPlacesOutcomeLines(outcome: ManagedPlacesAnswer): {
 }
 
 /**
- * A refresh that finds more places than Nova holds for an app. `total` is
- * CommCare HQ's count where the list passed the place limit, and null where
- * it passed the bytes Nova reads of a place list before it passed the count.
+ * A refresh whose project space lists more places than Nova reads from one,
+ * by count or by the bytes of its place lists. `maxPlaces` is that count.
+ * Retrying changes nothing, so the sentence offers the copy Nova kept.
  */
-export function managedPlacesOverLimit(
+export function managedPlacesPastInventory(
 	domain: string,
-	total: number | null,
+	maxPlaces: number,
 ): string {
-	return total === null
-		? `${domain} now holds more place information than Nova reads, and Nova holds up to 10,000 places for an app. Nova kept its copy as it was.`
-		: `${domain} now has ${count(total)} places, and Nova holds up to 10,000 for an app. Nova kept its copy as it was.`;
+	return `${domain} holds more places than Nova reads from one project space, which is up to ${count(maxPlaces)} places. Nova kept its copy as it was, and you can keep working with it.`;
 }
 
 /** A refresh CommCare HQ refused to answer the account. */
@@ -728,12 +904,12 @@ export function managedTableManyValuesItem(tag: string): string {
 	return `${tag} now has a field with more than one value in CommCare HQ, which Nova can't hold yet. You can give each field one value there, then publish again.`;
 }
 
-/** An item, over a cap. `phrases` are the caps' phrases without the tag, joined with " and ". */
-export function managedTableOverCapItem(
-	tag: string,
-	phrases: readonly string[],
-): string {
-	return `${tag} now has ${phrases.join(" and ")} in CommCare HQ. You can shorten it there, then publish again.`;
+/**
+ * An item, a table larger than one inline read that changed in CommCare HQ
+ * since Nova's copy, or that this publish could not compare page by page.
+ */
+export function managedTablePastInlineItem(tag: string): string {
+	return `${tag} may have changed in CommCare HQ since Nova last refreshed it, and it's larger than a publish reads at once. You can refresh it from its Project data page, then publish again.`;
 }
 
 /** An item, a table that holds no column. */
@@ -938,11 +1114,11 @@ export function reviewManagedPlaces(places: number, domain: string): string {
 
 /** Why an answer to a table's choice is not offered. */
 export type LookupChoiceRefusal =
+	| "needs-source-evidence"
 	| "needs-admin"
 	| "managed-elsewhere"
 	| "app-reads-a-missing-column"
-	| "fails-a-project-space-rule"
-	| "too-many-columns";
+	| "fails-a-project-space-rule";
 
 /** An answer's offer, as a review table's choice carries it. */
 export type ReviewChoiceOffer =
@@ -950,8 +1126,7 @@ export type ReviewChoiceOffer =
 	| {
 			readonly offered: false;
 			readonly why: LookupChoiceRefusal;
-			/** The other project space, the first missing column, or the count of columns the
-			 *  table would hold; null for the other two. */
+			/** The other project space or the first missing column; null for the others. */
 			readonly name: string | null;
 	  };
 
@@ -989,6 +1164,9 @@ export function reviewChoiceBody(
 	domain: string,
 	choice: ReviewChoice,
 ): string {
+	const offer = choice.options["use-project"];
+	if (!offer.offered && offer.why === "needs-source-evidence")
+		return `This app reads ${tag} from ${domain}. ${project} already has a table by that name. Nova needs current access to the rows and their assignments to compare the two. You can choose another Project or update the source connection.`;
 	const lead = `This app reads the lookup table ${tag} from ${domain}. ${project} already has a table by that name with`;
 	const readBy =
 		choice.apps.length > 0 ? ` read by ${appsInWords(choice.apps)}` : "";
@@ -1069,6 +1247,8 @@ export function choiceNotOffered(
 	project: string,
 ): string {
 	switch (offer.why) {
+		case "needs-source-evidence":
+			return "This table needs verified source inventory and worker access before it can replace a Project table.";
 		case "needs-admin":
 			return `An admin of ${project} can choose this.`;
 		case "managed-elsewhere":
@@ -1077,8 +1257,6 @@ export function choiceNotOffered(
 			return `This app reads the column ${offerName(offer)}, which ${project}'s table doesn't have.`;
 		case "fails-a-project-space-rule":
 			return `${project}'s table, as it stands, holds something this app couldn't be published or exported with, so this app can't use it.`;
-		case "too-many-columns":
-			return `${project}'s table would have ${offerName(offer)} columns with the ones its apps still read, and Nova takes 250.`;
 	}
 }
 

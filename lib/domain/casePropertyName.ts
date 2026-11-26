@@ -13,13 +13,9 @@ import { z } from "zod";
 export const AUTHORED_CASE_PROPERTY_NAME_PATTERN = /^[A-Za-z][A-Za-z0-9_-]*$/;
 export const MAX_AUTHORED_CASE_PROPERTY_NAME_LENGTH = 255;
 
-export const authoredCasePropertyNameSchema = z
+export const readCasePropertyNameSchema = z
 	.string()
 	.min(1, "Case property name must not be empty.")
-	.max(
-		MAX_AUTHORED_CASE_PROPERTY_NAME_LENGTH,
-		`Case property name must be ${MAX_AUTHORED_CASE_PROPERTY_NAME_LENGTH} characters or fewer.`,
-	)
 	.regex(
 		AUTHORED_CASE_PROPERTY_NAME_PATTERN,
 		"Case property name must start with a letter and contain only letters, digits, underscores, or hyphens.",
@@ -32,6 +28,10 @@ export const authoredCasePropertyNameSchema = z
 				"Use Nova's canonical standard property name: case_name, date_opened, or external_id.",
 		},
 	);
+export const authoredCasePropertyNameSchema = readCasePropertyNameSchema.max(
+	MAX_AUTHORED_CASE_PROPERTY_NAME_LENGTH,
+	`Case property name must be ${MAX_AUTHORED_CASE_PROPERTY_NAME_LENGTH} characters or fewer.`,
+);
 
 export type AuthoredCasePropertyName = z.infer<
 	typeof authoredCasePropertyNameSchema

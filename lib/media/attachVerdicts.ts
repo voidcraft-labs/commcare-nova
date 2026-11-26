@@ -9,8 +9,8 @@
 // verdict holds the line there: a committed media reference always points
 // at an asset that exists, belongs to the app's Project, is `ready`,
 // matches its slot's kind and plays on every platform the app runs on
-// (`platformPlayback.ts`) — and the attach never pushes the app's
-// referenced-media aggregate past the export ceiling.
+// (`platformPlayback.ts`). No total of the app's media bounds an attach:
+// every export streams the files one at a time.
 //
 // Why attach-time checking holds:
 //
@@ -41,19 +41,13 @@
 //
 // Surfaces: chat and MCP both feed their expectations into the authoritative
 // transactional writer; this preflight exists for early, specific feedback,
-// never as the concurrency boundary. The aggregate ceiling stays
-// pre-commit-only: a racing delete can only SHRINK the aggregate, and the
-// boundary's own budget check remains defense in depth for pathological
-// concurrent attaches.
+// never as the concurrency boundary.
 
 import type { Kysely } from "kysely";
 import { loadAssetsByIds, type MediaAssetRecord } from "@/lib/db/mediaAssets";
 import type { AppDatabase } from "@/lib/db/pg";
 import type { BlueprintDoc } from "@/lib/domain";
-import {
-	collectAssetRefs,
-	walkAuthoredAssetRefs,
-} from "@/lib/domain/mediaRefs";
+import { walkAuthoredAssetRefs } from "@/lib/domain/mediaRefs";
 import type {
 	AssetKind,
 	MediaAssetId,
@@ -61,7 +55,6 @@ import type {
 } from "@/lib/domain/multimedia";
 import { declaredPlatforms, type Platform } from "@/lib/domain/platforms";
 import { partitionAssetRefs } from "./builtinIconAssets";
-import { attachOverBudgetMessage, exportBudgetExcess } from "./exportBudget";
 import {
 	attachPlatformLine,
 	type UnplayableReference,
@@ -160,22 +153,11 @@ export function describeMediaExpectationFailures(
 }
 
 /**
- * The full pre-commit verdict: load the rows for everything the doc
- * would reference after the attach (current refs ∪ the expectations'
- * ids) in one Project-filtered batch, run the per-asset judgment over the
- * expectations, then hold the post-attach aggregate of referenced READY
- * media inside the export ceiling — the same `MAX_MEDIA_EXPORT_ASSETS` /
- * `MAX_MEDIA_EXPORT_BYTES` budget `lib/export/boundaryValidation.ts` enforces at
- * export, applied here so the user hears "remove other media first" at
- * the attach instead of at the export door.
- *
- * The aggregate counts every ref being REPLACED in the same batch (the
- * old values still sit on the pre-attach doc) — an overcount of up to
- * one asset per replaced slot, so a batch tool swapping many uploaded
- * refs on an app at the exact ceiling can be over-rejected. Accepted
- * because it only ever errs toward rejecting, never toward letting an
- * over-budget app through; the SA recovers by clearing or splitting the
- * replacement.
+ * The full pre-commit verdict: load the rows for the expectations' ids in
+ * one Project-filtered batch and run the per-asset judgment over them,
+ * including whether each plays on every platform the document declares.
+ * An app holds any number of files: every export streams them, one file at
+ * a time, so no total of the app's media bounds an attach.
  *
  * `doc` is the PRE-attach doc; callers pass the expectations for every
  * slot the call SETS (clears carry no expectation and need no verdict).
@@ -188,12 +170,7 @@ export async function mediaAttachVerdict(args: {
 	const { projectId, doc, expectations } = args;
 	if (expectations.length === 0) return { ok: true };
 
-	const ids = [
-		...new Set([
-			...collectAssetRefs(doc),
-			...expectations.map((e) => e.assetId),
-		]),
-	];
+	const ids = [...new Set(expectations.map((e) => e.assetId))];
 	const { realIds } = partitionAssetRefs(ids);
 	const rows = await loadAssetsByIds(realIds, projectId);
 	const rowsById = new Map<string, MediaAssetRecord>(
@@ -207,15 +184,6 @@ export async function mediaAttachVerdict(args: {
 		declaredPlatforms(doc),
 	);
 	if (failure) return { ok: false, error: failure };
-
-	// Post-attach aggregate — the shared ceiling math
-	// (`lib/media/exportBudget.ts`), the same function the export
-	// boundary and the browser slots run.
-	const excess = exportBudgetExcess(rows);
-	if (excess !== null) {
-		return { ok: false, error: attachOverBudgetMessage(excess) };
-	}
-
 	return { ok: true };
 }
 

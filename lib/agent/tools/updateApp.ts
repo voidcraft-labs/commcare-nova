@@ -1,7 +1,9 @@
 /**
  * SA tool: `updateApp` — set the app's display name and its app settings:
- * whether workers see their saved forms and their incomplete forms, and
- * whether it runs only in Web Apps or only on Android (`runs_only_on`).
+ * whether groups automatically own new cases, whether workers see their
+ * saved forms and their incomplete forms, whether every form requests the
+ * device location, where it runs (`runs_only_on`), and which apps workers
+ * need on Android.
  *
  * A change that adds a platform is checked before it stages, content first
  * and then media, and refused with the gate's own words: private work stages
@@ -27,6 +29,7 @@ import {
 	type Platform,
 } from "@/lib/domain";
 import { walkAuthoredAssetRefs } from "@/lib/domain/mediaRefs";
+import { requiredAndroidAppsSchema } from "@/lib/domain/requiredAndroidApps";
 import { mediaDeclarationVerdict } from "@/lib/media/attachVerdicts";
 import { describeUnplayableReferences } from "@/lib/media/platformPlayback";
 import type { ToolInvocationContext } from "../workspace/types";
@@ -48,7 +51,7 @@ import type {
 
 /** The refusal a call that names nothing to change reads. */
 export const UPDATE_APP_EMPTY_INPUT_MESSAGE =
-	"This call named nothing to change, so the app is as it was. update_app sets the display name (name), whether workers see saved forms (show_saved_forms), whether they see incomplete forms (show_incomplete_forms) and where the app runs (runs_only_on); a call needs at least one of them.";
+	"This call named nothing to change, so the app is as it was. update_app sets the display name (name), whether workers see saved forms (show_saved_forms), whether they see incomplete forms (show_incomplete_forms), whether forms request the device location (capture_location), whether a new case goes to the worker's case-sharing group (case_sharing), where the app runs (runs_only_on), which apps workers need on Android (required_android_apps), and the layouts of the first and other menus (first_menu_layout, form_menu_layout). A call needs at least one change.";
 
 export const updateAppInputSchema = z
 	.strictObject({
@@ -58,6 +61,28 @@ export const updateAppInputSchema = z
 			.optional()
 			.describe(
 				"App display name (the title users see on devices). Leave it out to keep the current name.",
+			),
+		first_menu_layout: z
+			.enum(["list", "grid"])
+			.optional()
+			.describe("Layout of the first menu workers open."),
+		form_menu_layout: z
+			.enum(["list", "grid", "individual"])
+			.optional()
+			.describe(
+				"Layout for all other menus. Choose individual to set a menu’s layout with update_module. Web Apps grids show icons and text; Android grids also play spoken labels.",
+			),
+		capture_location: z
+			.boolean()
+			.optional()
+			.describe(
+				"Whether every form requests the Android device's location when it opens. False lets each form choose. Connect always requests location. Web Apps leaves the location empty.",
+			),
+		case_sharing: z
+			.boolean()
+			.optional()
+			.describe(
+				"Automatically give a new case to the worker’s one case-sharing group where its form uses the default owner.",
 			),
 		show_saved_forms: z
 			.boolean()
@@ -70,6 +95,11 @@ export const updateAppInputSchema = z
 			.optional()
 			.describe(
 				"Whether workers can pick up a form they started and left unfinished, on Android and in Web Apps. Leave it out to keep the current setting.",
+			),
+		required_android_apps: requiredAndroidAppsSchema
+			.optional()
+			.describe(
+				"Apps workers need installed before opening this app on Android, in the order workers should see them. Give the whole selection. An empty list clears it.",
 			),
 		runs_only_on: z
 			.enum(["web-apps", "android"])
@@ -95,6 +125,16 @@ function changedSettings(
 ): AppSettingsPatch {
 	const settings: AppSettingsPatch = {};
 	if (
+		input.capture_location !== undefined &&
+		input.capture_location !== (current.captureLocation === true)
+	)
+		settings.captureLocation = input.capture_location;
+	if (
+		input.case_sharing !== undefined &&
+		input.case_sharing !== (current.caseSharing ?? false)
+	)
+		settings.caseSharing = input.case_sharing;
+	if (
 		input.show_saved_forms !== undefined &&
 		input.show_saved_forms !== current.showSavedForms
 	) {
@@ -105,6 +145,28 @@ function changedSettings(
 		input.show_incomplete_forms !== current.showIncompleteForms
 	) {
 		settings.showIncompleteForms = input.show_incomplete_forms;
+	}
+	if (
+		input.first_menu_layout !== undefined &&
+		input.first_menu_layout !== (current.firstMenuLayout ?? "list")
+	)
+		settings.firstMenuLayout =
+			input.first_menu_layout === "list" ? null : "grid";
+	if (
+		input.form_menu_layout !== undefined &&
+		input.form_menu_layout !== (current.formMenuLayout ?? "list")
+	)
+		settings.formMenuLayout =
+			input.form_menu_layout === "list" ? null : input.form_menu_layout;
+	if (
+		input.required_android_apps !== undefined &&
+		(input.required_android_apps.length !==
+			(current.requiredAndroidApps?.length ?? 0) ||
+			input.required_android_apps.some(
+				(app, i) => app !== current.requiredAndroidApps?.[i],
+			))
+	) {
+		settings.requiredAndroidApps = input.required_android_apps;
 	}
 	if (input.runs_only_on === null) {
 		if (current.runsOnlyOn !== undefined) settings.runsOnlyOn = null;
@@ -158,7 +220,7 @@ function declarationAfter(
 
 export const updateAppTool = {
 	description:
-		"Set the app's display name, whether workers see their saved forms and their incomplete forms, and whether it runs only in Web Apps or only on Android. Anything left out keeps its value.",
+		"Set the app's display name, its menu layouts, whether groups automatically own new cases, whether workers see their saved forms and their incomplete forms, whether every form requests the Android device location, where it runs, and which apps workers need on Android. Anything left out keeps its value.",
 
 	inputSchema: updateAppInputSchema,
 	async execute(
@@ -212,8 +274,28 @@ export const updateAppTool = {
 				settings.showSavedForms !== undefined ||
 				settings.showIncompleteForms !== undefined;
 			const summary: ToolCallSummary = {
+				...(settings.requiredAndroidApps !== undefined && {
+					requiredAndroidApps: settings.requiredAndroidApps,
+				}),
 				...(input.name !== undefined && { subject: input.name, nameChange }),
 				...(platforms !== undefined && { platforms }),
+				...((settings.firstMenuLayout !== undefined ||
+					settings.formMenuLayout !== undefined) && {
+					menuLayouts: {
+						...(settings.firstMenuLayout !== undefined && {
+							first: settings.firstMenuLayout ?? "list",
+						}),
+						...(settings.formMenuLayout !== undefined && {
+							forms: settings.formMenuLayout ?? "list",
+						}),
+					},
+				}),
+				...(settings.captureLocation !== undefined && {
+					captureLocation: settings.captureLocation === true,
+				}),
+				...(settings.caseSharing !== undefined && {
+					caseSharing: settings.caseSharing === true,
+				}),
 				...(formListsChanged && {
 					formLists: {
 						...(settings.showSavedForms !== undefined && {

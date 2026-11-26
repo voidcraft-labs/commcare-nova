@@ -59,7 +59,10 @@ test("turning on the case list in a menu with forms lists it after the forms", {
 	// The module screen keeps its forms and lists the case list after them.
 	await expect(entry).toHaveCount(1);
 	await expect(entry).toContainText("Patient tile");
-	const menuButtons = entry.locator("xpath=..").locator(":scope > button");
+	// Each command sits in its own choice beside its spoken label.
+	const menuButtons = entry
+		.locator("xpath=ancestor::*[@data-menu-layout][1]")
+		.locator("[data-menu-choice] > button");
 	await expect(menuButtons.last()).toHaveAttribute("data-case-list-menu-entry");
 	await expect(menuButtons.first()).toContainText("Record a visit");
 

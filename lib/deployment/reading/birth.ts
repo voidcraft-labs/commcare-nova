@@ -24,6 +24,7 @@ import {
 } from "@/lib/db/hqAppClaims";
 import type { AppDatabase } from "@/lib/db/pg";
 import { projectRoleForInTransaction } from "@/lib/db/projectMembership";
+import { ANSWERED_FIRST_PUBLISH_CHANGES } from "@/lib/publish/firstPublishChangeIds";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import {
 	adoptedAppBaselineWrite,
@@ -38,7 +39,10 @@ import {
 import { exportIdentityOf } from "../targetIdentity";
 import type { AcceptedDeclaration } from "./acceptance";
 import { adoptionExportBoundary } from "./adoptionBoundary";
-import { firstPublishListToStore } from "./firstPublishChanges";
+import {
+	firstPublishListToStore,
+	withAnsweredChanges,
+} from "./firstPublishChanges";
 import type { Gathered } from "./gather";
 import type { ReadingProjectDataWrite } from "./projectData";
 import { writeBroughtInLookupTablesInTransaction } from "./projectData/lookupTableStore";
@@ -89,7 +93,17 @@ export function adoptedDeploymentWrite(input: {
 			fetched.source.multimediaMap ?? [],
 		),
 		observedAt: fetched.readAt,
-		firstPublish: firstPublishListToStore(chosen.firstPublish, draft.facts),
+		/* The reading's list, and the owner change the person's answer made, which no reading gives.
+		 * The birth's document differs from the reading's only by the person's answers. */
+		firstPublish: firstPublishListToStore(
+			withAnsweredChanges(
+				chosen.firstPublish,
+				chosen.firstPublishFacts,
+				doc,
+				ANSWERED_FIRST_PUBLISH_CHANGES,
+			),
+			draft.facts,
+		),
 	});
 	return {
 		appId: input.appId,
@@ -114,7 +128,10 @@ export function adoptedDeploymentWrite(input: {
 // The one transaction
 // ---------------------------------------------------------------------------
 
+export class BirthRoleChangedError extends Error {}
+
 export interface AdoptionBirth {
+	readonly reviewedRole: string;
 	readonly actorUserId: string;
 	/** Attribution only: an adoption holds no run. Minted outside the transaction. */
 	readonly runId: string;
@@ -188,6 +205,10 @@ export async function adoptHqAppInTransaction(
 			"Nova brought an app in for a person the same transaction had just found able to edit its Project, and then found no role for them. The membership gate is held from the genesis tail to the commit, so look at lib/db/projectMembership.ts.",
 		);
 	}
+	if (role !== birth.reviewedRole)
+		throw new BirthRoleChangedError(
+			"The Project role changed since this reading.",
+		);
 	return { kind: "born", role };
 }
 

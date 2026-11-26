@@ -1,3 +1,4 @@
+import type { LookupReadNames } from "../lookup/readPath";
 /**
  * What the reader of CommCare HQ's apps takes and gives: its input, the
  * draft a clean reading gives, the account a reading with a finding gives, and
@@ -13,10 +14,13 @@ import type {
 	LookupColumnId,
 	LookupTableId,
 	MediaKind,
+	TranslationUnitId,
 	Uuid,
 	WireStringSource,
 } from "@/lib/domain";
+import type { CaseRelation } from "@/lib/domain/caseRelations";
 import type { LookupDefinitionIndex } from "@/lib/domain/expression/context";
+import type { LabelTextSlot } from "@/lib/domain/labelForms";
 import type { Finding, HqPlace } from "@/lib/publish/hqFindings";
 import type { HqAlignedModule } from "../hq/appReading";
 import type { HqAppSource } from "../hq/appSource";
@@ -24,13 +28,30 @@ import type { HqLocationType } from "../hq/locations";
 import type { ColumnFieldWordRow } from "../wireIdentity";
 import type { WorkKind } from "../workMeter";
 import type { GeneratedNodePurpose } from "../xform/generatedNodes";
+import type {
+	ConditionalFactory,
+	InstanceFactories,
+} from "../xpath/instanceSources";
 import type { ClaimLog } from "./accounting";
 import type { ReaderDefectWhy } from "./defects";
 import type { ExpressionReading, RecordDialectJudge } from "./expressions";
 import type { HeldExpansions } from "./heldExpansions";
 import type { IdentityMapEntry, IdentityResolver } from "./identity";
 
+export interface SourceFormFactoryWitness {
+	readonly menu: number;
+	readonly form: number;
+	readonly xmlns: string;
+	readonly profile?: string;
+}
+
 export interface ReaderInput {
+	/** Exact declarations for the detail and navigation scopes of this source. */
+	readonly suiteDetails?: import("../hq/suiteDetailSources").SuiteDetailSources;
+	readonly observeSuiteDetail?: (
+		details: readonly string[],
+		id: string,
+	) => void;
 	/** The app's id, derived from the reading's id. */
 	readonly appId: string;
 	/** The project space the source was read from, for a capture's link. */
@@ -39,6 +60,17 @@ export interface ReaderInput {
 	readonly source: HqAppSource;
 	/** The aligned menus, each form's real id and HQ's own question summary. */
 	readonly modules: readonly HqAlignedModule[];
+	/** Source project facts observed by this reading, independent of the publish target. */
+	readonly sourceProjectFactories?: Pick<
+		InstanceFactories,
+		"locations" | "mobileReports"
+	>;
+	/** Discovery before fetching source project settings. No declaration is inferred from observing a read. */
+	readonly observeFactory?: (
+		kind: ConditionalFactory,
+		id: string,
+		form?: SourceFormFactoryWitness,
+	) => void;
 	/** `mintingResolver(appId)` for a reading; `matchingResolver` for a re-read
 	 *  that must give a known document's identities back. It holds nothing: what a
 	 *  reading claims is the reading's own (`context.ts`, `ReadContext.identities`). */
@@ -61,6 +93,8 @@ export interface ReaderInput {
 	/** Whether the source project space applies "save only if changed", as the probe of it
 	 *  answered; absent where the source holds no `update_mode: "edit"` and no probe was made. */
 	readonly saveOnlyEditedApplied?: boolean;
+	/** Authenticated source setting for case-list action conditions and parent follow-ups. */
+	readonly caseListActionsApplied?: boolean;
 	/** What Nova already holds about this app's case types that no export carries: the case type
 	 *  each index of a type reaches, consulted only where the app itself fixes none (no child
 	 *  link, no parent selection, no open action's index), and the type its catalog declares for
@@ -76,7 +110,11 @@ export interface ReaderInput {
 }
 
 /** The language each CommCare HQ code of an app Nova holds names, by the code. */
-export type ReaderKnownLanguageCodes = ReadonlyMap<string, LanguageTag>;
+export interface ReaderKnownLanguageCodes {
+	readonly tagByCode: ReadonlyMap<string, LanguageTag>;
+	readonly sourceCode: string | undefined;
+	readonly rtlProjectLanguages?: Readonly<Record<LanguageTag, true>>;
+}
 
 /** The case types the indices of the app's document reach and the types its catalog declares,
  *  as Nova holds them (`caseManagement/knownCaseTypes.ts::knownCaseTypesOf`). */
@@ -86,6 +124,8 @@ export interface ReaderKnownCaseTypes {
 	 *  typed step of the document through that identifier from `caseType` agrees on. Undefined
 	 *  where Nova holds none, or where those steps disagree. */
 	targetOf(caseType: string, identifier: string): KnownIndexTarget | undefined;
+	/** All known index targets on this type, including alternative destinations. */
+	relationsOf?(caseType: string): readonly CaseRelation[];
 	/** The `data_type` the document's catalog declares for `property` of `caseType`: the type
 	 *  every print of a read of it lowers by (a sort's comparator, `datetime-coerce`,
 	 *  `format-date`, a comparison of dates and times), which no print tells a reading.
@@ -136,7 +176,7 @@ export interface ReaderLookupCatalog {
 	/** What `FormParseScope.lookup` and the checker read. */
 	readonly definitions: LookupDefinitionIndex;
 }
-export interface ReaderLookupTable {
+export interface ReaderLookupTable extends LookupReadNames {
 	readonly tableId: LookupTableId;
 	/** A column by the field name HQ holds. */
 	column(fieldName: string): LookupColumnId | undefined;
@@ -168,6 +208,8 @@ export interface AppStringTable {
 	readonly languages: Readonly<
 		Record<string, Readonly<Record<string, string>>>
 	>;
+	/** Stable individual output, where its generator admits an independent wording. */
+	readonly wordingUnits?: Readonly<Record<string, TranslationUnitId>>;
 	/** A string's source where it comes from a translation unit or several. */
 	readonly units: Readonly<Record<string, WireStringSource>>;
 }
@@ -275,15 +317,27 @@ export interface ReadFacts {
 	 *  lacks and nothing reads (`declaredOnly`), at the place `{ kind: "lookup-table", tag }`. */
 	readonly unreadTables: readonly UnreadTable[];
 	/** The JSON Pointer over CommCare HQ's stored app (`/translations/<code>/<key>`) of each
-	 *  generated translation key `assembleDocument` folded into the text it sets, and of a
-	 *  first-language `app.display.name` the application walker read as the app's name. The key
-	 *  names that text's place (`firstPublishPlaces.ts::placesOfGeneratedKey`). */
-	readonly foldedTranslationKeys: readonly string[];
+	 *  generated translation key the assembly read as having no effect (blank, naming no string of
+	 *  the app, or the string HQ's build generates there): Nova words no such key, so a publish
+	 *  removes it from CommCare HQ's app translations (`unused-translation-keys-removed`). */
+	readonly unusedTranslationKeys: readonly string[];
 	readonly forms: readonly ReadFormFacts[];
 
 	/** Each same-state rule applied: the entry, a JSON Pointer, and the id of the first-publish
 	 *  register's row the rule falls under. */
 	readonly sameStateRewrites: readonly SameStateRewrite[];
+	/** Every joined list/detail column, including the two source rows it represents. */
+	readonly detailColumnOwners: readonly {
+		readonly uuid: Uuid;
+		readonly short?: string;
+		readonly long?: string;
+	}[];
+	/** The rematched link owning a physical form_links row. HQ's array order and
+	 * scrubbed destination IDs can both change between reads of the same app. */
+	readonly formLinkOwners: readonly {
+		readonly pointer: string;
+		readonly uuid: Uuid;
+	}[];
 	/** The forms `compareEntryFacts` found differing. */
 	readonly entryFactsRefused: readonly Uuid[];
 	/**
@@ -312,8 +366,6 @@ export const SAME_STATE_REGISTERS = [
 	"search-filter-rows-recut",
 	"sort-rule-kept-as-hidden-column",
 	"list-settings-respelled",
-	"search-filter-joined-to-list",
-	"search-restates-list-filter",
 	"link-held-case-guards-added",
 ] as const;
 
@@ -348,6 +400,7 @@ export const FIRST_PUBLISH_READING_RECORDS = [
 	"names-respelled",
 	"text-spaces-dropped",
 	"media-maps-respelled",
+	"badge-respelled",
 	"form-text-characters-written-as-outputs",
 	"hidden-value-defaults-dropped",
 	"sort-by-entry-with-a-blank-name-dropped",
@@ -363,6 +416,7 @@ export type SameStateRegister =
  *  stored value Nova writes back differently, and the register's row. */
 /** A rewrite of `emissionRewrites.ts` the first publish applies at one slot of the source. */
 export interface ReadRewrite {
+	readonly formExpression?: string;
 	readonly id: ExpressionReading["rewrites"][number]["id"];
 	readonly place: HqPlace;
 	/** The surface key of the slot. */
@@ -377,6 +431,10 @@ export interface SameStateRewrite {
 	readonly entry: string;
 	readonly path: string;
 	readonly register: SameStateRegister;
+	/** Inputs the first publish drops at this place, by source identity. A
+	 * later comparison distinguishes another fixture or another default at
+	 * the same form or field. No such evidence is stored in the blueprint. */
+	readonly removedInputs?: readonly (readonly [string, string])[];
 }
 
 export interface UnreadTable {
@@ -394,12 +452,24 @@ export interface ReadFormFacts {
 	/** The data path of every control, leaf or container, whose `appearance` was accounted under
 	 *  an entry of standing `inert`, in body order. */
 	readonly inertAppearances: readonly string[];
+	/** The data path of every control, leaf or container, whose appearance's settings Nova writes
+	 *  back in another spelling than the one stored, every runtime reading the two alike
+	 *  (`xform/appearances.ts::claimAppearance`), in body order. */
+	readonly respelledAppearances: readonly string[];
 	/** The data path of every case region container and every Save to Case block. */
 	readonly caseRegionPaths: readonly string[];
 	/** The itext values blank in a language other than the first whose first-language text is not
 	 *  blank, each read as no translation. */
 	readonly blankTranslations: number;
+	/** Blank non-default slots filled at publication, by field, role, choice and language. */
+	readonly blankTranslationSlots?: readonly BlankTranslationSlot[];
 }
+
+/** One blank non-default value filled at publication: a text slot's, or one of a question
+ *  label's other texts (`lib/domain/labelForms.ts`). */
+export type BlankTranslationSlot = Omit<ItextRecipient, "slot"> & {
+	readonly slot: ItextRecipient["slot"] | LabelTextSlot;
+};
 
 export interface ReadGeneratedNode {
 	readonly purpose: GeneratedNodePurpose;
@@ -412,7 +482,26 @@ export interface ReadGeneratedNode {
 	readonly name: string;
 }
 
-export interface ReadMediaReference {
+/** A worker-facing itext value can supply several controls. Each label, hint,
+ * message or choice has its own recipient in each language of the form. */
+export interface ItextRecipient {
+	readonly fieldPath: readonly string[];
+	readonly slot: "label" | "hint" | "help" | "validate_msg" | "option_label";
+	readonly choiceValue: string | null;
+	readonly language: LanguageTag;
+}
+
+/** Who receives a native file at one path in a form or localized app slot. */
+export interface MediaRecipients {
+	/** Stored itext values at this path. Each also serves its own language. */
+	readonly itextRecipients?: readonly ItextRecipient[];
+	/** Other app languages that use one of those values from the default translation. */
+	readonly inheritedItextRecipients?: readonly ItextRecipient[];
+	/** For a JSON-backed localized slot, the HQ languages which show this path. */
+	readonly shownLanguages?: readonly string[];
+}
+
+export interface ReadMediaReference extends MediaRecipients {
 	readonly path: string;
 	readonly assetId: string;
 	/** The kind the slot naming the path plays (the itext form, `image` for a logo or an icon),
@@ -431,7 +520,7 @@ export interface ReadMediaReference {
 }
 
 /** A reference whose path the index gives no asset for: handed off, with its node in the log. */
-export interface PendingMedia {
+export interface PendingMedia extends MediaRecipients {
 	readonly path: string;
 	readonly mediaKind: MediaKind;
 	readonly resolution: "no-entry" | "unreadable";

@@ -59,6 +59,7 @@ import {
 	searchInputXPathInstance,
 	searchResultsXPathInstance,
 	selectedCasesXPathInstance,
+	workerGroupsXPathInstance,
 } from "../xpathInstances";
 
 const REFUSED = "refused";
@@ -263,6 +264,19 @@ describe("a lookup table", () => {
 			[`join(' ', ${base}/t/label)`]: "A",
 			[`${base}/t/nope`]: REFUSED,
 			[`${base}/nope`]: REFUSED,
+		});
+	});
+
+	it("reads a padded cell trimmed, as Core's TreeElementParser reads fixture text", () => {
+		const instance = table([
+			{
+				id: lookupRowIdSchema.parse("44444444-4444-7444-8444-444444444444"),
+				values: { [codeId]: " 007 ", [labelId]: "\t A b\n" },
+			},
+		]);
+		expectReads("item-list:t", instance, {
+			[`${base}/t[code = '007']/label`]: "A b",
+			[`${base}/t[code = ' 007 ']/label`]: "",
 		});
 	});
 	// What the emitter prints for a node-set function over the table, with
@@ -474,5 +488,22 @@ describe("the search answers", () => {
 				[`${base}/field[@name = 'x']`]: "",
 			},
 		);
+	});
+});
+
+describe("the worker groups instance", () => {
+	it("reads a group's padded name and detail trimmed, as Core's TreeElementParser reads fixture text", () => {
+		const instance = workerGroupsXPathInstance([
+			{
+				id: "east",
+				name: " East ",
+				details: [{ key: "meeting", value: " Friday " }],
+			},
+		]);
+		expectReads("groups", instance, {
+			"string(instance('groups')/groups/group/name)": "East",
+			"string(instance('groups')/groups/group/group_data/data[@key = 'meeting'])":
+				"Friday",
+		});
 	});
 });

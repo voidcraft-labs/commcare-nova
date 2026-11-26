@@ -31,6 +31,8 @@ accepting replacement answers. Dynamic itemsets retain their own semantics.
 A leading empty multiple-choice token fails earlier, when Core's setvalue
 uncasts it; `answerCast` reports the existing entry refusal for that case.
 
+Search checkboxes read the offered lookup rows and submit their checked values in displayed order. On Android, restoring an answer checks every row with that value, including repeated rows. Web Apps indexes options by value, so duplicates share a control with the last label. It enumerates integer keys first. The Web Apps multiple-choice list and the checkbox field preserve their distinct controls.
+
 ## Platforms
 
 Preview plays one platform the app runs on at a time, Web Apps or Android.
@@ -83,6 +85,18 @@ which loads the picture, and the public docs state it. Core substitutes a
 value holding `${n}` again, to a fixpoint over the form's outputs; Preview
 makes one pass and shows such a value as written. A help text holding
 `plainHelp`, or in a form holding `plainText`, follows `rules.plainHelp`.
+A question's label and its other texts (`lib/domain/labelForms.ts`) reach the
+running form through `labelPresentation.ts`: the extended text takes the
+label's place on both platforms exactly where the label shows as typed (no
+platform rule, since both read `getLongText()` where no markdown form is
+present), the QR code takes the label image's place under `rules.labelQrCode`,
+and the spoken text's speaker button shows where the label has no audio under
+`rules.labelSpeech`. A label's inline video (`label_media.videoInline`) plays
+in the media pane under `rules.labelInlineVideo`, in the place of the QR code
+and the image alike, as Android's `MediaLayout.setAVT` orders them; Web Apps
+shows none. Preview names the QR code and its text rather than drawing
+a code, and the speaker button reads the text through the browser's speech.
+The engine resolves each text's values into `FieldState.resolvedLabelTexts`.
 A Text question with a number keypad follows `rules.numberKeypad`. Its
 message answers only a typed answer the platform refused
 (`FieldState.keypadRefused`); a starting value or a preloaded case value is
@@ -227,6 +241,8 @@ one-time defaults and query-repeat membership must not run against absent contex
 `useFormEngine` defers initial activation but owns its cleanup even when readiness
 arrives later. An already active entry follows the rebuild/answer-retention
 rules below during later context refreshes.
+
+A date-range starting calculation is held as Core's query manager opens. Preview reads all the committed range defaults' lookup tables in one authorized Project snapshot. The server also evaluates the complete synchronous XPath expression in the worker's calendar, so a calculation using today can open on different dates for workers on opposite sides of midnight. An exceptional answer carries an HMAC of the committed field, app, Project, actor, worker, module, device and answer. Web Apps can submit either the original automatic answer or the projection its visible field encodes. Paging and a completed Search verify that held answer without consulting a later clock or lookup revision. Replacing either endpoint discards the receipt. The form and ordinary authoring surfaces expose dates and the worker's visible text. The internal continuation alone retains the receipt.
 
 Search draft and submission commands live in `engine/searchRunState.ts`;
 `hooks/useSearchInputRunState.ts` binds them to React. A standing search keeps
@@ -571,7 +587,7 @@ FormEngine and non-writing form evaluator retain their boolean validation APIs.
 
 Running navigation preserves the requested leaf across parent-case selection.
 A direct Form or Results record that needs one or more case parents first visits
-those selectors in case-type order, then replaces the selector with that exact
+those selectors in the order the app requests, then replaces the selector with that exact
 original location. A selector is entered at its case list
 (`screenProjection.ts::parentCaseSelectorLocation`), never at its menu, so a
 selector whose forms show in the menu above, which has no screen of its own,
@@ -579,11 +595,10 @@ still chooses its case; a selector that needs a parent case of its own enters
 through its module screen (`previewRunningScreenForLocation` keeps it). Selector
 URLs are replace-driven and their ephemeral request clears on cancel, browser
 Back, or any location other than the selector's case list. Menu nesting never
-implies case ancestry: the required selector comes from `CaseType.parent_type`
+implies case ancestry: the required selector comes from `Module.parentCaseModuleUuid`
 and may be a structurally unrelated module. Once selected, a direct same-type
-child Form binds the exact inherited menu case; a different-type child lookup
-is constrained by the selected parent and must never fall back to an
-unfiltered first row. Direct Results records are checked against that same
+child Form binds the exact inherited menu case; a different-type submenu opens its own case list. An explicit case selector
+constrains that list to the cases linked to the chosen parent. Direct Results records are checked against that same
 parent before their detail is shown.
 
 A menu asks for its parent case before it lists its screen only where Core
@@ -740,11 +755,10 @@ and close conditions as `ownCase`). A child's relationship is its committed
 create's link; the client never asserts `child` versus `extension`, and the
 envelope persists the same `parent` index relationship the XForm emits. That same authorized boundary retains the `LookupScope`, projects the
 canonical production lookup occurrences onto the built program's operation
-UUIDs, and loads one rows-free definition snapshot only when those operations
+UUIDs, and loads the selected worker’s typed row projection only when those operations
 actually carry lookup references. The resulting `lookupTableSchemas` map is
 part of the immutable program handed to `applySubmission`, so a schema-heal
-retry reuses the exact same compiler context; lookup rows themselves stay
-current inside the submission transaction. A committed operation-bearing form
+retry reuses the same worker data and types for the submission. A committed operation-bearing form
 with missing answer bags rejects wholesale rather than applying part of its
 effects. A survey with a program executes it, and the envelope's
 typed `SubmissionRejectedError` surfaces as the
@@ -985,7 +999,7 @@ keypress retires the request immediately, including between those frames.
 A sectioned form (root sections only, `lib/doc/formSectionVerdicts.ts`) previews one page per section, because that is what the wire's `appearance="field-list"` group is on a phone: one screen per section, Next validating the screen before it turns, Back never validating, an empty or all-irrelevant screen skipped. Running as Web Apps, Preview shows the same form as titled groups on one page, as Web Apps does. Running as Android, a form with no sections pages one screen per group shown on one screen and per question outside one; any other group is transparent, labelled or not, and a field-list group nested in one joins its host's screen.
 
 - **The engine owns the page model**: `FormEngine.formScreens()` (the platform's screens, `rules.formScreens`: one `/data` screen on Web Apps; on Android one per section, or Core's field-list screens in a form with no sections), `FormEngine.sectionScreens()` (root sections in order, each with its `/data/<id>` path, current question visibility and any pending row insertion), `FormEngine.repeatPromptPoints()` (Android's repeat prompts in a form without sections: after the last screen of a user-added repeat outside a group shown on one screen, or where the repeat stands when it has no entry), `validateSection(uuid)` / `validateScreen(path)` (`validateAll` restricted to the paths under that section or screen, marking them touched) and `firstInvalidFieldTarget({ withinSection })` / `({ withinScreen })` (the same target, limited to the page). The controller mirrors them, with `enterScreenAsync(path)` and `validateScreenAsync(path)` beside the section pair; `hooks/useFormScreens.ts` (`useFormScreens`, `useSectionScreens`, `useRepeatPromptPoints`) subscribes through a one-string key so a keystroke does not re-render the pager; the engine keeps its last unsectioned walk keyed on the store state, tree and instance, so screens and prompts share one walk.
-- **The pager follows the platform** (`components/preview/form/sections/useFormPaging.ts`): off on Web Apps (`mode: "none"`), where `form/sections/useScrolledSection.ts` writes `activeSectionByForm` with the section in view as the author scrolls, so a flip to edit mode opens on it; by section on Android in a sectioned form, the open page session state, `activeSectionByForm` (`lib/session`), shared with the edit canvas so a flip keeps the page; by screen on Android in a form without sections, the open screen (by path) belonging to the form entry. It arbitrates: the remembered page while it is visible, re-anchored (`engine/sectionPaging.ts::resolveCurrentPage`) and written back when it empties (a screen only while its path is still in the list); `goNext` validates the current page and on failure announces through the form's `role="alert"` node and reveals the first invalid question on that page; a forward `goTo` validates every page between; `showPage` and `showPageOf` turn with no check, which is what Submit routing (the page holding the earliest invalid question) and Clear form (the first page) use. Stepping Next past a repeat prompt's place opens `RepeatAddPrompt` (Go back, Android's add choice, Do not add, or Do not add, I'm finished when nothing follows); Add appends an entry and opens its first screen. The prompts before the first visible screen (a repeat the form opens with) open once when the entry starts, as Android raises them on opening the form. Enter never advances.
+- **The pager follows the platform** (`components/preview/form/sections/useFormPaging.ts`): off on Web Apps (`mode: "none"`), where `form/sections/useScrolledSection.ts` writes `activeSectionByForm` with the section in view as the author scrolls, so a flip to edit mode opens on it; by section on Android in a sectioned form, the open page session state, `activeSectionByForm` (`lib/session`), shared with the edit canvas so a flip keeps the page; by screen on Android in a form without sections, the open screen (by path) belonging to the form entry. It arbitrates: the remembered page while it is visible, re-anchored (`engine/sectionPaging.ts::resolveCurrentPage`) and written back when it empties (a screen only while its path is still in the list); `goNext` validates the current page and on failure announces through the form's `role="alert"` node and reveals the first invalid question on that page; a forward `goTo` validates every page between, and both Next and jump read the active engine's pages after leaving a screen saves its Android dates; `showPage` and `showPageOf` turn with no check, which is what Submit routing (the page holding the earliest invalid question) and Clear form (the first page) use. Stepping Next past a repeat prompt's place opens `RepeatAddPrompt` (Go back, Android's add choice, Do not add, or Do not add, I'm finished when nothing follows); Add appends an entry and opens its first screen. The prompts before the first visible screen (a repeat the form opens with) open once when the entry starts, as Android raises them on opening the form. Enter never advances.
 - **`FormScreen` renders the page the pager names**: `SectionPage` for a section (the shared `SectionHeading` as a focusable `h2` the page is labelled by, over `InteractiveFormRenderer` rooted at the section, so every question reads and writes the same paths as on one page), or `ScreenPage` for a screen of a form without sections (Android's one header line, the enclosing labeled groups joined with ` > ` and a repeat entry's position, over the whole form's renderer scoped to the screen by `FormScreenScope`, so entries and capture slots keep their identities). Running as Android, groups and repeats draw no card, add or remove: a screen's groups are its header. Running as Web Apps there is no pager, and each section reaches `InteractiveFormRenderer` as a titled group (the same `SectionHeading`, not focusable as a page). The bottom bar carries the `SectionStepper` for sections alone (`nav aria-label="Sections"`, `aria-current="step"`, a polite "Section k of n: title" after a user-driven turn) plus Back / Next, with Submit, or Android's Finish (`submitLabel`), taking Next's place on the last visible page. The invalid-submit and attachment-not-ready arms turn to the question's page before the ordinary two-frame reveal.
 
 Page announcements and pending heading focus belong to the actual controller
@@ -1085,10 +1099,12 @@ list prints the wire's nodeset (`lib/commcare/lookupOptions.ts::lookupOptionsNod
 shared with the XForm itemset and the Search prompt) and evaluates as Core
 evaluates the itemset, over the fixture instance built under each table's
 XForm id (`lookupEvaluation.ts` reads each selected row node back as its row).
-A `table-lookup` prints the wire's `instance('<tag>')/<tag>_list/<tag>[…]`
+A `table-lookup` prints the wire's `instance('<id>')/<tag>_list/<tag>[…]`
 read: a no-match is Core's empty node-set, and missing and stored-empty cells
 both read blank, the fixture boundary's semantics. Form logic reads a table
-under its bare tag. A form-link slot also reads it under `item-list:<tag>`,
+under the ID the XForm declares for its fixture. This is the tag for an
+ordinary name and `item-list:<tag>` for a name the runtime also uses. A
+form-link slot reads the same table under `item-list:<tag>`,
 the id the suite declares (`includeFixtureAliases`).
 
 Data is ONE Project fixture snapshot (definitions + complete ordered rows for
@@ -1156,6 +1172,13 @@ ghosted "Hidden items (N)" reveal with `summarizeFilter` summaries; edit
 mode never hides. A condition is evaluated as stored
 (`displayConditionForEmission`): nothing inside it is absorbed, so
 `x and never` still waits for `x`'s data.
+
+Menu choices use `menuScreenLayout` on the current screen, including the
+forms offered after a case selection. Grid and list presentations preserve
+command order, button names, keyboard activation and the current case.
+Web Apps grids omit spoken labels. Android grids play a label on hold and
+Preview also offers a keyboard-accessible player. A list offers the player
+beside its choice on either platform.
 
 An item off the menu (`hiddenFromMenu`) is `hidden` before its condition is
 read, and a module off the menu takes its forms off with it, and its child
@@ -1512,6 +1535,13 @@ walk, and the cell and the quick filter read that value through
 `columnDisplay.ts::columnSourceValue` and `columnRawText`, with the related
 type's catalog entry from `ColumnDisplayContext.relatedProperties`.
 
+Independent order calculations read case rows in the same SQL query as the
+visible fields' sort rules. An Android distance rule reads the current
+worker fix once per query, uses Core's rounded metres, and assigns a missing
+case location the sentinel 2147483647. Changing the worker fix can reverse
+the row order. Named calculations join the Android Sort by choices under
+their translated name without adding a visible cell.
+
 The quick filter (`components/preview/shared/listFilter.tsx::rowsMatchingFilterText`)
 matches what a device's search matches, all from the plan: each shown column's
 text, each hidden field's text (the raw property, or a hidden calculated
@@ -1618,9 +1648,18 @@ shows the popped visit's.
 A `caseListConfig.tile` turns each Results row into a grid. `caseTileLayout.ts`
 resolves the geometry and `caseTileRendering.ts` turns it into declarations;
 `components/preview/shared/CaseTile.tsx` is the only renderer, shared by the
-Results rows and the pinned tile, so the two cannot draw one case
-differently. Both files carry the CommCare citations — read them before changing
+Results rows, the pinned tile and Web Apps Details. Each surface passes its own layout. Both files carry the CommCare citations — read them before changing
 a number.
+
+Web Apps draws an independent Details grid when configured. Android draws ordinary
+labeled Details fields. A conditional tab reads the selected record. Preview
+reads no tab's records yet: a tab with a `rowSource` shows a note in place of
+its fields, and every field that reads such a tab's row
+(`detailTabs.ts::columnReadsDetailTabRow`) stays out of the calculated and
+related reads sent to the case store, whose compiler has no row scope for it.
+A signed app test can open an available
+tab by identity and expand the case context above a form. The selecting menu
+and case identify the data even when a different menu supplies the display.
 
 **The pinned tile is one rule over the session's held cases**
 (`pinnedCaseTile.ts::previewPinnedCaseTile`, drawn by
@@ -1760,7 +1799,7 @@ compares its returned `mutationSeq` to the reconciler's current base sequence
 so any intervening app commit requires Review again. The later save rechecks
 every fact under the authoritative write locks.
 
-Case-search scalar prompt defaults run through `engine/searchExpressionEvaluation.ts`: it emits the authored expression to the same XPath shape as the device and evaluates it with the preview XPath evaluator plus the authenticated user's session values. Date range is deliberately excluded: CommCare binds one paired start/end answer, and the final date-range arm has no scalar default slot, so Preview never invents a From-only default. `hooks/useSearchInputRunState.ts` applies supported defaults once per module, refreshes only untouched prompts when a default/session value changes, and resets submitted state on a module switch; the flipbook therefore preserves worker edits without leaking the prior module's query. `caseSearchConfig.excludedOwnerIds` evaluates once at the authenticated Server Action boundary (so `session-context(userid)` is real), before any case row exists; the shared gate rejects property and relationship reads, while literals/session/Search values and pure calculations remain available. The result splits exactly like CCHQ on whitespace and joins `caseListConfig.filter` + submitted prompts as one Postgres predicate — never a client-side post-filter.
+Case-search scalar prompt defaults run through `engine/searchExpressionEvaluation.ts`: it emits the authored expression to the same XPath shape as the device and evaluates it with the preview XPath evaluator plus the authenticated user's session values. A date-range default yields one device answer. The pinned Core formats a human-readable pair with its lenient Java date parser and prints the day of the converted instant in the JVM zone. A fixed encoded pair survives unchanged. Preview uses the same zone and calendar for displayed bounds, keeps a failed conversion as the original text, and projects the Web Apps date input only for the visible Search. An out-of-picker answer on a submitted read must match the persisted field and the worker's starting result. Either edited bound claims the whole answer for subsequent default refreshes. `hooks/useSearchInputRunState.ts` applies supported defaults once per module, refreshes only untouched prompts when a default/session value changes, and resets submitted state on a module switch; the flipbook therefore preserves worker edits without leaking the prior module's query. `caseSearchConfig.excludedOwnerIds` evaluates once at the authenticated Server Action boundary (so `session-context(userid)` is real), before any case row exists; the shared gate rejects property and relationship reads, while literals/session/Search values and pure calculations remain available. The result splits exactly like CCHQ on whitespace and joins `caseListConfig.filter` + submitted prompts as one Postgres predicate — never a client-side post-filter.
 
 Preview derives navigation from the effective Search action, not from the mere presence of the compatibility settings bag. An explicit zero-input Search action on the worker's list renders one functional manual Search action; what launches on its own is the author's workflow, below. An owner-only exclusion still constrains every Results query, but it mounts no Search screen and triggers no automatic transition by itself. For a prompted Search, `searchButtonDisplayCondition` gates the whole combined Search pane from the case-list action's pre-prompt session/global context; it never reacts to the pane's draft, and the pane's single authored-label submit remains available whenever the action is relevant.
 
@@ -2086,12 +2125,19 @@ through `app:select:menus` directly and only updates the field models
 (`QueryListView.updateModels`), never through `menus/controller.js::selectMenu`,
 whose `showMenu` is what calls `getMenuView`. So the Search screen writes
 its empty answers only as it is drawn (a menu that asks first, Search again,
-history returning to its address), and Clear writes nothing: it empties each
-field (`QueryListView.clearAction` over `QueryView.clear`, which fires no
-field change) and the page keeps the answers the worker last gave
+history returning to its address), and Clear on its own writes nothing: it
+empties each field (`QueryListView.clearAction` over `QueryView.clear`, which
+fires no field change) and the page keeps the answers the worker last gave
 (`searchStanding.ts::previewSearchAfterClear`, which also keeps a Search
-screen asked for again on show, never the menu's default search; Nova writes
-no `search_on_clear`). Clear is Web Apps' alone (`rules.searchClear`,
+screen asked for again on show, never the menu's default search). A menu with
+`caseSearchConfig.searchOnClear` (written as `search_on_clear`) searches again
+after Clear where `searchStanding.ts::searchAfterClear` says the platform does:
+Web Apps at a window at least `PreviewPlatformRules.searchOnClearMinWidth`
+(992px) wide, as `query.js` turns it off on a small screen. That search is
+quiet: `clearAction` calls `updateSearchResults`, which skips the submit while
+any required field is blank and never shows errors, so Preview's Search pane
+submits the emptied fields without painting errors and stays on Search when
+they don't pass. Clear is Web Apps' alone (`rules.searchClear`,
 `searchStanding.ts::previewSearchClearOffered`): Android's search screen
 holds its prompts, its search button and its error line
 (`QueryRequestUiController`), so Preview playing Android offers no Clear, and
@@ -2184,7 +2230,7 @@ screen for every later step and the submission (`app-tests/run.ts::appTestFormCo
 a new entry reads again. The form check runs the search screen first and
 refuses with its own sentence when the module's Search action is hidden for
 the worker (its display condition is false), since no `searchAnswers` can
-open that form (`evaluationContext.ts::formSearchResults`).
+open that form (`evaluationContext.ts::formSearchContext`).
 
 The case list registration form (`Module.caseListRegistrationForm`, the
 wire's `case_list_form`) is admitted or refused by
@@ -2221,7 +2267,15 @@ with menu forms records the new case on the module's state
 (`recordRegisteredCase`: the same attempt, now completed with one match and
 `registeredCaseId`, which also closes the registration door) and opens the case
 list, where Results reads only that case (`useCases({ caseIds })`, the
-answers no longer narrowing it), mirroring the `case_fixture` frame. A host
+answers no longer narrowing it), mirroring the `case_fixture` frame. Where
+the frame ends on that search (the `case-list` return), Results read no row
+(`listsNoRow`): Formplayer rebuilds a frame counting no query step toward a
+full entity screen (`MenuSessionFactory.rebuildSessionFromFrame`), and Core
+lists no reference on a screen it did not fully build
+(`EntityScreen.initListSubScreen`), so Web Apps shows the list empty and,
+the results instance holding the case, no Register. Nova's publish and the
+same journey made on HQ's own pages land there alike
+(`proof/formplayer/test_search.py`, `proof/webapps/test_empty_search_registration.py`). A host
 without menu forms has a frame of the host command alone, so its context
 retires and the module opens on Search again (or its default search's Results). The
 form is on no menu:
@@ -2248,7 +2302,7 @@ resuming that form, are on it), whatever moved there, and `FormScreen` ends
 it when the submission lands; the form reads it only where it names that form
 in that menu. So the same form reached later by any route, the app tree and
 browser history included, is an ordinary form. After submit,
-`alwaysOfferedRegistrationReturn` decides the landing before ordinary routing
+`caseListActionReturn` decides the landing before ordinary routing
 (`FormScreen.dispatchAfterSubmit`, `app-tests/submission.ts`): undefined, which
 is ordinary routing, where there is no launch, where the host no longer offers
 the form, or where the form's own after-submit is in force
@@ -2262,10 +2316,12 @@ search, `CaseListFormReturnFrame.newCaseSearchModuleUuids`), that menu's search
 state is `recordRegisteredCase` of it, one match where the form created the
 case and none where it did not, so Results and the forms' `results:inline`
 read that case alone, as the frame's `case_fixture` query does; App Tests carry
-the same `registeredCaseId` on that menu's records screen. So `case-list`
-lands on the host's screen with no case chosen, `new-case` with a created
-case lands there with that case chosen, and a bare case list lands on its list
-under either value. The form opened any other way is an ordinary form. App
+the same `registeredCaseId` on that menu's records screen. Where the frame ends
+on that search (`RegistrationReturnLanding.endsOnSearchOf`), Results read no row
+(`listsNoRow`, above), on the records screen too. So `case-list`
+lands on the host's screen with no case chosen and no row, `new-case` with a
+created case lands there with that case chosen, and a bare case list lands on
+its list under either value. The form opened any other way is an ordinary form. App
 Tests reach the action as a worker does: a records read of the host returns
 the form as `registration`, and the form screen carries the launch; Back to a
 form opens a fresh entry without it (`app-tests/navigation.ts::appTestBackScreen`).
@@ -2296,8 +2352,10 @@ After submit a frame lands where `engine/frameLanding.ts::screenOfFrame` says:
 the screen of its last menu command (the first menu where it holds none),
 with its selections applied to the menus that supply them, then the form its
 form command names. An entry point refuses a form whose entries are off the
-menu (`entryPointLaunch.ts::moduleEntriesOffTheMenu`). App Tests list and admit
+menu (`lib/domain/menuScreens.ts::moduleEntriesOffTheMenu`). App Tests list and admit
 choices by the same projection.
+
+A deep link, form link or list action can supply a case before the frame's first command. `frameLanding.ts::firstMenuCases` records the physical datum ID and the menus whose entries read the same type and cardinality at that ID. The destination receives its selection immediately. On Android, Back to the first menu retains this case for every compatible command. Web Apps opens a fresh first menu. A new worker, app or Preview session starts with fresh selections on both platforms. A static menu return reads the submitting form’s exact session value and transaction-captured case snapshot. Register uses the chosen list action’s return case and preserves any earlier selections the return frame names; each of those is matched to the form’s own datums, so a case the form creates replaces the earlier selection of its type (`CaseListFormReturnFrame.createdSelections`). A deep link’s Android carry is its first claimed case, whatever menu the destination is in (`EntryPointProjection.homeFrame`, `lib/commcare/CLAUDE.md` § Named entry points), and it stands for a menu or case list destination only: on Android the first form of a visit a deep link opened ends the visit, submitted (`FormScreen.dispatchAfterSubmit`, before any after-submit or form link) or left by Back or a crumb (`BreadcrumbStrip`), on the phone's home screen and a new session (`previewEntryPointVisit`, `SessionLaunchDelegate.kt::exitFromExternalLaunch`), so a form destination's launch installs no first-menu history entry (`useEntryPointLaunch.ts`).
 
 ## Case-data Server Action wire shape (edge-WAF constraint)
 
@@ -2435,8 +2493,9 @@ choice; ordinary bare-module navigation follows the module-landing rule (`module
 An explicitly authored `postSubmit: "firstMenu"` on a case list registration
 returns to the home screen and retires that search/form/parent request, matching
 HQ's empty root frame. It never records the newly registered scalar case as a
-completed-search result. With no explicit override it returns to Results showing
-the registered case (§ The completed-search context); admission excludes that
+completed-search result. With no explicit override it returns to Results, keyed
+to the registered case and listing no row (§ The completed-search context,
+`listsNoRow`); admission excludes that
 implicit return for a multiple-selection host.
 
 Unexpected lookup-preview, filter-preview, sample-data, and submission failures return stable retry copy. Typed domain refusals keep their actionable payloads; unexpected exception details stay in server telemetry.
@@ -2583,3 +2642,84 @@ are incomplete. Its session identities come from placement metadata without
 emitting those changes; evaluation still reports case operations as unevaluated.
 Unexpected worker failures cross the thread boundary as structured-cloned Error
 objects, preserving their original stack and cause for server reporting.
+
+Case calculations bind pieces of wording from the running app’s language
+before projecting a value or sorting its cases. A blank translated piece
+uses the native locale string’s nonbreaking space.
+A menu, form, search field or case column can supply its own worker wording in
+the selected language. Home, menu and form screens use the stable control's
+output. Web Apps reads its form's submit label. Android keeps its native form
+action. A case row, a case detail, a search result and a search result detail
+can each give the same option a different label or image description. The
+Preview column display context shares those labels with the quick filter. Its
+image description supplies the accessible name while preserving the case value.
+A field's search check can combine an authored predicate and a generated
+guard. A generated wording override replaces that complete message.
+
+### Android location at form entry
+
+The Preview phone supplies a simulated fix when a form opens. The committed form and platform decide whether the submission may carry it. `SubmissionEnvelopeResult.submissionLocation` records the point, null for a requested fix the platform did not provide, and no property for a form that requested none. The same receipt replays on retry. The geopoint question’s answer stays independent. A worker test session’s optional `locationFix` supplies the same evidence. An Android session takes its own fix or the test’s; a Web Apps session takes none, and a fix it names itself, or a test fix no Android session takes, is refused.
+
+### Worker question presentation
+
+`choiceMatch.ts` selects the match rule of the active platform. `workerCalendar.ts` maps calendar days to civil ISO dates, including the Nepali year lengths at the Core pin. `questionRows.ts` uses the Web Apps twelve-column rule. A Web Apps address or attachment publishes only to the concrete form or repeat instance that owns its question. Capture publishes the original filename after successful acceptance. Receivers use the ordinary answer queue, including validation and calculation. A quick Android choice advances through the pager's ordinary validated Next action.
+
+Web Apps' address search (`components/preview/form/fields/AddressEntryField.tsx`) searches with Google's Places API and saves what `addressMessage.ts` builds: the JSON of Web Apps' `getAddressBroadcastObject` keys, in its order, from the address part of the same rank, sent to the question's channels through `applyDisplayMessage`. Typing over a choice lets the answer go and sends nothing; clearing sends `null`. An attachment broadcasts its original filename. Receivers using the legacy field `indexed` and those using `filename` both read that value. With no Maps key nothing searches and no answer is made up. Below the question a line names the target condition (`lib/domain/platforms.ts`, `PlatformTargetCondition`) unless the reached project space's facts carry `geocoderConfirmed`, which `previewSpace.ts` reads from the deployment's live confirmations in the facts' snapshot. Android draws a text, password, whole-number or decimal question under a compact group (`androidCompact.ts`) as its label's one shortened line beside a fixed-width answer box, with no media, hint or help; every other kind draws as anywhere, and the screen still pages as before.
+
+An Android Date question has a widget value and an instance answer. An empty answer opens the picker on the device's civil day. The engine keeps this proposed day on the live visible widget until Next, Back, a jump or Finish saves it. A cleared Gregorian picker stays empty for this visit. Opening that unanswered question again constructs a fresh widget. Hidden questions, skipped screens and a retained App Test inspection contribute no day. Web Apps date questions stay empty until answered. `questionCalendar.ts` is read by both native submissions, with a preloaded retained date, a deliberately cleared sibling and the five untouched picker types.
+
+Question display uses the effective widget for the current platform. Android
+screens put colored banners above their questions, pair short labels after their values and formatting are resolved,
+and keep the first label's color. A Web Apps group can start collapsed and
+keep its children in the running form. Android's usual screen ignores that
+collapse. Android's last text question on a screen gets Done on an applicable
+keyboard, with Next moving between the screen's other text questions.
+Search uses the platform's own matching rule. A choice, date or attachment
+still goes through the existing answer or staging path. A Web Apps message is
+delivered within the current form session and nearest repeat instance only.
+
+## Worker groups and shared new cases
+
+A worker sees their own cases and the eligible case owners from their restore. Group rows retain location groups and classic case-sharing groups, including their distinct metadata. Row assignment and case ownership use different location rules. A form using the automatic group owner admits exactly one group before entry and checks it again before any database write. The server derives the owner from current scoped state, compares the group with the entry and locks membership and place revisions through submission. An explicit owner and an unowned operation preserve their authored meaning.
+
+Lookup rows and group names and details read trimmed, as Core's `TreeElementParser` reads every fixture text, so a cell HQ serves as ` 007 ` reads `007` on every platform; the stored value keeps HQ's spelling. A row detail and a value detail are attributes there and read as stored. A select's choice labels and sort text follow the same reading (`lookupEvaluation.ts::deviceChoiceText`), and so does the SQL that decides a list's rows, counts and targets (`lib/case-store/sql/compileLookup.ts::lookupCellRead`, Java's trim through `btrim`), so Preview's list, Preview's form and a device agree on a padded cell.
+
+App Tests bind group fixtures and lookup rows to each authorized Preview identity. A test-only place assignment may replace the journey's local place groups. The classic groups keep their verified membership.
+## Forms listed in another menu
+
+When a menu lists forms from another menu, Preview carries both the route menu UUID and the source form UUID. The route supplies the visible menu, case list and navigation history. The source supplies questions and case writes. The same source form can have independent deep links through its own menu and another menu. A listed form whose menu link or visibility has been turned off keeps its link ID and its entry point explains how to turn it on again.
+
+### Home with a retained case
+
+A commandless Previous frame lands on Home. Formplayer rebuilds the menu with fresh choices. Android keeps each selected datum and makes it available to any form or case-list command with the matching datum. The retained choice and its record properties belong to the corresponding browser history entry and worker. A fresh Home starts empty. An unrelated selector still asks for its own case.
+
+The same navigation evaluator reads a menu or form's calculated badge.
+A restored-record count waits for the signed-in worker's snapshot even when
+no form or display condition reads cases. Text badges use the owner's
+translation unit. Android's menu adapter formats a long badge after the
+expression has evaluated. Web Apps renders the value as text.
+
+**Server search settings.** `searchSettings.ts` distinguishes an unconfirmed
+limit, calendar or matcher list from a confirmed 500-result limit, UTC, or exact
+matching. The chosen local profile starts with those three defaults. A newly
+reached project space starts with all three unknown. With several project spaces,
+Preview can use a fact that agrees across the destinations. The revision includes
+the Nova Project, qualified destination selection and contributing revisions. A
+worker read resolves the facts inside its authorized database snapshot. A
+changed revision invalidates the result a worker completed under the old one.
+
+
+A search's fuzzy properties and ordered ignored text are separate. Each ignored
+literal names a record type and property and retains its position among all
+rules for a property. On the requested types, Preview compares whether any type
+uses fuzzy matching plus the actual sequence of applicable literals. Differences
+in how the team spelled exact matching, including an explicit exact rule, do
+not hold an otherwise decidable search.
+
+Preview compares project calendars by the named Zone and Link identities from HQ’s pinned pytz data. The user-supplied spelling remains part of the saved confirmation and exact retry. Short ambiguous abbreviations cannot confirm a calendar. A saved calendar is read by that pinned table alone (`searchSettings.ts::searchTimeZoneSchema`), never by this runtime's `Intl`, so a browser whose time zone data lacks a newer zone still reads every other setting and `resolvePreviewSearchFacts` leaves only the time zone unconfirmed; a calendar being saved must also play where it is saved (`playableSearchTimeZoneSchema`, the time zone of `previewSearchChangesSchema`).
+
+The same authorized Project/destination catalog carries `caseListMap`, the team’s confirmation of Web Apps record map availability. The pinned HQ toggle is domain-scoped (`corehq/toggles/__init__.py::CASE_LIST_MAP`). Its worker list also needs an address and a populated result (`cloudcare/js/formplayer/menus/views.js`). A missing or null confirmation is unobserved, including on Local Preview. It leaves ordinary search and Android’s address-driven map independent.
+
+A form's completed search holds its answers and Results together. A separately opened form reads the original answers from its own query manager. Both pass raw answer keys to a single search-instance projection at form entry. A signed range opening belongs to the admitted worker, app language and resolved time zone. A resize keeps the opening and its already evaluated dates.
+
+A completed search's server order (`completedSearchRequest.ts`: the filters' orders, then `requestOrder`) reaches the store as HQ's index keys, and `case-store/postgres/searchPopulation.ts` compares each as HQ's index does before the cap: exact text by binary keyword order, numbers as doubles, dates by the index's date reading, missing values first ascending and last descending. A value whose reading is uncertain stops the search only where it could change which records arrive or an order the app observes. A list's own sort reorders only what arrived. A search's own owner exclusion is evaluated with the Search answers and leaves those owners out of the server population before the cap; it replaces the shared assigned-case rule for the search only (`caseDataBinding.ts`, `serverSearchRead.ts`), and a browse keeps the worker's restore and the shared rule.

@@ -25,6 +25,7 @@ import {
 	type BlueprintDoc,
 	type Uuid,
 } from "@/lib/domain";
+import { eligibleCaseListAction } from "@/lib/domain/caseListActionTargets";
 
 /** The menus and forms the offer planners read, and nothing of a form's
  *  content. */
@@ -116,6 +117,7 @@ export function afterEmptySearchOfferBlocked(
 
 export interface AlwaysOfferedRegistrationChoice {
 	readonly formUuid: Uuid;
+	readonly target?: AlwaysOfferedRegistration["target"];
 	readonly formName: string;
 	readonly moduleUuid: Uuid;
 	readonly moduleName: string;
@@ -131,7 +133,7 @@ export interface AlwaysOfferedRegistrationChoice {
  * is blocked.
  */
 export function alwaysOfferedRegistrationChoices(
-	doc: RegistrationOfferSource,
+	doc: BlueprintDoc,
 	hostUuid: Uuid,
 ): readonly AlwaysOfferedRegistrationChoice[] {
 	const host = doc.modules[hostUuid];
@@ -141,17 +143,37 @@ export function alwaysOfferedRegistrationChoices(
 	const stored = alwaysOfferedRegistrationOf(doc, hostUuid);
 	const choices: AlwaysOfferedRegistrationChoice[] = [];
 	for (const moduleUuid of doc.moduleOrder) {
-		if (moduleUuid === hostUuid) continue;
 		const mod = doc.modules[moduleUuid];
-		if (mod?.caseType !== host.caseType) continue;
+		if (mod === undefined) continue;
 		for (const formUuid of doc.formOrder[moduleUuid] ?? []) {
 			const form = doc.forms[formUuid];
-			if (form?.type !== "registration") continue;
+			if (form === undefined) continue;
+			const eligible = eligibleCaseListAction(doc, hostUuid, formUuid);
+			// Let the gate explain a registration of the right type whose settings
+			// currently keep the form from being offered.
+			if (
+				eligible === undefined &&
+				!(
+					moduleUuid !== hostUuid &&
+					mod.caseType === host.caseType &&
+					form.type === "registration"
+				)
+			)
+				continue;
+			const target = eligible?.target;
 			const plan = alwaysOfferedRegistrationMutations(doc, hostUuid, {
 				kind: "always",
 				formUuid,
+				...(target !== undefined && { target }),
+				...(stored?.showWhen !== undefined && { showWhen: stored.showWhen }),
 				...(stored?.label !== undefined && { label: stored.label }),
 				...(stored?.icon !== undefined && { icon: stored.icon }),
+				...(stored?.mediaByLanguage && {
+					mediaByLanguage: stored.mediaByLanguage,
+				}),
+				...(stored?.mediaByFormerCode && {
+					mediaByFormerCode: stored.mediaByFormerCode,
+				}),
 				...(stored?.audioLabel !== undefined && {
 					audioLabel: stored.audioLabel,
 				}),
@@ -160,6 +182,7 @@ export function alwaysOfferedRegistrationChoices(
 			if (plan.kind === "blocked") return [];
 			choices.push({
 				formUuid,
+				...(target !== undefined && { target }),
 				formName: form.name,
 				moduleUuid,
 				moduleName: mod.name,

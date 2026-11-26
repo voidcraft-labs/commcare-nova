@@ -58,6 +58,7 @@ const BRING_IN = {
 	readingId: "01936a52-7c00-7000-8000-000000000001",
 	reviewDigest: "f".repeat(64),
 	tableChoices: { districts: "use-project" },
+	ownerRuleChoices: { clinic: "worker" },
 } as const;
 const SCOPE = {
 	appId: APP,
@@ -152,6 +153,7 @@ const REVIEWS: readonly [string, HqChangesReview][] = [
 			observedDigest: "a".repeat(64),
 			renamedInNova: [],
 			tables: [],
+			ownerRules: [],
 			projectName: "Field team",
 			readingId: BRING_IN.readingId,
 			reviewDigest: BRING_IN.reviewDigest,
@@ -166,7 +168,14 @@ const REVIEWS: readonly [string, HqChangesReview][] = [
 			counts: { notYet: 1, never: 0, fixInHq: 0 },
 		},
 	],
-	["held", { kind: "held", reason: "languages-reordered", runs: null }],
+	[
+		"held",
+		{
+			kind: "held",
+			reason: "runs-elsewhere",
+			runs: { app: ["android", "web-apps"], hq: ["android"] },
+		},
+	],
 	[
 		"unavailable",
 		{
@@ -362,6 +371,7 @@ describe("the bring-in route", () => {
 			readingId: BRING_IN.readingId,
 			reviewDigest: BRING_IN.reviewDigest,
 			tableChoices: BRING_IN.tableChoices,
+			ownerRuleChoices: BRING_IN.ownerRuleChoices,
 		});
 		expect(Object.keys(call?.[3] ?? {})).toEqual(["onEvent"]);
 	});

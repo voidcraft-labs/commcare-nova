@@ -56,6 +56,38 @@ test("the saved and incomplete forms switches commit and survive a reload", {
 	await expect(incomplete).toBeChecked();
 });
 
+test("a worker can focus and open a first-menu grid tile after the layout saves", {
+	tag: "@seed:workspace",
+}, async ({ scenario, page }) => {
+	const { caseWorkspace } = seedFor(scenario, "workspace");
+	await openBuilder(page, `/build/${caseWorkspace.appId}`);
+	await openAppSettings(page);
+	await page.getByLabel("First menu", { exact: true }).click();
+	const saved = savedWith(page, caseWorkspace.appId, [
+		'"firstMenuLayout":"grid"',
+	]);
+	await page.getByRole("menuitem", { name: "Grid", exact: true }).click();
+	expect((await saved).ok()).toBe(true);
+	await reloadBuilder(page);
+	await page.getByRole("button", { name: "Preview", exact: true }).click();
+	const grid = page.locator('[data-menu-layout="grid"]');
+	await expect(grid).toBeVisible();
+	const tile = grid.getByRole("button", { name: /^Patient tile/ });
+	await tile.focus();
+	await expect(tile).toBeFocused();
+	await tile.press("Enter");
+	await expect(grid).toBeHidden();
+	const results = page.locator('[data-case-results="tile"]');
+	const caseChoice = results.locator("[data-case-result-action]").first();
+	await expect(caseChoice).toBeVisible();
+	await caseChoice.click();
+	await expect(
+		page
+			.locator("main")
+			.getByRole("button", { name: "Record a visit", exact: true }),
+	).toBeVisible();
+});
+
 // ── Where workers use the app ───────────────────────────────────────────
 
 /** The picker lines the platform table writes (`platformPickerLine`). */
@@ -257,10 +289,7 @@ test("turning off Connect keeps the app on Android only", {
 		"Turning off Connect keeps this app running on Android only. You can change where it runs in App settings.",
 	);
 	await expect(manager).toContainText(
-		"Turning off Connect leaves Auto Capture Location as it is in each app on CommCare HQ.",
-	);
-	await expect(manager).toContainText(
-		"build and release a new version for workers to install",
+		"After Connect is turned off, Android follows this app's location settings. Workers see the change after installing the next released version.",
 	);
 	const turnedOff = page.waitForResponse(
 		(response) =>
@@ -274,4 +303,97 @@ test("turning off Connect keeps the app on Android only", {
 	// The dialog may have taken App settings with it as it opened.
 	if (!(await androidOnly.isVisible())) await openAppSettings(page);
 	await expect(androidOnly).toBeChecked();
+});
+
+test("the individual grid can be set while the app uses lists, then takes effect when chosen", {
+	tag: "@seed:workspace",
+}, async ({ scenario, page }) => {
+	const { caseWorkspace } = seedFor(scenario, "workspace");
+	await openBuilder(page, caseWorkspace.routes.tileModule);
+	await page
+		.getByRole("button", { name: "Module settings", exact: true })
+		.click();
+	const section = page.locator("[data-menu-screen]");
+	const individual = section.getByRole("switch", { name: /^Use a grid/ });
+	await expect(individual).not.toBeChecked();
+	await expect(section.getByText(/This choice takes effect/)).toBeVisible();
+	const saved = savedWith(page, caseWorkspace.appId, ['"menuLayout":"grid"']);
+	await individual.click();
+	await saved;
+	await reloadBuilder(page);
+	await page
+		.getByRole("button", { name: "Module settings", exact: true })
+		.click();
+	await expect(individual).toBeChecked();
+	await openAppSettings(page);
+	await page.getByLabel("Other menus", { exact: true }).click();
+	const applies = savedWith(page, caseWorkspace.appId, [
+		'"formMenuLayout":"individual"',
+	]);
+	await page
+		.getByRole("menuitem", { name: "Choose per menu", exact: true })
+		.click();
+	await applies;
+	await openBuilder(page, caseWorkspace.routes.tileModule);
+	await page
+		.getByRole("button", { name: "Module settings", exact: true })
+		.click();
+	await expect(
+		section.getByText("Show this menu’s choices as tiles.", { exact: true }),
+	).toBeVisible();
+});
+
+test("each form keeps its own location choice while the app requests every location", {
+	tag: "@seed:workspace",
+}, async ({ scenario, page }) => {
+	const { caseWorkspace } = seedFor(scenario, "workspace");
+	await openBuilder(page, caseWorkspace.routes.tileForm);
+	const openForm = () =>
+		page.getByRole("button", { name: "Form settings", exact: true }).click();
+	const form = page.getByRole("switch", {
+		name: "Request location for this form",
+		exact: true,
+	});
+	const all = page.getByRole("switch", {
+		name: "Request location for every form",
+		exact: true,
+	});
+	const save = async (control: typeof all, needle: string) => {
+		const [response] = await Promise.all([
+			page.waitForResponse(
+				(r) =>
+					new URL(r.url()).pathname === `/api/apps/${caseWorkspace.appId}` &&
+					r.request().method() === "PUT" &&
+					(r.request().postData() ?? "").includes(needle),
+			),
+			control.click(),
+		]);
+		expect(response.ok()).toBe(true);
+	};
+	await openForm();
+	await expect(form).not.toBeChecked();
+	await save(form, '"captureLocation":true');
+	await page.getByRole("button", { name: "Close form settings" }).click();
+	await openAppSettings(page);
+	await expect(all).not.toBeChecked();
+	await save(all, '"captureLocation":true');
+	await page.getByRole("button", { name: "Close app settings" }).click();
+	await openForm();
+	await expect(form).toBeChecked();
+	await expect(
+		page.getByText("Your app requests location for every form.", {
+			exact: false,
+		}),
+	).toBeVisible();
+	await page.getByRole("button", { name: "Close form settings" }).click();
+	await openAppSettings(page);
+	await save(all, '"captureLocation":false');
+	await reloadBuilder(page);
+	await openForm();
+	await expect(form).toBeChecked();
+	await expect(
+		page.getByText(
+			"On Android, opening this form requests the worker’s location.",
+		),
+	).toBeVisible();
 });

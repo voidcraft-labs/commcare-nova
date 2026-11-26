@@ -1,7 +1,9 @@
 "use client";
 
 import { useCallback } from "react";
-import type { Column } from "@/lib/domain";
+import { shallow } from "zustand/shallow";
+import type { CaseListConfig, Column, SortComparison } from "@/lib/domain";
+import { previewCaseListOrderPlan } from "@/lib/preview/engine/caseListOrder";
 import {
 	type CaseWorkspaceBoundaryVerdicts,
 	caseListOrderChoiceRefusal,
@@ -72,3 +74,33 @@ export function useCaseListOrderChoiceRefusal(
 }
 
 export type { CaseWorkspaceBoundaryVerdicts } from "../commitVerdicts";
+
+/** Default order offers comparisons only for a rule whose landing field
+ * allows them. The collapsed composer subscribes to no order information. */
+export function useCaseListOrderControls(
+	moduleUuid: Uuid,
+	config: CaseListConfig,
+	expanded: boolean,
+) {
+	return useBlueprintDocEq(
+		(doc) => {
+			const mod = doc.modules[moduleUuid];
+			const comparisons = new Map<Uuid, SortComparison>();
+			if (!expanded || !mod) return { comparisons, extraFields: [] as Uuid[] };
+			const plan = previewCaseListOrderPlan(mod, doc, config);
+			for (const { sort, defaultComparison } of plan.calculations)
+				comparisons.set(sort.uuid, defaultComparison);
+			for (const rule of plan.authored) {
+				if (rule.defaultComparison !== undefined)
+					comparisons.set(rule.column, rule.defaultComparison);
+			}
+			return {
+				comparisons,
+				extraFields: plan.carriers.map((carrier) => carrier.column),
+			};
+		},
+		(left, right) =>
+			shallow(left.comparisons, right.comparisons) &&
+			shallow(left.extraFields, right.extraFields),
+	);
+}

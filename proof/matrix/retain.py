@@ -265,6 +265,10 @@ def app_reads(authoring, app_id, credential):
         ("currentVersion", lambda: operations.current_version_read(state, app_id, credential)),
         ("projectSpaces:all", lambda: operations.project_spaces_read(state, credential)),
         (
+            "projectSpaces:caseListActions",
+            lambda: operations.project_spaces_read(state, credential, feature_flag=toggles.FOLLOWUP_FORMS_AS_CASE_LIST_FORM.slug),
+        ),
+        (
             "projectSpaces:flagged",
             lambda: operations.project_spaces_read(
                 state, credential, feature_flag=toggles.SAVE_ONLY_EDITED_FORM_FIELDS.slug
@@ -273,6 +277,9 @@ def app_reads(authoring, app_id, credential):
     ):
         with authoring.step("reads", name.encode()):
             found[name] = read()
+    with authoring.step("reads", b"source-factories"):
+        for path, answer in operations.source_factory_answers(state, app_id, credential, found["source"]):
+            found[f"factory:{path}"] = answer
     return found
 
 
@@ -289,11 +296,19 @@ def project_data_reads(authoring, app_id, credential):
     tables = _body(found["lookupTables"]).get("objects", []) if found["lookupTables"].status == 200 else []
     for table in tables:
         with authoring.step("reads", f"fixtureRows:{table['tag']}".encode()):
-            found[f"fixtureRows:{table['tag']}"] = operations.fixture_rows_read(state, table["id"], credential)
+            listed = operations.fixture_rows_read(state, table["id"], credential)
+            found[f"fixtureRows:{table['tag']}"] = listed
+        rows = _body(listed).get("objects", []) if listed.status == 200 else []
+        for name, resource, remote_id in operations.lookup_detail_targets(table, rows):
+            key = f"{name}:{remote_id}"
+            with authoring.step("reads", key.encode()):
+                found[key] = operations.lookup_detail_read(state, resource, remote_id, credential)
     with authoring.step("reads", b"locationTypes"):
         found["locationTypes"] = operations.location_types_read(state, credential)
     with authoring.step("reads", b"locations"):
         found["locations"] = operations.locations_read(state, credential)
+    with authoring.step("reads", b"locationsV1"):
+        found["locationsV1"] = operations.location_external_ids_read(state, credential)
     return found, media_reads(authoring, app_id, credential)
 
 
@@ -331,12 +346,20 @@ def reading_input(app_id_answers, project_answers, media, base, *, claims) -> di
         "source": app_id_answers["source"].retained(),
         "application": app_id_answers["application"].retained(),
         "currentVersion": app_id_answers["currentVersion"].retained(),
+        "sourceFactoryReads": {
+            key.removeprefix("factory:"): answer.retained()
+            for key, answer in app_id_answers.items()
+            if key.startswith("factory:")
+        },
         "projectSpaces": {
             "all": app_id_answers["projectSpaces:all"].retained(),
             "flagged": app_id_answers["projectSpaces:flagged"].retained(),
+            "caseListActions": app_id_answers["projectSpaces:caseListActions"].retained(),
         },
         "projectData": {
             "lookupTables": project_answers["lookupTables"].retained(),
+            "lookupDefinitions": {name.split(":", 1)[1]: result.retained() for name, result in project_answers.items() if name.startswith("lookupDefinition:")},
+            "fixtureDetails": {name.split(":", 1)[1]: result.retained() for name, result in project_answers.items() if name.startswith("fixtureDetail:")},
             "fixtureRows": {
                 name.split(":", 1)[1]: answer.retained()
                 for name, answer in project_answers.items()
@@ -344,6 +367,7 @@ def reading_input(app_id_answers, project_answers, media, base, *, claims) -> di
             },
             "locationTypes": project_answers["locationTypes"].retained(),
             "locations": project_answers["locations"].retained(),
+            "locationsV1": project_answers["locationsV1"].retained(),
             "media": [
                 {
                     **{key: row[key] for key in ("path", "mediaType", "multimediaId", "status")},
@@ -357,6 +381,8 @@ def reading_input(app_id_answers, project_answers, media, base, *, claims) -> di
     }
     if base.declaration is not None:
         found["declaration"] = base.declaration.as_json()
+    if base.owner_rule_choices:
+        found["ownerRuleChoices"] = dict(base.owner_rule_choices)
     return found
 
 
@@ -434,6 +460,11 @@ def not_read_message(base_id, answer, kept) -> str:
         shown += f"; and {len(listed) - LISTED_FINDINGS} more"
     if answer.get("kind") == "declaration-not-offered":
         shown = f"it states {answer.get('declaration')}, and the reading offers {answer.get('offered')}"
+    if answer.get("kind") == "owner-rules-not-answered":
+        shown = (
+            f"it answers the owner rules {answer.get('ownerRuleChoices')}, and the reading asks about the levels"
+            f" {answer.get('ownerRuleLevels')}"
+        )
     return (
         f"Nova's reader did not read the base {base_id} the lane made in CommCare HQ ({answer.get('kind')}):"
         f" {shown or 'no finding'}. A base is made only of what Nova holds, so either the reader is wrong about that"
@@ -452,19 +483,33 @@ def keep_answers(retained, answers, project_answers, media, asked=None):
     retained.keep("application", answers["application"])
     retained.keep("app-source", answers["source"])
     retained.keep("current-version", answers["currentVersion"])
-    if wanted("projectSpaces:all") and wanted("projectSpaces:flagged"):
+    factory_reads = {
+        key.removeprefix("factory:"): answer.retained()
+        for key, answer in answers.items()
+        if key.startswith("factory:") and wanted(key)
+    }
+    if factory_reads:
+        retained.keep("source-factories", factory_reads)
+    if wanted("projectSpaces:all"):
         retained.keep("project-spaces", answers["projectSpaces:all"])
+    if wanted("projectSpaces:flagged"):
         retained.keep("project-spaces-flag", answers["projectSpaces:flagged"])
+    if wanted("projectSpaces:caseListActions"):
+        retained.keep("project-spaces-case-list-actions", answers["projectSpaces:caseListActions"])
     for name, file_name in (
         ("lookupTables", "lookup-tables"),
         ("locationTypes", "location-types"),
         ("locations", "locations"),
+        ("locationsV1", "locations-v1"),
     ):
-        if name in project_answers and wanted(name):
+        if name in project_answers and (wanted(name) or (name == "locationsV1" and wanted("locations"))):
             retained.keep(file_name, project_answers[name])
     for name, read in sorted(project_answers.items()):
+        for kind, prefix in (("lookupDefinition:", "lookup-definition-"), ("fixtureDetail:", "fixture-detail-")):
+            if name.startswith(kind) and wanted(name):
+                retained.keep(prefix + name[len(kind):], read)
         if name.startswith("fixtureRows:") and wanted(name):
-            retained.keep(f"fixture-rows-{name.split(':', 1)[1]}", read)
+            retained.keep(lane_input.fixture_rows_stem(name.split(":", 1)[1]), read)
     read_rows = [row for row, _ in media if wanted(f"media:{row['path']}")]
     if read_rows:
         retained.keep("media-reads", read_rows)
@@ -565,7 +610,7 @@ class VariantOutcome:
         self.answers = answers
         self.answer = answer
         self.base_source = base_source
-        # The row's holds as the bundle was asked them, each key the external key's text.
+        # The row's holds as the bundle was asked them, keyed by app or the entity's external key.
         self.holds = tuple(holds)
 
 
@@ -576,6 +621,10 @@ def _value_at(document, pointer):
     here = document
     for token in _pointer_tokens(pointer):
         if isinstance(here, list):
+            # A change that appends (``-``) set the list's last item, which is where a read finds it.
+            if token == "-" and here:
+                here = here[-1]
+                continue
             if not token.isdigit() or int(token) >= len(here):
                 return _MISSING
             here = here[int(token)]
@@ -650,6 +699,23 @@ def hold_key(key, base_source) -> str:
     return json.dumps(resolve_references(key, ids_at(base_source)), separators=(",", ":"), ensure_ascii=False)
 
 
+def hold_value(value, app_id, files):
+    """Resolve a held Project file against the response used by this reading.
+    Reauthoring a registered source mints new HQ media IDs for the same files.
+    The first-read planner keys its temporary file by (app, class, HQ media ID).
+    """
+    from proof.matrix.ops import project_file_of
+
+    path = project_file_of(value)
+    if path is None:
+        return value
+    from uuid import UUID, uuid5
+
+    (row,) = [item for item, _ in files if item["path"] == path and item["status"] == 200]
+    identity = json.dumps([app_id, row["mediaType"], row["multimediaId"]], separators=(",", ":"), ensure_ascii=False)
+    return str(uuid5(UUID("4374916f-4ced-42c6-b00d-f7fb7b45aaaf"), identity))
+
+
 def make_change(authoring, app_id, change):
     """One change of a row, made in HQ: a ``set-json`` through ``ops.set_json``, a ``named`` change through its
     function of ``proof/matrix/variants/``, which is handed the ``Authoring`` and the app's id."""
@@ -686,7 +752,15 @@ def read_variant(authoring, base, app_id, credential, variant, kept) -> VariantO
     except Exception as error:  # noqa: BLE001 (the class of what HQ raised is what the row records)
         return VariantOutcome(variant, raised=type(error).__name__, base_source=base_source)
     answers = app_reads(authoring, app_id, credential)
-    media = media_reads(authoring, app_id, credential)
+    from proof.matrix import registry
+
+    if any(
+        change["op"] == "named" and getattr(registry.named_change(change["name"]), "changes_lookup_data", False)
+        for change in variant.changes()
+    ):
+        project_answers, media = project_data_reads(authoring, app_id, credential)
+    else:
+        project_answers, media = kept.project_answers, media_reads(authoring, app_id, credential)
     source = json.loads(answers["source"].body) if answers["source"].status == 200 else {}
     from proof.matrix.ops import resolve_references
 
@@ -700,9 +774,12 @@ def read_variant(authoring, base, app_id, credential, variant, kept) -> VariantO
     request = {
         "id": variant.id,
         "mode": "first-read",
-        "input": reading_input(answers, kept.project_answers, media, base, claims="full"),
+        "input": reading_input(answers, project_answers, media, base, claims="full"),
     }
-    held = [{**hold, "key": hold_key(hold["key"], base_source)} for hold in variant.holds]
+    held = [
+        {**hold, "key": hold_key(hold["key"], base_source), "value": hold_value(hold["value"], base.id, media)}
+        for hold in variant.holds
+    ]
     if held:
         request["holds"] = held
     (answer,) = run_bundle([request])

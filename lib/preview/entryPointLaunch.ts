@@ -1,15 +1,17 @@
 import { entryPointRequirements } from "@/lib/doc/entryPointProjection";
 import {
 	type BlueprintDoc,
-	conditionModulesOf,
+	moduleEntriesOffTheMenu,
 	moduleFormsReadSearch,
 	moduleHasOwnScreen,
+	type SuppliedCaseCreation,
+	suppliedCreationIssue,
 	type Uuid,
 } from "@/lib/domain";
 import { entryPointInventory } from "@/lib/domain/entryPoints";
-import { moduleParent } from "@/lib/domain/moduleHierarchy";
 import { previewExpressionContext } from "@/lib/preview/engine/expressionContext";
 import type { PreviewMenuCaseSelection } from "@/lib/session/types";
+import { parentCaseConstraint } from "./caseSelectionNavigation";
 import { caseRowToFormPreload } from "./engine/caseDataBindingClient";
 import { readPreviewScreen } from "./engine/dataRefusal";
 import {
@@ -46,31 +48,6 @@ export const ENTRY_POINT_DATA_REFUSAL =
 export const FORM_OFF_THE_MENU_ENTRY_POINT_REFUSAL =
 	"This form is off the menu, and in Web Apps an entry point opens it only when the entry point ignores display conditions. You can set it to ignore them.";
 
-/** Whether a module's form and case list entries are off the menu: a module
- * whose condition they carry (`menuScreens.ts::conditionModulesOf`, the module
- * and, where it shows its forms above, its parent) is off the menu, or the
- * module keeps its screen under a parent that keeps its screen and is off the
- * menu, so no menu reaches the module's own screen. */
-export function moduleEntriesOffTheMenu(
-	doc: BlueprintDoc,
-	moduleUuid: Uuid,
-): boolean {
-	if (
-		conditionModulesOf(doc, moduleUuid).some(
-			(uuid) => doc.modules[uuid]?.hiddenFromMenu === true,
-		)
-	)
-		return true;
-	const parentUuid = moduleParent(doc, moduleUuid);
-	return (
-		moduleHasOwnScreen(doc, moduleUuid) &&
-		parentUuid !== undefined &&
-		parentUuid !== null &&
-		moduleHasOwnScreen(doc, parentUuid) &&
-		doc.modules[parentUuid]?.hiddenFromMenu === true
-	);
-}
-
 /** Pure admission over one authorized device snapshot. No selection can fall
  * through to ordinary Preview's first-case convenience behavior. */
 export function prepareEntryPointLaunch(args: {
@@ -79,6 +56,7 @@ export function prepareEntryPointLaunch(args: {
 	readonly expectedSeq: number;
 	readonly personaUuid?: string;
 	readonly selections: readonly EntryPointSelection[];
+	readonly creations?: readonly SuppliedCaseCreation[];
 	readonly database: CaseDatabaseSnapshot;
 	/** The chosen cases this worker's device does not hold, read from the
 	 *  Project past the worker's restore (`onlyOutsideRestore`). */
@@ -86,10 +64,14 @@ export function prepareEntryPointLaunch(args: {
 	readonly session: PreviewSearchSessionValues;
 	readonly lookup: PreviewLookupStatus;
 	/** The platform Preview plays: whether display conditions hold, whether
-	 *  the launch claims its cases, and what a case the phone lacks does. */
+	 *  the launch claims its cases, what a case the phone lacks does, and
+	 *  whether a case chosen before the first menu stays in the session. */
 	readonly rules: Pick<
 		PreviewPlatformRules,
-		"entryPointDisplayConditions" | "entryPointClaims" | "entryPointCaseNotHeld"
+		| "entryPointDisplayConditions"
+		| "entryPointClaims"
+		| "entryPointCaseNotHeld"
+		| "poppedEntrySelections"
 	>;
 }): EntryPointLaunchResult {
 	const refuse = (message: string): EntryPointLaunchResult => ({
@@ -104,6 +86,12 @@ export function prepareEntryPointLaunch(args: {
 	const projection = entryPointRequirements(args.doc, item.target);
 	if (!projection.available) return refuse(projection.message);
 	const required = projection.requiredSelections;
+	const creations = args.creations ?? [];
+	const creationIssue = suppliedCreationIssue(
+		projection.requiredCreations,
+		creations,
+	);
+	if (creationIssue) return refuse(creationIssue);
 	if (
 		args.selections.length !== required.length ||
 		new Set(args.selections.map((x) => x.moduleUuid)).size !==
@@ -111,6 +99,14 @@ export function prepareEntryPointLaunch(args: {
 	)
 		return refuse("Choose cases for each required selection and try again.");
 	const rows = new Map(args.database.rows.map((row) => [row.case_id, row]));
+	const unavailableIds = new Set([
+		...rows.keys(),
+		...args.notHeld.rows.map((row) => row.case_id),
+	]);
+	if (creations.some((row) => unavailableIds.has(row.caseId)))
+		return refuse(
+			"A new case ID is already in use. Choose a different ID before opening the link.",
+		);
 	const outsideRows = new Map(
 		args.notHeld.rows
 			.filter((row) => !rows.has(row.case_id))
@@ -122,6 +118,7 @@ export function prepareEntryPointLaunch(args: {
 	const blankCaseIds: string[] = [];
 	// This plan crosses a Server Action boundary; React requires plain objects.
 	const menuSelections: Record<string, PreviewMenuCaseSelection> = {};
+	const firstMenuSelections: Record<string, PreviewMenuCaseSelection> = {};
 	for (const requirement of required) {
 		const selection = args.selections.find(
 			(x) => x.moduleUuid === requirement.moduleUuid,
@@ -164,32 +161,47 @@ export function prepareEntryPointLaunch(args: {
 				};
 			}),
 		};
+		for (const recipient of requirement.destinationConsumers ?? [])
+			menuSelections[recipient] = menuSelections[requirement.moduleUuid];
+		for (const recipient of requirement.firstMenuConsumers ?? []) {
+			if (args.rules.poppedEntrySelections === "session")
+				firstMenuSelections[recipient] = menuSelections[requirement.moduleUuid];
+		}
 	}
 	for (const requirement of required) {
-		const parentType = (args.doc.caseTypes ?? []).find(
-			(type) => type.name === requirement.caseType,
-		)?.parent_type;
-		if (!parentType) continue;
-		const parents =
-			previewMenuCaseContext(
-				{ ...args.doc, caseTypes: args.doc.caseTypes ?? [] },
-				requirement.moduleUuid,
-				menuSelections,
-			).parentCase?.cases.map((choice) => choice.caseId) ?? [];
-		if (!parents.length)
+		if (
+			args.doc.modules[requirement.moduleUuid]?.parentCaseModuleUuid ===
+			undefined
+		)
+			continue;
+		const { parentCase } = previewMenuCaseContext(
+			{ ...args.doc, caseTypes: args.doc.caseTypes ?? [] },
+			requirement.moduleUuid,
+			menuSelections,
+		);
+		const constraint = parentCaseConstraint(
+			args.doc,
+			requirement.moduleUuid,
+			parentCase,
+		);
+		if (!constraint)
 			return refuse(
 				"This entry point needs a parent case selection. Reload the app and try again.",
 			);
 		for (const choice of menuSelections[requirement.moduleUuid].cases) {
-			const index = args.database.indices.find(
-				(index) =>
-					index.case_id === choice.caseId &&
-					index.identifier === "parent" &&
-					index.relationship === "child" &&
-					index.depth === 1 &&
-					index.target_case_type === parentType,
+			const indices = rows.has(choice.caseId)
+				? args.database.indices
+				: args.notHeld.indices;
+			const linked = indices.some(
+				(edge) =>
+					edge.case_id === choice.caseId &&
+					edge.depth === 1 &&
+					constraint.caseIds.includes(edge.ancestor_id) &&
+					(constraint.index === undefined
+						? edge.relationship !== "extension"
+						: edge.identifier === constraint.index),
 			);
-			if (!index || !parents.includes(index.ancestor_id))
+			if (!linked)
 				return refuse(
 					"Choose child cases that belong to the selected parent cases.",
 				);
@@ -325,6 +337,9 @@ export function prepareEntryPointLaunch(args: {
 			personaUuid: args.personaUuid,
 			ignoreDisplayConditions: bypass,
 			menuSelections,
+			...(required.some(
+				(selection) => selection.firstMenuConsumers !== undefined,
+			) && { firstMenuSelections }),
 			location:
 				target.kind === "form"
 					? {
@@ -339,6 +354,12 @@ export function prepareEntryPointLaunch(args: {
 				? {
 						formTarget: {
 							formUuid: target.formUuid,
+							...(creations.length > 0 && {
+								entrySupplies: {
+									entryPointUuid: args.entryPointUuid,
+									creations,
+								},
+							}),
 							cases:
 								previewMenuCaseContext(
 									{ ...args.doc, caseTypes: args.doc.caseTypes ?? [] },

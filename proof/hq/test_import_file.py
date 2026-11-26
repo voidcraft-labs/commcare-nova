@@ -185,8 +185,8 @@ def test_a_hand_import_builds_the_app_a_publish_builds(hq, core_runner, document
         with hq_check(export.configuration.hq()) as (state, record):
             app_id, refusal, _ = publish.create(state, export)
             assert refusal is None, refusal
-            if export.content.media is not None:
-                operations.apply_media_upload(state, app_id, export.content.media.upload())
+            for request, _ in export.content.media_uploads():
+                operations.apply_media_upload(state, app_id, request.upload())
             published = operations.held_app(state, app_id)
             with build_seams():
                 a_build, _ = build_state(published, record, "A")

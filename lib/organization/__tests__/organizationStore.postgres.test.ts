@@ -53,7 +53,6 @@ import { personaAssignmentRemovalIssues } from "../ownerTargetVerdicts";
 import {
 	ARCHIVE_IMPACT_PREVIEW_TEXT_MAX_LENGTH,
 	archiveImpactSchema,
-	MAX_LOCATIONS_PER_APP,
 } from "../schema";
 import {
 	createLocation,
@@ -584,33 +583,6 @@ async function seedRebalanceWithUnchangedMovingKey(): Promise<{
 }
 
 describe("locations store — creation and structure", () => {
-	it("refuses a create when the locked maintained count is at capacity", async () => {
-		await seedOrgApp();
-		await h
-			.db()
-			.insertInto("app_organization_state")
-			.values({
-				app_id: APP_ID,
-				location_count: MAX_LOCATIONS_PER_APP,
-			})
-			.execute();
-
-		await expect(
-			createLocation(scope(), {
-				levelUuid: REGION,
-				parentId: null,
-				name: "Over capacity",
-				externalId: null,
-				latitude: null,
-				longitude: null,
-				values: {},
-			}),
-		).rejects.toMatchObject({
-			code: "limit",
-			message: expect.stringMatching(/including archived places.*split/i),
-		});
-	});
-
 	it("derives a unique site code and appends in sibling order", async () => {
 		await seedOrgApp();
 		const first = await createLocation(scope(), {

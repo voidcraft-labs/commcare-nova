@@ -3,7 +3,8 @@
  * place its fields on the grid.
  *
  * A case list has two layouts. The ordinary one is a row of columns per case.
- * The other is a TILE: a 12 x 12 grid where each field shown in Results
+ * The other is a TILE: a grid twelve columns wide, with a row for each field
+ * it shows and at least six, where each field shown in Results
  * occupies a rectangle, which is what lets a list read like a card — a name
  * across the top, a status in the corner, a date underneath. The layout drives
  * every surface the Results screen drives: the case list, the search-results
@@ -49,10 +50,18 @@
  */
 
 import { z } from "zod";
+import { retireCaseFormContextTile } from "@/lib/doc/caseFormContextMutations";
 import { columnTileMutations } from "@/lib/doc/caseListColumnMutations";
 import { deepEqual } from "@/lib/doc/deepEqual";
 import type { Mutation } from "@/lib/doc/types";
 import { asUuid, type Column, type Uuid } from "@/lib/domain";
+import {
+	type CaseFormContextChoice,
+	caseFormContextChoiceSchema,
+	formContextPatch,
+	presentFormContext,
+} from "@/lib/domain/caseFormContext";
+import { tileCellFor } from "@/lib/domain/modules";
 import type { ToolInvocationContext } from "../../workspace/types";
 import {
 	guardedMutate,
@@ -77,6 +86,20 @@ export const setCaseListTileInputSchema = moduleAddressSchema
 			.optional()
 			.describe(
 				"The layout itself. An object lays the case list out as a tile — `{}` for a plain tile. null goes back to a row of columns, keeping every placement so the tile can be turned back on later. Leave it out to keep the current layout and only move fields.",
+			),
+		contextAboveForm: caseFormContextChoiceSchema
+			.nullable()
+			.optional()
+			.describe(
+				"What to keep above a form once a case is chosen. Choose a line from that case, this menu’s Results tile, or another menu’s tile for the same case type. A tile can expand its details. A menu tile may carry a fallback line. null clears context.",
+			),
+		detailPlacements: z
+			.array(tilePlacementInputSchema)
+			.min(1)
+			.nullable()
+			.optional()
+			.describe(
+				"The complete independent Web Apps layout after a case is opened. Give each Details field its columnUuid and cell; null returns to ordinary rows. Android uses ordinary rows in Details.",
 			),
 		placements: z
 			.array(tilePlacementInputSchema)
@@ -109,6 +132,7 @@ export interface SetCaseListTileSuccess extends MutationSuccess {
 	layout: CaseListLayout;
 	unplacedColumnUuids: Uuid[];
 	persistOnForms: boolean;
+	contextAboveForm: CaseFormContextChoice | null;
 	grouping?: {
 		identifier: string;
 		headerRows: number;
@@ -121,20 +145,25 @@ export type SetCaseListTileResult = SetCaseListTileSuccess | { error: string };
 
 export const setCaseListTileTool = {
 	description:
-		"Lay a module's case list out as a tile — a 12x12 grid where each field shown in Results occupies a rectangle — instead of a row of columns, and place its fields on that grid. Pass `tile` to turn the layout on or off (null turns it off and keeps the placements), `placements` to move fields, or both in one call. Every field shown in Results needs a place while the tile is on, and no two fields may share a square, so place the whole layout in one call. `tile.grouping` additionally shows the cases that share a connection together under one heading drawn from the first of them.",
+		"Lay a module's case list out as a tile — a grid 12 columns wide with a row for each field it shows (at least 6), where each field shown in Results occupies a rectangle — instead of a row of columns, and place its fields on that grid. Pass `tile` to turn the layout on or off (null turns it off and keeps the placements), `placements` to move fields, or both in one call. Every field shown in Results needs a place while the tile is on, and no two fields may share a square, so place the whole layout in one call. `tile.grouping` additionally shows the cases that share a connection together under one heading drawn from the first of them. Pass detailPlacements for the separate Web Apps Details tile. Use contextAboveForm to keep the selected case in view on a form.",
 	inputSchema: setCaseListTileInputSchema,
 	async execute(
 		input: SetCaseListTileInput,
 		ctx: ToolInvocationContext,
 	): Promise<MutatingToolResult<SetCaseListTileResult>> {
 		const doc = ctx.snapshot.doc;
-		const { tile, placements } = input;
+		const { tile, placements, detailPlacements, contextAboveForm } = input;
 		try {
 			const address = resolveModuleAddress(doc, input);
 			if (!address.ok) return errorResult(address.error);
 			const { moduleUuid, module: mod } = address;
 
-			if (tile === undefined && placements === undefined) {
+			if (
+				tile === undefined &&
+				placements === undefined &&
+				detailPlacements === undefined &&
+				contextAboveForm === undefined
+			) {
 				return errorResult(
 					`Tried to lay out the case list on module "${mod.name}" (${moduleUuid}). The call named neither \`tile\` nor \`placements\`, so there was nothing to change. Pass \`tile\` to turn the tile layout on or off, \`placements\` to place fields on the grid, or both together.`,
 				);
@@ -151,6 +180,47 @@ export const setCaseListTileTool = {
 				config.columns.map((column) => [column.uuid, column]),
 			);
 			const mutations: Mutation[] = [];
+			if (detailPlacements !== undefined) {
+				const cells: NonNullable<typeof config.detailTile>["cells"] = {};
+				for (const placed of detailPlacements ?? []) {
+					const uuid = asUuid(placed.columnUuid);
+					if (!placed.cell || !columnsByUuid.has(uuid) || cells[uuid])
+						return errorResult(
+							"Each Details field needs its own placement. Read the menu again to check the fields shown.",
+						);
+					cells[uuid] = tileCellFromInput(placed.cell);
+				}
+				if (detailPlacements !== null) {
+					const label = (column: Column) =>
+						`"${column.header || ("field" in column ? column.field : column.uuid)}" (${column.uuid})`;
+					const unplaced = config.columns.filter(
+						(column) => column.visibleInDetail !== false && !cells[column.uuid],
+					);
+					const offDetails = config.columns.filter(
+						(column) => column.visibleInDetail === false && cells[column.uuid],
+					);
+					if (unplaced.length > 0 || offDetails.length > 0)
+						return errorResult(
+							[
+								`Tried to lay out the Details tile for module "${mod.name}".`,
+								unplaced.length > 0 &&
+									`These fields are shown in Details but have no place: ${unplaced.map(label).join(", ")}.`,
+								offDetails.length > 0 &&
+									`These fields aren't shown in Details, so they take no place: ${offDetails.map(label).join(", ")}.`,
+								"Give detailPlacements exactly one place for each field shown in Details.",
+							]
+								.filter(Boolean)
+								.join(" "),
+						);
+				}
+				mutations.push({
+					kind: "setCaseListMeta",
+					uuid: moduleUuid,
+					patch: { detailTile: detailPlacements === null ? null : { cells } },
+				});
+			}
+			if (tile === null)
+				mutations.push(...retireCaseFormContextTile(doc, moduleUuid));
 			const named = new Set<Uuid>();
 			for (const placement of placements ?? []) {
 				const columnUuid = asUuid(placement.columnUuid);
@@ -185,6 +255,18 @@ export const setCaseListTileTool = {
 				});
 			}
 
+			if (contextAboveForm !== undefined) {
+				const nextConfig =
+					tile === undefined ? config : { ...config, tile: tile ?? undefined };
+				const plan = formContextPatch(nextConfig, contextAboveForm);
+				if ("error" in plan && plan.error) return errorResult(plan.error);
+				if (plan.patch)
+					mutations.push({
+						kind: "setCaseListMeta",
+						uuid: moduleUuid,
+						patch: plan.patch,
+					});
+			}
 			const commit = await guardedMutate(
 				ctx,
 				mutations,
@@ -208,7 +290,11 @@ export const setCaseListTileTool = {
 			const unplacedColumnUuids = committedConfig.columns
 				.filter(
 					(column) =>
-						column.tile === undefined && column.visibleInList !== false,
+						column.visibleInList !== false &&
+						(committedConfig.tile
+							? !committedConfig.tile.namedSlots &&
+								!tileCellFor(column, committedConfig.tile)
+							: !column.tile),
 				)
 				.map((column) => column.uuid);
 
@@ -220,6 +306,7 @@ export const setCaseListTileTool = {
 					layout: committedConfig.tile === undefined ? "rows" : "tile",
 					unplacedColumnUuids,
 					persistOnForms: committedConfig.tile?.persistOnForms === true,
+					contextAboveForm: presentFormContext(committedConfig),
 					...(committedConfig.tile?.grouping && {
 						grouping: {
 							...committedConfig.tile.grouping,

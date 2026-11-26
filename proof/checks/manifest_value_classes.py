@@ -29,6 +29,7 @@ HQ's build does) is the build's, in no source class.
 from __future__ import annotations
 
 import json
+import html
 import re
 import unicodedata
 from dataclasses import dataclass
@@ -38,7 +39,7 @@ from lxml import etree
 
 from proof.checks.compare.app_strings import is_locale_file_key
 from proof.checks.compare.names import nova_name
-from proof.observe.manifest import CSQL_HOLES
+from proof.observe.manifest import CSQL_HOLES, form_language_profiles
 from proof.rules._xpath import tokens as xpath_tokens
 
 XFORMS = "http://www.w3.org/2002/xforms"
@@ -125,6 +126,11 @@ def _core_control_path(control):
     return None if text is None else (attribute, text)
 
 
+def scanned_instance_names(text):
+    """HQ suite_xml/post_process/instances.py::get_instance_names on one emitted XPath or full XForm."""
+    return set(re.findall(r"""instance\(\s*['"]([\w\-:]+)['"]\s*\)""", html.unescape(text)))
+
+
 class Form:
     """One XForm as the value classes read it: its tree and, built once, the relations its readers follow (a
     control to its bind, a path to its instance node). Paths are matched as the text HQ, Vellum and Nova
@@ -138,10 +144,62 @@ class Form:
         self.artifact = artifact
         self.readings = None  # proof.checks.manifest_usage.Readings, once the check reads the observation's
         self.app_form = None  # (App, its form object) where an app JSON carries the form
+        self.scans = {}  # per-language-profile readings from HQ's pre-factory pipeline
+        self.read_built_instances = None  # lazily, for an undeclared read in an actual HQ build
         self.case_types = None  # the document's declared types, or the optional metadata a control retained
         # The suites (their roots) whose entries open the form, where the check reads any: HQ's builds of an app
         # JSON's upload, or a local archive's own suite (``manifest_usage.link_entry_suites``).
         self.entry_suites = ()
+
+    @cached_property
+    def scanned_instance_ids(self):
+        """The names HQ actually scanned on every installed language profile of this source."""
+        if self.app_form is None:
+            return set()
+        from proof.checks.manifest_usage import ObservationMissing
+
+        app, _ = self.app_form
+        sets = []
+        for key in form_language_profiles(app.doc):
+            if key not in self.scans:
+                raise ObservationMissing(f"The manifest observation lacks the built form instance scan for {self.artifact}, languages {key}")
+            sets.append(set(self.scans[key].get("names", [])))
+        names = set.intersection(*sets) if sets else set()
+        if self.model is not None:
+            names -= {element.get("id") for element in self.model if element.tag in ("instance", f"{{{XFORMS}}}instance")}
+        return names
+
+    @cached_property
+    def built_instances(self):
+        return self.read_built_instances() if self.read_built_instances is not None else ()
+
+    @cached_property
+    def working_instances(self):
+        """External declarations present in every recorded build and available across language profiles.
+        A declaration present without a default-profile scan was added by HQ's concrete form build."""
+        if not self.built_instances or self.app_form is None:
+            return {}
+        app, form = self.app_form
+        first_profile = next(iter(form_language_profiles(app.doc)), None)
+        default_scan = set(self.scans.get(first_profile, {}).get("names", []))
+        all_profiles = self.scanned_instance_ids
+        direct = {"commcaresession"}
+        actions = form.get("actions") or {}
+        if form.get("doc_type") == "Form" and (
+            (_requires(form) != "none" and (actions.get("case_preload") or {}).get("preload"))
+            or (actions.get("usercase_preload") or {}).get("preload")
+        ):
+            direct.add("casedb")
+        if form.get("doc_type") == "AdvancedForm" and any(
+            isinstance(load, dict) and load.get("preload") for load in actions.get("load_update_cases") or []
+        ):
+            direct.add("casedb")
+        return {
+            name: source
+            for name, source in self.built_instances[0].items()
+            if (name in direct or name in all_profiles or name not in default_scan)
+            and all(instances.get(name) == source for instances in self.built_instances[1:])
+        }
 
     @cached_property
     def xmlns(self):
@@ -361,7 +419,15 @@ class Form:
     @cached_property
     def declared_instances(self):
         """Each ``(id, src)`` the form declares, in order."""
-        return _declared_instances(self.root)
+        return (
+            tuple(
+                (element.get("id"), element.get("src"))
+                for element in self.model
+                if element.tag == f"{{{XFORMS}}}instance" and element.get("id") and element.get("src")
+            )
+            if self.model is not None
+            else ()
+        )
 
     @cached_property
     def counted_repeats(self):
@@ -920,16 +986,49 @@ class App:
 
     kind = "app"
 
-    def __init__(self, doc, artifact, configurations=None, authored=False):
+    def __init__(self, doc, artifact, configurations=None, authored=False, read=False):
         self.doc = doc
         self.artifact = artifact
         self.configurations = None if configurations is None else tuple(configurations)
         # The app HQ made, on a document made in CommCare HQ: its multimedia map names the files HQ holds for it
         # (``Readings.authored_media``), never those of Nova's local archive.
         self.authored = authored
+        # The app HQ made of a corpus document: the corpus holds a base only where Nova's reader reads it
+        # (``proof/corpus/hqAuthored.ts``, ``expected.json``'s ``reads``), so a use only that reader settles is one
+        # it held. A variant's app, which parity reads, may be refused, and is not.
+        self.read = read
         self.forms = {}  # a form's unique_id -> Form
         self.readings = None
         self.case_types = None  # the document's declared types, or the optional metadata a control retained
+
+    @cached_property
+    def detail_sources(self):
+        """Each named detail's common external instance sources across all built entries and suites."""
+        suites = _app_suites(self)
+        if not suites:
+            return None
+        scopes = {}
+        detail_attributes = ("detail-select", "detail-confirm", "detail-inline", "detail-persistent")
+        for suite in suites:
+            known = {detail.get("id") for detail in suite.root.findall("detail")}
+            for entry in suite.root:
+                if entry.tag not in ("entry", "remote-request"):
+                    continue
+                reached = {
+                    datum.get(attr) for datum in entry.iterfind("./session/*")
+                    if datum.tag in ("datum", "instance-datum") for attr in detail_attributes
+                } & known
+                declared = {}
+                for instance in entry.findall("instance"):
+                    name = instance.get("id")
+                    declared[name] = None if name in declared else instance.get("src")
+                sources = {(name, src) for name, src in declared.items() if name and src}
+                for name in reached:
+                    if name in scopes:
+                        scopes[name].intersection_update(sources)
+                    else:
+                        scopes[name] = sources.copy()
+        return {name: dict(values) for name, values in scopes.items()}
 
     @cached_property
     def modules(self):
@@ -1212,6 +1311,72 @@ def print_callout(use, manifest):
         return None
     intent = form.intents.get(_local(node))
     return intent is not None and intent.get("class") == PRINT_ACTION
+
+
+# The itext forms that carry a file, as Core's Localizer keys them (``<id>;<form>``): a question label's inline
+# video (``video-inline``) among them, whose file HQ ships beside a video's (``xform.py::video_references``).
+MEDIA_ITEXT_FORMS = frozenset({"image", "audio", "video", "video-inline"})
+
+
+# A question label's other texts, as Core's Localizer keys them (``<id>;<form>``): ``long``, ``qrcode`` and
+# ``tts`` (``lib/domain/labelForms.ts``).
+LABEL_TEXT_ITEXT_FORMS = frozenset({"long", "qrcode", "tts"})
+
+
+def _media_itext_group(use, forms=MEDIA_ITEXT_FORMS):
+    """The value of one of ``forms`` a use sits on and every value of the same text id and form across the form's
+    translations, as ``(form, values by translation)``; None where the use sits on no such value."""
+    form, element = _form_element(use)
+    if form is None or _local(element) != "value":
+        return None
+    kind = element.get("form")
+    text = element.getparent()
+    if kind not in forms or text is None or _local(text) != "text" or not text.get("id"):
+        return None
+    text_id = text.get("id")
+    values = {}
+    for translation in form.translations:
+        for candidate in _children(translation):
+            if _local(candidate) != "text" or candidate.get("id") != text_id:
+                continue
+            for value in _children(candidate):
+                if _local(value) == "value" and value.get("form") == kind:
+                    values[translation] = value
+    return form, values
+
+
+def media_missing_in_default(use, manifest):
+    """``questions/media-form-missing-in-default-language``: an image, audio, video or inline video value whose text the
+    form's default translation holds without that form. Core keys each locale's forms over the default's
+    (``Localizer.getLocaleData`` raises ``NoLocalizedTextException`` for a key the default lacks)."""
+    group = _media_itext_group(use)
+    if group is None:
+        return None if _form_element(use)[0] is None else False
+    form, values = group
+    return form.default_translation is not None and form.default_translation not in values
+
+
+def label_text_missing_in_default(use, manifest):
+    """``questions/long-qrcode-or-tts-form-missing-in-default-language``: a ``long``, ``qrcode`` or ``tts`` value
+    whose text the form's default translation holds without that form. Core keys each locale's forms over the
+    default's (``Localizer.getLocaleData`` raises ``NoLocalizedTextException`` for a key the default lacks)."""
+    group = _media_itext_group(use, LABEL_TEXT_ITEXT_FORMS)
+    if group is None:
+        return None if _form_element(use)[0] is None else False
+    form, values = group
+    return form.default_translation is not None and form.default_translation not in values
+
+
+def media_blank_beside_file(use, manifest):
+    """``questions/empty-media-form-beside-a-translated-file``: an image, audio, video or inline video value of a text one
+    translation holds blank and another holds a file of. Vellum's save fills the blank one from the file
+    (``javaRosa/itext.js::getValueOrDefault``); Core keeps the empty string as that translation's own."""
+    group = _media_itext_group(use)
+    if group is None:
+        return None if _form_element(use)[0] is None else False
+    _, values = group
+    blank = [value for value in values.values() if not "".join(value.itertext()).strip()]
+    return bool(blank) and len(blank) < len(values)
 
 
 def readonly_input(use, manifest):
@@ -3520,6 +3685,28 @@ def vellum_case_references(xform):
     return found
 
 
+def menu_layout_outside_choices(use, manifest):
+    at = _json(use)
+    if at is None:
+        return None
+    if at.key == "use_grid_menus":
+        return not isinstance(at.value, bool)
+    if at.key == "grid_form_menus":
+        return at.value not in ("none", "all", "some")
+    if at.key == "display_style":
+        return at.value not in ("list", "grid")
+    return False
+
+
+def repeated_android_app(use, manifest):
+    at = _json(use)
+    if at is None or use.key != "setting:features.dependencies":
+        return None
+    choices = (manifest.items.get(use.key) or {}).get("values") or []
+    value = ((at.app.doc.get("profile") or {}).get("features") or {}).get("dependencies")
+    return isinstance(value, list) and all(isinstance(item, str) and item in choices for item in value) and len(set(value)) < len(value)
+
+
 def setting_outside_choices(use, manifest):
     """``application-and-settings/profile-properties-or-features-dependencies-value-outside-its``: a stored
     setting whose value is none of the setting's own choices (the ``values`` of its ``setting:properties.<key>``
@@ -3528,7 +3715,16 @@ def setting_outside_choices(use, manifest):
     GPS accuracy is the row before's (``within-choices-or-numeric-10``), so it is no use of this class. A custom
     property is no setting the page shows; a feature, and a use outside an app JSON, the export leaves open."""
     at = _json(use)
-    if at is None or not use.key.startswith("setting:properties."):
+    if at is None:
+        return None
+    if use.key == "setting:features.dependencies":
+        choices = (manifest.items.get(use.key) or {}).get("values") or []
+        value = ((at.app.doc.get("profile") or {}).get("features") or {}).get("dependencies")
+        return not (
+            isinstance(value, list)
+            and all(isinstance(item, str) and item in choices for item in value)
+        )
+    if not use.key.startswith("setting:properties."):
         return None
     if "/custom_properties/" in use.where:
         return False
@@ -4161,6 +4357,124 @@ def _literal(app, text):
     return parsed["expressions"] in (["XPathStringLiteral"], ["XPathNumericLiteral"]) and not parsed["functions"]
 
 
+# The tokens after which Core's lexer reads an operator (``Lexer.LEX_CONTEXT_OP``, ``proof/rules/_xpath.py``): a
+# ``/`` after any other begins an absolute path.
+_ENDS_A_VALUE = frozenset(
+    {"WILDCARD", "NSWILDCARD", "QNAME", "VAR", "NUM", "STR", "RBRACK", "RPAREN", "DOT", "DBL_DOT"}
+)
+
+
+def _reads_an_absolute_path(text):
+    """Whether an expression holds a path from the document's root (``/data/...``), read over Core's tokens: a ``/``
+    or ``//`` where Core's lexer reads a value; None where the lexer does not read the text."""
+    found = xpath_tokens(text or "")
+    if found is None:
+        return None
+    previous = None
+    for token in found:
+        if token.kind in ("SLASH", "DBL_SLASH") and (previous is None or previous.kind not in _ENDS_A_VALUE):
+            return True
+        previous = token
+    return False
+
+
+def _reads_a_relative_path(text):
+    """Whether an expression holds a path from the context node (a name, ``.``, ``..`` or ``@name`` where Core's
+    lexer reads a value and no call follows); None where the lexer does not read the text."""
+    found = xpath_tokens(text or "")
+    if found is None:
+        return None
+    for index, token in enumerate(found):
+        previous = found[index - 1] if index > 0 else None
+        if previous is not None and (previous.kind in _ENDS_A_VALUE or previous.kind in ("SLASH", "DBL_SLASH")):
+            continue
+        following = found[index + 1] if index + 1 < len(found) else None
+        if token.kind in ("DOT", "DBL_DOT", "AT", "WILDCARD", "NSWILDCARD"):
+            return True
+        if token.kind == "QNAME" and (following is None or following.kind != "LPAREN"):
+            return True
+    return False
+
+
+def native_filter_unbound_value(use, manifest):
+    """``case-search/native-filter-value-outside-screen-scope``: a default filter keyed by a native search key (any
+    key but ``_xpath_query``) whose value reads what its search screen holds no value of. A path from the document's
+    root (``/data/name``) names a form's answer, and the search screen is no form (Nova's ``search_filter_value``
+    slot holds the session, lookups and the worker alone): in the class. A value of literals and calls that read no
+    node, or that reads the session's context and its user alone, is outside it; any other read (a path from the
+    context node, ``current()``, a session datum, another instance) is not told (None)."""
+    at = _json(use)
+    if at is None:
+        return None
+    entry = at.nearest("DefaultCaseSearchProperty")
+    if entry is None:
+        return None
+    if entry.get("property") == "_xpath_query":
+        return False
+    value = entry.get("defaultValue")
+    if not isinstance(value, str):
+        return False
+    absolute = _reads_an_absolute_path(value)
+    if absolute is None:
+        return None
+    if absolute:
+        return True
+    parsed = at.app.parsed(value)
+    if parsed is None or "error" in parsed:
+        return None
+    if "XPathPathExpr" not in parsed["expressions"]:
+        return False
+    if parsed["roots"] != ["instance"] or _reads_a_relative_path(value) is not False:
+        return None
+    screen = all(
+        path["instance"] == "commcaresession"
+        and path["steps"][:1] == ["session"]
+        and path["steps"][1:2] in (["context"], ["user"])
+        for path in parsed["instancePaths"]
+    )
+    return False if parsed["instancePaths"] and screen else None
+
+
+# The keys of HQ's search index Nova reads as a record's own information
+# (``lib/commcare/suite/case-search/requestOrder.ts::RECORD_KEYS``), and the names Nova reserves for a case's own facts
+# or as CommCare HQ's reserved words (``lib/domain/standardCaseProperties.ts::FORBIDDEN_CASE_OPERATION_WRITE_PROPERTIES``:
+# the SaveToCase set with the block's own rows and the two location keys).
+SERVER_ORDER_RECORD_KEYS = frozenset(
+    {"@case_id", "@owner_id", "@case_type", "@status", "name", "case_name", "external_id", "date_opened", "last_modified"}
+)
+CASE_OPERATION_OWN_ROWS = frozenset({"case_type", "case_name", "owner_id", "location_id", "hq_user_id"})
+
+
+def _order_key_reserved(key):
+    return key not in SERVER_ORDER_RECORD_KEYS and (key in SAVE_TO_CASE_RESERVED_UPDATE_KEYS or key in CASE_OPERATION_OWN_ROWS)
+
+
+def server_order_reserved_property(use, manifest):
+    """``case-search/a-server-order-naming-a-property-nova-reserves``: a literal ``commcare_sort`` default filter, or a
+    search's ``custom_sort_properties`` on a search its menu offers (the only one Nova reads them on), one of whose
+    keys names a property Nova reserves (``status`` is a saved property; the record's state is ``@status``,
+    ``es/case_search.py::sort_by_case_property``). A ``commcare_sort`` that is no one literal is
+    ``a-commcare-sort-x-commcare-custom-related-case-property-or-case``'s."""
+    at, config = _search(use)
+    if config is None:
+        return None
+    if not use.key.startswith(("schema:CaseSearch.custom_sort_properties", "schema:CaseSearchCustomSortProperty")):
+        for entry in _default_entries(at, config):
+            if entry.get("property") != "commcare_sort":
+                continue
+            text = _literal_text(entry.get("defaultValue"))
+            if text is not None and any(
+                _order_key_reserved(part.lstrip("+-").split(":")[0]) for part in text.split(",")
+            ):
+                return True
+        return False
+    if not (config.get("properties") or config.get("default_properties")):
+        return False
+    row = at.nearest("CaseSearchCustomSortProperty")
+    rows = [row] if row is not None else [each for each in config.get("custom_sort_properties") or [] if isinstance(each, dict)]
+    return any(isinstance(each.get("property_name"), str) and _order_key_reserved(each["property_name"]) for each in rows)
+
+
 def request_config_key_runtime_value(use, manifest):
     """``case-search/a-commcare-sort-x-commcare-custom-related-case-property-or-case``: a ``commcare_sort``,
     ``x_commcare_custom_related_case_property`` or ``case_type`` default filter whose value Core does not
@@ -4316,6 +4630,23 @@ hidden_with_required_or_validations = _prompt_reader(
 )
 hidden_with_required_or_validations.__doc__ = """``case-search/hidden-together-with-required-or-validations``."""
 
+allow_blank_on_a_hidden_prompt = _prompt_reader(
+    lambda prompt: bool(prompt.get("hidden")) and bool(prompt.get("allow_blank_value"))
+)
+allow_blank_on_a_hidden_prompt.__doc__ = """``case-search/allow-blank-value-on-a-hidden-prompt``: ``allow_blank_value`` on a
+``hidden`` prompt, whose row Web Apps hides whole (``query.js``, ``d-none``) while it still reads a starting value
+that begins with a blank as the box ticked (``query.js::decodeValue``)."""
+
+allow_blank_beside_the_owner = _prompt_reader(
+    lambda prompt: not prompt.get("hidden")
+    and not prompt.get("exclude")
+    and prompt.get("name") == "owner_id"
+    and bool(prompt.get("allow_blank_value"))
+)
+allow_blank_beside_the_owner.__doc__ = """``case-search/allow-blank-value-on-a-prompt-named-owner-id``: ``allow_blank_value``
+on a shown ``owner_id`` prompt without ``exclude``, which reaches HQ as the owner filter, and HQ refuses a second
+value beside an owner (``case_search/models.py::SearchCriteria._validate_multiple_terms``)."""
+
 later_validations = _prompt_reader(
     lambda prompt: len(_validations(prompt)) > 1 and not prompt.get("hidden") and not _address_field(prompt)
 )
@@ -4407,6 +4738,81 @@ def other_search_button_label(use, manifest):
         return None
     label = config.get("search_button_label")
     return label is not None and label != SEARCH_BUTTON_LABEL
+
+
+def _instance_ids_read(text):
+    """The ids an expression reads with ``instance('<id>')``, through Core's lexer (``Lexer.lex``), in reading order;
+    None where the lexer does not read the text."""
+    found = xpath_tokens(text or "")
+    if found is None:
+        return None
+    ids = []
+    for index, token in enumerate(found[:-3]):
+        if (
+            token.kind == "QNAME"
+            and token.text == "instance"
+            and found[index + 1].kind == "LPAREN"
+            and found[index + 2].kind == "STR"
+            and found[index + 3].kind == "RPAREN"
+        ):
+            read = found[index + 2].text[1:-1]
+            if read not in ids:
+                ids.append(read)
+    return ids
+
+
+def search_button_reads_what_the_list_does_not_load(use, manifest):
+    """``case-search/search-button-display-condition-reading-what-the-case-list-does-not-load``: a Search action's
+    ``relevant`` (the action whose frame pushes ``search_command.<menu>``) in a detail some entry shows as its list
+    (``detail-select``), reading an instance one such entry does not declare. HQ declares an entry's instances from
+    what its datums, details and frames read and never from an action's ``relevant``
+    (``post_process/instances.py::_get_all_xpaths_for_entry``, ``xml_models.py::Detail.get_all_xpaths``), and Core
+    evaluates the condition in the entry's scope (``Detail.getCustomActions``,
+    ``CommCareSession.getEvaluationContext``), where an undeclared instance throws. Decided on a suite, the build
+    that declares the entry's instances. An app JSON's ``search_button_display_condition`` alone does not say what
+    HQ's build will declare beside it: on an app HQ made it is None, and an app Nova sends never holds the class,
+    since Nova's gate admits only a condition every entry showing the list declares
+    (``lib/commcare/suite/case-search/buttonCondition.ts``), so False."""
+    json_at = _json(use)
+    if json_at is not None:
+        if json_at.key != "search_button_display_condition":
+            return None
+        return None if json_at.app is None or json_at.app.authored else False
+    at = _xml(use, "runtime")
+    if at is None or at.attribute != "relevant" or _local(at.element) != "action":
+        return None
+    action = at.element
+    pushes = [
+        _command_literal(command)
+        for command in action.iter()
+        if isinstance(command.tag, str) and _local(command) == "command"
+    ]
+    if not pushes or not all((pushed or "").startswith("search_command.") for pushed in pushes):
+        return False
+    detail = action.getparent()
+    if detail is None or _local(detail) != "detail":
+        return None
+    read = _instance_ids_read(action.get("relevant"))
+    if read is None:
+        return None
+    shown_in = [
+        entry
+        for entry in _children(at.document.root)
+        if _local(entry) == "entry"
+        and any(
+            _local(datum) == "datum" and datum.get("detail-select") == detail.get("id")
+            for session in _children(entry)
+            if _local(session) == "session"
+            for datum in _children(session)
+        )
+    ]
+    if not shown_in:
+        return None
+    for entry in shown_in:
+        declared = {child.get("id") for child in _children(entry) if _local(child) == "instance"}
+        if any(instance_id not in declared for instance_id in read):
+            return True
+    return False
 
 
 def list_first_with_web_apps(use, manifest):
@@ -4670,7 +5076,7 @@ def _interval_offered(value):
         number = float(value)
     except (TypeError, ValueError):
         return False
-    return any(abs(number - offered) < 1e-9 for offered in TIME_AGO_INTERVALS)
+    return number in TIME_AGO_INTERVALS
 
 
 time_ago_with_another_interval = _column_reader(
@@ -4807,7 +5213,9 @@ def case_id_element(use, manifest):
     at, column, detail, kind, module = _column(use)
     if column is None:
         return None
-    return not column.get("useXpathExpression") and str(column.get("field") or "") == "case_id"
+    field = str(column.get("field") or "")
+    return (not column.get("useXpathExpression") and PROPERTY_NAME.fullmatch(field) is not None
+            and ":" not in field and not field.startswith("user/") and field.split("/")[-1] == "case_id")
 
 
 def _custom_tile(detail):
@@ -4848,6 +5256,161 @@ null_alignment_on_placed_tile.__doc__ = (
 )
 
 
+def _tile_box(column):
+    """A column's stored square on a custom tile (``grid_x``, ``grid_y``, ``width``, ``height``), or None where one
+    of the four is no number."""
+    box = tuple(column.get(key) for key in ("grid_x", "grid_y", "width", "height"))
+    return box if all(isinstance(value, int) and not isinstance(value, bool) for value in box) else None
+
+
+def _boxes_overlap(a, b):
+    return a[0] < b[0] + b[2] and b[0] < a[0] + a[2] and a[1] < b[1] + b[3] and b[1] < a[1] + a[3]
+
+
+def overlapping_tile_cells(use, manifest):
+    """``menus-and-case-lists/custom-tile-cells-covering-the-same-square``: a placed cell of a menu's custom tile that
+    covers a square another placed cell of the same tile covers: on the case list every column but a ``filter`` one
+    (HQ's build writes no field for it, ``detail_screen.py::Filter``), on the case detail the columns of one tab
+    (``DetailTab.starting_index`` starts each). HQ's build writes both cells as they are, and Nova's reader refuses
+    each such cell (``caseList/tile.ts::overlappingCells``). A detail HQ's build never lays out as a menu's tile (one
+    that is no custom tile, or no menu's own case list or detail) is out of the class; a use on the detail reads
+    each of its columns."""
+    at, column, detail, kind, module = _column(use)
+    if detail is None:
+        return None
+    pair = (module or {}).get("case_details")
+    if (
+        not _custom_tile(detail)
+        or kind not in ("short", "long")
+        or not isinstance(pair, dict)
+        or pair.get(kind) is not detail
+    ):
+        return False
+    columns = _columns(detail)
+    starts = sorted(
+        tab["starting_index"]
+        for tab in (detail.get("tabs") or [])
+        if kind == "long"
+        and isinstance(tab, dict)
+        and isinstance(tab.get("starting_index"), int)
+        and not isinstance(tab.get("starting_index"), bool)
+    )
+    placed = [
+        (index, sum(1 for start in starts if start <= index), _tile_box(each))
+        for index, each in enumerate(columns)
+        if _format(each) != "filter"
+    ]
+    placed = [(index, group, box) for index, group, box in placed if box is not None]
+    covering = {
+        index
+        for index, group, box in placed
+        for other, other_group, other_box in placed
+        if other != index and other_group == group and _boxes_overlap(box, other_box)
+    }
+    targets = [column] if column is not None else columns
+    return any(index in covering for index, each in enumerate(columns) if any(each is one for one in targets))
+
+
+def _added_child_types(app, case_type):
+    """The child case types HQ's Case Detail page offers a data tab of ``case_type``'s menus: each type a basic
+    form of a menu of that case type adds as a child case it does not close (``Application.get_subcase_types``,
+    ``Form.get_subcase_types``)."""
+    return {
+        subcase.get("case_type")
+        for module in app.modules
+        if module.get("case_type") == case_type
+        for form in module.get("forms") or []
+        if isinstance(form, dict) and form.get("doc_type") == "Form"
+        for subcase in ((form.get("actions") or {}).get("subcases") or [])
+        if isinstance(subcase, dict)
+        and subcase.get("case_type")
+        and ((subcase.get("close_condition") or {}).get("type") or "never") == "never"
+    }
+
+
+def tab_child_type_no_form_adds(use, manifest):
+    """``menus-and-case-lists/detail-tab-child-type-no-form-of-its-menu-s-case-type-adds``: a data tab's
+    ``nodeset_case_type`` naming a type no basic form of a menu of the list's case type adds, which HQ's Case
+    Detail page clears at its next save. Nova's reader refuses it (``caseList/index.ts::
+    refuseTabChildTypesNoFormAdds``)."""
+    at = _json(use)
+    if at is None:
+        return None
+    tab = at.nearest("DetailTab")
+    module = at.nearest(*MODULES)
+    if tab is None or module is None:
+        return None
+    child = tab.get("nodeset_case_type")
+    if tab.get("has_nodeset") is not True or not isinstance(child, str) or not child:
+        return False
+    return child not in _added_child_types(at.app, module.get("case_type"))
+
+
+TILE_GRID = 12
+# The fewest rows HQ's Case List and Case Detail pages offer a tile (``details/bootstrap5/screen.js``,
+# ``caseTileRowMax = max(columns + 1, 7)``, so a bottom edge up to ``max(columns, 6)``).
+TILE_MIN_ROWS = 6
+
+
+def _offered_rows(detail, kind):
+    """The rows HQ's page offers one detail's tile: ``max(n, 6)``, n its columns other than ``filter`` ones and, on
+    the case detail (``long``), its tabs, which the page splices into its columns before it drops the filters
+    (``screen.js``). Written from the page's source, not from Nova's (``caseList/tile.ts::screenTileRows``)."""
+    columns = [column for column in (detail.get("columns") or []) if not isinstance(column, dict) or _format(column) != "filter"]
+    tabs = detail.get("tabs") if kind == "long" else None
+    return max(len(columns) + (len(tabs) if isinstance(tabs, list) else 0), TILE_MIN_ROWS)
+
+
+def _grid_fit(box, rows):
+    """Where a stored cell stands against the grid of its screen of ``rows`` rows (``caseList/tile.ts::gridFit``):
+    ``outside`` for a cell starting left of or above the grid, spanning less than one square, or running past the
+    twelfth column; ``past`` for one inside those columns whose bottom edge passes the rows HQ's page offers;
+    ``fits`` otherwise, a cell past the twelfth row inside those rows among them (the HELD class
+    ``menus-and-case-lists/custom-tile-cell-below-the-twelfth-row``, an allowing class no reader reads)."""
+    x, y, width, height = box
+    if x < 0 or y < 0 or width < 1 or height < 1 or x + width > TILE_GRID:
+        return "outside"
+    return "past" if y + height > rows else "fits"
+
+
+def _tile_cell_fit(fit):
+    def reader(use, manifest):
+        at, column, detail, kind, module = _column(use)
+        if detail is None:
+            return None
+        pair = (module or {}).get("case_details")
+        if (
+            not _custom_tile(detail)
+            or kind not in ("short", "long")
+            or not isinstance(pair, dict)
+            or pair.get(kind) is not detail
+        ):
+            return False
+        targets = [column] if column is not None else _columns(detail)
+        rows = _offered_rows(detail, kind)
+        return any(
+            _format(each) != "filter" and box is not None and _grid_fit(box, rows) == fit
+            for each in targets
+            for box in [_tile_box(each)]
+        )
+
+    return reader
+
+
+tile_cell_outside_the_grid = _tile_cell_fit("outside")
+tile_cell_outside_the_grid.__doc__ = """``menus-and-case-lists/custom-tile-cell-outside-the-grid``: a placed cell of a
+menu's custom tile (its case list's or its case detail's, every column but a ``filter`` one) that starts left of or
+above the grid, spans less than one square, or runs past the twelfth column. Nova's reader refuses each such cell
+(``caseList/tile.ts::gridFit``). A detail HQ's build never lays out as a menu's tile is out of the class; a use on
+the detail reads each of its columns."""
+
+tile_cell_below_the_offered_rows = _tile_cell_fit("past")
+tile_cell_below_the_offered_rows.__doc__ = """``menus-and-case-lists/custom-tile-cell-below-the-rows-hq-s-page-
+offers``: a placed cell of a menu's custom tile, inside its twelve columns, whose bottom edge passes the rows HQ's
+Case List or Case Detail page offers its screen, ``max(n, 6)`` (``_offered_rows``): the page's next save moves it
+(as ``tile_cell_outside_the_grid`` reads its tile)."""
+
+
 def _detail_reader(test):
     def reader(use, manifest):
         at, column, detail, kind, module = _column(use)
@@ -4880,6 +5443,409 @@ def _sorted_column(columns, field):
     if matched and int(matched.group(1)) < len(columns):
         return columns[int(matched.group(1))]
     return None
+
+
+def _case_order_type(tree, properties):
+    """The type supplied by a case-row expression, when its operands establish one."""
+    kind = tree[0]
+    if kind == "number":
+        return "number"
+    if kind == "text":
+        return "text"
+    if kind == "path":
+        prop = _bare_read(tree, "child")
+        if prop == "*" or (
+            tree[1] == "instance:casedb"
+            and tree[4] == [["child", "casedb", 0], ["child", "case", 0]]
+        ):
+            return "collection"
+        if prop is not None:
+            data_type = properties.get(prop)
+            return "number" if data_type in ("int", "decimal") else data_type or "scalar"
+        if _bare_read(tree, "attribute") in ("case_id", "case_type"):
+            return "text"
+        if tree[1] == "instance:commcaresession" and _session_context_read(tree) in (
+            "username", "userid",
+        ):
+            return "text"
+        return None
+    if kind == "negative":
+        return "number" if _case_order_type(tree[1], properties) == "number" else None
+    if kind == "binary":
+        left, right = (_case_order_type(node, properties) for node in tree[2:])
+        if left == right == "number" and tree[1] in ("+", "-", "*", "div", "mod"):
+            return "number"
+        if left == right and left in ("number", "text") and tree[1] in ("=", "!=", "<", "<=", ">", ">="):
+            return "boolean"
+        return None
+    if kind == "call":
+        args = [_case_order_type(node, properties) for node in tree[2]]
+        if tree[1] == "concat" and len(args) >= 2 and all(arg not in (None, "collection") for arg in args):
+            return "text"
+        if tree[1] == "if" and len(args) == 3 and args[0] == "boolean" and args[1] == args[2]:
+            return args[1]
+    return None
+
+
+def mapping_condition_outside_predicate(use, manifest):
+    """``menus-and-case-lists/mapping-condition-outside-predicate``: a mapping key of a column whose format reads
+    its keys as conditions (``observe/manifest.py::CONDITION_KEY_FORMATS``) that Core's parse refuses, so it is no
+    condition a case meets (``lib/commcare/reader/expressions/findings.ts::parseIssueEntry``). A key with none of an
+    expression's characters is a saved value, another class; a key Core parses may still read a value Nova has no
+    binding for, which the key alone does not settle, so the class is decided by the parse only where it fails."""
+    at, column, _, _, _ = _column(use)
+    if at is None or column is None:
+        return None
+    if column.get("format") not in ("conditional-enum", "enum-image", "clickable-icon"):
+        return False
+    item = at.nearest("MappingItem")
+    if item is None or not isinstance(item.get("key"), str):
+        return None
+    key = item["key"]
+    if not any(character in key for character in "{}()[]=<>.\"'/"):
+        return False
+    field = column.get("field")
+    properties = _case_properties(use)
+    dot = None
+    if not column.get("useXpathExpression") and isinstance(field, str) and field in properties:
+        dot = _CASE_VALUE_TYPES.get(properties[field] or "text")
+    return _scoped_verdict(at.app, key, lambda tree: _case_condition_type(tree, properties, dot) == "boolean")
+
+
+# The value a case property of a declared type gives an expression of the selected case, as Nova's type checker reads
+# it (``lib/domain/casePropertyTypes.ts``): a single choice compares as text, a multiple choice is read only by
+# ``selected``, and a type this table leaves out (a date, a time, a place) is read by no rule these classes decide.
+_CASE_VALUE_TYPES = {
+    "text": "text",
+    "single_select": "text",
+    "multi_select": "choices",
+    "int": "number",
+    "decimal": "number",
+}
+
+
+def _case_properties(use):
+    """The declared properties of the case type a use's case list reads (``_list_case_type``), by name with each one's
+    type; empty where the type or the catalog is not known."""
+    at = _json(use)
+    case_type = _list_case_type(use)
+    if at is None or case_type is None:
+        return {}
+    return (at.app.case_types or {}).get(case_type) or {}
+
+
+def _case_condition_type(tree, properties, dot=None):
+    """The type an expression of the selected case gives (``number``, ``text``, ``choices`` or ``boolean``), where its
+    every part is one Nova's type checker types the same way: a literal, a bare read of a declared property of a
+    type ``_CASE_VALUE_TYPES`` names (``.``, the column's own property, where ``dot`` gives its type), a comparison of
+    two values of one type (an order of two numbers), ``and``/``or``/``not`` over truth values, arithmetic over
+    numbers, ``concat`` of texts, ``selected`` of a property and a text, ``true()`` and ``false()``. None for anything else, which these
+    classes leave undecided rather than guess."""
+    kind = tree[0]
+    if kind == "number":
+        return "number"
+    if kind == "text":
+        return "text"
+    if kind == "path":
+        steps = tree[4]
+        if dot is not None and tree[1] == "relative" and not tree[3] and [list(step) for step in steps] == [
+            ["self", "node()", 0]
+        ]:
+            return dot
+        prop = _bare_read(tree, "child")
+        # A declared property with no type is text, as Nova's checker reads it (``data_type ?? "text"``).
+        return None if prop is None or prop not in properties else _CASE_VALUE_TYPES.get(properties[prop] or "text")
+    if kind == "negative":
+        return "number" if _case_condition_type(tree[1], properties, dot) == "number" else None
+    if kind == "binary":
+        left, right = (_case_condition_type(node, properties, dot) for node in tree[2:])
+        operator = tree[1]
+        if operator in ("and", "or"):
+            return "boolean" if left == right == "boolean" else None
+        if operator in ("=", "!="):
+            return "boolean" if left == right and left in ("number", "text") else None
+        if operator in ("<", "<=", ">", ">="):
+            return "boolean" if left == right == "number" else None
+        if operator in ("+", "-", "*", "div", "mod"):
+            return "number" if left == right == "number" else None
+        return None
+    if kind == "call":
+        name, arguments = tree[1], tree[2]
+        if name in ("true", "false") and not arguments:
+            return "boolean"
+        if name == "not" and len(arguments) == 1:
+            return "boolean" if _case_condition_type(arguments[0], properties, dot) == "boolean" else None
+        if name == "selected" and len(arguments) == 2:
+            subject = _case_condition_type(arguments[0], properties, dot)
+            value = _case_condition_type(arguments[1], properties, dot)
+            return "boolean" if subject in ("choices", "text") and value == "text" else None
+        # A text holding both quote characters is printed as a concatenation of literals.
+        if name == "concat" and len(arguments) >= 2:
+            parts = [_case_condition_type(argument, properties, dot) for argument in arguments]
+            return "text" if all(part == "text" for part in parts) else None
+    return None
+
+
+def _scoped_verdict(app, text, typed):
+    """The verdict of a class of expressions Nova reads in the selected case's scope: in it (True) where Core's
+    parse refuses the text, which then holds no expression at all (``lib/commcare/reader/expressions/findings.ts::
+    parseIssueEntry``, "syntax"); out of it (False) where its structure is one ``typed`` places in the scope; and
+    undecided (None) for every other text, including one the records hold no parse or structure of."""
+    parsed = app.parsed(text)
+    if parsed is None:
+        return None
+    if "error" in parsed:
+        return True
+    tree = app.tree(text)
+    if tree is None:
+        return None
+    return False if typed(tree) else None
+
+
+def _detail_of(use):
+    """A use's detail with its kind (``short``, ``long``) and its menu, where the detail is the menu's own case list
+    or case detail (``case_details``): (at, detail, kind, module), or Nones."""
+    at = _json(use)
+    if at is None:
+        return None, None, None, None
+    detail, module = at.nearest("Detail"), at.nearest(*MODULES)
+    pair = (module or {}).get("case_details")
+    kind = next(
+        (name for name in ("short", "long") if isinstance(pair, dict) and pair.get(name) is detail and detail is not None),
+        None,
+    )
+    return at, detail, kind, module
+
+
+def _tabs(detail):
+    return [tab for tab in (detail or {}).get("tabs") or [] if isinstance(tab, dict)]
+
+
+def columns_above_the_first_tab(use, manifest):
+    """``menus-and-case-lists/columns-above-the-first-tab-when-tabs-exist``: a detail whose first tab starts after its
+    first column (``starting_index`` above 0), which HQ's Case Detail page refuses to save ("All properties must be
+    below a tab", ``screen.js::save``) and Nova's reader refuses (``caseList/details.ts``, ``tabsColumnsAbove``). A
+    use of the tabs or of any tab's start reads the detail's first tab; a start that is no number is no column
+    above a tab."""
+    at = _json(use)
+    detail = at.nearest("Detail") if at is not None else None
+    if detail is None:
+        return None
+    tabs = _tabs(detail)
+    if not tabs:
+        return False
+    start = tabs[0].get("starting_index")
+    return isinstance(start, int) and not isinstance(start, bool) and start > 0
+
+
+def tab_condition_outside_case_scope(use, manifest):
+    """``menus-and-case-lists/tab-display-condition-outside-its-case-scope``: a tab's display condition (``relevant``)
+    that is no condition of the selected case: one Core's parse refuses. One whose structure
+    ``_case_condition_type`` types as a truth value of the menu's case is out of the class; any other is undecided."""
+    at = _json(use)
+    tab = at.nearest("DetailTab") if at is not None else None
+    if tab is None:
+        return None
+    text = tab.get("relevant")
+    if not isinstance(text, str) or not text.strip():
+        return False
+    properties = _case_properties(use)
+    return _scoped_verdict(at.app, text, lambda tree: _case_condition_type(tree, properties) == "boolean")
+
+
+def _records_rows_typed(tree, app):
+    """Whether a records tab's rows are the cases of one declared type, each predicate beside the type's one a
+    condition of that type (``_case_predicate_scope``): ``instance('casedb')/casedb/case[@case_type = 'T'][...]``."""
+    if tree[0] != "path":
+        return False
+    case_type, first, end = _case_predicate_scope(tree)
+    if case_type is None or len(tree[4]) != 2:
+        return False
+    properties = (app.case_types or {}).get(case_type)
+    if properties is None:
+        return False
+    for predicate in tree[3][first:end]:
+        if predicate[:2] == ["binary", "="] and any(
+            _bare_read(path, "attribute") == "case_type" and literal[0] == "text"
+            for path, literal in (predicate[2:], list(reversed(predicate[2:])))
+        ):
+            continue
+        if _case_condition_type(predicate, properties) != "boolean":
+            return False
+    return True
+
+
+def tab_without_a_resolvable_row_source(use, manifest):
+    """``menus-and-case-lists/detail-tab-without-a-resolvable-row-source``: a tab that lists records but names none it
+    can read, as Nova's reader decides (``caseList/details.ts``, ``tabRowsMissing``, ``tabTypeInvalid`` and the
+    rows' and filter's slots): rows turned on (``has_nodeset``) with neither rows (``nodeset``) nor a child type in
+    the case type grammar (``nodeset_case_type``); a child type outside the grammar on a tab that lists children;
+    rows or a child filter Core's parse refuses, and rows that are a literal, a value and no records. Rows that are
+    one declared type's cases under conditions
+    ``_case_condition_type`` types, and a child filter it types over the child type, are out of the class, as is
+    every setting of a tab whose rows are off; a records tab's child type beside a search is the search's, which
+    the use alone does not settle."""
+    at = _json(use)
+    tab = at.nearest("DetailTab") if at is not None else None
+    if tab is None:
+        return None
+    active = tab.get("has_nodeset") is True
+    nodes, child, filter_ = tab.get("nodeset"), tab.get("nodeset_case_type"), tab.get("nodeset_filter")
+    custom = active and isinstance(nodes, str) and nodes != ""
+    valid_child = isinstance(child, str) and MENU_PAGE_CASE_TYPE.fullmatch(child) is not None
+    children = active and not custom and valid_child
+    key = at.key
+    if not active:
+        return False
+    if key == "has_nodeset":
+        return not (custom or children)
+    if key == "nodeset_case_type":
+        if custom:
+            return False if valid_child or not child else None
+        return not children
+    if key == "nodeset":
+        if not custom:
+            return False
+        verdict = _scoped_verdict(at.app, nodes, lambda tree: _records_rows_typed(tree, at.app))
+        tree = at.app.tree(nodes)
+        # A literal is a value, never records a tab can list.
+        return True if verdict is None and tree is not None and tree[0] in ("text", "number") else verdict
+    if key == "nodeset_filter":
+        if not children or not isinstance(filter_, str) or not filter_.strip():
+            return False
+        properties = (at.app.case_types or {}).get(child) or {}
+        return _scoped_verdict(at.app, filter_, lambda tree: _case_condition_type(tree, properties) == "boolean")
+    return None
+
+
+def _defines_line(detail):
+    """Whether a detail turns on the one-line context above a form that its own persistent tile does not replace
+    (``caseList/details.ts``, ``definesLine``)."""
+    return detail.get("persist_case_context") is True and not (
+        detail.get("case_tile_template") and detail.get("persist_tile_on_forms") is True
+    )
+
+
+def form_context_expression_outside_case_scope(use, manifest):
+    """``menus-and-case-lists/form-context-expression-outside-its-case-scope``: the line a case list puts above its
+    forms (``persistent_case_context_xml`` of a short detail that turns the line on and whose own tile does not
+    persist) that is no value of the selected case: one Core's parse refuses. A value ``_case_condition_type`` types,
+    or a bare read of a declared property, is out of the class, as is the key wherever no line reads it."""
+    at, detail, kind, module = _detail_of(use)
+    if detail is None:
+        return None
+    text = detail.get("persistent_case_context_xml")
+    if kind != "short" or not _defines_line(detail) or not isinstance(text, str) or not text.strip():
+        return False
+    properties = _case_properties(use)
+    return _scoped_verdict(
+        at.app,
+        text,
+        lambda tree: _bare_read(tree, "child") in properties or _case_condition_type(tree, properties) is not None,
+    )
+
+
+def form_context_without_a_compatible_tile(use, manifest):
+    """``menus-and-case-lists/form-context-without-a-compatible-case-tile``: a case list whose context above a form
+    names another menu (``persistent_case_tile_from_module``) that does not exist, lays out no tile, or lists another
+    case type (a menu with neither a tile nor its own suite holds no context, another class), or that pulls a tile
+    down (``pull_down_tile``) with no tile of its own that persists and no other menu's, as Nova's reader decides
+    (``caseList/details.ts``, ``contextUnavailable``, ``inlineUnavailable``). Either key of a case detail reads
+    nothing, another class."""
+    at, detail, kind, module = _detail_of(use)
+    if detail is None:
+        return None
+    if kind != "short":
+        return False
+    source_id = detail.get("persistent_case_tile_from_module")
+    external = None
+    if isinstance(source_id, str) and source_id:
+        source = at.app.modules_by_id.get(source_id)
+        pair = (source or {}).get("case_details")
+        source_short = pair.get("short") if isinstance(pair, dict) and isinstance(pair.get("short"), dict) else {}
+        if source is not None and not source_short.get("case_tile_template") and not source_short.get("custom_xml"):
+            external = False  # a menu with no tile: the reader leaves the setting dormant
+        elif source is None or not source_short.get("case_tile_template") or source.get("case_type") != module.get(
+            "case_type"
+        ):
+            if at.key == "persistent_case_tile_from_module":
+                return True
+            external = False
+        else:
+            external = True
+    if at.key == "persistent_case_tile_from_module":
+        return False
+    if at.key == "pull_down_tile":
+        if detail.get("pull_down_tile") is not True:
+            return False
+        own = detail.get("case_tile_template") in ("custom", "icon_text_grid") and detail.get(
+            "persist_tile_on_forms"
+        ) is True
+        return not (external or own)
+    return None
+
+
+def competing_form_context_values(use, manifest):
+    """``menus-and-case-lists/two-different-values-for-the-same-form-context``: a case detail whose one-line context
+    above a form differs from its case list's, both turning the line on (``_defines_line``): HQ's build writes one
+    shared detail for both, of which Core keeps the last, so the Case List page shows a line the worker does not
+    see. Nova's reader refuses the case detail's keys and reads the case list's (``caseList/details.ts``,
+    ``competingLine``), so a use on the case list is out of the class."""
+    at, detail, kind, module = _detail_of(use)
+    if detail is None:
+        return None
+    if kind != "long":
+        return False
+    short = module["case_details"].get("short")
+    if not isinstance(short, dict) or not _defines_line(short) or not _defines_line(detail):
+        return False
+    return short.get("persistent_case_context_xml", "case_name") != detail.get("persistent_case_context_xml", "case_name")
+
+
+def independent_sort_without_scalar(use, manifest):
+    """Classify the selected case's scalar independently of Nova's reader.
+    An expression with an unresolved binding or function stays undecided."""
+    at = _json(use)
+    sort = at.nearest("SortElement") if at is not None else None
+    if sort is None:
+        return None
+    text = sort.get("sort_calculation")
+    if sort.get("field") != "" or not isinstance(text, str) or not text.strip():
+        return False
+    tree = at.app.tree(text)
+    if tree is None:
+        return None
+    properties = (at.app.case_types or {}).get(_list_case_type(use)) or {}
+    result = _case_order_type(tree, properties)
+    return None if result is None else result == "collection"
+
+
+def calculated_distance_without_property(use, manifest):
+    """HQ's invisible temporary column has an empty field for Distance to evaluate."""
+    at = _json(use)
+    sort = at.nearest("SortElement") if at is not None else None
+    if sort is None:
+        return None
+    calculation = sort.get("sort_calculation")
+    return sort.get("type") == "distance" and sort.get("field") == "" and isinstance(calculation, str) and bool(calculation.strip())
+
+
+def distance_on_translated_calculation(use, manifest):
+    """The translated expression's sort node reads a calculated variable its template never defines."""
+    at = _json(use)
+    detail = at.nearest("Detail") if at is not None else None
+    sort = at.nearest("SortElement") if at is not None else None
+    if detail is None or sort is None:
+        return None
+    if sort.get("type") != "distance" or not sort.get("field"):
+        return False
+    columns = _columns(detail)
+    named = _sorted_column(columns, sort["field"])
+    if named is None:
+        return False
+    # A positional reference uses the named column's text to find the first column with that field.
+    landing = next((column for column in columns if column.get("field") == named.get("field")), named)
+    return bool(landing.get("useXpathExpression")) and _format(landing) == "translatable-enum"
 
 
 def beside_a_field_on_another_format(use, manifest):
@@ -5000,6 +5966,61 @@ def default_on_multi_select_host(use, manifest):
             and _multi_select(module)
         )
     )(use, manifest)
+
+
+def _registration_return_search(at, module, form_id):
+    if not _inline_search(module):
+        return False
+    registration = at.app.forms_by_id.get(form_id)
+    if registration is None:
+        return None
+    if registration.get("post_form_workflow") == "root":
+        return False
+    # HQ's common-datum prefix excludes the standalone case-list entry.
+    forms = _forms(module)
+    if not forms:
+        return False
+    owner = at.app.module_of(registration)
+    if (
+        module.get("doc_type") != "Module"
+        or module.get("root_module_id")
+        or (module.get("parent_select") or {}).get("active")
+        or _multi_select(module)
+        or not owner
+        or registration.get("doc_type") != "Form"
+        or (owner.get("parent_select") or {}).get("active")
+        or any(form.get("doc_type") != "Form" for form in forms)
+    ):
+        return None
+    if any(_requires(form) != "case" for form in forms):
+        return False
+
+    # A basic standalone registration contributes its own new-case datum.
+    # Child actions and advanced entries need the built datum-to-source match.
+    case_type = module.get("case_type")
+    if any(subcase.get("case_type") == case_type and _active(subcase) for subcase in _subcases(registration)):
+        return None
+    action = _actions(registration).get("open_case")
+    if not case_type or owner.get("case_type") != case_type or not _active(action):
+        return False
+    if (
+        _requires(registration) != "none"
+        or registration.get("form_links")
+        or registration.get("post_form_workflow") not in (None, "", "default")
+        or (module["case_list_form"].get("post_form_workflow") or "default") not in ("case_list", "default")
+    ):
+        return None
+    return _condition(action) == "if"
+
+
+def registration_return_search_needs_created_case(use, manifest):
+    """HQ's CaseListFormWorkflow keeps the inline query before the case
+    selection it cuts. In a basic case-first menu with a standalone
+    registration of its type, the query takes the registration's allocated
+    ID. An active conditional create may leave that ID without a case.
+    Advanced, parent and subcase datum matches require the built frame.
+    """
+    return _case_list_form_reader(_registration_return_search)(use, manifest)
 
 
 def put_in_root_beside_an_endpoint_inline_search_or_form_return(use, manifest):
@@ -5222,7 +6243,10 @@ def custom_assertions_non_empty(use, manifest):
     return None if module is None else bool(module.get("custom_assertions"))
 
 
-def _parent_select_reader(test):
+def _parent_select_reader(test, *, missing=False):
+    """A reader of an active parent selection's target; ``missing`` is its answer for a ``module_id`` that names no
+    menu of the app."""
+
     def reader(use, manifest):
         at, module = _module_of_detail(use)
         if module is None:
@@ -5232,13 +6256,15 @@ def _parent_select_reader(test):
             return False
         target = at.app.modules_by_id.get(parent.get("module_id"))
         if target is None:
-            return False  # an invalid candidate is HQ's build's (``invalid parent select id``), which the bar reports
+            return missing
         return test(at, module, target)
 
     return reader
 
 
-names_a_multi_select_module = _parent_select_reader(lambda at, module, target: _multi_select(target))
+# A module_id naming no menu is an invalid candidate, which the entry names beside a multi-select one (and HQ's build
+# refuses as ``invalid parent select id``, which the bar reports as well).
+names_a_multi_select_module = _parent_select_reader(lambda at, module, target: _multi_select(target), missing=True)
 names_a_multi_select_module.__doc__ = """
 ``menus-and-case-lists/parent-select-module-id-naming-a-multi-select-module-or-an``: an active parent selection
 naming a multi-select module, which the editor never offers (an invalid candidate and a cycle are HQ's build's:
@@ -5555,9 +6581,12 @@ def hierarchical_locations(use, manifest):
     if document is not None:
         if read is None:
             return None
-        places = {instance_id for instance_id in read if instance_id.split(":", 1)[0] in ("locations", "commtrack")}
+        declarations = dict(document.declared_instances)
+        if isinstance(document, Form) and read - set(declarations):
+            declarations = {**document.working_instances, **declarations}
         verdicts = {
-            _locations_source(source) for instance_id, source in document.declared_instances if instance_id in places
+            _locations_source(source) for instance_id, source in declarations.items() if instance_id in read
+            and source in (FLAT_LOCATIONS, HIERARCHICAL_LOCATIONS)
         }
         if True in verdicts:
             return True
@@ -5775,7 +6804,7 @@ def media_reference_drawn_without_entry(use, manifest):
                     continue
                 for value in _children(text):
                     medium = value.get("form")
-                    if _local(value) != "value" or medium not in ("image", "audio", "video"):
+                    if _local(value) != "value" or medium not in ("image", "audio", "video", "video-inline"):
                         continue
                     path = (value.text or "").strip()
                     if not path or path in mapped:
@@ -8228,6 +9257,69 @@ def model_iteration_reading_blank_answer(use, manifest):
     return None if None in verdicts else False
 
 
+def _itemset_read(use):
+    """The actual form or Search itemset slot, parsed as a row-relative XPath by the proof parser."""
+    from proof.checks.xpath_tree import tree
+
+    if isinstance(use.at, JsonAt):
+        item = use.at.nearest("Itemset")
+        if item is None or use.at.key not in ("label", "value", "sort"):
+            return None
+        value = item.get(use.at.key)
+    elif isinstance(use.at, XmlAt):
+        element = use.at.element
+        parent = element.getparent()
+        if parent is None or _local(parent) != "itemset" or _local(element) not in ("label", "value", "sort"):
+            return None
+        value = element.get("ref")
+    else:
+        return None
+    return tree(value) if isinstance(value, str) else None
+
+
+# What ends a name step for every XPath reader of an itemset reference: whitespace, quotes and XPath's operator
+# and delimiter characters. ``:`` is left out with them, as it may start a QName's local part.
+_STEP_BREAKS = frozenset(" \t\r\n'\"/[]()@=<>!|*+,:$")
+
+
+def _one_non_ascii_step(element):
+    """For an itemset ``ref`` the proof's parser leaves unread because it holds a non-ASCII character (it reads ASCII
+    alone, ``proof.rules._xpath``): whether it is no single child or ``@`` attribute step, the shape Vellum's
+    ``itemset.js::validateRefWidget`` compares as a string with the table's fields and attributes. A text that is one
+    such step is decided editable (False); whether Core reads its characters as a name is the business of
+    ``expressions-and-data/tag-or-field-name-core-s-xpath-lexer-does-not-read-as-a-name-any``. Any other text
+    stays undecided (None)."""
+    if element is None or _local(element) not in ("label", "value", "sort"):
+        return None
+    ref = element.get("ref")
+    if not isinstance(ref, str) or ref.isascii():
+        return None
+    name = ref[1:] if ref.startswith("@") else ref
+    if not name or set(name) & _STEP_BREAKS:
+        return None
+    return False
+
+
+def form_itemset_ref_uneditable(use, manifest):
+    from proof.rules import _xpath
+
+    form, element = _form_element(use)
+    if form is None:
+        return None
+    read = _itemset_read(use)
+    if read is None:
+        return _one_non_ascii_step(element)
+    if read[:2] == ("call", "jr:itext"):
+        return False
+    if read[:3] != ("path", None, None):
+        return True
+    steps = [step for step in read[3] if step[1] != "self"]
+    if len(steps) != 1 or steps[0][1] not in ("child", "attribute"):
+        return True
+    # A literal opening bracket interrupts Vellum's predicate stripping.
+    return any(tok.kind == "STR" and "[" in tok.text for tok in _xpath.tokens(element.get("ref")))
+
+
 def itemset_label_itext(use, manifest):
     """``questions/itemset-label-jr-itext-field``: an itemset label whose ``ref`` calls ``jr:itext``, which Vellum's
     lookup table widget does not find among a table's fields (``itemset.js::validateRefWidget``). Read from Core's
@@ -8924,7 +10016,160 @@ def appearance_token_no_runtime_reads(use, manifest):
     unread = appearance_words(manifest, form, element, value)[1]
     if not unread:
         return False
-    return True if _dropping_changes_reading(manifest, form, element, value, unread) else None
+    if _dropping_changes_reading(manifest, form, element, value, unread):
+        return True
+    rest = " ".join(word for word in value.split() if word not in unread)
+    return False if _rest_read_as_written(manifest, form, element, rest) else None
+
+
+def unread_words_dropped(manifest, document, element, value):
+    """Whether an element's appearance is in the HELD class beside ``appearance_token_no_runtime_reads``'s
+    (``questions/a-multi-token-string-holding-tokens-no-runtime-reads-on-that``): several words, some no runtime's
+    read takes, whose dropping leaves every runtime's reading the same. Its unread words are that class's, as Nova's
+    reader drops them (``xform/appearances.ts::droppingKeepsReading``), so none is a use of its own."""
+    if not isinstance(document, Form) or element not in document.body_elements or len(value.split()) < 2:
+        return False
+    if _local(element) == "trigger" and value.startswith("floating-"):
+        return False
+    unread = appearance_words(manifest, document, element, value)[1]
+    if not unread or _dropping_changes_reading(manifest, document, element, value, unread):
+        return False
+    return _rest_read_as_written(manifest, document, element, " ".join(w for w in value.split() if w not in unread))
+
+
+def _rest_read_as_written(manifest, document, element, rest):
+    """Whether what is left of an appearance once its unread words are dropped is a value the runtimes read as it is
+    written, no refused class taking it (``xform/appearances.ts::droppingKeepsReading``: the rest's own class is no
+    refusal): every word a read takes alone by its exact token, no single word holding a value Android matches inside
+    it, and no per-row token the per-row refusals take. True, or None where the rest needs a reading this check does
+    not make (a case variant, an ``intent:`` id, one word holding a value Android matches inside it)."""
+    facts = element_facts(manifest, document, element)
+    rules = [rule for rule in appearance_rules(manifest) if rule.reads(facts)]
+    words = rest.split(" ")
+    if rest != rest.lower() or rest.startswith("intent:"):
+        return None
+    # A single word holding a value Android matches inside it is a reading of its own
+    # (``android_inside_match_other``); in a string of several words Android reads only the values the rows name.
+    if len(words) == 1 and any(
+        rule.reader == "android" and rule.match in INSIDE_MATCHES and appearance_matches(rest, rule) for rule in rules
+    ):
+        return None
+    control = _row_control(document, element)
+    if _per_row_without_leading_digits(rest, control) or _per_row_holding_read(
+        manifest, document, element, rest, control
+    ):
+        return None
+    read = all(
+        any(rule.match not in INSIDE_MATCHES and appearance_matches(word, rule) for rule in rules) for word in words
+    )
+    return True if read else None
+
+
+# Web Apps' per-row patterns (``const.js::PER_ROW_PATTERN``, ``PER_ROW_REPEAT_PATTERN``), as ``form_ui.js`` tests
+# each space-separated token of a question's or group's appearance.
+PER_ROW = re.compile(r"\d+-per-row(\s|$)")
+PER_ROW_REPEAT = re.compile(r"\d+-per-row-repeat(\s|$)")
+# The controls whose ``receive-`` and ``broadcast-`` words Web Apps reads (``entries.js::getEntry``,
+# ``buildBroadcastTopics``, ``enableReceiver``), by the control their element is.
+RECEIVE_CONTROLS = frozenset({"select1", "text", "barcode"})
+BROADCAST_CONTROLS = frozenset({"text", "image", "audio", "video", "document"})
+UPLOAD_ROW_CONTROLS = {"image/*": "image", "audio/*": "audio", "video/*": "video", "application/*,text/*": "document"}
+
+
+def _row_control(document, element):
+    """The control an appearance sits on as the per-row and channel rows name it: a Vellum repeat, a group wrapping a
+    repeat as a direct child (``repeat-wrapper``), another group, a text input (an input typed ``xsd:string`` or
+    untyped), a barcode input, an upload by its media type, or the element's own name."""
+    local = _local(element)
+    if local == "group":
+        return "repeat-wrapper" if any(_local(child) == "repeat" for child in _children(element)) else "group"
+    if local == "input":
+        bind = document.control_bind(element) if isinstance(document, Form) else None
+        kind = (bind.get("type") if bind is not None else None) or ""
+        kind = kind.removeprefix("xsd:")
+        return {"": "text", "string": "text", "barcode": "barcode"}.get(kind, "input-other")
+    if local == "upload":
+        return UPLOAD_ROW_CONTROLS.get(element.get("mediatype"), "upload-other")
+    return local
+
+
+def _per_row_token(value, wrapper):
+    """The first token Web Apps' per-row pattern matches; on a group wrapping a repeat, the first its per-row-repeat
+    pattern matches whose text before its first ``-`` ends in a digit."""
+    for token in value.split(" "):
+        if wrapper:
+            if PER_ROW_REPEAT.search(token) and re.search(r"\d$", token[: token.index("-")]):
+                return token
+        elif PER_ROW.search(token):
+            return token
+    return None
+
+
+def _per_row_without_leading_digits(value, control):
+    if control == "repeat":
+        return False
+    token = _per_row_token(value, control == "repeat-wrapper")
+    if token is None:
+        return False
+    return re.match(r"\+?\d", token[: token.index("-")]) is None
+
+
+def _android_inside(manifest, facts, value):
+    return {
+        rule.token
+        for rule in appearance_rules(manifest)
+        if rule.reader == "android"
+        and rule.match in INSIDE_MATCHES
+        and rule.reads(facts)
+        and appearance_matches(value, rule)
+    }
+
+
+def _per_row_holding_read(manifest, document, element, value, control):
+    if control == "repeat":
+        return False
+    wrapper = control == "repeat-wrapper"
+    token = _per_row_token(value, wrapper)
+    if token is None:
+        return False
+    digits = re.match(r"\+?(\d+)", token[: token.index("-")])
+    if digits is None:
+        return False
+    held = digits.group(1) + ("-per-row-repeat" if wrapper else "-per-row")
+    if token == held:
+        return False
+    if control in RECEIVE_CONTROLS and "receive" in token:
+        return True
+    if control in BROADCAST_CONTROLS and "broadcast" in token:
+        return True
+    facts = element_facts(manifest, document, element)
+    return bool(_android_inside(manifest, facts, token) - _android_inside(manifest, facts, held))
+
+
+def per_row_without_leading_digits(use, manifest):
+    """``questions/a-per-row-token-the-first-token-web-apps-per-row-pattern-matches-does``: the per-row token
+    (``_per_row_token``: on a question or a group, the first token ``const.js::PER_ROW_PATTERN`` matches; on a group
+    wrapping a repeat, the first ``PER_ROW_REPEAT_PATTERN`` matches whose text before its first ``-`` ends in a
+    digit) whose text before its first ``-`` does not start, after at most one ``+``, with a digit
+    (``x2-per-row``): ``form_ui.js`` reads the row count with ``parseInt`` of that text, which is no number. A
+    Vellum repeat's own appearance is no runtime's (Core moves the wrapper's label to it, never an appearance)."""
+    form, element, value = _control_appearance(use)
+    if element is None:
+        return None if form is None else False
+    return _per_row_without_leading_digits(value, _row_control(form, element))
+
+
+def per_row_holding_another_read_value(use, manifest):
+    """``questions/a-per-row-token-the-first-token-web-apps-per-row-pattern-matches-starts``: a per-row token with
+    leading digits that itself holds another value a runtime reads there: ``receive`` on a control whose receiver
+    Web Apps reads, ``broadcast`` on one whose sender it reads, or a value Android matches inside the string that
+    ``<k>-per-row`` (``<k>-per-row-repeat`` on a group wrapping a repeat) does not hold, so writing the count alone
+    would drop that read. A token already spelled ``<k>-per-row``, and a ``receive-``, ``broadcast-`` or Android
+    word of its own beside it, stay their own rows'."""
+    form, element, value = _control_appearance(use)
+    if element is None:
+        return None if form is None else False
+    return _per_row_holding_read(manifest, form, element, value, _row_control(form, element))
 
 
 def _dropping_changes_reading(manifest, document, element, value, unread):
@@ -9035,6 +10280,8 @@ ROW_UNDECLARED_KEYS = {
             "nodesetFilter",
         }
     ),
+    # The Case Detail page writes ``isTab`` on every tab it saves (``details/bootstrap5/column.js::serialize``).
+    "DetailTab": frozenset({"isTab"}),
     "Form": frozenset({"no_vellum", "put_in_root"}),
     "AdvancedForm": frozenset({"no_vellum", "put_in_root"}),
     # No row names a key a basic form's actions do not declare: the catch-all refuses every one.
@@ -9339,56 +10586,6 @@ def endpoint_on_an_offered_search(use, manifest):
     return offered and bool(config.get("case_search_endpoint_id"))
 
 
-def custom_sort_on_an_offered_search(use, manifest):
-    """``case-search/custom-sort-properties-property-name-sort-type-exact-date``: a search's custom sort, and each
-    of its rows and their keys, on a search the menu offers, where HQ's build writes the sort into the query
-    (``post_process/remote_requests.py``, ``RemoteRequestsHelper``). On a menu that offers none it is part of
-    the search configuration HQ stores and builds nothing of, the round trip's class."""
-    _, offered = _offered_search_config(use)
-    return offered
-
-
-def _hq_auto_selects(module):
-    """``models/modules.py::Module.is_auto_select``: a menu's short detail's ``auto_select``, whether or not the
-    list is multi-select, since the method tests ``is_multi_select`` itself, a bound method and so always true; an
-    advanced menu never (``AdvancedModule.is_auto_select``). A shadow menu's is its source menu's
-    (``ShadowModule.is_auto_select``), another menu's than its own: None."""
-    if module.get("doc_type") == "ShadowModule":
-        return None
-    if module.get("doc_type") == "AdvancedModule":
-        return False
-    return bool(((module.get("case_details") or {}).get("short") or {}).get("auto_select"))
-
-
-def search_on_clear_without_auto_select(use, manifest):
-    """``case-search/search-on-clear``: ``search_on_clear`` on a search the menu offers, whose case list does not
-    choose its case by itself (``_hq_auto_selects``). HQ's build reads it only on such a search
-    (``remote_requests.py``); beside the list's auto select it is the bar's refusal, whether or not the menu
-    searches (``helpers/validators.py::validate_search_config``), and on a menu that offers no search otherwise it
-    is part of the search configuration HQ stores and builds nothing of."""
-    config, offered = _offered_search_config(use)
-    if config is None:
-        return None
-    module = _json(use).nearest(*MODULES)
-    if module is None:
-        return None
-    if not offered:
-        return False
-    auto_selects = _hq_auto_selects(module)
-    return None if auto_selects is None else not auto_selects
-
-
-def default_on_date_range(use, manifest):
-    """``case-search/default-value-on-a-date-range-input``: a ``default_value`` that holds text on a prompt shown as
-    a date range (``input_: daterange`` on a prompt that is not hidden; ``prompts.ts``, ``defaultOnRange``). A blank
-    default is no default: HQ's build and Web Apps read one only where it holds text."""
-    prompt = _prompt_slot(use, "default_value")
-    if prompt is None:
-        return None
-    value = prompt.get("default_value")
-    return value not in (None, "") and prompt.get("input_") == "daterange" and prompt.get("hidden") is not True
-
-
 def choice_value_with_both_quote_marks(use, manifest):
     """``questions/choice-value-holding-both-an-apostrophe-and-a-double-quote``: a choice's ``<value>`` whose text
     holds both ``'`` and ``"``, which no XPath string literal spells (``lib/domain/selectOptionValue.ts::
@@ -9427,62 +10624,8 @@ def max_select_value_above_100(use, manifest):
     return value > 100
 
 
-# The column formats HQ's build writes an image's alternative text for (``app_strings.py``: ``column.format in
-# ('enum-image', 'clickable-icon')``), the only ones the alternative text is read on.
-ALT_TEXT_FORMATS = frozenset({"enum-image", "clickable-icon"})
 # The characters Core trims from the end of a line it reads of an app strings file: every one up to U+0020.
 CORE_LINE_END_TRIMMED = "".join(chr(code) for code in range(0x21))
-
-
-def _shown_text(text):
-    """Whether a device shows a text HQ's build writes as an app string as other than blank
-    (``lib/commcare/reader/heldText.ts::hqDeviceText``): HQ writes a text Python reads as blank as one non-breaking
-    space, Core reads its line up to a carriage return and trims what ends it up to U+0020."""
-    if not text.strip():
-        return False
-    return text.split("\r", 1)[0].rstrip(CORE_LINE_END_TRIMMED) != ""
-
-
-def _python_str(value):
-    """Python's ``str`` of a JSON value, where the parsed value fixes it (``lib/commcare/reader/hqText.ts::
-    pythonStr``); None for a number, whose printed digits the parse does not keep."""
-    if isinstance(value, str):
-        return value
-    if value is None:
-        return "None"
-    if isinstance(value, bool):
-        return "True" if value else "False"
-    return None
-
-
-def alt_text_holding_text(use, manifest):
-    """``menus-and-case-lists/enum-mappingitem-alt-text-non-blank``: a mapping entry's ``alt_text`` on an image map
-    or a clickable icon (``ALT_TEXT_FORMATS``) whose text HQ's build writes (``app_strings.py``,
-    ``clean_trans(item.alt_text, langs)``) a device shows as other than blank in some app language
-    (``lib/commcare/reader/caseList/columns.ts::claimAltText``, ``hqText.ts::shownText``). Which text HQ's build
-    shows in a language turns on the app's languages, which a HELD-NEW class's reader does not read, so the class is
-    decided only where the map alone settles it: every text ``clean_trans`` can choose (each value that is not
-    ``None``, and ``None`` printed as ``None`` where the least key holds it) shown, or none of them. A map holding
-    both, such as ``{"en": "", "fra": "Photo"}``, is not settled, nor is a value whose printed text the parse does not
-    fix. On another format it is read nowhere, which is another class."""
-    at = _json(use)
-    if at is None or at.key != "alt_text" or at.scope[-1][0] != "MappingItem":
-        return None
-    column = at.nearest("DetailColumn")
-    if column is None or column.get("format") not in ALT_TEXT_FORMATS:
-        return False
-    texts = at.value
-    if not isinstance(texts, dict):
-        return None
-    if not texts:
-        return False
-    chosen = [_python_str(text) for text in texts.values() if text is not None]
-    if texts[min(texts)] is None:
-        chosen.append("None")
-    if any(text is None for text in chosen):
-        return None
-    shown = {_shown_text(text) for text in chosen}
-    return shown.pop() if len(shown) == 1 else None
 
 
 def case_tag_with_a_hyphen(use, manifest):
@@ -9556,37 +10699,24 @@ def tile_group_identifier_outside_an_xml_name(use, manifest):
     return isinstance(identifier, str) and identifier != "" and XML_ELEMENT_NAME.fullmatch(identifier) is None
 
 
-# The words HQ's case list page takes as a column's property that Nova reads under another name
-# (``lib/commcare/reader/caseList/columns.ts::HQ_PROPERTY_RENAMES``).
-HQ_PROPERTY_RENAMES = {
-    "external-id": "external_id",
-    "date-opened": "date_opened",
-    "status": "status",
-    "name": "case_name",
-    "owner_id": "owner_id",
-}
-
-
-def column_field_outside_nova_s_grammar(use, manifest):
-    """``menus-and-case-lists/column-field-outside-nova-s-property-grammar``: a column's ``field`` HQ's case list page
-    takes as one property (``PROPERTY_NAME``, with no prefix and no path) whose name, after HQ's words Nova reads
-    under its own (``HQ_PROPERTY_RENAMES``), Nova's property grammar does not take: a ``#`` before it, or a name past
-    255 characters (``columns.ts::classifyField``). A calculated column's field is an expression, and ``#owner_name``,
-    a prefixed field, a path, a field the page refuses and ``case_id`` are other classes'."""
+def column_hash_property(use, manifest):
+    """``menus-and-case-lists/column-reading-an-unknown-hash-property``: a property column's ``field`` (HQ's
+    ``PROPERTY_NAME``, with no prefix and not the worker's ``user/``) whose last word starts with ``#`` and is not
+    ``#owner_name``. HQ's page takes it (``details/utils.js::isValidPropertyName``); its build rewrites
+    ``#owner_name`` alone (``PropertyXpathGenerator.xpath``) and writes any other word into the step, which Core's
+    lexer refuses (``Lexer.matchNCName``), so the column breaks on both workers. A name past 255 characters is a
+    read (``column-reading-a-property-name-over-255-characters``), and a calculated column's field is an
+    expression."""
     at = _json(use)
     if at is None or at.key != "field" or at.scope[-1][0] != "DetailColumn":
         return None
-    column, field = at.owner, at.value
-    if column.get("useXpathExpression") or not isinstance(field, str):
+    field = at.value
+    if at.owner.get("useXpathExpression") or not isinstance(field, str):
         return False
-    if field == "#owner_name" or field.find(":") > 0 or "/" in field or PROPERTY_NAME.fullmatch(field) is None:
+    if ":" in field or field.startswith("user/") or PROPERTY_NAME.fullmatch(field) is None:
         return False
-    renamed = HQ_PROPERTY_RENAMES.get(field, field)
-    if renamed == "case_id":
-        return False
-    return (
-        AUTHORED_CASE_PROPERTY_NAME.fullmatch(renamed) is None or len(renamed) > MAX_AUTHORED_CASE_PROPERTY_NAME_LENGTH
-    )
+    last = field.split("/")[-1]
+    return last.startswith("#") and last != "#owner_name"
 
 
 def build_profiles_held(use, manifest):
@@ -9629,7 +10759,389 @@ VARIANTS = {
     "questions/hidden-value-with-children": nova_scaffolding_part,
 }
 
+
+# Menus listing another menu's forms, and the first menu's shared case ------------------------------------------
+
+
+def _shadow_of(use):
+    """The ShadowModule a use sits in, with its location, or (at, None) for a use in another module."""
+    at, module = _module_of_detail(use)
+    if module is None or module.get("doc_type") != "ShadowModule":
+        return at, None
+    return at, module
+
+
+def unavailable_source_form(use, manifest):
+    """``menus-and-case-lists/shared-form-menu-with-an-unavailable-source-form``: a version-2 ShadowModule whose
+    ``source_module_id`` names no module or another ShadowModule (the menu settings page offers neither,
+    ``views/modules.py::_get_shadow_module_view_context``), or whose ``excluded_form_ids`` or
+    ``form_session_endpoints`` name a form its source does not hold, a form twice in its endpoints. HQ's source
+    download can mint a form's id anew while those two lists keep the id the application resource holds, so on an
+    app made in CommCare HQ an id that names no source form is undecided here (None): Nova's reader resolves it
+    through the aligned resource (``reader/menus/sharedForms.ts::realForms``)."""
+    at, shadow = _shadow_of(use)
+    if at is None:
+        return None
+    if shadow is None:
+        return False
+    source = at.app.modules_by_id.get(shadow.get("source_module_id"))
+    if source is None or source.get("doc_type") == "ShadowModule":
+        return True
+    forms = {form.get("unique_id") for form in _forms(source)}
+    excluded = shadow.get("excluded_form_ids") or []
+    endpoints = shadow.get("form_session_endpoints") or []
+    if not isinstance(excluded, list) or not isinstance(endpoints, list):
+        return True
+    named = [form_id for form_id in excluded]
+    seen = set()
+    for row in endpoints:
+        if not isinstance(row, dict) or not isinstance(row.get("form_id"), str):
+            return True
+        if row["form_id"] in seen:
+            return True
+        seen.add(row["form_id"])
+        named.append(row["form_id"])
+    if all(isinstance(form_id, str) and form_id in forms for form_id in named):
+        return False
+    return None if at.app.authored else True
+
+
+def incomplete_shared_submenus(use, manifest):
+    """``menus-and-case-lists/shared-form-menus-with-incomplete-submenus``: a ShadowModule under a parent other
+    than its source's (a top-level shadow of a top-level source, or one under its source's parent; one under
+    another ShadowModule is HQ's child mirror), or one without exactly one child ShadowModule naming each
+    non-shadow child of its source, which HQ's ``views/utils.py::handle_shadow_child_modules`` always makes."""
+    at, shadow = _shadow_of(use)
+    if at is None:
+        return None
+    if shadow is None:
+        return False
+    source = at.app.modules_by_id.get(shadow.get("source_module_id"))
+    if source is None or source.get("doc_type") == "ShadowModule":
+        return False  # the unavailable source's own class
+    own_parent = shadow.get("root_module_id") or None
+    parent = at.app.modules_by_id.get(own_parent) if own_parent else None
+    if (
+        (parent is None or parent.get("doc_type") != "ShadowModule")
+        and (own_parent is None or parent is not None)
+        and own_parent != (source.get("root_module_id") or None)
+    ):
+        return True
+    children = [module for module in at.app.modules if module.get("root_module_id") == source.get("unique_id")]
+    listed = [module for module in at.app.modules if module.get("root_module_id") == shadow.get("unique_id")]
+    for child in children:
+        if child.get("doc_type") == "ShadowModule":
+            continue
+        mirrors = [
+            menu
+            for menu in listed
+            if menu.get("doc_type") == "ShadowModule" and menu.get("source_module_id") == child.get("unique_id")
+        ]
+        if len(mirrors) != 1:
+            return True
+    return False
+
+
+def _creation_datum_ids(module, form):
+    """The ids of the new-case datums HQ's build gives a form, each once
+    (``suite_xml/sections/entries.py::EntriesHelper.get_new_case_id_datums_meta``): a basic form's open action
+    ``case_id_new_<menu type>_0`` and each subcase outside a repeat ``case_id_new_<type>_<index>``, its index
+    counting the open action (``Form.session_var_for_action``); an advanced form's open actions outside a repeat
+    ``case_id_new_<type>_<tag>`` (``AdvancedOpenCaseAction.case_session_var``). None for a shadow form, whose
+    actions are its source's."""
+    if form.get("doc_type") == "ShadowForm":
+        return None
+    actions = _actions(form)
+    if form.get("doc_type") == "AdvancedForm":
+        _, opens = _advanced_lists(form)
+        return [
+            f"case_id_new_{action.get('case_type')}_{action.get('case_tag')}"
+            for action in opens
+            if not action.get("repeat_context")
+        ]
+    found = []
+    opens = _active(actions.get("open_case"))
+    if opens:
+        found.append(f"case_id_new_{module.get('case_type')}_0")
+    for index, subcase in enumerate(_subcases(form)):
+        if _active(subcase) and not subcase.get("repeat_context"):
+            found.append(f"case_id_new_{subcase.get('case_type')}_{index + (1 if opens else 0)}")
+    return found
+
+
+def function_datum_without_one_creation(use, manifest):
+    """``forms-and-case-writes/function-datum-endpoints-with-an-unavailable-supplier``: a form's
+    ``function_datum_endpoints`` naming an id no new-case datum of the form has (``_creation_datum_ids``). HQ's build
+    adds only the names it finds on the navigation frame (``post_process/endpoints.py``, ``child.id in
+    form.function_datum_endpoints``), so a name given twice is one argument; Nova holds each name as the case
+    creation that supplies it, twice where it is given twice, and its deep link exposes that creation once
+    (``entryPointProjection.ts::exposedEntryCaseCreations``). A shadow form's are undecided here (None)."""
+    at = _json(use)
+    if at is None:
+        return None
+    form = at.nearest(*FORMS)
+    if form is None:
+        return None
+    names = form.get("function_datum_endpoints") or []
+    if not names:
+        return False
+    module = at.app.module_of(form)
+    created = None if module is None else _creation_datum_ids(module, form)
+    if created is None:
+        return None
+    return any(name not in created for name in names)
+
+
+def _first_menu_modules(app):
+    """The menus whose forms list on the app's first menu: a top-level ``put_in_root`` menu, and a
+    ``put_in_root`` child of one (``menus.py::MenuContributor``)."""
+    found = []
+    for module in app.modules:
+        if not module.get("put_in_root"):
+            continue
+        root = app.root(module)
+        if root is None and not module.get("root_module_id"):
+            found.append(module)
+        elif root is not None and root.get("put_in_root") and not root.get("root_module_id"):
+            found.append(module)
+    return found
+
+
+def _first_menu_case(app):
+    """The case type every form on the first menu opens a chosen case of, as ``case_id`` with one record, or
+    None where they share none; ``...`` where the export alone does not say (an advanced or shadow menu, or a
+    parent selection, whose datums HQ names otherwise)."""
+    menus = _first_menu_modules(app)
+    forms = [(module, form) for module in menus for form in _forms(module)]
+    if not forms:
+        return None
+    if any(module.get("doc_type") != "Module" or (module.get("parent_select") or {}).get("active") for module in menus):
+        return ...
+    if any(_requires(form) != "case" for _, form in forms):
+        return None
+    types = {module.get("case_type") for module, _ in forms}
+    if len(types) != 1 or any(_multi_select(module) for module, _ in forms):
+        return None
+    return types.pop()
+
+
+def _reads_case_id_otherwise(app, case_type):
+    """Whether a command of the app reads ``case_id`` as another case type or as several records: a basic or
+    shadow menu's form that requires a case, or its case list shown as a menu item."""
+    for module in app.modules:
+        kind = module.get("doc_type")
+        if kind == "AdvancedModule":
+            continue
+        source = app.modules_by_id.get(module.get("source_module_id")) if kind == "ShadowModule" else module
+        if source is None:
+            continue
+        reads = (module.get("case_list") or {}).get("show") or any(_requires(form) == "case" for form in _forms(source))
+        if reads and (source.get("case_type") != case_type or _multi_select(module)):
+            return True
+    return False
+
+
+def _under_the_first_menu(app, module):
+    """Whether a menu's frame opens through the first menu: it lists there, or sits under a menu that does."""
+    menus = _first_menu_modules(app)
+    if any(module is menu for menu in menus):
+        return True
+    root = app.root(module)
+    return root is not None and any(root is menu for menu in menus)
+
+
+def first_menu_case_read_otherwise(use, manifest):
+    """``forms-and-case-writes/first-menu-selection-used-for-different-records``: a deep link or a form link whose
+    frame opens through the first menu while every form there opens one chosen case
+    (``workflow.py::WorkflowHelper.get_frame_children``, ``_root_module_datums``), where another command reads that
+    datum, ``case_id``, as another case type or as several records: Android keeps the first menu's case for it
+    (``CommCareSession.syncState``). An app whose first-menu datums HQ names otherwise is undecided (None)."""
+    at = _json(use)
+    if at is None:
+        return None
+    app = at.app
+    shared = _first_menu_case(app)
+    if shared is None:
+        return False
+    if shared is ...:
+        return None
+    owner = at.owner
+    if at.key in ("form_links", "form_id") or at.nearest("FormLink") is not None:
+        link = at.nearest("FormLink")
+        links = [link] if link is not None else [
+            each for each in (at.nearest(*FORMS) or {}).get("form_links") or [] if isinstance(each, dict)
+        ]
+        targets = []
+        for each in links:
+            if each.get("form_id"):
+                form = app.forms_by_id.get(each["form_id"])
+                targets.append(None if form is None else app.module_of(form))
+            else:
+                targets.append(app.modules_by_id.get(each.get("module_unique_id")))
+    else:
+        if not (owner.get(at.key) if at.key is not None else None):
+            return False
+        targets = [at.nearest(*MODULES)]
+    if not any(target is not None and _under_the_first_menu(app, target) for target in targets):
+        return False
+    return _reads_case_id_otherwise(app, shared)
+
+
+def first_menu_registration_return_otherwise(use, manifest):
+    """``menus-and-case-lists/first-menu-registration-return-without-a-compatible-case``: a case list's
+    registration form on a menu under a first-menu menu whose forms open one chosen case, which returns to the
+    list or its new case (``post_form_workflow`` other than ``default``), where that return frame carries the
+    first menu's ``case_id`` ahead of the host's command (``workflow.py::CaseListFormWorkflow``): the new case is
+    of another type than the first menu's, so the form does not supply it, or another command reads ``case_id``
+    otherwise (``first_menu_case_read_otherwise``). Undecided where the first menu's datums are (None)."""
+    at, module = _module_of_detail(use)
+    if module is None:
+        return None
+    listed = module.get("case_list_form") or {}
+    if not listed.get("form_id") or (listed.get("post_form_workflow") or "default") == "default":
+        return False
+    root = at.app.root(module)
+    if root is None or not any(root is menu for menu in _first_menu_modules(at.app)):
+        return False
+    shared = _first_menu_case(at.app)
+    if shared is None:
+        return False
+    if shared is ...:
+        return None
+    return module.get("case_type") != shared or _reads_case_id_otherwise(at.app, shared)
+
+
+
+# Menu and form badges, and the navigation conditions beside them -------------------------------------------------
+
+
+def _first_badge(use):
+    """The CustomIcon a use sits in, where it is the first of a menu's or a form's ``custom_icons``, the one HQ's
+    build reads (``models/mixins.py::NavMenuItemMediaMixin.custom_icon``, read by ``suite_xml/sections/menus.py``
+    and ``entries.py``), with the app; ``(at, None)`` for a later icon, one a case list or its registration
+    action holds (which no build reads), or a use in no icon."""
+    at = _json(use)
+    if at is None:
+        return None, None
+    classes = [cls for cls, _ in at.scope]
+    if "CustomIcon" not in classes:
+        return at, None
+    index = len(classes) - 1 - classes[::-1].index("CustomIcon")
+    icon = at.scope[index][1]
+    holder_cls, holder = at.scope[index - 1] if index > 0 else (None, None)
+    if holder_cls not in (*MODULES, *FORMS) or not isinstance(holder, dict):
+        return at, None
+    icons = holder.get("custom_icons")
+    if not isinstance(icons, list) or not icons or icons[0] is not icon:
+        return at, None
+    return at, icon
+
+
+def badge_form_other_than_badge(use, manifest):
+    """``menus-and-case-lists/custom-icon-form-other-than-badge``: a menu's or a form's first custom icon whose
+    ``form`` names a display form other than ``badge``. HQ's editor saves only badges
+    (``views/utils.py::handle_custom_icon_edits`` keeps ``CustomIcon.form``, which is always ``badge``)."""
+    at, icon = _first_badge(use)
+    if at is None:
+        return None
+    if icon is None:
+        return False
+    return icon.get("form", "badge") != "badge"
+
+
+def badge_without_text(use, manifest):
+    """``menus-and-case-lists/badge-missing-localized-text``: a menu's or a form's first badge with no calculation
+    (``not custom_icon.xpath``, ``menus.py``, ``entries.py``), whose text holds nothing in every language of the
+    app once a missing language takes the default language's (``mixins.py::custom_icon_form_and_text_by_language``):
+    HQ's build names the badge's locale id and writes no text for it (``app_strings.py``)."""
+    at, icon = _first_badge(use)
+    if at is None:
+        return None
+    if icon is None or icon.get("form", "badge") != "badge" or icon.get("xpath"):
+        return False
+    texts = icon.get("text") or {}
+    if not isinstance(texts, dict):
+        return None
+    langs = [code for code in at.app.doc.get("langs") or [] if isinstance(code, str)] or ["en"]
+    shown = [texts.get(lang, texts.get(langs[0])) for lang in langs]
+    return not any(isinstance(text, str) and text for text in shown)
+
+
+def badge_calculation_untyped(use, manifest):
+    """``menus-and-case-lists/badge-calculation-outside-typed-values``: a first badge's calculation Nova's reader
+    cannot bind to a typed value on the worker's menu. Nova prints every calculation it sends from a typed value
+    (``lib/commcare/menuBadge.ts``), so an app Nova sends holds none; on an app made in CommCare HQ only Nova's
+    reader settles it (None), and on one the corpus holds it read it (``App.read``)."""
+    at, icon = _first_badge(use)
+    if at is None:
+        return None
+    if icon is None or icon.get("form", "badge") != "badge" or not icon.get("xpath"):
+        return False
+    return None if at.app.authored and not at.app.read else False
+
+
+def mirror_form_links_on_survey_listing(use, manifest):
+    """``menus-and-case-lists/mirror-form-deep-links-on-a-menu-listing-survey-forms``: a menu listing another menu's
+    forms (``ShadowModule``) holding deep links to single forms (``form_session_endpoints``) where the menu it lists
+    tracks no cases (``case_type`` empty, HQ's ``is_surveys``). HQ's menu settings page sends those links with every
+    save but renders the ``session_endpoint_id`` field its save reads only in the Advanced panel, which
+    ``views/modules.py::get_module_view_context`` hides on such a menu, so ``edit_module_attr`` raises. None where the
+    listed menu is no menu of the app."""
+    at = _json(use)
+    if at is None or at.key != "form_session_endpoints":
+        return None
+    links = at.value
+    if not isinstance(links, list) or not links:
+        return False
+    source = at.app.modules_by_id.get(at.owner.get("source_module_id"))
+    if source is None:
+        return None
+    return not source.get("case_type")
+
+
+def shadow_version_one(use, manifest):
+    """``menus-and-case-lists/shadowmodule-version-1-or-key-absent-model-default-1``: a menu listing another menu's
+    forms (``ShadowModule``) whose ``shadow_module_version`` is 1, the retiring version HQ's model defaults to
+    (``models/modules.py::ShadowModule.shadow_module_version``), whose behaviour HQ keys on ``== 1``; Nova writes
+    version 2. Version 1 and an absent key are HQ's default and no use, so every use is outside the class."""
+    at = _json(use)
+    if at is None or at.key != "shadow_module_version":
+        return None
+    return at.value == 1
+
+
+def shadow_endpoint_id_padded(use, manifest):
+    """``menus-and-case-lists/a-shadow-menu-s-own-or-mirror-form-endpoint-id-with-surrounding``: a listing menu's own
+    deep link id, or one of its forms' (``ShadowFormEndpoint``), with whitespace around it: HQ's shadow save checks
+    the stripped id and stores it as typed (``views/modules.py::set_shadow_module_and_form_session_endpoint``). In a
+    suite an endpoint's ``id`` says nothing of the menu it came from, so a padded one there is left open (None)."""
+    at = _json(use)
+    if at is not None:
+        value = at.value
+        return isinstance(value, str) and value != value.strip()
+    at = _xml(use)
+    if at is None or at.attribute is None:
+        return None
+    value = at.element.get(at.attribute) or ""
+    return None if value != value.strip() else False
+
+
+def navigation_condition_untyped(use, manifest):
+    """``menus-and-case-lists/navigation-condition-outside-typed-worker-context``: a menu's or a form's display
+    condition Nova's reader cannot bind to a typed condition on the worker's route. Nova prints every condition it
+    sends from a typed one (``lib/commcare/suite/displayConditions.ts``), so an app Nova sends holds none; on an app
+    made in CommCare HQ only Nova's reader settles it (None), and on one the corpus holds it read it
+    (``App.read``)."""
+    at = _json(use)
+    if at is None:
+        return None
+    if at.key not in ("module_filter", "form_filter") or not at.value:
+        return False
+    return None if at.app.authored and not at.app.read else False
+
 VALUE_CLASSES = {
+    "application-and-settings/menu-layout-outside-editor-choices": menu_layout_outside_choices,
+    "menus-and-case-lists/module-layout-outside-editor-choices": menu_layout_outside_choices,
     # Questions
     "questions/other-h-head-children-whose-local-name-or-a-descendant-s-core-or": head_child,
     "questions/authored-orx-pollsensor": authored_pollsensor,
@@ -9640,6 +11152,9 @@ VALUE_CLASSES = {
     "questions/an-input-whose-bind-has-no-type-with-numeric-or-numbers-ignoring": _untyped_numeric("input"),
     "questions/a-secret-whose-bind-has-no-type-with-numeric-or-numbers-ignoring": _untyped_numeric("secret"),
     "questions/long-xsd-long": long_input,
+    "questions/media-form-missing-in-default-language": media_missing_in_default,
+    "questions/long-qrcode-or-tts-form-missing-in-default-language": label_text_missing_in_default,
+    "questions/empty-media-form-beside-a-translated-file": media_blank_beside_file,
     "questions/print-callout-class-org-commcare-dalvik-action-print-extra-cc": print_callout,
     "questions/input-readonly-true-control-attribute": readonly_input,
     "questions/upload-with-any-other-mediatype-or-none": other_upload_mediatype,
@@ -9686,6 +11201,7 @@ VALUE_CLASSES = {
     "questions/validation-message-without-a-validation-condition": message_without_condition,
     "questions/literal-jr-constraintmsg-text-no-itext": literal_validation_message,
     "questions/bind-readonly": authored_readonly,
+    "questions/lookup-choice-reference-the-form-editor-cannot-keep": form_itemset_ref_uneditable,
     "questions/itemset-label-jr-itext-field": itemset_label_itext,
     "questions/markdown-form-differing-from-the-default-text": markdown_differing,
     "questions/a-label-with-a-markdown-form-in-some-languages-only-as-hq-s-bulk": markdown_in_some_languages,
@@ -9695,6 +11211,10 @@ VALUE_CLASSES = {
     "questions/itext-pragma-entries-pragma-form-descriptor-pragma-skip-full": unreferenced_pragma,
     "questions/an-appearance-holding-such-whitespace-that-some-runtime-reads": appearance_whitespace_read_otherwise,
     "questions/any-other-multi-token-string-holding-a-token-no-runtime-reads-on": appearance_token_no_runtime_reads,
+    "questions/a-per-row-token-the-first-token-web-apps-per-row-pattern-matches-does": per_row_without_leading_digits,
+    "questions/a-per-row-token-the-first-token-web-apps-per-row-pattern-matches-starts": (
+        per_row_holding_another_read_value
+    ),
     "questions/a-case-variant-of-numeric-short-or-ethiopian-as-the-whole": case_variant_read_differently,
     "questions/data-parent-crossing-a-repeat": data_parent_crossing_a_repeat,
     "questions/any-other-bind-id-named-by-a-control-s-bind": other_bind_id,
@@ -9709,6 +11229,7 @@ VALUE_CLASSES = {
     ),
     "application-and-settings/logo-refs-slot-path-other-than-the-uploader-s-jr-file-commcare": path_not_from_uploader,
     "application-and-settings/profile-custom-properties-any-other-entry-incl-formplayer-keys": custom_property_other,
+    "application-and-settings/repeated-android-app-dependency": repeated_android_app,
     "application-and-settings/profile-properties-or-features-dependencies-value-outside-its": setting_outside_choices,
     "application-and-settings/profile-features-sense-true-or-profile-properties-cc-entry-mode": (
         sense_or_review_entry_mode
@@ -9807,16 +11328,23 @@ VALUE_CLASSES = {
     "forms-and-case-writes/session-endpoint-id-not-a-slug-fixed-point-or-duplicated": not_a_slug_or_duplicated,
     "forms-and-case-writes/any-other-undeclared-key": undeclared_key_no_row_names,
     # Case search
+    "case-search/a-server-order-naming-a-property-nova-reserves": server_order_reserved_property,
     "case-search/a-commcare-sort-x-commcare-custom-related-case-property-or-case": request_config_key_runtime_value,
     "case-search/an-x-commcare-custom-related-case-property-entry-together-with": related_case_property_twice,
     "case-search/default-properties-entry-keyed-x-commcare-data-registry": data_registry_key,
     "case-search/data-registry-data-registry-workflow-additional-registry-cases": registry_named,
     "case-search/default-properties-entry-keyed-x-commcare-endpoint-id": endpoint_id_key,
     "case-search/default-properties-entry-with-no-defaultvalue-hq-stores-an-empty": missing_default_value,
+    "case-search/native-filter-value-outside-screen-scope": native_filter_unbound_value,
+    "case-search/search-button-display-condition-reading-what-the-case-list-does-not-load": (
+        search_button_reads_what_the_list_does_not_load
+    ),
     "case-search/that-entry-together-with-blacklisted-owner-ids-expression": blacklisted_owner_ids_twice,
     "case-search/a-default-filter-and-a-search-property-sharing-one-name": shared_by_filter_and_prompt,
     "case-search/appearance-address-with-required-or-validations": address_with_required_or_validations,
     "case-search/hidden-together-with-required-or-validations": hidden_with_required_or_validations,
+    "case-search/allow-blank-value-on-a-hidden-prompt": allow_blank_on_a_hidden_prompt,
+    "case-search/allow-blank-value-on-a-prompt-named-owner-id": allow_blank_beside_the_owner,
     "case-search/validations-1": later_validations,
     "case-search/input-select1-select-commcare-reports-itemset-mobile-ucr": mobile_ucr_reports,
     "case-search/input-no-runtime-names": input_no_runtime_names,
@@ -9870,6 +11398,10 @@ VALUE_CLASSES = {
     "menus-and-case-lists/case-id-as-a-property-column-s-field": case_id_element,
     "menus-and-case-lists/custom-tile-column-with-grid-null-unplaced": null_on_unplaced_tile,
     "menus-and-case-lists/custom-tile-font-size-null": null_font_size_on_tile,
+    "menus-and-case-lists/custom-tile-cells-covering-the-same-square": overlapping_tile_cells,
+    "menus-and-case-lists/custom-tile-cell-outside-the-grid": tile_cell_outside_the_grid,
+    "menus-and-case-lists/detail-tab-child-type-no-form-of-its-menu-s-case-type-adds": tab_child_type_no_form_adds,
+    "menus-and-case-lists/custom-tile-cell-below-the-rows-hq-s-page-offers": tile_cell_below_the_offered_rows,
     "menus-and-case-lists/horizontal-align-null-on-a-placed-custom-tile-column": null_alignment_on_placed_tile,
     "menus-and-case-lists/detail-case-tile-template-person-simple": person_simple_on_list,
     "menus-and-case-lists/long-detail-non-custom-tile": not_custom_on_detail,
@@ -9887,6 +11419,9 @@ VALUE_CLASSES = {
     ),
     "menus-and-case-lists/case-list-form-on-a-put-in-root-module-whose-case-list-is-a-tile": (
         on_display_only_module_with_tile_list
+    ),
+    "menus-and-case-lists/case-list-form-return-search-needs-the-created-case": (
+        registration_return_search_needs_created_case
     ),
     "menus-and-case-lists/case-list-form-post-form-workflow-default-on-a-multi-select-host": (
         default_on_multi_select_host
@@ -9910,6 +11445,20 @@ VALUE_CLASSES = {
     "menus-and-case-lists/detail-max-select-value-of-0-or-below-1-on-a-multi-select-basic": zero_or_below_minus_one,
     "menus-and-case-lists/detail-filter-failing-etree-xpath-dummy-filter": fails_filter_xpath_check,
     "menus-and-case-lists/any-other-undeclared-key": undeclared_key_no_row_names,
+    "menus-and-case-lists/shared-form-menu-with-an-unavailable-source-form": unavailable_source_form,
+    "menus-and-case-lists/shared-form-menus-with-incomplete-submenus": incomplete_shared_submenus,
+    "menus-and-case-lists/first-menu-registration-return-without-a-compatible-case": (
+        first_menu_registration_return_otherwise
+    ),
+    "forms-and-case-writes/function-datum-endpoints-with-an-unavailable-supplier": function_datum_without_one_creation,
+    "forms-and-case-writes/first-menu-selection-used-for-different-records": first_menu_case_read_otherwise,
+    "menus-and-case-lists/custom-icon-form-other-than-badge": badge_form_other_than_badge,
+    "menus-and-case-lists/badge-missing-localized-text": badge_without_text,
+    "menus-and-case-lists/badge-calculation-outside-typed-values": badge_calculation_untyped,
+    "menus-and-case-lists/navigation-condition-outside-typed-worker-context": navigation_condition_untyped,
+    "menus-and-case-lists/shadowmodule-version-1-or-key-absent-model-default-1": shadow_version_one,
+    "menus-and-case-lists/mirror-form-deep-links-on-a-menu-listing-survey-forms": mirror_form_links_on_survey_listing,
+    "menus-and-case-lists/a-shadow-menu-s-own-or-mirror-form-endpoint-id-with-surrounding": shadow_endpoint_id_padded,
     # Expressions and data
     "expressions-and-data/inline-instance-content-inside-instance-no-src": inline_instance,
     "expressions-and-data/more-than-one-instance-without-an-id": unnamed_instances,
@@ -9943,6 +11492,16 @@ VALUE_CLASSES = {
     "expressions-and-data/a-media-reference-with-no-file-on-a-slot-a-runtime-draws": (
         media_reference_drawn_without_entry
     ),
+    "menus-and-case-lists/mapping-condition-outside-predicate": mapping_condition_outside_predicate,
+    "menus-and-case-lists/columns-above-the-first-tab-when-tabs-exist": columns_above_the_first_tab,
+    "menus-and-case-lists/tab-display-condition-outside-its-case-scope": tab_condition_outside_case_scope,
+    "menus-and-case-lists/detail-tab-without-a-resolvable-row-source": tab_without_a_resolvable_row_source,
+    "menus-and-case-lists/form-context-expression-outside-its-case-scope": form_context_expression_outside_case_scope,
+    "menus-and-case-lists/form-context-without-a-compatible-case-tile": form_context_without_a_compatible_tile,
+    "menus-and-case-lists/two-different-values-for-the-same-form-context": competing_form_context_values,
+    "menus-and-case-lists/sort-calculation-without-a-typed-value": independent_sort_without_scalar,
+    "menus-and-case-lists/distance-sort-without-a-location-field": calculated_distance_without_property,
+    "menus-and-case-lists/distance-on-a-translated-calculated-field": distance_on_translated_calculation,
     "menus-and-case-lists/type-index-cache-and-index-order-2": sort_type_index,
     "expressions-and-data/image-tiff-heif": tiff_heif,
     "expressions-and-data/image-svg": svg_image,
@@ -9957,18 +11516,14 @@ VALUE_CLASSES = {
     "forms-and-case-writes/case-tag-holding-a-hyphen": case_tag_with_a_hyphen,
     "forms-and-case-writes/index-identifier-outside-an-xml-element-name": index_identifier_outside_an_xml_name,
     "case-search/prompt-key-outside-nova-s-name-grammar": prompt_key_outside_nova_s_name_grammar,
-    "case-search/default-value-on-a-date-range-input": default_on_date_range,
     "case-search/case-search-endpoint-id": endpoint_on_an_offered_search,
-    "case-search/custom-sort-properties-property-name-sort-type-exact-date": custom_sort_on_an_offered_search,
-    "case-search/search-on-clear": search_on_clear_without_auto_select,
     "questions/choice-value-holding-both-an-apostrophe-and-a-double-quote": choice_value_with_both_quote_marks,
     "questions/data-root-element-named-other-than-data": data_root_named_other_than_data,
     "menus-and-case-lists/detail-max-select-value-above-100": max_select_value_above_100,
-    "menus-and-case-lists/enum-mappingitem-alt-text-non-blank": alt_text_holding_text,
     "menus-and-case-lists/case-tile-group-identifier-outside-an-xml-element-name": (
         tile_group_identifier_outside_an_xml_name
     ),
-    "menus-and-case-lists/column-field-outside-nova-s-property-grammar": column_field_outside_nova_s_grammar,
+    "menus-and-case-lists/column-reading-an-unknown-hash-property": column_hash_property,
     "application-and-settings/build-profiles-non-empty": build_profiles_held,
     "questions/question-id-case-registration-script": reserved_question_id,
 }

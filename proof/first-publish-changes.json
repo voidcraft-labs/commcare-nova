@@ -186,6 +186,11 @@
 			{
 				"check": "source",
 				"artifact": "app.json",
+				"path": "/_attachments/*/data/*/:control/itemset/label/@ref/:respelled"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
 				"path": "/_attachments/*/data/*/:itext/hint/*/markdown"
 			},
 			{
@@ -708,6 +713,18 @@
 				"check": "source",
 				"artifact": "app.json",
 				"path": "/modules/*/search_config/*"
+			},
+			{
+				"check": "proof2",
+				"artifact": "suite.xml",
+				"path": "/suite/detail[@id=*]/field[*]/template[*]/text[*]/xpath[*]/variable[*]/xpath[*]/@function",
+				"kind": "changed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "suite.xml",
+				"path": "/suite/entry[*]/session[*]/datum[@id=*]/@nodeset",
+				"kind": "changed"
 			}
 		]
 	},
@@ -788,54 +805,25 @@
 			{
 				"check": "proof2",
 				"artifact": "suite.xml",
-				"path": "/suite/remote-request[*]/session[*]/query[*]/data[@key=_xpath_query][@ref=*]",
-				"kind": "removed"
-			}
-		]
-	},
-	{
-		"change": "search-today-device-day",
-		"placeKinds": ["menu"],
-		"rows": [
-			{
-				"check": "source",
-				"artifact": "app.json",
-				"path": "/modules/*/search_config/*"
-			},
-			{
-				"check": "proof2",
-				"artifact": "suite.xml",
-				"path": "/suite/remote-request[*]/session[*]/query[*]/data[@key=_xpath_query][@ref=*]",
+				"path": "/suite/entry[*]/session[*]/query[*]/prompt[*]/validation[*]",
 				"kind": "added"
 			},
 			{
 				"check": "proof2",
 				"artifact": "suite.xml",
+				"path": "/suite/entry[*]/session[*]/query[*]/data[@key=_xpath_query][@ref=*]",
+				"kind": "added"
+			},
+			{
+				"check": "proof2",
+				"artifact": "suite.xml",
+				"path": "/suite/entry[*]/session[*]/query[*]/data[@key=_xpath_query][@ref=*]",
+				"kind": "removed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "suite.xml",
 				"path": "/suite/remote-request[*]/session[*]/query[*]/data[@key=_xpath_query][@ref=*]",
-				"kind": "removed"
-			},
-			{
-				"check": "proof3",
-				"artifact": "trace@B",
-				"path": "/runs/*/trace/*/params/_xpath_query/*",
-				"kind": "added"
-			},
-			{
-				"check": "proof3",
-				"artifact": "trace@B",
-				"path": "/runs/*/trace/*/params/_xpath_query/*",
-				"kind": "removed"
-			},
-			{
-				"check": "proof3",
-				"artifact": "trace@B",
-				"path": "/runs/*/trace/*/requests/*/params/_xpath_query/*",
-				"kind": "added"
-			},
-			{
-				"check": "proof3",
-				"artifact": "trace@B",
-				"path": "/runs/*/trace/*/requests/*/params/_xpath_query/*",
 				"kind": "removed"
 			}
 		]
@@ -865,6 +853,17 @@
 				"artifact": "form:*",
 				"path": "/case_updates/*/*",
 				"kind": "added"
+			}
+		]
+	},
+	{
+		"change": "question-display-respelled",
+		"placeKinds": ["form-node"],
+		"rows": [
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/_attachments/*"
 			}
 		]
 	},
@@ -966,6 +965,11 @@
 			{
 				"check": "source",
 				"artifact": "app.json",
+				"path": "/modules/*/case_details/short/persist_tile_on_forms"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
 				"path": "/modules/*/case_details/short/sort_elements"
 			},
 			{
@@ -1056,6 +1060,11 @@
 			{
 				"check": "source",
 				"artifact": "app.json",
+				"path": "/modules/*/search_config/properties/*/itemset/instance_id"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
 				"path": "/modules/*/case_list/label"
 			},
 			{
@@ -1098,58 +1107,6 @@
 				"artifact": "suite.xml",
 				"path": "/suite/detail[@id=*]/field[*]/sort[*]/@blanks",
 				"kind": "added"
-			}
-		]
-	},
-	{
-		"change": "search-filter-joined-to-list",
-		"placeKinds": ["menu"],
-		"rows": [
-			{
-				"check": "source",
-				"artifact": "app.json",
-				"path": "/modules/*/case_details/short/filter"
-			},
-			{
-				"check": "proof2",
-				"artifact": "suite.xml",
-				"path": "/suite/entry[*]/session[*]/datum[@id=*]/@nodeset",
-				"kind": "changed"
-			}
-		]
-	},
-	{
-		"change": "search-restates-list-filter",
-		"placeKinds": ["menu"],
-		"rows": [
-			{
-				"check": "source",
-				"artifact": "app.json",
-				"path": "/modules/*/search_config/default_properties"
-			},
-			{
-				"check": "proof2",
-				"artifact": "suite.xml",
-				"path": "/suite/entry[*]/session[*]/query[*]/data[@key=_xpath_query][@ref=*]",
-				"kind": "added"
-			},
-			{
-				"check": "proof3",
-				"artifact": "trace@B",
-				"path": "/runs/*/trace/*/params/_xpath_query/*",
-				"kind": "added"
-			},
-			{
-				"check": "proof3",
-				"artifact": "trace@B",
-				"path": "/runs/*/trace/*/requests/*/params/_xpath_query/*",
-				"kind": "added"
-			},
-			{
-				"check": "proof3",
-				"artifact": "trace@B",
-				"path": "/runs/*/trace/*/requests/*/answered",
-				"kind": "changed"
 			}
 		]
 	},
@@ -1372,8 +1329,8 @@
 		]
 	},
 	{
-		"change": "translation-overrides-folded",
-		"placeKinds": ["app", "menu", "form", "form-part", "form-node"],
+		"change": "unused-translation-keys-removed",
+		"placeKinds": ["app", "menu", "form"],
 		"rows": [
 			{
 				"check": "source",
@@ -1381,82 +1338,356 @@
 				"path": "/translations/*/*"
 			},
 			{
-				"check": "source",
-				"artifact": "app.json",
-				"path": "/name"
+				"check": "proof2",
+				"artifact": "app_strings:*",
+				"path": "/homescreen.title",
+				"kind": "removed"
 			},
 			{
-				"check": "source",
-				"artifact": "app.json",
-				"path": "/modules/*/name/*"
+				"check": "proof2",
+				"artifact": "app_strings:*",
+				"path": "/app.display.name",
+				"kind": "removed"
 			},
 			{
-				"check": "source",
-				"artifact": "app.json",
-				"path": "/modules/*/forms/*/name/*"
+				"check": "proof2",
+				"artifact": "app_strings:*",
+				"path": "/lang.current",
+				"kind": "removed"
 			},
 			{
-				"check": "source",
-				"artifact": "app.json",
-				"path": "/_attachments/*"
+				"check": "proof2",
+				"artifact": "app_strings:*",
+				"path": "/cchq.case",
+				"kind": "removed"
 			},
 			{
-				"check": "source",
-				"artifact": "app.json",
-				"path": "/modules/*/case_list/label/*"
+				"check": "proof2",
+				"artifact": "app_strings:*",
+				"path": "/cchq.referral",
+				"kind": "removed"
 			},
 			{
-				"check": "source",
-				"artifact": "app.json",
-				"path": "/modules/*/case_list_form/label/*"
+				"check": "proof2",
+				"artifact": "app_strings:*",
+				"path": "/m*.*.title",
+				"kind": "removed"
 			},
 			{
-				"check": "source",
-				"artifact": "app.json",
-				"path": "/modules/*/case_details/*/columns/*/header/*"
+				"check": "proof2",
+				"artifact": "app_strings:*",
+				"path": "/m*.*.tab.*.title",
+				"kind": "removed"
 			},
 			{
-				"check": "source",
-				"artifact": "app.json",
-				"path": "/modules/*/case_details/*/sort_elements/*/display/*"
+				"check": "proof2",
+				"artifact": "app_strings:*",
+				"path": "/m*.*.*_*_*.header",
+				"kind": "removed"
 			},
 			{
-				"check": "source",
-				"artifact": "app.json",
-				"path": "/modules/*/case_details/*/columns/*/enum/*/value/*"
+				"check": "proof2",
+				"artifact": "app_strings:*",
+				"path": "/m*.*.*_*_*.enum.*",
+				"kind": "removed"
 			},
 			{
-				"check": "source",
-				"artifact": "app.json",
-				"path": "/modules/*/search_config/properties/*/hint/*"
+				"check": "proof2",
+				"artifact": "app_strings:*",
+				"path": "/m*.*.*_*_*.alt_text.*",
+				"kind": "removed"
 			},
 			{
-				"check": "source",
-				"artifact": "app.json",
-				"path": "/modules/*/search_config/properties/*/required/text/*"
+				"check": "proof2",
+				"artifact": "app_strings:*",
+				"path": "/m*.*.*_*_*.graph.key.*",
+				"kind": "removed"
 			},
 			{
-				"check": "source",
-				"artifact": "app.json",
-				"path": "/modules/*/search_config/properties/*/validations/*/text/*"
+				"check": "proof2",
+				"artifact": "app_strings:*",
+				"path": "/m*.*.graph.key.*",
+				"kind": "removed"
 			},
 			{
-				"check": "source",
-				"artifact": "app.json",
-				"path": "/modules/*/search_config/properties/*/label/*"
+				"check": "proof2",
+				"artifact": "app_strings:*",
+				"path": "/m*.*.*_*_*.graph.series_*.key.*",
+				"kind": "removed"
 			},
 			{
-				"check": "source",
-				"artifact": "app.json",
-				"path": "/modules/*/search_config/title_label/*"
+				"check": "proof2",
+				"artifact": "app_strings:*",
+				"path": "/m*.*.graph.series_*.key.*",
+				"kind": "removed"
 			},
 			{
-				"check": "source",
-				"artifact": "app.json",
-				"path": "/modules/*/search_config/description/*"
+				"check": "proof2",
+				"artifact": "app_strings:*",
+				"path": "/m*.*.*_*_*.graph.a.*",
+				"kind": "removed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "app_strings:*",
+				"path": "/m*.*.graph.a.*",
+				"kind": "removed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "app_strings:*",
+				"path": "/modules.m*",
+				"kind": "removed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "app_strings:*",
+				"path": "/forms.m*f*",
+				"kind": "removed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "app_strings:*",
+				"path": "/case_lists.m*",
+				"kind": "removed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "app_strings:*",
+				"path": "/case_list_form.m*",
+				"kind": "removed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "app_strings:*",
+				"path": "/case_lists.m*.callout.header",
+				"kind": "removed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "app_strings:*",
+				"path": "/case_search.m*",
+				"kind": "removed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "app_strings:*",
+				"path": "/case_search.m*.again",
+				"kind": "removed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "app_strings:*",
+				"path": "/case_search_again.m*.again.icon",
+				"kind": "removed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "app_strings:*",
+				"path": "/case_search.m*.again.audio",
+				"kind": "removed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "app_strings:*",
+				"path": "/search_command.m*",
+				"kind": "removed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "app_strings:*",
+				"path": "/search_property.m*.*",
+				"kind": "removed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "app_strings:*",
+				"path": "/search_property.m*.*.hint",
+				"kind": "removed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "app_strings:*",
+				"path": "/search_property.m*.*.required.text",
+				"kind": "removed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "app_strings:*",
+				"path": "/search_property.m*.*.validation.*.text",
+				"kind": "removed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "app_strings:*",
+				"path": "/custom_assertion.*.*",
+				"kind": "removed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "app_strings:*",
+				"path": "/referral_lists.m*",
+				"kind": "removed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "app_strings:*",
+				"path": "/reports.*",
+				"kind": "removed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "app_strings:*",
+				"path": "/cchq.report_menu",
+				"kind": "removed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "app_strings:*",
+				"path": "/cchq.report_name_header",
+				"kind": "removed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "app_strings:*",
+				"path": "/cchq.report_description_header",
+				"kind": "removed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "app_strings:*",
+				"path": "/cchq.report_data_table",
+				"kind": "removed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "app_strings:*",
+				"path": "/cchq.reports.*.headers.*",
+				"kind": "removed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "app_strings:*",
+				"path": "/cchq.reports.*.name",
+				"kind": "removed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "app_strings:*",
+				"path": "/cchq.reports.*.description",
+				"kind": "removed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "app_strings:*",
+				"path": "/cchq.report_last_sync",
+				"kind": "removed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "app_strings:*",
+				"path": "/cchq.reports_last_updated_on",
+				"kind": "removed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "app_strings:*",
+				"path": "/modules.m*.icon",
+				"kind": "removed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "app_strings:*",
+				"path": "/modules.m*.audio",
+				"kind": "removed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "app_strings:*",
+				"path": "/modules.m*.*",
+				"kind": "removed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "app_strings:*",
+				"path": "/forms.m*f*.icon",
+				"kind": "removed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "app_strings:*",
+				"path": "/forms.m*f*.audio",
+				"kind": "removed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "app_strings:*",
+				"path": "/forms.m*f*.*",
+				"kind": "removed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "app_strings:*",
+				"path": "/forms.m*f*.submit_label",
+				"kind": "removed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "app_strings:*",
+				"path": "/forms.m*f*.submit_notification_label",
+				"kind": "removed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "app_strings:*",
+				"path": "/case_list_form.m*.icon",
+				"kind": "removed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "app_strings:*",
+				"path": "/case_list_form.m*.audio",
+				"kind": "removed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "app_strings:*",
+				"path": "/case_lists.m*.icon",
+				"kind": "removed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "app_strings:*",
+				"path": "/case_lists.m*.audio",
+				"kind": "removed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "app_strings:*",
+				"path": "/case_search.m*.inputs",
+				"kind": "removed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "app_strings:*",
+				"path": "/case_search.m*.description",
+				"kind": "removed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "app_strings:*",
+				"path": "/m*_no_items_text",
+				"kind": "removed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "app_strings:*",
+				"path": "/m*_select_text",
+				"kind": "removed"
 			}
 		]
 	},
+
 	{
 		"change": "location-list-setting-reset",
 		"placeKinds": ["app"],
@@ -1906,6 +2137,12 @@
 			},
 			{
 				"check": "proof3",
+				"artifact": "webapps@B",
+				"path": "/runs/*/screens/*/form/questions/*/media/*/src:renamed-file",
+				"kind": "changed"
+			},
+			{
+				"check": "proof3",
 				"artifact": "trace@local.ccz",
 				"path": "/runs/*/trace/*/events/*/image",
 				"kind": "changed"
@@ -2280,6 +2517,47 @@
 				"check": "source",
 				"artifact": "app.json",
 				"path": "/translations/*/app.display.name"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/translations/*/homescreen.title"
+			}
+		]
+	},
+	{
+		"change": "badge-respelled",
+		"placeKinds": ["menu", "form"],
+		"rows": [
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/custom_icons"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/custom_icons/0/text"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/custom_icons/0/xpath"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/forms/*/custom_icons"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/forms/*/custom_icons/0/text"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/forms/*/custom_icons/0/xpath"
 			}
 		]
 	},
@@ -2478,6 +2756,16 @@
 				"artifact": "formplayer@local.ccz",
 				"path": "/runs/*/steps/*/response/commands/*/displayText:trimmed",
 				"kind": "changed"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/custom_icons/0/text"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/forms/*/custom_icons/0/text"
 			}
 		]
 	},
@@ -2628,6 +2916,164 @@
 				"check": "source",
 				"artifact": "app.json",
 				"path": "/_attachments/*"
+			}
+		]
+	},
+	{
+		"change": "owner-rule-given-to-worker",
+		"placeKinds": ["form-part"],
+		"rows": [
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/_attachments/*"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/forms/*/actions/update_case/update/owner_id"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/forms/*/actions/load_update_cases/*/case_properties/owner_id"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/forms/*/actions/open_cases/*/case_properties/owner_id"
+			},
+			{
+				"check": "proof3",
+				"artifact": "trace@local.ccz",
+				"path": "/runs/*/end/form-did-not-open/submitted/org.commcare.core.process.CommCareInstanceInitializer$FixtureInitializationException/org.commcare.core.process.CommCareInstanceInitializer.loadFixtureRoot(CommCareInstanceInitializer.java:225)",
+				"kind": "changed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "trace@local.ccz",
+				"path": "/runs/*/trace/*/error/org.commcare.core.process.CommCareInstanceInitializer$FixtureInitializationException/org.commcare.core.process.CommCareInstanceInitializer.loadFixtureRoot(CommCareInstanceInitializer.java:225)/caseDb",
+				"kind": "added"
+			},
+			{
+				"check": "proof3",
+				"artifact": "trace@local.ccz",
+				"path": "/runs/*/trace/*/error/org.commcare.core.process.CommCareInstanceInitializer$FixtureInitializationException/org.commcare.core.process.CommCareInstanceInitializer.loadFixtureRoot(CommCareInstanceInitializer.java:225)/events",
+				"kind": "added"
+			},
+			{
+				"check": "proof3",
+				"artifact": "trace@local.ccz",
+				"path": "/runs/*/trace/*/error/org.commcare.core.process.CommCareInstanceInitializer$FixtureInitializationException/org.commcare.core.process.CommCareInstanceInitializer.loadFixtureRoot(CommCareInstanceInitializer.java:225)/stackAfterSubmit",
+				"kind": "added"
+			},
+			{
+				"check": "proof3",
+				"artifact": "trace@local.ccz",
+				"path": "/runs/*/trace/*/error/org.commcare.core.process.CommCareInstanceInitializer$FixtureInitializationException/org.commcare.core.process.CommCareInstanceInitializer.loadFixtureRoot(CommCareInstanceInitializer.java:225)/submission",
+				"kind": "added"
+			},
+			{
+				"check": "proof3",
+				"artifact": "trace@local.ccz",
+				"path": "/runs/*/trace/*/error/org.commcare.core.process.CommCareInstanceInitializer$FixtureInitializationException/org.commcare.core.process.CommCareInstanceInitializer.loadFixtureRoot(CommCareInstanceInitializer.java:225)/title",
+				"kind": "added"
+			},
+			{
+				"check": "proof3",
+				"artifact": "trace@local.ccz",
+				"path": "/runs/*/trace/*/error/org.commcare.core.process.CommCareInstanceInitializer$FixtureInitializationException/org.commcare.core.process.CommCareInstanceInitializer.loadFixtureRoot(CommCareInstanceInitializer.java:225)",
+				"kind": "removed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "case_blocks@local.ccz",
+				"path": "/runs/*/blocks",
+				"kind": "added"
+			},
+			{
+				"check": "proof3",
+				"artifact": "case_blocks@local.ccz",
+				"path": "/runs/*/cases",
+				"kind": "added"
+			},
+			{
+				"check": "proof3",
+				"artifact": "case_blocks@local.ccz",
+				"path": "/runs/*/refusal",
+				"kind": "added"
+			},
+			{
+				"check": "proof3",
+				"artifact": "case_blocks@local.ccz",
+				"path": "/runs/*/submitted",
+				"kind": "changed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "trace@B",
+				"path": "/runs/*/end/form-did-not-open/submitted/org.commcare.core.process.CommCareInstanceInitializer$FixtureInitializationException/org.commcare.core.process.CommCareInstanceInitializer.loadFixtureRoot(CommCareInstanceInitializer.java:225)",
+				"kind": "changed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "trace@B",
+				"path": "/runs/*/trace/*/error/org.commcare.core.process.CommCareInstanceInitializer$FixtureInitializationException/org.commcare.core.process.CommCareInstanceInitializer.loadFixtureRoot(CommCareInstanceInitializer.java:225)/caseDb",
+				"kind": "added"
+			},
+			{
+				"check": "proof3",
+				"artifact": "trace@B",
+				"path": "/runs/*/trace/*/error/org.commcare.core.process.CommCareInstanceInitializer$FixtureInitializationException/org.commcare.core.process.CommCareInstanceInitializer.loadFixtureRoot(CommCareInstanceInitializer.java:225)/events",
+				"kind": "added"
+			},
+			{
+				"check": "proof3",
+				"artifact": "trace@B",
+				"path": "/runs/*/trace/*/error/org.commcare.core.process.CommCareInstanceInitializer$FixtureInitializationException/org.commcare.core.process.CommCareInstanceInitializer.loadFixtureRoot(CommCareInstanceInitializer.java:225)/stackAfterSubmit",
+				"kind": "added"
+			},
+			{
+				"check": "proof3",
+				"artifact": "trace@B",
+				"path": "/runs/*/trace/*/error/org.commcare.core.process.CommCareInstanceInitializer$FixtureInitializationException/org.commcare.core.process.CommCareInstanceInitializer.loadFixtureRoot(CommCareInstanceInitializer.java:225)/submission",
+				"kind": "added"
+			},
+			{
+				"check": "proof3",
+				"artifact": "trace@B",
+				"path": "/runs/*/trace/*/error/org.commcare.core.process.CommCareInstanceInitializer$FixtureInitializationException/org.commcare.core.process.CommCareInstanceInitializer.loadFixtureRoot(CommCareInstanceInitializer.java:225)/title",
+				"kind": "added"
+			},
+			{
+				"check": "proof3",
+				"artifact": "trace@B",
+				"path": "/runs/*/trace/*/error/org.commcare.core.process.CommCareInstanceInitializer$FixtureInitializationException/org.commcare.core.process.CommCareInstanceInitializer.loadFixtureRoot(CommCareInstanceInitializer.java:225)",
+				"kind": "removed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "case_blocks@B",
+				"path": "/runs/*/blocks",
+				"kind": "added"
+			},
+			{
+				"check": "proof3",
+				"artifact": "case_blocks@B",
+				"path": "/runs/*/cases",
+				"kind": "added"
+			},
+			{
+				"check": "proof3",
+				"artifact": "case_blocks@B",
+				"path": "/runs/*/refusal",
+				"kind": "added"
+			},
+			{
+				"check": "proof3",
+				"artifact": "case_blocks@B",
+				"path": "/runs/*/submitted",
+				"kind": "changed"
 			}
 		]
 	}

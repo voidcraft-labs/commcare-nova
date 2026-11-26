@@ -64,10 +64,11 @@ export const HQ_APP_MAPPING_OWNERSHIPS = ["nova-created", "adopted"] as const;
 /** What a write Nova lets out to CommCare HQ is, by the resource it writes. */
 export const HQ_REMOTE_APP_WRITE_KINDS = ["create", "import", "media"] as const;
 export type HqRemoteAppWriteKind = (typeof HQ_REMOTE_APP_WRITE_KINDS)[number];
-/** Every kind of write the ledger holds: an app's, a lookup table workbook, a batch of places, a worker account. */
+/** Every kind of write the ledger holds: an app's, a lookup table workbook or one JSON request for a table, a batch of places, a worker account. */
 export type HqRemoteWriteKind =
 	| HqRemoteAppWriteKind
 	| "workbook"
+	| "lookup-json"
 	| "places"
 	| "worker";
 export const HQ_APP_END_REASONS = ["stopped", "claimed-elsewhere"] as const;
@@ -571,6 +572,13 @@ export async function endDeploymentInTransaction(
 		.execute();
 	if (superseded.length === 0) return { ended: false };
 	await tx
+		.updateTable("app_deployment_baselines")
+		.set({ reference_fold_seq: null, reference_source_digest: null })
+		.where("deployment_id", "=", input.deploymentId)
+		.where("remote_app_id", "=", input.remoteAppId)
+		.where("reference_fold_seq", "is not", null)
+		.execute();
+	await tx
 		.deleteFrom("app_deployment_identities")
 		.where("deployment_id", "=", input.deploymentId)
 		.execute();
@@ -609,6 +617,9 @@ export async function endDeploymentInTransaction(
 
 /** One write to record in `hq_remote_writes`, as its admission inserts it. */
 export interface RemoteWriteAdmission {
+	readonly claimGeneration?: string;
+	readonly reviewGeneration?: string | null;
+	readonly identityDigest?: string;
 	readonly deploymentId: string;
 	readonly server: string;
 	readonly domain: string;
@@ -634,13 +645,30 @@ export interface RemoteWriteAdmission {
 export async function admitRemoteWritesInTransaction(
 	tx: Transaction<AppDatabase>,
 	writes: readonly RemoteWriteAdmission[],
+	firstContentGeneration?: string,
 ): Promise<readonly string[]> {
-	if (writes.length === 0) return [];
+	const first = writes[0];
+	if (!first) return [];
+	if (firstContentGeneration !== undefined) {
+		if (!writes.every((write) => write.deploymentId === first.deploymentId))
+			throw new Error("A publish admits content for one deployment.");
+		await tx
+			.updateTable("app_deployments")
+			.set({
+				content_generation: firstContentGeneration,
+				entry_point_manifest: null,
+			})
+			.where("id", "=", first.deploymentId)
+			.executeTakeFirstOrThrow();
+	}
 	const rows = await tx
 		.insertInto("hq_remote_writes")
 		.values(
 			writes.map((write) => ({
 				deployment_id: write.deploymentId,
+				claim_generation: write.claimGeneration ?? null,
+				identity_digest: write.identityDigest ?? null,
+				review_generation: write.reviewGeneration ?? null,
 				server: write.server,
 				domain: write.domain,
 				app_id: write.appId,

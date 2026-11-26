@@ -85,14 +85,16 @@ import {
 } from "@/lib/publish/managedData";
 import { PLAN_FEATURES } from "@/lib/publish/planFeatures";
 import { BringInToolError } from "../errors";
-import { PAGE_LIMIT_CHARS } from "../paging";
+import { PAGE_LIMIT_CHARS, reviewedPageDigest } from "../paging";
 import {
 	accountDigest,
+	birthPageSubject,
 	describeReading,
 	mapReadingRefusal,
 	pageFor,
 	parseAccountPage,
 	type ReadingProjection,
+	tableProjection,
 } from "../tools/readingProjection";
 
 const KEY: ReadingKey = {
@@ -102,6 +104,7 @@ const KEY: ReadingKey = {
 	remoteAppId: "a1b2c3d4e5f6",
 };
 const PROJECT = "Field team";
+const PAGE_CONTEXT = { project: PROJECT, domain: KEY.domain };
 const READING_ID = "0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b";
 const DIGEST = "a".repeat(64);
 const FIRST_PAGE = { from: 0, restarted: false, project: PROJECT } as const;
@@ -214,6 +217,7 @@ function review(): ReadingReview {
 			},
 			CHOICE_TABLE,
 		],
+		ownerRules: [],
 		places: { count: 12, digest: "c".repeat(64) },
 		mediaLeftOut: 1,
 		firstPublish: runsOn[0]?.firstPublish as FirstPublishView,
@@ -510,6 +514,34 @@ describe("describeReading", () => {
 		]);
 	});
 
+	it("serves each owner-rule question by its level with the one answer, in a page however many forms use the rule", () => {
+		const LONG = "Ž".repeat(255);
+		const levels = ["clinic", "district", "ward"];
+		const body: ReadingReview = {
+			...review(),
+			ownerRules: levels.map((level) => ({
+				level,
+				levelName: `${level}${LONG}`,
+				conflict: {
+					kind: "two-places",
+					source: `East${LONG}`,
+					places: [`East A${LONG}`, `East B${LONG}`],
+				},
+				forms: Array.from({ length: 600 }, (_, form) => `${form}${LONG}`),
+			})),
+		};
+		const projection = served(
+			describeReading(reviewAnswer(body), KEY, FIRST_PAGE),
+		);
+		expect(JSON.stringify(projection).length).toBeLessThan(PAGE_LIMIT_CHARS);
+		const rules = projection.review?.owner_rules ?? [];
+		expect(rules.map((rule) => rule.level)).toEqual(levels);
+		for (const rule of rules) {
+			expect(rule.answer.value).toBe("worker");
+			expect(rule.body).toContain("and 597 other forms");
+		}
+	});
+
 	it("says what the first upload asks under the preselected way to run", () => {
 		const body = review();
 		const androidFirst: ReadingReview = {
@@ -561,7 +593,7 @@ describe("an account a page at a time", () => {
 			const parsed = cursor === null ? null : parseAccountPage(cursor);
 			if (cursor !== null && parsed === null)
 				throw new Error(`An unreadable cursor: ${cursor}`);
-			const start = pageFor(answer, parsed);
+			const start = pageFor(answer, parsed, PAGE_CONTEXT);
 			if (start === null) throw new Error("The cursor named no page.");
 			expect(start.restarted).toBe(false);
 			const projection = describeReading(answer, KEY, {
@@ -626,7 +658,7 @@ describe("an account a page at a time", () => {
 			Array.from({ length: 300 }, (_, index) => longest(index + 1)),
 		);
 		expect(accountDigest(now)).not.toBe(accountDigest(before));
-		const start = pageFor(now, cursor);
+		const start = pageFor(now, cursor, PAGE_CONTEXT);
 		expect(start).toEqual({ from: 0, restarted: true });
 		const projection = describeReading(now, KEY, {
 			...(start as NonNullable<typeof start>),
@@ -645,7 +677,11 @@ describe("an account a page at a time", () => {
 		);
 		const first = describeReading(before, KEY, FIRST_PAGE).account?.next_page;
 		if (first == null) throw new Error("one page held the whole account");
-		const start = pageFor(reviewAnswer(), parseAccountPage(first));
+		const start = pageFor(
+			reviewAnswer(),
+			parseAccountPage(first),
+			PAGE_CONTEXT,
+		);
 		expect(start).toEqual({ from: 0, restarted: true });
 		const projection = describeReading(reviewAnswer(), KEY, {
 			...(start as NonNullable<typeof start>),
@@ -669,7 +705,7 @@ describe("an account a page at a time", () => {
 			kind: "stop",
 			finding: circumstanceFinding("rate-limited", { kind: "app" }, {}),
 		};
-		const start = pageFor(busy, cursor);
+		const start = pageFor(busy, cursor, PAGE_CONTEXT);
 		expect(start).toEqual({ from: 0, restarted: false });
 		const projection = describeReading(busy, KEY, {
 			...(start as NonNullable<typeof start>),
@@ -682,7 +718,7 @@ describe("an account a page at a time", () => {
 			stop: { code: "rate-limited" },
 		});
 		/* The same cursor still pages the account once CommCare HQ answers. */
-		expect(pageFor(before, cursor)).toEqual({
+		expect(pageFor(before, cursor, PAGE_CONTEXT)).toEqual({
 			from: cursor?.from,
 			restarted: false,
 		});
@@ -697,7 +733,7 @@ describe("an account a page at a time", () => {
 			expect(parseAccountPage(page)).toBeNull();
 		const short = account([manifest(QUESTION)]);
 		expect(
-			pageFor(short, { from: 5, digest: accountDigest(short) }),
+			pageFor(short, { from: 5, digest: accountDigest(short) }, PAGE_CONTEXT),
 		).toBeNull();
 	});
 });
@@ -735,6 +771,159 @@ describe("a review's lookup tables a page at a time", () => {
 		};
 	}
 
+	it("pages every lookup choice, case type and physical file before offering approval", () => {
+		const answer = reviewAnswer();
+		if (answer.kind !== "review") throw new Error("Expected a review");
+		const shortTables = manyTables(250);
+		if (shortTables.kind !== "review")
+			throw new Error("Expected lookup tables");
+		const file = "/jr/media/" + 'Door "visits" \\ '.repeat(19000);
+		const files: string[] = [];
+		const tables: string[] = [];
+		const columns = Array.from(
+			{ length: 250 },
+			(_, i) => String(i).padStart(3, "0") + "x".repeat(117),
+		);
+		const shared = longTable(0);
+		if (!shared.choice) throw new Error("Expected table choice");
+		const table = {
+			...shared,
+			tag: "regional_households",
+			choice: {
+				...shared.choice,
+				options: {
+					...shared.choice.options,
+					"use-commcare-hq": {
+						offered: true as const,
+						goneColumns: columns.slice(0, 125),
+						retypedColumns: columns.slice(125),
+					},
+				},
+			},
+		};
+		const caseTypes = Array.from(
+			{ length: 3500 },
+			(_, i) => "family_member_" + i,
+		);
+		const tableText: string[] = [];
+		const receivedTypes: string[] = [];
+
+		const input = {
+			...answer,
+			review: {
+				...answer.review,
+				tables: [table, ...shortTables.review.tables],
+				creates: { ...answer.review.creates, caseTypes },
+				runsOn: answer.review.runsOn.map((choice, i) => ({
+					...choice,
+					...(i === 0 && { removesFiles: [file] }),
+				})),
+			},
+		};
+		let from = 0;
+		for (;;) {
+			const body = describeReading(input, KEY, { ...FIRST_PAGE, from });
+			expect(
+				JSON.stringify({
+					content: [{ type: "text", text: JSON.stringify(body) }],
+				}).length,
+			).toBeLessThanOrEqual(PAGE_LIMIT_CHARS);
+			const next = body.review;
+			if (!next) throw new Error("Missing review");
+			for (const detail of next.publish_details ?? []) {
+				expect(detail.runs_only_on).toEqual(
+					answer.review.runsOn[0]?.runsOnlyOn,
+				);
+				files.push(detail.text);
+			}
+			tables.push(...next.tables.map((t) => t.tag));
+			receivedTypes.push(...next.creates.case_types);
+			for (const fragment of next.table_parts ?? []) {
+				expect(fragment.answers.map((option) => option.offered)).toEqual([
+					true,
+					false,
+				]);
+				expect(fragment.tag).toBe(table.tag);
+				tableText.push(fragment.text);
+			}
+			if (!next.next_page) {
+				expect(next.review_digest).toBe(DIGEST);
+				break;
+			}
+			expect(next.review_digest).toBeNull();
+			expect(next.next_page).not.toContain(DIGEST);
+			const page = pageFor(input, parseAccountPage(next.next_page), {
+				project: PROJECT,
+				domain: KEY.domain,
+			});
+			if (!page || page.restarted) throw new Error("Expected a stable cursor");
+			from = page.from;
+		}
+		expect(files.join("")).toBe(file);
+		expect(receivedTypes).toEqual(caseTypes);
+		expect(JSON.parse(tableText.join(""))).toEqual(
+			tableProjection(table, PROJECT, KEY.domain),
+		);
+		for (const column of columns) expect(tableText.join("")).toContain(column);
+		expect(tables).toEqual(shortTables.review.tables.map((t) => t.tag));
+	});
+
+	it("restarts from the first table when a Project name changes the pieces of its choices", () => {
+		const wide = "Project " + "x".repeat(48),
+			short = "Visits";
+		const answer = reviewAnswer();
+		if (answer.kind !== "review") throw new Error("Expected a review");
+		const tables: ReviewTable[] = Array.from({ length: 7 }, (_, i) => ({
+			...CHOICE_TABLE,
+			tag: `table_${i}`,
+			choice: {
+				differs: ["rows"],
+				apps: [{ appId: "other", appName: "Registration", deleted: false }],
+				options: {
+					"use-commcare-hq": {
+						offered: true,
+						goneColumns: [],
+						retypedColumns: Array.from(
+							{ length: 238 },
+							(_, j) => `column_${j}_${"x".repeat(108)}`,
+						),
+					},
+					"use-project": { offered: false, why: "needs-admin", name: null },
+				},
+			},
+		}));
+		const all = { ...answer, review: { ...answer.review, tables } };
+		const first = describeReading(all, KEY, {
+			...FIRST_PAGE,
+			project: wide,
+		}).review;
+		if (!first?.next_page) throw new Error("Expected split table choices");
+		expect(first.table_parts?.map((x) => [x.item, x.part])).toEqual([
+			[0, 1],
+			[0, 2],
+			[1, 1],
+			[1, 2],
+		]);
+		const context = { project: short, domain: KEY.domain };
+		let step = pageFor(all, parseAccountPage(first.next_page), context);
+		expect(step).toEqual({ from: 0, restarted: true });
+		const seen: string[] = [];
+		while (step) {
+			const view = describeReading(all, KEY, {
+				...step,
+				project: short,
+			}).review;
+			if (!view) throw new Error("Expected reconstruction");
+			seen.push(...view.tables.map((row) => row.tag));
+			if (!view.next_page) {
+				expect(view.review_digest).toBe(answer.reviewDigest);
+				break;
+			}
+			expect(view.review_digest).toBeNull();
+			step = pageFor(all, parseAccountPage(view.next_page), context);
+		}
+		expect(seen).toEqual(tables.map((t) => t.tag));
+	});
 	it("cuts 2,000 tables at their longest into pages under the limit that give every table once", () => {
 		const answer = manyTables(2000);
 		const seen: string[] = [];
@@ -744,7 +933,7 @@ describe("a review's lookup tables a page at a time", () => {
 			const parsed = cursor === null ? null : parseAccountPage(cursor);
 			if (cursor !== null && parsed === null)
 				throw new Error(`An unreadable cursor: ${cursor}`);
-			const start = pageFor(answer, parsed);
+			const start = pageFor(answer, parsed, PAGE_CONTEXT);
 			if (start === null) throw new Error("The cursor named no page.");
 			expect(start.restarted).toBe(false);
 			const projection = describeReading(answer, KEY, {
@@ -755,6 +944,11 @@ describe("a review's lookup tables a page at a time", () => {
 			const shown = projection.review;
 			if (shown === undefined) throw new Error("no review");
 			expect(shown.tables_total).toBe(2000);
+			expect(shown.review_digest).toBe(
+				shown.next_page === null ? DIGEST : null,
+			);
+			if (shown.next_page)
+				expect(shown.next_page.endsWith(READING_ID)).toBe(true);
 			expect(shown.tables.length).toBeGreaterThan(0);
 			for (const table of shown.tables) seen.push(table.tag);
 			cursor = shown.next_page;
@@ -771,7 +965,7 @@ describe("a review's lookup tables a page at a time", () => {
 			?.next_page;
 		if (first == null) throw new Error("one page held every table");
 		const now = manyTables(300, "b".repeat(64));
-		const start = pageFor(now, parseAccountPage(first));
+		const start = pageFor(now, parseAccountPage(first), PAGE_CONTEXT);
 		expect(start).toEqual({ from: 0, restarted: true });
 		const projection = describeReading(now, KEY, {
 			...(start as NonNullable<typeof start>),
@@ -789,13 +983,45 @@ describe("a review's lookup tables a page at a time", () => {
 			?.next_page;
 		if (first == null) throw new Error("one page held every table");
 		expect(
-			pageFor(account([manifest(QUESTION)]), parseAccountPage(first)),
+			pageFor(
+				account([manifest(QUESTION)]),
+				parseAccountPage(first),
+				PAGE_CONTEXT,
+			),
 		).toEqual({ from: 0, restarted: true });
 	});
 
 	it("reads no cursor past the review's last table", () => {
-		expect(pageFor(reviewAnswer(), { from: 3, digest: DIGEST })).toBeNull();
-		expect(pageFor(reviewAnswer(), { from: 2, digest: DIGEST })).toEqual({
+		expect(
+			pageFor(
+				reviewAnswer(),
+				{
+					from: 3,
+					digest: reviewedPageDigest(
+						"birth",
+						birthPageSubject(DIGEST, PROJECT, KEY.domain),
+						3,
+					),
+					readingId: READING_ID,
+				},
+				PAGE_CONTEXT,
+			),
+		).toBeNull();
+		expect(
+			pageFor(
+				reviewAnswer(),
+				{
+					from: 2,
+					digest: reviewedPageDigest(
+						"birth",
+						birthPageSubject(DIGEST, PROJECT, KEY.domain),
+						2,
+					),
+					readingId: READING_ID,
+				},
+				PAGE_CONTEXT,
+			),
+		).toEqual({
 			from: 2,
 			restarted: false,
 		});

@@ -184,10 +184,12 @@ describe("the forms of a text", () => {
 					<value form="video-inline">jr://file/v.mp4</value><value form="mine">M</value></text>`,
 			}),
 		);
-		expect(codes(reading).sort()).toEqual(
-			[Q("label-video-inline"), Q("long-form")].sort(),
-		);
+		// A question label's inline video is its label media's: a path with no
+		// file is handed off to project data, as another media form's is.
+		expect(codes(reading)).toEqual([]);
 		expect(unclaimedText(reading)).toEqual([]);
+		// A label's `long` form is its extended text.
+		expect(field(reading, "q").extended_text).toEqual(proseText("L"));
 	});
 });
 
@@ -221,6 +223,13 @@ describe("pragma keys", () => {
 	});
 });
 
+const blankFrenchLabel = {
+	blankTranslations: 1,
+	blankTranslationSlots: [
+		{ fieldPath: ["q"], slot: "label", language: "fra", choiceValue: null },
+	],
+};
+
 describe("blank values", () => {
 	it("reads a blank second language beside first-language text as no translation, and counts it", async () => {
 		const reading = await readForm(
@@ -231,7 +240,35 @@ describe("blank values", () => {
 			{ langs: ["en", "fr"] },
 		);
 		expect(codes(reading)).toEqual([]);
-		expect(formBlankTranslations(reading.xform ?? ({} as never))).toBe(1);
+		expect(formBlankTranslations(reading.xform ?? ({} as never))).toEqual(
+			blankFrenchLabel,
+		);
+		expect(unclaimedText(reading)).toEqual([]);
+	});
+
+	it("counts a label's blank extended text beside the default's as a filled translation", async () => {
+		// Core shows French workers the blank `long` form as it stands; the next publish writes
+		// the English text there, so the review lists it as the label's own blank is listed.
+		const reading = await readForm(
+			oneLabel("l", {
+				en: `<text id="l"><value>Hello</value><value form="long">Hello there</value></text>`,
+				fr: `<text id="l"><value>Bonjour</value><value form="long"/></text>`,
+			}),
+			{ langs: ["en", "fr"] },
+		);
+		expect(codes(reading)).toEqual([]);
+		expect(field(reading, "q").extended_text).toEqual(proseText("Hello there"));
+		expect(formBlankTranslations(reading.xform ?? ({} as never))).toEqual({
+			blankTranslations: 1,
+			blankTranslationSlots: [
+				{
+					fieldPath: ["q"],
+					slot: "extended_text",
+					language: "fra",
+					choiceValue: null,
+				},
+			],
+		});
 		expect(unclaimedText(reading)).toEqual([]);
 	});
 
@@ -248,7 +285,9 @@ describe("blank values", () => {
 				"an-explicitly-blank-value-in-the-first-language-where-another-holds-text",
 			),
 		]);
-		expect(formBlankTranslations(reading.xform ?? ({} as never))).toBe(0);
+		expect(formBlankTranslations(reading.xform ?? ({} as never))).toEqual({
+			blankTranslations: 0,
+		});
 	});
 
 	it("reads a text blank in every language as a blank text, with no flag", async () => {
@@ -262,7 +301,9 @@ describe("blank values", () => {
 		expect(codes(reading)).toEqual([]);
 		expect(field(reading, "q").label).toEqual({ parts: [] });
 		expect(field(reading, "q").plainLabel).toBeUndefined();
-		expect(formBlankTranslations(reading.xform ?? ({} as never))).toBe(0);
+		expect(formBlankTranslations(reading.xform ?? ({} as never))).toEqual({
+			blankTranslations: 0,
+		});
 	});
 
 	it("reads a language with no translation as untranslated", async () => {
@@ -272,7 +313,9 @@ describe("blank values", () => {
 		);
 		expect(codes(reading)).toEqual([]);
 		expect(field(reading, "q").label).toEqual(proseText("Hello"));
-		expect(formBlankTranslations(reading.xform ?? ({} as never))).toBe(0);
+		expect(formBlankTranslations(reading.xform ?? ({} as never))).toEqual({
+			blankTranslations: 0,
+		});
 	});
 });
 
@@ -341,22 +384,22 @@ describe("more forms of a text", () => {
 			expect(field(reading, "q").label).toEqual(proseText("**A**"));
 			// Markdown on: the text shows its copy in every language.
 			expect(field(reading, "q").plainLabel).toBeUndefined();
-			expect(formBlankTranslations(reading.xform ?? ({} as never))).toBe(
-				blanks,
+			expect(formBlankTranslations(reading.xform ?? ({} as never))).toEqual(
+				blanks ? blankFrenchLabel : { blankTranslations: 0 },
 			);
 		});
 
-	it("refuses a big image, a QR code and a spoken form on a label", async () => {
+	it("refuses a big image on a label, and holds its QR code and spoken text", async () => {
 		const reading = await readForm(
 			oneLabel("l", {
 				en: `<text id="l"><value>A</value><value form="big-image">jr://file/b.png</value>
 					<value form="qrcode">code</value><value form="tts">say</value></text>`,
 			}),
 		);
-		expect(codes(reading).sort()).toEqual(
-			[Q("label-big-image"), Q("label-qrcode"), Q("label-tts")].sort(),
-		);
+		expect(codes(reading)).toEqual([Q("label-big-image")]);
 		expect(unclaimedText(reading)).toEqual([]);
+		expect(field(reading, "q").qr_code).toEqual(proseText("code"));
+		expect(field(reading, "q").spoken_text).toEqual(proseText("say"));
 	});
 
 	it("reads a choice's and a help text's forms by their own rows", async () => {
@@ -757,25 +800,84 @@ describe("translations, read whole", () => {
 			).toEqual([1]);
 	});
 
-	it("refuses an output of one language with no twin in the source, at the question", async () => {
+	it.each([
+		["Hi", 'Salut <output value="/data/n"/>', 1],
+		['Hi <output value="/data/n"/>', "Salut", 0],
+		[
+			'Hi <output value="/data/n"/>',
+			'Salut <output value="/data/n"/> et <output value="/data/n"/>',
+			2,
+		],
+	])(
+		"reads independently chosen outputs in the French label %s / %s",
+		async (en, fr, count) => {
+			const outcome = await readApp(
+				labelReading({ en: String(en), fr: String(fr) }),
+				["en", "fr"],
+			);
+			const doc = documentOf(outcome);
+			if (outcome.kind === "read") expect(outcome.defects).toEqual([]);
+			const translated = Object.values(
+				doc.localization?.translations.fra ?? {},
+			).find((entry) => entry.valueMode === "independent-values");
+			expect(
+				translated,
+				JSON.stringify(doc.localization?.translations),
+			).toBeDefined();
+			const target = translated?.value;
+			if (typeof target === "string" || target === undefined)
+				throw new Error("Missing translated label");
+			expect(
+				target.parts.filter((part) => part.kind === "field-ref"),
+			).toHaveLength(count as number);
+		},
+	);
+
+	/** The French label's translation entry, where the reading made one. */
+	const frenchLabel = (doc: BlueprintDoc) => {
+		const uuid = Object.values(doc.fields).find((one) => one.id === "q")?.uuid;
+		const entry = Object.entries(doc.localization?.translations.fra ?? {}).find(
+			([unit]) =>
+				uuid !== undefined && unit.includes(uuid) && unit.includes("label"),
+		)?.[1];
+		if (entry === undefined || typeof entry.value === "string")
+			throw new Error(JSON.stringify(doc.localization?.translations));
+		return { entry, parts: entry.value.parts };
+	};
+
+	it("reads an output one language alone writes as Nova writes literal text as that text, with no values of its own", async () => {
+		// Nova writes the bracket after `instance` as an output (`builder.ts::literalLabelNodes`).
 		const outcome = await readApp(
 			labelReading({
 				en: "Hi",
-				fr: `Salut <output value="/data/n"/>`,
+				fr: `Voir instance<output value="'('"/>'x')`,
 			}),
 			["en", "fr"],
 		);
-		expect(outcome.kind).toBe("account");
-		if (outcome.kind !== "account") return;
-		expect(
-			outcome.findings
-				.filter(
-					(finding) =>
-						finding.place.kind === "question" && finding.place.path === "q",
-				)
-				.map((finding) => finding.code),
-		).toEqual([Q("a-text-whose-languages-show-different-values")]);
-		expect(outcome.defects).toEqual([]);
+		const doc = documentOf(outcome);
+		if (outcome.kind === "read") expect(outcome.defects).toEqual([]);
+		const { entry, parts } = frenchLabel(doc);
+		expect(entry).not.toHaveProperty("valueMode");
+		expect(parts).toEqual([{ kind: "text", text: "Voir instance('x')" }]);
+	});
+
+	it("keeps an output one language alone holds that is only a literal as that literal value", async () => {
+		const outcome = await readApp(
+			labelReading({ en: "Hi", fr: `Salut<output value="'['"/>ami` }),
+			["en", "fr"],
+		);
+		const doc = documentOf(outcome);
+		if (outcome.kind === "read") expect(outcome.defects).toEqual([]);
+		const { entry, parts } = frenchLabel(doc);
+		expect(entry.valueMode).toBe("independent-values");
+		expect(parts).toEqual([
+			{ kind: "text", text: "Salut" },
+			{
+				kind: "value",
+				expression: { kind: "term", term: { kind: "literal", value: "[" } },
+			},
+			{ kind: "text", text: "ami" },
+		]);
 	});
 
 	it("compares a Hidden Value's bind type beside another finding of its form", async () => {

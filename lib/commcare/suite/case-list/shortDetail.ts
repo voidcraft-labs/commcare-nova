@@ -1,3 +1,5 @@
+import { suiteMappingCondition } from "./columns";
+
 // lib/commcare/suite/case-list/shortDetail.ts
 //
 // Suite-XML emission for the case-list short detail —
@@ -97,33 +99,49 @@ import {
 import type { WireExpr } from "@/lib/commcare/xpath/wire/tree";
 import {
 	type BlueprintDoc,
+	type CaseListConfig,
 	type CaseTileGrouping,
+	type Column,
+	caseListWordingUnitId,
 	effectiveCaseTypes,
 	type Module,
+	moduleShowsFormsInMenuAbove,
 	type TranslationUnitId,
+	type Uuid,
 } from "@/lib/domain";
 import type { FormIconRef } from "@/lib/domain/builtinIcons";
 import { simplifyForEmission } from "@/lib/domain/expression";
 import type { Expression } from "@/lib/domain/expression/types";
+import { makeTranslationUnitId } from "@/lib/domain/localization";
 import type { MediaAssetId } from "@/lib/domain/multimedia";
 import {
 	type ModuleExpressionContexts,
 	moduleExpressionContexts,
 } from "../../expressionContext";
+import { projectColumnToDetail } from "../../hqJson/caseList";
+import { listIconEndpointId } from "../../listIconAction";
+import { commCareLocalization } from "../../localization";
 import type { AssetManifest } from "../../multimedia/assetWirePath";
 import { buildActionDisplay } from "../../multimedia/navMenuMedia";
 import type { ColumnFieldWordOf } from "../../wireIdentity";
 import {
+	buildCalculatedSortField,
 	buildCarrierField,
 	buildColumnField,
+	imageDescriptions,
+	instanceRootFor,
 	mergeFieldStrings,
+	rawColumnHeaderLocale,
 } from "./columns";
+import { detailBindings } from "./detailBindings";
 import {
 	EMPTY_CASE_LIST_TEXT,
 	emptyCaseListTextLocaleId,
 	SELECT_TEXT,
 	selectTextLocaleId,
 } from "./detailTexts";
+import { buildNamedTileFields } from "./namedTile";
+import { withDetailLoadBehavior } from "./optimizations";
 import { moduleCaseListOrderPlan } from "./orderPlanOptions";
 import { planSortNodes } from "./sortKeys";
 import { buildTileGroupElement } from "./tileGroup";
@@ -132,6 +150,7 @@ import type {
 	CaseListEmitContext,
 	DetailTarget,
 } from "./types";
+import { columnOutputWordings } from "./wording";
 
 /**
  * Optional search-action context passed by the orchestrator at
@@ -295,6 +314,7 @@ export function buildShortDetail(args: {
 	readonly element: Element;
 	readonly strings: Record<string, string>;
 	readonly translationUnits: Record<string, TranslationUnitId>;
+	readonly wordingUnits: Record<string, TranslationUnitId>;
 	readonly instances: readonly InstanceDecl[];
 } {
 	const { module: mod, moduleIndex, doc } = args;
@@ -313,9 +333,11 @@ export function buildShortDetail(args: {
 	// `target: "search"` would be a logic error at the orchestrator
 	// (the search-target detail is the action's destination, not
 	// its host); the emitter ignores the arg defensively.
-	const searchAction = target === "case" ? args.searchAction : undefined;
+	const showsActions = !moduleShowsFormsInMenuAbove(mod);
+	const searchAction =
+		target === "case" && showsActions ? args.searchAction : undefined;
 	const register =
-		args.registerAction === undefined
+		!showsActions || args.registerAction === undefined
 			? undefined
 			: buildRegisterActionBlock(
 					args.registerAction,
@@ -323,7 +345,12 @@ export function buildShortDetail(args: {
 					wire,
 					args.assets,
 				);
-	const texts = detailTexts(moduleIndex, args.emptyCaseListText === true);
+	const texts = detailTexts(
+		moduleIndex,
+		args.emptyCaseListText === true,
+		mod.caseType ? mod.caseListConfig : undefined,
+		mod.uuid,
+	);
 
 	// Early-exit shape: no caseListConfig OR no case type. The
 	// resulting detail still carries a title — CCHQ's
@@ -345,7 +372,8 @@ export function buildShortDetail(args: {
 				args.lookupNaming,
 			),
 			strings: { ...texts.strings, ...register?.strings },
-			translationUnits: {},
+			translationUnits: { ...texts.translationUnits },
+			wordingUnits: {},
 			instances: instances.declarations(),
 		};
 	}
@@ -360,18 +388,21 @@ export function buildShortDetail(args: {
 		args.assets !== undefined,
 		args.lookupNaming,
 	);
-	const sortNodes = planSortNodes(plan);
+
 	const ctx: CaseListEmitContext = {
+		detailBindings: detailBindings(doc, mod),
 		wire,
 		moduleIndex,
-		sortByUuid: sortNodes.byUuid,
+		sortByUuid: new Map(),
 		detailKind: "short",
+		optimizations: mod.caseListConfig?.optimizations === true,
 		target,
 		...(args.caseSource !== undefined && { caseSource: args.caseSource }),
 		caseProperties,
 		caseType: mod.caseType,
 		caseTypes,
 		proseDoc: doc,
+		listIconEndpointId: (uuid) => listIconEndpointId(doc, uuid),
 		expressions,
 		...(config.tile !== undefined && { tileLayout: config.tile }),
 		...(args.assets && { assets: args.assets }),
@@ -379,12 +410,28 @@ export function buildShortDetail(args: {
 		...(args.columnFieldWord && { columnFieldWord: args.columnFieldWord }),
 	};
 
+	const sortNodes = planSortNodes(
+		plan,
+		instanceRootFor({ target, caseSource: args.caseSource }),
+		(uuid, row, field) => suiteMappingCondition(uuid, row, field, ctx),
+	);
+	const fieldContext = { ...ctx, sortByUuid: sortNodes.byUuid };
 	const fields: Element[] = [];
+	const namedFields: {
+		uuid?: Column["uuid"];
+		element: Element;
+		format: string;
+		rawHeader?: string;
+	}[] = [];
+	const localization = config.tile?.namedSlots && commCareLocalization(doc);
 	const strings: Record<string, string> = {
 		...texts.strings,
 		...register?.strings,
 	};
-	const translationUnits: Record<string, TranslationUnitId> = {};
+	const translationUnits: Record<string, TranslationUnitId> = {
+		...texts.translationUnits,
+	};
+	const wordingUnits: Record<string, TranslationUnitId> = {};
 
 	// Walk the plan's fields, which keep the config's exact Results UUID
 	// permutation. A shown field's header locale takes its 1-based position
@@ -395,40 +442,122 @@ export function buildShortDetail(args: {
 		const emission = buildColumnField({
 			column: field.column,
 			position: field.position + 1,
-			ctx,
+			ctx: fieldContext,
 			hidden: field.hidden,
 			...(field.hidden &&
 				field.rule?.label !== undefined && { sortLabel: field.rule.label }),
 		});
+		if (localization) {
+			const format = projectColumnToDetail(
+				field.column,
+				{
+					doc,
+					mod,
+					localization,
+					expressions,
+					caseTypes,
+					caseProperties,
+					assets: args.assets,
+					mediaOn: args.assets !== undefined,
+					lookupNaming: args.lookupNaming,
+					columnFieldWord: args.columnFieldWord,
+				},
+				"results",
+			).format;
+			const rawHeader =
+				field.hidden &&
+				config.tile?.rawSlots?.some(
+					(slot) => config.tile?.namedSlots?.[slot] === field.column.uuid,
+				)
+					? rawColumnHeaderLocale(field.column, field.position + 1, ctx)
+					: undefined;
+			if (rawHeader && !field.rule?.label) {
+				strings[rawHeader] = field.column.header;
+				translationUnits[rawHeader] = makeTranslationUnitId(
+					"column",
+					field.column.uuid,
+					"header",
+				);
+			}
+			namedFields.push({
+				...(rawHeader && { rawHeader }),
+				uuid: field.column.uuid,
+				element: emission.element,
+				format: field.hidden ? "invisible" : format,
+			});
+		}
 		fields.push(emission.element);
+		if (!field.hidden)
+			for (const key of imageDescriptions(
+				field.column,
+				field.position + 1,
+				ctx,
+			))
+				wordingUnits[key.localeId] = key.id;
 		mergeFieldStrings(strings, translationUnits, emission);
+		Object.assign(
+			wordingUnits,
+			columnOutputWordings(
+				field.rule?.label?.column ?? field.column.uuid,
+				target,
+				"short",
+				emission.translationUnits,
+			),
+		);
 	}
 	for (const carrier of sortNodes.carriers) {
 		const emission = buildCarrierField(
 			carrier,
 			carrier.directive,
-			{ target, moduleIndex },
+			{ target, moduleIndex, caseSource: args.caseSource },
 			wire,
 		);
+		if (localization)
+			namedFields.push({ element: emission.element, format: "invisible" });
+		fields.push(emission.element);
+		mergeFieldStrings(strings, translationUnits, emission);
+		if (carrier.label)
+			Object.assign(
+				wordingUnits,
+				columnOutputWordings(
+					carrier.label.column,
+					target,
+					"short",
+					emission.translationUnits,
+				),
+			);
+	}
+
+	for (const calc of plan.calculations) {
+		const emission = buildCalculatedSortField(calc, ctx);
 		fields.push(emission.element);
 		mergeFieldStrings(strings, translationUnits, emission);
 	}
 
 	return {
-		element: buildDetailShell(
-			detailId,
-			fields,
-			searchAction,
-			register?.element,
-			config.tile?.grouping,
-			texts.elements,
-			moduleIndex,
-			expressions,
-			wire,
-			args.lookupNaming,
+		element: withDetailLoadBehavior(
+			buildDetailShell(
+				detailId,
+				config.tile?.namedSlots
+					? buildNamedTileFields(config.tile.namedSlots, namedFields)
+					: fields,
+				searchAction,
+				register?.element,
+				config.tile?.grouping,
+				texts.elements,
+				moduleIndex,
+				expressions,
+				wire,
+				args.lookupNaming,
+			),
+			config,
+			config.columns.filter(
+				(column) => column.visibleInList !== false && column.notOnList !== true,
+			),
 		),
 		strings,
 		translationUnits,
+		wordingUnits,
 		instances: instances.declarations(),
 	};
 }
@@ -453,18 +582,27 @@ export function emitShortDetail(args: {
 /**
  * The texts HQ's build gives a short detail, with their app strings: the
  * select button's on every short detail, the empty list's where the target
- * holds `USH_EMPTY_CASE_LIST_TEXT`. Nova's own system copy, so every
- * language takes it verbatim.
+ * holds `USH_EMPTY_CASE_LIST_TEXT`. A case list's own text is its unit's in
+ * each language; otherwise HQ's model default, Nova's own system copy, which
+ * every language takes verbatim.
  */
 function detailTexts(
 	moduleIndex: number,
 	emptyCaseListText: boolean,
+	config: CaseListConfig | undefined,
+	moduleUuid: Uuid,
 ): {
 	readonly elements: readonly Element[];
 	readonly strings: Readonly<Record<string, string>>;
+	readonly translationUnits: Readonly<Record<string, TranslationUnitId>>;
 } {
 	const selectId = selectTextLocaleId(moduleIndex);
 	const emptyId = emptyCaseListTextLocaleId(moduleIndex);
+	const translationUnits: Record<string, TranslationUnitId> = {};
+	if (config?.selectButtonText !== undefined)
+		translationUnits[selectId] = caseListWordingUnitId(moduleUuid, "select");
+	if (emptyCaseListText && config?.emptyText !== undefined)
+		translationUnits[emptyId] = caseListWordingUnitId(moduleUuid, "empty");
 	return {
 		elements: [
 			el("select_text", {}, [el("text", {}, [el("locale", { id: selectId })])]),
@@ -477,9 +615,12 @@ function detailTexts(
 				: []),
 		],
 		strings: {
-			[selectId]: SELECT_TEXT,
-			...(emptyCaseListText && { [emptyId]: EMPTY_CASE_LIST_TEXT }),
+			[selectId]: config?.selectButtonText ?? SELECT_TEXT,
+			...(emptyCaseListText && {
+				[emptyId]: config?.emptyText ?? EMPTY_CASE_LIST_TEXT,
+			}),
 		},
+		translationUnits,
 	};
 }
 

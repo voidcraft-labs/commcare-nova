@@ -18,10 +18,7 @@ import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import type { HqFailure } from "@/lib/commcare/hq/failure";
 import type { HqLocation, HqLocationType } from "@/lib/commcare/hq/locations";
-import {
-	LOCATION_LEVELS,
-	locationOwnerFixture,
-} from "@/lib/commcare/locations/__tests__/locationOwnerFixture";
+import { locationOwnerFixture } from "@/lib/commcare/locations/__tests__/locationOwnerFixture";
 import { readHqApp } from "@/lib/commcare/reader";
 import { mintingResolver } from "@/lib/commcare/reader/identity";
 import type { ReadOutcome } from "@/lib/commcare/reader/types";
@@ -42,14 +39,13 @@ import {
 } from "../index";
 import {
 	documentReadsPlaces,
-	managedPlacesOwnerFindings,
 	planManagedPlaces,
 	sourceMayReadPlaces,
 } from "../places";
 
 const ORGANIZATION = { kind: "organization" } as const;
 const notHoldable = (name: string) =>
-	circumstanceFinding("place-not-holdable", ORGANIZATION, { name });
+	circumstanceFinding("place-field-unusable", ORGANIZATION, { name });
 
 const STATE = testUuid("places-level-state");
 const DISTRICT = testUuid("places-level-district");
@@ -196,7 +192,6 @@ describe("unreadPlacesFailure", () => {
 				definitions: [],
 				rowsByTable: {},
 				apps: {},
-				keptColumns: {},
 				siblings: [],
 				mayAdminister: true,
 			},
@@ -255,9 +250,11 @@ describe("unreadPlacesFailure", () => {
 				unheldMedia: [],
 				pendingMedia: [],
 				unreadTables: [],
-				foldedTranslationKeys: [],
+				unusedTranslationKeys: [],
 				forms: [],
 				sameStateRewrites: [],
+				detailColumnOwners: [],
+				formLinkOwners: [],
 				entryFactsRefused: [],
 				childCasesUnread: [],
 				rewrites: [],
@@ -415,35 +412,48 @@ describe.each(MODES)("planManagedPlaces at a %s", (mode) => {
 		expect(plan(renamed, mode).digest).not.toBe(first.digest);
 	});
 
-	it("finds a list past Nova's limit and plans no place", () => {
+	it("holds 10,001 source places and keeps case-sensitive and Unicode codes", () => {
 		const many = Array.from({ length: 10_001 }, (_, index) =>
-			place(`p${index}`, "state", null),
+			place(`site_${index}`, "state", null),
 		);
+		many[0] = place("École", "state", null);
+		many[1] = place("école", "state", null);
 		const result = plan(many, mode);
-		expect(result.places).toEqual([]);
-		expect(result.findings).toEqual([
-			circumstanceFinding("places-over-nova-limit", ORGANIZATION, {
-				name: "10,001 places",
-			}),
+		expect(result.findings).toEqual([]);
+		expect(result.places).toHaveLength(10_001);
+		expect(result.places.slice(0, 2).map((row) => row.siteCode)).toEqual([
+			"École",
+			"école",
 		]);
 	});
 
-	it("finds a site code the store refuses, not lower case, or shared", () => {
+	it("holds a zero or tiny coordinate CommCare HQ spells in exponent form", () => {
 		const result = plan(
 			[
-				place("north", "state", null),
-				place("has space", "district", "hq-north", { name: "Spaced" }),
-				place("South", "state", null, { name: "Upper" }),
-				place("south", "state", null, { name: "Lower" }),
+				place("equator", "state", null, {
+					name: "Equator",
+					latitude: "0E-10",
+					longitude: "-0E-10",
+				}),
+				place("near", "state", null, {
+					name: "Near",
+					latitude: "1.000E-7",
+					longitude: "-5E-7",
+				}),
 			],
 			mode,
 		);
-		expect(result.findings).toEqual([
-			notHoldable("Spaced"),
-			notHoldable("Upper"),
-			notHoldable("Lower"),
+		expect(result.findings).toEqual([]);
+		expect(
+			result.places.map(({ siteCode, latitude, longitude }) => ({
+				siteCode,
+				latitude,
+				longitude,
+			})),
+		).toEqual([
+			{ siteCode: "equator", latitude: "0", longitude: "0" },
+			{ siteCode: "near", latitude: "0.0000001", longitude: "-0.0000005" },
 		]);
-		expect(result.places.map((one) => one.siteCode)).toEqual(["north"]);
 	});
 
 	it("finds a name too long and a coordinate the store refuses", () => {
@@ -451,7 +461,7 @@ describe.each(MODES)("planManagedPlaces at a %s", (mode) => {
 		const result = plan(
 			[
 				place("long", "state", null, { name: long }),
-				place("far", "state", null, { name: "Far", latitude: "1234.5" }),
+				place("far", "state", null, { name: "Far", latitude: "12345678901.5" }),
 				place("fine", "state", null, {
 					name: "Fine",
 					longitude: "12.12345678901",
@@ -487,10 +497,8 @@ describe.each(MODES)("planManagedPlaces at a %s", (mode) => {
 		);
 		expect(result.findings).toEqual([
 			notHoldable("UPSIDE"),
-			notHoldable("ORPHAN"),
+			circumstanceFinding("place-hierarchy-inconsistent", ORGANIZATION, {}),
 			notHoldable("LOOSE"),
-			notHoldable("RING-A"),
-			notHoldable("RING-B"),
 		]);
 		expect(result.places.map((one) => one.siteCode)).toEqual([
 			"north",
@@ -498,7 +506,7 @@ describe.each(MODES)("planManagedPlaces at a %s", (mode) => {
 		]);
 	});
 
-	it("finds a value that is not text or is too long, by its slug", () => {
+	it("projects numeric values to worker text and carries long values without truncation", () => {
 		const result = plan(
 			[
 				place("north", "state", null, { values: { beds: 4 } }),
@@ -509,11 +517,28 @@ describe.each(MODES)("planManagedPlaces at a %s", (mode) => {
 			mode,
 		);
 		// `catchment` applies only at clinics, so a state's is not read.
-		expect(result.findings).toEqual([
-			notHoldable("NORTH: beds"),
-			notHoldable("SOUTH: beds"),
+		expect(result.findings).toEqual([]);
+		expect(result.places.map((row) => row.values)).toEqual([
+			{ [BEDS]: "4" },
+			{ [BEDS]: "x".repeat(4097) },
 		]);
-		expect(result.places).toEqual([]);
+	});
+
+	it("finds a value whose worker text depends on an order CommCare HQ's answer sorted away", () => {
+		/* A dictionary of two entries reaches a worker in the order it was
+		 * saved, which HQ's JSON answer does not keep. One entry has one order. */
+		const result = plan(
+			[
+				place("north", "state", null, { values: { beds: { a: 1, b: 2 } } }),
+				place("south", "state", null, { values: { beds: { a: 1 } } }),
+			],
+			mode,
+		);
+		expect(result.findings).toEqual([
+			circumstanceFinding("place-value-order-unknown", ORGANIZATION, {
+				name: "NORTH: beds",
+			}),
+		]);
 	});
 });
 
@@ -548,60 +573,9 @@ describe("planManagedPlaces at a level the app lacks", () => {
 	});
 });
 
-describe("managedPlacesOwnerFindings", () => {
-	// Regions own cases, districts do not, clinics do: a case a region owns
-	// goes to the clinic below it.
-	const doc = locationOwnerFixture("multirung");
-	const regionTree = [
-		place("east", "region", null),
-		place("east-lakes", "district", "hq-east"),
-	];
-	const planOf = (hqPlaces: readonly HqLocation[]) =>
-		planManagedPlaces({
-			hqPlaces,
-			levels: LOCATION_LEVELS,
-			properties: [],
-			mode: "birth",
-		});
-	const needsOne = [
-		circumstanceFinding("owner-rule-needs-one-place", ORGANIZATION, {
-			name: "clinic",
-		}),
-	];
-
-	it("finds a rule with two places at its level below one owner", () => {
-		const twoClinics = planOf([
-			...regionTree,
-			place("east-a", "clinic", "hq-east-lakes"),
-			place("east-b", "clinic", "hq-east-lakes"),
-		]);
-		expect(twoClinics.findings).toEqual([]);
-		expect(managedPlacesOwnerFindings(doc, twoClinics)).toEqual(needsOne);
-	});
-
-	it("finds a rule with no place at its level below an owner", () => {
-		expect(managedPlacesOwnerFindings(doc, planOf(regionTree))).toEqual(
-			needsOne,
-		);
-	});
-
-	it("finds nothing where one place stands at the level below each owner", () => {
-		const oneClinic = planOf([
-			...regionTree,
-			place("east-a", "clinic", "hq-east-lakes"),
-		]);
-		expect(managedPlacesOwnerFindings(doc, oneClinic)).toEqual([]);
-	});
-
-	it("finds nothing for an app with no owner rule at a level", () => {
-		const plain = locationOwnerFixture("plain");
-		expect(managedPlacesOwnerFindings(plain, planOf(regionTree))).toEqual([]);
-	});
-});
-
 const FINDINGS_APP_ID = "0b4f6a52-7c55-5a35-9d1e-3c2f8a1b4e6d";
 
-/** A level whose code Nova cannot hold: `place-not-holdable`, named "Region". */
+/** A level whose code Nova cannot hold: `place-field-unusable`, named "Region". */
 const UNHOLDABLE: HqLocationType = {
 	id: "1",
 	name: "Region",
@@ -617,10 +591,7 @@ const UNHOLDABLE: HqLocationType = {
  * level Nova cannot hold, no place and the given list limit, for a reading
  * that reads places or reads none.
  */
-function placeFindings(
-	readsPlaces: boolean,
-	placesPastLimit: { readonly totalCount: number | null } | null,
-) {
+function placeFindings(readsPlaces: boolean, inconsistent: boolean) {
 	return readingProjectDataFindingsFor(
 		assembleReadingProjectData({
 			origin: { server: "india", domain: "clinic" },
@@ -635,7 +606,6 @@ function placeFindings(
 				definitions: [],
 				rowsByTable: {},
 				apps: {},
-				keptColumns: {},
 				siblings: [],
 				mayAdminister: true,
 			},
@@ -643,7 +613,7 @@ function placeFindings(
 			places: {
 				hqLevels: [UNHOLDABLE],
 				hqPlaces: [],
-				placesPastLimit,
+				inconsistent,
 			},
 			placesUnread: null,
 		}),
@@ -655,31 +625,17 @@ function placeFindings(
 
 describe("readingProjectDataFindingsFor, a level Nova cannot hold", () => {
 	it("is a finding where the reading reads places", () => {
-		expect(placeFindings(true, null)).toEqual([notHoldable("Region")]);
+		expect(placeFindings(true, false)).toEqual([notHoldable("Region")]);
 	});
 
 	it("is no finding where the reading reads no place", () => {
-		expect(placeFindings(false, null)).toEqual([]);
+		expect(placeFindings(false, false)).toEqual([]);
 	});
 });
 
-describe("readingProjectDataFindingsFor, places past Nova's limit", () => {
-	const findingsPast = (totalCount: number | null) =>
-		placeFindings(true, { totalCount });
-
-	it("gives one places-over-nova-limit named by CommCare HQ's total, and nothing of a level or a place beside it", () => {
-		expect(findingsPast(12_400)).toEqual([
-			circumstanceFinding("places-over-nova-limit", ORGANIZATION, {
-				name: "12,400 places",
-			}),
-		]);
-	});
-
-	it("names the byte bound where the list passed it", () => {
-		expect(findingsPast(null)).toEqual([
-			circumstanceFinding("places-over-nova-limit", ORGANIZATION, {
-				name: "more place information than Nova reads",
-			}),
-		]);
-	});
+it("reports an inconsistent source once after the whole hierarchy has been retried", () => {
+	expect(placeFindings(true, true)).toEqual([
+		circumstanceFinding("place-hierarchy-inconsistent", ORGANIZATION, {}),
+	]);
+	expect(placeFindings(false, true)).toEqual([]);
 });

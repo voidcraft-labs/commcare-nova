@@ -39,11 +39,13 @@ const SESSION_INSTANCE_ID = "commcaresession";
 const SEARCH_INPUT_INSTANCE_PREFIX = "search-input:";
 
 export type PreviewDataRefusalReason =
+	| { readonly kind: "invalid-case-location" }
 	/** A value read below an instance that holds nothing, named by its id. */
 	| { readonly kind: "empty-instance"; readonly instanceId: string }
 	/** A case owner moved to the worker's place at a level, for a worker
 	 * assigned nowhere: Core refuses the owner's read when the form opens
 	 * (`lib/commcare/xpath/wire/tree.ts::WirePath.refusesEmpty`). */
+	| { readonly kind: "group-count" }
 	| { readonly kind: "owner-without-place" }
 	/** A choice list whose table has no rows. `fieldUuid` is the form's
 	 * question, where the refusal came from one. */
@@ -59,6 +61,13 @@ export type PreviewDataRefusalReason =
 	 * field's label, or its name where it has none. */
 	| {
 			readonly kind: "unoffered-starting-choice";
+			readonly inputUuid: Uuid;
+			readonly input: string;
+	  }
+	/** A date-range Search field whose starting value Web Apps' date picker
+	 * cannot show as a pair of dates, so its screen does not open. */
+	| {
+			readonly kind: "unreadable-starting-range";
 			readonly inputUuid: Uuid;
 			readonly input: string;
 	  };
@@ -83,13 +92,19 @@ export class PreviewDataRefusal extends Error {
 		stage: PreviewDataRefusalStage = "form",
 	) {
 		super(
-			reason.kind === "empty-instance"
-				? `CommCare refuses this read: the instance “${reason.instanceId}” holds nothing on the device.`
-				: reason.kind === "owner-without-place"
-					? "CommCare refuses this case owner: the worker is assigned no place to move the case to."
-					: reason.kind === "unoffered-starting-choice"
-						? `CommCare refuses this Search screen: its one field “${reason.input}” starts on a choice its list doesn't offer.`
-						: "CommCare refuses this choice list: its table has no rows.",
+			reason.kind === "invalid-case-location"
+				? "A saved case location cannot be read as coordinates."
+				: reason.kind === "empty-instance"
+					? `CommCare refuses this read: the instance “${reason.instanceId}” holds nothing on the device.`
+					: reason.kind === "group-count"
+						? "This form needs exactly one case-sharing group for this worker."
+						: reason.kind === "owner-without-place"
+							? "CommCare refuses this case owner: the worker is assigned no place to move the case to."
+							: reason.kind === "unreadable-starting-range"
+								? "Web Apps could not open the starting dates for this search."
+								: reason.kind === "unoffered-starting-choice"
+									? `CommCare refuses this Search screen: its one field “${reason.input}” starts on a choice its list doesn't offer.`
+									: "CommCare refuses this choice list: its table has no rows.",
 		);
 		this.name = "PreviewDataRefusal";
 		this.reason = reason;
@@ -150,7 +165,9 @@ export function workerFailureError(failure: XPathRuntimeFailure): Error {
 
 /** What a refusal is about, named from the document and the lookup data. */
 export type PreviewDataRefusalSubject =
+	| { readonly kind: "invalid-case-location" }
 	| { readonly kind: "places" }
+	| { readonly kind: "group-count" }
 	| { readonly kind: "owner-place" }
 	| { readonly kind: "table"; readonly tableName: string }
 	| {
@@ -161,7 +178,10 @@ export type PreviewDataRefusalSubject =
 	| { readonly kind: "search-answers" }
 	/** A Search field of a one-field screen that starts on a choice its list
 	 *  does not offer, by its label. */
-	| { readonly kind: "starting-choice"; readonly input: string }
+	| {
+			readonly kind: "starting-choice" | "starting-range";
+			readonly input: string;
+	  }
 	/** A key of the worker's data the device holds none of: a place key of
 	 *  a worker assigned nowhere, or a field no one defined. */
 	| { readonly kind: "worker-information" }
@@ -191,7 +211,11 @@ export function previewDataRefusalSubject(
 				: { fieldUuid: reason.fieldUuid }),
 		};
 	}
+	if (reason.kind === "group-count") return { kind: "group-count" };
+	if (reason.kind === "invalid-case-location") return reason;
 	if (reason.kind === "owner-without-place") return { kind: "owner-place" };
+	if (reason.kind === "unreadable-starting-range")
+		return { kind: "starting-range", input: reason.input };
 	if (reason.kind === "unoffered-starting-choice")
 		return { kind: "starting-choice", input: reason.input };
 	const { instanceId } = reason;

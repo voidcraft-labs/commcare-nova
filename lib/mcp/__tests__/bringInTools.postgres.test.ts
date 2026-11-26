@@ -15,6 +15,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Client } from "@modelcontextprotocol/client";
+import { sql } from "kysely";
 import type { MockAgent } from "undici";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { withHttpPeer } from "@/__tests__/helpers/httpPeer";
@@ -29,6 +30,7 @@ import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
 import { GenesisGateRejectedError } from "@/lib/db/appGenesis";
 import { softDeleteApp } from "@/lib/db/apps";
 import {
+	changedAnswer,
 	counterOf,
 	FIXTURE_DOMAIN,
 	FIXTURE_HOST,
@@ -60,6 +62,7 @@ import {
 } from "../tools/bringInHqApp";
 import { registerListHqApps } from "../tools/listHqApps";
 import { registerReadHqApp } from "../tools/readHqApp";
+import type { ReadingProjection } from "../tools/readingProjection";
 import { withMcpClient } from "./client";
 import { resultContentText } from "./resultText";
 
@@ -110,6 +113,19 @@ vi.mock("@/lib/storage/media", () => ({
 	uploadAssetBytes: vi.fn(),
 	deleteAsset: vi.fn(),
 	downloadAssetBytes: vi.fn(),
+	/* A create stages each held file, then copies the staged object to its content key. */
+	stageAssetBytes: vi.fn(
+		async ({ gcsObjectKey }: { gcsObjectKey: string }) => ({
+			gcsObjectKey,
+			generation: "1",
+			checksum: "staged",
+		}),
+	),
+	copyAssetObjectIfAbsent: vi.fn(async () => ({
+		destinationGeneration: "1",
+		replay: false,
+	})),
+	deleteAssetGeneration: vi.fn(async () => undefined),
 }));
 
 const h = setupAppStateTestDb("mcp_bring_in_", {
@@ -169,6 +185,7 @@ async function call(
 	args: Json,
 ): Promise<{ readonly isError: boolean; readonly body: Json }> {
 	const result = await client.callTool({ name, arguments: args });
+	expect(JSON.stringify(result).length).toBeLessThanOrEqual(80_000);
 	return {
 		isError: result.isError === true,
 		body: JSON.parse(resultContentText(result)) as Json,
@@ -206,6 +223,7 @@ async function readReview(client: Client) {
 			runs_only_on: preselected.runs_only_on,
 			split_datetime: preselected.split_datetime,
 			table_choices: {},
+			owner_rule_choices: {},
 		},
 	};
 }
@@ -262,6 +280,116 @@ function serveSourceHeld(
 }
 
 describe("read_hq_app", () => {
+	it.each([
+		{
+			count: 140,
+			name: "plain",
+			path: (i: number) => `jr://file/commcare/${i}-${"x".repeat(600)}.png`,
+		},
+		{
+			count: 600,
+			name: "quoted",
+			path: (i: number) => `jr://file/visits/${'"'.repeat(145)}${i}.png`,
+		},
+	])(
+		"reads one birth over $count $name physical files and lookup pages before offering approval",
+		async ({ count: fileCount, path }) => {
+			const files = Array.from(
+				{ length: fileCount },
+				(_, i) =>
+					[
+						path(i),
+						{ media_type: "CommCareImage", multimedia_id: `remote${i}` },
+					] as const,
+			);
+			const source = changedAnswer(fixtureSource(), (body) => ({
+				...body,
+				multimedia_map: {
+					...(body.multimedia_map as object),
+					...Object.fromEntries(files),
+				},
+			}));
+			await withHttpPeer(async (peer) =>
+				withTools(async (client) => {
+					serveFixtureApp(peer);
+					const { args } = await readReview(client);
+					serveFixtureApp(peer, { source });
+					const { body: stale } = await call(client, "bring_in_hq_app", args);
+					const first = stale.reading as unknown as ReadingProjection;
+					expect(stale.status).toBe("changed");
+					expect(first.review?.review_digest).toBeNull();
+					const continuation = first.review?.next_page;
+					if (!continuation)
+						throw new Error("Expected the rest of this review.");
+					serveFixtureApp(peer, { source });
+					const attempted = await call(client, "bring_in_hq_app", {
+						...args,
+						reading_id: first.reading_id,
+						review_digest: continuation.split(":")[1],
+					});
+					expect(attempted.body.status).toBe("changed");
+					expect(
+						await h.db().selectFrom("apps").select("id").execute(),
+					).toEqual([]);
+					await sql`UPDATE auth_organization SET name = ${"New field team"} WHERE id = ${PROJECT}`.execute(
+						h.db(),
+					);
+					serveFixtureApp(peer, { source });
+					const renamedProject = await call(client, "read_hq_app", {
+						...READ_ARGS,
+						page: continuation,
+					});
+					expect(renamedProject.body).toMatchObject({
+						state: "review",
+						restarted: true,
+						review: { review_digest: null },
+					});
+					let page: string | undefined;
+					let nonce: string | undefined;
+					const paths: string[] = [];
+					const tables: string[] = [];
+					let count = 0;
+					do {
+						serveFixtureApp(peer, { source });
+						const response = await call(client, "read_hq_app", {
+							...READ_ARGS,
+							...(page && { page }),
+						});
+						expect(response.isError).toBe(false);
+						const body = response.body as unknown as ReadingProjection;
+						if (!body.review || !body.reading_id)
+							throw new Error("Expected a birth review.");
+						nonce ??= body.reading_id;
+						expect(body.reading_id).toBe(nonce);
+						expect(body.restarted).not.toBe(true);
+						paths.push(
+							...(body.review.publish_details ?? []).map((row) => row.text),
+						);
+						tables.push(...body.review.tables.map((row) => row.tag));
+						page = body.review.next_page ?? undefined;
+						expect(body.review.review_digest === null).toBe(page !== undefined);
+						if (page) expect(page.endsWith(nonce)).toBe(true);
+						count++;
+						if (count > 20)
+							throw new Error(
+								"The unchanged reading restarted instead of advancing.",
+							);
+					} while (page);
+					expect(count).toBeGreaterThan(1);
+					/* A removal names the file's path within the app. */
+					for (const [name] of files)
+						expect(
+							paths.some((line) =>
+								line.includes(name.slice("jr://file/".length)),
+							),
+						).toBe(true);
+					expect(tables).toContain("district");
+				}),
+			);
+		},
+		60_000,
+	);
+
 	it("answers a review with its reading_id in one call", async () => {
 		await withHttpPeer(async (peer) => {
 			serveFixtureApp(peer);
@@ -560,6 +688,7 @@ describe("each refusal a call can make arrives with its tag and refusal", () => 
 				runs_only_on: null,
 				split_datetime: false,
 				table_choices: {},
+				owner_rule_choices: {},
 			},
 		],
 	] as const)(
@@ -603,6 +732,7 @@ describe("each refusal a call can make arrives with its tag and refusal", () => 
 					runs_only_on: null,
 					split_datetime: false,
 					table_choices: {},
+					owner_rule_choices: {},
 				});
 				for (const answer of [read, create])
 					expect(answer).toEqual({
@@ -617,7 +747,7 @@ describe("each refusal a call can make arrives with its tag and refusal", () => 
 	it("choice_missing and choice_not_offered, at bring_in_hq_app", async () => {
 		await seedProjectDistrict();
 		await withHttpPeer(async (peer) => {
-			serveFixtureApp(peer, { times: 3 });
+			serveFixtureApp(peer, { times: 4 });
 			await withTools(async (client) => {
 				const { body, args } = await readReview(client);
 				const tables = (body.review as { tables: Json[] }).tables;
@@ -637,8 +767,20 @@ describe("each refusal a call can make arrives with its tag and refusal", () => 
 					...args,
 					split_datetime: !args.split_datetime,
 					table_choices: { district: "use-project" },
+					owner_rule_choices: {},
 				});
 				expect(notOffered.body).toMatchObject({
+					error_type: "invalid_input",
+					refusal: "choice_not_offered",
+				});
+				/* An owner-rule answer reaches the create: this review asks
+				 * none, so one for a level is an answer it does not offer. */
+				const ownerNotOffered = await call(client, "bring_in_hq_app", {
+					...args,
+					table_choices: { district: "use-project" },
+					owner_rule_choices: { clinic: "worker" },
+				});
+				expect(ownerNotOffered.body).toMatchObject({
 					error_type: "invalid_input",
 					refusal: "choice_not_offered",
 				});

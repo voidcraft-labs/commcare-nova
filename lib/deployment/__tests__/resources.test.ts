@@ -329,6 +329,7 @@ describe("a released mapping", () => {
 const storedList = {
 	remoteAppId: "hq-app",
 	stored: {
+		reviewed: 1,
 		ids: ["forms-and-settings-rewritten", "unused-media-entries-removed"],
 		webAppsOnInHq: true,
 		of: "first-publish",

@@ -3,6 +3,8 @@ import { Icon } from "@iconify/react/offline";
 import tablerX from "@iconify-icons/tabler/x";
 import { EntryPointSettingsShortcut } from "@/components/builder/app-setup/EntryPointSettingsShortcut";
 import { DisplayConditionSection } from "@/components/builder/conditions/DisplayConditionSection";
+import { MenuBadgeSection } from "@/components/builder/conditions/MenuBadgeSection";
+import { ControlWording } from "@/components/builder/localization/ControlWording";
 import { Button } from "@/components/shadcn/button";
 import { useIsCaseListRegistrationForm } from "@/lib/doc/hooks/useOfferedBatchRefusals";
 import { AfterSubmitSection } from "./AfterSubmitSection";
@@ -10,6 +12,7 @@ import { CaseChangesSection } from "./CaseChangesSection";
 import { ConnectSection } from "./ConnectSection";
 import { FormAppearanceSection } from "./FormAppearanceSection";
 import { FormEntrySection } from "./FormEntrySection";
+import { FormLocationSection } from "./FormLocationSection";
 import { NoMatchesAfterSubmitSection } from "./NoMatchesAfterSubmitSection";
 import { OwnCaseSection } from "./OwnCaseSection";
 import { RecordNameSection } from "./RecordNameSection";
@@ -87,7 +90,12 @@ export function FormSettingsPanel({
 
 				<ConnectSection moduleUuid={moduleUuid} formUuid={formUuid} />
 
+				<FormLocationSection formUuid={formUuid} />
 				<FormAppearanceSection moduleUuid={moduleUuid} formUuid={formUuid} />
+				{!noMatches && (
+					<MenuBadgeSection moduleUuid={moduleUuid} formUuid={formUuid} />
+				)}
+				<ControlWording owner={formUuid} />
 
 				{!noMatches && (
 					<DisplayConditionSection

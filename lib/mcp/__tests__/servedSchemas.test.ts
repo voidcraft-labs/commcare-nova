@@ -460,7 +460,8 @@ it("serves provision_workers' confirm_worker_levels as level codes, and withdraw
 		validateFormats: false,
 	}).compile(properties.confirm_worker_levels);
 	expect(validateLevels(["district", "Health_Facility", "_ward-2"])).toBe(true);
-	expect(validateLevels(["2nd-level"])).toBe(false);
+	/* A level code HQ derives from a name is checked where the call is read:
+	 * its rule is a refinement no JSON Schema keyword states. */
 	expect(validateLevels("district")).toBe(false);
 	expect(properties.confirm_worker_levels.description).toContain(
 		"`worker_levels_unconfirmed`",
@@ -553,6 +554,7 @@ it("serves bring_in_hq_app with every answer required and no default", () => {
 		"app_name",
 		"domain",
 		"hq_app_id",
+		"owner_rule_choices",
 		"project_id",
 		"reading_id",
 		"review_digest",
@@ -619,10 +621,49 @@ it("serves the four other bring-in tools as closed objects", () => {
 		additionalProperties: false,
 	});
 	expect(inputShape("set_lookup_table_management")).toEqual({
-		properties: ["managed_by", "project_id", "review_digest", "table_id"],
+		properties: [
+			"current_workbook_base64",
+			"managed_by",
+			"project_id",
+			"review_digest",
+			"source_domain",
+			"source_server",
+			"table_id",
+		],
 		required: ["managed_by", "project_id", "table_id"],
 		additionalProperties: false,
 	});
+	expect(inputShape("separate_lookup_table")).toEqual({
+		properties: [
+			"app_ids",
+			"name",
+			"project_id",
+			"review_digest",
+			"table_id",
+			"tag",
+		],
+		required: ["project_id", "table_id"],
+		additionalProperties: false,
+	});
+	/* A separate table is made only under the digest of the preview the
+	 * user read, and never for an app named some other way. */
+	expect(
+		takes("separate_lookup_table", {
+			project_id: "program",
+			table_id: "table",
+			confirmed: true,
+		}),
+	).not.toBe(true);
+	expect(
+		takes("separate_lookup_table", {
+			project_id: "program",
+			table_id: "table",
+			name: "Facilities 2",
+			tag: "facilities_2",
+			app_ids: ["app"],
+			review_digest: "a".repeat(64),
+		}),
+	).toBe(true);
 	/* A change of who manages a table is made only under the digest of the
 	 * preview the user read: there is no bare yes. */
 	expect(
@@ -694,6 +735,7 @@ it("serves read_hq_changes and bring_in_hq_changes as closed objects, the bring-
 	const answers = [
 		"app_id",
 		"discard_nova_changes",
+		"owner_rule_choices",
 		"reading_id",
 		"review_digest",
 		"table_choices",
@@ -709,6 +751,9 @@ it("serves read_hq_changes and bring_in_hq_changes as closed objects, the bring-
 	const choices = validatorOf("bring_in_hq_changes", "table_choices");
 	expect(choices({ district: "use-project" })).toBe(true);
 	expect(choices({ district: "both" })).toBe(false);
+	const owners = validatorOf("bring_in_hq_changes", "owner_rule_choices");
+	expect(owners({ clinic: "worker" })).toBe(true);
+	expect(owners({ clinic: "first_clinic" })).toBe(false);
 	expect(
 		everyPosition("bring_in_hq_changes").filter(
 			(schema) => "default" in schema,
@@ -721,7 +766,7 @@ it("serves read_hq_changes and bring_in_hq_changes as closed objects, the bring-
 
 it("tells a client an agent never chooses for the user", () => {
 	expect(served("bring_in_hq_app").description).toContain(
-		"never choose the name, where the app runs, the date-and-time split or a lookup table's answer for them",
+		"never choose the name, where the app runs, the date-and-time split, a lookup table's answer or an owner rule's answer for them",
 	);
 	expect(served("read_hq_app").description).toContain(
 		"never choose it for them",

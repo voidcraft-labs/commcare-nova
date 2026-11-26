@@ -72,6 +72,7 @@ import {
 	serializeXForm,
 } from "@/lib/commcare/xform/domSplice";
 import { FormPath } from "@/lib/commcare/xform/formPath";
+import { advancedAutosetsOwner, appendDefaultOwner } from "../workerGroupsWire";
 import { w } from "../xpath/wire/builders";
 import { InstanceSink, sessionInstance } from "../xpath/wire/instances";
 import { caseById } from "../xpath/wire/rowScope";
@@ -91,6 +92,7 @@ export interface AdvancedCaseBlocksPlan {
 }
 
 export interface AdvancedCaseBlocksContext {
+	readonly caseSharing?: boolean;
 	/**
 	 * The session datum each load's case id is read from, by the load's tag,
 	 * after HQ's child-module alignment (`EntriesHelper.
@@ -149,6 +151,7 @@ function actionRelevance(condition: FormActionCondition): WireExpr | undefined {
 /** Everything the injection adds besides the data elements it splices as
  *  it goes. */
 interface Emission {
+	readonly caseSharing: boolean;
 	readonly binds: Element[];
 	readonly setvalues: Element[];
 	readonly requiredNamePaths: string[];
@@ -401,7 +404,7 @@ function addOpenBlock(
 
 	// `XFormCaseBlock.add_create_block`.
 	const createPath = casePath.child("create");
-	const ownerSet = autosetsOwner(action);
+	const ownerSet = advancedAutosetsOwner(action);
 	append(
 		caseEl,
 		el("create", {}, [
@@ -433,9 +436,13 @@ function addOpenBlock(
 		calculate: FormPath.parse(namePath).toWire(),
 	});
 	if (ownerSet)
-		bind(emission, createPath.child("owner_id"), {
-			calculate: META_USER_ID.toWire(),
-		});
+		appendDefaultOwner(
+			emission,
+			createPath.child("owner_id").toWire(),
+			META_USER_ID.toWire(),
+			emission.caseSharing,
+			!!action.repeat_context,
+		);
 	emission.requiredNamePaths.push(namePath);
 
 	addUpdates(
@@ -477,14 +484,6 @@ function addOpenBlock(
 	addClose(emission, caseEl, casePath, action.close_condition);
 }
 
-/** `autoset_owner_id_for_advanced_action`: HQ sets the owner unless the
- *  action writes `owner_id` or every index it carries is an extension. */
-function autosetsOwner(action: AdvancedOpenCaseAction): boolean {
-	if (Object.hasOwn(action.case_properties, "owner_id")) return false;
-	if (action.case_indices.length === 0) return true;
-	return action.case_indices.some((index) => index.relationship === "child");
-}
-
 /** The action a tag names (`AdvancedFormActions.actions_meta_by_tag`). */
 function actionByTag(
 	actions: AdvancedFormActions,
@@ -517,6 +516,7 @@ export function addAdvancedCaseBlocks(
 		return xform;
 	const instances = new InstanceSink();
 	const emission: Emission = {
+		caseSharing: ctx.caseSharing === true,
 		binds: [],
 		setvalues: [],
 		requiredNamePaths: [],

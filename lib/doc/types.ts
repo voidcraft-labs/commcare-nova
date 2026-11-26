@@ -1,3 +1,10 @@
+import {
+	holdsLabelOnlyMedia,
+	LABEL_ONLY_MEDIA_MESSAGE,
+	translatedMediaSchema,
+} from "@/lib/domain/multimedia";
+import { navigationLanguageEntrySchema } from "@/lib/domain/navigationMedia";
+
 // lib/doc/types.ts
 //
 // Defines the doc-layer `Mutation` union and re-exports the handful of
@@ -28,7 +35,9 @@ import {
 	automationUserDataFilterSchema,
 	CONNECT_TYPES,
 	type Column,
+	calculatedSortSchema,
 	caseListMenuItemSchema,
+	caseListWordingSchema,
 	caseOperationSchema,
 	casePropertySchema,
 	caseSearchConfigSchema,
@@ -58,8 +67,12 @@ import {
 	organizationLevelSchema,
 	ownerOnlyCaseSearchConfigSchema,
 	personaSchema,
+	readCasePropertyNameSchema,
 	type SearchInputDef,
+	searchFilterSchema,
 	searchInputDefSchema,
+	searchOrderFilterSchema,
+	searchValueFilterSchema,
 	selectOptionSchema,
 	selectOptionsSourceSchema,
 	tileCellSchema,
@@ -70,12 +83,16 @@ import {
 	userTypeSchema,
 	uuidSchema,
 } from "@/lib/domain";
+import { caseFormContextSchema } from "@/lib/domain/caseFormContext";
+import { caseRelationSchema } from "@/lib/domain/caseRelations";
+import { detailTabsSchema } from "@/lib/domain/detailTabs";
 import {
 	entryPointIdSchema,
 	entryPointTargetSchema,
 	formEntryPointSchema,
 } from "@/lib/domain/entryPoints";
 import { conditionSchema } from "@/lib/domain/expression/types";
+import { detailTileSchema } from "@/lib/domain/modules";
 import {
 	casePlacementSchema,
 	ownClosePlacementSchema,
@@ -351,6 +368,8 @@ function caseSearchConfigPatchSchemaFor(
 			/** `null` is search first. */
 			workflow: configSchema.shape.workflow.nullable(),
 			formsReadSearch: configSchema.shape.formsReadSearch.nullable(),
+			searchOnClear: configSchema.shape.searchOnClear.nullable(),
+			requestOrder: configSchema.shape.requestOrder.nullable(),
 		})
 		.partial();
 }
@@ -487,6 +506,7 @@ const userDataValuePatchSchema = z.strictObject({
 
 const canonicalModuleUpdatePatchSchema = clearablePartialPatch(moduleSchema)
 	.omit({
+		formsFromMenu: true,
 		entryPoint: true,
 		caseListEntryPoint: true,
 		id: true,
@@ -496,6 +516,7 @@ const canonicalModuleUpdatePatchSchema = clearablePartialPatch(moduleSchema)
 		caseSearchConfig: true,
 		icon: true,
 		audioLabel: true,
+		mediaByLanguage: true,
 		// The case list menu item is set whole by `setCaseListMenuItem`.
 		caseListMenuItem: true,
 		// Whether CommCare HQ holds the menu as an advanced module is held by
@@ -503,6 +524,8 @@ const canonicalModuleUpdatePatchSchema = clearablePartialPatch(moduleSchema)
 		heldKind: true,
 	})
 	.extend({
+		/** Source changes never replace the route’s form links or per-form visibility. */
+		formsFromMenu: z.strictObject({ menuUuid: uuidSchema }).nullish(),
 		/** Whole config snapshots have granular owners. These null-only slots are
 		 * the direct structural teardown payloads. */
 		caseListConfig: z.null().optional(),
@@ -520,6 +543,7 @@ const canonicalFormUpdatePatchSchema = clearablePartialPatch(formSchema).omit({
 	otherwise: true,
 	icon: true,
 	audioLabel: true,
+	mediaByLanguage: true,
 	// Where a published app keeps the own close is held by `holdPlacements`
 	// alone; no form patch writes it.
 	ownClosePlacement: true,
@@ -1061,6 +1085,13 @@ function createMutationSchema({
 				kind: z.literal("updateModule"),
 				uuid: uuidSchema,
 				patch: mutationModuleUpdatePatchSchema,
+				listedForm: z
+					.strictObject({
+						sourceUuid: uuidSchema,
+						formUuid: uuidSchema,
+						included: z.boolean(),
+					})
+					.optional(),
 				ensureCaseListConfig: z.literal(true).optional(),
 				caseSearchConfigOperation: z
 					.enum([
@@ -1075,6 +1106,18 @@ function createMutationSchema({
 				caseSearchConfigPatch: mutationCaseSearchConfigPatchSchema.optional(),
 			})
 			.superRefine((mutation, ctx) => {
+				if (
+					mutation.listedForm &&
+					(Object.keys(mutation.patch).length ||
+						mutation.ensureCaseListConfig ||
+						mutation.caseSearchConfigOperation ||
+						mutation.caseSearchConfigPatch)
+				)
+					ctx.addIssue({
+						code: "custom",
+						path: ["listedForm"],
+						message: "Changing which form is shown is a complete edit.",
+					});
 				if (
 					mutation.ensureCaseListConfig &&
 					Object.hasOwn(mutation.patch, "caseListConfig")
@@ -1324,6 +1367,33 @@ function createMutationSchema({
 		}),
 		z.object({ kind: z.literal("removeLanguage"), code: languageTagSchema }),
 		z.object({
+			kind: z.literal("rebindLanguageCodes"),
+			changes: z
+				.array(
+					z.strictObject({
+						language: languageTagSchema,
+						from: languageWireCodeSchema,
+						to: languageWireCodeSchema,
+					}),
+				)
+				.min(1),
+		}),
+		z.object({
+			kind: z.literal("rebaseSourceLanguage"),
+			from: languageTagSchema,
+			to: languageTagSchema,
+		}),
+		z.object({
+			kind: z.literal("setProjectLanguageDirection"),
+			code: languageTagSchema,
+			direction: z.enum(["ltr", "rtl"]),
+		}),
+		z.object({
+			kind: z.literal("moveLanguage"),
+			code: languageTagSchema,
+			after: languageTagSchema.nullable(),
+		}),
+		z.object({
 			kind: z.literal("setDefaultLanguage"),
 			code: languageTagSchema,
 		}),
@@ -1332,6 +1402,14 @@ function createMutationSchema({
 			language: languageTagSchema,
 			unitId: translationUnitIdSchema,
 			entry: translationEntrySchema.nullable(),
+			// Historical replay may restore a formerly stale draft. Both the current
+			// source and previous entry must match what the diff inspected.
+			restoreAgainst: z
+				.strictObject({
+					sourceFingerprint: z.string().min(1),
+					previous: translationEntrySchema.nullable(),
+				})
+				.optional(),
 		}),
 		z.object({
 			kind: z.literal("reviewTranslation"),
@@ -1351,7 +1429,9 @@ function createMutationSchema({
 				.array(
 					z.strictObject({
 						caseType: z.string().min(1),
-						from: authoredCasePropertyNameSchema,
+						// A brought-in name past the authored bound can be renamed
+						// away from; the new name keeps the authored grammar.
+						from: readCasePropertyNameSchema,
 						to: authoredCasePropertyNameSchema,
 					}),
 				)
@@ -1372,7 +1452,7 @@ function createMutationSchema({
 			kind: z.literal("addCaseProperty"),
 			caseType: z.string(),
 			property: casePropertySchema,
-			after: authoredCasePropertyNameSchema.nullable().optional(),
+			after: readCasePropertyNameSchema.nullable().optional(),
 		}),
 		z.object({
 			kind: z.literal("setCaseProperty"),
@@ -1380,12 +1460,24 @@ function createMutationSchema({
 			property: casePropertySchema,
 		}),
 		z.object({
+			kind: z.literal("moveCaseProperty"),
+			caseType: z.string(),
+			property: readCasePropertyNameSchema,
+			after: readCasePropertyNameSchema.nullable(),
+		}),
+		z.object({
 			kind: z.literal("removeCaseProperty"),
 			caseType: z.string(),
-			property: authoredCasePropertyNameSchema,
+			property: readCasePropertyNameSchema,
 		}),
 		z.object({
 			kind: z.literal("setCaseTypeMeta"),
+			relationChange: z
+				.strictObject({
+					action: z.enum(["add", "remove"]),
+					edge: caseRelationSchema,
+				})
+				.optional(),
 			caseType: z.string(),
 			parent_type: z.string().nullable().optional(),
 			relationship: z.enum(["child", "extension"]).nullable().optional(),
@@ -1663,13 +1755,71 @@ function createMutationSchema({
 		// The module's case-list metadata that is NOT a membership array — the
 		// always-on `filter` predicate, selection behavior, and the tile.
 		// Each slot is nullable so a clear crosses the JSON wire as `null`.
+		z.strictObject({
+			kind: z.literal("addCalculatedSort"),
+			moduleUuid: uuidSchema,
+			sort: calculatedSortSchema,
+		}),
+		z.strictObject({
+			kind: z.literal("updateCalculatedSort"),
+			moduleUuid: uuidSchema,
+			uuid: uuidSchema,
+			after: uuidSchema.nullable().optional(),
+			patch: z.strictObject({
+				expression: calculatedSortSchema.shape.expression.optional(),
+				direction: calculatedSortSchema.shape.direction.optional(),
+				priority: calculatedSortSchema.shape.priority.optional(),
+				comparator: calculatedSortSchema.shape.comparator.nullable(),
+				blanks: calculatedSortSchema.shape.blanks.nullable(),
+				label: calculatedSortSchema.shape.label.nullable(),
+			}),
+		}),
+		z.strictObject({
+			kind: z.literal("removeCalculatedSort"),
+			moduleUuid: uuidSchema,
+			uuid: uuidSchema,
+		}),
 		z.object({
 			kind: z.literal("setCaseListMeta"),
 			uuid: uuidSchema,
 			patch: z.strictObject({
 				filter: mutationConditionSchema.nullable().optional(),
+				listCondition: mutationConditionSchema.nullable().optional(),
+				searchCondition: mutationConditionSchema.nullable().optional(),
+				searchFilterEdit: z
+					.discriminatedUnion("operation", [
+						z.strictObject({
+							operation: z.literal("add"),
+							filter: searchFilterSchema,
+							after: uuidSchema.nullable().optional(),
+						}),
+						z.strictObject({
+							operation: z.literal("edit"),
+							uuid: uuidSchema,
+							patch: z.union([
+								searchValueFilterSchema.omit({ uuid: true }).partial(),
+								searchOrderFilterSchema.pick({ order: true }),
+							]),
+						}),
+						z.strictObject({
+							operation: z.literal("move"),
+							uuid: uuidSchema,
+							after: uuidSchema.nullable(),
+						}),
+						z.strictObject({
+							operation: z.literal("remove"),
+							uuid: uuidSchema,
+						}),
+					])
+					.optional(),
 				selection: caseSelectionSchema.nullable().optional(),
 				tile: caseTileLayoutSchema.nullable().optional(),
+				detailTabs: detailTabsSchema.nullable().optional(),
+				detailTile: detailTileSchema.nullable().optional(),
+				contextAboveForm: caseFormContextSchema.nullable().optional(),
+				emptyText: caseListWordingSchema.nullable().optional(),
+				selectButtonText: caseListWordingSchema.nullable().optional(),
+				optimizations: z.literal(true).nullable().optional(),
 			}),
 		}),
 		// The module's case list as its own menu entry, set whole as
@@ -1727,20 +1877,43 @@ function createMutationSchema({
 		// clearable slots — `setConnectType` is the lone exception: its slot is
 		// genuinely `.nullable()` and stores `null` as a real value, so it is NOT
 		// a patch reducer and never gets the null-as-delete treatment.
-		z.object({
-			kind: z.literal("setFieldMedia"),
-			fieldUuid: uuidSchema,
-			slot: z.enum(FIELD_MEDIA_SLOTS),
-			media: mediaSchema.nullable(),
-		}),
+		z
+			.object({
+				kind: z.literal("setFieldMedia"),
+				sharedOnly: z.literal(true).optional(),
+				fieldUuid: uuidSchema,
+				slot: z.enum(FIELD_MEDIA_SLOTS),
+				language: languageTagSchema.optional(),
+				optionUuid: uuidSchema.optional(),
+				languageEntry: translatedMediaSchema.nullable().optional(),
+				media: mediaSchema.nullable(),
+			})
+			.refine(
+				// Only a question's label plays an inline video.
+				(mut) =>
+					(mut.slot === "label" && mut.optionUuid === undefined) ||
+					(!holdsLabelOnlyMedia(mut.media ?? undefined) &&
+						mut.languageEntry?.videoInline === undefined),
+				{ message: LABEL_ONLY_MEDIA_MESSAGE },
+			),
 		z.object({
 			kind: z.literal("setModuleMedia"),
+			language: languageTagSchema.optional(),
+			caseListItem: z.literal(true).optional(),
+			languageEntry: navigationLanguageEntrySchema(moduleIconRefSchema)
+				.nullable()
+				.optional(),
 			uuid: uuidSchema,
 			icon: moduleIconRefSchema.nullable(),
 			audioLabel: mediaAssetIdSchema.nullable(),
 		}),
 		z.object({
 			kind: z.literal("setFormMedia"),
+			language: languageTagSchema.optional(),
+			registrationOf: uuidSchema.optional(),
+			languageEntry: navigationLanguageEntrySchema(formIconRefSchema)
+				.nullable()
+				.optional(),
 			uuid: uuidSchema,
 			icon: formIconRefSchema.nullable(),
 			audioLabel: mediaAssetIdSchema.nullable(),

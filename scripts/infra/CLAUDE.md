@@ -78,7 +78,7 @@ second pool connection and proves its schema and database authority before maint
 ownership fails the Job. There is no alternate mode, deploy-time invocation, or
 storage probe.
 
-The bucket policy is the independent hard-retention backstop for ordinary
+The bucket policy is the independent cleanup backstop for private exports and ordinary
 staging-prefix bytes and must never match the durable capture prefix. The media
 policy identity applies that policy with a metageneration fence, disables soft
 delete, versioning, and default event holds, and refuses to remove an operator

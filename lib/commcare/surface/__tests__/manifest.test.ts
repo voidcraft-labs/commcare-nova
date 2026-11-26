@@ -358,7 +358,7 @@ const KEYLESS = MANIFEST.inventory.find(
 // A HELD-NEW entry whose value class sets it apart from the HELD entries on
 // its keys, and a REFUSED entry to plant reasons on.
 const CLASSED_HELD_NEW = entry(
-	"expressions-and-data/groups-jr-fixture-user-groups",
+	"expressions-and-data/search-input-results-read-in-the-search-results-detail",
 );
 const REFUSED_ENTRY = MANIFEST.inventory.find(
 	(each) => each.disposition === "REFUSED",
@@ -404,11 +404,11 @@ const HELD_INSTANCE_READS = [
 	"expressions-and-data/session-context-applanguage",
 	"expressions-and-data/search-input-read-in-form-expressions-of-an-inline-search-module",
 	"expressions-and-data/search-input-results-read-in-the-case-list-of-an-inline-search",
+	"expressions-and-data/groups-jr-fixture-user-groups",
 ] as const;
 const WAITING_INSTANCE_READS = {
 	"case-search/instance-name-without-casedb-ledgerdb-fixture-or-session-in-it":
 		"HELD-NEW",
-	"expressions-and-data/groups-jr-fixture-user-groups": "HELD-NEW",
 	"expressions-and-data/commtrack-locations-hierarchical": "REFUSED",
 	"expressions-and-data/jr-choice-name-on-a-lookup-itemset-select": "REFUSED",
 	"expressions-and-data/session-data-fingerprintquery": "HELD-NEW",
@@ -451,12 +451,20 @@ const SPLIT_KEYS: ReadonlyArray<{
 		key: "schema:DetailColumn.case_tile_field",
 		entries: {
 			"menus-and-case-lists/case-tile-field-template-slot-on-icon-text-grid": [
-				"HELD-NEW",
+				"HELD",
 				"slot-on-a-template-tile",
 			],
 			"menus-and-case-lists/case-tile-field-blank-or-off-a-template-tile": [
 				"INERT",
 				"blank-or-off-a-template-tile",
+			],
+			"menus-and-case-lists/named-case-tile-missing-a-required-slot": [
+				"REFUSED",
+				"missing-a-named-image-or-text-slot",
+			],
+			"menus-and-case-lists/unused-slot-of-a-named-case-tile": [
+				"INERT",
+				"no-field-in-the-template-consumes-this-assignment",
 			],
 		},
 	},
@@ -479,7 +487,7 @@ const SPLIT_KEYS: ReadonlyArray<{
 				"connect-app",
 			],
 			"application-and-settings/45p-hq-auto-gps-capture-on-an-app-that-is-not-a-connect-app":
-				["TARGET-OWNED", "not-a-connect-app"],
+				["HELD", "not-a-connect-app"],
 		},
 	},
 ];
@@ -747,7 +755,7 @@ describe("each rule refuses a planted entry the real manifest lacks", () => {
 				});
 			},
 			problem:
-				"expressions-and-data/planted-unclassed is HELD-NEW and shares instance-source:fixture with",
+				"expressions-and-data/planted-unclassed is HELD-NEW and shares instance-scheme:search-input with",
 		},
 		{
 			rule: "every REFUSED entry whose reasons mix the groups is listed",

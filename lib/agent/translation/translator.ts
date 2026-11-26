@@ -437,6 +437,7 @@ export function boundedGlossary(
 		"app-name",
 		"module-name",
 		"form-name",
+		"menu-badge",
 		"case-list-menu-item-label",
 		"case-list-registration-label",
 		"search-screen-title",

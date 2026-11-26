@@ -114,6 +114,9 @@ export interface HqAuthoredFacts {
 		readonly runsOnlyOn: "web-apps" | "android" | null;
 		readonly splitDatetime: boolean;
 	};
+	/** The base's answers to the reading's owner-rule questions, by level code, where it states
+	 *  any: D is the reading under them, as a create makes it. */
+	readonly ownerRuleChoices?: Readonly<Record<string, string>>;
 	/** HQ's path for each asset D references, by asset id. Empty where A maps no file. */
 	readonly mediaPaths: ReadonlyMap<string, string>;
 	/**
@@ -246,8 +249,8 @@ export interface TargetedEdit {
  *   by key (`views/settings.py::edit_commcare_profile`), beside the settings
  *   A holds: a choice as its text, a switch as `true` or `false`;
  * - `profileFeatures`: on the same page, each profile feature's value by
- *   key, such as the worker activity level `credentials`, beside the
- *   features A holds.
+ *   key, such as the worker activity level `credentials`, or the list of
+ *   required Android apps `dependencies`, beside the features A holds.
  *
  * and then the saves a person makes to the app's content, each through the
  * view a person's save reaches (`HqSideContentSaves`).
@@ -276,6 +279,7 @@ export type HqSideSaves = HqSideSaveKinds &
 				readonly recorded?: never;
 				readonly bringsIn?: never;
 				readonly publishChanges?: never;
+				readonly removedFileReferences?: never;
 				readonly alsoPublishesOver?: never;
 		  }
 		| {
@@ -284,6 +288,7 @@ export type HqSideSaves = HqSideSaveKinds &
 				readonly recorded?: never;
 				readonly bringsIn?: never;
 				readonly publishChanges?: never;
+				readonly removedFileReferences?: never;
 				readonly alsoPublishesOver?: never;
 		  }
 		| {
@@ -292,6 +297,7 @@ export type HqSideSaves = HqSideSaveKinds &
 				readonly recorded: HqSideRecorded;
 				readonly bringsIn?: never;
 				readonly publishChanges?: never;
+				readonly removedFileReferences?: never;
 				readonly alsoPublishesOver?: never;
 		  }
 		| {
@@ -307,6 +313,8 @@ export type HqSideSaves = HqSideSaveKinds &
 				 * sentence (`lib/deployment/hqChanges/review.ts::publishChangeSentences`).
 				 */
 				readonly publishChanges: readonly FirstPublishChangeId[];
+				/** Additional exact file removals the review discloses beside its register entries. */
+				readonly removedFileReferences?: readonly string[];
 				/**
 				 * Present, and `true`, where the capture also runs the person's
 				 * other choice over the same saves, publishing over the change:
@@ -326,7 +334,8 @@ export type HqSideSaves = HqSideSaveKinds &
  * its sentence (`lib/deployment/hqChanges/review.ts::publishChangeSentences`).
  */
 export interface HqSideRecorded {
-	readonly reason: "reads-the-same" | "already-here";
+	/** A setting can read as the same document while its next publish requires an explicit choice. */
+	readonly reason: "reads-the-same" | "already-here" | "publish-changes";
 	readonly publishChanges: readonly FirstPublishChangeId[];
 }
 
@@ -364,7 +373,9 @@ export interface HqSideSaveKinds extends HqSideContentSaves {
 	};
 	readonly addOns?: Readonly<Record<string, boolean>>;
 	readonly profileProperties?: Readonly<Record<string, string | boolean>>;
-	readonly profileFeatures?: Readonly<Record<string, string>>;
+	readonly profileFeatures?: Readonly<
+		Record<string, string | readonly string[]>
+	>;
 }
 
 /** A form of the app CommCare HQ holds, by its menu's place and its own place in that menu, from 0. */
@@ -398,6 +409,9 @@ export interface HqFormPlace {
  *   actions as HQ holds them, and the mappings as a `case_mapping_diff`);
  * - `moduleAttribute`: a menu's name in the app's first language, posted to
  *   `views/modules.py::edit_module_attr`;
+ * - `moduleLayout`: a menu's own display style (`display_style`, the menu
+ *   settings page's Menu Display, shown where the app's form menus are set
+ *   per menu), posted to `views/modules.py::edit_module_attr`;
  * - `moduleDetail`: a column added at the end of a menu's case list, posted
  *   as the Case List page posts its columns
  *   (`views/modules.py::edit_module_detail_screens`, `type` `case`, every
@@ -435,6 +449,10 @@ export interface HqSideContentSaves {
 	readonly moduleAttribute?: {
 		readonly module: number;
 		readonly name: string;
+	};
+	readonly moduleLayout?: {
+		readonly module: number;
+		readonly displayStyle: "grid" | "list";
 	};
 	readonly moduleDetail?: {
 		readonly module: number;

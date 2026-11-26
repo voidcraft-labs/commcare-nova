@@ -15,18 +15,22 @@ import {
 	advancedModule,
 	commtrackAdvanced,
 	extensionCarried,
+	parentIndexAgainstSelection,
 	rootCaseBlockNames,
 } from "./documents/advancedModules";
 import { ancestorIndexNames } from "./documents/ancestorIndexNames";
 import { attributeDisplayCondition } from "./documents/attributeDisplayCondition";
 import { blankLabels } from "./documents/blankLabels";
+import { calculationTextNames } from "./documents/calculationTextNames";
 import { captureWidgets } from "./documents/captureWidgets";
 import { attributeColumns, caseIdColumn } from "./documents/caseIdColumn";
 import { caseListMenuItem } from "./documents/caseListMenuItems";
 import { caseListSearchTextDocument } from "./documents/caseListSearchText";
+import { caseMap } from "./documents/caseMap";
 import { caseTypeNames } from "./documents/caseTypeNames";
 import { caseWriteNames } from "./documents/caseWriteNames";
 import { caseWritesOneConcept } from "./documents/caseWritesOneConcept";
+import { choiceValueColumns } from "./documents/choiceValueColumns";
 import { choiceValues } from "./documents/choiceValues";
 import {
 	closeConditions,
@@ -46,6 +50,7 @@ import { datetimeOrdering } from "./documents/datetimeOrdering";
 import { datetimeSaved } from "./documents/datetimeSaved";
 import { datetimeSplit } from "./documents/datetimeSplit";
 import { detailOnlyColumn } from "./documents/detailOnlyColumn";
+import { nearestClinics } from "./documents/distanceOrder";
 import { emptyListNoEnglish } from "./documents/emptyListNoEnglish";
 import {
 	expressionPropertyRenames,
@@ -82,21 +87,28 @@ import {
 	hqChangesLocationList,
 	hqChangesMedia,
 	hqChangesMenu,
+	hqChangesMenuLayouts,
 	hqChangesOrder,
 	hqChangesQuestions,
 	hqChangesResave,
 } from "./documents/hqChanges";
 import { hqSideLookup } from "./documents/hqSideLookup";
+import { hqSideOwned } from "./documents/hqSideOwned";
 import { hqSideState } from "./documents/hqSideState";
 import { hyphenatedQuestionIds } from "./documents/hyphenatedQuestionIds";
 import { inlineSearchReads } from "./documents/inlineSearchReads";
 import { instanceReads } from "./documents/instanceReads";
 import { keptValues } from "./documents/keptValues";
+import { labelContent } from "./documents/labelContent";
 import { labelSort } from "./documents/labelSort";
+import { listedForms } from "./documents/listedForms";
 import { loadTimeValues } from "./documents/loadTimeValues";
 import { lookupNames } from "./documents/lookupNames";
+import { lookupNonAsciiNames } from "./documents/lookupNonAsciiNames";
 import { lookupReservedTags } from "./documents/lookupReservedTags";
 import { mediaSlots } from "./documents/mediaSlots";
+import { menuBadges } from "./documents/menuBadges";
+import { menuLayouts } from "./documents/menuLayouts";
 import {
 	migrationAttachment,
 	migrationCaseWrites,
@@ -120,11 +132,14 @@ import { plainHelp } from "./documents/plainHelp";
 import { platformDeclaration } from "./documents/platformDeclaration";
 import { previewAndroidRenders } from "./documents/previewAndroidRenders";
 import { proseValue } from "./documents/proseValue";
+import { qualifiedLookupValues } from "./documents/qualifiedLookupValues";
+import { questionCalendar } from "./documents/questionCalendar";
 import {
 	registerFromCaseList,
 	registerFromCaseListWebApps,
 } from "./documents/registerFromCaseList";
 import { relatedColumns } from "./documents/relatedColumns";
+import { relativeCaseDates } from "./documents/relativeCaseDates";
 import {
 	queryRepeatPlacements,
 	queryRepeatPlaces,
@@ -140,6 +155,7 @@ import {
 	searchDefaultFilterName,
 	searchHqCompile,
 	searchRelatedLookups,
+	searchWithFormsAbove,
 	syncOnFormEntry,
 	syncOnFormEntryWebApps,
 } from "./documents/searchApps";
@@ -154,7 +170,7 @@ import { sessionContextReads } from "./documents/sessionContextReads";
 import { sessionReads } from "./documents/sessionReads";
 import { severalCaseClose } from "./documents/severalCaseClose";
 import { sortBlanks } from "./documents/sortBlanks";
-import { sharedPropertySort } from "./documents/sortKeys";
+import { independentCaseOrder, sharedPropertySort } from "./documents/sortKeys";
 import { sortLabels } from "./documents/sortLabels";
 import {
 	parentFormPreviousFrame,
@@ -165,7 +181,9 @@ import { styledValue } from "./documents/styledValue";
 import { supplyPointText } from "./documents/supplyPointText";
 import { plainLabels, textReads } from "./documents/textReads";
 import { tileGroupFilter } from "./documents/tileGroupFilter";
+import { tileRowBound } from "./documents/tileRowBound";
 import { validatedBarcodeSecret } from "./documents/validatedBarcodeSecret";
+import { workerRecordColumns } from "./documents/workerRecordColumns";
 
 /** Every targeted document's maker, in the corpus's order. */
 export const TARGETED_DOCUMENTS: readonly (() => CorpusDocument)[] = [
@@ -173,6 +191,7 @@ export const TARGETED_DOCUMENTS: readonly (() => CorpusDocument)[] = [
 	searchHqCompile,
 	validatedBarcodeSecret,
 	labelSort,
+	calculationTextNames,
 	customTile,
 	closeConditions,
 	closeConditionUnparsable,
@@ -190,9 +209,13 @@ export const TARGETED_DOCUMENTS: readonly (() => CorpusDocument)[] = [
 	searchRelatedLookups,
 	loadTimeValues,
 	sharedPropertySort,
+	independentCaseOrder,
+	nearestClinics,
 	searchDefaultFilterName,
+	searchWithFormsAbove,
 	syncOnFormEntry,
 	hqSideState,
+	hqSideOwned,
 	parentFormSelectionFrame,
 	parentFormPreviousFrame,
 	wireEqualRepublish,
@@ -203,6 +226,7 @@ export const TARGETED_DOCUMENTS: readonly (() => CorpusDocument)[] = [
 	saveToCaseRead,
 	saveToCaseShapes,
 	mediaSlots,
+	labelContent,
 	missingMedia,
 	captureWidgets,
 	noMatchesReturnIdentity,
@@ -211,13 +235,16 @@ export const TARGETED_DOCUMENTS: readonly (() => CorpusDocument)[] = [
 	datetimeOperands,
 	datetimeEquality,
 	caseIdColumn,
+	menuBadges,
 	attributeDisplayCondition,
 	gpsQuestion,
 	blankLabels,
 	attributeColumns,
 	hiddenCalculatedColumn,
 	tileHiddenOrder,
+	tileRowBound,
 	hiddenFromMenu,
+	listedForms,
 	listFirstPlaces,
 	sessionReads,
 	expressionRenames,
@@ -251,6 +278,7 @@ export const TARGETED_DOCUMENTS: readonly (() => CorpusDocument)[] = [
 	extensionCarried,
 	advancedChildModule,
 	advancedHeldKind,
+	parentIndexAgainstSelection,
 	rootCaseBlockNames,
 	sameTypeChild,
 	supplyPointText,
@@ -269,20 +297,28 @@ export const TARGETED_DOCUMENTS: readonly (() => CorpusDocument)[] = [
 	caseTypeNames,
 	choiceValues,
 	lookupNames,
+	qualifiedLookupValues,
+	lookupNonAsciiNames,
 	searchFieldNames,
 	caseWriteNames,
 	connectDeliverHyphenIds,
 	connectLearnHyphenIds,
 	numberKeypad,
+	questionCalendar,
 	detailOnlyColumn,
 	relatedColumns,
+	workerRecordColumns,
 	proseValue,
 	searchNoTitle,
+	choiceValueColumns,
+	caseMap,
+	relativeCaseDates,
 	sortBlanks,
 	sortLabels,
 	datetimeSaved,
 	formsInMenuAbove,
 	formsInMenuAboveNested,
+	menuLayouts,
 	formsInMenuAboveRegistrationOnly,
 	formsInMenuAboveOneCase,
 	registerFromCaseList,
@@ -297,6 +333,7 @@ export const TARGETED_DOCUMENTS: readonly (() => CorpusDocument)[] = [
 	hqChangesFormSetting,
 	hqChangesCaseManagement,
 	hqChangesMenu,
+	hqChangesMenuLayouts,
 	hqChangesForms,
 	hqChangesOrder,
 	hqChangesLocationList,

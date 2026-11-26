@@ -24,6 +24,7 @@ import type { SelectedSourceDocument } from "@/lib/chat/selectedSources";
 
 import {
 	type ColumnType,
+	type Generated,
 	type IsolationLevel,
 	type JSONColumnType,
 	Kysely,
@@ -46,6 +47,7 @@ import type {
 } from "@/lib/domain";
 import type {
 	LookupColumnId,
+	LookupMemberId,
 	LookupRowId,
 	LookupTableId,
 } from "@/lib/domain/lookupIds";
@@ -353,6 +355,9 @@ export interface UserSettingsTable {
 	commcare_api_key: string;
 	commcare_server: string | null;
 	approved_domains: JSONColumnType<{ name: string; displayName: string }[]>;
+	/** A fresh uuid each time the key, user name or server is saved: the
+	 * connection's version, which bindings name in place of the key. */
+	connection_epoch: Generated<string>;
 	updated_at: Timestamp;
 }
 
@@ -458,6 +463,11 @@ export interface LookupProjectStateTable {
 }
 
 export interface LookupTablesTable {
+	worker_access: ColumnType<
+		"all" | "assigned",
+		"all" | "assigned" | undefined,
+		"all" | "assigned"
+	>;
 	project_id: string;
 	id: DefaultedUuidV7Column<LookupTableId>;
 	name: string;
@@ -468,7 +478,8 @@ export interface LookupTablesTable {
 	/** Maintained with child writes under the locked table row. */
 	column_count: number;
 	row_count: ColumnType<number, number | undefined, number>;
-	data_bytes: ColumnType<number, number | undefined, number>;
+	data_bytes: ColumnType<string, number | string | undefined, number | string>;
+	active_generation_id: string | null;
 	created_by: string;
 	updated_by: string;
 	created_at: Timestamp;
@@ -481,6 +492,11 @@ export interface LookupTablesTable {
 	hq_remote_id: string | null;
 	/** The canonical value of CommCare HQ's table at the last refresh, an
 	 * object whose `digest` is 64 lowercase hex digits. */
+	hq_source_observation: JSONColumnType<
+		Readonly<Record<string, unknown>> | null,
+		string | null | undefined,
+		string | null
+	>;
 	hq_canonical: JSONColumnType<
 		Readonly<Record<string, unknown>> | null,
 		string | null,
@@ -504,7 +520,23 @@ export type StoredLookupColumnDataType =
 	| "time"
 	| "datetime";
 
+export interface LookupMembersTable {
+	project_id: string;
+	table_id: LookupTableId;
+	column_id: LookupColumnId | null;
+	id: DefaultedUuidV7Column<LookupMemberId>;
+	wire_name: string;
+	label: string;
+	position: number;
+}
+
 export interface LookupColumnsTable {
+	repeated: ColumnType<boolean, boolean | undefined, boolean>;
+	index_status: ColumnType<
+		"off" | "indexed" | "unobserved",
+		"off" | "indexed" | "unobserved" | undefined,
+		"off" | "indexed" | "unobserved"
+	>;
 	project_id: string;
 	table_id: LookupTableId;
 	id: DefaultedUuidV7Column<LookupColumnId>;
@@ -515,6 +547,10 @@ export interface LookupColumnsTable {
 }
 
 export interface LookupRowsTable {
+	external_bytes: ColumnType<string, never | undefined, never>;
+	hq_row_id: string | null;
+	hq_sort_key: number | null;
+	content: ColumnType<unknown, string | undefined, string>;
 	project_id: string;
 	table_id: LookupTableId;
 	id: DefaultedUuidV7Column<LookupRowId>;
@@ -569,6 +605,11 @@ export interface AppOrganizationStateTable {
 }
 
 export interface AppLocationsTable {
+	hq_observation: ColumnType<
+		string | null,
+		string | null | undefined,
+		string | null
+	>;
 	id: DefaultedUuidV7Column<string>;
 	app_id: string;
 	level_uuid: Uuid;
@@ -687,7 +728,22 @@ export interface AppDeploymentsTable {
  * space, kept precisely so the author can be told it is still there.
  */
 export interface AppDeploymentResourcesTable {
-	/** Database-generated on insert and every update of push fields. */
+	/** Changes when a take adopts different target facts on this claim. */
+	review_generation: ColumnType<string | null, never, string | null>;
+	reviewed_nova_revision: ColumnType<
+		string | number | null,
+		never,
+		number | null
+	>;
+	/** Last save a person took on this continuous HQ claim, until a confirmed newer publish. */
+	reviewed_remote_revision: ColumnType<
+		string | number | null,
+		number | null | undefined,
+		number | null
+	>;
+	/** Null on the original claim, where id itself identifies that claim. */
+	claim_generation: ColumnType<string | null, never, never>;
+	/** Database-generated on insert, every update of push fields, and every change of claim. */
 	push_token: ColumnType<string, never, never>;
 	id: DefaultedUuidV7Column<string>;
 	deployment_id: string;
@@ -849,7 +905,77 @@ export interface AppDeploymentKeyedCaseIdsTable {
  * worker account. Inserted under the admission's locks, updated when it
  * settles, never deleted and never row-locked.
  */
+/** `lookup_json_destinations`: one Nova table on one project space, as Nova last wrote it there through CommCare HQ's JSON resources. */
+export interface LookupJsonDestinationsTable {
+	project_id: string;
+	server: string;
+	domain: string;
+	table_id: LookupTableId;
+	tag: string;
+	/** CommCare HQ's id of the table; null until its create is found by its tag. */
+	remote_table_id: string | null;
+	definition_digest: string;
+	/** Moves with every acknowledged write, so a plan made over an older ledger is stale. */
+	revision: ColumnType<string, number | string | undefined, number | string>;
+	created_by: string;
+	created_at: Timestamp;
+	updated_at: Timestamp;
+}
+
+/** `lookup_json_destination_rows`: a Nova row and the CommCare HQ row id minted for it. */
+export interface LookupJsonDestinationRowsTable {
+	project_id: string;
+	server: string;
+	domain: string;
+	table_id: LookupTableId;
+	row_id: LookupRowId;
+	remote_row_id: string;
+	sort_key: number;
+	digest: string;
+}
+
+/** `lookup_json_operations`: one JSON request, journaled before it is sent. */
+export interface LookupJsonOperationsTable {
+	id: DefaultedUuidV7Column<string>;
+	project_id: string;
+	server: string;
+	domain: string;
+	table_id: LookupTableId;
+	app_id: string;
+	actor_user_id: string;
+	/** 'create-table' | 'create-row' | 'update-row' | 'delete-row', reasserted on read. */
+	kind: string;
+	row_id: LookupRowId | null;
+	remote_id: string | null;
+	intended: JSONColumnType<Record<string, unknown>, string, string>;
+	before: JSONColumnType<
+		Record<string, unknown> | null,
+		string | null,
+		string | null
+	>;
+	/** 'admitted' | 'applied' | 'not-applied' | 'uncertain' | 'review', reasserted on read. */
+	state: string;
+	result_remote_id: string | null;
+	admitted_at: Timestamp;
+	settled_at: ColumnType<
+		Date | null,
+		Date | string | null | undefined,
+		Date | string | null
+	>;
+}
+
 export interface HqRemoteWritesTable {
+	/** Current deployment generation when HQ was first known to be finished. */
+	settled_generation: ColumnType<string | null, never, string | null>;
+	/** The continuous mapping claim under which this app import was admitted. */
+	claim_generation: ColumnType<string | null, string | null | undefined, never>;
+	identity_digest: ColumnType<string | null, string | null | undefined, never>;
+	review_generation: ColumnType<
+		string | null,
+		string | null | undefined,
+		never
+	>;
+	accepted_remote_revision: ColumnType<string | number | null, never, number>;
 	id: DefaultedUuidV7Column<string>;
 	deployment_id: string;
 	server: string;
@@ -861,7 +987,7 @@ export interface HqRemoteWritesTable {
 	resource_kind: string;
 	/** The HQ app's id, the Nova table's, the Nova place's, or the persona's; null only on a create whose app is not recorded yet. */
 	resource_id: ColumnType<string | null, string | null, string | null>;
-	/** 'create' | 'import' | 'media' | 'workbook' | 'places' | 'worker', reasserted on read. */
+	/** 'create' | 'import' | 'media' | 'workbook' | 'lookup-json' | 'places' | 'worker', reasserted on read. */
 	write_kind: string;
 	opened_at: Timestamp;
 	/** When the write stops being open if its process never settles it. */
@@ -906,6 +1032,35 @@ export interface AppDeploymentConfirmationsTable {
  * Upserted only, serialized by the deployment row's lock.
  */
 export interface AppDeploymentBaselinesTable {
+	/** The bracketed HQ save of these source bytes. A passive refresh has no counter. */
+	reviewed_remote_revision: ColumnType<
+		string | number | null,
+		number | null | undefined,
+		number | null
+	>;
+	/** The accepted publish and original digest of its read-back. Old rows
+	 * have neither. An older writer can replace source without updating this
+	 * pair, so acknowledge it only when both token and digest still match. */
+	readback_push_token: ColumnType<
+		string | null,
+		string | null | undefined,
+		string | null
+	>;
+	readback_source_digest: ColumnType<
+		string | null,
+		string | null | undefined,
+		string | null
+	>;
+	reference_fold_seq: ColumnType<
+		string | number | null,
+		number | null | undefined,
+		number | null
+	>;
+	reference_source_digest: ColumnType<
+		string | null,
+		string | null | undefined,
+		string | null
+	>;
 	deployment_id: string;
 	remote_app_id: string;
 	/** 'create' | 'push' | 'cutover' | 'read' | 'changes' | 'unread'. */
@@ -946,6 +1101,9 @@ export interface AppDeploymentBaselinesTable {
 	first_publish_changes: JSONColumnType<
 		{
 			readonly ids: readonly string[];
+			readonly reviewed?: 1;
+			readonly reviewedInputs?: 1;
+			readonly removedFiles?: readonly string[];
 			readonly webAppsOnInHq: boolean;
 			readonly of: "first-publish" | "next-publish";
 		} | null,
@@ -1198,6 +1356,7 @@ export interface AuthoringWorkspacesTable {
 }
 
 export interface LookupAuthoringReceiptsTable {
+	required_capability: "edit" | "delete" | null;
 	project_id: string;
 	target_key: string;
 	request_id: string;
@@ -1887,8 +2046,27 @@ export interface AppDatabase {
 	form_submission_intents: FormSubmissionIntentsTable;
 	lookup_project_state: LookupProjectStateTable;
 	lookup_tables: LookupTablesTable;
+	lookup_json_destinations: LookupJsonDestinationsTable;
+	lookup_json_destination_rows: LookupJsonDestinationRowsTable;
+	lookup_json_operations: LookupJsonOperationsTable;
 	lookup_columns: LookupColumnsTable;
 	lookup_rows: LookupRowsTable;
+	lookup_members: LookupMembersTable;
+	lookup_project_edit_receipts: {
+		required_capability: "edit" | "delete";
+		project_id: string;
+		actor_id: string;
+		operation_id: string;
+		digest: string;
+		receipt: JSONColumnType<Record<string, unknown>>;
+		created_at: Timestamp;
+	};
+	lookup_member_references: {
+		project_id: string;
+		table_id: LookupTableId;
+		member_id: LookupMemberId;
+		app_id: string;
+	};
 	lookup_table_references: LookupTableReferencesTable;
 	lookup_column_references: LookupColumnReferencesTable;
 	app_organization_state: AppOrganizationStateTable;
@@ -1903,6 +2081,15 @@ export interface AppDatabase {
 	hq_remote_writes: HqRemoteWritesTable;
 	app_deployment_confirmations: AppDeploymentConfirmationsTable;
 	app_deployment_baselines: AppDeploymentBaselinesTable;
+	app_deployment_fold_references: {
+		deployment_id: string;
+		fold_seq: ColumnType<string | number, number, never>;
+		app_id: string;
+		mapping_id: string;
+		published_revision: ColumnType<string | number, number, never>;
+		original_source_digest: string;
+		state: JSONColumnType<Record<string, unknown>, string, never>;
+	};
 	project_space_resource_baselines: ProjectSpaceResourceBaselinesTable;
 	app_migration_notices: AppMigrationNoticesTable;
 	app_migration_notice_key_readers: AppMigrationNoticeKeyReadersTable;

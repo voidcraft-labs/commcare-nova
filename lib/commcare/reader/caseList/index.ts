@@ -6,20 +6,29 @@
  * details, sort elements, filter and tile keys must equal the stored ones
  * after the inert claims and the same-state rows.
  */
+
 import { produce } from "immer";
 import type {
 	BlueprintDoc,
-	CaseOperation,
 	CasePropertyDataType,
 	Expression,
 	Module,
 	Uuid,
 } from "@/lib/domain";
+/**
+ * The case list stages: every menu's two details read into its case list
+ * (`readCaseLists`), and accepted over the bound document by the production
+ * projection (`settleCaseLists`): one call of
+ * `hqJson/caseList.ts::projectCaseListForHq` per menu, whose short and long
+ * details, sort elements, filter and tile keys must equal the stored ones
+ * after the inert claims and the same-state rows.
+ */
+import { caseContextLine } from "@/lib/domain/caseFormContext";
 import { columnPropertyCaseType } from "@/lib/domain/columnRelation";
 import { effectiveCaseTypes } from "@/lib/domain/effectiveCaseTypes";
 import { resolveRelationDestination } from "@/lib/domain/expression/relationDestination";
 import { columnFieldText, defaultSortBlanks } from "@/lib/domain/modules";
-import { recordFromEntries } from "@/lib/domain/records";
+import { NO_ENTRIES, recordFromEntries } from "@/lib/domain/records";
 import { isStandardCaseListProperty } from "@/lib/domain/standardCaseProperties";
 import type { HqPlace } from "@/lib/publish/hqFindings";
 import {
@@ -27,19 +36,30 @@ import {
 	projectCaseListForHq,
 } from "../../hqJson/caseList";
 import { HqXPath, hqXPathText } from "../../hqJson/xpath";
+import { hqOfferedChildCaseTypes } from "../../hqOfferedChildTypes";
+import { hqMappingKeyIsExpression } from "../../suite/case-list/keyVariable";
 import { rethrowWorkStop } from "../../workMeter";
 import { withCandidate } from "../candidate";
-import type { DraftApp, DraftForm, DraftModule, ReadContext } from "../context";
+import type { DraftApp, DraftModule, ReadContext } from "../context";
 import { readerDefect } from "../defects";
 import { levelControl, type PrintLevel } from "../expressions/printLevel";
-import { dotInterpolate } from "../hqInterpolation";
-import { isJsonObject, objectMembers, sameJson } from "../jsonCursor";
+import { sameSlotText } from "../expressions/readExpression";
+import { detailSourceSpans } from "../fixtureRows";
+import { hqDeviceText } from "../heldText";
+import { dotInterpolate, interpolateHqXPath } from "../hqInterpolation";
+import {
+	isJsonObject,
+	type JsonCursor,
+	objectMembers,
+	sameJson,
+} from "../jsonCursor";
 import { handedOff, type PendingExpression } from "../pendingExpressions";
 import { keptMediaPaths, readProjectionInputs } from "../projectionInputs";
 import { applyExpressionClaim, provisionalDocument } from "../provisional";
 import { listFilterWithoutOwnerClause } from "../search/settings";
 import { sameXPathText } from "../syntaxCompare";
 import { ATTRIBUTE_PROPERTIES } from "./attributeColumns";
+import { nativeCalculationText } from "./calculationText";
 import {
 	appCodes,
 	attributeOf,
@@ -50,95 +70,72 @@ import {
 	renamedField,
 	sameHeldTexts,
 	sameShownTexts,
+	shownTexts,
 	sourceCode,
 } from "./columns";
 import {
 	type CaseListReading,
 	caseListReadings,
+	DETAIL_CLAIMS,
 	displayNames,
+	dormantFormContextSource,
 	readCaseDetails,
+	readColumnVia,
 	sameState,
 } from "./details";
-import { CALCULATED_FIELD, implicitRuleColumn, ORDER_CLAIMS } from "./order";
+import {
+	CALCULATED_FIELD,
+	implicitRuleColumn,
+	ORDER_CLAIMS,
+	retainSortComparisons,
+} from "./order";
 import { withReadTexts } from "./readTexts";
 
 export { joinDetailColumns } from "./details";
 
-const SELECT_KINDS = new Set(["single_select", "multi_select"]);
-
-/** Each case type's properties a select question of the app's forms writes, by the forms'
- *  drafts: one walk of every form, so a stage asking for each menu's type asks once. */
-function selectPropertiesByType(app: DraftApp): Map<string, Set<string>> {
-	const out = new Map<string, Set<string>>();
-	for (const module of app.modules)
-		for (const form of module.forms) {
-			const selects = selectFieldsOf(form);
-			if (selects.size === 0) continue;
-			for (const operation of (form.form.caseOperations ??
-				[]) as readonly CaseOperation[]) {
-				const type =
-					operation.action === "own"
-						? module.module.caseType
-						: operation.caseType;
-				if (typeof type !== "string" || !("writes" in operation)) continue;
-				for (const write of operation.writes ?? []) {
-					const value = write.value;
-					if (
-						value.kind === "term" &&
-						value.term.kind === "field" &&
-						selects.has(value.term.uuid)
-					) {
-						let properties = out.get(type);
-						if (properties === undefined) {
-							properties = new Set();
-							out.set(type, properties);
-						}
-						properties.add(write.property);
-					}
-				}
-			}
-		}
-	return out;
-}
-
-function selectFieldsOf(form: DraftForm): Set<Uuid> {
-	const out = new Set<Uuid>();
-	const xform = form.xform;
-	if (xform === null) return out;
-	const walk = (parent: Parameters<typeof xform.childrenOf>[0]) => {
-		for (const field of xform.childrenOf(parent)) {
-			if (SELECT_KINDS.has(field.kind) && field.uuid !== undefined)
-				out.add(field.uuid);
-			walk(field);
-		}
-	};
-	walk(null);
-	return out;
-}
-
-/** Each case type's properties a column of any menu of that type shows by its choices' labels,
- *  read from the stored details (`columns.ts::labelShownProperty`): one walk of every menu. */
-function labelShownPropertiesByType(app: DraftApp): Map<string, Set<string>> {
-	const byType = new Map<string, Set<string>>();
+/** The sources that can give a column choice labels. Read every detail before choosing a
+ * format for any raw column, since a label column in another menu can be its sole witness. */
+function choiceProperties(ctx: ReadContext, app: DraftApp): Set<string> {
+	const choices = new Set<string>();
+	for (const type of ctx.draft.caseTypes ?? [])
+		for (const property of type.properties)
+			if (
+				property.data_type === "single_select" ||
+				property.data_type === "multi_select"
+			)
+				choices.add(JSON.stringify([type.name, property.name]));
 	for (const module of app.modules) {
 		const caseType = module.module.caseType;
-		if (caseType === undefined) continue;
-		let out = byType.get(caseType);
-		if (out === undefined) {
-			out = new Set();
-			byType.set(caseType, out);
-		}
+		if (!caseType) continue;
 		const pair = module.json.peek("case_details");
 		for (const screen of ["short", "long"] as const) {
 			const detail = isJsonObject(pair) ? pair[screen] : undefined;
 			const columns = isJsonObject(detail) ? detail.columns : undefined;
-			for (const column of Array.isArray(columns) ? columns : []) {
-				const property = labelShownProperty(column);
-				if (property !== undefined) out.add(property);
+			if (!Array.isArray(columns)) continue;
+			// A field of a Details tab over other records shows a property of
+			// that tab's rows: a child case type's, or none for a table's rows.
+			const rows =
+				screen === "long" && isJsonObject(detail)
+					? detailSourceSpans(objectMembers(detail.tabs) ?? [], columns.length)
+					: [];
+			for (const [i, column] of columns.entries()) {
+				if (rows[i]?.fixture) continue;
+				const origin = rows[i]?.caseType ?? caseType;
+				const read = labelShownProperty(column, (steps) =>
+					readColumnVia(ctx, origin, steps),
+				);
+				if (read === undefined) continue;
+				const owner = columnPropertyCaseType(
+					read,
+					origin,
+					ctx.draft.caseTypes ?? [],
+				);
+				if (owner !== undefined)
+					choices.add(JSON.stringify([owner, read.field]));
 			}
 		}
 	}
-	return byType;
+	return choices;
 }
 
 /** Before any expression binds: every menu's case list, read from its two details, and the type each numeric
@@ -159,26 +156,12 @@ export function* readCaseListsSteps(
 ): Generator<void, void, void> {
 	/* Each read from the drafts before any detail is read, which writes neither a form's case
 	 * changes, a menu's case type nor its stored details. */
-	const selectsByType = selectPropertiesByType(app);
-	const shownByType = labelShownPropertiesByType(app);
-	const none: ReadonlySet<string> = new Set();
+	const choices = choiceProperties(ctx, app);
 	for (const [at, module] of app.modules.entries()) {
 		if (at > 0 && at % MENUS_READ_PER_STEP === 0) yield;
-		const caseType = module.module.caseType;
-		const selects =
-			caseType === undefined ? none : (selectsByType.get(caseType) ?? none);
-		const shown =
-			caseType === undefined ? none : (shownByType.get(caseType) ?? none);
-		// A column read through a relation asks of the type its walk reaches.
-		const selectsOf = (type?: string) =>
-			type === undefined ? selects : (selectsByType.get(type) ?? none);
-		const shownOf = (type?: string) =>
-			type === undefined ? shown : (shownByType.get(type) ?? none);
-		readCaseDetails(ctx, module, {
-			selectProperty: (property, type) =>
-				selectsOf(type).has(property) && shownOf(type).has(property),
-			labelShown: (property, type) => shownOf(type).has(property),
-		});
+		readCaseDetails(ctx, module, (property, type) =>
+			choices.has(JSON.stringify([type ?? module.module.caseType, property])),
+		);
 	}
 	yield;
 	declareNumericSortsBeforeBinding(ctx, app);
@@ -291,6 +274,16 @@ function fieldRead(column: JsonObject): {
 		: { property: attribute };
 }
 
+/** HQ's formats that keep a load behavior (`const.py::FORMATS_SUPPORTING_CASE_LIST_OPTIMIZATIONS`). */
+const OPTIMIZED: ReadonlySet<string> = new Set([
+	"address",
+	"date",
+	"markdown",
+	"phone",
+	"plain",
+	"enum",
+]);
+
 const CELL_KEYS = [
 	"grid_x",
 	"grid_y",
@@ -329,7 +322,16 @@ function columnDifference(
 	tile: boolean,
 	screen: "short" | "long",
 	fieldHandedOff: boolean,
+	optimizationsOn: boolean,
 ): string | undefined {
+	// A load behavior as HQ keeps it (`columns.ts::storedLoadBehavior`).
+	const behavior = (column: JsonObject) =>
+		column.useXpathExpression === true &&
+		OPTIMIZED.has(typeof column.format === "string" ? column.format : "plain")
+			? (column.optimization ?? null)
+			: null;
+	if (optimizationsOn && behavior(stored) !== behavior(ours))
+		return "schema:DetailColumn.optimization";
 	const format = columnFormatAsRead(stored.format, screen);
 	if (format !== columnFormatAsRead(ours.format, screen))
 		return "schema:DetailColumn.format";
@@ -337,7 +339,33 @@ function columnDifference(
 	const b = fieldRead(ours);
 	// A column whose expression was handed to project data prints no tree of the source's, so its
 	// field is project data's finding, never the list's.
-	if (!fieldHandedOff && !sameField(a, b)) return "schema:DetailColumn.field";
+	if (!fieldHandedOff) {
+		const translated = (
+			column: JsonObject,
+			source: ReturnType<typeof fieldRead>,
+		) => {
+			const keys = objects(column.enum).map((row) =>
+				typeof row.key === "string" ? row.key : "",
+			);
+			const value =
+				column.useXpathExpression === true && typeof column.field === "string"
+					? column.field
+					: source.property === undefined
+						? (source.element ?? "")
+						: imageMapFieldText(source.property);
+			return nativeCalculationText(
+				value,
+				keys,
+				(_key, index) => `translated_row_${index}`,
+			);
+		};
+		if (
+			format === "translatable-enum"
+				? !sameXPathText(translated(stored, a), translated(ours, b))
+				: !sameField(a, b)
+		)
+			return "schema:DetailColumn.field";
+	}
 	// HQ's build reads no header of a Search Only column (`detail_screen.py::Invisible`).
 	if (
 		format !== "invisible" &&
@@ -350,6 +378,13 @@ function columnDifference(
 		)
 	)
 		return "schema:DetailColumn.header";
+	if (format === "late-flag" && (stored.late_flag ?? 30) !== ours.late_flag)
+		return "schema:DetailColumn.late_flag";
+	if (
+		format === "time-ago" &&
+		(stored.time_ago_interval ?? 365.25) !== ours.time_ago_interval
+	)
+		return "schema:DetailColumn.time_ago_interval";
 	if (format === "date" && stored.date_format !== ours.date_format)
 		return "schema:DetailColumn.date_format";
 	const enumA = formatReadsMapping(format) ? objects(stored.enum) : [];
@@ -363,16 +398,40 @@ function columnDifference(
 		// (`models/case_list.py::MappingItem.key_as_condition`), so the two keys are compared so.
 		const property =
 			a.property === undefined ? undefined : imageMapFieldText(a.property);
-		const sameKey =
-			format !== "enum-image"
-				? keyA === keyB
-				: property === undefined
-					? sameXPathText(keyA, keyB)
-					: sameXPathText(
-							dotInterpolate(keyA, property),
-							dotInterpolate(keyB, property),
-						);
-		if (!sameKey) return "schema:MappingItem.key";
+		// HQ expands a literal into equality and interpolates dots only in an
+		// expression. A literal key cannot itself contain a quote (HQ would
+		// classify it as an expression).
+		const effectiveCondition = (key: string) =>
+			hqMappingKeyIsExpression(key)
+				? dotInterpolate(key, property ?? "$calculated_property")
+				: `${property ?? "$calculated_property"} = '${key}'`;
+		if (
+			keyA !== keyB &&
+			format !== "translatable-enum" &&
+			((format !== "enum-image" && format !== "conditional-enum") ||
+				!sameXPathText(effectiveCondition(keyA), effectiveCondition(keyB)))
+		)
+			return "schema:MappingItem.key";
+		if (format === "enum-image") {
+			const empty = (raw: unknown) => {
+				const texts = shownTexts(raw ?? NO_ENTRIES, codes);
+				return (
+					texts !== undefined &&
+					Object.values(texts).every((value) => hqDeviceText(value) === "")
+				);
+			};
+			if (
+				!(empty(item.alt_text) && empty(other.alt_text)) &&
+				!sameHeldTexts(
+					codes,
+					source,
+					"case-list-image-description",
+					item.alt_text ?? NO_ENTRIES,
+					other.alt_text ?? NO_ENTRIES,
+				)
+			)
+				return "schema:MappingItem.alt_text";
+		}
 		// An image map's value is a path, compared as shown; any other mapping's is a text, compared
 		// as the reading holds it (`heldTextsIn`).
 		if (
@@ -433,12 +492,12 @@ function sortMenuName(element: JsonObject, detail: unknown): unknown {
 
 function sortDifference(
 	ctx: ReadContext,
-	place: HqPlace,
 	reading: CaseListReading,
 	stored: readonly JsonObject[],
 	ours: readonly JsonObject[],
 	columns: { readonly stored: unknown; readonly ours: unknown },
 	handedOff: ReadonlySet<number>,
+	handedOffSorts: ReadonlySet<Uuid>,
 ): string | undefined {
 	// The text a positional element joins by: the `field` of the short column it names
 	// (`util.py::get_sort_and_sort_only_columns`).
@@ -461,6 +520,41 @@ function sortDifference(
 	const kept = reading.sort.defaulted
 		? []
 		: reading.sort.kept.map((index) => stored[index] as JsonObject);
+	// A property or calculation introduced earlier for its worker menu
+	// position has one effective row in its own last-value map.
+	const keptIndices = new Set(reading.sort.kept);
+	const sortKeys = [
+		"field",
+		"sort_calculation",
+		"type",
+		"direction",
+		"blanks",
+		"display",
+	] as const;
+	stored.forEach((row, index) => {
+		if (keptIndices.has(index)) return;
+		const emitted = ours[index];
+		if (emitted && sortKeys.every((key) => sameJson(row[key], emitted[key])))
+			return;
+		sameState(
+			ctx,
+			ORDER_CLAIMS.earlier.entry,
+			`${reading.short.pointer}/sort_elements/${index}`,
+			"list-settings-respelled",
+		);
+	});
+	const keyOf = (element: JsonObject) =>
+		element.field === "" ? element.sort_calculation : element.field;
+	const lastField = new Map<unknown, number>();
+	const lastCalculation = new Map<unknown, number>();
+	const mapOf = (element: JsonObject) =>
+		element.field === "" ? lastCalculation : lastField;
+	ours.forEach((element, index) => {
+		mapOf(element).set(keyOf(element), index);
+	});
+	ours = ours.filter(
+		(element, index) => mapOf(element).get(keyOf(element)) === index,
+	);
 	const expected = reading.sort.defaulted ? 1 : kept.length;
 	if (ours.length !== expected) return "schema:Detail.sort_elements";
 	// A whole-number or decimal comparison where HQ's build compares text orders the list
@@ -470,7 +564,7 @@ function sortDifference(
 	// writes it as `string` or as it is, and Core's `DetailFieldParser` reads any other word so).
 	const numericWord = (type: unknown) => type === "int" || type === "double";
 	if (reading.sort.defaulted && numericWord(ours[0]?.type))
-		ctx.accounting.finding(ORDER_CLAIMS.typeText, place);
+		return "schema:SortElement.type";
 	for (const [position, element] of kept.entries()) {
 		const other = ours[position] as JsonObject;
 		const storedText = positionalText(element.field, columns.stored);
@@ -513,6 +607,20 @@ function sortDifference(
 				"list-settings-respelled",
 			);
 		}
+		if (element.field === "" && typeof element.sort_calculation === "string") {
+			const rule = reading.sort.calculations.find(
+				(one) => one.priority === position,
+			);
+			if (
+				rule === undefined ||
+				(!handedOffSorts.has(rule.uuid) &&
+					(typeof other.sort_calculation !== "string" ||
+						!sameXPathText(element.sort_calculation, other.sort_calculation)))
+			)
+				return "schema:SortElement.sort_calculation";
+		}
+		if (element.type === "distance" && other.type !== "distance")
+			return "schema:SortElement.type";
 		if (element.direction !== other.direction)
 			return "schema:SortElement.direction";
 		// A stored `""` is the direction's own: blanks first ascending, last descending.
@@ -544,9 +652,9 @@ function sortDifference(
 		const index = reading.sort.kept[position] as number;
 		const numeric = reading.sort.numeric.get(index);
 		if (numeric !== undefined && other.type !== numeric)
-			ctx.accounting.finding(ORDER_CLAIMS.typeNumeric, place);
+			return "schema:SortElement.type";
 		if (reading.sort.textual.has(index) && numericWord(other.type))
-			ctx.accounting.finding(ORDER_CLAIMS.typeText, place);
+			return "schema:SortElement.type";
 		// A date comparison over a property whose type is not of the date class HQ's build writes as
 		// it writes a text one (`detail_screen.py::FormattedDetailColumn.sort_node` maps `date` and
 		// `plain` to `string`), and the first publish writes Nova's word for it: the stored word
@@ -562,9 +670,12 @@ function sortDifference(
 	return undefined;
 }
 
-function caseListPlace(module: DraftModule): HqPlace {
+function caseListPlace(
+	module: DraftModule,
+	kind: "case-list" | "case-detail" = "case-list",
+): HqPlace {
 	return {
-		kind: "case-list",
+		kind,
 		menu: module.index,
 		name: module.place.kind === "menu" ? module.place.name : "",
 	};
@@ -585,14 +696,18 @@ function heldListLevels(ctx: ReadContext, mod: Module): CaseListRewrites {
 		const ref = (registrations[index] as PendingExpression).ref;
 		const { expression, level } = ctx.pending.outcome(index);
 		if (expression === undefined || level === undefined) continue;
-		const member = (ref as { readonly member?: { columnUuid?: string } })
-			.member;
-		held.set(
-			member?.columnUuid === undefined
-				? ref.slot
-				: `${ref.slot}/${member.columnUuid}`,
-			{ tree: expression, level },
-		);
+		const member =
+			"member" in ref && "rowUuid" in ref.member
+				? `${ref.member.columnUuid}/${ref.member.rowUuid}`
+				: "member" in ref && "columnUuid" in ref.member
+					? ref.member.columnUuid
+					: "member" in ref && "sortUuid" in ref.member
+						? ref.member.sortUuid
+						: undefined;
+		held.set(member === undefined ? ref.slot : `${ref.slot}/${member}`, {
+			tree: expression,
+			level,
+		});
 	}
 	if (held.size === 0) return {};
 	const at = (key: string, tree: Expression | undefined) => {
@@ -602,6 +717,24 @@ function heldListLevels(ctx: ReadContext, mod: Module): CaseListRewrites {
 			: undefined;
 	};
 	return {
+		mapping: (uuid, rowUuid) => {
+			const column = mod.caseListConfig?.columns.find((c) => c.uuid === uuid);
+			const when =
+				column && (column.kind === "id-mapping" || column.kind === "image-map")
+					? column.mapping.find((row) => row.uuid === rowUuid)?.when
+					: undefined;
+			return levelControl(
+				at(`case_list_mapping_condition/${uuid}/${rowUuid}`, when),
+			);
+		},
+		sort: (uuid) => {
+			const rule = mod.caseListConfig?.calculatedSorts?.find(
+				(one) => one.uuid === uuid,
+			);
+			return levelControl(
+				at(`case_list_sort_expression/${uuid}`, rule?.expression),
+			);
+		},
 		column: (columnUuid) => {
 			const column = mod.caseListConfig?.columns.find(
 				(one) => one.uuid === columnUuid,
@@ -636,6 +769,10 @@ function listDifference(
 		inputs.lookupNaming,
 		undefined,
 		heldListLevels(ctx, mod),
+		undefined,
+		(uuid) =>
+			ctx.draft.modules.find((menu) => menu.uuid === uuid)?.uniqueId ??
+			String(uuid),
 	);
 	const pair = printed(projected.caseDetails) as {
 		short: JsonObject;
@@ -668,6 +805,61 @@ function listDifference(
 		reading.long.peek("columns"),
 		reading.dropped.long,
 	).map(({ column, index }) => ({ column: asPrinted(column), index }));
+	const storedTabs = objects(reading.long.peek("tabs"));
+	const projectedTabs = objects(pair.long.tabs);
+	if (storedTabs.length !== projectedTabs.length) return "schema:Detail.tabs";
+	for (const [i, tab] of storedTabs.entries()) {
+		const projected = projectedTabs[i];
+		if (
+			!projected ||
+			!sameHeldTexts(
+				codes,
+				sourceCode(ctx),
+				"case-detail-tab-title",
+				tab.header,
+				projected.header,
+			)
+		)
+			return "schema:DetailTab.header";
+		if (
+			longStored[Number(projected.starting_index)]?.index !== tab.starting_index
+		)
+			return "schema:DetailTab.starting_index";
+		if (Boolean(tab.has_nodeset) !== Boolean(projected.has_nodeset))
+			return "schema:DetailTab.has_nodeset";
+		if (tab.has_nodeset) {
+			const custom = typeof tab.nodeset === "string" && tab.nodeset !== "";
+			if (!custom && tab.nodeset_case_type !== projected.nodeset_case_type)
+				return "schema:DetailTab.nodeset_case_type";
+			const key = custom ? "nodeset" : "nodeset_filter";
+			const original = tab[key],
+				next = projected[key],
+				owner = mod.caseListConfig?.detailTabs?.[i];
+			if (
+				(original || next) &&
+				(!owner ||
+					typeof original !== "string" ||
+					typeof next !== "string" ||
+					!sameSlotText(
+						doc,
+						{
+							entity: "module",
+							uuid: mod.uuid,
+							slot: custom ? "case_detail_tab_rows" : "case_detail_tab_filter",
+							member: { tabUuid: owner.uuid },
+						},
+						original,
+						next,
+					))
+			)
+				return `schema:DetailTab.${key}`;
+		}
+		const stored = typeof tab.relevant === "string" ? tab.relevant : "";
+		const printed =
+			typeof projected.relevant === "string" ? projected.relevant : "";
+		if ((stored || printed) && !sameXPathText(stored, printed))
+			return "schema:DetailTab.relevant";
+	}
 	const shortOurs = objects(pair.short.columns);
 	const longOurs = objects(pair.long.columns);
 	const tile = mod.caseListConfig?.tile !== undefined;
@@ -678,9 +870,10 @@ function listDifference(
 			sourceCode(ctx),
 			column,
 			longOurs[position] as JsonObject,
-			false,
+			mod.caseListConfig?.detailTile !== undefined,
 			"long",
 			handed.long.has(index),
+			mod.caseListConfig?.optimizations === true,
 		);
 		if (key !== undefined) return key;
 	}
@@ -700,20 +893,28 @@ function listDifference(
 			sourceCode(ctx),
 			column,
 			shortOurs[position] as JsonObject,
-			tile,
+			tile && !mod.caseListConfig?.tile?.namedSlots,
 			"short",
 			handed.short.has(index),
+			mod.caseListConfig?.optimizations === true,
 		);
 		if (key !== undefined) return key;
 	}
+	if (mod.caseListConfig?.tile?.namedSlots) {
+		for (const [i, stored] of shortStored.entries()) {
+			const slot = shortOurs[i]?.case_tile_field;
+			if (slot && slot !== stored.column.case_tile_field)
+				return "schema:DetailColumn.case_tile_field";
+		}
+	}
 	const sortKey = sortDifference(
 		ctx,
-		caseListPlace(reading.module),
 		reading,
 		objects(reading.short.peek("sort_elements")),
 		objects(pair.short.sort_elements),
 		{ stored: reading.short.peek("columns"), ours: pair.short.columns },
 		handed.short,
+		handed.sorts,
 	);
 	if (sortKey !== undefined) return sortKey;
 	// The owner clause of an exclusion the reading refused is that refusal's: Nova's print writes
@@ -732,18 +933,60 @@ function listDifference(
 		if (blank(storedFilter) !== blank(ourFilter)) return "schema:Detail.filter";
 		if (
 			!blank(storedFilter) &&
-			!sameXPathText(String(storedFilter), String(ourFilter))
+			!sameXPathText(
+				filterAsBuilt(String(storedFilter)),
+				filterAsBuilt(String(ourFilter)),
+			)
 		)
 			return "schema:Detail.filter";
 	}
 	// `false` is the off switch HQ's Case List page writes on every save of a short detail, which
 	// every reader tests by truth (`details.ts`, `detail-persistence-switches-false`).
 	const off = (value: unknown) => blank(value) || value === false;
-	for (const key of ["case_tile_template", "persist_tile_on_forms"] as const) {
-		const a = reading.short.peek(key);
+	if (
+		!sameJson(
+			reading.long.peek("case_tile_template") || null,
+			pair.long.case_tile_template || null,
+		)
+	)
+		return "schema:Detail.case_tile_template";
+	for (const key of [
+		"case_tile_template",
+		"persist_tile_on_forms",
+		"persistent_case_tile_from_module",
+		"pull_down_tile",
+	] as const) {
+		const stored = reading.short.peek(key);
+		// A source menu with no tile is a setting no build reads, dropped as inert.
+		const a =
+			key === "persistent_case_tile_from_module" &&
+			dormantFormContextSource(ctx, stored)
+				? null
+				: stored;
 		const b = pair.short[key];
-		if ((a ?? null) !== (b ?? null) && !(off(a) && off(b)))
+		// Another menu's tile expanded above the forms: Nova switches this menu's persistence on
+		// beside it, which builds the same (`details.ts::persistHeldByExternalPullDown`); a stored
+		// one switched off is respelled, recorded where the reading took the pull-down.
+		const respelledSwitch =
+			key === "persist_tile_on_forms" &&
+			off(a) &&
+			b === true &&
+			pair.short.pull_down_tile === true &&
+			!!pair.short.persistent_case_tile_from_module;
+		if ((a ?? null) !== (b ?? null) && !(off(a) && off(b)) && !respelledSwitch)
 			return `schema:Detail.${key}`;
+	}
+	if (caseContextLine(mod.caseListConfig?.contextAboveForm)) {
+		if (pair.short.persist_case_context !== true)
+			return "schema:Detail.persist_case_context";
+		const source =
+			reading.short.peek("persistent_case_context_xml") ?? "case_name";
+		if (
+			typeof source !== "string" ||
+			typeof pair.short.persistent_case_context_xml !== "string" ||
+			!sameXPathText(source, pair.short.persistent_case_context_xml)
+		)
+			return "schema:Detail.persistent_case_context_xml";
 	}
 	const groupA = reading.short.peek("case_tile_group");
 	const groupB = pair.short.case_tile_group;
@@ -901,6 +1144,35 @@ function withoutImplicitRule(
 }
 
 /**
+ * Each data tab of a menu's case detail whose stored `nodeset_case_type` names a type no basic form
+ * of a menu of the list's case type adds as a child case, a type CommCare HQ's Case Detail page
+ * clears at its next save (`hqOfferedChildTypes.ts`) and Nova's gate refuses: a finding at the key,
+ * read over the bound document, whose case operations say which forms add which children.
+ */
+function refuseTabChildTypesNoFormAdds(
+	ctx: ReadContext,
+	doc: BlueprintDoc,
+	caseType: string,
+	long: JsonCursor,
+): void {
+	const tabs = long.peek("tabs");
+	if (!Array.isArray(tabs)) return;
+	let offered: ReadonlySet<string> | undefined;
+	tabs.forEach((tab, index) => {
+		if (!isJsonObject(tab) || tab.has_nodeset !== true) return;
+		const child = tab.nodeset_case_type;
+		if (typeof child !== "string" || child === "") return;
+		offered ??= hqOfferedChildCaseTypes(doc, caseType);
+		if (offered.has(child)) return;
+		ctx.accounting.findingAt(
+			DETAIL_CLAIMS.tabChildTypeNotAdded,
+			long.place,
+			`${long.pointer}/tabs/${index}/nodeset_case_type`,
+		);
+	});
+}
+
+/**
  * After the binding: each menu's case list accepted where the projection writes its stored details
  * back. A difference no row names is `unrecognized` at the list, under its surface key. The
  * declarations made before binding are taken back first, so each is made again only where the
@@ -911,9 +1183,18 @@ export function settleCaseLists(ctx: ReadContext, app: DraftApp): void {
 	// detail's `field` holds the same tree (the join's equality), so the expression stage's
 	// claim of the registration holds it too, handed off as the registration's is (a table the
 	// catalog lacks is project data's one finding).
+	const registrations = ctx.pending.list();
 	for (const reading of caseListReadings(ctx).values())
 		for (const twin of reading.twins) {
-			const claim = ctx.pending.outcome(twin.registration).claim;
+			const outcome = ctx.pending.outcome(twin.registration);
+			// A reader-claimed tree's claims are its registrar's; one the stage held no tree for
+			// stands under the stage's claim at both details.
+			if (
+				registrations[twin.registration]?.readerClaimed === true &&
+				outcome.expression !== undefined
+			)
+				continue;
+			const claim = outcome.claim;
 			if (claim !== undefined)
 				applyExpressionClaim(ctx, { ...claim, place: twin.place }, twin.site);
 		}
@@ -934,6 +1215,15 @@ export function settleCaseLists(ctx: ReadContext, app: DraftApp): void {
 		if (reading === undefined || caseType === undefined || !reading.whole)
 			continue;
 		ctx.doc = declareNumericSorts(ctx.doc, caseType, reading);
+		refuseTabChildTypesNoFormAdds(ctx, ctx.doc, caseType, reading.long);
+		const inputs = readProjectionInputs(ctx);
+		ctx.doc = retainSortComparisons(
+			ctx.doc,
+			module.uuid,
+			reading.sort,
+			inputs.assets !== undefined,
+			inputs.lookupNaming,
+		);
 		ctx.doc = withoutImplicitRule(ctx, ctx.doc, reading);
 		const doc = ctx.doc;
 		const mod = doc.modules[module.uuid];
@@ -957,7 +1247,13 @@ export function settleCaseLists(ctx: ReadContext, app: DraftApp): void {
 			);
 			continue;
 		}
-		if (difference !== undefined && !ctx.accounting.hasFindingAt(place))
+		// A finding at the menu's list or case detail is the difference's cause: what it refused
+		// the document does not hold, so the projection writes it back otherwise.
+		if (
+			difference !== undefined &&
+			!ctx.accounting.hasFindingAt(place) &&
+			!ctx.accounting.hasFindingAt(caseListPlace(module, "case-detail"))
+		)
 			ctx.accounting.circumstance("unrecognized", place, { name: difference });
 	}
 }
@@ -991,9 +1287,11 @@ function handedOffListSlots(
 ): {
 	readonly short: ReadonlySet<number>;
 	readonly long: ReadonlySet<number>;
+	readonly sorts: ReadonlySet<Uuid>;
 	readonly filter: boolean;
 } {
 	const columns = new Set<Uuid>();
+	const sorts = new Set<Uuid>();
 	let filter = false;
 	const registrations = ctx.pending.list();
 	for (const index of ctx.pending.of("module", reading.module.uuid)) {
@@ -1001,7 +1299,12 @@ function handedOffListSlots(
 		if (ref.entity !== "module" || !handedOff(ctx.pending.outcome(index)))
 			continue;
 		if (ref.slot === "case_list_filter") filter = true;
-		else if (ref.slot === "case_list_column_expression")
+		else if (ref.slot === "case_list_sort_expression")
+			sorts.add(ref.member.sortUuid);
+		else if (
+			ref.slot === "case_list_column_expression" ||
+			ref.slot === "case_list_mapping_condition"
+		)
 			columns.add(ref.member.columnUuid);
 	}
 	const short = new Set<number>();
@@ -1012,5 +1315,17 @@ function handedOffListSlots(
 		if (column.short !== undefined) short.add(column.short);
 		if (column.long !== undefined) long.add(column.long);
 	});
-	return { short, long, filter };
+	return { short, long, sorts, filter };
+}
+
+/** A list filter as HQ's build writes it into the list's nodeset
+ *  (`entries.py::EntriesHelper.get_filter_xpath`: `interpolate_xpath` with
+ *  `current()` as the case), so a filter stored with HQ's shortcuts, such
+ *  as `#user/district`, compares with the read Nova prints for it. */
+function filterAsBuilt(text: string): string {
+	const built = interpolateHqXPath(text, {
+		caseXPath: "current()",
+		interpolateDots: true,
+	});
+	return built.ok ? built.text : text;
 }

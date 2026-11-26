@@ -28,6 +28,7 @@ import {
 } from "../store";
 import { EMPTY_TARGET_IDENTITY } from "../targetIdentity";
 import {
+	appMappingToken,
 	BIRTH_AT,
 	birthAdoptedApp,
 	HELD_COLUMN,
@@ -159,6 +160,7 @@ describe("recordAdoptedDeploymentInTransaction", () => {
 			discarded_at: null,
 			media_files: MEDIA_FILES,
 			first_publish_changes: {
+				reviewed: 1,
 				ids: ["forms-and-settings-rewritten"],
 				webAppsOnInHq: true,
 				of: "first-publish",
@@ -294,6 +296,8 @@ describe("recordAdoptedDeploymentInTransaction", () => {
 		const birth = await born();
 		expect(await readAppBaseline(birth.scope, TARGET)).toEqual({
 			origin: "read",
+			hasPublishList: true,
+			firstPublishReview: "current",
 			remoteAppId: HQ_APP,
 			observedAt: READ_AT,
 			observedBy: ACTOR,
@@ -373,6 +377,7 @@ describe("recordAdoptedDeploymentInTransaction", () => {
 			expectedEndings: 0,
 			remoteAppId: HQ_APP,
 			comparedDigest: stored.sourceDigest,
+			comparedPushToken: appMappingToken(birth.deployment),
 			read: {
 				sourceGzip: gzipSync(Buffer.from(text, "utf8")),
 				sourceBytes: Buffer.byteLength(text, "utf8"),
@@ -397,6 +402,7 @@ describe("recordAdoptedDeploymentInTransaction", () => {
 			observed_at: new Date("2026-11-12T00:00:00.000Z"),
 			media_files: MEDIA_FILES,
 			first_publish_changes: {
+				reviewed: 1,
 				ids: ["forms-and-settings-rewritten"],
 				webAppsOnInHq: true,
 				of: "first-publish",
@@ -420,6 +426,8 @@ describe("recordAdoptedDeploymentInTransaction", () => {
 			observedBy: ACTOR,
 			novaRevision: 1,
 			mediaFiles: MEDIA_FILES,
+			/* The birth's reviewed list stands whatever its source's bytes read. */
+			firstPublishReview: "current",
 		});
 	});
 

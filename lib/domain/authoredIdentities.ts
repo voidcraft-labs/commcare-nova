@@ -1,4 +1,5 @@
 import type { BlueprintDoc } from "./blueprint";
+import { caseMappingRowUuid } from "./caseMappingRows";
 import type { Uuid } from "./uuid";
 
 export const BLUEPRINT_AUTHORED_IDENTITY_KINDS = [
@@ -7,7 +8,11 @@ export const BLUEPRINT_AUTHORED_IDENTITY_KINDS = [
 	"field",
 	"selectOption",
 	"caseListColumn",
+	"caseMappingRow",
+	"caseListSort",
+	"caseDetailTab",
 	"searchInput",
+	"searchFilter",
 	"caseOperation",
 	"formLink",
 	"entryPoint",
@@ -50,7 +55,11 @@ export function authoredBlueprintIdentities(
 	const identities: BlueprintAuthoredIdentity[] = [];
 	for (const module of Object.values(doc.modules)) {
 		identities.push({ uuid: module.uuid, kind: "module" });
-		for (const entryPoint of [module.entryPoint, module.caseListEntryPoint])
+		for (const entryPoint of [
+			module.entryPoint,
+			module.caseListEntryPoint,
+			...(module.formsFromMenu?.entryPoints ?? []).map((row) => row.entryPoint),
+		])
 			if (entryPoint)
 				identities.push({
 					uuid: entryPoint.uuid,
@@ -63,7 +72,52 @@ export function authoredBlueprintIdentities(
 				kind: "caseListColumn",
 				ownerUuid: module.uuid,
 			});
+			if (column.kind === "calculated") {
+				for (const piece of column.texts ?? [])
+					identities.push({
+						uuid: piece.uuid,
+						kind: "caseMappingRow",
+						ownerUuid: column.uuid,
+					});
+			}
+			if (column.kind === "image-map" || column.kind === "id-mapping") {
+				/* A row with no stored identity is known by its column and
+				 * comparison; two such rows of one comparison are the column's
+				 * duplicate-rule finding, not a second identity. */
+				const derived = new Set<string>();
+				for (const row of column.mapping) {
+					const uuid = caseMappingRowUuid(column.uuid, row);
+					if (row.uuid === undefined) {
+						if (derived.has(uuid)) continue;
+						derived.add(uuid);
+					}
+					identities.push({
+						uuid,
+						kind: "caseMappingRow",
+						ownerUuid: column.uuid,
+					});
+				}
+			}
 		}
+		for (const rule of module.caseListConfig?.calculatedSorts ?? [])
+			identities.push({
+				uuid: rule.uuid,
+				kind: "caseListSort",
+				ownerUuid: module.uuid,
+			});
+		for (const tab of module.caseListConfig?.detailTabs ?? []) {
+			identities.push({
+				uuid: tab.uuid,
+				kind: "caseDetailTab",
+				ownerUuid: module.uuid,
+			});
+		}
+		for (const filter of module.caseListConfig?.searchFilters ?? [])
+			identities.push({
+				uuid: filter.uuid,
+				kind: "searchFilter",
+				ownerUuid: module.uuid,
+			});
 		for (const input of module.caseListConfig?.searchInputs ?? []) {
 			identities.push({
 				uuid: input.uuid,

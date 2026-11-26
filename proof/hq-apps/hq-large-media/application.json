@@ -1,0 +1,7 @@
+{
+	"status": 200,
+	"headers": {
+		"Content-Type": "application/json; charset=utf-8"
+	},
+	"body": "{\"build_comment\": null, \"built_from_app_id\": null, \"built_on\": null, \"id\": \"d753ed80-c0a3-11f1-9f19-5d015a344f17\", \"is_released\": false, \"modules\": [{\"case_properties\": [\"name\"], \"case_type\": \"\", \"forms\": [{\"name\": {\"en\": \"Survey\"}, \"questions\": [{\"comment\": null, \"constraint\": null, \"group\": null, \"hashtagValue\": \"#form/site_name\", \"is_group\": false, \"label\": \"Site name\", \"label_ref\": \"site_name-label\", \"relevant\": null, \"repeat\": null, \"required\": false, \"setvalue\": null, \"tag\": \"input\", \"translations\": {\"en\": \"Site name\"}, \"type\": \"Text\", \"value\": \"/data/site_name\"}, {\"comment\": null, \"constraint\": null, \"group\": null, \"hashtagValue\": \"#form/site_remark\", \"is_group\": false, \"label\": \"Remark\", \"label_ref\": \"site_remark-label\", \"relevant\": null, \"repeat\": null, \"required\": false, \"setvalue\": null, \"tag\": \"input\", \"translations\": {\"en\": \"Remark\"}, \"type\": \"Text\", \"value\": \"/data/site_remark\"}], \"unique_id\": \"f99273fdec3c476ab87981150a545cc4\", \"xmlns\": \"http://openrosa.org/formdesigner/17145eca-899c-44b2-aaaf-b1f0d725bfe8\"}], \"name\": {\"en\": \"Sites\"}, \"unique_id\": \"f350d471235a4ccbb27a2ab8985164a2\"}], \"name\": \"Site survey\", \"resource_uri\": \"\", \"version\": 8, \"versions\": []}"
+}

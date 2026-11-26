@@ -26,9 +26,11 @@
  * one, and a reader defect raised over Nova's own bytes. The test names every document that
  * does not read back, with its first finding or difference.
  */
+
 import { isDeepStrictEqual } from "node:util";
 import { expect, it } from "vitest";
 import { recordDialectRoundTrip } from "@/lib/agent/authoring/recordRoundTrip";
+import { sourceUsesCaseListActionSetting } from "@/lib/commcare/hq/caseListActionSetting";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import type {
 	BlueprintDoc,
@@ -311,6 +313,12 @@ function lookupCatalog(document: CorpusDocument): ReaderLookupCatalog {
 						tableId: table.id,
 						column: (name) =>
 							table.columns.find((column) => column.wireName === name)?.id,
+						attribute: (name) =>
+							table.attributes?.find((member) => member.wireName === name)?.id,
+						property: (columnId, name) =>
+							table.columns
+								.find((column) => column.id === columnId)
+								?.properties?.find((member) => member.wireName === name)?.id,
 					};
 		},
 		definitions: new Map(definitions.map((table) => [table.id, table])),
@@ -363,7 +371,19 @@ async function readBack(
 		// changed it reaches a project space that applies "save only if
 		// changed", which a bring-in's probe of that project space reads.
 		...(savesOnlyChangedAnswers(doc) && { saveOnlyEditedApplied: true }),
+		// A source whose case-list action reads the case-list action setting
+		// reaches a project space that applies it, which a publish requires
+		// (`registration-after-empty-search`) and a bring-in reads.
+		...(sourceUsesCaseListActionSetting(body) && {
+			caseListActionsApplied: true,
+		}),
 		recordDialect: recordDialectRoundTrip,
+		// The project space a document's minimum configuration publishes to
+		// holds no HIERARCHICAL_LOCATION_FIXTURE, so HQ's build gives a
+		// suite's `locations` instance the flat fixture
+		// (`suite_xml/post_process/instances.py::location_fixture_instances`),
+		// which a reading of that project space observes.
+		sourceProjectFactories: { locations: "flat" },
 		lookup: catalog,
 		organization: { levelCodes: levels.map((level) => level.code), levels },
 		media: {

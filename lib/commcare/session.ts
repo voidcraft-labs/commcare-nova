@@ -1,3 +1,14 @@
+import {
+	type BlueprintDoc,
+	type CaseListConfig,
+	caseListColumnRuns,
+	columnOnList,
+	effectiveCaseSearchConfig,
+	effectiveCaseTypes,
+} from "@/lib/domain";
+import { caseListColumnFieldKind } from "@/lib/domain/caseListOrder";
+import { walkPropertyRefs } from "@/lib/domain/expression/walk";
+import { columnProperty } from "./suite/case-list/orderPlanOptions";
 /**
  * CommCare suite-entry derivation.
  *
@@ -57,6 +68,7 @@ import {
 	USERCASE_MISSING_ASSERT_TEST,
 	USERCASE_MISSING_LOCALE_ID,
 } from "./usercaseWire";
+import { GROUP_OWNER_ASSERTION } from "./workerGroupsWire";
 import { w } from "./xpath/wire/builders";
 import {
 	caseDbInstance,
@@ -114,6 +126,7 @@ export interface SessionDatum {
 	 * the case list carries a tile layout that asks to persist.
 	 */
 	detailPersistent?: string;
+	detailInline?: string;
 	autoselect?: boolean;
 	/**
 	 * Present for CommCare's collection-valued `<instance-datum>` selector.
@@ -416,7 +429,72 @@ export const INLINE_SEARCH_RESULTS_SRC = "jr://instance/remote/results:inline";
  * `INCREASED_MAX_SEARCH_RESULTS` toggle raises it to 1,500 in a project space
  * that has it. Preview reads at most this many cases of a completed search.
  */
-export const SEARCH_RESULTS_CAP = 500;
+export { DEFAULT_SEARCH_RESULT_LIMIT as SEARCH_RESULTS_CAP } from "@/lib/domain/searchLimits";
+/** Every search-enabled menu for these types contributes its detail’s
+ * non-expression field paths (case_search/utils.py::get_app_context).
+ * A calculated reference to a parent does not ask HQ to deliver it. */
+export function searchDetailRelatedPaths(
+	doc: BlueprintDoc,
+	requestedTypes: readonly string[],
+): string[][] {
+	const paths = new Map<string, string[]>();
+	const types = effectiveCaseTypes(doc);
+	for (const menu of Object.values(doc.modules)) {
+		const config = menu.caseListConfig;
+		if (
+			!menu.caseType ||
+			!requestedTypes.includes(menu.caseType) ||
+			!config ||
+			!effectiveCaseSearchConfig(menu)
+		)
+			continue;
+		for (const column of config.columns) {
+			if (
+				column.kind === "calculated" ||
+				!column.via ||
+				!caseListColumnRuns(column, config)
+			)
+				continue;
+			const property = columnProperty(column, menu, types);
+			const long =
+				column.visibleInDetail !== false &&
+				caseListColumnFieldKind(column, false, property) === "property";
+			const short =
+				columnOnList(column) &&
+				(config.tile === undefined || column.visibleInList !== false) &&
+				caseListColumnFieldKind(
+					column,
+					column.visibleInList === false,
+					property,
+				) === "property";
+			if (long || short) {
+				const path = column.via.map((s) => s.identifier);
+				paths.set(JSON.stringify(path), path);
+			}
+		}
+	}
+	return [...paths.values()];
+}
+
+/** HQ writes the actual hit's score over this property in every primary
+ * search result. The restore's property with that name is independent. */
+export function searchResultsReadScore(
+	config: CaseListConfig | undefined,
+): boolean {
+	const score = "commcare_search_score";
+	return (
+		config?.columns.some((column) => {
+			if (!caseListColumnRuns(column, config)) return false;
+			if (column.kind !== "calculated")
+				return column.via === undefined && column.field === score;
+			let found = false;
+			walkPropertyRefs(column.expression, (ref) => {
+				if (ref.via === undefined && ref.property === score) found = true;
+			});
+			return found;
+		}) ?? false
+	);
+}
 export const EXCLUDE_RELATED_CASES_FILTER = w.not(
 	w.eq(w.context([w.step("commcare_is_related_case")]), w.call("true")),
 );
@@ -440,6 +518,7 @@ export function deriveCaseSelectionDatum(args: {
 	readonly expressions: ModuleExpressionContexts;
 	readonly lookupNaming?: LookupWireNaming;
 	readonly persistentDetailId?: string;
+	readonly inlineDetailId?: string;
 	readonly parentSelection?: SessionDatum;
 	/**
 	 * The one index name the case is chosen under `parentSelection` by: an
@@ -476,9 +555,11 @@ export function deriveCaseSelectionDatum(args: {
 	if (args.entryMetadataOnly)
 		return {
 			...selection,
-			...(args.detailConfirm === true && {
-				detailConfirm: `m${args.moduleIndex}_case_long`,
-			}),
+			...(args.inlineDetailId && { detailInline: args.inlineDetailId }),
+			...(args.detailConfirm === true &&
+				!args.inlineDetailId && {
+					detailConfirm: `m${args.moduleIndex}_case_long`,
+				}),
 			projectionOnlySelection: true,
 		};
 	const inline = args.caseSource === "results:inline";
@@ -576,9 +657,11 @@ export function deriveCaseSelectionDatum(args: {
 		renderNodeset,
 		value: w.context([w.self(), w.attr("case_id")]),
 		detailSelect: `m${args.moduleIndex}_case_short`,
-		...(args.detailConfirm === true && {
-			detailConfirm: `m${args.moduleIndex}_case_long`,
-		}),
+		...(args.inlineDetailId && { detailInline: args.inlineDetailId }),
+		...(args.detailConfirm === true &&
+			!args.inlineDetailId && {
+				detailConfirm: `m${args.moduleIndex}_case_long`,
+			}),
 		...(args.persistentDetailId !== undefined && {
 			detailPersistent: args.persistentDetailId,
 		}),
@@ -690,6 +773,7 @@ export interface SessionDatumsInput {
 	readonly expressions: ModuleExpressionContexts;
 	readonly lookupNaming?: LookupWireNaming;
 	readonly persistentDetailId?: string;
+	readonly inlineDetailId?: string;
 	readonly tileGrouping?: CaseTileGrouping;
 	/** Pre-projected selectable datums. Nested child menus use this to carry
 	 * their parent-select chain and root-menu datum alignment. */
@@ -719,6 +803,7 @@ export interface AdvancedLoadDatumInput {
 		readonly expressions: ModuleExpressionContexts;
 		readonly lookupNaming?: LookupWireNaming;
 		readonly persistentDetailId?: string;
+		readonly inlineDetailId?: string;
 		/** Whether the entry shows the case's details before going on. */
 		readonly detailConfirm: boolean;
 		readonly entryMetadataOnly?: boolean;
@@ -774,6 +859,7 @@ export function deriveAdvancedLoadDatums(
 			expressions: load.list.expressions,
 			lookupNaming: load.list.lookupNaming,
 			persistentDetailId: load.list.persistentDetailId,
+			inlineDetailId: load.list.inlineDetailId,
 			detailConfirm: load.list.detailConfirm,
 			entryMetadataOnly: load.list.entryMetadataOnly,
 			datumId: load.list.datumId,
@@ -816,6 +902,7 @@ export function deriveAdvancedCaseListDatum(args: {
 	readonly expressions: ModuleExpressionContexts;
 	readonly hasDetailScreen: boolean;
 	readonly persistentDetailId?: string;
+	readonly inlineDetailId?: string;
 	readonly entryMetadataOnly?: boolean;
 }): SessionDatum {
 	return deriveCaseSelectionDatum({
@@ -824,6 +911,7 @@ export function deriveAdvancedCaseListDatum(args: {
 		moduleIndex: args.moduleIndex,
 		expressions: args.expressions,
 		persistentDetailId: args.persistentDetailId,
+		inlineDetailId: args.inlineDetailId,
 		detailConfirm: args.hasDetailScreen,
 		entryMetadataOnly: args.entryMetadataOnly,
 	});
@@ -1077,7 +1165,10 @@ export function deriveFormLinkStack(
  */
 export interface EntryDefinitionInput extends SessionDatumsInput {
 	readonly formXmlns: string;
+	readonly groupAssertion?: "basic" | "advanced";
 	readonly formIndex: number;
+	/** The form title is shared by every menu that lists the same form. */
+	readonly sourceMenuIndex?: number;
 	readonly postSubmit: PostSubmitDestination;
 	/**
 	 * The form's projected after-submit (`formLinkProjection.ts::
@@ -1136,7 +1227,7 @@ export function deriveEntryDefinition(
 		projectedSessionDatums,
 	} = args;
 	const commandId = `m${moduleIndex}-f${formIndex}`;
-	const localeId = `forms.m${moduleIndex}f${formIndex}`;
+	const localeId = `forms.m${args.sourceMenuIndex ?? moduleIndex}f${formIndex}`;
 
 	// Every datum field is already on `args`, so this forwards the whole
 	// object rather than re-listing ten arguments in order. That re-listing
@@ -1178,6 +1269,7 @@ export function deriveEntryDefinition(
 		})),
 	];
 	const entryAssertions = [
+		...(args.groupAssertion === "basic" ? [GROUP_OWNER_ASSERTION] : []),
 		...(datums.some((datum) => datum.id === USERCASE_DATUM_ID)
 			? [
 					{
@@ -1189,6 +1281,7 @@ export function deriveEntryDefinition(
 		...datums.flatMap((datum) =>
 			datum.assertion === undefined ? [] : [datum.assertion],
 		),
+		...(args.groupAssertion === "advanced" ? [GROUP_OWNER_ASSERTION] : []),
 	];
 	const assertions = entryAssertions.length > 0 ? entryAssertions : undefined;
 	const instances = entryInstances(
@@ -1352,6 +1445,7 @@ function buildDatumElement(
 				...(d.detailConfirm === undefined
 					? {}
 					: { "detail-confirm": d.detailConfirm }),
+				...(d.detailInline && { "detail-inline": d.detailInline }),
 				...(d.detailPersistent === undefined
 					? {}
 					: { "detail-persistent": d.detailPersistent }),

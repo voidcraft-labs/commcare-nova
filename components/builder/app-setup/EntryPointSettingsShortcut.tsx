@@ -1,8 +1,10 @@
 "use client";
 import { useState } from "react";
 import { Button } from "@/components/shadcn/button";
-import { useForm, useModule } from "@/lib/doc/hooks/useEntity";
-import { useEntryPointActions } from "@/lib/doc/hooks/useEntryPoints";
+import {
+	useEntryPointActions,
+	useEntryPointOnRoute,
+} from "@/lib/doc/hooks/useEntryPoints";
 import type { EntryPointTarget } from "@/lib/domain";
 import { useNavigate } from "@/lib/routing/hooks";
 import { useCanEdit } from "@/lib/session/hooks";
@@ -15,14 +17,7 @@ export function EntryPointSettingsShortcut({
 	target: EntryPointTarget;
 	onNavigateAway?: () => void;
 }) {
-	const module = useModule(target.moduleUuid);
-	const form = useForm(target.kind === "form" ? target.formUuid : undefined);
-	const entryPoint =
-		target.kind === "form"
-			? form?.entryPoint
-			: target.kind === "case-list"
-				? module?.caseListEntryPoint
-				: module?.entryPoint;
+	const entryPoint = useEntryPointOnRoute(target);
 	const navigate = useNavigate();
 	const actions = useEntryPointActions();
 	const canEdit = useCanEdit();

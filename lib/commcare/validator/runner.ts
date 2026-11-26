@@ -1,3 +1,4 @@
+import { menuWithInheritedCaseSettings } from "@/lib/domain/listedForms";
 /**
  * Validation runner — single entry point for structured blueprint validation.
  *
@@ -107,7 +108,11 @@ export interface RunValidationOptions {
  * locations (`formUuid` always present).
  */
 const SCOPE_EXEMPT_CODES: ReadonlySet<ValidationErrorCode> = new Set([
+	"MENU_FORM_SOURCE_INVALID",
 	"ENTRY_POINT_INVALID",
+	// A case list icon names a form that may sit in another menu, so an edit
+	// there can strand it.
+	"CASE_LIST_ICON_ACTION_INVALID",
 	// APP_RULES products.
 	"CASE_PARENT_SELECTION_CONFLICT",
 	// A child form's entry reads its root menu's first form, so a batch in
@@ -126,6 +131,7 @@ const SCOPE_EXEMPT_CODES: ReadonlySet<ValidationErrorCode> = new Set([
 	// The case list registration app rule reads a form in another module for
 	// the `always` arm, and owns each of these codes whole, both arms alike.
 	"CASE_LIST_REGISTRATION_NOT_REGISTRATION",
+	"CASE_LIST_REGISTRATION_REQUIRES_CREATED_RESULT",
 	"CASE_LIST_REGISTRATION_MULTIPLE_RETURN",
 	"CASE_LIST_REGISTRATION_FORM_NOT_FOUND",
 	"CASE_LIST_REGISTRATION_HOST_NOT_CASE_FIRST",
@@ -181,6 +187,7 @@ const SCOPE_EXEMPT_CODES: ReadonlySet<ValidationErrorCode> = new Set([
 	// carriers and are therefore scope-exempt just like app-wide rules.
 	"LOOKUP_CONTEXT_UNAVAILABLE",
 	"LOOKUP_TABLE_NOT_AVAILABLE",
+	"LOOKUP_PATH_NAME_UNAVAILABLE",
 	"LOOKUP_COLUMN_NOT_AVAILABLE",
 	"LOOKUP_COLUMN_TYPE_MISMATCH",
 ]);
@@ -307,7 +314,8 @@ export function* structuralValidationSteps(
 
 	const entryPlan = entryPlanContext(doc);
 	for (const moduleUuid of doc.moduleOrder) {
-		const mod = doc.modules[moduleUuid];
+		const mod =
+			menuWithInheritedCaseSettings(doc, moduleUuid) ?? doc.modules[moduleUuid];
 		const inModuleScope = scopeHasModule(scope, moduleUuid);
 
 		// The scope filter restricts WHICH entities are walked — the perf
@@ -549,6 +557,9 @@ const PROSE_SURFACE_LABELS: Record<ProseSurface, string> = {
 	hint: "hint",
 	help: "help text",
 	validate_msg: "validation message",
+	extended_text: "extended text",
+	qr_code: "QR code",
+	spoken_text: "spoken text",
 	option_label: "answer option label",
 };
 

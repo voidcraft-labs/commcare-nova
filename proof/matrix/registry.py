@@ -26,7 +26,9 @@ form's id in a ``holds`` key (no external key names a form by its id), and
 one that is not well formed.
 
 A holding row names ``holds``, a list, which is empty where no fragment of
-the document changes (an INERT entry, or one whose held value Nova derives):
+the document changes (an INERT entry, or one whose held value Nova derives).
+A fragment keyed by ``app`` reads its pointer from the document root. An entity
+fragment names its external key. In either case,
 such a row is held by its reading being ``read`` and its claim log counting
 the entry.
 
@@ -83,7 +85,8 @@ class Base:
     (``test_retained.py::test_a_base_exhibits_what_it_names``). ``vellum``
     names each ``(menu, form)`` position saved once in HQ's form builder
     after ``build``. ``declaration`` is the one it is read under, or None for
-    the reading's preselected one. ``worker_location`` is the site code of the
+    the reading's preselected one. ``owner_rule_choices`` answers the owner-rule
+    questions its reading asks, by level code. ``worker_location`` is the site code of the
     place its builder names as the worker's, or None. ``cases`` names each
     case its case database holds beside the generated ones, as ``(case type,
     ((property, value), ...))``, putting together values A gives one by one
@@ -100,6 +103,9 @@ class Base:
     worker_location: str | None = None
     # The cases the base names beside the generated ones, which the case seed records.
     cases: tuple[tuple[str, tuple[tuple[str, str], ...]], ...] = ()
+    # The base's answers to its reading's owner-rule questions, ``(level code, answer)`` each, as a person gives
+    # them to the create (``BringInInput.ownerRuleChoices``); none where its reading asks none.
+    owner_rule_choices: tuple[tuple[str, str], ...] = ()
 
     def as_json(self):
         """The base as ``base.json`` records it: its configuration as one entry of a corpus document's
@@ -117,6 +123,7 @@ class Base:
                 "caseSearchEnabled": configuration.case_search_enabled,
             },
             "declaration": "preselected" if self.declaration is None else self.declaration.as_json(),
+            **({"ownerRuleChoices": dict(self.owner_rule_choices)} if self.owner_rule_choices else {}),
             "exhibits": sorted(self.exhibits),
         }
 
@@ -127,20 +134,31 @@ from proof.matrix.bases import (  # noqa: E402
     case_lists,
     connect_deliver,
     connect_learn,
+    empty_search,
     hq_advanced,
     hq_case_management,
     hq_expressions,
     hq_media,
+    hq_question_display,
     hq_questions,
     kept_settings,
     languages,
+    large_media,
+    lookup_aliases,
+    lookup_data,
+    lookup_name_lists,
+    lookup_names,
+    lookup_types,
     lookups,
     menus,
     names,
     new_app,
     nova_then_builder,
+    owner_rules,
     places,
     plain,
+    project_languages,
+    runtime_name_tables,
     saved_pages,
     search,
     starter_agriculture,
@@ -156,16 +174,27 @@ BASES: tuple[Base, ...] = (
     starter_agriculture.BASE,
     starter_wash.BASE,
     hq_media.BASE,
+    large_media.BASE,
     kept_settings.BASE,
     languages.BASE,
+    project_languages.BASE,
     menus.BASE,
     names.BASE,
     case_lists.BASE,
     search.BASE,
+    empty_search.BASE,
     lookups.BASE,
+    lookup_aliases.BASE,
+    lookup_names.BASE,
+    lookup_data.BASE,
+    lookup_types.BASE,
+    lookup_name_lists.BASE,
+    runtime_name_tables.BASE,
     places.BASE,
+    owner_rules.BASE,
     connect_deliver.BASE,
     connect_learn.BASE,
+    hq_question_display.BASE,
     hq_questions.BASE,
     hq_expressions.BASE,
     hq_case_management.BASE,
@@ -297,10 +326,21 @@ def _refused_reference(row_id, error):
     )
 
 
+def project_files_in(value):
+    """Every Project file ``value`` names (``{"$projectFile": path}``), at any depth, in document order."""
+    from proof.matrix.ops import project_file_of
+
+    path = project_file_of(value)
+    if path is not None:
+        return [path]
+    children = value.values() if isinstance(value, dict) else value if isinstance(value, list) else ()
+    return [one for child in children for one in project_files_in(child)]
+
+
 def _check_references(row_id, row):
     """Each reference a row holds well formed, and only where the lane resolves one: a set-json value, and a menu or a
     form's xmlns in a list key of a ``holds`` fragment."""
-    from proof.matrix.ops import ValueNotSet, references_in
+    from proof.matrix.ops import PROJECT_FILE, ValueNotSet, project_file_of, references_in
 
     allowed = []
     for change in (
@@ -326,6 +366,14 @@ def _check_references(row_id, row):
         raise _refused_reference(row_id, str(error)) from None
     if everywhere != sum(len(references_in(value)) for _, value in allowed):
         raise _refused_reference(row_id, "a place, a holds value or an hqNeverServes holds one.")
+    held_files = sum(
+        project_file_of(hold.get("value")) is not None for hold in row.get("holds") or () if isinstance(hold, Mapping)
+    )
+    if len(project_files_in(dict(row))) != held_files:
+        raise VariantsRefused(
+            f"The variant {row_id} names a Project file ({{{PROJECT_FILE!r}: <path>}}) where the lane reads none: a"
+            " holds value names one as the whole value, and nothing else does."
+        )
 
 
 def _check_change(row_id, change, named):

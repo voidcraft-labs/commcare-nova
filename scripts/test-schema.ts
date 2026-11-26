@@ -1,4 +1,8 @@
 import { readSourceTool } from "../lib/agent/tools/media/readSource";
+import {
+	editWorkerGroupTool,
+	getWorkerGroupsTool,
+} from "../lib/agent/tools/workerGroups";
 /**
  * Verifies that the SA's tool input schemas are accepted by the OpenAI
  * API — i.e. the model makes a tool call against each schema without the
@@ -59,10 +63,12 @@ import {
 import { addCaseListColumnsTool } from "../lib/agent/tools/case-list-config/addCaseListColumns";
 import { addSearchInputsTool } from "../lib/agent/tools/case-list-config/addSearchInputs";
 import { configureCaseListTool } from "../lib/agent/tools/case-list-config/configureCaseList";
+import { editSearchFilterTool } from "../lib/agent/tools/case-list-config/editSearchFilter";
 import { removeCaseListColumnTool } from "../lib/agent/tools/case-list-config/removeCaseListColumn";
 import { removeSearchInputTool } from "../lib/agent/tools/case-list-config/removeSearchInput";
 import { reorderCaseListColumnsTool } from "../lib/agent/tools/case-list-config/reorderCaseListColumns";
 import { reorderSearchInputsTool } from "../lib/agent/tools/case-list-config/reorderSearchInputs";
+import { setCaseDetailTabsTool } from "../lib/agent/tools/case-list-config/setCaseDetailTabs";
 import { setCaseListFilterTool } from "../lib/agent/tools/case-list-config/setCaseListFilter";
 import { setCaseListTileTool } from "../lib/agent/tools/case-list-config/setCaseListTile";
 import { updateCaseListColumnTool } from "../lib/agent/tools/case-list-config/updateCaseListColumn";
@@ -96,6 +102,8 @@ import {
 	addLanguageTool,
 	getTranslatableContentInputSchema,
 	getTranslatableContentTool,
+	removeLanguageTool,
+	updateLanguageTool,
 	updateTranslationsInputSchema,
 	updateTranslationsTool,
 } from "../lib/agent/tools/localization";
@@ -116,11 +124,14 @@ import { setAppLogoTool } from "../lib/agent/tools/media/setAppLogo";
 import { setMenuMediaTool } from "../lib/agent/tools/media/setMenuMedia";
 import { moveFieldTool } from "../lib/agent/tools/moveField";
 import {
+	addOrganizationLevelsTool,
 	createLocationTool,
 	getOrganizationTool,
 	updateLocationTool,
+	updateOrganizationLevelTool,
 } from "../lib/agent/tools/organization";
 import { renameCasePropertiesTool } from "../lib/agent/tools/renameCaseProperties";
+import { setCaseTypeParentTool } from "../lib/agent/tools/setCaseTypeParent";
 import { setFieldOptionsSourceTool } from "../lib/agent/tools/setFieldOptionsSource";
 import { setFormSectionsTool } from "../lib/agent/tools/setFormSections";
 import { updateAppTool } from "../lib/agent/tools/updateApp";
@@ -146,7 +157,26 @@ interface SchemaTest {
 	readonly prompt: string;
 }
 
+import {
+	getPreviewSearchSettingsTool,
+	setPreviewSearchSettingsTool,
+} from "../lib/agent/tools/previewSearchSettings";
+
 const SCHEMA_TESTS: readonly SchemaTest[] = [
+	{
+		name: "getPreviewSearchSettings",
+		description: getPreviewSearchSettingsTool.description,
+		schema: getPreviewSearchSettingsTool.inputSchema,
+		prompt:
+			"Use getPreviewSearchSettings to read the first page of this app's available Preview destinations.",
+	},
+	{
+		name: "setPreviewSearchSettings",
+		description: setPreviewSearchSettingsTool.description,
+		schema: setPreviewSearchSettingsTool.inputSchema,
+		prompt:
+			"Use setPreviewSearchSettings for the local destination at revision 0. Change only the time zone to UTC, keeping existing matching rules and result limit.",
+	},
 	{
 		name: "evaluateForm",
 		description: evaluateFormTool.description,
@@ -187,7 +217,7 @@ const SCHEMA_TESTS: readonly SchemaTest[] = [
 		description: addFieldsTool.description,
 		schema: addFieldsTool.inputSchema,
 		prompt:
-			'Use addFields with moduleUuid 11111111-1111-4111-8111-111111111111 and formUuid 22222222-2222-4222-8222-222222222222 to add a group household with field_list true; inside it a text field head_name saving with caseWrite to the household case property head_name through via [{"identifier":"parent"}] only if changed; a single_select consent whose label has plain_label true, with two choices; and a repeat visits counting int(#form/visit_count) rows. Also add a text field phone with keypad numbers, and a text field notes whose help text "Use *short* words" shows exactly as typed (plain_help true) and whose label is "Visit on {{= format-date(date(#form/visit_date), \'%e %b %Y\')}}".',
+			'Use addFields with moduleUuid 11111111-1111-4111-8111-111111111111 and formUuid 22222222-2222-4222-8222-222222222222 to add a date field first_visit with calendar ethiopian and itemsPerRow "2", a single_select district with two choices and choiceLayout kind search with matchWords fuzzy, a group household with field_list true; inside it a text field head_name saving with caseWrite to the household case property head_name through via [{"identifier":"parent"}] only if changed; a single_select consent whose label has plain_label true, with two choices; and a repeat visits counting int(#form/visit_count) rows. Also add a text field phone with keypad numbers, and a text field notes whose help text "Use *short* words" shows exactly as typed (plain_help true) and whose label is "Visit on {{= format-date(date(#form/visit_date), \'%e %b %Y\')}}".',
 	},
 	{
 		name: "addAutomations",
@@ -237,6 +267,13 @@ const SCHEMA_TESTS: readonly SchemaTest[] = [
 		schema: moveCaseOperationTool.inputSchema,
 		prompt:
 			"Use moveCaseOperation with moduleUuid 11111111-1111-4111-8111-111111111111 and formUuid 22222222-2222-4222-8222-222222222222 to move the case change 33333333-3333-4333-8333-333333333333 after the case change 44444444-4444-4444-8444-444444444444.",
+	},
+	{
+		name: "setCaseTypeParent",
+		description: setCaseTypeParentTool.description,
+		schema: setCaseTypeParentTool.inputSchema,
+		prompt:
+			"Use setCaseTypeParent to add the supervisor link from visit to worker.",
 	},
 	{
 		name: "updateCaseProperty",
@@ -365,11 +402,25 @@ const SCHEMA_TESTS: readonly SchemaTest[] = [
 			"Use reorderCaseListColumns with moduleUuid 11111111-1111-4111-8111-111111111111 and columnUuids [44444444-4444-4444-8444-444444444444, 33333333-3333-4333-8333-333333333333].",
 	},
 	{
+		name: "editSearchFilter",
+		description: editSearchFilterTool.description,
+		schema: editSearchFilterTool.inputSchema,
+		prompt:
+			"Add a search filter for module 11111111-1111-4111-8111-111111111111. Match the record owner with the constant text worker-a.",
+	},
+	{
 		name: "setCaseListFilter",
 		description: setCaseListFilterTool.description,
 		schema: setCaseListFilterTool.inputSchema,
 		prompt:
 			"Use setCaseListFilter with moduleUuid 11111111-1111-4111-8111-111111111111 to set a comparison: the patient case status property equals the literal string open.",
+	},
+	{
+		name: "setCaseDetailTabs",
+		description: setCaseDetailTabsTool.description,
+		schema: setCaseDetailTabsTool.inputSchema,
+		prompt:
+			"Use setCaseDetailTabs on module 11111111-1111-4111-8111-111111111111 to put field 33333333-3333-4333-8333-333333333333 in a new tab called Visit.",
 	},
 	{
 		name: "setCaseListTile",
@@ -430,7 +481,7 @@ const SCHEMA_TESTS: readonly SchemaTest[] = [
 		description: editFieldTool.description,
 		schema: editFieldTool.inputSchema,
 		prompt:
-			"Use editField with moduleUuid 11111111-1111-4111-8111-111111111111, formUuid 22222222-2222-4222-8222-222222222222, and fieldUuid 33333333-3333-4333-8333-333333333333 to set its help text to 'Enter the patient's full legal name.' and set caseWrite to null, and set plain_label to true. Also set keypad to numbers and plain_help to true.",
+			"Use editField with moduleUuid 11111111-1111-4111-8111-111111111111, formUuid 22222222-2222-4222-8222-222222222222, and fieldUuid 33333333-3333-4333-8333-333333333333 to set its help text to 'Enter the patient's full legal name.' and set caseWrite to null, and set plain_label to true. Also set keypad to numbers, inputWidth to short and plain_help to true.",
 	},
 	{
 		name: "moveField",
@@ -486,6 +537,20 @@ const SCHEMA_TESTS: readonly SchemaTest[] = [
 			"Use addLanguage to add Mandarin Chinese written in the Simplified script with Singapore conventions: language cmn, script Hans, region SG. Omit copyFrom so it seeds from the source language.",
 	},
 	{
+		name: "removeLanguage",
+		description: removeLanguageTool.description,
+		schema: removeLanguageTool.inputSchema,
+		prompt:
+			'Use removeLanguage to remove the project language with the exact code "qaa".',
+	},
+	{
+		name: "updateLanguage",
+		description: updateLanguageTool.description,
+		schema: updateLanguageTool.inputSchema,
+		prompt:
+			"Use updateLanguage to move French (fra) just after Spanish (spa) in the app's language order.",
+	},
+	{
 		name: "getTranslatableContent",
 		description: getTranslatableContentTool.description,
 		schema: getTranslatableContentInputSchema,
@@ -509,6 +574,19 @@ const SCHEMA_TESTS: readonly SchemaTest[] = [
 		schema: getLookupTablesTool.inputSchema,
 		prompt:
 			"Use getLookupTables to read the first page of Project data tables.",
+	},
+	{
+		name: "addOrganizationLevels",
+		description: addOrganizationLevelsTool.description,
+		schema: addOrganizationLevelsTool.inputSchema,
+		prompt: "Use addOrganizationLevels to create a clinic level.",
+	},
+	{
+		name: "updateOrganizationLevel",
+		description: updateOrganizationLevelTool.description,
+		schema: updateOrganizationLevelTool.inputSchema,
+		prompt:
+			"Use updateOrganizationLevel to change stock tracking at the clinic level.",
 	},
 	{
 		name: "getOrganization",
@@ -543,6 +621,19 @@ const SCHEMA_TESTS: readonly SchemaTest[] = [
 		schema: editLookupColumnsTool.inputSchema,
 		prompt:
 			'Use editLookupColumns for tableId 11111111-1111-4111-8111-111111111111 at expectedTableRevision "4" with one add operation: key district and column {wireName: "district", label: "District", dataType: "text"}.',
+	},
+	{
+		name: "getWorkerGroups",
+		description: getWorkerGroupsTool.description,
+		schema: getWorkerGroupsTool.inputSchema,
+		prompt: "Find groups named North with getWorkerGroups.",
+	},
+	{
+		name: "editWorkerGroup",
+		description: editWorkerGroupTool.description,
+		schema: editWorkerGroupTool.inputSchema,
+		prompt:
+			'Create a worker group named North with no details that shares cases at Project revision "3". Use operationId 11111111-1111-4111-8111-111111111111.',
 	},
 	{
 		name: "editLookupRows",

@@ -1,3 +1,4 @@
+import { editorLookupReads } from "./lookupTablePresentation";
 // components/builder/shared/editorSchemas.ts
 //
 // Declarative registry mapping every Expression kind to its card
@@ -113,12 +114,8 @@ import type { EditorSearchInputDecl } from "./searchInputPresentation";
  *   - `"per-case"`: the ordinary scope: the expression runs against a
  *     case (a Results row, a search candidate), so case-property and
  *     relationship reads are meaningful.
- *   - `"selected-case"`: the expression runs against ONE already-chosen
- *     case and can see nothing else: a form's display condition on a
- *     module where everyone picks a case first. CommCare evaluates it on
- *     the case-list screen, where the chosen case is the whole world, so
- *     the commit gate rejects related-case reads, counts, and presence
- *     tests (`FORM_DISPLAY_CONDITION_CASE_DATA_UNAVAILABLE`).
+ *   - `"selected-case"`: a navigation rule runs after the route has selected
+ *     this case. The case and records connected to it are in scope.
  *   - `"global"`: the expression resolves ONCE, before any case is
  *     selected (a search input's starting value, the search-button
  *     display condition, a module's display condition). There is no row
@@ -144,12 +141,6 @@ export const GLOBAL_SCOPE_CASE_DATA_REASON =
  *  the item off the menu is the "Show on the menu" switch's job. */
 export const NEVER_MATCH_UNAVAILABLE_REASON =
 	"To keep this item off the menu, turn off “Show on the menu” in its settings";
-
-/** The `"selected-case"` twin of `GLOBAL_SCOPE_CASE_DATA_REASON`: the
- *  chosen case's own information is available, everything reached
- *  through a connection is not. */
-export const SELECTED_CASE_SCOPE_RELATED_DATA_REASON =
-	"This is decided for one already-chosen case, so it can read that case's own information but not connected cases or their counts";
 
 export const TABLE_ROW_SCOPE_CASE_DATA_REASON =
 	"This rule runs against one data-table row, so it can use that table's columns, earlier form answers, fixed values, and current-user information";
@@ -250,12 +241,11 @@ export function neverMatchInScope(ctx: PredicateEditContext): boolean {
 }
 
 /** Whether the scope can reach past the case being evaluated:
- *  relationship walks, relationship counts, relationship presence. Only
- *  the ordinary per-case scope can. */
+ *  relationship walks, relationship counts, relationship presence. */
 export function relatedCaseDataInScope(
 	ctx: Pick<PredicateEditContext, "caseDataScope">,
 ): boolean {
-	return ctx.caseDataScope === "per-case";
+	return caseDataInScope(ctx);
 }
 
 /** The truth value an unchosen global placeholder must hold in this
@@ -334,13 +324,13 @@ function getCurrentCaseType(ctx: PredicateEditContext): CaseType | undefined {
  *  property per-case, or the always-available session values in a
  *  global slot. */
 function hasComparableSubject(ctx: PredicateEditContext): boolean {
-	if (tableRowInScope(ctx)) return (ctx.tableScope?.columns.length ?? 0) > 0;
+	if (tableRowInScope(ctx)) return editorLookupReads(ctx.tableScope).length > 0;
 	if (!caseDataInScope(ctx)) return true;
 	return hasAnyProperty(ctx);
 }
 
 function hasAnyProperty(ctx: PredicateEditContext): boolean {
-	if (tableRowInScope(ctx)) return (ctx.tableScope?.columns.length ?? 0) > 0;
+	if (tableRowInScope(ctx)) return editorLookupReads(ctx.tableScope).length > 0;
 	const ct = getCurrentCaseType(ctx);
 	return ct !== undefined && ct.properties.length > 0;
 }
@@ -349,7 +339,7 @@ function hasMembershipProperty(ctx: PredicateEditContext): boolean {
 	if (tableRowInScope(ctx)) {
 		const constraint = inSubjectConstraint();
 		return (
-			ctx.tableScope?.columns.some((column) =>
+			editorLookupReads(ctx.tableScope).some((column) =>
 				acceptsType(constraint, column.dataType),
 			) ?? false
 		);
@@ -386,7 +376,7 @@ function hasScalarSubjectOfType(
 ): boolean {
 	if (tableRowInScope(ctx)) {
 		return (
-			ctx.tableScope?.columns.some((column) =>
+			editorLookupReads(ctx.tableScope).some((column) =>
 				predicate({
 					name: column.wireName,
 					label: proseText(column.label),
@@ -433,7 +423,7 @@ export function predicateUnavailableReason(
 					? "Add a search field first"
 					: TABLE_ROW_SCOPE_CASE_DATA_REASON;
 			default:
-				return (ctx.tableScope?.columns.length ?? 0) === 0
+				return editorLookupReads(ctx.tableScope).length === 0
 					? "Add a data-table column first"
 					: TABLE_ROW_SCOPE_CASE_DATA_REASON;
 		}
@@ -442,9 +432,7 @@ export function predicateUnavailableReason(
 	switch (kind) {
 		case "exists":
 		case "missing":
-			return relatedCaseDataInScope(ctx)
-				? "Add a parent or child case type first"
-				: SELECTED_CASE_SCOPE_RELATED_DATA_REASON;
+			return "Add a parent or child case type first";
 		case "when-input-present":
 			return ctx.knownInputs.length === 0
 				? "Add a search field first"

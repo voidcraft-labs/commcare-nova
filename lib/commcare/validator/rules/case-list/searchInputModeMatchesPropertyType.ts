@@ -116,8 +116,10 @@ export function searchInputModeMatchesPropertyType(
 			continue;
 		}
 
-		// Omitted mode still had to resolve its property above.
-		if (!input.mode) continue;
+		// Omitted mode still had to resolve its property above. The project
+		// space's own matching rule matches a field with its matching, over any
+		// type (`nativeSearchFilters`), so no mode of Nova's compares it.
+		if (!input.mode || input.matching === "project-space") continue;
 		const allowed = SEARCH_MODE_PROPERTY_TYPES[input.mode.kind];
 		if (allowed === undefined) continue; // mode admits every type
 		if (allowed.includes(dataType)) continue;

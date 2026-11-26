@@ -1,8 +1,17 @@
+import { workerWording } from "@/lib/doc/localizationWorkspace";
+import type { Column } from "@/lib/domain";
 import {
 	type BlueprintDoc,
 	effectiveCaseSearchConfig,
 	type Uuid,
 } from "@/lib/domain";
+import { caseMappingTextUnit } from "@/lib/domain/caseMappingRows";
+import {
+	columnWordingRole,
+	type GeneratedWordingRole,
+	generatedWordingId,
+} from "@/lib/domain/generatedWording";
+import { menuWithInheritedCaseSettings } from "@/lib/domain/listedForms";
 import {
 	type LanguageTag,
 	makeTranslationUnitId,
@@ -10,7 +19,7 @@ import {
 import { projectLocalizedModule } from "@/lib/domain/localizedBlueprintProjection";
 import {
 	localizeTranslationUnit,
-	translationUnitsById,
+	snapshotTranslationUnits,
 } from "@/lib/domain/translationUnits";
 import { type RuntimeMessage, runtimeMessage } from "./runtimeMessages";
 
@@ -22,9 +31,13 @@ export function projectWorkerModule(
 	uuid: Uuid,
 ) {
 	const canonical = doc.modules[uuid];
-	const projected = projectLocalizedModule(doc, language, uuid);
+	const projected = menuWithInheritedCaseSettings(
+		doc,
+		uuid,
+		projectLocalizedModule(doc, language, uuid),
+	);
 	if (!canonical || !projected) return projected;
-	const units = translationUnitsById(doc);
+	const units = snapshotTranslationUnits(doc);
 	const fallback = (id: string, key: RuntimeMessage) => {
 		const unit = units.get(id);
 		const localized = unit && localizeTranslationUnit(doc, language, unit);
@@ -38,39 +51,92 @@ export function projectWorkerModule(
 			? localized.effective
 			: runtimeMessage(language, key);
 	};
+	const word = (owner: string, role: GeneratedWordingRole, original: string) =>
+		workerWording(doc, language, generatedWordingId(owner, role), true) ??
+		original;
 	const mod = structuredClone(projected);
+	mod.name = word(uuid, "menuTitle", mod.name);
 	if (mod.caseListConfig)
-		mod.caseListConfig.searchInputs = mod.caseListConfig.searchInputs.map(
-			(input) => {
-				const source = canonical.caseListConfig?.searchInputs.find(
-					(item) => item.uuid === input.uuid,
-				);
-				return input.kind !== "hidden" &&
-					input.required &&
+		for (const input of mod.caseListConfig.searchInputs) {
+			input.label = word(input.uuid, "promptLabel", input.label);
+			if (input.kind === "hidden") continue;
+			const source = canonical.caseListConfig?.searchInputs.find(
+				(item) => item.uuid === input.uuid,
+			);
+			if (input.hint !== undefined)
+				input.hint = word(input.uuid, "promptHint", input.hint);
+			if (input.required) {
+				const message =
 					source?.kind !== "hidden" &&
-					source?.required?.message === undefined
-					? {
-							...input,
-							required: {
-								...input.required,
-								message: fallback(
-									makeTranslationUnitId("system", "search-required", "default"),
-									"searchRequired",
-								),
-							},
-						}
-					: input;
-			},
-		);
+					source?.required?.message === undefined &&
+					source?.required?.noMessage !== true
+						? fallback(
+								makeTranslationUnitId("system", "search-required", "default"),
+								"searchRequired",
+							)
+						: input.required.message;
+				if (message !== undefined)
+					input.required.message = word(input.uuid, "promptRequired", message);
+			}
+			if (input.validation?.message !== undefined)
+				input.validation.message = word(
+					input.uuid,
+					"promptValidation",
+					input.validation.message,
+				);
+		}
 	const search = effectiveCaseSearchConfig(mod);
 	const sourceSearch = effectiveCaseSearchConfig(canonical);
 	if (search) {
-		if (sourceSearch?.searchScreenTitle === undefined)
-			search.searchScreenTitle = fallback(
-				makeTranslationUnitId("module", uuid, "search-title"),
-				"search",
+		const title =
+			sourceSearch?.searchScreenTitle === undefined
+				? fallback(
+						makeTranslationUnitId("module", uuid, "search-title"),
+						"search",
+					)
+				: search.searchScreenTitle;
+		if (typeof title === "string")
+			search.searchScreenTitle = word(uuid, "searchTitle", title);
+		if (search.searchScreenSubtitle !== undefined)
+			search.searchScreenSubtitle = word(
+				uuid,
+				"searchDescription",
+				search.searchScreenSubtitle,
 			);
 		mod.caseSearchConfig = search;
 	}
 	return mod;
+}
+
+/** A column is projected separately on each screen. Its number and its
+ * neighboring columns never participate in the wording identity. */
+export function projectWorkerColumn(
+	column: Column,
+	search: boolean,
+	detail: boolean,
+	values: ReadonlyMap<string, unknown>,
+): Column {
+	const role = columnWordingRole(search, detail);
+	const wordOf = (base: string, fallback: string) => {
+		const value = values.get(generatedWordingId(column.uuid, role, base));
+		return typeof value === "string" ? value : fallback;
+	};
+	const word = (slot: string[], fallback: string) =>
+		wordOf(makeTranslationUnitId("column", column.uuid, ...slot), fallback);
+	const current = { ...column, header: word(["header"], column.header) };
+	if (current.sort?.label !== undefined)
+		current.sort = {
+			...current.sort,
+			label: word(["sort-label"], current.sort.label),
+		};
+	if (current.kind === "interval") current.text = word(["text"], current.text);
+	if (current.kind === "id-mapping")
+		current.mapping = current.mapping.map((row) => ({
+			...row,
+			label: wordOf(
+				caseMappingTextUnit(column.uuid, row, "mapping"),
+				row.label,
+			),
+		}));
+	return current;
 }

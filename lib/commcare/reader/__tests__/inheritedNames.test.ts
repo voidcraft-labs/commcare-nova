@@ -230,30 +230,37 @@ describe("a name every object inherits, in an app made in CommCare HQ", () => {
 	});
 
 	it("reads a case property's value so named, which an ID mapping keys a label by, as one named in its place", async () => {
-		await readsAsOrdinary((body, name) => ({
-			...body,
-			// A second language, so each label's translation is held under the value it maps.
-			langs: [...(body.langs as string[]), "es"],
-			modules: menus(body).map((menu) => {
-				const details = menu.case_details as Record<string, Body>;
-				const short = details.short as Body;
-				const [column, ...rest] = short.columns as Body[];
-				const mapping = {
-					format: "enum",
-					enum: [
-						{ key: name, value: { en: "Seen", es: "Visto" } },
-						{ key: "unseen", value: { en: "Not seen", es: "No visto" } },
-					],
-				};
-				return {
-					...menu,
-					case_details: {
-						...details,
-						short: { ...short, columns: [{ ...column, ...mapping }, ...rest] },
-					},
-				};
+		await readsAsOrdinary(
+			(body, name) => ({
+				...body,
+				// A second language, so each label's translation is held under the value it maps.
+				langs: [...(body.langs as string[]), "es"],
+				modules: menus(body).map((menu) => {
+					const details = menu.case_details as Record<string, Body>;
+					const short = details.short as Body;
+					const [column, ...rest] = short.columns as Body[];
+					const mapping = {
+						format: "enum",
+						enum: [
+							{ key: name, value: { en: "Seen", es: "Visto" } },
+							{ key: "unseen", value: { en: "Not seen", es: "No visto" } },
+						],
+					};
+					return {
+						...menu,
+						case_details: {
+							...details,
+							short: {
+								...short,
+								columns: [{ ...column, ...mapping }, ...rest],
+							},
+						},
+					};
+				}),
+				// A fresh reading mints each rule's identity from the value it maps.
 			}),
-		}));
+			"minted-from-the-name",
+		);
 	});
 
 	it("reads a media path so named, and a media map keyed by it, as one named in its place", async () => {

@@ -2,14 +2,12 @@ import {
 	computeFieldPath,
 	findContainingForm,
 } from "@/lib/doc/mutations/helpers";
-import {
-	entryPointInventory,
-	moduleUuidOfForm,
-	uuidSchema,
-} from "@/lib/domain";
+import { entryPointInventory, uuidSchema } from "@/lib/domain";
+import { routeContainsForm } from "@/lib/domain/listedForms";
 import {
 	type AuthoringScopeOptions,
 	enclosingAuthoringTable,
+	enclosingLookupIdentity,
 } from "./bindings";
 import { AuthoringInputError } from "./errors";
 import { fieldNameCandidates } from "./fieldNames";
@@ -95,6 +93,11 @@ export function bindNamedIdentity(args: {
 			if (field.success) fieldUuid = field.data;
 			const module = uuidSchema.safeParse(object.moduleUuid);
 			if (module.success) scope.moduleUuid = module.data;
+			/* A source menu scopes the forms another menu lists from it. */
+			const source = uuidSchema.safeParse(
+				object.sourceMenuUuid ?? object.menuUuid,
+			);
+			if (source.success) scope.moduleUuid = source.data;
 			const form = uuidSchema.safeParse(object.formUuid);
 			if (form.success) scope.formUuid = form.data;
 		}
@@ -119,10 +122,12 @@ export function bindNamedIdentity(args: {
 				candidates.push(...declarations([input], "moduleUuid", "name"));
 			break;
 		case "form":
+			// A menu listing another menu's forms names the forms it shows; an
+			// ordinary menu, the forms it owns.
 			candidates = named(
 				Object.values(doc.forms).filter(
 					(item) =>
-						!moduleUuid || moduleUuidOfForm(doc, item.uuid) === moduleUuid,
+						!moduleUuid || routeContainsForm(doc, moduleUuid, item.uuid),
 				),
 				(item) => [item.name],
 			);
@@ -156,6 +161,17 @@ export function bindNamedIdentity(args: {
 					: [];
 			break;
 		}
+		case "case-detail-tab":
+			candidates = named(module?.caseListConfig?.detailTabs ?? [], (item) => [
+				item.title,
+			]);
+			break;
+		case "case-list-sort":
+			candidates = named(
+				module?.caseListConfig?.calculatedSorts ?? [],
+				(item) => (item.label ? [item.label] : []),
+			);
+			break;
 		case "case-list-column":
 			candidates = named(module?.caseListConfig?.columns ?? [], (item) => [
 				item.header,
@@ -233,6 +249,8 @@ export function bindNamedIdentity(args: {
 				names: [item.name, item.tag],
 			}));
 			break;
+		case "lookup-attribute":
+		case "lookup-value-property":
 		case "lookup-column": {
 			const tableId = enclosingAuthoringTable(input, slot.path, scope.tableId);
 			const table = scope.tables?.find((item) => item.id === tableId);
@@ -240,7 +258,19 @@ export function bindNamedIdentity(args: {
 				throw new AuthoringInputError(
 					"Choose the data table before naming its columns.",
 				);
-			candidates = table.columns.map((item) => ({
+			const selectedColumnId = enclosingLookupIdentity(
+				input,
+				slot.path,
+				"columnId",
+			);
+			const members =
+				slot.family === "lookup-column"
+					? table.columns
+					: slot.family === "lookup-attribute"
+						? (table.attributes ?? [])
+						: (table.columns.find((column) => column.id === selectedColumnId)
+								?.properties ?? []);
+			candidates = members.map((item) => ({
 				id: item.id,
 				names: [item.wireName, item.label],
 			}));

@@ -19,6 +19,7 @@ import {
 	placementFixture,
 	U,
 } from "@/lib/commcare/__tests__/placementFixture";
+import { lookupWireNaming } from "@/lib/commcare/lookup/naming";
 import { planPlacements } from "@/lib/commcare/placement";
 import {
 	DERIVED_WIRE_IDENTITY,
@@ -31,9 +32,12 @@ import {
 	type BlueprintDoc,
 	type CaseListConfig,
 	type Column,
+	idMappingColumn,
 	plainColumn,
 	type Uuid,
 } from "@/lib/domain";
+import { literal, term } from "@/lib/domain/expression";
+import type { LookupColumnId, LookupTableId } from "@/lib/domain/lookupIds";
 import {
 	EXTERNAL_ENTITY_KINDS,
 	type ExternalEntityKind,
@@ -42,6 +46,7 @@ import {
 	type IdentityMapEntry,
 } from "../identity";
 import { externalIdentityMap } from "../identityMap";
+import { recordSyntaxKey } from "../syntaxCompare";
 
 const EXTERNAL = new Set<string>(EXTERNAL_ENTITY_KINDS);
 
@@ -121,6 +126,13 @@ function everyKindDoc(): BlueprintDoc {
 		header: "Score",
 		expression: { kind: "term", term: { kind: "literal", value: "1" } },
 	} as unknown as Column;
+	const mapping = idMappingColumn(testUuid("map-column"), "region", "Region", [
+		{
+			uuid: testUuid("map-entry"),
+			value: "north",
+			label: "North",
+		},
+	]);
 	doc.modules[moduleUuid] = {
 		...module,
 		entryPoint: { uuid: testUuid("map-menu-entry"), id: "patients" },
@@ -130,9 +142,33 @@ function everyKindDoc(): BlueprintDoc {
 		},
 		caseListConfig: {
 			...config,
-			columns: [...config.columns, calculated],
-			listColumnOrder: [...config.listColumnOrder, calculated.uuid],
-			detailColumnOrder: [...config.detailColumnOrder, calculated.uuid],
+			columns: [...config.columns, calculated, mapping],
+			calculatedSorts: [
+				{
+					uuid: testUuid("map-sort"),
+					expression: term(literal("north")),
+					direction: "asc",
+					priority: 0,
+				},
+			],
+			listColumnOrder: [
+				...config.listColumnOrder,
+				calculated.uuid,
+				mapping.uuid,
+			],
+			detailColumnOrder: [
+				...config.detailColumnOrder,
+				calculated.uuid,
+				mapping.uuid,
+			],
+			// A Details tab is named by the least key among its fields.
+			detailTabs: [
+				{
+					uuid: testUuid("map-tab"),
+					title: "Scores",
+					startColumnUuid: calculated.uuid,
+				},
+			],
 			searchInputs: [
 				{
 					uuid: testUuid("map-search-name"),
@@ -143,6 +179,18 @@ function everyKindDoc(): BlueprintDoc {
 					mode: { kind: "exact" },
 				},
 			] as unknown as CaseListConfig["searchInputs"],
+			searchFilters: [
+				{
+					uuid: testUuid("map-filter-owner"),
+					target: { kind: "owner" },
+					value: { kind: "term", term: { kind: "literal", value: "a" } },
+				},
+				{
+					uuid: testUuid("map-filter-owner-again"),
+					target: { kind: "owner" },
+					value: { kind: "term", term: { kind: "literal", value: "b" } },
+				},
+			] as unknown as CaseListConfig["searchFilters"],
 		},
 	};
 	const kidsModule = doc.moduleOrder[1];
@@ -218,8 +266,29 @@ describe("externalIdentityMap's keys", () => {
 			externalKey.caseListColumn(menu, "calculated", "", 0),
 		);
 		expectKey(
+			testUuid("map-sort"),
+			externalKey.caseListSort(menu, recordSyntaxKey("'north'"), 0),
+		);
+		expect(keys.get(testUuid("map-tab"))).toBe(
+			externalKeyText(
+				externalKey.caseDetailTab(
+					externalKey.caseListColumn(menu, "calculated", "", 0),
+					[externalKey.caseListColumn(menu, "id-mapping", "region", 0)],
+				),
+			),
+		);
+		expectKey(
 			testUuid("map-search-name"),
 			externalKey.searchInput(menu, "patient_name"),
+		);
+		// Two filters on one request key count apart, in their order.
+		expectKey(
+			testUuid("map-filter-owner"),
+			externalKey.searchFilter(menu, "owner_id", 0),
+		);
+		expectKey(
+			testUuid("map-filter-owner-again"),
+			externalKey.searchFilter(menu, "owner_id", 1),
 		);
 		expectKey(
 			testUuid("map-menu-entry"),
@@ -280,6 +349,48 @@ describe("externalIdentityMap's keys", () => {
 		expectKey(USER_PROPERTY, externalKey.userProperty("district"));
 		expectKey(LEVEL, externalKey.organizationLevel("district"));
 		expectKey(LOCATION_PROPERTY, externalKey.locationProperty("district"));
+	});
+
+	it("reserves the accepted rule identity when fresh HQ lookup data has lost its table or result column", () => {
+		const doc = everyKindDoc();
+		const mod = doc.modules[doc.moduleOrder[0]];
+		const sort = mod.caseListConfig?.calculatedSorts?.[0];
+		if (!sort) throw new Error("Missing independent order");
+		const tableId = "018f0000-0000-7000-8000-0000000000a1" as LookupTableId;
+		const columnId = "018f0000-0000-7000-8000-0000000000b1" as LookupColumnId;
+		sort.expression = {
+			kind: "table-lookup",
+			tableId,
+			resultColumnId: columnId,
+			where: { kind: "match-all" },
+		};
+		const table = {
+			id: tableId,
+			tag: "districts",
+			columns: [
+				{
+					id: columnId,
+					wireName: "rank",
+					label: "Rank",
+					dataType: "text" as const,
+				},
+			],
+		};
+		const entry = (naming: ReturnType<typeof lookupWireNaming>) =>
+			externalIdentityMap(doc, DERIVED_WIRE_IDENTITY, naming).find(
+				(e) => e.uuid === sort.uuid,
+			);
+		const prior = entry(lookupWireNaming([table]));
+		expect(prior?.kind).toBe("caseListSort");
+		expect(prior?.parts[1]).toContain("districts");
+		for (const naming of [
+			lookupWireNaming([]),
+			lookupWireNaming([{ ...table, columns: [] }]),
+		]) {
+			const unavailable = entry(naming);
+			expect(unavailable?.uuid).toBe(sort.uuid);
+			expect(unavailable?.parts).not.toEqual(prior?.parts);
+		}
 	});
 
 	it("reads menu ids and form namespaces from the identity it is handed", () => {

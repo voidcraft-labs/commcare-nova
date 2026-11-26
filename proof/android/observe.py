@@ -178,6 +178,7 @@ def app(
     archive: bytes,
     delivered: bool = False,
     fix=LANE_FIX,
+    location_granted=False,
     clock=None,
     sent=None,
     device: str = "phone",
@@ -185,6 +186,7 @@ def app(
     views: bool = False,
     type_refused: bool = False,
     keys: bool = False,
+    controls: bool = False,
     questions=None,
     save_incomplete: str | None = None,
     reopen: bool = False,
@@ -193,7 +195,7 @@ def app(
     """The ``app`` request on ``archive`` over the served state; with ``delivered``, the device's requests made as
     the worker HQ made and its restore and forms delivered to HQ's own addresses for the worker and the app
     (``proof.android.hq``); ``fix`` where the device's GPS puts it (``[latitude, longitude, altitude,
-    accuracy]``, or None for a GPS that finds no fix); ``clock`` the device's instant where it is not the lane's;
+    accuracy]``, or None for a GPS that finds no fix); ``location_granted`` when the worker has given the app location access before opening the list; ``clock`` the device's instant where it is not the lane's;
     ``sent``, a list each form the device sent HQ is added to; ``device`` a phone or a tablet held in landscape
     (``Reader.device``). Every walk is walked again in each language the served app holds but the one it starts
     in, as every reader's walk is (``proof.observe.walks.chosen``), the same languages for every archive of the
@@ -203,7 +205,7 @@ def app(
     ``app`` request): ``commands``, the forms walked alone, each from home (``m<menu>-f<form>``); ``views``, each
     screen's views as Android laid them out; ``type_refused``, a value the form refused typed into the
     question's own box; ``keys``, a number keypad question's value entered into its own box one character at a
-    time, so the box keeps what its own filters keep; ``questions``, the values for each question the answer
+    time, so the box keeps what its own filters keep; ``controls``, the drawn widgets' input methods, grid widths, and offered actions; ``questions``, the values for each question the answer
     table carries, by its reference (``Answers.java::valuesFor``); ``save_incomplete``, a form whose first screen is answered and saved
     incomplete; ``reopen``, that record reopened from home's incomplete forms and completed; and ``searches``,
     terms each list the walk opens is searched for beside the words its rows show (``Lists.java::searched``),
@@ -223,6 +225,8 @@ def app(
     }
     if fix != LANE_FIX:
         options["position"] = fix
+    if location_granted:
+        options["locationGranted"] = True
     if clock is not None:
         options["clock"] = clock
     if commands is not None:
@@ -231,6 +235,8 @@ def app(
         options["views"] = True
     if type_refused:
         options["typeRefused"] = True
+    if controls:
+        options["controls"] = True
     if keys:
         options["keys"] = True
     if save_incomplete is not None:
@@ -242,9 +248,20 @@ def app(
     return _read(served, blobs, label, "app", {"archive": archive}, options, delivered=delivered, sent=sent)
 
 
+def automatic_location(served, blobs, archive, fix, label):
+    """Open the exported form, observe its metadata before a fix, then give Android one device fix."""
+    return _read(served, blobs, label, "location", {"archive": archive},
+                 {"command": "m0-f0", "node": "/data/meta/location", "fixes": [fix]})
+
+
 def installs(served, blobs, *, label: str, first: bytes, second: bytes) -> dict:
     """``first`` then ``second`` installed on one device."""
     return _read(served, blobs, label, "installs", {"first": first, "second": second}, {})
+
+
+def required_apps(served, blobs, archive: bytes, installed: list[str], label: str) -> dict:
+    """The destination or dialog when the worker presses Start on this phone."""
+    return _read(served, blobs, label, "required-apps", {"archive": archive}, {"installed": installed})
 
 
 def profile_identity(archive: bytes) -> dict:

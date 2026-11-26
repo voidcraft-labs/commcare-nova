@@ -14,7 +14,7 @@ Languages workspace with progressive-disclosure pickers, inline target
 editing, Preview, coverage diagnostics, and focused tests are the current
 source of truth. The production capability manifest marks every direction
 between distinct members of the checked-in 57-language launch set Available.
-Every other individual living language remains fully manual/copy-capable and
+Every other registered language and every project language remains fully manual/copy-capable and
 does not offer automatic translation. Capability-specific public
 documentation is part of the Nova surface.
 
@@ -49,7 +49,7 @@ HQ.
 
 ## Language identity
 
-A language is a three-part identity, not a code string:
+A registered language has three identity axes:
 
 ```ts
 interface AppLanguageIdentity {
@@ -70,18 +70,32 @@ interface AppLanguageIdentity {
   no default and no unspecified option. Region is always skippable: a bare
   `spa` or `cmn` + `Hans` targets the language's general/international
   conventions.
-- The selectable universe is Set 3 scope Individual, type Living, around
+- The registered choices use Set 3 scope Individual, type Living, around
   7,100 languages. Macrolanguages (`zho`), Set 1 two-letter codes (`zh`),
   special codes, and non-living languages are rejected at every authoring
   boundary with the identifiers to use instead; a macrolanguage rejection
   lists its individual members by name.
-- Names and direction are never stored and never authored. Display names
+- Each registered language derives its names and direction. Display names
   (endonym, English qualified name, qualifier labels), the translator-prompt
   descriptor, and text direction all derive from the identity through the
   generated registry: direction from the script first, then the language's
   default script, then `ltr`.
 - Two-letter codes exist in exactly one place in the codebase: inside
   `lib/commcare`, as emitted wire spellings.
+
+A project language carries `{kind:"project",language:"qaa"}` and uses
+`project:qaa` as its local key. Its exact code identifies its worker text,
+profile membership and locale resources for the life of the app. Reading a
+new code reserves all existing bindings, prefers a registered identity’s
+canonical wire spelling, then compares remaining code spellings in stable
+order. A project language's exact code serves as its picker name. An explicit
+registered code with a collision suffix retains its registered picker name.
+Together these let a clean adoption distinguish, for example, project code
+`eng-gb` from a registered British English resource using `eng-gba`, including
+after the shorter resource is removed. Each other code gets its own project language. On read-back the
+existing source language stays selected if it still agrees with HQ’s source
+evidence. A change to the actual source rebases the per-language effective
+text in the same admitted batch.
 
 ### The registry
 
@@ -194,7 +208,9 @@ interface AppLocalization {
   defaultLanguage: LanguageTag;
   languageOrder: LanguageTag[];
   translations: Record<LanguageTag, Record<TranslationUnitId, TranslationEntry>>;
+  generatedSourceWording?: Record<TranslationUnitId, TranslationEntry>;
   wireCodes: Record<LanguageTag, string>;
+  rtlProjectLanguages?: Record<LanguageTag, true>;
 }
 
 interface TranslationEntry {
@@ -206,11 +222,29 @@ interface TranslationEntry {
 }
 ```
 
-There is no per-language metadata record: with names and direction derived
-from the identity, a metadata record would carry nothing beyond its keys.
+A generated search message has a stable unit even when the current searches never print its guard. Its default belongs to the generator. A customized source-language message lives in `generatedSourceWording`, with the same authorship, review and fingerprints as any other translation. Changing source moves the existing entry between the source and target maps. A reading can omit an unused guard. An HQ change review keeps the saved message, including when it takes the published reference over a separate unpublished edit.
 
-`wireCodes` holds each language's CommCare wire code, an identity of the app
-like the tag itself and one no author chooses. The schema requires a code for
+Each independently worded worker output uses the generating control’s UUID and a closed output role. Case columns distinguish the case list, case details, search results and search result details. An option’s semantic identity or image mapping value distinguishes its output within the column. The optional source wording and each target language’s translation entries share the existing metadata and mutation gate. A control’s output identity survives edits to its underlying label. Each authoring read also returns the fingerprint of the current original wording. Copied and AI translations retain the wording they were prepared against. Changing the original marks those translations out of date, including after approval. A directly authored output in another language remains attached to the control. Clearing its entry follows the ordinary slot in the selected language or the generator’s default. Removing the control prunes its entries.
+
+A temporarily hidden Results or Details column keeps its saved output wording,
+including source and translation review metadata. Disabling Search also keeps
+its columns' wording. Hiding a list entry or turning off registration after an empty search preserves the menu action and the registration form’s own saved title. Publishing suppresses each hidden output until its control is visible again. Deleting the owner removes its dependent text.
+
+A named locale omits generated text of zero length. A worker then sees the
+first nonblank text in build order from the default locale. A present
+whitespace-only value still draws the blank that CommCare writes for it.
+Builder’s running app and shared app tests project the same installed values
+and platform controls, while the wording editor keeps the raw authored text. Automatic translation
+uses the source language’s effective wording for a customized output.
+An inherited control continues to use its ordinary translated text.
+
+HQ’s generated locale keys contain changing positions. The reader resolves each exact key against the document’s current generator, and the emitter projects a saved override back through that generator after applying ordinary translations. A key with no output, a blank and a value identical to the generated text stay inert. Agreeing outputs of one ordinary slot retain the existing fold. Runtime catalog text and language-selector names keep their target ownership.
+
+A stale translation retains its original text, provenance and fingerprint. If a source-language change leaves that language with different wording on the device, its optional `workerFallback` carries the effective value and the fingerprint against which it was carried. A later source edit expires that fallback. Languages shows the worker wording beside the editable draft. Reviewing, replacing or clearing the draft retires its fallback. A stale translation becoming the source is reviewed first, with the exact phrase reachable from the HQ change review.
+
+The optional `rtlProjectLanguages` record names project languages whose local text direction is right to left. Other project languages open left to right. Registered languages derive direction from the registry.
+
+`wireCodes` holds each language's stored CommCare spelling. Nova mints it for a registered language. A project language keeps the exact code entered by its author or read from CommCare HQ. The schema requires a code for
 every tag of `languageOrder` and none for any other tag, and refuses two
 languages that hold one code. The mutation that adds a language carries its
 code (`addLanguage` and `relabelSourceLanguage` carry a required `wireCode`,
@@ -224,8 +258,7 @@ These are the implemented domain semantics:
 - The tag is the language's stable record identity. Changing an identity is
   remove-and-add, because CommCare also treats the emitted spelling as locale
   identity; the sole-language relabel is the one exception.
-- `LANGUAGE_TAG_PATTERN` (`^[a-z]{3}(-[A-Z][a-z]{3})?(-[A-Z]{2})?$`) is the
-  only tag grammar. Parsing admits shape only; registry membership is enforced
+- `LANGUAGE_TAG_PATTERN` (`^[a-z]{3}(-[A-Z][a-z]{3})?(-[A-Z]{2})?$`) defines the registered part of the tag grammar. Project keys use a distinct `project:` prefix. Parsing admits shape only; registry membership is enforced
   at the authoring boundaries (tool schemas, design contract, picker), so
   persistence never consults catalogs.
 - The source language describes the canonical values already stored on normal
@@ -272,8 +305,11 @@ A translation unit contains:
 - value-specific rules, including whether blank content is legal and which
   reference tokens must survive.
 
-Existing UUIDs identify app structure wherever possible. Nested values without
-UUID identity, such as an ID-mapping row or case-property option, use their
+Existing UUIDs identify app structure wherever possible. Ordered label mappings and image descriptions belong to a row UUID under the
+owning column. A reorder, new comparison or renamed value preserves the row’s translations.
+Earlier immutable documents address a label by its original literal key under
+the column. Current heads convert the row and its managed translations together.
+Nested values without UUID identity, such as a case-property option, use their
 existing stable semantic key under the UUID-bearing owner. Classic permits a
 case-property catalog to repeat one stored value, so later same-value
 occurrences add their zero-based same-value ordinal: every legal label stays
@@ -292,19 +328,18 @@ test failure.
 
 ### Reference-bearing prose
 
-`ProseTemplate` remains structured. Translation input exposes its reference
-atoms as protected tokens with friendly renderings, for example `REF_1`
-alongside “the Patient name answer.” Translation output may reorder tokens for
-the target grammar but must contain each token exactly as many times as the
-source. Human editing uses a reversible backslash escape for literal backslashes
-and text that exactly resembles a protected token, so every literal remains
-representable without confusing it for structure. The server maps the tokens
-back to the original typed field, case, user property, or external-user
-reference.
+`ProseTemplate` carries typed answer, case and worker references and calculated
+values. In a question, help, hint, constraint message or choice, Builder and an
+explicit `updateTranslations` edit can choose what that language shows. An
+entry stores `valueMode: "independent-values"` when its reference multiset
+differs from the source. Its expressions resolve at the original question or
+option, and participate in validation, rename, deletion, capability checks
+and runtime resource discovery at that site. Automatic translation protects
+the source value identities and multiplicities, and never translates over an
+out-of-date entry that holds its own values: it reports how many it kept. Text outside a form keeps
+its existing reference contract.
 
-The inventory review editor owns the validity of the text currently visible in
-its textarea, not merely the last parseable draft. It disables commit while a
-protected token is missing or duplicated. A Missing unit may commit an explicit
+A Missing unit may commit an explicit
 source-identical human value, because equality does not mean the fallback was
 reviewed. Inline Builder editors likewise retain a rejected target draft and
 surface the commit-gate reason. Inventory search matches source, effective
@@ -381,9 +416,18 @@ faithfully today:
 - field hints, help, validation messages, and inline select option labels;
 - case-property option labels when they provide runtime display labels for
   case-list select values;
-- case-list column headings, ID-mapping labels, and interval text;
+- case-list column headings, ordered rule labels, image descriptions, interval text,
+  and phrases used in a calculated value;
 - Search input labels, screen title/subtitle, and action label, including
   effective Nova defaults.
+
+A label or image description belongs to its mapping row. A phrase in a
+calculation belongs to that column and phrase UUID, including while the
+phrase is unused. Moving a rule or changing its condition keeps its
+translations. Preview uses the worker’s selected language to compute both
+the shown cell and the value that orders the list. The HQ reader preserves
+the source meaning of its translated variables, including native text
+replacement inside an expression’s literals.
 
 The same inventory boundary also returns explicit coverage diagnostics through
 the Languages workspace and `get_languages` for content that cannot honestly
@@ -394,13 +438,18 @@ score:
   separate localized-lookup-column model;
 - Connect names and descriptions have no multilingual carrier on the current
   accepted wire;
-- module/form audio labels and other media currently reference one shared asset
-  for every locale;
+
 - automation messages have recipient-language semantics independent of an app's
   currently selected locale;
 - authoring-only metadata such as purposes, case-property guidance, personas,
   roles, organization descriptions, and setup instructions is outside the
   worker-app language catalog unless it feeds an emitted display surface.
+
+### Localized media
+
+A question label, supported help slot, and written choice keep shared image, audio and video identities and sparse role-specific entries keyed by app language. A missing itext form in a target translation follows the actual default and stays absent in that translation on export. A key introduced only outside the form default is a placed repair in HQ. A language-specific edit targets the field and choice identities so a concurrent edit to a different language survives.
+
+The image and spoken name of a module, form, case list menu item or Register button use separate language entries. The installed default strings supply a missing strict path. The complete app can source a fallback from a language formerly present, while a named installation limits its candidates to its own languages. The reader retains the former code when that decision changes the visible file. Media referrals, Project authorization, deletion, remapping and archive budgeting enumerate shared and translated files through the same media walk.
 
 ## Builder and Preview experience
 
@@ -443,8 +492,7 @@ macrolanguage or alias query yields a code-free notice with the member
 languages as selectable rows); then a Writing system select, rendered only
 when the language branches, with no default; then a Regional conventions
 select, rendered only when meaningful, whose first option is the language's
-general conventions. A resolved duplicate refuses inline by name. There is no
-free-code entry: the registry is the selectable world. The dialog asks for an
+general conventions. A resolved duplicate refuses inline by name. The dialog also accepts an explicit project language code. Its language card offers a local writing direction. The dialog asks for an
 existing “Start with” language; copy is always available. The workspace
 reports whether the exact direction belongs to the automatic launch set, but
 this ordinary edit gesture never initiates a paid model call: automatic
@@ -452,8 +500,9 @@ translation is an explicit architect operation during an initial build.
 
 The translation workspace uses source/target rows grouped by owning screen and
 form. Context is concrete, for example “Intake → Patient name → Hint.” It has
-status filters, reference-safe prose tokens, and a jump to the owning Builder
-screen. Wide layouts show source and target side by side; narrow layouts edit
+status filters, answer chips for a question's or choice's text (which may show
+values of its own), reference-safe prose tokens for a case property option's
+label, and a jump to the owning Builder screen. Wide layouts show source and target side by side; narrow layouts edit
 one target row without compressing two columns below usability.
 
 When a target language is selected in the ordinary Builder, editing a
@@ -518,7 +567,7 @@ The shared SA/MCP surface has one coherent language family:
 
 The implemented names follow the registry's camelCase SA / snake_case MCP
 convention. Every tool speaks identity objects wherever a language is named;
-no tool passes or returns a combined tag. Strict membership enforcement lives
+no tool passes or returns a combined tag. Registered identities are checked against the registry
 at this boundary, composed from registry verdicts, each rejection naming what
 was tried, what is expected, and what to use instead: a macrolanguage lists
 its individual members, a two-letter code names its Set 3 replacement, a
@@ -527,8 +576,11 @@ branching language with no script names the required choice and its options.
 English name, qualifiers, direction, isSource, isDefault,
 automatic-translation status, coverage). `add_language` is the nonblank
 product operation: it composes the raw language mutation with one explicit
-copied entry per current unit in a single commit. `update_language` sets the
-runtime default or replaces the sole source language's identity.
+copied entry per current unit in a single commit. `update_language` moves a
+language after another app language, makes one the runtime default by putting
+it first, changes a language's identity (the source's only while it is the
+app's only language), and sets a project language's writing direction
+(`set-direction`).
 `update_translations` accepts at most 50 unique units, treats
 machine-authored values as Needs review, requires a set to echo the current
 source fingerprint it translated, and requires review/keep to echo the current
@@ -750,14 +802,14 @@ cloning `BlueprintDoc` into a second app model.
   wire-valid. The suffixed form lowers the identity's script and region into
   a single suffix segment (`cmn-Hant` → `cmn-hant`), because Classic's grammar
   allows exactly one hyphen; no preferred spelling holds one, and distinct
-  identities sharing a language differ in script or region, so a suffixed
-  code never meets a held one.
+  registered identities sharing a language differ in script or region. When
+  an exact project code also occupies the suffixed spelling, Nova appends
+  lowercase letters until it finds a free code and stores that binding. Reading a native macro code with a script or region considers every member that supports the suffix. A unique matching picker name can select one of those identities. An ambiguous spelling stays a project language. A previously bound code keeps its existing identity.
 - `planLanguageWire` reads `localization.wireCodes` and computes no code; the
-  map is total and injective because the schema holds it so. A stored code
-  never changes while its language stays in the app, so adding or removing a
+  map is total and injective because the schema holds it so. A project code is immutable. When a registered language is renamed in HQ, `rebindLanguageCodes` checks all previous bindings then records the new spellings together, carrying every translation on the existing tag. Adding or removing a
   language never renames another's; removing a language frees its code. The
   English-only state with no stored root still emits `en`.
-- Device-picker name rows come from the registry's baked display labels at
+- The device picker identifies a project language by its verbatim code. Registered name rows come from the registry's baked display labels at
   the most specific key, so two branches of one language stay distinguishable
   in the device language menu. Never runtime `Intl`: Node/ICU variance must
   not reach wire bytes.
@@ -825,11 +877,11 @@ grounded in the current HQ/Core functions named under Binding CommCare facts.
 
 Language catalog operations and bounded translation updates use the granular
 `relabelSourceLanguage`, `addLanguage`, `removeLanguage`,
+`moveLanguage` (the language and its preceding language, or null for first),
 `setDefaultLanguage`, `setTranslation`, and exact-value-fenced
 `reviewTranslation` mutations. `relabelSourceLanguage` and `addLanguage` carry
 an `AppLanguageIdentity` object; the other kinds reference an existing
-language by its tag. There is no `updateLanguage` kind: names and directions
-derive from the identity, so no mutation edits them. The mutations participate
+language by its tag. `setProjectLanguageDirection` writes the local direction of a project language; `rebaseSourceLanguage` moves effective text when a new HQ source language is evidenced. The mutations participate
 in admission, reducer replay, undo/redo, diffing, accepted app-change rows,
 and multiplayer exactly like existing Blueprint mutations. Shared agent/MCP
 tools compose these same commands rather than introducing a second write

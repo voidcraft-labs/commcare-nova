@@ -298,7 +298,7 @@ the lane runs (`proof/ci/__tests__/manifestReaders.test.ts`). A use whose key on
 entries name is held-new: Nova emits an item the manifest says it does not
 hold yet, so the entry's disposition or the emitter is wrong, and the register
 refuses to hold it too. A HELD-NEW class with a value-class reader takes its
-uses wherever its key is named (nineteen classes, `VALUE_CLASSES`): where
+uses wherever its key is named (seventeen classes, `VALUE_CLASSES`): where
 such an entry cuts one value of a key an allowing entry also names by that
 value's grammar or bound, the reader decides by the use's own value, and a use it
 takes is held-new whatever allowing class names the key. Such a reader is
@@ -388,6 +388,25 @@ counted by key in the check's evidence (`undecided`). A difference is
 and no register entry may hold one. `proof/matrix/test_retained.py` joins each
 variant's added uses to its claim log with the same two functions
 (`added_uses`, `join`).
+
+An appearance is joined once, on its inventory row. The inventory sorts an
+appearance by its whole value, on the control it stands on, into exactly one
+row (a single word a runtime reads under that word's row, several words under
+the multi-token row, a per-row count, a case variant and so on), while the
+manifest check makes a use of the attribute's own key at every appearance and
+one of each token a runtime reads in it, which no single record can name. So
+parity puts each appearance attribute in its row with the lane's own
+classifier (`proof/checks/appearance_rows.py::row_of`), written from each
+row's predicate in `lib/commcare/surface/entries/questions.json` and the
+upstream readers it names (Web Apps' `form_ui.js::getMatchingStyles` and
+`entries.js::getEntry`, Android's `WidgetFactory.java` and `TriggerWidget`,
+Core's `isHostWithAppearance` and `collapseRepeatGroups`) and the lane's own
+value-class readers, never ported from Nova's reader, and needs the reader's
+record there under that row with the row's standing. The per-token uses stay
+the manifest and sensitivity checks' evidence of each runtime's reading. An
+appearance the classifier does not decide is listed by place and value in the
+check's evidence (`undecidedAppearances`), and
+`proof/checks/test_appearance_rows.py` fails where a retained base exhibits one.
 
 ### Configuration sensitivity
 
@@ -985,6 +1004,7 @@ named here, rather than by every document's checks:
 | A CSQL string a device builds from a typed answer | every served state's device (`proof/android/src/.../Queries.java`, `query/typed`), proof 3 (`proof/checks/android.py::hq_refusals`) | the search screen sends what it built from the answer table's search answers typed into its own views to HQ's own search view, which compiles it against HQ's real Elasticsearch; each request HQ's views refuse while A is served, with a view, status and cause HQ did not refuse Formplayer's walk of A with, is `android@A`, `/hq/<view>/<status>/<what HQ said>` |
 | Defect 16's media slots | `targeted-media-slots`, `proof/formplayer/test_media_slots.py`, `proof/webapps/test_media_slots.py`, `proof/android/predicates.py` | Over the form as Nova emitted it before the slots left the model (`proof/formplayer/media_slots/`), Formplayer hands the client a question's label media, its hint's text and a group's label image, and nothing naming the hint's or the validation message's image; the Web Apps client lays out the question's label image, sound and video and nothing in the group's header, and shows the message's text; a device lays out the same screen with a hint's, a group label's or a message's image as without it. The corrected sentences each run their reader: `proof/core/test_evaluate.py` (`selected()` and a hidden value's default beside its calculate), `proof/hq/test_publish.py` (`case_sharing` and `cloudcare_enabled` written by an update), `proof/hq/test_case_processing.py` and `proof/hq/test_build.py` (an `owner_id` update), and `proof/android/predicates.py` (the File question's `DocumentWidget`, `FaceCaptureWidget` for `face`, and a local archive missing a media file refused) |
 | Findings 76 and 77, text HQ's build reads as an instance | `proof/hq/test_instance_text.py`, over `proof/hq/fixtures/hq-instance-scan-vectors.json`, which `lib/commcare/__tests__/hqInstanceScan.test.ts` also reads | HQ's own `get_instance_names` reads each vector as its `hqReads` column says, and every row it reads a name in is one Nova refuses (`FORM_TEXT_READ_AS_INSTANCE`); HQ's own build refuses a label written as one text node holding `instance('nova_absent')` and declares `casedb` for one holding `instance('casedb')`, and builds both as Nova writes them, the bracket a literal output, with no added declaration; a learn module's description and a form's title with its data `name` holding `instance('nova_absent')` stop the build, holding `instance('item-list:nova_absent')` gain that fixture's declaration, and holding `instance ('nova_absent')` build as typed with nothing added |
+| What a similar-match search finds | `proof/hq/test_similar_match.py`, over `proof/hq/fixtures/similar-match-vectors.json`, which `lib/case-store/postgres/__tests__/similarMatch.postgres.test.ts` also reads | HQ's own case processing writes each group's records into HQ's own case search index, each value stored as written, and HQ's own query builder, with the property matched fuzzily, finds exactly the records each search names: words split on Java's whitespace only (punctuation, hyphens, apostrophes and digits stay in a word; no-break spaces join words), no accent folding, Java's simple lowercasing of the words and Python's of the whole query, AUTO edits by code points with a two code point prefix and no transposition, and at 101 words within reach the last in byte order dropped, at 100 none; Preview's store finds the same records or refuses only the 101 group and a query whose final sigma it cannot place |
 | The version floor | `lib/deployment/__tests__/publishGates.postgres.test.ts`, `proof/hq/test_version_floor.py`, `proof/editors/test_version_raise.py` and `proof/android/predicates.py` | Nova publishes to no app below CommCare 2.57; HQ serves a new app's version from the project space's default and builds differently on each side of the floor; HQ's settings page changes these paths of the app's source when the version is raised there; a device neither installs nor updates to an archive that requires a newer CommCare |
 | The confirmations a publish asks for | `lib/deployment/__tests__/publishGates.postgres.test.ts` and `proof/checks/test_corpus.py` | Nova's publish stops until a person confirms each plan feature and project-space setting the app needs; the list Nova derives for every corpus document equals the one `proof/checks/configurations.py::required_privileges` derives from HQ's own model of the exported app |
 | The form validation HQ asks Formplayer for | every unit's seams (`proof/hq/seams.py::formplayer_validation`), `proof/formplayer/test_validation.py` | every form every build of every document sends is validated by Formplayer's own controller, sent the headers and the digest HQ wrote; the same form HQ signs with another key is refused |
@@ -2022,8 +2042,10 @@ conditions, the previous screen and links into them;
 `targeted-forms-in-menu-above-registration-only` is a first menu whose one form
 registers a case, with a link and an entry point that open with that form's
 computed datum ahead of its command; `targeted-forms-in-menu-above-one-case` is a
-first menu whose every form opens one chosen case, with its default after-submit
-frames; `targeted-register-from-case-list` offers one registration form per case
+first menu whose forms open one chosen case. The Visit deep link opens a specific
+patient. After Previous, Android keeps the patient on the first menu and Formplayer
+rebuilds a fresh choice for Check.
+`targeted-register-from-case-list` offers one registration form per case
 type from every host shape both platforms run (case first, a bare case list, a
 parent chosen first, a tile, a submenu, an ordinary search, a screen that lists
 forms first, two hosts offering one form, a form with its own after-submit), with
@@ -2093,15 +2115,20 @@ Web Apps driver's: an app written in Spanish alone, whose empty-list message
 module settings save (finding 41), and whose second menu lists no case, so
 the lane's own walk of each state shows the client that message too and
 proof 4's records hold it (`webapps@module settings@*`).
-`targeted-hq-side-state` and `targeted-hq-side-lookup` carry what a person
-saves in HQ over A: the first a UI translation, location capture, the
-add-ons section saved with Menu Mode on (every add-on as the section posts
-it, the rest off), a CommCare setting
-(`cc-autoup-freq` at `freq-daily`) and a build profile, whose republish
-proceeds with no discard, since Nova owns none of what they change; the
-second a lookup table and its `lookupTable` save, over which Nova's
-republish stops before it sends anything (`hq_table_content_unsupported`,
-defect 5), so no B exists and HQ's table stays as the person left it.
+`targeted-hq-side-state`, `targeted-hq-side-owned` and
+`targeted-hq-side-lookup` carry what a person saves in HQ over A: the first a
+UI translation, the add-ons section saved with Menu Mode on (every add-on as
+the section posts it, the rest off), a CommCare setting (`cc-autoup-freq` at
+`freq-daily`) and a build profile, whose republish proceeds with no discard,
+since Nova owns none of what they change; the second Auto Capture Location
+and a required Android app, two settings Nova owns and writes on every
+publish, over which Nova's republish stops (`hq_changed`) and goes through
+only once the person confirms the discard (`republish: "discards"`), writing
+Nova's values back, and proofs 2 and 3 hold exactly the differences that
+discard makes to its statement (`proof/checks/discards.py`); the third a
+lookup table and its `lookupTable` save, over which Nova's republish stops
+before it sends anything (`hq_table_content_unsupported`, defect 5), so no
+B exists and HQ's table stays as the person left it.
 Ten documents (`proof/targeted/documents/hqChanges.ts`) carry saves a
 person makes to an app's content, each through the view a person's save
 reaches (`proof/observe/hqside.py`): `targeted-hq-changes-label` a label
@@ -2658,8 +2685,9 @@ practice mode before the app (`hq-kept-settings` names one as its practice
 worker, and HQ's build of an app whose practice worker the project space does
 not hold raises `PracticeUserException`); HQ's answers to every read Nova's own reading makes (`app-source.json`,
 `application.json`, `current-version.json`, and, only where the first
-reading asked for them, `project-spaces.json` and `project-spaces-flag.json`,
-`lookup-tables.json`, `fixture-rows-<tag>.json`, `location-types.json`,
+reading asked for them, `project-spaces.json`, `project-spaces-flag.json`,
+`source-factories.json` with the source project flags and working resources it consumed,
+`lookup-tables.json`, a fixture-row answer for each table read, `location-types.json`,
 `locations.json` and `media-reads.json`), so a base keeps only the answers a
 reading uses; `seed.json`, the case seed made from A alone
 (`proof/matrix/seed.py`); and `expected.json`, `{reads, declaration, claimed,
@@ -2688,8 +2716,7 @@ last, `_build_sample_app` (a build of the new app, released): nothing Nova
 reads of an app is a released copy of it, and the unit builds A itself. The
 shapes several bases share are helpers of `proof/matrix/bases/_pages.py`, and
 `lookups.py` and `connect_deliver.py` export the table, select and Connect
-block builders other bases import. The twenty-two, each module's docstring
-saying what it holds:
+block builders other bases import. Each base module’s docstring describes the app it authors.
 
 | Base | What it is |
 | --- | --- |
@@ -2698,7 +2725,7 @@ saying what it holds:
 | `hq-saved-pages` | `hq-new-app` after every app-manager section is saved once with nothing changed |
 | `starter-health`, `starter-agriculture`, `starter-wash` | HQ's three starter apps, as HQ's template loader makes them, with stand-in media |
 | `hq-kept-settings` | every value a project space keeps, each at a choice of its own |
-| `hq-languages` | three languages, with the texts a person leaves blank or renames |
+| `hq-languages` | three languages, with the texts a person leaves blank or renames and a menu badge saved in one |
 | `hq-menus` | each navigation shape a person sets on HQ's pages |
 | `hq-questions` | every kind of question Nova holds, as HQ's form builder writes each, read with date and time questions split |
 | `hq-names` | the characters HQ's grammars take and Nova holds |
@@ -2709,7 +2736,13 @@ saying what it holds:
 | `hq-search` | a search on each menu, as HQ's Case List page sets one |
 | `hq-expressions` | each expression Nova's first publish writes another way |
 | `hq-media` | media in every place and shape the first publish reads, videos among them |
+| `hq-large-media` | a picture and a sound each past Nova's upload cap for its kind, which HQ stores at any size; the picture at a path the first publish moves, so HQ's bulk upload takes it again |
 | `hq-lookups` | a form that reads the lookup tables its project space holds |
+| `hq-lookup-data` | a table whose field holds a property and two values a row, whose rows hold an attribute, and whose third field one row holds, one holds no value of, one does not hold and one holds empty, read by two selects |
+| `hq-lookup-types` | a table tagged `types`, the sheet name CommCare HQ's workbook keeps for itself, read by a select and a hidden value beside an ordinary table |
+| `hq-lookup-aliases` | lookup choices whose table tags coincide with the form’s session and location instances, exercised together on both platforms |
+| `hq-lookup-name-lists` | a case list whose filter and calculated column read a lookup column named `région`, and a menu with a search its variants change |
+| `hq-runtime-name-tables` | tables tagged with every id HQ's form builder holds but `hasOwnProperty`, beside a form reading the worker's places and groups undeclared and a builder-saved form reading each table under its bare tag |
 | `hq-places` | a form that reads the worker's place in its project space's organization |
 | `hq-connect-deliver` | a Connect deliver app, read as Android only, so its first publish turns Web Apps off |
 | `hq-connect-learn` | a Connect learn app |
@@ -4903,6 +4936,23 @@ The rules whose readers reach past HQ's build and Core:
   client's screens alike; Android's is
   `predicates.py::test_a_form_reads_a_field_list_group_alike_in_either_letter_case`.
 
+- **`repeat-row-count-without-a-repeat`** (`repeat_row_count_without_a_repeat`): a
+  group's appearance made only of `<n>-per-row-repeat` over a group that holds no
+  repeat, taken away in Core's trace (a group event's `appearance`, where no repeat
+  event of the same step stands directly under the group) and in Formplayer's
+  answers (a group's `style`, where none of its children is a repeat). Nova holds a
+  repeat row count only on a group that holds a repeat and drops it elsewhere
+  (`question-display-respelled`). The Web Apps client lays the count onto the
+  group's repeats alone (`form_entry/form_ui.js::processNPerRowRepeatStyle`), and
+  the group's own row layout reads `<n>-per-row` followed by a space or the end;
+  Core reads a group's appearance only as `field-list`, and Android as
+  `field-list` or `compact`. Its test publishes `targeted-plain-help` with that
+  form's last control in a group with no appearance, `2-per-row-repeat` and
+  `2-per-row`, holds Core's sessions apart only at the event's appearance, erased
+  for the count and kept for `2-per-row`, and Formplayer's walk and the client's
+  screens alike; Android's is
+  `predicates.py::test_a_form_reads_a_group_alike_with_and_without_a_repeat_row_count`.
+
 Formplayer's traces take the rules for an `instance` (each XML document a
 trace holds).
 
@@ -5119,7 +5169,7 @@ reused is only what a key names whole, and the reuse is audited:
 | The same inputs give the same bytes | an unseeded draw or a real clock inside an operation | `proof/corpus/__tests__/emitCorpus.test.ts` (the corpus), `proof/hq/test_determinism.py` (HQ), `proof/checks/test_record_determinism.py` (the records), `proof/editors/test_seeding.py` (the browser), the weekly unseeded comparison |
 | What a browser run asks HQ does not depend on how long it took | a page's poll reaching HQ in a slow run, or a hold that stops a timer a page needs | `proof/editors/test_polls.py`: a ten-second poll never runs, one just shorter does, and so do a quick poll and a longer one-off timer |
 | The harness publishes as Nova does | bodies other than the ones Nova sends | `proof/corpus/__tests__/publish.postgres.test.ts`: the captured requests are the ones Nova's real `publishAppToHq` sends, in its order, and three runs of it send the same menu ids, form ids and `xmlns` in every import body; `proof/hq/test_publish_capture.py`: an update applies only over the source it was built from |
-| The reads Nova is proven over are HQ's own answers | an answer a person wrote, or a pin move that changes an answer unseen | `proof/hq/test_retained_reads.py`: every file under `proof/hq-reads/` is written again on each run, each read made through HQ's own URLconf, API-key authentication, permission and privilege checks and rate limiter, the limiter over counters the lane answers (within limits, and as Redis does for the 429 answers), and held to the committed copy byte for byte (its `publish` group, its drift groups: five documents' reads before and after a person's saves, `hq-built/`, `shell/`, `lookups/`, `places/` and `lookup-upload/`, its migration groups: each migration witness's A read once, and its `reading` group: the reads that bring an app in); and `proof/editors/test_retained_reads.py`: the reads after each of HQ's pages is saved with nothing changed, through the editor driver |
+| The reads Nova is proven over are HQ's own answers | an answer a person wrote, or a pin move that changes an answer unseen | `proof/hq/test_retained_reads.py`: every file under `proof/hq-reads/` is written again on each run, each read made through HQ's own URLconf, API-key authentication, permission and privilege checks and rate limiter, the limiter over counters the lane answers (within limits, and as Redis does for the 429 answers), and held to the committed copy byte for byte (its `publish` group, its drift groups: six documents' reads before and after a person's saves, `hq-built/`, `shell/`, `lookups/`, `places/` and `lookup-upload/`, its migration groups: each migration witness's A read once, and its `reading` group: the reads that bring an app in); and `proof/editors/test_retained_reads.py`: the reads after each of HQ's pages is saved with nothing changed, through the editor driver |
 | The Core runner's traces are faithful | a trace that omits a difference | `proof/core/test_session.py`: one altered answer path changes exactly the runs that reach it |
 | What runs is Formplayer's own application at its pin | another commit, or a runner that started something else | `proof/formplayer/test_boot.py` |
 | HQ's form validation is answered by Formplayer's own controller, with HQ's own request | a seam that answers validation itself or signs HQ's request again; a report not Formplayer's | `proof/formplayer/test_validation.py`, `proof/hq/test_build.py` |
@@ -5983,7 +6033,7 @@ check keeps its separately scoped unread-declaration exception.
 | `localization`, `worker` | Every localization code passes HQ's `validate_lang`, which no build runs; forms, suites and each language's authored strings regenerated for the Core classes, with no stock translation catalog. | `LocalizationRuntimeTest`, `WorkerIdentityRuntimeTest`: language switching and prompts; the archive made for a project space whose stored keys and texts would set another string than their key names (`kept-text.*`, `lib/commcare/__tests__/localeSmugglingFixture.ts`), each directory's `app_strings.txt` read by Core's own `LocalizationUtils.parseLocaleInput` as exactly the compiler's table, every string the document writes at its own text; worker data through form and suite expressions, and the built-in worker identity on the local form; and, over `worker-place-owner` (a follow-up whose case change gives the patient to the worker's case-sharing group, read from the session), on both paths, form entry refuses the form as it opens for a worker assigned nowhere, naming the field, and for a placed worker fills it in and gives the patient to the worker's group, exactly where Preview's form engine refuses it at open (`worker-place-owner.refusals.jsonl`, `dataRefusal.ts::caseBlocksReadAbsentWorkerKey`). |
 | `lookup` | HQ's workbook reader reads Nova's tables, a 50-column table, and strips exactly the padding Nova predicts; the lookup forms regenerated, and `targeted-instance-reads`'s form and suite. | `LookupRuntimeTest`: fixture install and replacement, dynamic choices, labels, answers and case processing; a missing fixture cannot pass as an empty list. `targeted-instance-reads`'s form reads the table by its tag (a row by its code, the row count) on both paths, and in its entry the table link fires where the place link, over a worker whose one place is a region, does not. |
 | `nested-menu` | Entries and menus equal Nova's for eight native shapes; the two shapes Nova's HQ export refuses reproduce their losses. Which instances an element reads comes from HQ's own XPath parser (js-xpath, which HQ's build runs on every filter), never from pattern matching. | `NestedMenuRuntimeTest`: all ten native shapes on both paths, reproducing HQ's two losses; the separate `targeted-nested-menu-session-reads` archive binds the form's identities to its actual submitted case blocks. |
-| `menu-screens` | Menus, entry stacks and endpoints equal Nova's over the four documents of menus that show their forms in the menu above and the two of registration from the case list, each of the two also written again with every list's other `afterSubmit` wherever Nova's gate admits it (`<document>-other-returns`), the three whose display conditions read a worker's place (`worker-place-read`, `worker-place-forms` and `worker-place-menus`), and `menu-landings`, built in the producer and admitted by Nova's gate: a case-first menu with a submenu, a case list menu with a submenu, a case-first menu of one form, three menus emitted advanced whose entries ask for the datum each load's tag names: a case list entry beside forms loaded under another tag, two forms a publish keeps under two tags, and two forms kept under the case list entry's own tag, and a menu emitted advanced whose two basic submenus' entries (a case list entry shown in its screen, and a form beside a case list entry on a screen of its own) align with its form, and `pinned-tile`, built in the producer and admitted by Nova's gate: two lists that keep their tile on screen as a parent-select chain's parent and child, a chain whose parent's list does not keep it, a same-type submenu under each kind of list, and a list that keeps it and offers a Search action its forms do not read (`test_menu_above_emission.py`), and each case list's Register action and its return frames equal Nova's, the health shape's media locales among them (`test_register_from_list_emission.py`). Its three controls are built past Nova's gate: `two-registrations-control`, a registration form that also creates a child of its own type at its root, offered from a list, which HQ's own `ModuleValidator.validate_case_list_form` refuses as `case list form not registration` (Nova's reason `several-registrations`); `step-back-control`, which the Core class runs; and `undeclared-worker-field-control`, a menu whose condition reads a worker field the app never declares, which Nova's gate refuses (`undeclared-worker-field`) and the Core class reads. | `MenuScreensRuntimeTest`: on both paths, along each walk of `menu-screens/pinned-tile.tiles.json` (a command chosen, a list's Search action run and answered with the walk's results, or a case chosen where Core asks for one, a search action's result then claimed as posted and its request finished, which rewinds the case into the list's datum, each step reaching the screen Preview reads it on), the tile Core frames (the earliest held datum whose definition names a persistent detail, the walk `MenuSessionRunnerService.getStepToFrame` and `BreadcrumbBarHelper.loadTile` make over `CommCareSession.findDatumDefinition`) is the case and detail Preview pins there (`lib/preview/pinnedCaseTile.ts::previewPinnedCaseTile` over the held cases `CaseListScreen`, `ModuleScreen` and `FormScreen` hand it), and on the details of a list's own case or of a search action's result Android's tile (the frame's, or the case on show with the persistent detail of the datum being chosen, `EntityDetailActivity.requestEntityContext`, which the remote request's `search_case_id` does not name) is what Preview draws there; and, Core's `MenuLoader` lists each screen as Preview shows it (`menu-screens/<document>.screens.json`, from `lib/domain/menuScreens.ts::menuScreenEntries` and `lib/preview/menuProjection.ts::previewScreenEntryVisibility` and `previewCaseListMenuEntry`), in order, as a device reaches the screen: with no case chosen, or, on a screen that chooses a case first, once Core has asked for it and been given each case of its type the device holds (the file's `deviceCases`, whose values meet and miss every form condition that reads the chosen case); for a worker whose role is blank and each role a display condition compares, so every condition is read holding and not (the documents declare `role` as a worker property, so the setup list a publish shows names the field, and in a project space that defines it HQ's restore gives a worker with no value `''`, `user_data.py::UserData.to_dict`); and each row of a submenu shown above that its parent's condition alone hides (`parentHides`) is left off; choosing each menu asks for a case first exactly where Nova says the screen chooses one first and exactly where Preview opens a case list for it (`lib/domain/navigation.ts::moduleLanding`, submenus or not); once a screen's case is chosen Core lists the screen, however many forms it shows; a worker who chooses each case-loading form as its screen offers it (after the case on a screen that chooses its case first, before any case elsewhere), steps back once (`CommCareSession.stepBack`) lands where Preview lands, the menu with the case still held where the form's command sits above the case and the case list where it sits beneath it (`stepBacks`' `oneStepBack`, `menu` exactly where `lib/domain/menuScreens.ts::screenChoosesCaseFirst` has the form chosen after its case, so this holds Core's step back to Nova's screen model; that Preview's screens hold the menu with the case, `CaseListScreen`'s `holdFormMenu` and `ModuleScreen`'s selection, is held by the browser journeys `e2e/tests/app/preview-form-refused.spec.ts` and `preview-menu-held-case.spec.ts`), and stepping on back to its case list and choosing a case again is given the form again exactly where Preview gives it (`afterStepBack`, from `previewCaseListReturn`, `previewCaseListFormRequest` and `previewRequestedForm`): where the form's command sits beneath the case, and never where it sits above it; every form with no destinations lands where Preview lands it (`lib/preview/engine/frameLanding.ts::screenOfFrame` over its after-submit frame), a form of a menu whose forms read the search given an empty result set and its claim as posted, and any other form that asks for a search or a claim failing; and the step-back control (two top-level menus above, each holding one follow-up form, of case types alpha and beta, and an ordinary alpha menu whose form links to the first): after the link's frame and a step back from the form, choosing the ordinary beta menu asks for a form and never for its case, and its form opens on the alpha case the frame left, which is why Nova refuses a frame through a first menu that shares one case. Its own test, `aScreenThatReadsAUserFieldTheDeviceLacksFailsWhereNovaSays`, reads the four worker documents (`worker-place-read`, `worker-place-forms`, `worker-place-menus` and `undeclared-worker-field-control`) on both suites for a list of workers' data: a screen whose condition reads a user field the worker's device lacks (a place key of a worker assigned nowhere, a field the project space does not define) fails whole in Core exactly where Preview refuses it, and every other worker's screens list what Preview lists; each document refuses some screen on both suites (a menu's tile, a case-first menu's form once its case is chosen, a form shown on the first menu, a submenu's form shown in its parent's screen and a submenu's tile, and the control's undeclared field). `RegisterFromListRuntimeTest`: for every host of `menu-screens/<document>.offers.json`, under both values of `afterSubmit` the rules admit for it, the Register action opens the form in its own menu with `return_to` naming the host, and, with the case created and without, the worker lands where Preview lands them (`lib/preview/engine/caseListRegisterAction.ts::alwaysOfferedRegistrationReturn`), with the new case chosen exactly where that frame selects in the host, and where the form's own after-submit says where that is in force. |
+| `menu-screens` | Menus, entry stacks and endpoints equal Nova's over the four documents of menus that show their forms in the menu above and the two of registration from the case list, each of the two also written again with every list's other `afterSubmit` wherever Nova's gate admits it (`<document>-other-returns`), the three whose display conditions read a worker's place (`worker-place-read`, `worker-place-forms` and `worker-place-menus`), and `menu-landings`, built in the producer and admitted by Nova's gate: a case-first menu with a submenu, a case list menu with a submenu, a case-first menu of one form, three menus emitted advanced whose entries ask for the datum each load's tag names: a case list entry beside forms loaded under another tag, two forms a publish keeps under two tags, and two forms kept under the case list entry's own tag, and a menu emitted advanced whose two basic submenus' entries (a case list entry shown in its screen, and a form beside a case list entry on a screen of its own) align with its form, and `pinned-tile`, built in the producer and admitted by Nova's gate: two lists that keep their tile on screen as a parent-select chain's parent and child, a chain whose parent's list does not keep it, a same-type submenu under each kind of list, and a list that keeps it and offers a Search action its forms do not read (`test_menu_above_emission.py`), and each case list's Register action and its return frames equal Nova's, the health shape's media locales among them (`test_register_from_list_emission.py`). Its three controls are built past Nova's gate: `two-registrations-control`, a registration form that also creates a child of its own type at its root, offered from a list, which HQ's own `ModuleValidator.validate_case_list_form` refuses as `case list form not registration` (Nova's reason `several-registrations`); `step-back-control`, which the Core class runs; and `undeclared-worker-field-control`, a menu whose condition reads a worker field the app never declares, which Nova's gate refuses (`undeclared-worker-field`) and the Core class reads. | `MenuScreensRuntimeTest`: on both paths, along each walk of `menu-screens/pinned-tile.tiles.json` (a command chosen, a list's Search action run and answered with the walk's results, or a case chosen where Core asks for one, a search action's result then claimed as posted and its request finished, which rewinds the case into the list's datum, each step reaching the screen Preview reads it on), the tile Core frames (the earliest held datum whose definition names a persistent detail, the walk `MenuSessionRunnerService.getStepToFrame` and `BreadcrumbBarHelper.loadTile` make over `CommCareSession.findDatumDefinition`) is the case and detail Preview pins there (`lib/preview/pinnedCaseTile.ts::previewPinnedCaseTile` over the held cases `CaseListScreen`, `ModuleScreen` and `FormScreen` hand it), and on the details of a list's own case or of a search action's result Android's tile (the frame's, or the case on show with the persistent detail of the datum being chosen, `EntityDetailActivity.requestEntityContext`, which the remote request's `search_case_id` does not name) is what Preview draws there; and, Core's `MenuLoader` lists each screen as Preview shows it (`menu-screens/<document>.screens.json`, from `lib/domain/menuScreens.ts::menuScreenEntries` and `lib/preview/menuProjection.ts::previewScreenEntryVisibility` and `previewCaseListMenuEntry`), in order, as a device reaches the screen: with no case chosen, or, on a screen that chooses a case first, once Core has asked for it and been given each case of its type the device holds (the file's `deviceCases`, whose values meet and miss every form condition that reads the chosen case); for a worker whose role is blank and each role a display condition compares, so every condition is read holding and not (the documents declare `role` as a worker property, so the setup list a publish shows names the field, and in a project space that defines it HQ's restore gives a worker with no value `''`, `user_data.py::UserData.to_dict`); and each row of a submenu shown above that its parent's condition alone hides (`parentHides`) is left off; choosing each menu asks for a case first exactly where Nova says the screen chooses one first and exactly where Preview opens a case list for it (`lib/domain/navigation.ts::moduleLanding`, submenus or not); once a screen's case is chosen Core lists the screen, however many forms it shows; a worker who chooses each case-loading form as its screen offers it (after the case on a screen that chooses its case first, before any case elsewhere), steps back once (`CommCareSession.stepBack`) lands where Preview lands, the menu with the case still held where the form's command sits above the case and the case list where it sits beneath it (`stepBacks`' `oneStepBack`, `menu` exactly where `lib/domain/menuScreens.ts::screenChoosesCaseFirst` has the form chosen after its case, so this holds Core's step back to Nova's screen model; that Preview's screens hold the menu with the case, `CaseListScreen`'s `holdFormMenu` and `ModuleScreen`'s selection, is held by the browser journeys `e2e/tests/app/preview-form-refused.spec.ts` and `preview-menu-held-case.spec.ts`), and stepping on back to its case list and choosing a case again is given the form again exactly where Preview gives it (`afterStepBack`, from `previewCaseListReturn`, `previewCaseListFormRequest` and `previewRequestedForm`): where the form's command sits beneath the case, and never where it sits above it; every form with no destinations lands where Preview lands it (`lib/preview/engine/frameLanding.ts::screenOfFrame` over its after-submit frame), a form of a menu whose forms read the search given an empty result set and its claim as posted, and any other form that asks for a search or a claim failing; and the step-back control (two top-level menus above, each holding one follow-up form, of case types alpha and beta, and an ordinary alpha menu whose form links to the first): after the link's frame and a step back from the form, choosing the ordinary beta menu asks for a form and never for its case, and its form opens on the alpha case the frame left, which is why Nova refuses a frame through a first menu that shares one case. Its own test, `aScreenThatReadsAUserFieldTheDeviceLacksFailsWhereNovaSays`, reads the four worker documents (`worker-place-read`, `worker-place-forms`, `worker-place-menus` and `undeclared-worker-field-control`) on both suites for a list of workers' data: a screen whose condition reads a user field the worker's device lacks (a place key of a worker assigned nowhere, a field the project space does not define) fails whole in Core exactly where Preview refuses it, and every other worker's screens list what Preview lists; each document refuses some screen on both suites (a menu's tile, a case-first menu's form once its case is chosen, a form shown on the first menu, a submenu's form shown in its parent's screen and a submenu's tile, and the control's undeclared field). `RegisterFromListRuntimeTest`: for every host of `menu-screens/<document>.offers.json`, under both values of `afterSubmit` the rules admit for it, the Register action opens the form in its own menu with `return_to` naming the host, and, with the case created and without, the worker lands where Preview lands them (`lib/preview/engine/caseListRegisterAction.ts::caseListActionReturn`), with the new case chosen exactly where that frame selects in the host, and where the form's own after-submit says where that is in force. |
 | `no-matches` | Case list action, entry stacks and menus equal Nova's. | `NoMatchesRuntimeTest`: result-count relevance, registration action and navigation state. |
 | `arithmetic` | None. | `ArithmeticRuntimeTest`: integer quotients, signed remainders, a decimal holding `10` and a literal beyond int4 stored through case processing; zero division keeps Infinity and NaN. |
 | `standard-case-reads` | None. | `StandardCaseReadsRuntimeTest`: identity, name, owner, status, external id and dates read from a selected record and a closed parent in native case storage. |
@@ -7112,3 +7162,37 @@ never merges.
 Code also cites the plan's work items by number: 3 is the Core runner, 4 the
 editor driver, 7 the manifest entries, 10 the corpus ("The corpus"), 11 the
 checks ("What the lane proves"), and 12 the defect rows ("The registers").
+
+
+### Lookup names on worker platforms
+
+The form reader and suite conditions resolve table and column names against their real workers. The
+pinned Core lexer decides names one UTF-16 unit at a time. The complete JDK 17 range list has
+2,792 initial units. Android API 23 has 2,252, all present on Android APIs 29 and 35. All four
+runtimes add the same 372 continuation-only units. The evidence index records each complete range
+list’s digest, the Core revision, the three system images and their fingerprints
+(`proof/android/lookup_names/runtimes.json`).
+
+Run the probe on the same clean Core checkout as `proof/pins.json`, with JDK 17 as `JAVA_HOME`
+and Core’s Guava 31.1-jre jar in the Gradle cache or passed with `--guava`:
+
+```sh
+python3 proof/android/lookup_names/probe.py ../commcare-core --output /tmp/lookup-names-jdk.json
+python3 proof/android/lookup_names/probe.py ../commcare-core --avd nova_decode_api23 --output /tmp/lookup-names-api23.json
+```
+
+Repeat the second command for API 29 and API 35, one device at a time. The probe builds the same
+lexer once per run, records every native range and checks it against Nova’s supported ranges. The
+minimum Android and JVM runs require exact agreement. Later Android versions must retain every
+minimum-version name. Each known fingerprint must reproduce its full recorded digest.
+
+The HQ-authored `hq-lookup-names` app selects original values from both a dotted and a Unicode
+table. Its form condition reads the first matching zone’s dotted column next to a digit. Two variants change that
+single condition to a column where HQ interpolates the period or a table whose quoted instance
+id the suite omits. A third keeps the full column projection over every matching row, the form-condition capability
+tracked by `forms-and-case-writes/form-filter-outside-predicate-parent-host-user-usercase-reads`. A comparison over
+all matching rows can succeed when the first row fails. The native HQ checks in `test_hq_interpolation.py` and
+`test_lookup_workbook.py` exercise the suite declaration builder, actual case-filter interpolation
+and HQ’s table-name validator on Unicode range boundaries. Retained row filenames use lowercase
+ASCII where possible. Every other tag is recorded as its exact sequence of Unicode scalars, so
+case folding and Unicode normalization by a host filesystem cannot change a spelling.

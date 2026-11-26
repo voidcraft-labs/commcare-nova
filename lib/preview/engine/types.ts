@@ -1,4 +1,4 @@
-import type { Uuid } from "@/lib/domain";
+import type { LabelTextSlot, Uuid } from "@/lib/domain";
 import type { AppSetupSection } from "@/lib/routing/types";
 import type { PreviewCaseChoice } from "@/lib/session/types";
 import type { SetvalueRefusalDetails } from "./answerCast";
@@ -17,6 +17,9 @@ export interface LookupChoice {
 export interface FieldState {
 	path: string;
 	value: string;
+	/** What an Android date widget displays while its instance is blank.
+	 * An empty string records the worker clearing this particular visit. */
+	androidPickerDay?: string;
 	visible: boolean;
 	required: boolean;
 	valid: boolean;
@@ -36,6 +39,9 @@ export interface FieldState {
 	resolvedHint?: string;
 	/** Help text with structural refs evaluated to runtime values. */
 	resolvedHelp?: string;
+	/** The label's other texts (`lib/domain/labelForms.ts`) with refs
+	 *  evaluated to runtime values, by slot. Only set when one contains refs. */
+	resolvedLabelTexts?: Readonly<Partial<Record<LabelTextSlot, string>>>;
 	/** Structural option-label refs evaluated by stable option uuid. */
 	resolvedOptionLabels?: Readonly<Record<string, string>>;
 	/** Live instance count for repeat fields. Only set on `repeat` kinds —
@@ -110,6 +116,7 @@ export function fieldStatesEqual(a: FieldState, b: FieldState): boolean {
 	return (
 		a.path === b.path &&
 		a.value === b.value &&
+		a.androidPickerDay === b.androidPickerDay &&
 		a.visible === b.visible &&
 		a.required === b.required &&
 		a.valid === b.valid &&
@@ -119,6 +126,7 @@ export function fieldStatesEqual(a: FieldState, b: FieldState): boolean {
 		a.resolvedLabel === b.resolvedLabel &&
 		a.resolvedHint === b.resolvedHint &&
 		a.resolvedHelp === b.resolvedHelp &&
+		stringRecordsEqual(a.resolvedLabelTexts, b.resolvedLabelTexts) &&
 		stringRecordsEqual(a.resolvedOptionLabels, b.resolvedOptionLabels) &&
 		a.repeatCount === b.repeatCount &&
 		a.insertRefusal === b.insertRefusal &&

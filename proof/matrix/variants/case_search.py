@@ -225,7 +225,8 @@ def _registration_after_an_empty_search(authoring, app_id, workflow, *, offered_
     """Clients' Registration Form moved into a menu of its own that no menu shows (Nova's hidden menu), which Visits'
     list offers once its search found nothing, the worker going on as ``workflow`` says; with ``offered_again``,
     Active clients' list offers the same form too, as its Register action."""
-    clients, active, visits = _modules(authoring, app_id)
+    # The base's menus after Visits (Referrals) stay where they are, before the hidden menu.
+    clients, active, visits, *rest = _modules(authoring, app_id)
     form = clients["forms"].pop(0)
     hidden = {**copy.deepcopy(_HIDDEN_MENU), "unique_id": _HIDDEN_MENU_ID, "name": dict(form["name"]), "forms": [form]}
     block = {
@@ -246,7 +247,7 @@ def _registration_after_an_empty_search(authoring, app_id, workflow, *, offered_
             **{key: value for key, value in block.items() if key != "relevancy_expression"},
             "post_form_workflow": "case_list",
         }
-    ops.set_json(authoring, app_id, "/modules", [clients, active, visits, hidden])
+    ops.set_json(authoring, app_id, "/modules", [clients, active, visits, *rest, hidden])
 
 
 # Default filters --------------------------------------------------------------------------------------------------
@@ -361,8 +362,15 @@ def search_on_display_only_menu(authoring, app_id):
         authoring,
         app_id,
         ("/modules/0/put_in_root", True),
+        ("/modules/0/search_config/auto_launch", True),
         ("/modules/0/search_config/properties", [_field("village", "Village")]),
     )
+
+
+
+def inline_search_on_display_only_menu(authoring, app_id):
+    search_on_display_only_menu(authoring, app_id)
+    _set_each(authoring, app_id, ("/modules/0/search_config/inline_search", True))
 
 
 # Search fields ------------------------------------------------------------------------------------------------------
@@ -385,8 +393,8 @@ def fields_grouped(authoring, app_id):
 
 
 def registration_after_an_empty_search_to_home(authoring, app_id):
-    """Visits offering Clients' Registration Form, from a hidden menu, once its search found nothing, the worker going
-    home after it rather than back to the list."""
+    """Visits offering Clients' Registration Form, from a hidden menu, once its search found nothing, the worker continuing
+    with the new case selected when the form created one."""
     _registration_after_an_empty_search(authoring, app_id, "default")
 
 
@@ -592,4 +600,20 @@ def field_naming_a_distance_unit(authoring, app_id):
                 " '\"', \")\"), 'match-all()')"
             ),
         ),
+    )
+
+
+from proof.matrix.bases.lookups import changes_lookup_data, qualify_districts
+
+
+@changes_lookup_data
+def district_choice_details(authoring, app_id):
+    """Rich Search choices save each district code and sort by its French name."""
+    qualify_districts(authoring)
+    base = "/modules/0/search_config/properties/5/itemset"
+    _set_each(
+        authoring, app_id,
+        (base + "/value", "@row_code"),
+        (base + "/label", "name[@lang='fr'][1]"),
+        (base + "/sort", "name[@lang='en'][1]"),
     )

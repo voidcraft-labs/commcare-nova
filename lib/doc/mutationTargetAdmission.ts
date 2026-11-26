@@ -3,6 +3,7 @@ import { deepEqual } from "@/lib/doc/deepEqual";
 import { mutationIdentityAdmissionIssue } from "@/lib/doc/mutationIdentityAdmission";
 import { mutationSequenceAdmissionIssue } from "@/lib/doc/mutationSequenceAdmission";
 import { applyMutations } from "@/lib/doc/mutations";
+import { spliceAfter } from "@/lib/doc/mutations/sequence";
 import { type Mutation, placementTargetKey } from "@/lib/doc/types";
 import {
 	type BlueprintDoc,
@@ -15,12 +16,33 @@ import {
 	isRepresentableConversion,
 	languageTag,
 	ownRecordValue,
+	reviewedTranslationValueMode,
+	type SearchFilter,
 	type TranslationEntry,
+	type TranslationUnitId,
+	translationEntryIntegrityIssue,
 	translationValueIntegrityIssue,
 } from "@/lib/domain";
-import { translationSourceFingerprintsEqual } from "@/lib/domain/localization";
+import {
+	reboundLanguageCodes,
+	translationSourceFingerprintsEqual,
+} from "@/lib/domain/localization";
+import { hasGeneratedWording } from "@/lib/domain/translationUnits";
 import { assertNever } from "@/lib/utils/assertNever";
 import { caseWriteIdOf, caseWriteKeyId } from "./caseWriteKeys";
+import { wordingSourceUnit } from "./localizationWorkspace";
+
+type SearchFilterKind = "order" | "value";
+
+function searchFilterKind(filter: SearchFilter): SearchFilterKind {
+	return "order" in filter ? "order" : "value";
+}
+
+/** The kind of row a filter edit's patch belongs to: an order patch names
+ *  `order`, a value patch its `target` or `value`. */
+function searchFilterPatchKind(patch: object): SearchFilterKind {
+	return "order" in patch ? "order" : "value";
+}
 
 /**
  * Whether any mutation in `mutations` targets an entity that no longer exists
@@ -45,9 +67,14 @@ export function mutationTargetsInvalid(
 	if (
 		mutations.some(
 			(m) =>
+				(m.kind === "setModuleMedia" && m.caseListItem === true) ||
+				(m.kind === "setFormMedia" && m.registrationOf !== undefined) ||
 				m.kind === "addEntryPoint" ||
 				m.kind === "updateEntryPoint" ||
-				m.kind === "removeEntryPoint",
+				m.kind === "removeEntryPoint" ||
+				(mutations.length > 1 &&
+					m.kind === "updateModule" &&
+					Object.hasOwn(m.patch, "formsFromMenu")),
 		)
 	) {
 		if (mutationIdentityAdmissionIssue(doc, mutations) !== undefined)
@@ -56,7 +83,26 @@ export function mutationTargetsInvalid(
 			return true;
 		let current = doc;
 		for (const mutation of mutations) {
-			if (mutation.kind === "addEntryPoint") {
+			if (mutation.kind === "setModuleMedia" && mutation.caseListItem) {
+				if (
+					!current.modules[mutation.uuid]?.caseListMenuItem ||
+					mutationTargetsInvalid(current, [
+						{ ...mutation, caseListItem: undefined },
+					])
+				)
+					return true;
+			} else if (mutation.kind === "setFormMedia" && mutation.registrationOf) {
+				const registration =
+					current.modules[mutation.registrationOf]?.caseListRegistrationForm;
+				if (
+					registration?.kind !== "always" ||
+					registration.formUuid !== mutation.uuid ||
+					mutationTargetsInvalid(current, [
+						{ ...mutation, registrationOf: undefined },
+					])
+				)
+					return true;
+			} else if (mutation.kind === "addEntryPoint") {
 				const target = mutation.target;
 				if (
 					!ownRecordValue(current.modules, target.moduleUuid) ||
@@ -65,15 +111,32 @@ export function mutationTargetsInvalid(
 					return true;
 				if (
 					target.kind === "form" &&
+					current.modules[target.moduleUuid].formsFromMenu &&
+					mutation.entryPoint.ignoreDisplayConditions
+				)
+					return true;
+				if (
+					target.kind === "form" &&
 					(!ownRecordValue(current.forms, target.formUuid) ||
-						!current.formOrder[target.moduleUuid]?.includes(target.formUuid))
+						!current.formOrder[
+							current.modules[target.moduleUuid].formsFromMenu?.menuUuid ??
+								target.moduleUuid
+						]?.includes(target.formUuid))
 				)
 					return true;
 			} else if (
 				mutation.kind === "updateEntryPoint" ||
 				mutation.kind === "removeEntryPoint"
 			) {
-				if (!entryPointByUuid(current, mutation.entryPointUuid)) return true;
+				const item = entryPointByUuid(current, mutation.entryPointUuid);
+				if (
+					!item ||
+					(mutation.kind === "updateEntryPoint" &&
+						mutation.patch.ignoreDisplayConditions &&
+						item.target.kind === "form" &&
+						current.modules[item.target.moduleUuid]?.formsFromMenu)
+				)
+					return true;
 			} else if (mutationTargetsInvalid(current, [mutation])) return true;
 			current = produce(current, (draft) => {
 				applyMutations(draft, [mutation]);
@@ -100,9 +163,15 @@ export function mutationTargetsInvalid(
 	if (mutationSequenceAdmissionIssue(doc, mutations) !== undefined) return true;
 	const modules = new Set(Object.keys(doc.modules));
 	const moduleParents = new Map<string, string | null>();
+	const routeSources = new Map<string, string>();
+	const hasRouteFormLinks = new Set<string>();
 	const moduleChildren = new Map<string, Set<string>>();
 	for (const module of Object.values(doc.modules)) {
 		const parent = module.parentModuleUuid ?? null;
+		if (module.formsFromMenu)
+			routeSources.set(module.uuid, module.formsFromMenu.menuUuid);
+		if (module.formsFromMenu?.entryPoints?.length)
+			hasRouteFormLinks.add(module.uuid);
 		moduleParents.set(module.uuid, parent);
 		moduleChildren.set(module.uuid, new Set());
 	}
@@ -151,7 +220,13 @@ export function mutationTargetsInvalid(
 	// data loss this guard closes. Option, column, and search-input uuids are
 	// schema-required in the canonical fresh document.
 	const columnOwners = new Map<string, string>();
+	const sortOwners = new Map<string, string>();
 	const searchInputOwners = new Map<string, string>();
+	const filterOwners = new Map<string, string>();
+	/* Each filter row's kind: an order or a value matched under a key. An
+	 * edit of one kind on a row of the other would merge into a row of
+	 * neither shape, which no reader holds. */
+	const filterKinds = new Map<string, SearchFilterKind>();
 	// Modules whose `caseListConfig` is present. `setCaseListMeta` EDITS an
 	// existing config's metadata (`filter` / `selection` / `icon` /
 	// `audioLabel`); a config a
@@ -165,6 +240,12 @@ export function mutationTargetsInvalid(
 		const config = mod.caseListConfig;
 		if (!config) continue;
 		modulesWithConfig.add(mod.uuid);
+		for (const sort of config.calculatedSorts ?? [])
+			sortOwners.set(sort.uuid, mod.uuid);
+		for (const filter of config.searchFilters ?? []) {
+			filterOwners.set(filter.uuid, mod.uuid);
+			filterKinds.set(filter.uuid, searchFilterKind(filter));
+		}
 		for (const col of config.columns) columnOwners.set(col.uuid, mod.uuid);
 		for (const input of config.searchInputs) {
 			searchInputOwners.set(input.uuid, mod.uuid);
@@ -362,12 +443,18 @@ export function mutationTargetsInvalid(
 			if (owner === moduleUuid) removeFormTree(formUuid);
 		}
 		modules.delete(moduleUuid);
+		routeSources.delete(moduleUuid);
+		hasRouteFormLinks.delete(moduleUuid);
 		moduleParents.delete(moduleUuid);
 		moduleChildren.delete(moduleUuid);
 		modulesWithConfig.delete(moduleUuid);
+		for (const [id, owner] of sortOwners)
+			if (owner === moduleUuid) sortOwners.delete(id);
 		for (const [columnUuid, owner] of columnOwners) {
 			if (owner === moduleUuid) columnOwners.delete(columnUuid);
 		}
+		for (const [filter, owner] of filterOwners)
+			if (owner === moduleUuid) filterOwners.delete(filter);
 		for (const [inputUuid, owner] of searchInputOwners) {
 			if (owner === moduleUuid) searchInputOwners.delete(inputUuid);
 		}
@@ -387,8 +474,7 @@ export function mutationTargetsInvalid(
 	};
 	const initialLocalization = effectiveAppLocalization(doc.localization);
 	let sourceLanguage = initialLocalization.sourceLanguage;
-	let defaultLanguage = initialLocalization.defaultLanguage;
-	const languages = new Set(initialLocalization.languageOrder);
+	let languages = [...initialLocalization.languageOrder];
 	const wireCodes = new Map<string, string>(
 		Object.entries(initialLocalization.wireCodes),
 	);
@@ -397,20 +483,49 @@ export function mutationTargetsInvalid(
 			([language, entries]) => [language, new Map(Object.entries(entries))],
 		),
 	);
+	translations.set(
+		sourceLanguage,
+		new Map(Object.entries(initialLocalization.generatedSourceWording ?? {})),
+	);
 	let translationUnits = new Map(
 		collectTranslationUnits(doc).map((unit) => [unit.id, unit]),
 	);
 	const admittedPrefix: Mutation[] = [];
+	let translationDoc = doc;
 	let translationUnitsDirty = false;
-	const refreshTranslationUnits = (): void => {
-		if (!translationUnitsDirty) return;
-		const projected = produce(doc, (draft) => {
-			applyMutations(draft, admittedPrefix);
-		});
-		translationUnits = new Map(
-			collectTranslationUnits(projected).map((unit) => [unit.id, unit]),
-		);
-		translationUnitsDirty = false;
+	/* Units whose original wording an admitted mutation changed since the
+	 * inventory was last built. A generated unit's fingerprint reads its own
+	 * original and its base's, a saved original can make a system message a
+	 * unit, and a search check's default reads the shared guard, so a read
+	 * that could see one of these rebuilds; any other read keeps the
+	 * inventory, which a batch of many originals would otherwise rebuild once
+	 * per entry. */
+	const wordingChanged = new Set<TranslationUnitId>();
+	const sourceUnit = (unitId: TranslationUnitId) => {
+		if (!translationUnitsDirty && wordingChanged.size > 0) {
+			const held = translationUnits.get(unitId);
+			const base = held?.generated?.base;
+			if (
+				held === undefined ||
+				wordingChanged.has(unitId) ||
+				(base !== undefined && wordingChanged.has(base)) ||
+				held.generated?.role === "promptValidation"
+			)
+				translationUnitsDirty = true;
+		}
+		if (translationUnitsDirty) {
+			const projected = produce(doc, (draft) => {
+				applyMutations(draft, admittedPrefix);
+			});
+			translationDoc = projected;
+			translationUnits = new Map(
+				collectTranslationUnits(projected).map((unit) => [unit.id, unit]),
+			);
+			translationUnitsDirty = false;
+			wordingChanged.clear();
+		}
+		const raw = translationUnits.get(unitId);
+		return raw && wordingSourceUnit(translationDoc, raw);
 	};
 	for (const m of mutations) {
 		switch (m.kind) {
@@ -429,6 +544,10 @@ export function mutationTargetsInvalid(
 						return true;
 					}
 					modules.add(m.module.uuid);
+					if (m.module.formsFromMenu)
+						routeSources.set(m.module.uuid, m.module.formsFromMenu.menuUuid);
+					if (m.module.formsFromMenu?.entryPoints?.length)
+						hasRouteFormLinks.add(m.module.uuid);
 					moduleParents.set(m.module.uuid, parent);
 					moduleChildren.set(m.module.uuid, new Set());
 					if (parent !== null) moduleChildren.get(parent)?.add(m.module.uuid);
@@ -437,6 +556,12 @@ export function mutationTargetsInvalid(
 					// `setCaseListMeta` on it resolves.
 					if (m.module.caseListConfig !== undefined) {
 						modulesWithConfig.add(m.module.uuid);
+						for (const sort of m.module.caseListConfig.calculatedSorts ?? [])
+							sortOwners.set(sort.uuid, m.module.uuid);
+						for (const filter of m.module.caseListConfig?.searchFilters ?? []) {
+							filterOwners.set(filter.uuid, m.module.uuid);
+							filterKinds.set(filter.uuid, searchFilterKind(filter));
+						}
 						for (const column of m.module.caseListConfig.columns) {
 							columnOwners.set(column.uuid, m.module.uuid);
 						}
@@ -459,10 +584,33 @@ export function mutationTargetsInvalid(
 				break;
 			case "updateModule":
 				if (!modules.has(m.uuid)) return true;
+				if (
+					m.listedForm &&
+					(routeSources.get(m.uuid) !== m.listedForm.sourceUuid ||
+						!modules.has(m.listedForm.sourceUuid) ||
+						formOwners.get(m.listedForm.formUuid) !== m.listedForm.sourceUuid)
+				)
+					return true;
+				if (Object.hasOwn(m.patch, "formsFromMenu")) {
+					const source = m.patch.formsFromMenu?.menuUuid;
+					if (source !== routeSources.get(m.uuid)) {
+						if (
+							hasRouteFormLinks.has(m.uuid) ||
+							(source && !modules.has(source))
+						)
+							return true;
+						if (source) routeSources.set(m.uuid, source);
+						else routeSources.delete(m.uuid);
+					}
+				}
 				// Canonical update payloads own only structural teardown here:
 				// `caseListConfig:null` clears the config and all of its members.
 				// Config birth is the distinct `ensureCaseListConfig` command below.
 				if ("caseListConfig" in m.patch) {
+					for (const [id, owner] of sortOwners)
+						if (owner === m.uuid) sortOwners.delete(id);
+					for (const [filter, owner] of filterOwners)
+						if (owner === m.uuid) filterOwners.delete(filter);
 					for (const [columnUuid, owner] of columnOwners) {
 						if (owner === m.uuid) columnOwners.delete(columnUuid);
 					}
@@ -501,8 +649,19 @@ export function mutationTargetsInvalid(
 				moduleParents.set(m.uuid, destinationParent);
 				break;
 			}
-			case "renameModule":
 			case "setModuleMedia":
+				if (
+					m.languageEntry !== undefined &&
+					(!m.language || m.icon !== null || m.audioLabel !== null)
+				)
+					return true;
+				if (
+					!modules.has(m.uuid) ||
+					(m.language !== undefined && !languages.includes(m.language))
+				)
+					return true;
+				break;
+			case "renameModule":
 			case "setCaseListMenuItem":
 				if (!modules.has(m.uuid)) return true;
 				break;
@@ -549,8 +708,19 @@ export function mutationTargetsInvalid(
 				if (!forms.has(m.uuid) || !modules.has(m.toModuleUuid)) return true;
 				formOwners.set(m.uuid, m.toModuleUuid);
 				break;
-			case "renameForm":
 			case "setFormMedia":
+				if (
+					m.languageEntry !== undefined &&
+					(!m.language || m.icon !== null || m.audioLabel !== null)
+				)
+					return true;
+				if (
+					!forms.has(m.uuid) ||
+					(m.language !== undefined && !languages.includes(m.language))
+				)
+					return true;
+				break;
+			case "renameForm":
 				if (!forms.has(m.uuid)) return true;
 				break;
 			case "updateForm": {
@@ -776,7 +946,33 @@ export function mutationTargetsInvalid(
 				break;
 			}
 			case "setFieldMedia": {
+				if (
+					m.sharedOnly &&
+					(m.language !== undefined ||
+						m.languageEntry !== undefined ||
+						m.media?.mediaByLanguage !== undefined)
+				)
+					return true;
+				if (m.languageEntry !== undefined && (!m.language || m.media !== null))
+					return true;
 				if (!fields.has(m.fieldUuid)) return true;
+				if (
+					m.language !== undefined &&
+					(!languages.includes(m.language) ||
+						m.media?.mediaByLanguage ||
+						m.media?.formDefaultLanguage)
+				)
+					return true;
+				/* A choice's files are set through a language, or, for the
+				 * shared files alone, `sharedOnly` (what a document diff
+				 * emits when only a choice's shared files changed). */
+				if (
+					m.optionUuid !== undefined &&
+					((m.language === undefined && m.sharedOnly !== true) ||
+						m.slot !== "label" ||
+						optionOwners.get(m.optionUuid) !== m.fieldUuid)
+				)
+					return true;
 				const currentKind = fieldKinds.get(m.fieldUuid);
 				if (
 					currentKind === undefined ||
@@ -804,6 +1000,9 @@ export function mutationTargetsInvalid(
 				if (!caseProperties.has(m.caseType)) return true;
 				caseProperties.get(m.caseType)?.add(m.property.name);
 				break;
+			case "moveCaseProperty":
+				if (!caseProperties.get(m.caseType)?.has(m.property)) return true;
+				break;
 			case "removeCaseProperty":
 				if (!caseProperties.get(m.caseType)?.has(m.property)) return true;
 				caseProperties.get(m.caseType)?.delete(m.property);
@@ -818,6 +1017,22 @@ export function mutationTargetsInvalid(
 			// Add checks the parent module and seeds the new item; update / move
 			// / remove check the ITEM's own uuid (a concurrently-removed target is
 			// a conflict, not a silent no-op). `setCaseListMeta` is module-scoped.
+			case "addCalculatedSort":
+				if (!modules.has(m.moduleUuid)) return true;
+				modulesWithConfig.add(m.moduleUuid);
+				sortOwners.set(m.sort.uuid, m.moduleUuid);
+				break;
+			case "updateCalculatedSort":
+			case "removeCalculatedSort":
+				if (sortOwners.get(m.uuid) !== m.moduleUuid) return true;
+				if (
+					m.kind === "updateCalculatedSort" &&
+					m.after != null &&
+					(m.after === m.uuid || sortOwners.get(m.after) !== m.moduleUuid)
+				)
+					return true;
+				if (m.kind === "removeCalculatedSort") sortOwners.delete(m.uuid);
+				break;
 			case "addColumn":
 				if (!modules.has(m.moduleUuid)) return true;
 				// The first column births a config-less module's config (the
@@ -857,6 +1072,29 @@ export function mutationTargetsInvalid(
 				// (409) rather than resurrecting the removed case list empty.
 				if (!modules.has(m.uuid) || !modulesWithConfig.has(m.uuid)) {
 					return true;
+				}
+				if (m.patch.searchFilterEdit) {
+					const edit = m.patch.searchFilterEdit;
+					const id = edit.operation === "add" ? edit.filter.uuid : edit.uuid;
+					if (
+						"after" in edit &&
+						edit.after != null &&
+						(edit.after === id || filterOwners.get(edit.after) !== m.uuid)
+					)
+						return true;
+					if (edit.operation === "add") {
+						if (filterOwners.has(id)) return true;
+						filterOwners.set(id, m.uuid);
+						filterKinds.set(id, searchFilterKind(edit.filter));
+					} else {
+						if (filterOwners.get(id) !== m.uuid) return true;
+						if (
+							edit.operation === "edit" &&
+							filterKinds.get(id) !== searchFilterPatchKind(edit.patch)
+						)
+							return true;
+						if (edit.operation === "remove") filterOwners.delete(id);
+					}
 				}
 				break;
 			// ── Granular select options (field-owned) ──────────────────
@@ -1116,80 +1354,150 @@ export function mutationTargetsInvalid(
 			case "setAppSettings":
 				break;
 			case "relabelSourceLanguage": {
-				if (languages.size !== 1) return true;
+				if (languages.length !== 1) return true;
 				const tag = languageTag(m.language);
-				languages.clear();
-				languages.add(tag);
+				if ("kind" in m.language && m.language.language !== m.wireCode)
+					return true;
+				languages = [tag];
+				const wording = translations.get(sourceLanguage);
 				translations.clear();
+				translations.set(tag, wording ?? new Map());
 				wireCodes.clear();
 				wireCodes.set(tag, m.wireCode);
 				sourceLanguage = tag;
-				defaultLanguage = tag;
 				break;
 			}
 			case "addLanguage": {
 				const tag = languageTag(m.language);
-				if (languages.has(tag)) return true;
+				if ("kind" in m.language && m.language.language !== m.wireCode)
+					return true;
+				if (languages.includes(tag)) return true;
 				// A wire code is an identity: one another language holds would
 				// give two languages one CommCare code.
 				if ([...wireCodes.values()].includes(m.wireCode)) return true;
-				languages.add(tag);
+				languages.push(tag);
 				translations.set(tag, new Map());
 				wireCodes.set(tag, m.wireCode);
 				break;
 			}
 			case "removeLanguage":
 				if (
-					!languages.has(m.code) ||
+					!languages.includes(m.code) ||
 					m.code === sourceLanguage ||
-					m.code === defaultLanguage
+					m.code === languages[0]
 				) {
 					return true;
 				}
-				languages.delete(m.code);
+				languages = languages.filter((tag) => tag !== m.code);
 				translations.delete(m.code);
 				wireCodes.delete(m.code);
 				break;
-			case "setDefaultLanguage":
-				if (!languages.has(m.code)) return true;
-				defaultLanguage = m.code;
+			case "setProjectLanguageDirection":
+				if (!m.code.startsWith("project:") || !languages.includes(m.code))
+					return true;
 				break;
-			case "setTranslation": {
-				refreshTranslationUnits();
-				const unit = translationUnits.get(m.unitId);
+			case "rebindLanguageCodes": {
+				const rebound = reboundLanguageCodes(wireCodes, m.changes);
+				if (!rebound) return true;
+				for (const { language, to } of m.changes) wireCodes.set(language, to);
+				break;
+			}
+			case "rebaseSourceLanguage": {
 				if (
-					m.language === sourceLanguage ||
-					unit === undefined ||
-					(m.entry !== null &&
-						(!translationSourceFingerprintsEqual(
-							m.entry.sourceFingerprint,
+					sourceLanguage !== m.from ||
+					m.from === m.to ||
+					!languages.includes(m.to)
+				)
+					return true;
+				const projected = produce(doc, (draft) => {
+					applyMutations(draft, [...admittedPrefix, m]);
+				});
+				const localization = effectiveAppLocalization(projected.localization);
+				if (localization.sourceLanguage !== m.to) return true;
+				sourceLanguage = localization.sourceLanguage;
+				translations.clear();
+				translations.set(
+					sourceLanguage,
+					new Map(Object.entries(localization.generatedSourceWording ?? {})),
+				);
+				for (const [tag, entries] of Object.entries(localization.translations))
+					translations.set(tag, new Map(Object.entries(entries)));
+				break;
+			}
+			case "setDefaultLanguage":
+			case "moveLanguage": {
+				const after = m.kind === "moveLanguage" ? m.after : null;
+				if (
+					!languages.includes(m.code) ||
+					after === m.code ||
+					(after !== null && !languages.includes(after))
+				)
+					return true;
+				languages = spliceAfter(languages, m.code, after);
+				break;
+			}
+			case "setTranslation": {
+				const unit = sourceUnit(m.unitId);
+				const target = translations.get(m.language);
+				if (
+					!unit ||
+					!target ||
+					(m.language === sourceLanguage && !hasGeneratedWording(unit))
+				)
+					return true;
+				if (m.entry === null) {
+					if (!target.delete(m.unitId)) return true;
+					if (m.language === sourceLanguage) wordingChanged.add(m.unitId);
+					break;
+				}
+				const { workerFallback, ...saved } = m.entry;
+				const existing = target.get(m.unitId);
+				if (m.restoreAgainst) {
+					if (
+						!translationSourceFingerprintsEqual(
+							m.restoreAgainst.sourceFingerprint,
 							unit.sourceFingerprint,
 						) ||
-							translationValueIntegrityIssue(unit, m.entry.value) !==
-								undefined))
-				) {
-					return true;
-				}
-				const target = translations.get(m.language);
-				if (target === undefined) return true;
-				if (m.entry === null) {
-					if (!target.has(m.unitId)) return true;
-					target.delete(m.unitId);
+						!deepEqual(m.restoreAgainst.previous, existing ?? null)
+					)
+						return true;
 				} else {
-					target.set(m.unitId, m.entry);
+					const prior = existing && { ...existing };
+					if (prior) delete prior.workerFallback;
+					const preservesExistingDraft = !!prior && deepEqual(prior, saved);
+					if (
+						!preservesExistingDraft &&
+						(workerFallback ||
+							!translationSourceFingerprintsEqual(
+								saved.sourceFingerprint,
+								unit.sourceFingerprint,
+							) ||
+							translationEntryIntegrityIssue(unit, saved) !== undefined)
+					)
+						return true;
 				}
+				if (
+					workerFallback &&
+					translationSourceFingerprintsEqual(
+						workerFallback.sourceFingerprint,
+						unit.sourceFingerprint,
+					) &&
+					translationValueIntegrityIssue(unit, workerFallback.value) !==
+						undefined
+				)
+					return true;
+				target.set(m.unitId, m.entry);
+				if (m.language === sourceLanguage) wordingChanged.add(m.unitId);
 				break;
 			}
 			case "reviewTranslation": {
-				refreshTranslationUnits();
-				const unit = translationUnits.get(m.unitId);
+				const unit = sourceUnit(m.unitId);
 				if (
 					unit === undefined ||
 					!translationSourceFingerprintsEqual(
 						m.sourceFingerprint,
 						unit.sourceFingerprint,
-					) ||
-					translationValueIntegrityIssue(unit, m.value) !== undefined
+					)
 				) {
 					return true;
 				}
@@ -1198,6 +1506,10 @@ export function mutationTargetsInvalid(
 				if (
 					target === undefined ||
 					entry === undefined ||
+					translationEntryIntegrityIssue(unit, {
+						value: entry.value,
+						...reviewedTranslationValueMode(unit, entry),
+					}) !== undefined ||
 					!translationSourceFingerprintsEqual(
 						entry.sourceFingerprint,
 						m.expectedSourceFingerprint,
@@ -1206,8 +1518,10 @@ export function mutationTargetsInvalid(
 				) {
 					return true;
 				}
+				const { workerFallback: _fallback, ...saved } = entry;
+				if (m.language === sourceLanguage) wordingChanged.add(m.unitId);
 				target.set(m.unitId, {
-					...entry,
+					...saved,
 					sourceFingerprint: m.sourceFingerprint,
 					review: "reviewed",
 				});
@@ -1264,6 +1578,9 @@ export function mutationTargetsInvalid(
 			m.kind !== "relabelSourceLanguage" &&
 			m.kind !== "addLanguage" &&
 			m.kind !== "removeLanguage" &&
+			m.kind !== "moveLanguage" &&
+			m.kind !== "setProjectLanguageDirection" &&
+			m.kind !== "rebindLanguageCodes" &&
 			m.kind !== "setDefaultLanguage" &&
 			m.kind !== "setTranslation" &&
 			m.kind !== "reviewTranslation"

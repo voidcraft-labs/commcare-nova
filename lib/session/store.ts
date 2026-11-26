@@ -1,3 +1,4 @@
+import type { DeviceLocation } from "@/lib/domain/locationCapture";
 import type { EntryPointPreviewLaunch } from "@/lib/preview/entryPointLaunchTypes";
 /**
  * BuilderSession store — ephemeral UI state for the builder.
@@ -50,14 +51,18 @@ import type { BlueprintDocStore } from "@/lib/doc/provider";
 import type { Mutation } from "@/lib/doc/types";
 import { userFacingErrors } from "@/lib/doc/userFacingErrors";
 import type { CommitOutcome, ConnectConfig, ConnectType } from "@/lib/domain";
-import type { MediaFormatValue, MediaKind } from "@/lib/domain/multimedia";
+import type {
+	AssetKind,
+	MediaFormatValue,
+	MediaKind,
+} from "@/lib/domain/multimedia";
 import {
 	declaredPlatforms,
 	declaresWebApps,
 	type Platform,
 } from "@/lib/domain/platforms";
+import type { RequiredAndroidApp } from "@/lib/domain/requiredAndroidApps";
 import type { Event } from "@/lib/log/types";
-import type { ExportBudgetRowView } from "@/lib/media/exportBudget";
 import { EMPTY_AFTER_SUBMIT_STACK } from "@/lib/preview/afterSubmitStack";
 import { effectivePreviewPlatform } from "@/lib/preview/platform";
 import { previewSelectionsTargetOf } from "@/lib/routing/previewSelectionsHistory";
@@ -83,12 +88,16 @@ import type {
 } from "./types";
 
 /**
- * One asset row the session has observed: what the budget check reads, the
+ * One asset row the session has observed: its status, kind and size, the
  * variant its bytes are, which the attach guard, the pickers and Preview's
  * stand-in read, and the content hash and extension every export names the
  * file by, which Preview's list filter reads an image map's path from.
  */
-export type AssetMetaRow = ExportBudgetRowView & {
+export type AssetMetaRow = {
+	/** The wire row's status; only `ready` files are referenced. */
+	status: string;
+	kind: AssetKind;
+	sizeBytes: number;
 	contentHash: string;
 	extension: string;
 	mediaFormat?: MediaFormatValue;
@@ -297,6 +306,14 @@ export interface BuilderSessionState {
 	 *  → `currentState.reset()`). */
 	previewAfterSubmitStack: PreviewAfterSubmitStack;
 	previewEntryPointLaunch: EntryPointPreviewLaunch | undefined;
+	/** An Android visit an entry point opened, until its first form ends.
+	 *  Android finishes such a visit when that form is submitted or left
+	 *  (`SessionLaunchDelegate.kt::exitFromExternalLaunch`, the launch's
+	 *  `ccodk_exit_after_form_submission`, true by default): it resets the
+	 *  session and returns to the app that opened the link, whatever the
+	 *  form's after-submit says. Unlike `previewEntryPointLaunch`, which
+	 *  ordinary navigation retires, it lasts through the visit's menus. */
+	previewEntryPointVisit: boolean;
 
 	/** The case currently open in the running-app case list's detail/confirm
 	 *  (the row clicked, before continuing). Mirrors the case list's local
@@ -355,6 +372,10 @@ export interface BuilderSessionState {
 	 *  is derived (`effectivePreviewPlatform` over the app's declaration), so a
 	 *  choice the app no longer declares derives away with no write here. */
 	previewPlatform: Platform | undefined;
+	/** Apps installed on the simulated phone, independently of the app being authored. */
+	previewInstalledAndroidApps: RequiredAndroidApp[];
+	/** Authorized Search target and settings currently supplying this worker session. */
+	previewSearchRevision?: string;
 	/** Preview on Android is showing the device's home screen. A running
 	 *  fact, not a route: the URL's `home` is shared with edit mode and gains
 	 *  no Preview-only kind. */
@@ -365,6 +386,14 @@ export interface BuilderSessionState {
 	/** The UUID part of Android's `deviceid` (`commcare_<uuid>`), minted when
 	 *  the store is created: one page load is one install. */
 	previewAndroidDeviceId: string;
+	/** The chosen sensor fix applies to the next Android form entry. */
+	previewLocationFix?: DeviceLocation;
+	setPreviewLocationFix: (fix: DeviceLocation | undefined) => void;
+	/** The last committed form's automatic location, if the app requested it. */
+	previewSubmissionLocation?: DeviceLocation | null;
+	setPreviewSubmissionLocation: (
+		location: DeviceLocation | null | undefined,
+	) => void;
 
 	// ── Chrome ───────────────────────────────────────────────────────────
 
@@ -529,15 +558,14 @@ export interface BuilderSessionState {
 	 *  silent — cancel already cleared the slot. */
 	cancelStagedUpload: (slotKey: string) => void;
 
-	/** Budget-relevant asset metadata observed this session — every
-	 *  library page the builder's pickers load, every upload confirm, and
-	 *  every row the attach budget check fetches lands here, keyed by
-	 *  asset id. The browser's pre-dispatch export-ceiling check
-	 *  (`components/builder/media/useAttachBudget.ts`) resolves the doc's
-	 *  referenced ids against this registry and fetches only the gaps.
-	 *  Advisory data by design: the export boundary re-loads fresh rows
-	 *  server-side, so a stale entry here can only mis-tune the courtesy
-	 *  check, never the enforcement. */
+	/** Asset metadata observed this session — every library page the
+	 *  builder's pickers load, every upload confirm, every file an attach
+	 *  is checked for, and every row the referenced-row reader
+	 *  (`components/builder/media/useReferencedAssetRows.ts`) fetches lands
+	 *  here, keyed by asset id. Advisory data by design: the commit kernel
+	 *  and the export boundary re-load fresh rows server-side, so a stale
+	 *  entry here can only mis-tune a courtesy check, never the
+	 *  enforcement. */
 	assetMeta: Record<string, AssetMetaRow>;
 
 	/** Merge observed asset rows into the registry. Idempotent — a batch
@@ -756,6 +784,11 @@ export interface BuilderSessionState {
 	 *  reach) and opens Android on its home screen. The caller navigates
 	 *  home. */
 	setPreviewPlatform: (platform: Platform) => void;
+	setPreviewAndroidAppInstalled: (
+		app: RequiredAndroidApp,
+		installed: boolean,
+	) => void;
+	setPreviewSearchRevision: (revision: string | undefined) => void;
 	/** Show or leave Android's home screen. */
 	setPreviewAtDeviceHome: (atHome: boolean) => void;
 	/** Record Sync with server's time. */
@@ -792,7 +825,9 @@ export interface BuilderSessionState {
 
 	/** Home ends the running task, retaining worker identity and authorization,
 	 *  and starts a new one (`previewTaskId`). */
-	clearPreviewNavigation: () => void;
+	clearPreviewNavigation: (
+		homeSelections?: Readonly<Record<string, PreviewMenuCaseSelection>>,
+	) => void;
 
 	/** Back or Forward past Home onto a history entry of an earlier task of
 	 *  this session, on Web Apps: the entry's case selections become the
@@ -950,6 +985,23 @@ export function newPreviewSessionId(): string {
 	return uuidv7();
 }
 
+function freshPreviewNavigation() {
+	return {
+		previewSubmissionLocation: undefined,
+		previewCaseTarget: undefined,
+		previewCaseListRegistrationEntry: undefined,
+		previewTaskContinuation: undefined,
+		previewAfterSubmitStack: EMPTY_AFTER_SUBMIT_STACK,
+		previewEntryPointLaunch: undefined,
+		previewEntryPointVisit: false,
+		previewSelectedCase: undefined,
+		previewMenuCaseSelections: {},
+		previewSessionId: newPreviewSessionId(),
+		previewParentCaseRequest: undefined,
+		previewSearchStates: {},
+	};
+}
+
 /** Create a scoped Zustand session store. Called once per BuilderProvider
  *  mount — the parent provider's `buildId` controls the store lifetime.
  *
@@ -1021,6 +1073,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 				previewEntryPointLaunch: undefined as
 					| EntryPointPreviewLaunch
 					| undefined,
+				previewEntryPointVisit: false,
 				previewSelectedCase: undefined as PreviewSelectedCase | undefined,
 				previewMenuCaseSelections: {} as Readonly<
 					Record<string, PreviewMenuCaseSelection>
@@ -1032,11 +1085,16 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 				previewSearchInputs: NO_SEARCH_INPUTS_GIVEN,
 				previewPersonaUuid: undefined as string | undefined,
 				previewPlatform: undefined as Platform | undefined,
+				previewInstalledAndroidApps: [] as RequiredAndroidApp[],
 				previewAtDeviceHome: false,
 				previewDeviceSyncedAt: undefined as number | undefined,
 				/* `uuid` rather than `crypto.randomUUID`, for the reason
 				 * `newPreviewSessionId` gives: the builder opened over plain
 				 * http on a LAN address would throw making this store. */
+				setPreviewSubmissionLocation: (previewSubmissionLocation) =>
+					set({ previewSubmissionLocation }),
+				setPreviewLocationFix: (previewLocationFix) =>
+					set({ previewLocationFix }),
 				previewAndroidDeviceId: uuidv4(),
 				previewSessionId: newPreviewSessionId(),
 				previewTaskId: newPreviewSessionId(),
@@ -1238,11 +1296,14 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 										previewTaskContinuation: undefined,
 										previewAfterSubmitStack: EMPTY_AFTER_SUBMIT_STACK,
 										previewEntryPointLaunch: undefined,
+										previewEntryPointVisit: false,
 										previewSelectedCase: undefined,
 										previewMenuCaseSelections: {},
 										previewSessionId: newPreviewSessionId(),
 										previewParentCaseRequest: undefined,
 										previewSearchStates: {},
+										previewSubmissionLocation: undefined,
+										previewLocationFix: undefined,
 										previewPersonaUuid: undefined,
 										previewPlatform: undefined,
 										previewAtDeviceHome: false,
@@ -1439,6 +1500,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 							? Date.now()
 							: s.previewDeviceSyncedAt,
 						previewEntryPointLaunch: launch,
+						previewEntryPointVisit: previewRunsOnAndroid(s.previewPlatform),
 						previewTaskContinuation: undefined,
 						previewAfterSubmitStack: EMPTY_AFTER_SUBMIT_STACK,
 						previewCaseTarget: launch.formTarget,
@@ -1486,6 +1548,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 							previewTaskContinuation: undefined,
 							previewAfterSubmitStack: EMPTY_AFTER_SUBMIT_STACK,
 							previewEntryPointLaunch: undefined,
+							previewEntryPointVisit: false,
 							previewSelectedCase: undefined,
 							previewMenuCaseSelections: {},
 							previewSessionId: newPreviewSessionId(),
@@ -1514,6 +1577,8 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 					const structureStashed = s.sidebars.structure.stashed;
 					set({
 						previewing: false,
+						previewSubmissionLocation: undefined,
+						previewLocationFix: undefined,
 						previewPersonaUuid: undefined,
 						/* `previewPlatform` stays: a flip back in keeps the runtime
 						 * the author is checking. */
@@ -1524,6 +1589,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 						previewTaskContinuation: undefined,
 						previewAfterSubmitStack: EMPTY_AFTER_SUBMIT_STACK,
 						previewEntryPointLaunch: undefined,
+						previewEntryPointVisit: false,
 						previewSelectedCase: undefined,
 						previewMenuCaseSelections: {},
 						previewSessionId: newPreviewSessionId(),
@@ -1550,16 +1616,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 					const android = previewRunsOnAndroid(get().previewPlatform);
 					set({
 						previewPersonaUuid: personaUuid,
-						previewCaseTarget: undefined,
-						previewCaseListRegistrationEntry: undefined,
-						previewTaskContinuation: undefined,
-						previewAfterSubmitStack: EMPTY_AFTER_SUBMIT_STACK,
-						previewEntryPointLaunch: undefined,
-						previewSelectedCase: undefined,
-						previewMenuCaseSelections: {},
-						previewSessionId: newPreviewSessionId(),
-						previewParentCaseRequest: undefined,
-						previewSearchStates: {},
+						...freshPreviewNavigation(),
 						/* The identity menu also navigates home; a new worker on a
 						 * phone starts from its home screen, freshly synced. */
 						previewAtDeviceHome: android,
@@ -1569,24 +1626,38 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 					});
 				},
 
+				setPreviewAndroidAppInstalled(app, installed) {
+					set((state) => {
+						const apps = state.previewInstalledAndroidApps;
+						if (apps.includes(app) === installed) return state;
+						return {
+							previewInstalledAndroidApps: installed
+								? [...apps, app]
+								: apps.filter((item) => item !== app),
+						};
+					});
+				},
+
 				setPreviewPlatform(platform: Platform) {
 					/* The platform Preview will play, not the raw choice: a
 					 * choice the app does not declare derives away. */
 					const android = previewRunsOnAndroid(platform);
 					set({
 						previewPlatform: platform,
-						previewCaseTarget: undefined,
-						previewCaseListRegistrationEntry: undefined,
-						previewTaskContinuation: undefined,
-						previewAfterSubmitStack: EMPTY_AFTER_SUBMIT_STACK,
-						previewEntryPointLaunch: undefined,
-						previewSelectedCase: undefined,
-						previewMenuCaseSelections: {},
-						previewSessionId: newPreviewSessionId(),
-						previewParentCaseRequest: undefined,
-						previewSearchStates: {},
+						...freshPreviewNavigation(),
 						previewAtDeviceHome: android,
 						previewDeviceSyncedAt: android ? Date.now() : undefined,
+					});
+				},
+
+				setPreviewSearchRevision(revision) {
+					const state = get();
+					if (state.previewSearchRevision === revision) return;
+					// Each transition owns a new session, including A → B → A. A
+					// restored history entry or late read cannot reuse the first A.
+					set({
+						previewSearchRevision: revision,
+						...(state.previewing && freshPreviewNavigation()),
 					});
 				},
 
@@ -1612,6 +1683,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 									previewTaskContinuation: undefined,
 									previewAfterSubmitStack: EMPTY_AFTER_SUBMIT_STACK,
 									previewEntryPointLaunch: undefined,
+									previewEntryPointVisit: false,
 									previewSelectedCase: undefined,
 									previewMenuCaseSelections: {},
 									previewSessionId: newPreviewSessionId(),
@@ -1721,7 +1793,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 					set({ previewSelectedCase: selected });
 				},
 
-				clearPreviewNavigation() {
+				clearPreviewNavigation(homeSelections) {
 					const current = get();
 					/* Home leaves the path the last frame opened, so what was
 					 * pending would be dropped at the next completion anyway
@@ -1746,7 +1818,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 						previewAfterSubmitStack: afterSubmitStack,
 						previewSelectedCase: undefined,
 						previewParentCaseRequest: undefined,
-						previewMenuCaseSelections: {},
+						previewMenuCaseSelections: homeSelections ?? {},
 						previewSearchStates: {},
 					});
 				},
@@ -2159,11 +2231,14 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 						previewTaskContinuation: undefined,
 						previewAfterSubmitStack: EMPTY_AFTER_SUBMIT_STACK,
 						previewEntryPointLaunch: undefined,
+						previewEntryPointVisit: false,
 						previewSelectedCase: undefined,
 						previewMenuCaseSelections: {},
 						previewSessionId: newPreviewSessionId(),
 						previewParentCaseRequest: undefined,
 						previewSearchStates: {},
+						previewSubmissionLocation: undefined,
+						previewLocationFix: undefined,
 						previewPersonaUuid: undefined,
 						previewPlatform: undefined,
 						previewAtDeviceHome: false,

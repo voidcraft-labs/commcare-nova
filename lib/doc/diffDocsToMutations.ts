@@ -1,7 +1,11 @@
+import { compareCaseRelations } from "@/lib/domain/caseRelations";
 import type {
 	EntryPointTarget,
 	FormEntryPoint,
 } from "@/lib/domain/entryPoints";
+import { translationSourceFingerprintsEqual } from "@/lib/domain/localization";
+import { snapshotTranslationUnits } from "@/lib/domain/translationUnits";
+import { wordingSourceUnit } from "./localizationWorkspace";
 /**
  * Diff two `BlueprintDoc`s into the minimal-enough `Mutation[]` whose
  * replay on the FIRST doc reproduces the SECOND. It supports endpoint-only
@@ -64,7 +68,7 @@ import type {
  *      `updateModule{caseListConfig:null}`.
  *  10. Module order — predecessor-based moves for changed sibling positions.
  *  11. Catalog LAST — granular `declareCaseType` / `setCaseTypeMeta` /
- *      `addCaseProperty` / `setCaseProperty` / `removeCaseProperty` /
+ *      `addCaseProperty` / `setCaseProperty` / `moveCaseProperty` / `removeCaseProperty` /
  *      `retireCaseType`, diffed against the catalog the field reducers'
  *      `ensureCatalogProperty` side effect leaves after the structural replay
  *      (so a property a writer add reproduces is never re-emitted, merging a
@@ -85,6 +89,7 @@ import type {
 
 import { produce } from "immer";
 import { addModuleMutation } from "@/lib/doc/addModuleMutation";
+import { calculatedSortMutations } from "@/lib/doc/calculatedSortMutations";
 import {
 	columnAddMutation,
 	columnSnapshotMutations,
@@ -163,13 +168,17 @@ import {
 	isContainer,
 	isOwnerOnlyCaseSearchConfig,
 	isRepresentableConversion,
+	languageEntries,
 	moduleParent,
 	moduleSiblingGroups,
 	moduleSiblingUuids,
 	ownRecordValue,
 	parseLanguageTag,
 } from "@/lib/domain";
-import { effectiveFilterForEmission } from "@/lib/domain/expression/simplify";
+import {
+	searchConditionOf,
+	searchContentWithoutInputs,
+} from "@/lib/domain/searchConditions";
 
 // ── Value comparison ─────────────────────────────────────────────────
 //
@@ -422,10 +431,12 @@ function propertyPatch(
 // would clobber a concurrent collection edit. An explicit config removal still
 // travels as `updateModule{caseListConfig:null}`.
 const MODULE_PATCH_SKIP = new Set<string>([
+	"formsFromMenu",
 	"entryPoint",
 	"caseListEntryPoint",
 	"icon",
 	"audioLabel",
+	"mediaByLanguage",
 	"name",
 	"parentModuleUuid",
 	"order",
@@ -441,6 +452,7 @@ const FORM_PATCH_SKIP = new Set<string>([
 	"entryPoint",
 	"icon",
 	"audioLabel",
+	"mediaByLanguage",
 	"name",
 	"order",
 	"caseOperations",
@@ -462,6 +474,59 @@ const FORM_PATCH_SKIP = new Set<string>([
  * skipped, since the convert already dropped it (`reconcileFieldForKind`) and
  * admission refuses media on a slot the kind lacks.
  */
+function changedLanguageEntries<T>(
+	before: Record<string, T> | undefined,
+	after: Record<string, T> | undefined,
+): [string, T | null][] {
+	const entries: [string, T | null][] = [];
+	for (const language of new Set([
+		...Object.keys(before ?? {}),
+		...Object.keys(after ?? {}),
+	])) {
+		const previous = before?.[language],
+			next = after?.[language];
+		if (!deepEqual(previous, next))
+			entries.push([language, next === undefined ? null : cloneEntity(next)]);
+	}
+	return entries;
+}
+
+/** Every change from HQ names only the shared files or one translated row.
+ * A replay on a collaborator’s newer document preserves its other languages. */
+function diffMediaBundle(
+	before: Media | undefined,
+	after: Media | undefined,
+	fieldUuid: Uuid,
+	slot: "label" | "help",
+	optionUuid?: Uuid,
+): Mutation[] {
+	const { mediaByLanguage: previousLanguages, ...previousShared } =
+		before ?? {};
+	const { mediaByLanguage: nextLanguages, ...nextShared } = after ?? {};
+	const target = { fieldUuid, slot, ...(optionUuid && { optionUuid }) };
+	const updates: Mutation[] = changedLanguageEntries(
+		previousLanguages,
+		nextLanguages,
+	).map(([language, languageEntry]) => ({
+		kind: "setFieldMedia",
+		...target,
+		language,
+		languageEntry,
+		media: null,
+	}));
+	if (
+		!deepEqual(previousShared, nextShared) ||
+		(before === undefined) !== (after === undefined)
+	)
+		updates.push({
+			kind: "setFieldMedia",
+			...target,
+			sharedOnly: true,
+			media: after ? nextShared : null,
+		});
+	return updates;
+}
+
 function diffFieldMedia(
 	prev: Record<string, unknown>,
 	next: Record<string, unknown>,
@@ -476,14 +541,14 @@ function diffFieldMedia(
 		const prevMedia = prev[key];
 		const nextMedia = next[key];
 		if (deepEqual(prevMedia, nextMedia)) continue;
-		out.push({
-			kind: "setFieldMedia",
-			fieldUuid: uuid,
-			slot,
-			media: (nextMedia == null
-				? null
-				: cloneEntity(nextMedia)) as Media | null,
-		});
+		out.push(
+			...diffMediaBundle(
+				prevMedia as Media | undefined,
+				nextMedia as Media | undefined,
+				uuid,
+				slot,
+			),
+		);
 	}
 	return out;
 }
@@ -514,11 +579,23 @@ function appSettingsPatch(
 	next: AppSettings,
 ): AppSettingsPatch | undefined {
 	const patch: AppSettingsPatch = {};
+	if (prev.captureLocation !== next.captureLocation) {
+		patch.captureLocation = next.captureLocation === true;
+	}
+	if (prev.caseSharing !== next.caseSharing)
+		patch.caseSharing = next.caseSharing ?? null;
 	if (prev.showSavedForms !== next.showSavedForms) {
 		patch.showSavedForms = next.showSavedForms;
 	}
 	if (prev.showIncompleteForms !== next.showIncompleteForms) {
 		patch.showIncompleteForms = next.showIncompleteForms;
+	}
+	if (prev.firstMenuLayout !== next.firstMenuLayout)
+		patch.firstMenuLayout = next.firstMenuLayout ?? null;
+	if (prev.formMenuLayout !== next.formMenuLayout)
+		patch.formMenuLayout = next.formMenuLayout ?? null;
+	if (!deepEqual(prev.requiredAndroidApps, next.requiredAndroidApps)) {
+		patch.requiredAndroidApps = next.requiredAndroidApps ?? [];
 	}
 	if (prev.runsOnlyOn !== next.runsOnlyOn) {
 		patch.runsOnlyOn = next.runsOnlyOn ?? null;
@@ -615,6 +692,57 @@ function* diffGranularSteps(
 	prev: BlueprintDoc,
 	next: BlueprintDoc,
 ): Generator<void, Mutation[], void> {
+	const beforeLanguages = effectiveAppLocalization(prev.localization);
+	const afterLanguages = effectiveAppLocalization(next.localization);
+	if (
+		beforeLanguages.sourceLanguage !== afterLanguages.sourceLanguage &&
+		beforeLanguages.languageOrder.length > 1
+	) {
+		const target = afterLanguages.sourceLanguage;
+		const prefix: Mutation[] = [];
+		if (!beforeLanguages.languageOrder.includes(target)) {
+			let wireCode = storedWireCode(afterLanguages, target);
+			const holder = beforeLanguages.languageOrder.find(
+				(tag) => beforeLanguages.wireCodes[tag] === wireCode,
+			);
+			if (holder) {
+				// The source cannot leave before its successor arrives. A registered
+				// binding can use a free spelling inside this atomic batch, then take
+				// its final code after the old source leaves. Project codes never move.
+				const held = new Set([
+					...Object.values(beforeLanguages.wireCodes),
+					...Object.values(afterLanguages.wireCodes),
+				]);
+				let temporary = "qa-nova";
+				while (held.has(temporary)) temporary += "a";
+				if (target.startsWith("project:"))
+					prefix.push({
+						kind: "rebindLanguageCodes",
+						changes: [{ language: holder, from: wireCode, to: temporary }],
+					});
+				else wireCode = temporary;
+			}
+			prefix.push({
+				kind: "addLanguage",
+				language: parseLanguageTag(target),
+				wireCode,
+			});
+		}
+		prefix.push({
+			kind: "rebaseSourceLanguage",
+			from: beforeLanguages.sourceLanguage,
+			to: target,
+		});
+		const rebased = produce(prev, (draft) => {
+			applyMutations(draft, prefix);
+		});
+		if (
+			effectiveAppLocalization(rebased.localization).sourceLanguage !== target
+		)
+			throw new LocalizationEndpointNotRepresentableError();
+		yield;
+		return [...prefix, ...(yield* diffGranularSteps(rebased, next))];
+	}
 	const appLevel: Mutation[] = [];
 	const removes: Mutation[] = [];
 	const adds: Mutation[] = [];
@@ -626,6 +754,7 @@ function* diffGranularSteps(
 	const renames: Mutation[] = [];
 	const converts: Mutation[] = [];
 	const updates: Mutation[] = [];
+	const listedFormLinkRemoves: Mutation[] = [];
 	const media: Mutation[] = [];
 	const orders: Mutation[] = [];
 	// Granular collection edits — case-list columns / search-inputs /
@@ -846,17 +975,66 @@ function* diffGranularSteps(
 				{ kind: "case-list", moduleUuid: uuid },
 			),
 		);
+		const sharedEdits = diffListedFormSettings(
+			uuid,
+			prevModule.formsFromMenu,
+			nextModule.formsFromMenu,
+			next,
+		);
+		for (const edit of sharedEdits) {
+			if (edit.kind === "removeEntryPoint") listedFormLinkRemoves.push(edit);
+			else updates.push(edit);
+		}
 		const p = prevModule as unknown as Record<string, unknown>;
 		const n = nextModule as unknown as Record<string, unknown>;
 		if (p.name !== n.name) {
 			renames.push({ kind: "renameModule", uuid, newId: n.name as string });
 		}
 		const patch = propertyPatch(p, n, MODULE_PATCH_SKIP);
+		const oldRegister = prevModule.caseListRegistrationForm,
+			newRegister = nextModule.caseListRegistrationForm;
+		if (
+			oldRegister?.kind === "always" &&
+			newRegister?.kind === "always" &&
+			deepEqual(
+				{ ...oldRegister, mediaByLanguage: undefined },
+				{ ...newRegister, mediaByLanguage: undefined },
+			)
+		) {
+			delete patch.caseListRegistrationForm;
+			for (const [language, languageEntry] of changedLanguageEntries(
+				oldRegister.mediaByLanguage,
+				newRegister.mediaByLanguage,
+			)) {
+				media.push({
+					kind: "setFormMedia",
+					uuid: newRegister.formUuid,
+					registrationOf: uuid,
+					icon: null,
+					audioLabel: null,
+					language,
+					languageEntry,
+				});
+			}
+		}
 		if (Object.keys(patch).length > 0) {
 			updates.push({
 				kind: "updateModule",
 				uuid,
 				patch: patch as Extract<Mutation, { kind: "updateModule" }>["patch"],
+			});
+		}
+		for (const [language, languageEntry] of changedLanguageEntries(
+			prevModule.mediaByLanguage,
+			nextModule.mediaByLanguage,
+		)) {
+			media.push({
+				kind: "setModuleMedia",
+				uuid,
+				icon: null,
+				audioLabel: null,
+				language,
+				languageEntry,
 			});
 		}
 		if (menuMediaChanged(p, n)) {
@@ -867,7 +1045,31 @@ function* diffGranularSteps(
 				audioLabel: nextModule.audioLabel ?? null,
 			});
 		}
-		if (!deepEqual(prevModule.caseListMenuItem, nextModule.caseListMenuItem)) {
+		const previousItem = prevModule.caseListMenuItem,
+			nextItem = nextModule.caseListMenuItem;
+		if (
+			previousItem &&
+			nextItem &&
+			deepEqual(
+				{ ...previousItem, mediaByLanguage: undefined },
+				{ ...nextItem, mediaByLanguage: undefined },
+			)
+		) {
+			for (const [language, languageEntry] of changedLanguageEntries(
+				previousItem.mediaByLanguage,
+				nextItem.mediaByLanguage,
+			)) {
+				media.push({
+					kind: "setModuleMedia",
+					uuid,
+					caseListItem: true,
+					icon: null,
+					audioLabel: null,
+					language,
+					languageEntry,
+				});
+			}
+		} else if (!deepEqual(previousItem, nextItem)) {
 			updates.push({
 				kind: "setCaseListMenuItem",
 				uuid,
@@ -931,6 +1133,19 @@ function* diffGranularSteps(
 			),
 			...otherwise.afterLinks,
 		);
+		for (const [language, languageEntry] of changedLanguageEntries(
+			prevForm.mediaByLanguage,
+			nextForm.mediaByLanguage,
+		)) {
+			media.push({
+				kind: "setFormMedia",
+				uuid,
+				icon: null,
+				audioLabel: null,
+				language,
+				languageEntry,
+			});
+		}
 		if (menuMediaChanged(p, n)) {
 			media.push({
 				kind: "setFormMedia",
@@ -1050,8 +1265,14 @@ function* diffGranularSteps(
 	// early child removal because that removed module may still own a surviving
 	// form; the child removal leads reparenting because the reducer refuses to
 	// demote a root while any child remains.
+	/* A language's own files name the language, and target admission takes
+	 * them only once the app holds it, so a file in a language the target
+	 * adds waits until the localization diff has added it. */
+	const priorLanguages = new Set(beforeLanguages.languageOrder);
+	const awaitingLanguage: Mutation[] = [];
 	const structural: Mutation[] = [
 		...appLevel,
+		...listedFormLinkRemoves,
 		...rootModuleAdds,
 		...moduleStructure.promotions,
 		...childModuleAdds,
@@ -1067,7 +1288,19 @@ function* diffGranularSteps(
 		...media,
 		...collections,
 		...orders,
-	];
+	].filter((mutation) => {
+		if (
+			(mutation.kind === "setFieldMedia" ||
+				mutation.kind === "setModuleMedia" ||
+				mutation.kind === "setFormMedia") &&
+			mutation.language !== undefined &&
+			!priorLanguages.has(mutation.language)
+		) {
+			awaitingLanguage.push(mutation);
+			return false;
+		}
+		return true;
+	});
 
 	// (6) Case-type catalog — granular catalog mutations (declare / retire /
 	// add-property / set-property / remove-property / set-meta) keyed by
@@ -1145,6 +1378,7 @@ function* diffGranularSteps(
 					applyMutations(draft, admitMutationBatch(residual));
 				});
 	structural.push(...diffLocalization(localizationBase, next));
+	structural.push(...awaitingLanguage);
 	// Held placements last: no other mutation writes a held slot, and
 	// localization writes none, so `localizationBase` holds what every
 	// mutation before this one leaves held.
@@ -1225,13 +1459,10 @@ function diffLocalization(prev: BlueprintDoc, next: BlueprintDoc): Mutation[] {
 	const before = effectiveAppLocalization(prev.localization);
 	const after = effectiveAppLocalization(next.localization);
 
-	// A one-language app takes another source by relabelling it, and then
-	// gains every other language the target holds, the old source's tag
-	// among them, through the additions below.
+	// A one-language app can take another identity for its canonical text.
 	if (before.sourceLanguage !== after.sourceLanguage) {
-		if (before.languageOrder.length !== 1) {
+		if (before.languageOrder.length !== 1)
 			throw new LocalizationEndpointNotRepresentableError();
-		}
 		out.push({
 			kind: "relabelSourceLanguage",
 			language: parseLanguageTag(after.sourceLanguage),
@@ -1249,16 +1480,16 @@ function diffLocalization(prev: BlueprintDoc, next: BlueprintDoc): Mutation[] {
 	// default hands the default on before it leaves: to the target's default
 	// when the app already holds it, else to the source language, which every
 	// endpoint here keeps.
-	const addedCodes = new Set(
+	const incomingCodes = new Set(
 		after.languageOrder
-			.filter((tag) => !current.languageOrder.includes(tag))
+			.filter((tag) => current.wireCodes[tag] !== after.wireCodes[tag])
 			.map((tag) => storedWireCode(after, tag)),
 	);
 	for (const tag of current.languageOrder) {
 		if (
 			!after.languageOrder.includes(tag) &&
 			tag !== current.sourceLanguage &&
-			addedCodes.has(storedWireCode(current, tag))
+			incomingCodes.has(storedWireCode(current, tag))
 		) {
 			if (tag === current.defaultLanguage) {
 				out.push({
@@ -1275,6 +1506,12 @@ function diffLocalization(prev: BlueprintDoc, next: BlueprintDoc): Mutation[] {
 		applyMutations(draft, out);
 	});
 	current = effectiveAppLocalization(working.localization);
+	const changes = current.languageOrder.flatMap((language) => {
+		const from = storedWireCode(current, language);
+		const to = after.wireCodes[language];
+		return to !== undefined && from !== to ? [{ language, from, to }] : [];
+	});
+	if (changes.length) out.push({ kind: "rebindLanguageCodes", changes });
 	for (const tag of after.languageOrder) {
 		if (!current.languageOrder.includes(tag)) {
 			out.push({
@@ -1288,27 +1525,19 @@ function diffLocalization(prev: BlueprintDoc, next: BlueprintDoc): Mutation[] {
 		applyMutations(draft, out);
 	});
 	current = effectiveAppLocalization(working.localization);
-	// The order comes from `setDefaultLanguage` alone, which moves a language
-	// to the front: the target's first `lead` languages are moved, last first,
-	// so the last move names the target's default, where `lead` is the fewest
-	// that leaves the others already in the target's order. Additions append,
-	// so a target whose source is not among its first two languages needs more
-	// than its default moved.
-	const kept = current.languageOrder.filter((tag) =>
-		after.languageOrder.includes(tag),
-	);
-	let lead = current.defaultLanguage === after.defaultLanguage ? 0 : 1;
-	while (
-		!deepEqual(
-			kept.filter((tag) => !after.languageOrder.slice(0, lead).includes(tag)),
-			after.languageOrder.slice(lead),
-		)
-	) {
-		lead += 1;
+	// Install the new default before removing a language that currently starts
+	// the app. Then move only the surviving languages whose anchors differ.
+	let ordered = current.languageOrder;
+	if (current.defaultLanguage !== after.defaultLanguage) {
+		out.push({
+			kind: "moveLanguage",
+			code: after.defaultLanguage,
+			after: null,
+		});
+		ordered = spliceAfter(ordered, after.defaultLanguage, null);
 	}
-	for (const tag of after.languageOrder.slice(0, lead).reverse()) {
-		out.push({ kind: "setDefaultLanguage", code: tag });
-	}
+	for (const move of sequenceMovesTo(ordered, after.languageOrder))
+		out.push({ kind: "moveLanguage", code: move.uuid, after: move.after });
 	for (const tag of current.languageOrder) {
 		if (!after.languageOrder.includes(tag)) {
 			out.push({ kind: "removeLanguage", code: tag });
@@ -1328,17 +1557,61 @@ function diffLocalization(prev: BlueprintDoc, next: BlueprintDoc): Mutation[] {
 	) {
 		throw new LocalizationEndpointNotRepresentableError();
 	}
-	for (const code of after.languageOrder) {
-		if (code === after.sourceLanguage) continue;
-		const currentEntries = current.translations[code] ?? {};
-		const nextEntries = after.translations[code] ?? {};
+	// Original wording determines the fingerprint a target edit observes.
+	const source = after.sourceLanguage;
+	let original = working;
+	let changedSharedWording = false;
+	for (const code of [
+		source,
+		...after.languageOrder.filter((tag) => tag !== source),
+	]) {
+		if (
+			Boolean(current.rtlProjectLanguages?.[code]) !==
+			Boolean(after.rtlProjectLanguages?.[code])
+		)
+			out.push({
+				kind: "setProjectLanguageDirection",
+				code,
+				direction: after.rtlProjectLanguages?.[code] ? "rtl" : "ltr",
+			});
+		const currentEntries = languageEntries(current, code) ?? {};
+		const nextEntries = languageEntries(after, code) ?? {};
 		for (const [unitId, entry] of Object.entries(nextEntries)) {
 			if (!deepEqual(currentEntries[unitId], entry)) {
+				if (code === source && changedSharedWording) {
+					// A search message may include a shared guard that an earlier
+					// edit in this batch has already changed.
+					original = produce(prev, (draft) => {
+						applyMutations(draft, out);
+					});
+					changedSharedWording = false;
+				}
+				const snapshot = code === source ? original : next;
+				const raw = snapshotTranslationUnits(snapshot).get(unitId);
+				const unit = raw && wordingSourceUnit(snapshot, raw);
+				if (
+					code === source &&
+					raw?.role === "search-runtime-validation-message"
+				)
+					changedSharedWording = true;
+				const restoring =
+					unit &&
+					(entry.workerFallback !== undefined ||
+						!translationSourceFingerprintsEqual(
+							entry.sourceFingerprint,
+							unit.sourceFingerprint,
+						));
 				out.push({
 					kind: "setTranslation",
 					language: code,
 					unitId,
 					entry: cloneEntity(entry),
+					...(restoring && {
+						restoreAgainst: {
+							sourceFingerprint: unit.sourceFingerprint,
+							previous: cloneEntity(currentEntries[unitId] ?? null),
+						},
+					}),
 				});
 			}
 		}
@@ -2306,6 +2579,11 @@ function diffCaseListConfig(
 	return [
 		...birth,
 		...diffColumns(prevC, nextConfig, moduleUuid),
+		...calculatedSortMutations(
+			moduleUuid,
+			prevC.calculatedSorts ?? [],
+			nextConfig.calculatedSorts ?? [],
+		),
 		...diffSearchInputs(
 			prevC.searchInputs,
 			nextConfig.searchInputs,
@@ -2569,22 +2847,122 @@ function diffCaseListMeta(
 ): Mutation[] {
 	const patch: {
 		filter?: CaseListConfig["filter"] | null;
+		listCondition?: CaseListConfig["filter"] | null;
+		searchCondition?: CaseListConfig["filter"] | null;
 		selection?: CaseListConfig["selection"] | null;
 		tile?: CaseListConfig["tile"] | null;
+		detailTabs?: CaseListConfig["detailTabs"] | null;
+		detailTile?: CaseListConfig["detailTile"] | null;
+		contextAboveForm?: CaseListConfig["contextAboveForm"] | null;
+		emptyText?: string | null;
+		selectButtonText?: string | null;
+		optimizations?: true | null;
 	} = {};
-	if (!deepEqual(prev.filter, next.filter)) {
-		patch.filter = next.filter === undefined ? null : cloneEntity(next.filter);
+	if (prev.optimizations !== next.optimizations)
+		patch.optimizations = next.optimizations ?? null;
+	for (const key of ["emptyText", "selectButtonText"] as const)
+		if (prev[key] !== next[key]) patch[key] = next[key] ?? null;
+	const edits: Mutation[] = [];
+	const addFilterEdit = (
+		change: NonNullable<
+			Extract<
+				Mutation,
+				{ kind: "setCaseListMeta" }
+			>["patch"]["searchFilterEdit"]
+		>,
+	) => {
+		edits.push({
+			kind: "setCaseListMeta",
+			uuid: moduleUuid,
+			patch: { searchFilterEdit: change },
+		});
+	};
+	const beforeFilters = prev.searchFilters ?? [];
+	const afterFilters = next.searchFilters ?? [];
+	const beforeById = new Map(beforeFilters.map((r) => [r.uuid, r]));
+	const beforeIds = beforeFilters.map((r) => r.uuid);
+	const afterIds = afterFilters.map((r) => r.uuid);
+	for (const row of afterFilters) {
+		const old = beforeById.get(row.uuid);
+		if (!old) {
+			addFilterEdit({
+				operation: "add",
+				filter: cloneEntity(row),
+				after: predecessorIn(afterIds, row.uuid),
+			});
+			continue;
+		}
+		// An order row has no target or value: its terms change in place, and a
+		// row that changes between an order and a value filter is a new row.
+		if (!("target" in row) || !("target" in old)) {
+			if (!("target" in row) && !("target" in old)) {
+				if (!deepEqual(old.order, row.order))
+					addFilterEdit({
+						operation: "edit",
+						uuid: row.uuid,
+						patch: { order: cloneEntity(row.order) },
+					});
+			} else {
+				addFilterEdit({ operation: "remove", uuid: old.uuid });
+				addFilterEdit({
+					operation: "add",
+					filter: cloneEntity(row),
+					after: predecessorIn(afterIds, row.uuid),
+				});
+			}
+			continue;
+		}
+		const changedTarget = !deepEqual(old.target, row.target);
+		const changedValue = !deepEqual(old.value, row.value);
+		if (changedTarget || changedValue)
+			addFilterEdit({
+				operation: "edit",
+				uuid: row.uuid,
+				patch: {
+					...(changedTarget && { target: cloneEntity(row.target) }),
+					...(changedValue && { value: cloneEntity(row.value) }),
+				},
+			});
+	}
+	for (const move of sequenceMovesTo(
+		arrivalsProjected(beforeIds, afterIds),
+		afterIds,
+	))
+		addFilterEdit({ operation: "move", ...move });
+	for (const id of beforeIds)
+		if (!afterIds.includes(id))
+			addFilterEdit({ operation: "remove", uuid: id });
+	const listChanged = !deepEqual(prev.filter, next.filter);
+	const searchChanged = !deepEqual(
+		searchConditionOf(prev),
+		searchConditionOf(next),
+	);
+	if (listChanged && searchChanged && next.searchCondition === undefined) {
+		patch.filter = cloneEntity(next.filter ?? null);
+	} else {
+		if (listChanged) patch.listCondition = cloneEntity(next.filter ?? null);
+		if (searchChanged)
+			patch.searchCondition = cloneEntity(searchConditionOf(next) ?? null);
 	}
 	if (!deepEqual(prev.selection, next.selection)) {
 		patch.selection =
 			next.selection === undefined ? null : cloneEntity(next.selection);
 	}
+	if (!deepEqual(prev.contextAboveForm, next.contextAboveForm))
+		patch.contextAboveForm = next.contextAboveForm
+			? cloneEntity(next.contextAboveForm)
+			: null;
+	if (!deepEqual(prev.detailTile, next.detailTile))
+		patch.detailTile = next.detailTile ? cloneEntity(next.detailTile) : null;
+	if (!deepEqual(prev.detailTabs, next.detailTabs))
+		patch.detailTabs = next.detailTabs ? cloneEntity(next.detailTabs) : null;
 	const tileChanged = !deepEqual(prev.tile, next.tile);
 	if (tileChanged) {
 		patch.tile = next.tile === undefined ? null : cloneEntity(next.tile);
 	}
-	if (Object.keys(patch).length === 0 && !tileChanged) return [];
+	if (Object.keys(patch).length === 0 && !tileChanged) return edits;
 	return [
+		...edits,
 		{
 			kind: "setCaseListMeta",
 			uuid: moduleUuid,
@@ -2627,8 +3005,7 @@ function diffCaseSearchConfig(
 			next,
 			caseSearchConfigAfterFinalInputRemoval(
 				prev,
-				effectiveFilterForEmission(nextMod.caseListConfig?.filter) !==
-					undefined,
+				searchContentWithoutInputs(nextMod.caseListConfig),
 			),
 		)
 	) {
@@ -2636,9 +3013,9 @@ function diffCaseSearchConfig(
 			cleanupCaseSearchAfterFinalInputMutation({
 				uuid: moduleUuid,
 				config: prev,
-				hasCasesAvailableCondition:
-					effectiveFilterForEmission(nextMod.caseListConfig?.filter) !==
-					undefined,
+				hasCasesAvailableCondition: searchContentWithoutInputs(
+					nextMod.caseListConfig,
+				),
 			}),
 		];
 	}
@@ -2674,7 +3051,7 @@ function diffCaseSearchConfig(
 		prevIsMarker &&
 		next === undefined &&
 		nextMod.caseListConfig?.searchInputs.length === 0 &&
-		effectiveFilterForEmission(nextMod.caseListConfig?.filter) === undefined
+		!searchContentWithoutInputs(nextMod.caseListConfig)
 	) {
 		return [disableUnusedCaseSearchMutation(moduleUuid)];
 	}
@@ -2742,6 +3119,18 @@ function diffOptions(
 					opt.uuid,
 				),
 			});
+			continue;
+		}
+		if (
+			!contentEqualIgnoringOrder(p, opt) &&
+			contentEqualIgnoringOrder(
+				{ ...p, media: undefined },
+				{ ...opt, media: undefined },
+			)
+		) {
+			out.push(
+				...diffMediaBundle(p.media, opt.media, fieldUuid, "label", opt.uuid),
+			);
 			continue;
 		}
 		if (!contentEqualIgnoringOrder(p, opt)) {
@@ -2832,11 +3221,37 @@ function diffCatalog(
 			meta.relationship = toCt.relationship ?? null;
 			metaChanged = true;
 		}
+		// Relation removals go BEFORE the default-parent slots change and
+		// additions after: the reducer reads a `relationChange` against the
+		// type's current default (a removal matching it clears the default,
+		// an addition matching it is a no-op). Run after the slots move, a
+		// removal of a `relations` edge the target promotes to the default
+		// would clear the default this batch just set.
+		const previous = fromCt?.relations ?? [];
+		const wanted = toCt.relations ?? [];
+		for (const edge of previous)
+			if (!wanted.some((one) => compareCaseRelations(one, edge) === 0))
+				out.push({
+					kind: "setCaseTypeMeta",
+					caseType: toCt.name,
+					relationChange: { action: "remove", edge },
+				});
 		if (metaChanged) out.push(meta);
+		for (const edge of wanted)
+			if (!previous.some((one) => compareCaseRelations(one, edge) === 0))
+				out.push({
+					kind: "setCaseTypeMeta",
+					caseType: toCt.name,
+					relationChange: { action: "add", edge },
+				});
 		const fromProps = new Map(
 			(fromCt?.properties ?? []).map((p) => [p.name, p]),
 		);
-		const toPropNames = new Set(toCt.properties.map((p) => p.name));
+		const targetOrder = toCt.properties.map((p) => p.name);
+		const toPropNames = new Set(targetOrder);
+		let projectedOrder = [...fromProps.keys()].filter((name) =>
+			toPropNames.has(name),
+		);
 		for (const [propertyIndex, prop] of toCt.properties.entries()) {
 			const fp = fromProps.get(prop.name);
 			if (!fp) {
@@ -2846,6 +3261,7 @@ function diffCatalog(
 						: propertyIndex === 0
 							? null
 							: toCt.properties[propertyIndex - 1]?.name;
+				projectedOrder = spliceAfter(projectedOrder, prop.name, after);
 				out.push({
 					kind: "addCaseProperty",
 					caseType: toCt.name,
@@ -2868,6 +3284,14 @@ function diffCatalog(
 					property: prop.name,
 				});
 			}
+		}
+		for (const move of sequenceMovesTo(projectedOrder, targetOrder)) {
+			out.push({
+				kind: "moveCaseProperty",
+				caseType: toCt.name,
+				property: move.uuid,
+				after: move.after,
+			});
 		}
 	}
 	for (const ct of fromArr) {
@@ -3460,4 +3884,65 @@ function diffEntryPoint(
 	return Object.keys(patch).length
 		? [{ kind: "updateEntryPoint", entryPointUuid: before.uuid, patch }]
 		: [];
+}
+
+/** Shared forms and deep links have one owner per (route, form). Source changes
+ * retain the menu identity while explicit per-form edits merge across authors. */
+function diffListedFormSettings(
+	moduleUuid: Uuid,
+	before: Module["formsFromMenu"],
+	after: Module["formsFromMenu"],
+	next: BlueprintDoc,
+): Mutation[] {
+	if (!before && !after) return [];
+	const edits: Mutation[] = [];
+	const changedSource = before?.menuUuid !== after?.menuUuid;
+	const beforeLinks = new Map(
+		before?.entryPoints?.map((row) => [row.formUuid, row.entryPoint]),
+	);
+	const afterLinks = new Map(
+		after?.entryPoints?.map((row) => [row.formUuid, row.entryPoint]),
+	);
+	if (changedSource)
+		edits.push({
+			kind: "updateModule",
+			uuid: moduleUuid,
+			patch: { formsFromMenu: after ? { menuUuid: after.menuUuid } : null },
+		});
+	for (const formUuid of new Set([
+		...beforeLinks.keys(),
+		...afterLinks.keys(),
+	])) {
+		const target = { kind: "form" as const, moduleUuid, formUuid };
+		const prior = beforeLinks.get(formUuid);
+		const following = afterLinks.get(formUuid);
+		if (changedSource && prior && following) {
+			// The intermediate form move leaves the old source, dropping its listed links.
+			// Each external link that still opens the same form by the same route survives.
+			edits.push(
+				...diffEntryPoint(prior, undefined, target),
+				...diffEntryPoint(undefined, following, target),
+			);
+		} else {
+			edits.push(...diffEntryPoint(prior, following, target));
+		}
+	}
+	if (after) {
+		const oldExcluded = new Set(changedSource ? [] : before?.excludedFormUuids);
+		const newExcluded = new Set(after.excludedFormUuids);
+		for (const formUuid of next.formOrder[after.menuUuid] ?? []) {
+			if (oldExcluded.has(formUuid) !== newExcluded.has(formUuid))
+				edits.push({
+					kind: "updateModule",
+					uuid: moduleUuid,
+					patch: {},
+					listedForm: {
+						sourceUuid: after.menuUuid,
+						formUuid,
+						included: !newExcluded.has(formUuid),
+					},
+				});
+		}
+	}
+	return edits;
 }

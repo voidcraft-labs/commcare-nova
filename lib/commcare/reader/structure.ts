@@ -18,7 +18,6 @@ import {
 } from "@/lib/domain";
 import { NO_ENTRIES, recordFromEntries } from "@/lib/domain/records";
 import type { HqPlace } from "@/lib/publish/hqFindings";
-import { generatedAppStringPattern } from "../appStringKeys";
 import { instanceScanRead } from "../hqInstanceScan";
 import type { Admitted } from "./accounting";
 import { applicationReading } from "./appShell";
@@ -31,7 +30,6 @@ import {
 	take,
 } from "./claims";
 import type { DraftForm, DraftModule, ReadContext } from "./context";
-import { generatedKeyOwner } from "./generatedTranslationKeys";
 import {
 	heldText,
 	recordTextRewrite,
@@ -48,7 +46,7 @@ import { levelsFromHq } from "./worldEntities";
 const M = "menus-and-case-lists";
 const F = "forms-and-case-writes";
 
-const MENU_CLASSES = ["Module", "AdvancedModule"] as const;
+const MENU_CLASSES = ["Module", "AdvancedModule", "ShadowModule"] as const;
 type MenuClass = (typeof MENU_CLASSES)[number];
 const FORM_CLASSES = ["Form", "AdvancedForm"] as const;
 type FormClass = (typeof FORM_CLASSES)[number];
@@ -85,7 +83,15 @@ const MENU = defineClaims("structure.menu", {
 		"unique_id",
 	),
 	...perClass("name", MENU_CLASSES, take, `${M}/modulebase-name`, "name"),
-	...perClass("forms", MENU_CLASSES, take, `${M}/module-forms`, "forms"),
+	// A menu listing another menu's forms owns none; its `forms` is read
+	// as the mirror (`MENU_TYPE.mirror`), never as forms.
+	...perClass(
+		"forms",
+		["Module", "AdvancedModule"],
+		take,
+		`${M}/module-forms`,
+		"forms",
+	),
 	...perClass(
 		"comment",
 		MENU_CLASSES,
@@ -100,13 +106,19 @@ const MENU = defineClaims("structure.menu", {
 		`${M}/any-other-undeclared-key`,
 		"<undeclared>",
 	),
-	"refDetails@Module": account(
+	...perClass(
+		"refDetails",
+		["Module", "ShadowModule"],
+		account,
 		`${M}/module-ref-details`,
-		"schema:Module.ref_details",
+		"ref_details",
 	),
-	"referralList@Module": account(
+	...perClass(
+		"referralList",
+		["Module", "ShadowModule"],
+		account,
 		`${M}/module-referral-list`,
-		"schema:Module.referral_list",
+		"referral_list",
 	),
 	"displaySeparately@Module": account(
 		`${M}/module-display-separately`,
@@ -138,11 +150,7 @@ const MENU_TYPE = defineClaims("structure.menuType", {
 		`${M}/shadowmodule-with-no-source-module-id-or-one-naming-no-module`,
 		"schema:ShadowModule.source_module_id",
 	),
-	childMirror: refuse(
-		`${M}/shadowmodule-v2-under-a-v2-shadow-menu-mirroring-a-non-shadow`,
-		"schema:ShadowModule.root_module_id",
-	),
-	mirror: refuse(
+	mirror: take(
 		`${M}/shadowmodule-shadow-module-version-2`,
 		"schema:ShadowModule",
 	),
@@ -274,7 +282,7 @@ const FORM = defineClaims("structure.form", {
 	...perClass(
 		"autoGpsCapture",
 		FORM_CLASSES,
-		account,
+		take,
 		`${F}/auto-gps-capture-form`,
 		"auto_gps_capture",
 	),
@@ -366,14 +374,13 @@ function textIn(map: unknown, language: string | undefined): string {
 
 /**
  * Which mirror entry a mirror menu stands under, the first that applies: a
- * version other than 2; no source, or a source naming no menu; a version 2
- * mirror under a version 2 mirror menu, mirroring a child of that menu's
- * source that is no mirror; any other version 2 mirror.
+ * version other than 2, a missing source, or a source matching a menu. The
+ * menu stage resolves that menu’s kind, children and real form identities.
  */
 function mirrorClaim(
 	menu: Readonly<Record<string, unknown>>,
 	menus: readonly Readonly<Record<string, unknown>>[],
-): Claim<"refuse"> {
+): Claim<"refuse"> | Claim<"take"> {
 	const version = menu.shadow_module_version ?? 1;
 	if (version !== 2) return MENU_TYPE.mirrorVersion1;
 	const byId = (id: unknown) =>
@@ -382,16 +389,6 @@ function mirrorClaim(
 			: undefined;
 	const source = byId(menu.source_module_id);
 	if (source === undefined) return MENU_TYPE.mirrorWithNoSource;
-	const root = byId(menu.root_module_id);
-	if (
-		root !== undefined &&
-		docTypeOf(root) === "ShadowModule" &&
-		(root.shadow_module_version ?? 1) === 2 &&
-		docTypeOf(source) !== "ShadowModule" &&
-		typeof root.source_module_id === "string" &&
-		source.root_module_id === root.source_module_id
-	)
-		return MENU_TYPE.childMirror;
 	return MENU_TYPE.mirror;
 }
 
@@ -692,106 +689,19 @@ export function refuseFormNameReadAsInstance(
 		);
 }
 
-/** A form whose first-language name reads as an instance and that an app translation in that
- *  language words otherwise: the scan waits for the generated key's verdict. */
-export interface DeferredFormName {
-	readonly form: DraftForm;
-	/** The first-language name as the form's map holds it, which the scan reads. */
-	readonly stored: string;
-	/** The language and key of the app translation over it. */
-	readonly language: string;
-	readonly key: string;
-}
-
-const DEFERRED_FORM_NAMES = new WeakMap<ReadContext, DeferredFormName[]>();
-
-/** The forms whose instance scan waits for a generated key's verdict, in reading order. */
-export function deferredFormNames(
-	ctx: ReadContext,
-): readonly DeferredFormName[] {
-	return DEFERRED_FORM_NAMES.get(ctx) ?? [];
-}
-
 /**
- * Scans the name a form's source would hold once every generated key over it is decided. A key
- * that folded wrote its own wording there, so a deferred form whose key `folded` names is clear;
- * every other is scanned on its stored name. Runs once, after the keys' verdicts.
- */
-export function settleDeferredFormNames(
-	ctx: ReadContext,
-	folded: ReadonlySet<string>,
-): void {
-	for (const one of deferredFormNames(ctx))
-		if (!folded.has(`${one.language}\u0000${one.key}`))
-			refuseFormNameReadAsInstance(ctx, one.form, one.stored);
-}
-
-/**
- * The app translation that words a form's name in the app's first language
- * (the generated key `forms.m#f#` at the form's position, a non-blank text),
- * which HQ's build lays over the name there
- * (`app_strings.py::SelectKnownAppStrings.app_strings_parts`).
- */
-function firstLanguageNameOverride(
-	ctx: ReadContext,
-	form: DraftForm,
-): { readonly key: string; readonly value: string } | undefined {
-	const reading = applicationReading(ctx);
-	const first = reading?.languages.first;
-	if (reading === undefined || first === undefined) return undefined;
-	for (const held of reading.generatedKeys) {
-		if (held.language !== first || typeof held.value !== "string") continue;
-		if (held.value === "") continue;
-		if (generatedAppStringPattern(held.key) !== "forms.m#f#") continue;
-		const owner = generatedKeyOwner(held.key);
-		if (
-			owner.kind === "form" &&
-			owner.menu === form.menu &&
-			owner.form === form.index
-		)
-			return { key: held.key, value: held.value };
-	}
-	return undefined;
-}
-
-/**
- * Scans a form's name for an instance read, as `formWireName` writes it after
- * the generated keys are decided. Where an app translation words the name in
- * the first language without one, the wording is written there now, so the
- * strings Nova's build makes of the reading can be made, and the scan waits
- * for that key's verdict (`settleDeferredFormNames`): it folds and the source
- * holds the wording, or it does not and the stored name is scanned.
+ * Scans a form's name for an instance read, as `formWireName` writes it, and refuses a name that
+ * reads as one (`refuseFormNameReadAsInstance`). An app translation over the name is the form menu
+ * label's own wording (`generatedTranslationKeys.ts`) and leaves the name as stored.
  */
 function scanFormName(
 	ctx: ReadContext,
 	draft: DraftForm,
-	unit: TranslationUnitId,
 	read: NameAsRead,
 ): string {
 	const wireName = wireNameOf(ctx, read);
-	if (instanceScanRead(wireName) === undefined) return read.source;
-	const override = firstLanguageNameOverride(ctx, draft);
-	const languages = applicationReading(ctx)?.languages;
-	if (
-		override === undefined ||
-		languages?.first === undefined ||
-		instanceScanRead(override.value) !== undefined
-	) {
+	if (instanceScanRead(wireName) !== undefined)
 		refuseFormNameReadAsInstance(ctx, draft, wireName);
-		return read.source;
-	}
-	const deferred = DEFERRED_FORM_NAMES.get(ctx) ?? [];
-	deferred.push({
-		form: draft,
-		stored: wireName,
-		language: languages.first,
-		key: override.key,
-	});
-	DEFERRED_FORM_NAMES.set(ctx, deferred);
-	if (languages.first === languages.source) return override.value;
-	const tag = languages.tagOf.get(languages.first);
-	if (tag !== undefined)
-		ctx.translations.set(unit, "text", new Map([[tag, override.value]]));
 	return read.source;
 }
 
@@ -814,11 +724,11 @@ function readMenuKeys(
 		Object.assign(draft.module, { uuid: draft.uuid, name });
 	});
 	json.account("comment", MENU[`comment@${cls}`] as Claim<"account">);
-	if (cls === "Module") {
-		json.account("ref_details", MENU["refDetails@Module"] as Claim<"account">);
+	if (cls === "Module" || cls === "ShadowModule") {
+		json.account("ref_details", MENU[`refDetails@${cls}`] as Claim<"account">);
 		json.account(
 			"referral_list",
-			MENU["referralList@Module"] as Claim<"account">,
+			MENU[`referralList@${cls}`] as Claim<"account">,
 		);
 	}
 	for (const key of json.undeclared()) {
@@ -872,7 +782,7 @@ function readFormKeys(
 	 * app's first language, not the source language's: CommCare HQ's build
 	 * reads `instance('…')` there as an instance read and Nova's gate refuses
 	 * it. */
-	const name = names === undefined ? "" : scanFormName(ctx, draft, unit, names);
+	const name = names === undefined ? "" : scanFormName(ctx, draft, names);
 	ctx.writeDraft(() => {
 		Object.assign(draft.form, { uuid: draft.uuid, name });
 	});
@@ -905,7 +815,15 @@ function readFormKeys(
 	);
 	json.account("schedule_form_id", claim("scheduleFormId"));
 	json.account("custom_instances", claim("customInstances"));
-	json.account("auto_gps_capture", claim("autoGpsCapture"));
+	const capture = json.take(
+		"auto_gps_capture",
+		claim<"take">("autoGpsCapture"),
+		(value) => value === true,
+	).value;
+	if (capture)
+		ctx.writeDraft(() => {
+			draft.form.captureLocation = true;
+		});
 	const references = json.object(
 		"case_references_data",
 		"CaseReferences",
@@ -982,10 +900,11 @@ export function readStructure(ctx: ReadContext): void {
 		switch (json.cls) {
 			case "ShadowModule": {
 				const claim = mirrorClaim(menu, menus);
-				json.refuseWhole(claim);
-				// A mirror under a mirror menu is a version 2 mirror too.
-				if (claim === MENU_TYPE.childMirror) json.alsoOfClass(MENU_TYPE.mirror);
-				return;
+				if (claim.use === "refuse") {
+					json.refuseWhole(claim);
+					return;
+				}
+				break;
 			}
 			case "ReportModule":
 				json.refuseWhole(MENU_TYPE.report);
@@ -1009,26 +928,31 @@ export function readStructure(ctx: ReadContext): void {
 		const caseType = json.peek("case_type");
 		read(
 			json.takeClass(
-				cls === "AdvancedModule"
-					? MENU.advanced
-					: typeof caseType === "string" && caseType !== ""
-						? MENU.caseList
-						: MENU.survey,
+				cls === "ShadowModule"
+					? MENU_TYPE.mirror
+					: cls === "AdvancedModule"
+						? MENU.advanced
+						: typeof caseType === "string" && caseType !== ""
+							? MENU.caseList
+							: MENU.survey,
 			),
 		);
 		const forms: FormCandidate[] = [];
-		const formCursors = json.list(
-			"forms",
-			formClassOf,
-			MENU[`forms@${cls}`] as Claim<"take">,
-			(formIndex, value) =>
-				formPlace(
-					index,
-					formIndex,
-					name,
-					isJsonObject(value) ? textIn(value.name, first) : "",
-				),
-		);
+		const formCursors =
+			cls === "ShadowModule"
+				? []
+				: json.list(
+						"forms",
+						formClassOf,
+						MENU[`forms@${cls}`] as Claim<"take">,
+						(formIndex, value) =>
+							formPlace(
+								index,
+								formIndex,
+								name,
+								isJsonObject(value) ? textIn(value.name, first) : "",
+							),
+					);
 		formCursors.forEach((form, formIndex) => {
 			switch (form.cls) {
 				case "ShadowForm":

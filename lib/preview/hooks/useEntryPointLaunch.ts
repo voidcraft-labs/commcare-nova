@@ -31,6 +31,7 @@ import type {
 	EntryPointSelection,
 } from "../entryPointLaunchTypes";
 import { invalidateCaseData } from "./caseDataInvalidation";
+import { showFrameFirstMenu } from "./showFrameFirstMenu";
 
 export function useEntryPointLaunch() {
 	const session = useBuilderSessionApi();
@@ -50,6 +51,7 @@ export function useEntryPointLaunch() {
 			entryPointUuid: string,
 			selections: readonly EntryPointSelection[],
 			personaUuid?: string,
+			creations?: readonly import("@/lib/domain").SuppliedCaseCreation[],
 		): Promise<EntryPointLaunchResult> => {
 			const request = ++generation.current;
 			const before = session.getState();
@@ -70,6 +72,7 @@ export function useEntryPointLaunch() {
 				appId: before.appId,
 				entryPointUuid,
 				selections,
+				creations,
 				personaUuid,
 				expectedSeq,
 				device: withNavigationWidth(device),
@@ -113,6 +116,14 @@ export function useEntryPointLaunch() {
 									: {}),
 							};
 				current.installEntryPointLaunch(launch);
+				/* Back from a form an Android deep link opened ends the visit
+				 * (`previewEntryPointVisit`), so only a menu or case list
+				 * destination steps back to the first menu. */
+				if (
+					launch.firstMenuSelections !== undefined &&
+					launch.location.kind !== "form"
+				)
+					showFrameFirstMenu(navigate, session, launch.firstMenuSelections);
 				navigate.push(launch.location);
 			}
 			return result;
@@ -171,6 +182,7 @@ export function useEntryPointPreviewSetup(uuid: Uuid) {
 			: undefined;
 		return {
 			item,
+			creations: projection?.available ? projection.requiredCreations : [],
 			personas: Object.values(doc.personas ?? {}),
 			requirements: projection?.available
 				? projection.requiredSelections.map((requirement) => {

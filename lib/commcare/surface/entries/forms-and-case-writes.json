@@ -853,10 +853,9 @@
 			"schema:ShadowForm.media_audio"
 		],
 		"valueClass": "differing-by-language",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `localizedMedia`",
-		"subject": "media-by-language",
-		"owner": "question-display",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the shared file and language-specific menu media with the installation’s fallback",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -916,13 +915,12 @@
 			"schema:ShadowForm.custom_icons",
 			"schema:CustomIcon.form",
 			"schema:CustomIcon.text",
-			"schema:CustomIcon.xpath"
+			"schema:CustomIcon.xpath",
+			"schema:CustomIcon"
 		],
 		"valueClass": "form-badge",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `Form.badge`",
-		"subject": "menu-badges",
-		"owner": "menus",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: a localized navigation badge or a calculation shown beside the worker's menu item",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / DIFFERENT (hides `0`; shows text longer than 3 characters as `999+` when it parses as an integer and otherwise as its first 3 characters and `..`, `MenuAdapter.updateBadgeView`)",
@@ -938,7 +936,8 @@
 			"cell": "`custom_icons[0]`; privilege `custom_icon_badges`",
 			"markers": []
 		},
-		"gates": ["privilege/custom_icon_badges"]
+		"gates": ["privilege/custom_icon_badges"],
+		"slotChanges": []
 	},
 	{
 		"id": "forms-and-case-writes/form-filter-lifting-into-predicate-a-direct-own-case-property-in",
@@ -981,10 +980,8 @@
 			"schema:ShadowForm.form_filter"
 		],
 		"valueClass": "typed-expression",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: typed expression model in `Form.displayCondition`",
-		"subject": "display-conditions",
-		"owner": "menus",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: queries over restored rows and reads of records connected to a selected case in a form visibility condition",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -999,7 +996,8 @@
 			"cell": "printed with HQ hashtags",
 			"markers": ["printed"]
 		},
-		"gates": []
+		"gates": [],
+		"slotChanges": []
 	},
 	{
 		"id": "forms-and-case-writes/form-filter-reading-case-status-case-id-case-type-owner-id",
@@ -1226,17 +1224,24 @@
 			"schema:ShadowForm.post_form_workflow"
 		],
 		"valueClass": "previous-screen-on-a-form-listed-on-the-first-menu",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: a return to the screen before a form the first menu lists",
-		"subject": "display-only-forms",
-		"owner": "menus",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: `Form.postSubmit: previous`",
+		"slotChanges": [],
 		"platforms": {
-			"kind": "not-applicable",
-			"cell": "n/a"
+			"kind": "each",
+			"cell": "DIFFERENT (fresh first-menu case choice) / DIFFERENT (first menu retains its shared case)",
+			"webApps": {
+				"reading": "different",
+				"note": "fresh first-menu case choice"
+			},
+			"android": {
+				"reading": "different",
+				"note": "first menu retains its shared case"
+			}
 		},
 		"emission": {
-			"cell": "omit",
-			"markers": ["omit"]
+			"cell": "`previous_screen`",
+			"markers": []
 		},
 		"gates": []
 	},
@@ -1563,25 +1568,76 @@
 			"schema:Form.session_endpoint_id",
 			"schema:AdvancedForm.session_endpoint_id",
 			"schema:ShadowForm.session_endpoint_id",
+			"schema:ShadowFormEndpoint.session_endpoint_id",
+			"schema:ShadowModule.session_endpoint_id",
+			"schema:ShadowModule.case_list_session_endpoint_id",
 			"schema:Module.session_endpoint_id",
 			"schema:AdvancedModule.session_endpoint_id",
 			"schema:Module.case_list_session_endpoint_id",
 			"schema:AdvancedModule.case_list_session_endpoint_id"
 		],
 		"valueClass": "through-a-first-menu-that-shares-one-case",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: a link or a deep link through a first menu that keeps one case",
-		"subject": "display-only-forms",
-		"owner": "menus",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: carry the selected record on the frame through the first menu",
 		"platforms": {
-			"kind": "not-applicable",
-			"cell": "n/a"
+			"kind": "each",
+			"cell": "DIFFERENT (fresh first-menu case choice) / DIFFERENT (first menu retains its shared case)",
+			"webApps": {
+				"reading": "different",
+				"note": "fresh first-menu case choice"
+			},
+			"android": {
+				"reading": "different",
+				"note": "first menu retains its shared case"
+			}
 		},
 		"emission": {
-			"cell": "omit",
-			"markers": ["omit"]
+			"cell": "form link or endpoint with its matching selection and command",
+			"markers": []
 		},
-		"gates": []
+		"gates": [],
+		"slotChanges": []
+	},
+	{
+		"id": "forms-and-case-writes/first-menu-selection-used-for-different-records",
+		"area": "forms-and-case-writes",
+		"section": "Form fields",
+		"item": "one selection ID refers to different record types or different collection sizes on a reachable command",
+		"surfaceKeys": [
+			"schema:Form.form_links",
+			"schema:AdvancedForm.form_links",
+			"schema:ShadowForm.form_links",
+			"schema:FormLink.form_id",
+			"schema:Form.session_endpoint_id",
+			"schema:AdvancedForm.session_endpoint_id",
+			"schema:ShadowForm.session_endpoint_id",
+			"schema:ShadowFormEndpoint.session_endpoint_id",
+			"schema:ShadowModule.session_endpoint_id",
+			"schema:ShadowModule.case_list_session_endpoint_id",
+			"schema:Module.session_endpoint_id",
+			"schema:AdvancedModule.session_endpoint_id",
+			"schema:Module.case_list_session_endpoint_id",
+			"schema:AdvancedModule.case_list_session_endpoint_id"
+		],
+		"valueClass": "incompatible-first-menu-case",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: one selection ID refers to different record types or different collection sizes on a reachable command",
+		"subject": "display-only-forms",
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": [],
+		"reasons": [
+			{
+				"kind": "unrepresentable-identity",
+				"named": "one selection ID refers to different record types or different collection sizes on a reachable command"
+			}
+		]
 	},
 	{
 		"id": "forms-and-case-writes/form-links-target-the-current-form-or-a-link-cycle",
@@ -1936,10 +1992,8 @@
 			"schema:Form.auto_gps_capture",
 			"schema:AdvancedForm.auto_gps_capture"
 		],
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `Form.autoCaptureLocation` (effective = form OR app, `FormBase.get_auto_gps_capture`)",
-		"subject": "form-settings",
-		"owner": "settings-nova-comes-to-own",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: Form settings independently request the Android device location.",
 		"platforms": {
 			"kind": "each",
 			"cell": "IGNORED / RUNS",
@@ -1951,10 +2005,11 @@
 			}
 		},
 		"emission": {
-			"cell": "`auto_gps_capture`",
+			"cell": "`auto_gps_capture` (true or false)",
 			"markers": []
 		},
-		"gates": []
+		"gates": [],
+		"slotChanges": []
 	},
 	{
 		"id": "forms-and-case-writes/submit-label-default",
@@ -2387,10 +2442,9 @@
 			"schema:ShadowForm.function_datum_endpoints"
 		],
 		"valueClass": "computed-endpoint-argument",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `entryPoint.computedDatumArguments`. The class takes a non-empty list, on any form a shadow form included; the empty list is HQ's default, which the shadow own fields row holds on a shadow form",
-		"subject": "deep-links",
-		"owner": "menus",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the source form holds exposed case operations in stored order, and each actual frame supplies its own argument order",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -2406,6 +2460,36 @@
 			"markers": []
 		},
 		"gates": ["toggle/SESSION_ENDPOINTS"]
+	},
+	{
+		"id": "forms-and-case-writes/function-datum-endpoints-with-an-unavailable-supplier",
+		"area": "forms-and-case-writes",
+		"section": "Form fields",
+		"item": "`function_datum_endpoints[]` names no case creation on the frame",
+		"surfaceKeys": [
+			"schema:Form.function_datum_endpoints",
+			"schema:AdvancedForm.function_datum_endpoints",
+			"schema:ShadowForm.function_datum_endpoints"
+		],
+		"valueClass": "computed-endpoint-argument-without-one-creation",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: no distinct case creation supplies this ID on the navigation frame",
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": [],
+		"subject": "deep-links",
+		"reasons": [
+			{
+				"kind": "unrepresentable-identity",
+				"named": "an argument names no distinct case creation available on this form's frame"
+			}
+		]
 	},
 	{
 		"id": "forms-and-case-writes/put-in-root-on-a-form-dynamic-key",
@@ -6662,17 +6746,22 @@
 			"schema:CaseIndex.relationship"
 		],
 		"valueClass": "parent-index-against-a-parent-selection",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: one case type whose `parent` links reach two case types, or reach one as both a child and an extension; Nova's case catalog holds one parent and one relationship per type (`CaseType.parent_type`, `CaseType.relationship`), which a menu's parent selection follows",
-		"subject": "advanced-forms",
-		"owner": "forms-and-case-management",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the create's link under `parent`, to its own target type and relationship, beside the menu's parent selection (`Module.parentCaseModuleUuid`), neither following the case catalog: HQ's build writes the index from `case_indices` and the selection's filter from the load's own index (`entries.py::get_parent_filter_by_ref_id`), and the catalog then gives the type no single parent (`CaseType.parent_type`), which only authoring reads",
+		"slotChanges": [],
 		"platforms": {
-			"kind": "not-applicable",
-			"cell": "n/a"
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
 		},
 		"emission": {
-			"cell": "omit",
-			"markers": ["omit"]
+			"cell": "`case_indices`",
+			"markers": []
 		},
 		"gates": []
 	},
@@ -7430,13 +7519,13 @@
 			"schema:Module.module_filter",
 			"schema:AdvancedModule.module_filter",
 			"schema:ReportModule.module_filter",
-			"schema:ShadowModule.module_filter"
+			"schema:ShadowModule.module_filter",
+			"schema:Detail.filter",
+			"schema:DetailColumn.field"
 		],
 		"valueClass": "usercase-term",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: usercase term in Predicate (Predicate `session-user` reads session user data, a different source)",
-		"subject": "display-conditions",
-		"owner": "menus",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: a typed property of the worker’s own restored record",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -7451,7 +7540,8 @@
 			"cell": "`#user/<prop>`; privilege `user_case` (without it HQ's build fails `invalid user property xpath reference` for a `form_filter`, and the other slots read nothing)",
 			"markers": []
 		},
-		"gates": ["privilege/user_case"]
+		"gates": ["privilege/user_case"],
+		"slotChanges": []
 	},
 	{
 		"id": "forms-and-case-writes/usercase-datum-usercase-id-assertion-case-autoload-usercase-case",

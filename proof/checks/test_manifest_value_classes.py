@@ -802,6 +802,37 @@ def _form_json(requires="case", **actions):
 ALWAYS, NEVER = {"type": "always"}, {"type": "never"}
 
 
+CONDITIONAL_REGISTER = {"type": "if", "question": "/data/accept", "answer": "yes", "operator": "="}
+
+
+def _conditional_registration_app(condition, *, inline=True, workflow="case_list", form_workflow="default", bare=False):
+    registration = {
+        **_form_json("none", open_case={"condition": condition}),
+        "unique_id": "register",
+        "post_form_workflow": form_workflow,
+    }
+    host = _module(
+        [] if bare else [_form_json()],
+        search_config={"inline_search": inline, "auto_launch": True, "properties": [{"name": "patient_name"}]},
+        case_list={"show": True},
+        case_list_form={"form_id": "register", "post_form_workflow": workflow},
+    )
+    return _app([host, _module([registration], unique_id="registration-menu")])
+
+
+def test_inline_search_reads_the_new_case_on_return_from_conditional_registration(manifest):
+    def returned(condition, **options):
+        app = _conditional_registration_app(condition, **options)
+        [use] = _app_uses(app, manifest, "schema:Module.case_list_form")
+        return classes.registration_return_search_needs_created_case(use, manifest)
+
+    assert returned(CONDITIONAL_REGISTER, workflow="default") is True
+    assert returned(NEVER) is False
+    assert returned(CONDITIONAL_REGISTER, inline=False) is False
+    assert returned(CONDITIONAL_REGISTER, form_workflow="root") is False
+    assert returned(CONDITIONAL_REGISTER, bare=True) is False
+
+
 def test_a_forms_case_actions_by_the_action_a_use_sits_in(manifest):
     extension = {"case_type": "child", "condition": ALWAYS, "relationship": "extension"}
     survey_child = _form_json("none", subcases=[extension])
@@ -941,6 +972,35 @@ SEARCH_SUITE = b"""<suite version="1">
 
 
 # A search's prompts with an input type no runtime names (``slider``) and one Core names (``date``).
+# Two case lists with a Search action each: the first's condition reads the session, which its entry does not declare,
+# and the second's the case database, which its entry's datum reads; the third action pushes another command.
+BUTTON_SUITE = b"""<suite version="1">
+ <entry><form>http://example.org/f</form><command id="m0-f0"><text><locale id="f"/></text></command>
+  <instance id="casedb" src="jr://instance/casedb"/>
+  <session><datum id="case_id" nodeset="instance('casedb')/casedb/case[@case_type='client']" value="./@case_id"
+   detail-select="m0_case_short"/></session></entry>
+ <entry><form>http://example.org/g</form><command id="m1-f0"><text><locale id="g"/></text></command>
+  <instance id="casedb" src="jr://instance/casedb"/>
+  <session><datum id="case_id" nodeset="instance('casedb')/casedb/case[@case_type='client']" value="./@case_id"
+   detail-select="m1_case_short"/></session></entry>
+ <detail id="m0_case_short"><title><text><locale id="t"/></text></title>
+  <field><header><text><locale id="h"/></text></header><template><text><xpath function="."/></text></template></field>
+  <action auto_launch="false()" redo_last="false" relevant="instance('commcaresession')/session/context/username != 'demo'">
+   <display><text><locale id="case_search.m0"/></text></display>
+   <stack><push><mark/><command value="'search_command.m0'"/></push></stack></action>
+ </detail>
+ <detail id="m1_case_short"><title><text><locale id="t"/></text></title>
+  <field><header><text><locale id="h"/></text></header><template><text><xpath function="."/></text></template></field>
+  <action auto_launch="false()" redo_last="false" relevant="count(instance('casedb')/casedb/case) &gt; 0">
+   <display><text><locale id="case_search.m1"/></text></display>
+   <stack><push><mark/><command value="'search_command.m1'"/></push></stack></action>
+  <action relevant="instance('commcaresession')/session/context/username != 'demo'">
+   <display><text><locale id="r"/></text></display>
+   <stack><push><command value="'m1-f1'"/></push></stack></action>
+ </detail>
+</suite>"""
+
+
 INPUT_SUITE = b"""<suite version="1">
  <entry><form>http://example.org/g</form><command id="m0-f0"><text><locale id="g"/></text></command>
   <instance id="results:inline" src="jr://instance/remote/results:inline"/>
@@ -1088,6 +1148,11 @@ class Shape:
     # How many uses of the key sit there: one, but where the expression reads the key more than once (a guard and
     # the read it guards), each read is a use and each takes the verdict.
     uses: int = 1
+    # Whether the app JSON is the one HQ made (``App.authored``), which a class only Nova's reader settles there reads.
+    authored: bool = False
+    # Whether Nova's reader read that app (``App.read``): a corpus document's, which a class only that reader
+    # settles takes as held.
+    read: bool = False
 
 
 def refused(export, source, key, where, **kw):
@@ -1718,6 +1783,22 @@ def _settings_and_forms():
                 "schema:Application.logo_refs",
                 "/logo_refs",
             ),
+        ),
+        "application-and-settings/menu-layout-outside-editor-choices": (
+            refused("app", app(use_grid_menus="tiles"), "schema:Application.use_grid_menus", "/use_grid_menus"),
+            accepted("app", app(use_grid_menus=True), "schema:Application.use_grid_menus", "/use_grid_menus"),
+            refused("app", app(grid_form_menus="columns"), "schema:Application.grid_form_menus", "/grid_form_menus"),
+            accepted("app", app(grid_form_menus="some"), "schema:Application.grid_form_menus", "/grid_form_menus"),
+        ),
+        "menus-and-case-lists/module-layout-outside-editor-choices": (
+            refused("app", _app([_module(display_style="columns")]), "schema:Module.display_style", "/modules/0/display_style"),
+            accepted("app", _app([_module(display_style="grid")]), "schema:Module.display_style", "/modules/0/display_style"),
+        ),
+        "application-and-settings/repeated-android-app-dependency": (
+            refused("app", app(profile={"features": {"dependencies": ["org.rdtoolkit", "org.rdtoolkit"]}}),
+                    "setting:features.dependencies", "/profile/features/dependencies"),
+            accepted("app", app(profile={"features": {"dependencies": ["org.rdtoolkit", "com.simprints.id"]}}),
+                     "setting:features.dependencies", "/profile/features/dependencies"),
         ),
         "application-and-settings/profile-properties-or-features-dependencies-value-outside-its": (
             refused(
@@ -2991,16 +3072,29 @@ def _search_and_menus():
     long_ = "/modules/0/case_details/long"
     tile = {"case_tile_template": "custom"}
 
+    def cell(x, y, width, height=1):
+        return {"grid_x": x, "grid_y": y, "width": width, "height": height}
+
+    def stacked(count):
+        """``count`` columns, one full line each from the top."""
+        return [_column(**cell(0, row, 12)) for row in range(count)]
+
+    village = {"patient": {"village": "text", "visits": "int"}, "visit": {"outcome": "single_select"}}
+
+    def tab(start, **fields):
+        return {"doc_type": "DetailTab", "header": {"en": "Tab"}, "starting_index": start, **fields}
+
+    def tabbed(*tabs):
+        """A menu whose case detail's three fields stand under ``tabs``."""
+        return details(
+            _detail_module(long_columns=[_column(), _column("village"), _column("visits")], long={"tabs": list(tabs)})
+        )
+
+    def lined(text):
+        return {"persist_case_context": True, "persistent_case_context_xml": text}
+
     def search(*modules, **fields):
         return _app(list(modules), **fields)
-
-    def auto_selecting(module):
-        """``module`` whose case list chooses its case by itself, as HQ reads it (its short detail's ``auto_select``,
-        multi-select or not)."""
-        return {
-            **module,
-            "case_details": {"doc_type": "DetailPair", "short": {"doc_type": "Detail", "auto_select": True}},
-        }
 
     def details(*modules):
         return _app(list(modules))
@@ -3008,6 +3102,14 @@ def _search_and_menus():
     def columns_app(*columns, doc_type="Module", where="short", **fields):
         placed = {"columns": columns} if where == "short" else {"long_columns": columns}
         return details(_detail_module(**placed, doc_type=doc_type, **fields))
+
+    def order_shape(verdict, key, *columns, readings=False, case_types=None, **sort):
+        wire = {"doc_type": "SortElement", "field": "", "sort_calculation": "notes", "type": "plain", **sort}
+        wire = {name: value for name, value in wire.items() if value is not None}
+        return verdict(
+            "app", columns_app(*columns, case_type="patient", short={"sort_elements": [wire]}),
+            f"schema:SortElement.{key}", f"{short}/sort_elements/0/{key}", readings=readings, case_types=case_types,
+        )
 
     def plain(**module):
         return _module(unique_id=module.pop("unique_id", "p"), **module)
@@ -3063,6 +3165,46 @@ def _search_and_menus():
     legacy_input = "instance('search-input')/input/field"
     return {
         # Case search
+        "case-search/a-server-order-naming-a-property-nova-reserves": (
+            refused(
+                "app",
+                search(_search_module(default_properties=[_default("commcare_sort", "'-status:exact'")])),
+                "schema:DefaultCaseSearchProperty.property",
+                f"{config}/default_properties/0/property",
+            ),
+            accepted(
+                "app",
+                search(_search_module(default_properties=[_default("commcare_sort", "'-@status:exact,+priority'")])),
+                "schema:DefaultCaseSearchProperty.property",
+                f"{config}/default_properties/0/property",
+            ),
+            refused(
+                "app",
+                search(
+                    _search_module(
+                        default_properties=[_default("dob", "'x'")],
+                        custom_sort_properties=[
+                            {"doc_type": "CaseSearchCustomSortProperty", "property_name": "owner_id", "sort_type": "exact"}
+                        ],
+                    )
+                ),
+                "schema:CaseSearchCustomSortProperty.property_name",
+                f"{config}/custom_sort_properties/0/property_name",
+            ),
+            accepted(
+                "app",
+                search(
+                    _search_module(
+                        default_properties=[_default("dob", "'x'")],
+                        custom_sort_properties=[
+                            {"doc_type": "CaseSearchCustomSortProperty", "property_name": "@owner_id", "sort_type": "exact"}
+                        ],
+                    )
+                ),
+                "schema:CaseSearchCustomSortProperty.property_name",
+                f"{config}/custom_sort_properties/0/property_name",
+            ),
+        ),
         "case-search/a-commcare-sort-x-commcare-custom-related-case-property-or-case": (
             refused(
                 "app",
@@ -3159,6 +3301,71 @@ def _search_and_menus():
                 search(_search_module(default_properties=[_default("status", "'open'")])),
                 "schema:DefaultCaseSearchProperty.property",
                 f"{config}/default_properties/0/property",
+            ),
+        ),
+        "case-search/search-button-display-condition-reading-what-the-case-list-does-not-load": (
+            refused("suite", BUTTON_SUITE, "parser:ActionParser/action@relevant", "detail[1]/action[1]/@relevant"),
+            accepted("suite", BUTTON_SUITE, "parser:ActionParser/action@relevant", "detail[2]/action[1]/@relevant"),
+            # another action of the list (a registration form's) is no Search button
+            accepted("suite", BUTTON_SUITE, "parser:ActionParser/action@relevant", "detail[2]/action[2]/@relevant"),
+            # an app Nova sends never holds the class (its gate admits only what the list declares)
+            accepted(
+                "app",
+                search(
+                    _search_module(
+                        search_button_display_condition="instance('commcaresession')/session/context/username = 'x'"
+                    )
+                ),
+                "schema:CaseSearch.search_button_display_condition",
+                f"{config}/search_button_display_condition",
+            ),
+        ),
+        "case-search/native-filter-value-outside-screen-scope": (
+            # a form's answer, which no search screen holds
+            refused(
+                "app",
+                search(_search_module(default_properties=[_default("status", "/data/name")])),
+                "schema:DefaultCaseSearchProperty.defaultValue",
+                f"{config}/default_properties/0/defaultValue",
+                readings=True,
+            ),
+            accepted(
+                "app",
+                search(_search_module(default_properties=[_default("status", "'active'")])),
+                "schema:DefaultCaseSearchProperty.defaultValue",
+                f"{config}/default_properties/0/defaultValue",
+                readings=True,
+            ),
+            accepted(
+                "app",
+                search(
+                    _search_module(
+                        default_properties=[_default("owner_id", "instance('commcaresession')/session/context/userid")]
+                    )
+                ),
+                "schema:DefaultCaseSearchProperty.defaultValue",
+                f"{config}/default_properties/0/defaultValue",
+                readings=True,
+            ),
+            # an _xpath_query row is no native filter
+            accepted(
+                "app",
+                search(_search_module(default_properties=[_default("_xpath_query", "concat(/data/p, ' = 1')")])),
+                "schema:DefaultCaseSearchProperty.defaultValue",
+                f"{config}/default_properties/0/defaultValue",
+                readings=True,
+            ),
+            # a session datum: whether the search screen holds it is the menus' to say
+            unsettled(
+                "app",
+                search(
+                    _search_module(
+                        default_properties=[_default("status", "instance('commcaresession')/session/data/case_id")]
+                    )
+                ),
+                "schema:DefaultCaseSearchProperty.defaultValue",
+                f"{config}/default_properties/0/defaultValue",
+                readings=True,
             ),
         ),
         "case-search/default-properties-entry-with-no-defaultvalue-hq-stores-an-empty": (
@@ -3286,6 +3493,40 @@ def _search_and_menus():
                 search(_search_module(properties=[_prompt("dob", hidden=True)])),
                 "schema:CaseSearchProperty.hidden",
                 f"{prompts}/hidden",
+            ),
+        ),
+        "case-search/allow-blank-value-on-a-hidden-prompt": (
+            refused(
+                "app",
+                search(_search_module(properties=[_prompt("dob", hidden=True, allow_blank_value=True)])),
+                "schema:CaseSearchProperty.allow_blank_value",
+                f"{prompts}/allow_blank_value",
+            ),
+            accepted(
+                "app",
+                search(_search_module(properties=[_prompt("dob", allow_blank_value=True)])),
+                "schema:CaseSearchProperty.allow_blank_value",
+                f"{prompts}/allow_blank_value",
+            ),
+        ),
+        "case-search/allow-blank-value-on-a-prompt-named-owner-id": (
+            refused(
+                "app",
+                search(_search_module(properties=[_prompt("owner_id", allow_blank_value=True)])),
+                "schema:CaseSearchProperty.allow_blank_value",
+                f"{prompts}/allow_blank_value",
+            ),
+            accepted(
+                "app",
+                search(_search_module(properties=[_prompt("owner_id", exclude=True, allow_blank_value=True)])),
+                "schema:CaseSearchProperty.allow_blank_value",
+                f"{prompts}/allow_blank_value",
+            ),
+            accepted(
+                "app",
+                search(_search_module(properties=[_prompt("dob", allow_blank_value=True)])),
+                "schema:CaseSearchProperty.allow_blank_value",
+                f"{prompts}/allow_blank_value",
             ),
         ),
         "case-search/validations-1": (
@@ -3419,54 +3660,6 @@ def _search_and_menus():
                 search(_search_module(default_properties=[_default("dob", "'x'")])),
                 "schema:DefaultCaseSearchProperty.property",
                 f"{config}/default_properties/0/property",
-            ),
-        ),
-        "case-search/custom-sort-properties-property-name-sort-type-exact-date": tuple(
-            make(
-                "app",
-                search(
-                    _search_module(
-                        **fields,
-                        custom_sort_properties=[
-                            {"doc_type": "CaseSearchCustomSortProperty", "property_name": "dob", "sort_type": "date"}
-                        ],
-                    )
-                ),
-                key,
-                f"{config}/{where}",
-            )
-            for make, fields in ((refused, {"default_properties": [_default("status", "'open'")]}), (accepted, {}))
-            for key, where in (
-                ("schema:CaseSearch.custom_sort_properties", "custom_sort_properties"),
-                ("schema:CaseSearchCustomSortProperty.property_name", "custom_sort_properties/0/property_name"),
-            )
-        ),
-        "case-search/search-on-clear": (
-            refused(
-                "app",
-                search(_search_module(properties=[_prompt("dob")], search_on_clear=True)),
-                "schema:CaseSearch.search_on_clear",
-                f"{config}/search_on_clear",
-            ),
-            # HQ reads a list's auto select from its short detail, never from ``auto_select_case``
-            refused(
-                "app",
-                search({**_search_module(properties=[_prompt("dob")], search_on_clear=True), "auto_select_case": True}),
-                "schema:CaseSearch.search_on_clear",
-                f"{config}/search_on_clear",
-            ),
-            # beside the case list's auto select, multi-select or not, the bar's refusal
-            accepted(
-                "app",
-                search(auto_selecting(_search_module(properties=[_prompt("dob")], search_on_clear=True))),
-                "schema:CaseSearch.search_on_clear",
-                f"{config}/search_on_clear",
-            ),
-            accepted(
-                "app",
-                search(_search_module(search_on_clear=True)),
-                "schema:CaseSearch.search_on_clear",
-                f"{config}/search_on_clear",
             ),
         ),
         "case-search/search-button-label-any-other-value": (
@@ -3983,6 +4176,8 @@ def _search_and_menus():
         ),
         "menus-and-case-lists/case-id-as-a-property-column-s-field": (
             refused("app", columns_app(_column("case_id")), "detail-field-type:property", f"{short}/columns/0/field"),
+            refused("app", columns_app(_column("site-link/case_id")), "detail-field-type:property", f"{short}/columns/0/field"),
+            accepted("app", columns_app(_column("site-link/status")), "detail-field-type:property", f"{short}/columns/0/field"),
             accepted("app", columns_app(_column("dob")), "detail-field-type:property", f"{short}/columns/0/field"),
         ),
         "menus-and-case-lists/custom-tile-column-with-grid-null-unplaced": (
@@ -4035,6 +4230,414 @@ def _search_and_menus():
                 f"{short}/case_tile_template",
             ),
         ),
+        "menus-and-case-lists/columns-above-the-first-tab-when-tabs-exist": (
+            refused("app", tabbed(tab(1)), "schema:Detail.tabs", f"{long_}/tabs"),
+            # Each tab's start is a use of the detail's tabs as a whole.
+            refused("app", tabbed(tab(1), tab(2)), "schema:DetailTab.starting_index", f"{long_}/tabs/1/starting_index"),
+            accepted("app", tabbed(tab(0), tab(1)), "schema:Detail.tabs", f"{long_}/tabs"),
+            accepted("app", tabbed(tab(0), tab(1)), "schema:DetailTab.starting_index", f"{long_}/tabs/1/starting_index"),
+        ),
+        "menus-and-case-lists/tab-display-condition-outside-its-case-scope": (
+            refused(
+                "app", tabbed(tab(0, relevant="village = (")), "schema:DetailTab.relevant", f"{long_}/tabs/0/relevant",
+                readings=True, case_types=village,
+            ),
+            accepted(
+                "app", tabbed(tab(0, relevant="village = 'West'")), "schema:DetailTab.relevant",
+                f"{long_}/tabs/0/relevant", readings=True, case_types=village,
+            ),
+            accepted(
+                "app", tabbed(tab(0, relevant="not(village = 'West') or visits > 2")), "schema:DetailTab.relevant",
+                f"{long_}/tabs/0/relevant", readings=True, case_types=village,
+            ),
+            # A text with both quote characters is spelled as a concatenation of literals.
+            accepted(
+                "app", tabbed(tab(0, relevant="selected(village, concat('a', \"'\", '\"b'))")),
+                "schema:DetailTab.relevant", f"{long_}/tabs/0/relevant", readings=True, case_types=village,
+            ),
+            # A property the case type does not declare, or a comparison of a text with a number, is no type the
+            # class reads: Nova's reader decides it.
+            unsettled(
+                "app", tabbed(tab(0, relevant="region = 'West'")), "schema:DetailTab.relevant",
+                f"{long_}/tabs/0/relevant", readings=True, case_types=village,
+            ),
+            unsettled(
+                "app", tabbed(tab(0, relevant="village = 2")), "schema:DetailTab.relevant",
+                f"{long_}/tabs/0/relevant", readings=True, case_types=village,
+            ),
+            # Without the observation's parse the class is not settled.
+            unsettled("app", tabbed(tab(0, relevant="village = 'West'")), "schema:DetailTab.relevant", f"{long_}/tabs/0/relevant"),
+        ),
+        "menus-and-case-lists/detail-tab-without-a-resolvable-row-source": (
+            refused("app", tabbed(tab(0), tab(1, has_nodeset=True)), "schema:DetailTab.has_nodeset", f"{long_}/tabs/1/has_nodeset"),
+            accepted(
+                "app", tabbed(tab(0), tab(1, has_nodeset=True, nodeset_case_type="visit")),
+                "schema:DetailTab.has_nodeset", f"{long_}/tabs/1/has_nodeset",
+            ),
+            refused(
+                "app", tabbed(tab(0), tab(1, has_nodeset=True, nodeset_case_type="a visit")),
+                "schema:DetailTab.nodeset_case_type", f"{long_}/tabs/1/nodeset_case_type",
+            ),
+            # With its rows off a tab's settings are read by nothing.
+            accepted(
+                "app", tabbed(tab(0), tab(1, nodeset_case_type="a visit")),
+                "schema:DetailTab.nodeset_case_type", f"{long_}/tabs/1/nodeset_case_type",
+            ),
+            refused(
+                "app", tabbed(tab(0), tab(1, has_nodeset=True, nodeset="instance('casedb')/casedb/case[")),
+                "schema:DetailTab.nodeset", f"{long_}/tabs/1/nodeset", readings=True, case_types=village,
+            ),
+            accepted(
+                "app",
+                tabbed(tab(0), tab(1, has_nodeset=True, nodeset="instance('casedb')/casedb/case[@case_type = 'visit']")),
+                "schema:DetailTab.nodeset", f"{long_}/tabs/1/nodeset", readings=True, case_types=village,
+            ),
+            accepted(
+                "app",
+                tabbed(
+                    tab(0),
+                    tab(
+                        1, has_nodeset=True,
+                        nodeset="instance('casedb')/casedb/case[@case_type = 'visit'][outcome = 'seen']",
+                    ),
+                ),
+                "schema:DetailTab.nodeset", f"{long_}/tabs/1/nodeset", readings=True, case_types=village,
+            ),
+            refused(
+                "app", tabbed(tab(0), tab(1, has_nodeset=True, nodeset="'a scalar'")),
+                "schema:DetailTab.nodeset", f"{long_}/tabs/1/nodeset", readings=True, case_types=village,
+            ),
+            # Rows of a type the catalog does not declare are Nova's reader's to decide.
+            unsettled(
+                "app",
+                tabbed(tab(0), tab(1, has_nodeset=True, nodeset="instance('casedb')/casedb/case[@case_type = 'other']")),
+                "schema:DetailTab.nodeset", f"{long_}/tabs/1/nodeset", readings=True, case_types=village,
+            ),
+            refused(
+                "app",
+                tabbed(tab(0), tab(1, has_nodeset=True, nodeset_case_type="visit", nodeset_filter="outcome = (")),
+                "schema:DetailTab.nodeset_filter", f"{long_}/tabs/1/nodeset_filter", readings=True, case_types=village,
+            ),
+            accepted(
+                "app",
+                tabbed(tab(0), tab(1, has_nodeset=True, nodeset_case_type="visit", nodeset_filter="outcome = 'seen'")),
+                "schema:DetailTab.nodeset_filter", f"{long_}/tabs/1/nodeset_filter", readings=True, case_types=village,
+            ),
+        ),
+        "menus-and-case-lists/form-context-expression-outside-its-case-scope": (
+            refused(
+                "app", details(_detail_module(short=lined("concat("))), "schema:Detail.persistent_case_context_xml",
+                f"{short}/persistent_case_context_xml", readings=True, case_types=village,
+            ),
+            accepted(
+                "app", details(_detail_module(short=lined("village"))), "schema:Detail.persistent_case_context_xml",
+                f"{short}/persistent_case_context_xml", readings=True, case_types=village,
+            ),
+            # Beside a tile that persists, the line is read by nothing.
+            accepted(
+                "app",
+                details(_detail_module(short={**lined("concat("), **tile, "persist_tile_on_forms": True})),
+                "schema:Detail.persistent_case_context_xml", f"{short}/persistent_case_context_xml",
+                readings=True, case_types=village,
+            ),
+            unsettled(
+                "app", details(_detail_module(short=lined("region"))), "schema:Detail.persistent_case_context_xml",
+                f"{short}/persistent_case_context_xml", readings=True, case_types=village,
+            ),
+        ),
+        "menus-and-case-lists/form-context-without-a-compatible-case-tile": (
+            refused(
+                "app", details(_detail_module(short={"persistent_case_tile_from_module": "src"})),
+                "schema:Detail.persistent_case_tile_from_module", f"{short}/persistent_case_tile_from_module",
+            ),
+            accepted(
+                "app",
+                details(
+                    _detail_module(short={"persistent_case_tile_from_module": "src"}),
+                    _detail_module(unique_id="src", short=tile),
+                ),
+                "schema:Detail.persistent_case_tile_from_module", f"{short}/persistent_case_tile_from_module",
+            ),
+            # Another case type's tile is no context for this list's case.
+            refused(
+                "app",
+                details(
+                    _detail_module(short={"persistent_case_tile_from_module": "src"}),
+                    _detail_module(unique_id="src", case_type="household", short=tile),
+                ),
+                "schema:Detail.persistent_case_tile_from_module", f"{short}/persistent_case_tile_from_module",
+            ),
+            refused("app", details(_detail_module(short={"pull_down_tile": True})), "schema:Detail.pull_down_tile", f"{short}/pull_down_tile"),
+            accepted(
+                "app", details(_detail_module(short={**tile, "persist_tile_on_forms": True, "pull_down_tile": True})),
+                "schema:Detail.pull_down_tile", f"{short}/pull_down_tile",
+            ),
+        ),
+        "menus-and-case-lists/two-different-values-for-the-same-form-context": (
+            refused(
+                "app", details(_detail_module(short=lined("village"), long=lined("visits"))),
+                "schema:Detail.persistent_case_context_xml", f"{long_}/persistent_case_context_xml",
+            ),
+            refused(
+                "app", details(_detail_module(short=lined("village"), long=lined("visits"))),
+                "schema:Detail.persist_case_context", f"{long_}/persist_case_context",
+            ),
+            # The case list's own line is the one Nova reads.
+            accepted(
+                "app", details(_detail_module(short=lined("village"), long=lined("visits"))),
+                "schema:Detail.persistent_case_context_xml", f"{short}/persistent_case_context_xml",
+            ),
+            accepted(
+                "app", details(_detail_module(short=lined("village"), long=lined("village"))),
+                "schema:Detail.persistent_case_context_xml", f"{long_}/persistent_case_context_xml",
+            ),
+        ),
+        "menus-and-case-lists/custom-tile-cells-covering-the-same-square": (
+            refused(
+                "app",
+                columns_app(_column(**cell(0, 0, 12)), _column("notes", **cell(3, 0, 6)), short=tile),
+                "schema:DetailColumn.grid_x",
+                f"{short}/columns/1/grid_x",
+            ),
+            # Each of the two cells is in the class, and so is the tile itself.
+            refused(
+                "app",
+                columns_app(_column(**cell(0, 0, 12)), _column("notes", **cell(3, 0, 6)), short=tile),
+                "schema:DetailColumn.width",
+                f"{short}/columns/0/width",
+            ),
+            accepted(
+                "app",
+                columns_app(_column(**cell(0, 0, 6)), _column("notes", **cell(6, 0, 6)), short=tile),
+                "schema:DetailColumn.grid_x",
+                f"{short}/columns/1/grid_x",
+            ),
+            # A third cell clear of the two is not in it.
+            accepted(
+                "app",
+                columns_app(
+                    _column(**cell(0, 0, 12)), _column("notes", **cell(3, 0, 6)), _column("dob", **cell(0, 1, 6)),
+                    short=tile,
+                ),
+                "schema:DetailColumn.grid_y",
+                f"{short}/columns/2/grid_y",
+            ),
+            # A list that is no custom tile lays nothing out, and a filter column writes no field.
+            accepted(
+                "app",
+                columns_app(_column(**cell(0, 0, 12)), _column("notes", **cell(3, 0, 6))),
+                "schema:DetailColumn.grid_x",
+                f"{short}/columns/1/grid_x",
+            ),
+            accepted(
+                "app",
+                columns_app(_column(**cell(0, 0, 12)), _column("notes", "filter", **cell(3, 0, 6)), short=tile),
+                "schema:DetailColumn.grid_x",
+                f"{short}/columns/0/grid_x",
+            ),
+            # On the case detail two tabs lay their cells out apart; one tab's two cells on one square overlap.
+            accepted(
+                "app",
+                columns_app(
+                    _column(**cell(0, 0, 12)), _column("notes", **cell(0, 0, 12)),
+                    where="long",
+                    long={**tile, "tabs": [{"doc_type": "DetailTab", "starting_index": 0}, {"doc_type": "DetailTab", "starting_index": 1}]},
+                ),
+                "schema:DetailColumn.grid_x",
+                f"{long_}/columns/1/grid_x",
+            ),
+            refused(
+                "app",
+                columns_app(
+                    _column(**cell(0, 0, 12)), _column("notes", **cell(0, 0, 12)),
+                    where="long",
+                    long={**tile, "tabs": [{"doc_type": "DetailTab", "starting_index": 0}]},
+                ),
+                "schema:DetailColumn.grid_x",
+                f"{long_}/columns/1/grid_x",
+            ),
+        ),
+        "menus-and-case-lists/detail-tab-child-type-no-form-of-its-menu-s-case-type-adds": (
+            refused(
+                "app",
+                tabbed(tab(0, has_nodeset=True, nodeset_case_type="visit")),
+                "schema:DetailTab.nodeset_case_type",
+                f"{long_}/tabs/0/nodeset_case_type",
+            ),
+            # A basic form of a patient menu that adds visits: HQ's page offers the type.
+            accepted(
+                "app",
+                _app([
+                    _detail_module(
+                        long_columns=[_column(), _column("village"), _column("visits")],
+                        long={"tabs": [tab(0, has_nodeset=True, nodeset_case_type="visit")]},
+                        forms=[{
+                            "doc_type": "Form",
+                            "actions": {"subcases": [{"case_type": "visit", "close_condition": {"type": "never"}}]},
+                        }],
+                    )
+                ]),
+                "schema:DetailTab.nodeset_case_type",
+                f"{long_}/tabs/0/nodeset_case_type",
+            ),
+            # A subcase the form also closes is not offered.
+            refused(
+                "app",
+                _app([
+                    _detail_module(
+                        long_columns=[_column(), _column("village"), _column("visits")],
+                        long={"tabs": [tab(0, has_nodeset=True, nodeset_case_type="visit")]},
+                        forms=[{
+                            "doc_type": "Form",
+                            "actions": {"subcases": [{"case_type": "visit", "close_condition": {"type": "always"}}]},
+                        }],
+                    )
+                ]),
+                "schema:DetailTab.nodeset_case_type",
+                f"{long_}/tabs/0/nodeset_case_type",
+            ),
+            # A tab that lists no records reads no child type.
+            accepted(
+                "app",
+                tabbed(tab(0, has_nodeset=False, nodeset_case_type="visit")),
+                "schema:DetailTab.nodeset_case_type",
+                f"{long_}/tabs/0/nodeset_case_type",
+            ),
+        ),
+        "menus-and-case-lists/custom-tile-cell-outside-the-grid": (
+            refused(
+                "app",
+                columns_app(_column(**cell(0, 0, 6)), _column("notes", **cell(8, 0, 6)), short=tile),
+                "schema:DetailColumn.grid_x",
+                f"{short}/columns/1/grid_x",
+            ),
+            refused(
+                "app",
+                columns_app(_column(**cell(0, 0, 6)), _column("notes", **cell(-1, 0, 6)), short=tile),
+                "schema:DetailColumn.grid_x",
+                f"{short}/columns/1/grid_x",
+            ),
+            refused(
+                "app",
+                columns_app(_column(**cell(0, 0, 6)), _column("notes", **cell(6, 0, 0)), short=tile),
+                "schema:DetailColumn.width",
+                f"{short}/columns/1/width",
+            ),
+            refused(
+                "app",
+                columns_app(_column(**cell(0, -1, 6)), _column("notes", **cell(6, 0, 6)), where="long", long=tile),
+                "schema:DetailColumn.grid_y",
+                f"{long_}/columns/0/grid_y",
+            ),
+            # A cell that ends on the twelfth column is inside; one past the twelfth row is the other class.
+            accepted(
+                "app",
+                columns_app(_column(**cell(0, 0, 6)), _column("notes", **cell(6, 0, 6)), short=tile),
+                "schema:DetailColumn.grid_x",
+                f"{short}/columns/1/grid_x",
+            ),
+            accepted(
+                "app",
+                columns_app(_column(**cell(0, 0, 6)), _column("notes", **cell(6, 12, 6)), short=tile),
+                "schema:DetailColumn.grid_y",
+                f"{short}/columns/1/grid_y",
+            ),
+            # A list that is no custom tile lays nothing out, and a filter column writes no field.
+            accepted(
+                "app",
+                columns_app(_column(**cell(0, 0, 6)), _column("notes", **cell(8, 0, 6))),
+                "schema:DetailColumn.grid_x",
+                f"{short}/columns/1/grid_x",
+            ),
+            accepted(
+                "app",
+                columns_app(_column(**cell(0, 0, 6)), _column("notes", "filter", **cell(8, 0, 6)), short=tile),
+                "schema:DetailColumn.grid_x",
+                f"{short}/columns/1/grid_x",
+            ),
+        ),
+        "menus-and-case-lists/custom-tile-cell-below-the-rows-hq-s-page-offers": (
+            # Two columns: HQ's page offers six rows and its save moves a cell ending on the seventh.
+            refused(
+                "app",
+                columns_app(_column(**cell(0, 0, 12)), _column("notes", **cell(0, 6, 12)), short=tile),
+                "schema:DetailColumn.grid_y",
+                f"{short}/columns/1/grid_y",
+            ),
+            refused(
+                "app",
+                columns_app(_column(**cell(0, 0, 12)), _column("notes", **cell(0, 4, 12, 3)), short=tile),
+                "schema:DetailColumn.height",
+                f"{short}/columns/1/height",
+            ),
+            refused(
+                "app",
+                columns_app(_column(**cell(0, 0, 12)), _column("notes", **cell(0, 12, 12)), short=tile),
+                "schema:DetailColumn.grid_y",
+                f"{short}/columns/1/grid_y",
+            ),
+            # Eight columns offer eight rows; a filter column is none of them.
+            refused(
+                "app",
+                columns_app(
+                    *stacked(7), _column("notes", **cell(0, 8, 12)), _column("rank", "filter"), short=tile,
+                ),
+                "schema:DetailColumn.grid_y",
+                f"{short}/columns/7/grid_y",
+            ),
+            accepted(
+                "app",
+                columns_app(*stacked(7), _column("notes", **cell(0, 7, 12)), short=tile),
+                "schema:DetailColumn.grid_y",
+                f"{short}/columns/7/grid_y",
+            ),
+            # On the case detail, a tab is a column of the page: six fields and two tabs keep the eighth row.
+            accepted(
+                "app",
+                columns_app(
+                    *stacked(5), _column("notes", **cell(0, 7, 12)), where="long",
+                    long={**tile, "tabs": [tab(0), tab(3)]},
+                ),
+                "schema:DetailColumn.grid_y",
+                f"{long_}/columns/5/grid_y",
+            ),
+            refused(
+                "app",
+                columns_app(_column(**cell(0, 0, 12)), _column("notes", **cell(0, 6, 12)), where="long", long=tile),
+                "schema:DetailColumn.grid_y",
+                f"{long_}/columns/1/grid_y",
+            ),
+            # Thirteen columns offer thirteen rows: a cell ending on the thirteenth is the HELD class of a tile taller
+            # than twelve rows, on the case list and, eleven fields and two tabs, on the case detail.
+            accepted(
+                "app",
+                columns_app(*stacked(12), _column("notes", **cell(0, 12, 12)), short=tile),
+                "schema:DetailColumn.grid_y",
+                f"{short}/columns/12/grid_y",
+            ),
+            accepted(
+                "app",
+                columns_app(
+                    *stacked(10), _column("notes", **cell(0, 11, 12, 2)), where="long",
+                    long={**tile, "tabs": [tab(0), tab(5)]},
+                ),
+                "schema:DetailColumn.height",
+                f"{long_}/columns/10/height",
+            ),
+            # The sixth row is inside, and a list that is no custom tile lays nothing out.
+            accepted(
+                "app",
+                columns_app(_column(**cell(0, 0, 12)), _column("notes", **cell(0, 5, 12)), short=tile),
+                "schema:DetailColumn.grid_y",
+                f"{short}/columns/1/grid_y",
+            ),
+            accepted(
+                "app",
+                columns_app(_column(**cell(0, 0, 12)), _column("notes", **cell(0, 6, 12))),
+                "schema:DetailColumn.grid_y",
+                f"{short}/columns/1/grid_y",
+            ),
+        ),
         "menus-and-case-lists/horizontal-align-null-on-a-placed-custom-tile-column": (
             refused(
                 "app",
@@ -4076,6 +4679,29 @@ def _search_and_menus():
                 "schema:Detail.case_tile_template",
                 f"{long_}/case_tile_template",
             ),
+        ),
+        "menus-and-case-lists/sort-calculation-without-a-typed-value": (
+            order_shape(refused, "sort_calculation", sort_calculation="*", readings=True),
+            order_shape(accepted, "sort_calculation", readings=True),
+            order_shape(accepted, "sort_calculation", sort_calculation="'north'", readings=True),
+            order_shape(accepted, "sort_calculation", sort_calculation="visits * 2", readings=True,
+                        case_types={"patient": {"visits": "int"}}),
+            # Nova's publish writes a sort element with no ``doc_type``; the observation reads its calculation all
+            # the same.
+            order_shape(accepted, "sort_calculation", sort_calculation="village", doc_type=None, readings=True),
+        ),
+        "menus-and-case-lists/distance-sort-without-a-location-field": (
+            order_shape(refused, "type", type="distance"),
+            order_shape(accepted, "type", field="gps", type="distance"),
+            order_shape(accepted, "type", type="int"),
+        ),
+        "menus-and-case-lists/distance-on-a-translated-calculated-field": (
+            order_shape(refused, "type", _column("gps", "translatable-enum", useXpathExpression=True),
+                        field="_cc_calculated_0", type="distance"),
+            order_shape(accepted, "type", _column("gps", "translatable-enum"),
+                        field="gps", type="distance"),
+            order_shape(accepted, "type", _column("gps"), _column("gps", "translatable-enum", useXpathExpression=True),
+                        field="_cc_calculated_1", type="distance"),
         ),
         "menus-and-case-lists/field-and-a-differing-sort-calculation-on-any-other-column": (
             refused(
@@ -4197,6 +4823,20 @@ def _search_and_menus():
                 columns_app(case_list_form={"form_id": "r"}, short={"case_tile_template": "person_simple"}),
                 "schema:CaseListForm.form_id",
                 "/modules/0/case_list_form/form_id",
+            ),
+        ),
+        "menus-and-case-lists/case-list-form-return-search-needs-the-created-case": (
+            refused(
+                "app",
+                _conditional_registration_app(CONDITIONAL_REGISTER),
+                "schema:Module.case_list_form",
+                "/modules/0/case_list_form",
+            ),
+            accepted(
+                "app",
+                _conditional_registration_app(ALWAYS),
+                "schema:Module.case_list_form",
+                "/modules/0/case_list_form",
             ),
         ),
         "menus-and-case-lists/case-list-form-post-form-workflow-default-on-a-multi-select-host": (
@@ -5126,12 +5766,24 @@ def _data_binds_and_itext():
         head=f'<vellum:hashtagTransforms>{{"prefixes": {{"#case/": "{case_path}"}}}}</vellum:hashtagTransforms>',
     )
     itemsets = form(
-        data="<s/><t/>",
+        data="<s/><t/><u/>",
         model='<instance id="items" src="jr://fixture/item-list:items"/>',
         body="""<select1 ref="/data/s"><itemset nodeset="instance('items')/items_list/items">
             <label ref="jr:itext(name)"/><value ref="id"/></itemset></select1>
           <select1 ref="/data/t"><itemset nodeset="instance('items')/items_list/items">
             <label ref="name"/><value ref="id"/></itemset></select1>""",
+    )
+    # A lookup choice whose label or value reads two steps down the row (the first select), which the form editor's
+    # lookup widget cannot keep, beside one that reads a field and an attribute of the row (the second).
+    lookup_refs = form(
+        data="<s/><t/><u/>",
+        model='<instance id="items" src="jr://fixture/item-list:items"/>',
+        body="""<select1 ref="/data/s"><itemset nodeset="instance('items')/items_list/items">
+            <label ref="details/name"/><value ref="codes/id"/></itemset></select1>
+          <select1 ref="/data/t"><itemset nodeset="instance('items')/items_list/items">
+            <label ref="name"/><value ref="@code"/></itemset></select1>
+          <select1 ref="/data/u"><itemset nodeset="instance('items')/items_list/items">
+            <label ref="région"/><value ref="@clé"/></itemset></select1>""",
     )
     translations = form(
         data="<q/>",
@@ -5359,7 +6011,15 @@ def _data_binds_and_itext():
           <bind nodeset="/data/p" calculate="if({case_path}age &gt; 1, 1, 0)"/>""",
         body='<input ref="/data/t"/><input ref="/data/n"/>',
     )
-    detail_keys = _app([_detail_module([_column(foo=1, calc_xpath=".")], short={"foo": 1, "custom_variables": None})])
+    detail_keys = _app(
+        [
+            _detail_module(
+                [_column(foo=1, calc_xpath=".")],
+                short={"foo": 1, "custom_variables": None},
+                long={"tabs": [{"doc_type": "DetailTab", "starting_index": 0, "isTab": True, "foo": 1}]},
+            )
+        ]
+    )
     # HQ's build never writes a menu's ref_details, whose row holds the whole value.
     reference_keys = _app([_module(ref_details={"doc_type": "DetailPair", "short": {"foo": 1}, "long": {}})])
     form_keys = _app([_module([{**_form_json("none"), "bar": 1, "no_vellum": False}])])
@@ -5590,6 +6250,23 @@ def _data_binds_and_itext():
                 readings=True,
             ),
         ),
+        "questions/lookup-choice-reference-the-form-editor-cannot-keep": (
+            refused("form", lookup_refs, "xform:select1/itemset/label@ref", "select1[1]/itemset[1]/label[1]/@ref"),
+            accepted("form", lookup_refs, "xform:select1/itemset/label@ref", "select1[2]/itemset[1]/label[1]/@ref"),
+            refused("form", lookup_refs, "xform:select1/itemset/value@ref", "select1[1]/itemset[1]/value[1]/@ref"),
+            accepted("form", lookup_refs, "xform:select1/itemset/value@ref", "select1[2]/itemset[1]/value[1]/@ref"),
+            # one non-ASCII field or attribute step, which the form builder compares with the table's names as text
+            accepted("form", lookup_refs, "xform:select1/itemset/label@ref", "select1[3]/itemset[1]/label[1]/@ref"),
+            accepted("form", lookup_refs, "xform:select1/itemset/value@ref", "select1[3]/itemset[1]/value[1]/@ref"),
+            # a jr:itext label is questions/itemset-label-jr-itext-field's, never this class's
+            accepted(
+                "form",
+                itemsets,
+                "xform:select1/itemset/label@ref",
+                "select1[1]/itemset[1]/label[1]/@ref",
+                readings=True,
+            ),
+        ),
         "questions/markdown-form-differing-from-the-default-text": (
             refused("form", translations, "itext-form:core/markdown", "translation[1]/text[1]/value[2]/@form"),
             accepted("form", translations, "itext-form:core/markdown", "translation[1]/text[2]/value[2]/@form"),
@@ -5672,7 +6349,8 @@ def _data_binds_and_itext():
         "questions/any-other-multi-token-string-holding-a-token-no-runtime-reads-on": (
             refused("form", appearances, "xform:select1@appearance", "select1[3]/@appearance"),
             accepted("form", appearances, "xform:select1@appearance", "select1[2]/@appearance"),
-            unsettled("form", appearances, "xform:select1@appearance", "select1[4]/@appearance"),
+            # d: the rest, ``minimal hint-as-placeholder``, is read as written, so ``foo`` drops with no reading moved.
+            accepted("form", appearances, "xform:select1@appearance", "select1[4]/@appearance"),
         ),
         "questions/a-case-variant-of-numeric-short-or-ethiopian-as-the-whole": (
             refused("form", keypads, "appearance:android/numeric", "input[2]/@appearance"),
@@ -5924,10 +6602,111 @@ def _data_binds_and_itext():
             accepted("app", detail_keys, "schema:Detail.<undeclared>", f"{short}/custom_variables"),
             refused("app", detail_keys, "schema:DetailColumn.<undeclared>", f"{short}/columns/0/foo"),
             accepted("app", detail_keys, "schema:DetailColumn.<undeclared>", f"{short}/columns/0/calc_xpath"),
+            refused("app", detail_keys, "schema:DetailTab.<undeclared>", "/modules/0/case_details/long/tabs/0/foo"),
+            accepted("app", detail_keys, "schema:DetailTab.<undeclared>", "/modules/0/case_details/long/tabs/0/isTab"),
         ),
         "forms-and-case-writes/any-other-undeclared-key": (
             refused("app", form_keys, "schema:Form.<undeclared>", "/modules/0/forms/0/bar"),
             accepted("app", form_keys, "schema:Form.<undeclared>", "/modules/0/forms/0/no_vellum"),
+        ),
+    }
+
+
+def _localized_media():
+    """The two refused shapes of a question's media by language, each beside a translated file a worker can be
+    shown. ``q1``'s French image the default English lacks; ``q2``'s English image beside a blank French one;
+    ``q3``'s two distinct files, and ``q4``'s English file French inherits, both held."""
+    media = _form(
+        data="<q/>",
+        model="""<itext><translation lang="en" default="">
+            <text id="q1"><value>A</value></text>
+            <text id="q2"><value>B</value><value form="image">jr://file/commcare/b.png</value></text>
+            <text id="q3"><value>C</value><value form="image">jr://file/commcare/c.png</value></text>
+            <text id="q4"><value>D</value><value form="image">jr://file/commcare/d.png</value></text></translation>
+          <translation lang="fr">
+            <text id="q1"><value>A</value><value form="image">jr://file/commcare/a.png</value></text>
+            <text id="q2"><value>B</value><value form="image"/></text>
+            <text id="q3"><value>C</value><value form="image">jr://file/commcare/e.png</value></text>
+            <text id="q4"><value>D</value></text></translation></itext>""",
+        body="""<input ref="/data/q"><label ref="jr:itext('q1')"/></input>""",
+    )
+    image = "itext-form:core/image"
+    return {
+        "questions/media-form-missing-in-default-language": (
+            refused("form", media, image, "translation[2]/text[1]/value[2]/@form"),
+            refused("form", media, VALUE_FORM, "translation[2]/text[1]/value[2]/@form"),
+            accepted("form", media, image, "translation[1]/text[3]/value[2]/@form"),
+            accepted("form", media, image, "translation[1]/text[4]/value[2]/@form"),
+        ),
+        "questions/empty-media-form-beside-a-translated-file": (
+            refused("form", media, image, "translation[1]/text[2]/value[2]/@form"),
+            refused("form", media, image, "translation[2]/text[2]/value[2]/@form"),
+            accepted("form", media, image, "translation[2]/text[3]/value[2]/@form"),
+            accepted("form", media, image, "translation[1]/text[4]/value[2]/@form"),
+        ),
+    }
+
+
+def _per_rows():
+    """Web Apps' per-row token on each control, beside the count Nova writes: ``2-per-row`` (a) and a date's
+    ``ethiopian 2-per-row`` (d), held; a token whose text before its first ``-`` holds no leading digits (b, and the
+    select's ``compact2-per-row``); a text input's token holding ``receive`` (c) and a select's holding a value
+    Android matches inside it (``2-compact3-per-row``); a group wrapping a repeat with ``2-per-row-repeat`` (held)
+    and ``x2-per-row-repeat``, whose head ends in a digit and starts with none."""
+    rows = _form(
+        data='<a/><b/><c/><d/><e/><f/><g/><r jr:template=""><q/></r><s jr:template=""><q/></s>',
+        model="""<bind nodeset="/data/a" type="xsd:string"/><bind nodeset="/data/b" type="xsd:string"/>
+          <bind nodeset="/data/c" type="xsd:string"/><bind nodeset="/data/d" type="xsd:date"/>""",
+        body="""<input ref="/data/a" appearance="2-per-row"/><input ref="/data/b" appearance="x2-per-row"/>
+          <input ref="/data/c" appearance="2receive3-per-row"/><input ref="/data/d" appearance="ethiopian 2-per-row"/>
+          <select1 ref="/data/e" appearance="compact2-per-row"><item><value>x</value></item></select1>
+          <select1 ref="/data/f" appearance="2-compact3-per-row"><item><value>x</value></item></select1>
+          <select1 ref="/data/g" appearance="2-per-row"><item><value>x</value></item></select1>
+          <group appearance="2-per-row-repeat"><repeat nodeset="/data/r"><input ref="/data/r/q"/></repeat></group>
+          <group appearance="x2-per-row-repeat"><repeat nodeset="/data/s"><input ref="/data/s/q"/></repeat></group>""",
+    )
+    row = "appearance:web-apps/\\d+-per-row(\\s|$)"
+    repeat = "appearance:web-apps/\\d+-per-row-repeat(\\s|$)"
+    return {
+        "questions/a-per-row-token-the-first-token-web-apps-per-row-pattern-matches-does": (
+            refused("form", rows, row, "input[2]/@appearance"),
+            refused("form", rows, row, "select1[1]/@appearance"),
+            refused("form", rows, repeat, "group[2]/@appearance"),
+            accepted("form", rows, row, "input[1]/@appearance"),
+            accepted("form", rows, row, "input[4]/@appearance"),
+            accepted("form", rows, row, "select1[2]/@appearance"),
+            accepted("form", rows, repeat, "group[1]/@appearance"),
+        ),
+        "questions/a-per-row-token-the-first-token-web-apps-per-row-pattern-matches-starts": (
+            refused("form", rows, row, "input[3]/@appearance"),
+            refused("form", rows, row, "select1[2]/@appearance"),
+            accepted("form", rows, row, "input[1]/@appearance"),
+            accepted("form", rows, row, "input[4]/@appearance"),
+            accepted("form", rows, row, "select1[3]/@appearance"),
+            accepted("form", rows, repeat, "group[1]/@appearance"),
+        ),
+    }
+
+
+def _label_texts():
+    """The refused shape of a question label's other texts: ``q1``'s French ``long`` and ``tts`` forms the default
+    English lacks; ``q2``'s ``qrcode`` form English holds and French inherits, held."""
+    texts = _form(
+        data="<q/>",
+        model="""<itext><translation lang="en" default="">
+            <text id="q1"><value>A</value></text>
+            <text id="q2"><value>B</value><value form="qrcode">B-1</value></text></translation>
+          <translation lang="fr">
+            <text id="q1"><value>A</value><value form="long">Plus long</value><value form="tts">Dire A</value></text>
+            <text id="q2"><value>B</value></text></translation></itext>""",
+        body="""<input ref="/data/q"><label ref="jr:itext('q1')"/></input>""",
+    )
+    return {
+        "questions/long-qrcode-or-tts-form-missing-in-default-language": (
+            refused("form", texts, "itext-form:core/long", "translation[2]/text[1]/value[2]/@form"),
+            refused("form", texts, "itext-form:android/tts", "translation[2]/text[1]/value[3]/@form"),
+            refused("form", texts, VALUE_FORM, "translation[2]/text[1]/value[2]/@form"),
+            accepted("form", texts, "itext-form:android/qrcode", "translation[1]/text[2]/value[2]/@form"),
         ),
     }
 
@@ -5984,8 +6763,8 @@ def _held_new():
         group = {"doc_type": "CaseTileGroupConfig", "index_identifier": identifier, "header_rows": 2}
         return columns(_column(), case_tile_template=template, case_tile_group=group)
 
-    def mapped(fmt, alt_text):
-        item = {"doc_type": "MappingItem", "key": "a", "value": {"en": "A"}, "alt_text": alt_text}
+    def keyed(fmt, key):
+        item = {"doc_type": "MappingItem", "key": key, "value": {"en": "A"}}
         return columns(_column(fmt=fmt, enum=[item]))
 
     profiled = _app([], build_profiles={"french": {"doc_type": "BuildProfile", "name": "French", "langs": ["fra"]}})
@@ -6129,26 +6908,6 @@ def _held_new():
             # Excluded from the search, the prompt names no case property.
             accepted("app", search(name="_x", exclude=True), "schema:CaseSearchProperty.name", f"{prompts}/name"),
         ),
-        "case-search/default-value-on-a-date-range-input": (
-            refused(
-                "app",
-                search(name="dob", input_="daterange", default_value="today()"),
-                "schema:CaseSearchProperty.default_value",
-                f"{prompts}/default_value",
-            ),
-            accepted(
-                "app",
-                search(name="dob", input_="date", default_value="today()"),
-                "schema:CaseSearchProperty.default_value",
-                f"{prompts}/default_value",
-            ),
-            accepted(
-                "app",
-                search(name="dob", input_="daterange", default_value="today()", hidden=True),
-                "schema:CaseSearchProperty.default_value",
-                f"{prompts}/default_value",
-            ),
-        ),
         "questions/choice-value-holding-both-an-apostrophe-and-a-double-quote": (
             refused("form", choices, "xform:select1/item/value", "select1[1]/item[1]/value[1]"),
             accepted("form", choices, "xform:select1/item/value", "select1[1]/item[2]/value[1]"),
@@ -6192,41 +6951,27 @@ def _held_new():
                 f"{short}/max_select_value",
             ),
         ),
-        "menus-and-case-lists/enum-mappingitem-alt-text-non-blank": (
+        "menus-and-case-lists/mapping-condition-outside-predicate": (
             refused(
                 "app",
-                mapped("enum-image", {"en": "A photo"}),
-                "schema:MappingItem.alt_text",
-                f"{short}/columns/0/enum/0/alt_text",
+                keyed("conditional-enum", ". > ("),
+                "schema:MappingItem.key",
+                f"{short}/columns/0/enum/0/key",
+                readings=True,
             ),
-            accepted(
-                "app",
-                mapped("enum-image", {"en": " "}),
-                "schema:MappingItem.alt_text",
-                f"{short}/columns/0/enum/0/alt_text",
-            ),
-            # An ID mapping builds no image, so no alternative text is read.
-            accepted(
-                "app",
-                mapped("enum", {"en": "A photo"}),
-                "schema:MappingItem.alt_text",
-                f"{short}/columns/0/enum/0/alt_text",
-            ),
-            # Which of a blank text and a shown one HQ's build writes turns on the app's languages, which the map
-            # alone does not say.
+            # A key Core parses may still read a value Nova has no binding for, so its class is not the key's alone.
             unsettled(
                 "app",
-                mapped("enum-image", {"en": "", "fra": "Photo"}),
-                "schema:MappingItem.alt_text",
-                f"{short}/columns/0/enum/0/alt_text",
+                keyed("conditional-enum", ". > 3"),
+                "schema:MappingItem.key",
+                f"{short}/columns/0/enum/0/key",
+                readings=True,
             ),
-            # A null text is skipped for the map's least key, whose value prints as ``None``.
-            refused(
-                "app",
-                mapped("enum-image", {"en": None}),
-                "schema:MappingItem.alt_text",
-                f"{short}/columns/0/enum/0/alt_text",
-            ),
+            # Without Core's parse of the key the class is not settled.
+            unsettled("app", keyed("conditional-enum", ". > ("), "schema:MappingItem.key", f"{short}/columns/0/enum/0/key"),
+            # A plain value is no condition, and an ID mapping's key is compared as a value.
+            accepted("app", keyed("conditional-enum", "urgent"), "schema:MappingItem.key", f"{short}/columns/0/enum/0/key"),
+            accepted("app", keyed("enum", ". > ("), "schema:MappingItem.key", f"{short}/columns/0/enum/0/key"),
         ),
         "menus-and-case-lists/case-tile-group-identifier-outside-an-xml-element-name": (
             refused(
@@ -6249,9 +6994,11 @@ def _held_new():
                 f"{short}/case_tile_group/index_identifier",
             ),
         ),
-        "menus-and-case-lists/column-field-outside-nova-s-property-grammar": (
+        "menus-and-case-lists/column-reading-an-unknown-hash-property": (
             refused("app", columns(_column(field="#visit")), "schema:DetailColumn.field", f"{short}/columns/0/field"),
-            refused("app", columns(_column(field="a" * 256)), "schema:DetailColumn.field", f"{short}/columns/0/field"),
+            refused("app", columns(_column(field="site-link/#visit")), "schema:DetailColumn.field", f"{short}/columns/0/field"),
+            accepted("app", columns(_column(field="site-link/#owner_name")), "schema:DetailColumn.field", f"{short}/columns/0/field"),
+            accepted("app", columns(_column(field="a" * 256)), "schema:DetailColumn.field", f"{short}/columns/0/field"),
             accepted("app", columns(_column(field="visit")), "schema:DetailColumn.field", f"{short}/columns/0/field"),
             accepted(
                 "app", columns(_column(field="#owner_name")), "schema:DetailColumn.field", f"{short}/columns/0/field"
@@ -6264,17 +7011,316 @@ def _held_new():
     }
 
 
+def _listed_forms_and_first_menu():
+    """Menus listing another menu's forms, a deep link's case-creation arguments and the first menu's shared case."""
+
+    def shadow(**fields):
+        return {
+            "doc_type": "ShadowModule",
+            "unique_id": fields.pop("unique_id", "sh"),
+            "shadow_module_version": 2,
+            "source_module_id": "src",
+            "excluded_form_ids": [],
+            "form_session_endpoints": [],
+            **fields,
+        }
+
+    source = _module([{**_form_json(), "unique_id": "visit"}], unique_id="src")
+    child = _module([{**_form_json(), "unique_id": "check"}], unique_id="kid", root_module_id="src")
+    mirror_child = shadow(unique_id="shkid", root_module_id="sh", source_module_id="kid")
+    opening = _form_json("none", open_case={"condition": ALWAYS})
+
+    def first_menu(*others):
+        """A top-level menu that lists its one follow-up on the first menu, then ``others``."""
+        above = _module([{**_form_json(), "unique_id": "visit"}], unique_id="above", put_in_root=True)
+        return _app([above, *others])
+
+    review = _module(
+        [{**_form_json(), "unique_id": "review", "session_endpoint_id": "review"}],
+        unique_id="reviews",
+        root_module_id="above",
+    )
+    household = _module([{**_form_json(), "unique_id": "home"}], unique_id="homes", case_type="household")
+    register = {
+        "form_id": "reg",
+        "post_form_workflow": "case_list",
+    }
+    registration = _module([{**_form_json("none", open_case={"condition": ALWAYS}), "unique_id": "reg"}], unique_id="r")
+    return {
+        "menus-and-case-lists/mirror-form-deep-links-on-a-menu-listing-survey-forms": (
+            refused(
+                "app",
+                _app(
+                    [
+                        {**source, "case_type": ""},
+                        shadow(
+                            form_session_endpoints=[
+                                {"doc_type": "ShadowFormEndpoint", "form_id": "visit", "session_endpoint_id": "visit"}
+                            ]
+                        ),
+                    ]
+                ),
+                "schema:ShadowModule.form_session_endpoints",
+                "/modules/1/form_session_endpoints",
+            ),
+            # The same links on a menu listing a case menu's forms, whose Advanced panel the page shows.
+            accepted(
+                "app",
+                _app(
+                    [
+                        source,
+                        shadow(
+                            form_session_endpoints=[
+                                {"doc_type": "ShadowFormEndpoint", "form_id": "visit", "session_endpoint_id": "visit"}
+                            ]
+                        ),
+                    ]
+                ),
+                "schema:ShadowModule.form_session_endpoints",
+                "/modules/1/form_session_endpoints",
+            ),
+        ),
+        # HQ's default version is no use, so the class takes none (``DEFAULT_ONLY``).
+        "menus-and-case-lists/shadowmodule-version-1-or-key-absent-model-default-1": (
+            accepted(
+                "app",
+                _app([source, shadow()]),
+                "schema:ShadowModule.shadow_module_version",
+                "/modules/1/shadow_module_version",
+            ),
+        ),
+        "menus-and-case-lists/a-shadow-menu-s-own-or-mirror-form-endpoint-id-with-surrounding": (
+            refused(
+                "app",
+                _app([source, shadow(session_endpoint_id=" visits ")]),
+                "schema:ShadowModule.session_endpoint_id",
+                "/modules/1/session_endpoint_id",
+            ),
+            accepted(
+                "app",
+                _app([source, shadow(session_endpoint_id="visits")]),
+                "schema:ShadowModule.session_endpoint_id",
+                "/modules/1/session_endpoint_id",
+            ),
+            refused(
+                "app",
+                _app(
+                    [
+                        source,
+                        shadow(
+                            form_session_endpoints=[
+                                {
+                                    "doc_type": "ShadowFormEndpoint",
+                                    "form_id": "visit",
+                                    "session_endpoint_id": "visit ",
+                                }
+                            ]
+                        ),
+                    ]
+                ),
+                "schema:ShadowFormEndpoint.session_endpoint_id",
+                "/modules/1/form_session_endpoints/0/session_endpoint_id",
+            ),
+        ),
+        "menus-and-case-lists/shared-form-menu-with-an-unavailable-source-form": (
+            refused(
+                "app",
+                _app([source, shadow(source_module_id="gone")]),
+                "schema:ShadowModule.source_module_id",
+                "/modules/1/source_module_id",
+            ),
+            refused(
+                "app",
+                _app([source, shadow(excluded_form_ids=["gone"])]),
+                "schema:ShadowModule.source_module_id",
+                "/modules/1/source_module_id",
+            ),
+            accepted(
+                "app",
+                _app([source, shadow(excluded_form_ids=["visit"])]),
+                "schema:ShadowModule.source_module_id",
+                "/modules/1/source_module_id",
+            ),
+        ),
+        "menus-and-case-lists/shared-form-menus-with-incomplete-submenus": (
+            refused(
+                "app",
+                _app([source, child, shadow()]),
+                "schema:ShadowModule.source_module_id",
+                "/modules/2/source_module_id",
+            ),
+            accepted(
+                "app",
+                _app([source, child, shadow(), mirror_child]),
+                "schema:ShadowModule.source_module_id",
+                "/modules/2/source_module_id",
+            ),
+        ),
+        "forms-and-case-writes/function-datum-endpoints-with-an-unavailable-supplier": (
+            refused(
+                "app",
+                _app([_module([{**opening, "function_datum_endpoints": ["case_id_new_patient_1"]}])]),
+                "schema:Form.function_datum_endpoints",
+                "/modules/0/forms/0/function_datum_endpoints",
+            ),
+            accepted(
+                "app",
+                _app([_module([{**opening, "function_datum_endpoints": ["case_id_new_patient_0"]}])]),
+                "schema:Form.function_datum_endpoints",
+                "/modules/0/forms/0/function_datum_endpoints",
+            ),
+            # A name given twice is the one argument HQ's build adds once.
+            accepted(
+                "app",
+                _app(
+                    [
+                        _module(
+                            [
+                                {
+                                    **opening,
+                                    "function_datum_endpoints": ["case_id_new_patient_0", "case_id_new_patient_0"],
+                                }
+                            ]
+                        )
+                    ]
+                ),
+                "schema:Form.function_datum_endpoints",
+                "/modules/0/forms/0/function_datum_endpoints",
+            ),
+        ),
+        "forms-and-case-writes/first-menu-selection-used-for-different-records": (
+            # The review's deep link opens through the first menu, which keeps the patient for the household
+            # menu's form that reads ``case_id`` as a household.
+            refused(
+                "app",
+                first_menu(review, household),
+                "schema:Form.session_endpoint_id",
+                "/modules/1/forms/0/session_endpoint_id",
+            ),
+            accepted(
+                "app",
+                first_menu(review),
+                "schema:Form.session_endpoint_id",
+                "/modules/1/forms/0/session_endpoint_id",
+            ),
+        ),
+        "menus-and-case-lists/first-menu-registration-return-without-a-compatible-case": (
+            refused(
+                "app",
+                first_menu({**review, "case_list_form": register}, registration, household),
+                "schema:CaseListForm.form_id",
+                "/modules/1/case_list_form/form_id",
+            ),
+            accepted(
+                "app",
+                first_menu({**review, "case_list_form": register}, registration),
+                "schema:CaseListForm.form_id",
+                "/modules/1/case_list_form/form_id",
+            ),
+        ),
+    }
+
+
+def _menu_badges():
+    """A menu's and a form's first badge, and the navigation conditions beside them."""
+
+    def icon(**fields):
+        return {"doc_type": "CustomIcon", "form": "badge", "text": {}, "xpath": None, **fields}
+
+    def badged(*icons, langs=("en",)):
+        module = _module([_form_json()], custom_icons=list(icons))
+        return _app([module], langs=list(langs))
+
+    def conditioned(module_filter):
+        return _app([_module([_form_json()], module_filter=module_filter)])
+
+    return {
+        "menus-and-case-lists/custom-icon-form-other-than-badge": (
+            refused("app", badged(icon(form="image", text={"en": "1"})), "schema:CustomIcon.form", "/custom_icons/0/form"),
+            # Only the first icon is read: a later one's form is no use of the class.
+            accepted(
+                "app",
+                badged(icon(text={"en": "1"}), icon(form="image", text={"en": "2"})),
+                "schema:CustomIcon.form",
+                "/custom_icons/1/form",
+            ),
+        ),
+        "menus-and-case-lists/badge-missing-localized-text": (
+            refused("app", badged(icon(text={"en": ""})), "schema:CustomIcon.text", "/custom_icons/0/text"),
+            # A language with no text of its own shows the default language's.
+            accepted(
+                "app",
+                badged(icon(text={"en": "New"}), langs=("en", "fr")),
+                "schema:CustomIcon.text",
+                "/custom_icons/0/text",
+            ),
+            # A calculation is read in place of the text.
+            accepted(
+                "app",
+                badged(icon(text={"en": ""}, xpath="1")),
+                "schema:CustomIcon.text",
+                "/custom_icons/0/text",
+            ),
+        ),
+        "menus-and-case-lists/badge-calculation-outside-typed-values": (
+            unsettled(
+                "app", badged(icon(xpath="count(x)")), "schema:CustomIcon.xpath", "/custom_icons/0/xpath", authored=True
+            ),
+            accepted("app", badged(icon(xpath="count(x)")), "schema:CustomIcon.xpath", "/custom_icons/0/xpath"),
+            # The app HQ made of a corpus document, which Nova's reader read.
+            accepted(
+                "app",
+                badged(icon(xpath="count(x)")),
+                "schema:CustomIcon.xpath",
+                "/custom_icons/0/xpath",
+                authored=True,
+                read=True,
+            ),
+        ),
+        "menus-and-case-lists/navigation-condition-outside-typed-worker-context": (
+            unsettled("app", conditioned("x = 1"), "schema:Module.module_filter", "/modules/0/module_filter", authored=True),
+            accepted("app", conditioned("x = 1"), "schema:Module.module_filter", "/modules/0/module_filter"),
+            accepted(
+                "app",
+                conditioned("x = 1"),
+                "schema:Module.module_filter",
+                "/modules/0/module_filter",
+                authored=True,
+                read=True,
+            ),
+        ),
+    }
+
+
 SHAPES = {
     **_questions(),
     **_settings_and_forms(),
     **_advanced_actions(),
     **_search_and_menus(),
     **_data_binds_and_itext(),
+    **_localized_media(),
+    **_per_rows(),
+    **_label_texts(),
     **_held_new(),
+    **_listed_forms_and_first_menu(),
+    **_menu_badges(),
 }
 
 # Classes whose refused shape no export holds, by why: the export leaves the class open (None) where it would be in it.
-UNSETTLED = {}
+UNSETTLED = {
+    "menus-and-case-lists/badge-calculation-outside-typed-values": (
+        "Nova prints every badge calculation it sends from a typed value; only Nova's reader types one HQ holds"
+    ),
+    "menus-and-case-lists/navigation-condition-outside-typed-worker-context": (
+        "Nova prints every display condition it sends from a typed one; only Nova's reader types one HQ holds"
+    ),
+}
+# Classes whose refused value is HQ's default, which is no use, by why: they have no refused shape.
+DEFAULT_ONLY = {
+    "menus-and-case-lists/shadowmodule-version-1-or-key-absent-model-default-1": (
+        "version 1 is the model's default, and a key at its default is no use"
+    ),
+}
 # Classes that take every use of their keys, by why: they have no accepted shape.
 EVERY_USE_TAKEN = {
     "questions/authored-orx-pollsensor": (
@@ -6305,7 +7351,9 @@ def test_every_reader_has_a_refused_shape_and_an_accepted_one_beside_it():
     unconsulted = {entry_id for entry_id, shapes in SHAPES.items() if not all(shape.named for shape in shapes)}
     assert unconsulted == set(UNCONSULTED)
     for entry_id, shapes in SHAPES.items():
-        needed = {None if entry_id in UNSETTLED else True} | (set() if entry_id in EVERY_USE_TAKEN else {False})
+        needed = (set() if entry_id in DEFAULT_ONLY else {None if entry_id in UNSETTLED else True}) | (
+            set() if entry_id in EVERY_USE_TAKEN else {False}
+        )
         assert needed <= {shape.verdict for shape in shapes}, f"{entry_id} has no {needed} shape"
 
 
@@ -6315,7 +7363,15 @@ def _shape_uses(shape, manifest, readings=None):
     if shape.export == "form":
         manifest_usage.xform_uses(shape.source, manifest, artifact, found)
     elif shape.export == "app":
-        manifest_usage.app_json_uses(shape.source, manifest, artifact, found, configurations=shape.configurations)
+        manifest_usage.app_json_uses(
+            shape.source,
+            manifest,
+            artifact,
+            found,
+            configurations=shape.configurations,
+            authored=shape.authored,
+            read=shape.read,
+        )
     else:
         manifest_usage.runtime_xml_uses(shape.source, "SuiteParser", manifest, artifact, found)
     for document in found.documents:
@@ -6557,19 +7613,23 @@ KNOWN_GAPS = frozenset(
         "application-and-settings/non-empty-custom-assertions-app",
         "case-search/instance-name-containing-casedb-ledgerdb-fixture-or-session",
         "expressions-and-data/commtrack-products-commtrack-programs",
+        "expressions-and-data/lookup-table-instance-undiscovered-in-suite",
         "expressions-and-data/reports-commcare-reports-commcare-reports-commcare-reports",
         "expressions-and-data/tag-containing-casedb-or-ledgerdb",
+        "expressions-and-data/nova-table-tag-colliding-with-the-form-builder-s-ids",
+        "expressions-and-data/tag-has-own-property",
+        "expressions-and-data/tag-proto-read-by-a-form",
+        "expressions-and-data/non-ascii-lookup-name-a-form-reads",
+        "expressions-and-data/non-ascii-lookup-name-in-a-search-option-hq-checks",
         "expressions-and-data/tag-or-field-name-core-s-xpath-lexer-does-not-read-as-a-name-any",
         "forms-and-case-writes/custom-assertions-form-non-empty",
         "forms-and-case-writes/is-release-notes-form-true-with-or-without-enable-release-notes",
         "forms-and-case-writes/shadow-parent-form-id-naming-a-basic-form-or-another-shadowform",
         "forms-and-case-writes/show-count-true",
         "forms-and-case-writes/unknown-form-doc-type",
-        "menus-and-case-lists/a-shadow-menu-s-own-or-mirror-form-endpoint-id-with-surrounding",
         "menus-and-case-lists/advancedmodule-has-schedule-true-or-schedule-phases-non-empty",
         "menus-and-case-lists/attachment-name-with-any-other-format",
         "menus-and-case-lists/callout-with-no-extras-or-no-responses",
-        "menus-and-case-lists/columns-above-the-first-tab-when-tabs-exist",
         "menus-and-case-lists/detail-auto-select-true-on-a-single-select-basic-list",
         "menus-and-case-lists/detail-custom-variables-dict-non-empty",
         "menus-and-case-lists/detail-custom-xml-non-empty",
@@ -6581,7 +7641,6 @@ KNOWN_GAPS = frozenset(
         "menus-and-case-lists/module-lazy-load-case-list-fields-true",
         "menus-and-case-lists/parent-select-relationship-null-other",
         "menus-and-case-lists/report-context-tile-true",
-        "menus-and-case-lists/shadowmodule-version-1-or-key-absent-model-default-1",
         "questions/a-choice-bind-type-contradicting-the-control-listitem-select1-on",
         "questions/a-connect-learn-module-or-task-id-longer-than-50-characters-or",
         # Its keys are a Connect block's mug types and Vellum's Connect plugin, and the extraction makes a use of
@@ -6590,8 +7649,6 @@ KNOWN_GAPS = frozenset(
         # a ``vellum-plugin:`` key.
         "questions/connect-block-text-read-as-an-instance",
         "questions/connect-deliver-unit-and-task-in-one-form",
-        "questions/a-per-row-token-the-first-token-web-apps-per-row-pattern-matches-does",
-        "questions/a-per-row-token-the-first-token-web-apps-per-row-pattern-matches-starts",
         # Their one key is ``mug:SaveToCase``, of which the extraction makes no use: HQ's reader types a question
         # from its body control (``xform.py::_infer_vellum_type``), a SaveToCase node has none, and ``get_questions``
         # lists its leaves and its case's attributes as ``DataBindOnly``. Nova's gate refuses each class, so no export

@@ -29,6 +29,7 @@ import { loadAppBlueprint } from "../loadApp";
 import { projectResult } from "../resultProjection";
 import { LARGE_RESULT_META } from "../resultSize";
 import { deriveRunId } from "../runId";
+import { registerSharedToolWithScopes } from "../scopedTool";
 import type { ToolContext } from "../types";
 import { projectWorkPayload } from "../workProjection";
 
@@ -152,7 +153,9 @@ export function registerSharedTool(
 		mcpSchemas.set(authoredJson, mcpSchema);
 	}
 
-	server.registerTool(
+	registerSharedToolWithScopes(
+		server,
+		ctx,
 		toolName,
 		{
 			description: tool.description,
@@ -185,7 +188,7 @@ export function registerSharedTool(
 						requestId: typeof requestId === "string" ? requestId : undefined,
 						toolName: saName,
 						input,
-						host: { kind: "mcp" },
+						host: { kind: "mcp", grant: ctx.grant },
 					});
 					return {
 						content: [
@@ -236,7 +239,10 @@ export function registerSharedTool(
 						toolName,
 						requestId: typeof requestId === "string" ? requestId : undefined,
 						execute: (invocationCtx) =>
-							runSharedToolCall({ saName, tool }, toolInput, invocationCtx),
+							runSharedToolCall({ saName, tool }, toolInput, {
+								...invocationCtx,
+								dataGrant: ctx.grant,
+							}),
 					});
 					const finalPayload = projectResult(
 						outcome,

@@ -242,3 +242,38 @@ describe("capture object generation fencing", () => {
 		expect(deleteMock).toHaveBeenCalledWith({ ignoreNotFound: true });
 	});
 });
+
+describe("a bring-in's staged media object", () => {
+	it("is written create-only and answered by the generation and checksum the bucket read back", async () => {
+		const { stageAssetBytes } = await import("../media");
+		const bytes = Buffer.alloc(17, 1);
+		expect(
+			await stageAssetBytes({
+				gcsObjectKey: "pending/project/asset.png",
+				bytes,
+				contentType: "image/png",
+			}),
+		).toEqual({
+			gcsObjectKey: "pending/project/asset.png",
+			generation: "destination-generation",
+			checksum: "checksum",
+		});
+		expect(fileMock).toHaveBeenCalledWith("pending/project/asset.png");
+		expect(saveMock).toHaveBeenCalledWith(bytes, {
+			resumable: false,
+			contentType: "image/png",
+			preconditionOpts: { ifGenerationMatch: 0 },
+		});
+	});
+
+	it("refuses an object whose size the bucket reads back as other than the bytes written", async () => {
+		const { stageAssetBytes } = await import("../media");
+		await expect(
+			stageAssetBytes({
+				gcsObjectKey: "pending/project/asset.png",
+				bytes: Buffer.alloc(16, 1),
+				contentType: "image/png",
+			}),
+		).rejects.toThrow(/did not read back as the 16 bytes just written/);
+	});
+});

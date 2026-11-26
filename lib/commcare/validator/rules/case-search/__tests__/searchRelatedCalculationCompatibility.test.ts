@@ -186,6 +186,41 @@ describe("searchRelatedCalculationCompatibility", () => {
 		},
 	);
 
+	it.each([
+		["a link this app does not declare", "host"],
+		["the declared parent link", "parent"],
+	] as const)(
+		"refuses, by name, a reached read through %s, which Search can't supply",
+		(_label, identifier) => {
+			// `property('patient', 'region', reached('<link>'))`: a read of whatever
+			// case the index names, of any type. Without Search the list reads it.
+			const reached: Expression = {
+				kind: "term",
+				term: {
+					kind: "prop",
+					caseType: "patient",
+					property: "region",
+					via: { kind: "ancestor", via: [{ identifier }] },
+					readReached: true,
+				},
+			};
+			expect(findingsFor(reached, { search: "none" })).toEqual([]);
+			for (const search of ["explicit", "markerless"] as const) {
+				const findings = findingsFor(reached, { search }).filter(
+					(finding) => finding.code === CODE,
+				);
+				expect(findings).toHaveLength(1);
+				expect(findings[0]?.details).toMatchObject({
+					columnUuid: testUuid("column-related"),
+					reason: "reached",
+				});
+				expect(userFacingError(findings[0])).toBe(
+					'In "Patients", "Related value" reads whichever case its link reaches, of any type, and Search can\'t supply that case. You can read the parent through a link this app declares, build the calculation from the current case, or delete it.',
+				);
+			}
+		},
+	);
+
 	it("rejects a fully hidden, unsorted definition before it can be revealed", () => {
 		expect(
 			findingsFor(unsupportedWrapped, {

@@ -19,6 +19,8 @@ import { type Element, isTag } from "domhandler";
 import fc from "fast-check";
 import { describe, expect, it } from "vitest";
 import type { BlueprintDoc } from "@/lib/domain";
+import { androidAppName } from "@/lib/domain/requiredAndroidApps";
+import { targetAndroidAppLabels } from "../androidAppDependencies";
 import { appProfileProperties } from "../appProfileSettings";
 import { compileCcz } from "../compiler";
 import { derivedProfileProperties } from "../derivedProfile";
@@ -40,6 +42,7 @@ import {
 import { parseXml } from "../xmlParse";
 import { connectWireFixtures } from "./connectWireFixtures";
 import { bilingualSurveyDoc, SMUGGLING_SOURCE } from "./localeSmugglingFixture";
+import { localizationWireFixture } from "./localizationWireFixture";
 import { TEST_RUNTIME_TARGET } from "./runtimeTargetFixture";
 
 /** A survey that writes the worker's record, in English and French. */
@@ -168,8 +171,44 @@ function keptFacts(adopted: boolean): TargetFacts {
 	return facts;
 }
 
+describe("required Android app names in a multilingual destination", () => {
+	it("reads the secondary language's escaped override on the phone and keeps the primary language's generated name in default", () => {
+		const doc = localizationWireFixture("bilingual");
+		doc.appSettings = {
+			...doc.appSettings,
+			requiredAndroidApps: ["simprints-id"],
+		};
+		const app = expandDoc(doc);
+		expect(app.langs).toEqual(["es", "en"]);
+		const key = "android.package.name.com.simprints.id";
+		const facts = targetFactsFromSource(
+			{ ...app, translations: { en: { [key]: String.raw`Field kit \#2` } } },
+			{ ...READ, adopted: true },
+		);
+		if (!facts) throw new Error("Missing destination facts.");
+		const files = compiled(doc, facts, true);
+		const labels = targetAndroidAppLabels(facts.uiText);
+		const name = (dir: string) =>
+			readLocaleFile(text(files, `${dir}/app_strings.txt`)).get(key);
+		expect([name("es"), name("en"), name("default")]).toEqual([
+			"Simprints ID",
+			"Field kit #2",
+			"Simprints ID",
+		]);
+		for (const language of app.langs) {
+			expect(androidAppName("simprints-id", language, labels)).toBe(
+				name(language),
+			);
+		}
+	});
+});
+
 describe("a CCZ made for a project space that keeps values", () => {
-	const doc = bilingualDoc();
+	const original = bilingualDoc();
+	const doc = {
+		...original,
+		appSettings: { ...original.appSettings, captureLocation: true as const },
+	};
 	const files = compiled(doc, keptFacts(true), true);
 	const profile = parseXml(text(files, "profile.ccpr"));
 	const root = only(elements(profile), "profile");
@@ -235,7 +274,7 @@ describe("a CCZ made for a project space that keeps values", () => {
 		).toEqual([["credential", { level: "3MON_ACTIVE", type: "APP_ACTIVITY" }]]);
 	});
 
-	it("uses the target's observed GPS setting after Connect is turned off and the app's setting when it is on", () => {
+	it("compiles the app and form choices when a target holds the opposite GPS value", () => {
 		const fixtures = connectWireFixtures();
 		const connected = fixtures.find(
 			(entry) => entry.name === "learn-default",
@@ -249,12 +288,20 @@ describe("a CCZ made for a project space that keeps values", () => {
 				{ ...READ, novaOwnsAutoGpsCapture: true, adopted: true },
 			);
 			if (!facts) throw new Error("Missing the project space's settings.");
-			for (const current of [connected, disabled]) {
+			const chosenId = disabled.formOrder[disabled.moduleOrder[0]][0];
+			const single = {
+				...disabled,
+				forms: {
+					...disabled.forms,
+					[chosenId]: {
+						...disabled.forms[chosenId],
+						captureLocation: true as const,
+					},
+				},
+			};
+			for (const current of [connected, disabled, single]) {
 				const update = expandDoc(current);
-				const gpsAfterUpload = update.auto_gps_capture ?? enabledInHq;
-				expect(Object.hasOwn(update, "auto_gps_capture")).toBe(
-					current.connectType !== null,
-				);
+				expect(update.auto_gps_capture).toBe(current.connectType !== null);
 				const archive = compiled(current, facts, true);
 				const forms = [...archive.keys()].filter(
 					(path) => path.startsWith("modules-") && path.endsWith(".xml"),
@@ -268,7 +315,15 @@ describe("a CCZ made for a project space that keeps values", () => {
 							node.name === "orx:pollsensor" &&
 							node.attribs.ref === "/data/meta/location",
 					);
-					expect(pollsLocation).toBe(gpsAfterUpload);
+					const independentlyChosen =
+						current === single && path === "modules-0/forms-0.xml";
+					expect(pollsLocation).toBe(
+						current.connectType !== null || independentlyChosen,
+					);
+					if (path === "modules-0/forms-0.xml")
+						expect(update.modules[0].forms[0].auto_gps_capture).toBe(
+							independentlyChosen,
+						);
 				}
 			}
 		}

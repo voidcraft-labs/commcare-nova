@@ -4,10 +4,18 @@ import {
 	entryPointIdProblem,
 	entryPointIdProblemSentence,
 	entryPointInventory,
+	listedFormLinkPause,
 	suffixUntilFree,
 } from "@/lib/domain";
+import { declaredCaseRelations } from "@/lib/domain/caseRelations";
 import { translationSourceFingerprintsEqual } from "@/lib/domain/localization";
 import { entryPointProjectionIssue } from "../../entryPointProjection";
+import { wordingSourceUnit } from "../../generatedSearchWording";
+import {
+	listIconActionIssue,
+	listIconActionSentence,
+} from "../../listIconAction";
+import { menuFormSources } from "./menuFormSources";
 /**
  * App-level validation rules.
  *
@@ -18,6 +26,7 @@ import { entryPointProjectionIssue } from "../../entryPointProjection";
 
 import {
 	appStringValueIssue,
+	outputLocaleRole,
 	translationUnitUsesLocaleFile,
 } from "@/lib/commcare/localeFile";
 import {
@@ -27,6 +36,7 @@ import {
 	blueprintTopologyIssues,
 	collectTranslationUnits,
 	duplicateSelectOptionValues,
+	hasGeneratedWording,
 	isConnectLearnConfig,
 	mintSelectOptionPlaceholder,
 	projectProseTemplate,
@@ -35,6 +45,8 @@ import {
 	SELECT_OPTION_VALUE_BOTH_QUOTES,
 	selectOptionValueProblem,
 	type TranslationUnitRole,
+	translationEntryIntegrityIssue,
+	translationIsOutOfDate,
 	translationValueIntegrityIssue,
 	type Uuid,
 } from "@/lib/domain";
@@ -251,7 +263,12 @@ function validTranslationOverlays(doc: BlueprintDoc): ValidationError[] {
 		breadcrumb: readonly string[],
 		value: string,
 	): void => {
-		const issue = appStringValueIssue(value, role);
+		const raw = units.get(unitId);
+		const unit = raw && wordingSourceUnit(doc, raw);
+		const issue = appStringValueIssue(
+			value,
+			unit ? outputLocaleRole(unit) : role,
+		);
 		if (issue === undefined) return;
 		errors.push(
 			validationError(
@@ -264,7 +281,9 @@ function validTranslationOverlays(doc: BlueprintDoc): ValidationError[] {
 		);
 	};
 	for (const unit of units.values()) {
-		if (!translationUnitUsesLocaleFile(unit.role)) continue;
+		// The inherited default was already checked at its ordinary owner.
+		// Only explicit generated wording introduces another author text.
+		if (unit.generated || !translationUnitUsesLocaleFile(unit.role)) continue;
 		flagLocaleValue(
 			"source-language",
 			unit.id,
@@ -276,12 +295,19 @@ function validTranslationOverlays(doc: BlueprintDoc): ValidationError[] {
 		);
 	}
 	if (doc.localization === undefined) return errors;
-	for (const [language, entries] of Object.entries(
-		doc.localization.translations,
-	)) {
+	for (const [language, entries] of Object.entries({
+		...doc.localization.translations,
+		[doc.localization.sourceLanguage]:
+			doc.localization.generatedSourceWording ?? {},
+	})) {
 		for (const [unitId, entry] of Object.entries(entries)) {
-			const unit = units.get(unitId);
-			if (unit === undefined) {
+			const raw = units.get(unitId);
+			const unit = raw && wordingSourceUnit(doc, raw);
+			if (
+				unit === undefined ||
+				(language === doc.localization.sourceLanguage &&
+					!hasGeneratedWording(unit))
+			) {
 				errors.push(
 					validationError(
 						"TRANSLATION_UNIT_UNKNOWN",
@@ -293,7 +319,41 @@ function validTranslationOverlays(doc: BlueprintDoc): ValidationError[] {
 				);
 				continue;
 			}
-			const issue = translationValueIntegrityIssue(unit, entry.value);
+			const fallback = entry.workerFallback;
+			if (
+				fallback &&
+				translationSourceFingerprintsEqual(
+					fallback.sourceFingerprint,
+					unit.sourceFingerprint,
+				)
+			) {
+				const problem = translationValueIntegrityIssue(unit, fallback.value);
+				if (problem)
+					errors.push(
+						validationError(
+							problem === "value-kind"
+								? "TRANSLATION_VALUE_KIND_MISMATCH"
+								: problem === "blank-content"
+									? "TRANSLATION_REQUIRED_CONTENT_BLANK"
+									: "TRANSLATION_PROTECTED_CONTENT_CHANGED",
+							"app",
+							`The worker text for ${unit.breadcrumb.join(" → ")} needs updating in Languages.`,
+							{},
+							{ language, unitId, role: unit.role },
+						),
+					);
+				else if (translationUnitUsesLocaleFile(unit.role))
+					flagLocaleValue(
+						language,
+						unitId,
+						unit.role,
+						unit.breadcrumb,
+						typeof fallback.value === "string"
+							? fallback.value
+							: projectProseTemplate(fallback.value, doc).text,
+					);
+			}
+			const issue = translationEntryIntegrityIssue(unit, entry);
 			if (issue === "value-kind") {
 				errors.push(
 					validationError(
@@ -337,9 +397,12 @@ function validTranslationOverlays(doc: BlueprintDoc): ValidationError[] {
 			}
 			if (
 				issue === undefined &&
-				translationSourceFingerprintsEqual(
-					entry.sourceFingerprint,
-					unit.sourceFingerprint,
+				!fallback &&
+				!translationIsOutOfDate(
+					entry,
+					unit,
+					language,
+					language === doc.localization.sourceLanguage,
 				) &&
 				translationUnitUsesLocaleFile(unit.role)
 			) {
@@ -479,7 +542,29 @@ function connectNoParticipatingForms(doc: BlueprintDoc): ValidationError[] {
 export function validEntryPoints(doc: BlueprintDoc): ValidationError[] {
 	const inventory = entryPointInventory(doc);
 	const ids = new Set<string>();
-	return inventory.flatMap(({ target, entryPoint }) => {
+	// The source form owns its supplies independently of an ordinary endpoint.
+	const standalone: ValidationError[] = [];
+	for (const moduleUuid of doc.moduleOrder)
+		for (const formUuid of doc.formOrder[moduleUuid] ?? []) {
+			const form = doc.forms[formUuid];
+			if (!form?.entryCaseCreations || form.entryPoint) continue;
+			const issue = entryPointProjectionIssue(doc, {
+				kind: "form",
+				moduleUuid,
+				formUuid,
+			});
+			if (issue)
+				standalone.push(
+					validationError(
+						"ENTRY_POINT_INVALID",
+						"form",
+						issue,
+						{ moduleUuid, formUuid },
+						{ reason: "case-creation" },
+					),
+				);
+		}
+	const configured = inventory.flatMap(({ target, entryPoint }) => {
 		const idProblem = entryPointIdProblem(entryPoint.id);
 		const refusal =
 			idProblem === undefined
@@ -499,8 +584,9 @@ export function validEntryPoints(doc: BlueprintDoc): ValidationError[] {
 			target.kind !== "form" &&
 			entryPoint.ignoreDisplayConditions !== undefined;
 		const duplicate = ids.has(entryPoint.id);
+		const paused = listedFormLinkPause(doc, target);
 		const shared =
-			refusal || displayConditions || duplicate
+			refusal || displayConditions || duplicate || paused
 				? undefined
 				: entryPointSharesFirstMenuCase(doc, target);
 		const reason = refusal
@@ -524,7 +610,9 @@ export function validEntryPoints(doc: BlueprintDoc): ValidationError[] {
 								target,
 								shared.aboveModuleUuid,
 							)
-						: entryPointProjectionIssue(doc, target);
+						: paused
+							? undefined
+							: entryPointProjectionIssue(doc, target);
 		ids.add(entryPoint.id);
 		return issue
 			? [
@@ -532,7 +620,10 @@ export function validEntryPoints(doc: BlueprintDoc): ValidationError[] {
 						"ENTRY_POINT_INVALID",
 						"app",
 						issue,
-						{ moduleUuid: target.moduleUuid },
+						{
+							moduleUuid: target.moduleUuid,
+							...(target.kind === "form" && { formUuid: target.formUuid }),
+						},
 						{
 							entryPointUuid: entryPoint.uuid,
 							reason,
@@ -547,6 +638,7 @@ export function validEntryPoints(doc: BlueprintDoc): ValidationError[] {
 				]
 			: [];
 	});
+	return [...standalone, ...configured];
 }
 
 /** The entry point's sentence where its frame opens through the first menu
@@ -561,12 +653,94 @@ function firstMenuSharedCaseEntryPointMessage(
 			? (doc.forms[target.formUuid]?.name ?? "")
 			: (doc.modules[target.moduleUuid]?.name ?? "");
 	const above = doc.modules[aboveModuleUuid]?.name ?? "";
-	return `The entry point on "${name}" opens through the app's first menu, where every form listed from a menu that shows its forms above opens one chosen case. CommCare HQ puts that case ahead of "${name}" in the entry point, and on Android CommCare keeps it on the first menu when a worker steps back, for the next form to open on. You can give "${above}" its own screen again (forms_in_menu_above null), or remove the entry point.`;
+	return `The entry point on "${name}" uses a first-menu selection that another command asks for with a different kind or number of records. You can give "${above}" its own screen again (forms_in_menu_above null), or use another entry point.`;
+}
+
+/** Catalog declarations can also be edited without a form or menu naming
+ * them. Admission checks these references at the whole-batch boundary. */
+function validCaseRelations(doc: BlueprintDoc): ValidationError[] {
+	const errors: ValidationError[] = [];
+	const names = new Set(doc.caseTypes?.map((type) => type.name));
+	for (const type of doc.caseTypes ?? []) {
+		const seen = new Set<string>();
+		for (const edge of declaredCaseRelations(type)) {
+			const key = JSON.stringify([
+				edge.identifier,
+				edge.targetType,
+				edge.relationship,
+			]);
+			let message: string | undefined;
+			if (!names.has(edge.targetType))
+				message = `The ${edge.identifier} link on ${type.name} uses a case type the app no longer has. Choose a related case type or remove the link.`;
+			else if (seen.has(key))
+				message = `The ${edge.identifier} link on ${type.name} names ${edge.targetType} twice with the same relationship. Keep one copy of that link.`;
+			if (message !== undefined)
+				errors.push(
+					validationError(
+						"CASE_RELATION_INVALID",
+						"app",
+						message,
+						{},
+						{
+							caseType: type.name,
+							identifier: edge.identifier,
+							target: edge.targetType,
+							reason: names.has(edge.targetType) ? "duplicate" : "missing",
+						},
+					),
+				);
+			seen.add(key);
+		}
+	}
+	return errors;
+}
+
+/** Every case list icon that submits a form names a destination a worker's
+ * tap can run (`listIconAction.ts`). An app rule, since the destination may
+ * be another menu's form, which an edit there can change or remove. */
+function validListIconActions(doc: BlueprintDoc): ValidationError[] {
+	const errors: ValidationError[] = [];
+	for (const moduleUuid of doc.moduleOrder) {
+		const module = doc.modules[moduleUuid];
+		if (module === undefined) continue;
+		for (const column of module.caseListConfig?.columns ?? []) {
+			if (column.kind !== "image-map" || column.entryPointUuid === undefined)
+				continue;
+			const issue = listIconActionIssue(doc, module, column);
+			if (issue === undefined) continue;
+			const label = column.header || column.field;
+			errors.push(
+				validationError(
+					"CASE_LIST_ICON_ACTION_INVALID",
+					"module",
+					listIconActionSentence(
+						issue.reason,
+						label,
+						issue.caseType,
+						issue.anotherForm,
+					),
+					{ moduleUuid, moduleName: module.name },
+					{
+						reason: issue.reason,
+						columnUuid: column.uuid,
+						columnLabel: label,
+						entryPointUuid: column.entryPointUuid,
+						...(issue.caseType !== undefined && { caseType: issue.caseType }),
+						...(issue.anotherForm === true && { anotherForm: "yes" }),
+					},
+				),
+			);
+		}
+	}
+	return errors;
 }
 
 export const APP_RULES = [
+	menuFormSources,
+	validCaseRelations,
 	authoredXmlText,
 	validEntryPoints,
+	validListIconActions,
 	// A link or a built-in `module` destination that opens through the first
 	// menu with the case every form listed there from a menu above opens.
 	firstMenuSharedCaseFrames,

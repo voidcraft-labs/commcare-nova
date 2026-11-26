@@ -1,3 +1,4 @@
+import { mediaUploadStream } from "./hq/uploadStream";
 /**
  * CommCare HQ REST API client — server-side only.
  *
@@ -49,12 +50,12 @@ import {
 import { type HqReadDeadline, withHqRequestDeadline } from "./hq/deadline";
 import { classifyHqFailure, type HqFailure } from "./hq/failure";
 import {
-	baseUrl,
 	type CommCareApiError,
 	type CommCareCredentials,
 	delay,
 	HQ_MALFORMED_ANSWER,
 	type HqAnswer,
+	hqDomainPath,
 	hqTextFacts,
 	isEdgeRefusal,
 	isHqCount,
@@ -70,16 +71,18 @@ import {
 import { isHqObject, readHqCollection } from "./hq/readCollection";
 import { readHqJson } from "./hq/readJson";
 import { HQ_THROTTLE_MAX_WAIT_MS } from "./hq/throttle";
+import { TARGET_BATCH_BYTES } from "./multimedia/uploadBatches";
 /** Private compatibility inputs stay behind the CommCare boundary: the probe
- * takes its plan as data, and the one flag this client reads by name comes
- * from `hqPrivateFeatureFlag`, so its slug is the probe's own. */
-import type {
-	HqPrivateFeatureFlagRequirement,
-	HqProjectSpaceAdvisoryProbePlan,
-	HqProjectSpaceCapabilityProbePlan,
-	HqProjectSpaceCompatibilityProbePlan,
+ * takes its plan as data, and the flags a source reading asks for by name
+ * come from `hqPrivateFeatureFlag`, so each slug is the probe's own. */
+import {
+	type HqPrivateFeatureFlagId,
+	type HqPrivateFeatureFlagRequirement,
+	type HqProjectSpaceAdvisoryProbePlan,
+	type HqProjectSpaceCapabilityProbePlan,
+	type HqProjectSpaceCompatibilityProbePlan,
+	hqPrivateFeatureFlag,
 } from "./projectSpaceCompatibility";
-import { hqPrivateFeatureFlag } from "./projectSpaceCompatibility";
 import { domainFeatureFlag } from "./surface/gates";
 
 /* The HQ wire primitives live in `./hq/http` so every driver shares one
@@ -153,7 +156,7 @@ async function listDomainsMatching(
 	if (featureFlag) query.set("feature_flag", featureFlag);
 	const list = await readHqCollection(creds, {
 		label: "project space list",
-		firstUrl: `${baseUrl(creds)}/api/user_domains/v1/?${query.toString()}`,
+		firstUrl: `/api/user_domains/v1/?${query.toString()}`,
 		maxPages: 51,
 		maxRows: HQ_PROJECT_SPACE_LIST_MAX_ROWS,
 		maxBytes: HQ_PROJECT_SPACE_LIST_MAX_BYTES,
@@ -340,14 +343,7 @@ export async function probeHqProjectSpaceCompatibility(
  * filtered list that holds the target is the project space's own flag and
  * never the publisher's (`toggles/__init__.py`, `namespaces=[NAMESPACE_DOMAIN]`).
  */
-const EMPTY_CASE_LIST_TEXT_FLAG = (() => {
-	const flag = domainFeatureFlag("USH_EMPTY_CASE_LIST_TEXT");
-	return {
-		id: "empty-case-list-text",
-		slug: flag.slug,
-		namespace: flag.namespace,
-	} as const;
-})();
+const EMPTY_CASE_LIST_TEXT_FLAG = hqPrivateFeatureFlag("empty-case-list-text");
 
 type PrivateProbeState = "available" | "missing" | "unverified";
 type PrivateProbeAssessment = {
@@ -432,7 +428,7 @@ async function probeCaseSearchRuntime(
 	try {
 		return await runBoundedCompatibilityProbe(async ({ signal }) => {
 			const query = new URLSearchParams({ case_type: CASE_SEARCH_PROBE_TYPE });
-			const url = `${baseUrl(creds)}/a/${domain}/phone/search/?${query.toString()}`;
+			const url = `${hqDomainPath(domain)}/phone/search/?${query.toString()}`;
 			const response = await getResendingUnanswered(
 				() => sendHq(creds, url, { signal }),
 				signal,
@@ -587,11 +583,11 @@ function notAMemberProjectSpaceResult(
 	};
 }
 
-/** Whether CommCare HQ's builds in a project space save an answer only when the worker changed it. */
-export type HqSaveOnlyEditedAnswers =
-	/** The project space holds the flag: CommCare HQ's build compares before it saves. */
+/** Whether CommCare HQ applies the named feature to this source project. */
+export type HqSourceProjectFlag =
+	/** The project space holds the flag, so CommCare HQ's build applies its feature. */
 	| { readonly kind: "applied" }
-	/** The project space does not hold it: CommCare HQ's build saves every time. */
+	/** The project space does not hold it, so CommCare HQ's build leaves the feature out. */
 	| { readonly kind: "not-applied" }
 	/** The key's own list of project spaces answered and does not hold this one. */
 	| { readonly kind: "not-a-member" }
@@ -615,8 +611,42 @@ export async function readHqSaveOnlyEditedAnswers(
 	creds: CommCareCredentials,
 	domain: string,
 	options: { readonly cancel?: AbortSignal } = {},
-): Promise<HqSaveOnlyEditedAnswers> {
-	const failed = (error: CommCareApiError): HqSaveOnlyEditedAnswers => ({
+): Promise<HqSourceProjectFlag> {
+	return readHqSourceFlag(
+		creds,
+		domain,
+		"SAVE_ONLY_EDITED_FORM_FIELDS",
+		options,
+	);
+}
+
+export async function readHqSourceFlag(
+	creds: CommCareCredentials,
+	domain: string,
+	symbol:
+		| "HIERARCHICAL_LOCATION_FIXTURE"
+		| "MOBILE_UCR"
+		| "SAVE_ONLY_EDITED_FORM_FIELDS",
+	options: { readonly cancel?: AbortSignal } = {},
+): Promise<HqSourceProjectFlag> {
+	return createHqSourceFlagReader(creds, domain, options)(symbol);
+}
+
+/**
+ * One source reading's flag reads: the key's list of project spaces, read once
+ * for the first flag the source needs, then each flag's own filtered list.
+ * `no-matches-registration` is `FOLLOWUP_FORMS_AS_CASE_LIST_FORM`, which
+ * CommCare HQ's build reads before it writes a case-list action's condition
+ * or offers a parent's follow-up form from a case list
+ * (`suite_xml/sections/details.py::DetailContributor.add_register_action`,
+ * `get_case_list_form_action`).
+ */
+export function createHqSourceFlagReader(
+	creds: CommCareCredentials,
+	domain: string,
+	options: { readonly cancel?: AbortSignal } = {},
+) {
+	const failed = (error: CommCareApiError): HqSourceProjectFlag => ({
 		kind: "failed",
 		failure: classifyHqFailure(error, "project-spaces"),
 	});
@@ -627,25 +657,41 @@ export async function readHqSaveOnlyEditedAnswers(
 			undefined,
 			options.cancel,
 		);
-	const visible = await list(undefined);
-	if (!Array.isArray(visible)) return failed(visible);
-	if (!visible.some((candidate) => candidate.name === domain))
-		return { kind: "not-a-member" };
-	const flag = hqPrivateFeatureFlag("save-only-edited-answers");
-	const flagged = await list(flag.slug);
-	if (!Array.isArray(flagged)) {
-		/* A slug HQ no longer knows answers 400, which is Nova's to fix. */
-		if (flagged.status === 400 && flagged.cause === undefined)
-			log.error("[commcare] feature flag list refused", undefined, {
-				domain,
-				request: "project-spaces",
-				status: flagged.status,
-			});
-		return failed(flagged);
-	}
-	return flagged.some((candidate) => candidate.name === domain)
-		? { kind: "applied" }
-		: { kind: "not-applied" };
+	let membership: ReturnType<typeof list> | undefined;
+	return async (
+		id:
+			| Extract<
+					HqPrivateFeatureFlagId,
+					"save-only-edited-answers" | "no-matches-registration"
+			  >
+			| "HIERARCHICAL_LOCATION_FIXTURE"
+			| "MOBILE_UCR"
+			| "SAVE_ONLY_EDITED_FORM_FIELDS",
+	): Promise<HqSourceProjectFlag> => {
+		membership ??= list(undefined);
+		const visible = await membership;
+		if (!Array.isArray(visible)) return failed(visible);
+		if (!visible.some((candidate) => candidate.name === domain))
+			return { kind: "not-a-member" };
+		const flag =
+			id === "save-only-edited-answers" || id === "no-matches-registration"
+				? hqPrivateFeatureFlag(id)
+				: domainFeatureFlag(id);
+		const flagged = await list(flag.slug);
+		if (!Array.isArray(flagged)) {
+			/* A slug HQ no longer knows answers 400, which is Nova's to fix. */
+			if (flagged.status === 400 && flagged.cause === undefined)
+				log.error("[commcare] feature flag list refused", undefined, {
+					domain,
+					request: "project-spaces",
+					status: flagged.status,
+				});
+			return failed(flagged);
+		}
+		return flagged.some((candidate) => candidate.name === domain)
+			? { kind: "applied" }
+			: { kind: "not-applied" };
+	};
 }
 
 /** A compatibility check must never hold open the publish preflight. */
@@ -779,6 +825,11 @@ export function importRetryWaitMs(retryAfter: string | null): number | null {
 	return ms !== null && ms <= IMPORT_RETRY_MAX_WAIT_MS ? ms : null;
 }
 
+interface ImportStoppedBeforeView {
+	readonly kind: "save-not-confirmed";
+	readonly counter: number | CommCareApiError;
+}
+
 /**
  * Import an app into a CommCare HQ project space.
  *
@@ -809,21 +860,36 @@ export function importRetryWaitMs(retryAfter: string | null): number | null {
  * outlast it is not begun, and one the deadline cuts short sends nothing
  * more, so either way the answer is HQ's 429.
  */
+export function importApp(
+	creds: CommCareCredentials,
+	domain: string,
+	appName: string,
+	appJson: object,
+	updateAppId?: string,
+): Promise<ImportResponse>;
+export function importApp(
+	creds: CommCareCredentials,
+	domain: string,
+	appName: string,
+	appJson: object,
+	updateAppId: string,
+	expectedVersion: number,
+): Promise<ImportResponse | ImportStoppedBeforeView>;
 export async function importApp(
 	creds: CommCareCredentials,
 	domain: string,
 	appName: string,
 	appJson: object,
 	updateAppId?: string,
-): Promise<ImportResponse> {
+	expectedVersion?: number,
+): Promise<ImportResponse | ImportStoppedBeforeView> {
 	if (
 		!isValidDomainSlug(domain) ||
 		(updateAppId !== undefined && !/^[A-Za-z0-9_-]+$/.test(updateAppId))
 	) {
 		return { success: false, status: 400 };
 	}
-	const base = baseUrl(creds);
-	const url = `${base}/a/${domain}/apps/api/import_app/`;
+	const url = `${hqDomainPath(domain)}/apps/api/import_app/`;
 	const appFile = JSON.stringify(appJson);
 
 	/* Multipart form: waf_padding (see WAF_PADDING) + app_name (string) +
@@ -847,6 +913,26 @@ export async function importApp(
 	return withHqRequestDeadline(async (signal, deadline) => {
 		let res: HqAnswer;
 		for (let sent = 1; ; sent++) {
+			// HQ checks its throttle before the view. A retry after its wait is a
+			// new opportunity to replace the app, so confirm the reviewed save
+			// immediately before each physical POST, within the same deadline.
+			if (updateAppId !== undefined && expectedVersion !== undefined) {
+				const version = await readAppVersions(creds, domain, updateAppId, {
+					cancel: signal,
+				});
+				if ("success" in version)
+					return { kind: "save-not-confirmed", counter: version };
+				if (signal.aborted)
+					return {
+						kind: "save-not-confirmed",
+						counter: { success: false, status: 503, cause: "timeout" },
+					};
+				if (version.currentVersion !== expectedVersion)
+					return {
+						kind: "save-not-confirmed",
+						counter: version.currentVersion,
+					};
+			}
 			try {
 				res = await sendHq(creds, url, {
 					method: "POST",
@@ -1027,6 +1113,21 @@ function matchedMediaFiles(
 const MEDIA_BUNDLE_UPLOAD_TIMEOUT_MS = 60_000;
 const MEDIA_BUNDLE_POLL_INTERVAL_MS = 1500;
 const MEDIA_BUNDLE_POLL_TIMEOUT_MS = 45_000;
+/**
+ * The time a bundle past an ordinary batch's bytes adds to each deadline above,
+ * which are fitted to an ordinary batch (`uploadBatches.ts::TARGET_BATCH_BYTES`):
+ * the bytes past it sent at 1 MiB/s, and read whole by HQ's task
+ * (`hqmedia/tasks.py::process_bulk_upload_zip` reads each member into memory
+ * and stores it) at 4 MiB/s. Such a bundle is one file travelling alone: a
+ * video near its upload cap, or a file brought in from CommCare HQ past it.
+ */
+const MEDIA_BUNDLE_UPLOAD_BYTES_PER_SECOND = 1024 * 1024;
+const MEDIA_BUNDLE_PROCESS_BYTES_PER_SECOND = 4 * 1024 * 1024;
+
+function millisecondsFor(bytes: number, perSecond: number): number {
+	const past = Math.max(0, bytes - TARGET_BATCH_BYTES);
+	return Math.ceil((past / perSecond) * 1000);
+}
 
 /**
  * Upload an app's media as one bulk ZIP to CommCare HQ's
@@ -1057,37 +1158,42 @@ export async function uploadAppMediaBundle(
 	creds: CommCareCredentials,
 	domain: string,
 	appId: string,
-	zipBytes: Buffer,
+	zipBytes: Buffer | AsyncIterable<Uint8Array>,
 	options: {
 		/**
 		 * Called once with the job id HQ named, the moment it accepted the
 		 * ZIP and before any status read: whatever the reads answer after it,
 		 * the job may run, and the caller holds the id it is polled by.
 		 */
-		readonly onAccepted?: (processingId: string) => void;
+		readonly onAccepted?: (processingId: string) => void | Promise<void>;
+		/** The bytes of the files in the bundle, which lengthen the upload's and the
+		 *  task's deadlines. */
+		readonly bytes?: number;
 	} = {},
 ): Promise<MediaBundleUploadResult | CommCareApiError> {
+	const bytes = options.bytes ?? 0;
 	if (!isValidDomainSlug(domain) || !/^[\w-]+$/.test(appId)) {
 		return { success: false, status: 400 };
 	}
-	const base = `${baseUrl(creds)}/a/${domain}/apps/api/${appId}/multimedia`;
-	const formData = new FormData();
-	formData.append("waf_padding", WAF_PADDING);
-	formData.append(
-		"bulk_upload_file",
-		new Blob([new Uint8Array(zipBytes)], { type: "application/zip" }),
-		"multimedia.zip",
-	);
+	const base = `${hqDomainPath(domain)}/apps/api/${appId}/multimedia`;
 	const controller = new AbortController();
 	const timer = setTimeout(
 		() => controller.abort(),
-		MEDIA_BUNDLE_UPLOAD_TIMEOUT_MS,
+		MEDIA_BUNDLE_UPLOAD_TIMEOUT_MS +
+			millisecondsFor(bytes, MEDIA_BUNDLE_UPLOAD_BYTES_PER_SECOND),
 	);
 	let started: unknown;
 	try {
 		const response = await sendHq(creds, `${base}/`, {
 			method: "POST",
-			body: formData,
+			...mediaUploadStream(
+				Buffer.isBuffer(zipBytes)
+					? (async function* () {
+							yield zipBytes;
+						})()
+					: zipBytes,
+				controller.signal,
+			),
 			signal: controller.signal,
 		});
 		if (!response.ok)
@@ -1108,6 +1214,7 @@ export async function uploadAppMediaBundle(
 		return { success: false, status: 503 };
 	} finally {
 		clearTimeout(timer);
+		controller.abort();
 	}
 	if (!isHqObject(started)) return { success: false, status: 502 };
 	if (started.success === false) return { success: false, status: 422 };
@@ -1117,13 +1224,14 @@ export async function uploadAppMediaBundle(
 		!/^[\w-]+$/.test(started.processing_id)
 	)
 		return { success: false, status: 502 };
-	options.onAccepted?.(started.processing_id);
+	await options.onAccepted?.(started.processing_id);
 	return pollMediaBundleStatus(
 		creds,
 		domain,
 		base,
 		started.processing_id,
-		MEDIA_BUNDLE_POLL_TIMEOUT_MS,
+		MEDIA_BUNDLE_POLL_TIMEOUT_MS +
+			millisecondsFor(bytes, MEDIA_BUNDLE_PROCESS_BYTES_PER_SECOND),
 	);
 }
 
@@ -1149,7 +1257,7 @@ export async function readAppMediaBundleStatus(
 		!/^[\w-]+$/.test(processingId)
 	)
 		return "unknown";
-	const base = `${baseUrl(creds)}/a/${domain}/apps/api/${appId}/multimedia`;
+	const base = `${hqDomainPath(domain)}/apps/api/${appId}/multimedia`;
 	const status = await pollMediaBundleStatus(
 		creds,
 		domain,
@@ -1236,6 +1344,22 @@ async function pollMediaBundleStatus(
 					unmatchedFiles.push({ path: file.path, reason: file.reason });
 				}
 				if (status.complete) {
+					if (status.skipped_files !== undefined) {
+						if (!Array.isArray(status.skipped_files))
+							return { success: false, status: 502 };
+						for (const skipped of status.skipped_files) {
+							if (
+								!isHqObject(skipped) ||
+								typeof skipped.path !== "string" ||
+								!skipped.path
+							)
+								return { success: false, status: 502 };
+							unmatchedFiles.push({
+								path: skipped.path,
+								reason: "CommCare HQ skipped this file.",
+							});
+						}
+					}
 					const matchedFiles = matchedMediaFiles(status.matched_files);
 					if (matchedFiles === null)
 						log.warn("[commcare] media bundle report names no matched ids", {
@@ -1316,7 +1440,7 @@ export async function readAppVersions(
 ): Promise<HqAppVersions | CommCareApiError> {
 	if (!isValidDomainSlug(domain) || !/^[\w-]+$/.test(hqAppId))
 		return { success: false, status: 400 };
-	const url = `${baseUrl(creds)}/a/${domain}/apps/view/${encodeURIComponent(hqAppId)}/current_version/`;
+	const url = `${hqDomainPath(domain)}/apps/view/${encodeURIComponent(hqAppId)}/current_version/`;
 	const result = await readHqJson(creds, url, "app versions", {
 		maxBytes: HQ_APP_VERSIONS_MAX_BYTES,
 		cancel: options.cancel,
@@ -1416,7 +1540,7 @@ export async function readBuildXml(
 	const send = () =>
 		sendHq(
 			creds,
-			`${baseUrl(creds)}/a/${domain}/apps/download/${encodeURIComponent(buildId)}/${resource}`,
+			`${hqDomainPath(domain)}/apps/download/${encodeURIComponent(buildId)}/${resource}`,
 			{ accept: "application/xml", noStore: true, signal: controller.signal },
 		);
 	try {

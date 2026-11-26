@@ -19,10 +19,8 @@ import {
 	type CommCareServer,
 } from "@/lib/commcare/servers";
 import type { WireIdentityOverride } from "@/lib/commcare/wireIdentity";
-import {
-	LEVEL_CODE_MAX_LENGTH,
-	LEVEL_CODE_PATTERN,
-} from "@/lib/domain/organization";
+import { organizationLevelSchema } from "@/lib/domain/organization";
+import type { LookupSourceFacts } from "@/lib/lookup/source";
 import type { DriftReference } from "@/lib/publish/driftReference";
 import type { StoredFirstPublish } from "@/lib/publish/firstPublishChangeIds";
 import type { KeptListValues } from "@/lib/publish/keptValues";
@@ -230,6 +228,7 @@ export const DEPLOYMENT_FAILURE_CODES = [
 	 * own recovery: change the tree in Nova, or the levels over there.
 	 */
 	"hq_organization_mismatch",
+	"hq_place_ids_need_setup",
 	/** CommCare HQ refused one of the resources this app needs. */
 	"hq_rejected_resource_push",
 	/** CommCare HQ refused the upload. */
@@ -448,17 +447,18 @@ export interface DeploymentRemoteChange {
 	readonly name: string;
 	/** What CommCare HQ shows it as: the HQ app id, a table's tag, or a place's site code. */
 	readonly identity: string;
-	/** What changed, in Nova's voice, bounded; empty exactly when `baselineKnown` is false. */
+	/** What changed or what the next import would remove. The list is bounded. */
 	readonly parts: readonly string[];
 	/** One sentence shown after the parts, outside the bound. */
 	readonly note: string | null;
 	/** The digest of CommCare HQ's state as shown, which a discard names back. */
 	readonly observedDigest: string;
 	/**
-	 * False exactly when the change carries no parts: an `unread` baseline,
+	 * False when no earlier source can be compared: an `unread` baseline,
 	 * or a live mapping with no baseline row, where no rule that needs no
 	 * baseline applied. A table `deleted` or `renamed` and a place `missing`
 	 * are named whatever the baseline, so they carry their part and read true.
+	 * A file the current app import would prune is named even on an unknown baseline.
 	 */
 	readonly baselineKnown: boolean;
 	/**
@@ -473,6 +473,12 @@ export interface DeploymentRemoteChange {
 	 * place.
 	 */
 	readonly canBringIn: boolean;
+	readonly requiresReview?: true;
+	/**
+	 * The parts begin with menu layouts CommCare HQ holds that no baseline
+	 * accounts for and this publish would replace (`legacyMenuLayouts.ts`).
+	 */
+	readonly replacesMenuLayouts?: true;
 }
 
 /**
@@ -657,8 +663,10 @@ export interface DeploymentResource {
 	/** The Nova mutation sequence this remote resource was built from. */
 	readonly pushedRevision: number | null;
 	readonly pushedAt: string | null;
-	/** Unique identity of this accepted mapping write, independent of time. */
+	/** Unique identity of this accepted mapping write and its continuous HQ claim. */
 	readonly pushToken: string;
+	/** The last change a person took from this HQ app. Absent before its first changed review. */
+	readonly reviewGeneration?: string;
 	/** CommCare HQ's own version number, as of the last observation. */
 	readonly remoteRevision: number | null;
 	readonly remoteObservedAt: string | null;
@@ -717,7 +725,7 @@ export interface DeploymentRecord {
 	readonly lastObservedAt: string | null;
 	/** The logo content hash this deployment last told a person to upload in CommCare HQ. */
 	readonly offeredLogoContentHash: string | null;
-	/** The target's USH_EMPTY_CASE_LIST_TEXT as the last publish read it; null until a publish has read it. */
+	/** The target's empty case list text flag as the last publish read it; null until a publish has read it. */
 	readonly targetEmptyCaseListText: boolean | null;
 	/**
 	 * How many times this deployment has ended. A publish carries the count
@@ -775,10 +783,20 @@ export type DeploymentIdentityOverride = WireIdentityOverride;
 
 /** What Nova's upload owned inside the overlay keys when a baseline was recorded. */
 export interface AppOwnership {
+	/**
+	 * The baseline's read holds no menu layout the document lacks, so the
+	 * layouts Nova writes are accounted for (`legacyMenuLayouts.ts`). Absent
+	 * on every baseline written before Nova wrote them.
+	 */
+	readonly menuLayouts?: true;
 	readonly addOns: readonly string[];
 	readonly profileProperties: readonly string[];
 	readonly profileCustomProperties: readonly string[];
+	/** Absent on baselines recorded before Nova authored profile features. */
+	readonly profileFeatures?: readonly string[];
 	readonly autoGpsCapture: boolean;
+	/** Absent on baselines recorded before Nova owned case sharing. */
+	readonly caseSharing?: boolean;
 }
 
 /**
@@ -806,6 +824,18 @@ export interface PreviewDeploymentAnswer {
 	readonly targetFacts: PreviewTargetFacts | null;
 }
 
+/** The exact accessible baseline and published revision a certified comparison describes. */
+export interface DeploymentFoldBinding {
+	readonly deploymentId: string;
+	readonly appId: string;
+	readonly projectId: string;
+	readonly remoteAppId: string;
+	readonly mappingToken: string;
+	readonly sourceDigest: string;
+	readonly novaRevision: number;
+	readonly foldSeq: number;
+}
+
 /** The app as CommCare HQ returned it when Nova last read it, or the fact that Nova could not read it. */
 export type AppBaseline =
 	| {
@@ -823,9 +853,27 @@ export type AppBaseline =
 			readonly mediaFiles: HqMediaRecord | null;
 			/** The row's `source_bytes`. */
 			readonly sourceBytes: number;
+			/** The target has accepted first- or next-publish changes to preserve across passive reads. */
+			readonly hasPublishList?: true;
+			readonly hasFileRemovalWarning?: true;
+			/** An older first-publish card may predate the source left by a passive Refresh. */
+			readonly firstPublishReview?: "required" | "current";
+			readonly unverifiedNextChanges?: StoredFirstPublish["ids"];
+			/** The stored list's changes a person's answer to a review made
+			 *  (`ANSWERED_FIRST_PUBLISH_CHANGES`), which a later list keeps only from here. */
+			readonly answeredPublishChanges?: StoredFirstPublish["ids"];
+			readonly approvedFileRemovals?: readonly string[];
+			readonly foldBinding?: DeploymentFoldBinding;
 	  }
 	| {
 			readonly origin: "unread";
+			/** An older first-publish card may predate the source left by a passive Refresh. */
+			readonly firstPublishReview?: "required" | "current";
+			readonly unverifiedNextChanges?: StoredFirstPublish["ids"];
+			/** The stored list's changes a person's answer to a review made
+			 *  (`ANSWERED_FIRST_PUBLISH_CHANGES`), which a later list keeps only from here. */
+			readonly answeredPublishChanges?: StoredFirstPublish["ids"];
+			readonly approvedFileRemovals?: readonly string[];
 			readonly remoteAppId: string;
 			readonly observedAt: string;
 			readonly observedBy: string;
@@ -846,6 +894,7 @@ export type AppBaseline =
 
 /** A lookup table as CommCare HQ returned it, without its row values. */
 export interface CanonicalLookupTable {
+	readonly source?: LookupSourceFacts;
 	readonly remoteId: string;
 	readonly tag: string;
 	readonly isGlobal: boolean;
@@ -854,7 +903,7 @@ export interface CanonicalLookupTable {
 		readonly properties: readonly string[];
 	}[];
 	readonly itemAttributes: readonly string[];
-	readonly rowCount: number;
+	readonly rowCount: number | null;
 	/** sha256 over the rows in HQ's order. */
 	readonly rowsDigest: string;
 	/** sha256 over tag, isGlobal, fields and itemAttributes. */
@@ -865,6 +914,14 @@ export interface CanonicalLookupTable {
 
 /** A place as CommCare HQ returned it, restricted to what a push modeled. */
 export interface CanonicalPlace {
+	/** A reviewed pending native workbook, anchored to this observed destination. */
+	readonly pendingExternalId?: string | null;
+	readonly observed?: {
+		readonly externalId: string | null;
+		readonly nameIsNull: boolean;
+		readonly keys: string;
+		readonly wire: string;
+	};
 	readonly remoteId: string;
 	readonly name: string;
 	readonly siteCode: string;
@@ -975,11 +1032,7 @@ export const stopPublishingSchema = deploymentTargetSchema.extend({
 export type StopPublishingRequest = z.infer<typeof stopPublishingSchema>;
 
 /** An organization level's code, the subject of a `worker-level` confirmation. */
-export const organizationLevelCodeSchema = z
-	.string()
-	.min(1)
-	.max(LEVEL_CODE_MAX_LENGTH)
-	.regex(LEVEL_CODE_PATTERN);
+export const organizationLevelCodeSchema = organizationLevelSchema.shape.code;
 
 /** One confirmation key as a caller states it, in the vocabulary a refusal named. */
 export const deploymentConfirmationKeySchema = z.discriminatedUnion("kind", [

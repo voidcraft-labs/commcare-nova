@@ -19,6 +19,7 @@ gives the menu where it reads one.
 from __future__ import annotations
 
 from proof.matrix import ops
+from proof.matrix.bases.lookups import changes_lookup_data
 
 XFORMS = "http://www.w3.org/2002/xforms"
 SESSION = "instance('commcaresession')/session"
@@ -1192,3 +1193,96 @@ def amr_sound(authoring, app_id):
 def mkv_vp8_video(authoring, app_id):
     """``animal_name``'s video a Matroska file of VP8 video (``media.py::mkv_of``)."""
     _held_file(authoring, app_id, MKV_VIDEO, "animal_name-label", "video", "mkv-vp8-video")
+
+
+def search_button_condition_reading_region(authoring, app_id):
+    """``Site search``'s search saved on its Search options as a person saves it, its search button shown where a zone's
+    ``région`` reads ``Upland``: HQ's page checks the condition with js-xpath before it saves
+    (``views/modules.py::_check_xpath``) and refuses a name outside its unaccented names."""
+    import json
+
+    from proof.hq import operations
+
+    search = {
+        "properties": [{"name": "zone", "label": "Zone", "hint": "", "appearance": "", "receiver_expression": ""}],
+        "default_properties": [],
+        "custom_sort_properties": [],
+        "title_label": "",
+        "description": "",
+        "auto_launch": True,
+        "default_search": False,
+        "inline_search": False,
+        "search_button_display_condition": (
+            "instance('item-list:zones')/zones_list/zones[code = 'upland'][1]/région = 'Upland'"
+        ),
+        "blacklisted_owner_ids_expression": "",
+    }
+    module = operations.held_app(authoring.state, app_id).get_module(1)
+    body, content_type = ops.form_body([("type", json.dumps("case")), ("search_properties", json.dumps(search))])
+    ops.post(
+        authoring,
+        "edit_module_detail_screens",
+        [app_id, module.unique_id],
+        body,
+        content_type,
+        "the search options of menu 1",
+    )
+
+
+def _project_space_table(authoring, tag, what):
+    """A table tagged ``tag`` made in the project space as HQ's table page saves one, beside a table sorting after
+    every tag here (``zz_after``): HQ's form builder indexes the project space's tables by tag, and a table breaks
+    the builder only where an id follows its own (``lib/lookup/constants.ts::FORM_BUILDER_COLLIDING_TAGS``)."""
+    from corehq.apps.fixtures.models import Field, LookupTable, LookupTableRow, TypeField
+
+    state = authoring.state
+    with authoring.step(f"variant:table:{what}", tag.encode()):
+        for made_tag in (tag, "zz_after"):
+            if LookupTable.objects.filter(domain=state.domain, tag=made_tag).exists():
+                continue
+            made = LookupTable.objects.create(
+                domain=state.domain,
+                tag=made_tag,
+                is_global=True,
+                fields=[TypeField(name="code", properties=[], is_indexed=False)],
+                item_attributes=[],
+            )
+            LookupTableRow.objects.create(
+                domain=state.domain,
+                table=made,
+                fields={"code": [Field(value="upland", properties={})]},
+                item_attributes={},
+                sort_key=0,
+            )
+
+
+def _table_read_by_a_form(authoring, app_id, tag, what):
+    """``hq-lookup-name-lists``: a project space table tagged ``tag`` (``_project_space_table``), and the Sites
+    follow-up form's ``note`` shown where it holds a row, its instance declared under its bare tag, as HQ's form
+    builder declares a lookup table's."""
+    _project_space_table(authoring, tag, what)
+    source = f"item-list:{tag}"
+    _expression(
+        authoring,
+        app_id,
+        0,
+        1,
+        "/data/note",
+        "relevant",
+        f"count(instance('{tag}')/{tag}_list/{tag}) > 0",
+        what,
+        declare=((tag, f"jr://fixture/{source}"),),
+    )
+
+
+@changes_lookup_data
+def has_own_property_table(authoring, app_id):
+    """A project space table tagged ``hasOwnProperty``, under which no form there opens in HQ's form builder
+    (finding 78)."""
+    _project_space_table(authoring, "hasOwnProperty", "has-own-property-table")
+
+
+@changes_lookup_data
+def proto_table_read_by_a_form(authoring, app_id):
+    """A table tagged ``__proto__`` a form reads, whose declaration HQ's form builder drops (finding 79)."""
+    _table_read_by_a_form(authoring, app_id, "__proto__", "proto-table")

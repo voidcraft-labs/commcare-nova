@@ -180,11 +180,11 @@ describe("a tree the dialect has no spelling for", () => {
 			],
 		});
 		const menu = doc.moduleOrder[0] as Uuid;
-		const query: Expression = {
+		const query = (source: "casedb" | "search-results"): Expression => ({
 			kind: "count",
 			via: {
 				kind: "cases",
-				source: "casedb",
+				source,
 				where: [
 					{
 						kind: "eq",
@@ -196,18 +196,21 @@ describe("a tree the dialect has no spelling for", () => {
 					},
 				],
 			},
-		};
-		expect(
+		});
+		const judge = (source: "casedb" | "search-results") =>
 			recordDialectRoundTrip(
 				doc,
 				{ entity: "module", uuid: menu, slot: "module_display_condition" },
 				{
 					kind: "gt",
-					left: query,
+					left: query(source),
 					right: { kind: "term", term: { kind: "literal", value: 0 } },
 				},
 				new Map(),
-			),
-		).toBe("cases");
+			);
+		// A menu counts the records restored to the device, and reads that count back.
+		expect(judge("casedb")).toBeUndefined();
+		// No menu reads a search's results, so the dialect has no spelling for them.
+		expect(judge("search-results")).toBe("cases");
 	});
 });

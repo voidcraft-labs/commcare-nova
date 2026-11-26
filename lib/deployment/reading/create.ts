@@ -1,4 +1,5 @@
 import "server-only";
+import { lookupBindingNames } from "./projectData/lookupTables";
 
 /**
  * One create of an app brought in from CommCare HQ: the app is read and
@@ -36,7 +37,7 @@ import { getAppDb, withAppTx } from "@/lib/db/pg";
 import { getHqCredentials } from "@/lib/db/settings";
 import type { Mutation } from "@/lib/doc/types";
 import type { MediaAssetId } from "@/lib/domain/multimedia";
-import { ownRecordValue } from "@/lib/domain/records";
+import { NO_ENTRIES, ownRecordValue } from "@/lib/domain/records";
 import { log } from "@/lib/logger";
 import { LookupError } from "@/lib/lookup/errors";
 import { MediaPublishPermissionError } from "@/lib/media/publishReadyMedia";
@@ -51,6 +52,7 @@ import {
 	adoptedAppReceipt,
 	adoptedDeploymentWrite,
 	adoptHqAppInTransaction,
+	BirthRoleChangedError,
 	readBackAdoptedAppReceipt,
 } from "./birth";
 import {
@@ -69,7 +71,13 @@ import {
 	underTableChoices,
 } from "./projectData";
 import { BroughtInTableChangedError } from "./projectData/lookupTableStore";
-import { publishKeptReadingMedia } from "./projectData/mediaStore";
+import {
+	type MediaStaging,
+	projectMediaStaging,
+	publishStagedReadingMedia,
+} from "./projectData/mediaStore";
+import { workerOwnerMutations } from "./projectData/ownerRules";
+import { resolveOwnerRuleChoices } from "./projectData/reviewTypes";
 import type { BringInActor } from "./read";
 import { type BringInRoom, noRoomFinding, withBringInRoom } from "./room";
 import type {
@@ -128,16 +136,9 @@ export function movedBindingCount(
 			continue;
 		}
 		const fields = ownRecordValue(lookupFields, tag) ?? [];
-		const columnOf = (
-			columns: typeof before.columns,
-			field: string,
-		): string | undefined => ownRecordValue(columns, field);
-		if (
-			fields.some(
-				(field) =>
-					columnOf(before.columns, field) !== columnOf(after.columns, field),
-			)
-		)
+		const oldIds = lookupBindingNames(before),
+			newIds = lookupBindingNames(after);
+		if (fields.some((name) => oldIds.get(name) !== newIds.get(name)))
 			moved += 1;
 	}
 	return moved;
@@ -195,7 +196,9 @@ function heldFileCount(gathered: Gathered): number {
 /**
  * One create. It takes no `cancel`: once asked, it runs to its end. Where the process has no
  * room for what it reads (`room.ts`), it stops reading, writes nothing, and answers `held` with
- * `nova-busy`. Every write comes after `beginWrites`, after which nothing stops it.
+ * `nova-busy`. Every write comes after `beginWrites`, after which nothing stops it, but the
+ * staging of each held media file as it is judged: temporary objects no surface lists, which
+ * the publish promotes and the create deletes however it ends.
  */
 export function createFromReview(
 	actor: BringInActor,
@@ -204,7 +207,15 @@ export function createFromReview(
 ): Promise<CreateAnswer> {
 	return withBringInRoom(
 		"create",
-		(room) => createInRoom(actor, input, options, room),
+		async (room) => {
+			/* What the create staged and did not publish is deleted however it ends. */
+			const staging = projectMediaStaging(input.projectId);
+			try {
+				return await createInRoom(actor, input, options, room, staging);
+			} finally {
+				await staging.discard();
+			}
+		},
 		() => ({ kind: "held", finding: noRoomFinding() }),
 	);
 }
@@ -214,6 +225,7 @@ async function createInRoom(
 	input: BringInInput,
 	options: { readonly onEvent: (event: ReadingEvent) => void },
 	room: BringInRoom,
+	staging: MediaStaging,
 ): Promise<CreateAnswer> {
 	if (input.projectId !== actor.projectId)
 		throw new Error(KEY_IN_ANOTHER_PROJECT);
@@ -318,13 +330,13 @@ async function createInRoom(
 	if (appName.length < 1 || appName.length > 255)
 		return refused("name_missing");
 
-	/* 4. The read, again, keeping the bytes of each held file. */
+	/* 4. The read, again, staging the bytes of each held content. */
 	const gathering = await gatherReading({
 		actor,
 		key,
 		readingId: input.readingId,
 		appId,
-		keepMedia: true,
+		stageMedia: staging,
 		onEvent,
 		cancel: room.signal,
 	});
@@ -369,6 +381,16 @@ async function createInRoom(
 				? "choice_not_offered"
 				: "choice_missing",
 		);
+	const ownerRules = resolveOwnerRuleChoices(
+		review.ownerRules,
+		input.ownerRuleChoices ?? NO_ENTRIES,
+	);
+	if (!ownerRules.ok)
+		return refused(
+			ownerRules.notOffered.length > 0
+				? "choice_not_offered"
+				: "choice_missing",
+		);
 	const answeredData = underTableChoices(
 		gathered.fetched.data,
 		tableChoices.choices,
@@ -381,7 +403,7 @@ async function createInRoom(
 	if (moved > 0)
 		return checkFailed("bindings", [], bindingsMoved(appId, moved));
 
-	/* 7. Publish: the first write, so the room stops nothing from here on. */
+	/* 7. Publish: the first write any surface lists, so the room stops nothing from here on. */
 	room.beginWrites();
 	let plan = gathered.media;
 	const held = heldFileCount(gathered);
@@ -389,7 +411,7 @@ async function createInRoom(
 		onEvent({ type: "stage", stage: "bringing-in-media" });
 		onEvent({ type: "files", done: 0, total: held });
 		try {
-			plan = await publishKeptReadingMedia({
+			plan = await publishStagedReadingMedia({
 				projectId: key.projectId,
 				actorUserId: actor.userId,
 				plan,
@@ -418,6 +440,7 @@ async function createInRoom(
 			key,
 			fetched: { ...gathered.fetched, data: answeredData },
 			media: plan,
+			actorRole: actor.role,
 			actorUserId: actor.userId,
 		});
 		facts = {
@@ -452,7 +475,13 @@ async function createInRoom(
 			declaration.splitDatetime === input.splitDatetime,
 	);
 	if (chosen === undefined) return checkFailed("integrity", []);
-	const batch: Mutation[] = [...born.accepted.batch, ...chosen.mutations];
+	/* The explicit owner rule the person chose for each level the places cannot satisfy, given
+	 * before the gate, so the birth's organization check meets only rules that hold. */
+	const batch: Mutation[] = [
+		...born.accepted.batch,
+		...chosen.mutations,
+		...workerOwnerMutations(chosen.doc, ownerRules.levels),
+	];
 	if (appName !== born.draft.doc.appName)
 		batch.push({ kind: "setAppName", name: appName });
 	const candidate = prepareGenesisCandidate({
@@ -492,6 +521,7 @@ async function createInRoom(
 	try {
 		outcome = await withAppTx((tx) =>
 			adoptHqAppInTransaction(tx, {
+				reviewedRole: actor.role,
 				actorUserId: actor.userId,
 				runId,
 				candidate,
@@ -506,6 +536,8 @@ async function createInRoom(
 			}),
 		);
 	} catch (error) {
+		if (error instanceof BirthRoleChangedError)
+			return settle({ kind: "read-again" });
 		if (isAppIdConflict(error)) return answered(await readBack());
 		if (error instanceof HqAppAlreadyClaimedError)
 			return settle({

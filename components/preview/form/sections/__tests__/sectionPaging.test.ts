@@ -71,7 +71,11 @@ describe("pagesToValidate", () => {
 		expect(pagesToValidate(visible, c.path, c.path)).toEqual([]);
 	});
 
-	it("asks nothing when either end is not a visible page", () => {
+	it("validates visible pages after the current page becomes hidden", () => {
+		expect(pagesToValidate(ALL, b.path, d.path)).toEqual([c]);
+	});
+
+	it("asks nothing when either end is missing from the form", () => {
 		expect(pagesToValidate(visible, b.path, d.path)).toEqual([]);
 		expect(pagesToValidate(visible, a.path, b.path)).toEqual([]);
 	});

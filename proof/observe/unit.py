@@ -200,11 +200,14 @@ def _request(root, directory, name):
     sidecar = f"{directory}/{name}.json"
     meta = json.loads((root / sidecar).read_text(encoding="utf-8"))
     part = {"request.body": f"{directory}/{name}.body", "request.json": sidecar}
-    for role in ("lookups", "media"):
-        if meta.get(role) is not None:
-            base = meta[role].removesuffix(".body")
-            part[f"{role}.body"] = f"{directory}/{base}.body"
-            part[f"{role}.json"] = f"{directory}/{base}.json"
+    named = [(role, meta[role]) for role in ("lookups", "media") if role in meta]
+    named.extend(
+        ("media" if i == 0 else f"media-{i + 1}", batch["body"]) for i, batch in enumerate(meta.get("mediaBatches", []))
+    )
+    for role, body in named:
+        base = body.removesuffix(".body")
+        part[f"{role}.body"] = f"{directory}/{base}.body"
+        part[f"{role}.json"] = f"{directory}/{base}.json"
     return part
 
 
@@ -828,10 +831,23 @@ class _Unit:
         where the import names none."""
         from proof.observe import publish
 
-        if captured.media is None:
-            return None
-        with ops("media", publish.captured_digest(captured.media)):
-            return publish.upload_media(self.unit, self.app_id, captured.media, counter=captured.media_save_counter)
+        publish.hold_media_bytes(
+            self.unit, self.app_id, {f"jr://file/{path}": sha for path, sha in captured.meta.get("verifiedMedia", {}).items()}
+        )
+        report = None
+        for request, counter in captured.media_uploads():
+            with ops("media", publish.captured_digest(request)):
+                batch = publish.upload_media(self.unit, self.app_id, request, counter=counter)
+            if report is None:
+                report = batch
+            elif batch["refused"]:
+                report["refused"] = batch["refused"]
+            else:
+                for key in ("matched", "unmatched", "skipped", "errors"):
+                    report[key].extend(batch[key])
+            if batch["refused"] or batch["unmatched"] or batch["errors"]:
+                break
+        return report
 
     def create_a(self, ops, *, full):
         """A, as the ``a`` record's ``create`` (and ``hqSide``, ``apiReads``, ``state``) holds it: Nova's first
@@ -928,7 +944,8 @@ class _Unit:
         ``reads:project-spaces``. At ``authored``, what a first reading asks
         beyond the app, as ``proof/matrix/retain.py`` makes those reads of the
         base it retains: the lookup table list and each listed table's rows,
-        the levels and the places, in the operation ``reads:project-data``,
+        each row's detail where the plain list cannot carry the table
+        (``operations.lookup_detail_targets``), the levels and the places, in the operation ``reads:project-data``,
         and each mapped file at the address HQ gives its map item
         (``HQMediaMapItem.url``) in the operation ``reads:media``, through
         ``operations.media_file_read``, which keeps the bytes HQ sent. At
@@ -938,7 +955,7 @@ class _Unit:
         review it holds to them.
 
         Returns ``{"source", "application", "currentVersion", "projectSpaces":
-        {"all", "flagged"}, "projectData"?: {"lookupTables", "fixtureRows":
+        {"all", "flagged", "caseListActions"}, "projectData"?: {"lookupTables", "fixtureRows":
         {<tag>: ...}, "locationTypes", "locations"}, "media"?: [{"path",
         "mediaType", "multimediaId", "status", "sha256", "length"}]}``, each
         answer a blob of it as ``HqAnswer.retained`` writes it, a file's bytes
@@ -976,13 +993,30 @@ class _Unit:
                 ("currentVersion", operations.current_version_read),
             ):
                 with ops(f"reads:{label}", name.encode()):
-                    found[name] = kept(read(unit, app_id, credential))
+                    answer = read(unit, app_id, credential)
+                    found[name] = kept(answer)
+                    if name == "source":
+                        source = answer
+            with ops("reads:source-factories", label.encode()):
+                factory_reads = {
+                    path: kept(answer)
+                    for path, answer in operations.source_factory_answers(unit, app_id, credential, source)
+                }
+                if factory_reads:
+                    found["sourceFactoryReads"] = factory_reads
             with ops("reads:project-spaces", label.encode()):
                 found["projectSpaces"] = {
                     "all": kept(operations.project_spaces_read(unit, credential)),
                     "flagged": kept(
                         operations.project_spaces_read(
                             unit, credential, feature_flag=toggles.SAVE_ONLY_EDITED_FORM_FIELDS.slug
+                        )
+                    ),
+                    # A reading asks it for a list action's condition, a parent's follow-up or an empty button
+                    # (``lib/commcare/hq/caseListActionSetting.ts``).
+                    "caseListActions": kept(
+                        operations.project_spaces_read(
+                            unit, credential, feature_flag=toggles.FOLLOWUP_FORMS_AS_CASE_LIST_FORM.slug
                         )
                     ),
                 }
@@ -1000,13 +1034,22 @@ class _Unit:
         with ops("reads:project-data", b"project-data"):
             listed = operations.lookup_tables_read(unit, credential)
             tables = json.loads(listed.body).get("objects", []) if listed.status == 200 else []
+            rows_read = {table["tag"]: operations.fixture_rows_read(unit, table["id"], credential) for table in tables}
+            # The detail reads of a table a plain row list cannot carry, as retain.py makes them of a base.
+            details = {"lookupDefinitions": {}, "fixtureDetails": {}}
+            for table in tables:
+                listed_rows = rows_read[table["tag"]]
+                rows = json.loads(listed_rows.body).get("objects", []) if listed_rows.status == 200 else []
+                for kind, resource, remote_id in operations.lookup_detail_targets(table, rows):
+                    answer = operations.lookup_detail_read(unit, resource, remote_id, credential)
+                    details[f"{kind}s"][remote_id] = kept(answer)
             data = {
                 "lookupTables": kept(listed),
-                "fixtureRows": {
-                    table["tag"]: kept(operations.fixture_rows_read(unit, table["id"], credential)) for table in tables
-                },
+                "fixtureRows": {tag: kept(answer) for tag, answer in rows_read.items()},
+                **{kind: found for kind, found in details.items() if found},
                 "locationTypes": kept(operations.location_types_read(unit, credential)),
                 "locations": kept(operations.locations_read(unit, credential)),
+                "locationsV1": kept(operations.location_external_ids_read(unit, credential)),
             }
         return data
 

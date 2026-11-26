@@ -1,4 +1,5 @@
 import type { SyntaxNode } from "@lezer/common";
+import { coreNameTokens, storedNameTokens } from "./coreNameTokens";
 import { parser } from "./parser";
 
 interface Bounds {
@@ -51,6 +52,37 @@ export type FormSyntax = Bounds &
 		  }
 	);
 
+/** Core takes precisely one XPathStringLiteral as an instance path root
+ * (XPathPathExpr.getReference): parentheses around the literal do not supply
+ * another argument. Return the literal itself to retain its source span. */
+export function literalInstanceId(
+	node: FormSyntax | undefined,
+): Extract<FormSyntax, { kind: "string" }> | undefined {
+	if (
+		node?.kind !== "call" ||
+		node.name !== "instance" ||
+		node.args.length !== 1
+	)
+		return undefined;
+	let argument = node.args[0];
+	while (argument.kind === "group") argument = argument.value;
+	return argument.kind === "string" ? argument : undefined;
+}
+
+/** HQ's scanner requires the call's opening parenthesis immediately after
+ * its name, and a literal directly inside it. Core ignores both distinctions. */
+export function needsInstanceDeclaration(
+	node: FormSyntax,
+	text: string,
+): boolean {
+	const id = literalInstanceId(node);
+	return (
+		node.kind === "call" &&
+		id !== undefined &&
+		(node.args[0] !== id || !text.startsWith("instance(", node.from))
+	);
+}
+
 export interface FormSyntaxIssue extends Bounds {
 	readonly message: string;
 }
@@ -94,9 +126,16 @@ function children(node: SyntaxNode): SyntaxNode[] {
 
 /** One structural reading of the production Lezer grammar. Grouping is kept
  * here for semantic chain boundaries and occurrence matching, never stored. */
-export function readFormSyntax(source: string): FormSyntaxResult {
+const storedNameParser = parser.configure({
+	tokenizers: [{ from: coreNameTokens, to: storedNameTokens }],
+});
+
+export function readFormSyntax(
+	source: string,
+	names: "runtime" | "stored-xml" = "runtime",
+): FormSyntaxResult {
 	if (source.trim().length === 0) return { ok: true, node: undefined };
-	const tree = parser.parse(source);
+	const tree = (names === "runtime" ? parser : storedNameParser).parse(source);
 	const issues: FormSyntaxIssue[] = [];
 	tree.iterate({
 		enter(node) {
@@ -400,5 +439,37 @@ export function matchFormSyntax(
 			if (after.kind === "call" && before.name === after.name)
 				arrays(before.args, after.args);
 			break;
+	}
+}
+
+/** Every node of a syntax tree, pre-order. */
+export function visitSyntax(
+	node: FormSyntax,
+	visit: (node: FormSyntax) => void,
+): void {
+	visit(node);
+	switch (node.kind) {
+		case "group":
+		case "negative":
+		case "axis":
+			visitSyntax(node.value, visit);
+			return;
+		case "child":
+			if (node.left !== undefined) visitSyntax(node.left, visit);
+			visitSyntax(node.step, visit);
+			return;
+		case "filter":
+			visitSyntax(node.base, visit);
+			visitSyntax(node.where, visit);
+			return;
+		case "binary":
+			visitSyntax(node.left, visit);
+			visitSyntax(node.right, visit);
+			return;
+		case "call":
+			for (const arg of node.args) visitSyntax(arg, visit);
+			return;
+		default:
+			return;
 	}
 }

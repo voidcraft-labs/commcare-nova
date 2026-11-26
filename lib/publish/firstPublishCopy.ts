@@ -77,13 +77,13 @@ export const FIRST_PUBLISH_SENTENCES: Readonly<
 	"link-held-case-guards-added":
 		"A form that opens another form with a case it carries will open it only when that case is on the device. Nova adds that check to each such link.",
 	"registration-label-fixed":
-		"A Register button that had no text of its own in CommCare HQ, in every language or in just one, now always reads “Create a new Case” there. Before, CommCare HQ filled in the words each time it made a build, so they could differ between builds. You can change the text in Nova.",
+		"A Register button that had no text of its own in CommCare HQ, in every language or in just one, now always reads the words CommCare HQ showed for it there. Before, CommCare HQ filled in the words each time it made a build, so they could differ between builds. You can change the text in Nova.",
 	"date-and-time-saved-as-hq-stores-it":
 		"A date and time that a form saves to a case is now written the way CommCare HQ stores it. Before, a phone wrote it in its own time zone for the cases it saved, so a list sorted by that date and time could show those cases out of place.",
 	"connect-app-captures-location":
 		"Nova turns on Auto Capture Location for this CommCare Connect app in CommCare HQ. On Android, each submitted form includes the worker's location when the app has location permission and the device gets a GPS fix. When a delivery form reaches CommCare Connect, its visit records that location. If the opportunity checks for missing GPS, the visit passes that check.",
-	"translation-overrides-folded":
-		"A wording set in CommCare HQ's app translations for one of the app's texts, such as a menu's name, a case list column's header or a Search field's label, becomes that text in Nova. Workers read the same words.",
+	"unused-translation-keys-removed":
+		"Nova removes some wordings saved in CommCare HQ's app translations that change nothing: each is blank, names nothing in this app, or matches the text CommCare HQ writes there anyway. Workers read the same words.",
 	"location-list-setting-reset":
 		"This app's own setting for the location list goes back to the project space's default. The app reads places the same way.",
 	"web-apps-turned-off":
@@ -120,6 +120,8 @@ export const FIRST_PUBLISH_SENTENCES: Readonly<
 		"Each form's title now holds the form's name. On Android, a saved form a worker opens again shows that name at the top, where it showed no title or an older name before.",
 	"unread-fixture-declarations-dropped":
 		"A form no longer asks for data it never reads, such as a mobile report or the list of places. Where a worker's phone or Web Apps doesn't have that data, the form couldn't open before, and now it opens.",
+	"owner-rule-given-to-worker":
+		"Cases a form gave to a place in your organization now belong to the worker who fills in the form, as you chose in Nova. CommCare HQ's places held no single place for them.",
 };
 
 /** One line of a list: the id whose sentence it shows, and that sentence. */
@@ -191,14 +193,21 @@ export function firstPublishLines(
 	const nextPublish = view.of === "next-publish";
 	return {
 		heading: nextPublish ? NEXT_PUBLISH_HEADING : FIRST_PUBLISH_HEADING,
-		lead: nextPublish
-			? NEXT_PUBLISH_DIALOG_LEAD
-			: surface === "review"
-				? FIRST_PUBLISH_LEAD_REVIEW
-				: FIRST_PUBLISH_LEAD_PUBLISH,
+		lead: view.needsReview
+			? nextPublish
+				? "You can review changes from CommCare HQ to see what the next publish would change."
+				: "You can review changes from CommCare HQ to see what this first publish would change."
+			: nextPublish
+				? NEXT_PUBLISH_DIALOG_LEAD
+				: surface === "review"
+					? FIRST_PUBLISH_LEAD_REVIEW
+					: FIRST_PUBLISH_LEAD_PUBLISH,
 		workers: { label: FIRST_PUBLISH_WORKERS_LABEL, lines: workers },
 		hqOnly: { label: FIRST_PUBLISH_HQ_LABEL, lines: hqOnly },
-		reassurance: view.touchesWorkers ? null : FIRST_PUBLISH_NO_WORKER_CHANGE,
+		reassurance:
+			view.touchesWorkers || view.needsReview
+				? null
+				: FIRST_PUBLISH_NO_WORKER_CHANGE,
 		note: FIRST_PUBLISH_FORM_BUILDER_NOTE,
 	};
 }

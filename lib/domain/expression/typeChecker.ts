@@ -1,6 +1,8 @@
 /** One semantic walk over the stored expression tree. Slot admission, scalar
  * rules and native held classes share the same lexical contexts and cache. */
+
 import type { CasePropertyDataType } from "../casePropertyTypes";
+import { reachedPropertyType } from "../columnRelation";
 import { COMMCARE_DATE_PATTERN_REGEX } from "../commCareDatePattern";
 import {
 	FUNCTION_REGISTRY,
@@ -9,6 +11,7 @@ import {
 } from "../expressionFunctions";
 import { isCaptureFieldKind } from "../fields";
 import type { TranslationUnitId } from "../localization";
+import { lookupReadType } from "../lookupRead";
 import {
 	expressionLeafFeature,
 	type Platform,
@@ -16,6 +19,7 @@ import {
 	platformRefusalMessage,
 	unavailablePlatform,
 } from "../platforms";
+import { isPortableName } from "../portableName";
 import {
 	isSearchOnlyCaseProperty,
 	SEARCH_ONLY_CASE_PROPERTY_DATA_TYPES,
@@ -83,6 +87,7 @@ import {
 	TIME_ORDERING_MESSAGE,
 	typesCompatible,
 } from "./ruleSets";
+import { searchIndexedComparison } from "./searchIndexedComparison";
 import { walkSearchRuntimeValues } from "./searchRuntimeValues";
 import {
 	type CheckPath,
@@ -104,7 +109,13 @@ export type ScalarType = CasePropertyDataType | "boolean" | "_any";
 export type ExpressionType =
 	| ScalarType
 	| {
-			readonly nodes: ScalarType | "case" | "table" | "location" | "repeat";
+			readonly nodes:
+				| ScalarType
+				| "case"
+				| "table"
+				| "location"
+				| "worker-group"
+				| "repeat";
 			readonly cardinality: "one" | "many";
 			/** Several nodes by the app's shape, not its data: a form read that
 			 * crosses a repeat its context is not inside, or `selected-cases`. */
@@ -352,7 +363,7 @@ function scalar(
 	return { data, held, ...(caseIdOf === undefined ? {} : { caseIdOf }) };
 }
 function nodes(
-	data: ScalarType | "case" | "table" | "location" | "repeat",
+	data: ScalarType | "case" | "table" | "location" | "worker-group" | "repeat",
 	held: ScalarHeld = "string",
 	cardinality: "one" | "many" = "one",
 	caseIdOf?: string,
@@ -395,20 +406,22 @@ function rebind(
 		const queryRow: RecordQueryRowScope =
 			row.kind === "case"
 				? { kind: "case", caseType: row.caseType }
-				: row.kind === "location"
-					? { kind: "location" }
-					: {
-							kind: "table",
-							tableId: row.tableId,
-							...(row.capturedCase === undefined
-								? {}
-								: {
-										capturedCase: {
-											kind: "case",
-											caseType: row.capturedCase.caseType,
-										},
-									}),
-						};
+				: row.kind === "worker-group"
+					? { kind: "worker-group" }
+					: row.kind === "location"
+						? { kind: "location" }
+						: {
+								kind: "table",
+								tableId: row.tableId,
+								...(row.capturedCase === undefined
+									? {}
+									: {
+											capturedCase: {
+												kind: "case",
+												caseType: row.capturedCase.caseType,
+											},
+										}),
+							};
 		return pushRowScope(ctx, queryRow);
 	}
 	if (!("root" in row))
@@ -466,7 +479,7 @@ function infer(
 	// being validated. The dependency checker reports the cycle; inference
 	// remains unknown rather than recursively manufacturing a type.
 	byPosition.set(key, { type: undefined, errors: [] });
-	const refusal = admission(expression, ctx, position);
+	const refusal = admission(expression, ctx, position, whole);
 	if (refusal !== undefined) {
 		const outcome = { type: undefined, errors: [refusal] };
 		byPosition.set(key, outcome);
@@ -485,7 +498,17 @@ function infer(
 		const verdict = recordPositionVerdict(
 			expression.kind,
 			position,
-			holdsOneYesNo(type),
+			holdsOneYesNo(type) ||
+				("profile" in ctx &&
+					[
+						"case_list_filter",
+						"form_display_condition",
+						"module_display_condition",
+					].includes(ctx.slot.slot) &&
+					expression.kind === "term" &&
+					(expression.term.kind === "session-user" ||
+						expression.term.kind === "session-user-property") &&
+					expression.term.source === "worker-record"),
 		);
 		if (!verdict.ok)
 			errors.unshift({
@@ -599,6 +622,7 @@ function childUse(
 		case "table-lookup":
 		case "cases":
 		case "table-rows":
+		case "worker-groups":
 		case "locations":
 		case "project":
 		case "value-list":
@@ -754,6 +778,21 @@ export function checkExpression(
 		...csqlFindings(expression, ctx),
 	];
 	const slot = ctx.slot;
+	if (slot.entity === "module" && slot.slot === "case_detail_tab_rows") {
+		const row = expressionRowScope(expression, ctx);
+		if (
+			!["cases", "table-rows", "locations"].includes(expression.kind) ||
+			!row ||
+			(row.kind === "case" && !row.caseType)
+		)
+			errors.push(
+				refusal(
+					"incompatible-values",
+					"Choose an ordered collection of cases of one type, rows of a data table, or places for this detail tab.",
+					"unresolved-detail-tab-rows",
+				),
+			);
+	}
 	if (
 		slot.entity === "form" &&
 		slot.slot === "form_link_datum_xpath" &&
@@ -922,6 +961,7 @@ function admission(
 	expression: Expression,
 	ctx: TypingContext,
 	position?: RecordPosition,
+	whole = false,
 ): CheckError | undefined {
 	if (!("profile" in ctx)) return undefined;
 	const profile = ctx.profile;
@@ -978,6 +1018,15 @@ function admission(
 				platform: { feature: leaf, platform },
 			};
 	}
+	if (
+		expression.kind === "case-text" &&
+		!ctx.caseTexts?.some((item) => item.uuid === expression.textUuid)
+	)
+		return refusal(
+			"arm-unavailable",
+			"Choose translated text that belongs to this calculated field.",
+			"case-text",
+		);
 	if (expression.kind === "itext" || expression.kind === "choice-name") {
 		const refused = formTextAdmission(expression, ctx);
 		if (refused !== undefined) return refused;
@@ -1030,6 +1079,27 @@ function admission(
 			"This record expression has no form expression spelling.",
 			expression.kind,
 		);
+	if (
+		expression.kind === "locations" &&
+		ctx.detailConditionFixtures &&
+		!ctx.detailConditionFixtures.has("places")
+	)
+		return refusal(
+			"arm-unavailable",
+			"This tab’s condition needs places on every route that opens it. Show a place value on those screens or choose a condition based on the selected case.",
+			"detail-condition-places-unavailable",
+		);
+	if (
+		(expression.kind === "table-lookup" || expression.kind === "table-rows") &&
+		ctx.detailConditionFixtures &&
+		!ctx.detailConditionFixtures.has(expression.tableId)
+	)
+		return refusal(
+			"arm-unavailable",
+			"This tab’s condition reads a table the case screen does not load. Show a value from that table in Results or Details, or choose a condition based on the selected case.",
+			"detail-condition-table-unavailable",
+		);
+
 	if (ctx.ruleSet === "record") {
 		// The case chosen in an earlier menu, read through its id: the one query a record slot evaluated after that
 		// choice admits.
@@ -1037,6 +1107,33 @@ function admission(
 			expression.kind === "project" &&
 			chosenCaseCarrier(ctx) !== undefined &&
 			chosenCaseProject(expression, ctx) !== undefined
+		)
+			return undefined;
+		// One value read from a query of the device's records: Core stops at
+		// a node-set of two or more where one value is wanted
+		// (`XPathNodeset.unpack`), and an action whose condition stops takes
+		// the list it sits on with it (`Detail.getCustomActions`,
+		// `Action.isRelevant`). The case chosen in an earlier menu is
+		// admitted above; places fall to their own refusal below, since no
+		// count of them helps here either.
+		if (
+			ctx.slot.slot === "case_list_action_condition" &&
+			expression.kind === "project" &&
+			expression.of.kind !== "locations"
+		)
+			return refusal(
+				"arm-unavailable",
+				"A list button's condition reads one value here, and these records can hold several, which stops the list for that worker. You can count them with count(...), or read the record chosen before the list.",
+				"list-action-several-values",
+			);
+		// The list action runs on the device with its own casedb, before a
+		// worker chooses a row. Explicit case queries use that snapshot.
+		if (
+			ctx.slot.slot === "case_list_action_condition" &&
+			((expression.kind === "cases" && expression.source === "casedb") ||
+				(expression.kind === "count" &&
+					expression.via.kind === "cases" &&
+					expression.via.source === "casedb"))
 		)
 			return undefined;
 		// A server search reads a query of the device's data in a value the
@@ -1051,13 +1148,18 @@ function admission(
 				(expression.kind === "count" && !isRelationPath(expression.via)))
 		)
 			return undefined;
+		const tabCollection =
+			whole &&
+			ctx.slot.entity === "module" &&
+			ctx.slot.slot === "case_detail_tab_rows";
 		// Places reach the device as the `locations` fixture, which an XForm
 		// or a form link's source entry declares; no menu, case list or
 		// search setting declares it, so none of them can read places.
 		if (
-			expression.kind === "locations" ||
-			(expression.kind === "count" && expression.via.kind === "locations") ||
-			(expression.kind === "project" && expression.of.kind === "locations")
+			!tabCollection &&
+			(expression.kind === "locations" ||
+				(expression.kind === "count" && expression.via.kind === "locations") ||
+				(expression.kind === "project" && expression.of.kind === "locations"))
 		)
 			return refusal(
 				"arm-unavailable",
@@ -1065,7 +1167,47 @@ function admission(
 				"places-unavailable",
 			);
 		if (
-			["call", "cases", "table-rows", "project"].includes(expression.kind) ||
+			ctx.slot.slot === "form_display_condition" &&
+			expression.kind === "cases" &&
+			expression.source === "casedb" &&
+			!profile.caseData
+		)
+			return refusal(
+				"case-data-unavailable",
+				"This form is shown before a case is selected. Its visibility condition can read the worker's own record.",
+			);
+		const menuSlot = [
+			"module_display_condition",
+			"form_display_condition",
+			"module_badge",
+			"form_badge",
+		].includes(ctx.slot.slot);
+		// One value read from a query of the device's records or a table's
+		// rows: Core stops at a node-set of two or more where one value is
+		// wanted (`XPathNodeset.unpack`), and a menu that stops loads no
+		// items for that worker (`MenuLoader.getMenuDisplayables`). The case
+		// chosen in an earlier menu is admitted above.
+		if (menuSlot && expression.kind === "project")
+			return refusal(
+				"arm-unavailable",
+				"A menu's condition or badge reads one value here, and these records or table rows can hold several, which stops the whole menu for that worker. You can count them with count(...), read one table row with a table lookup, or read the worker's own record with worker-record(...).",
+				"menu-several-values",
+			);
+		if (
+			menuSlot &&
+			(expression.kind === "table-rows" ||
+				(expression.kind === "cases" &&
+					expression.source === "casedb" &&
+					profile.caseData) ||
+				(expression.kind === "count" &&
+					!isRelationPath(expression.via) &&
+					["cases", "table-rows"].includes(expression.via.kind)))
+		)
+			return undefined;
+		if (
+			["call", "project", "worker-groups"].includes(expression.kind) ||
+			(!tabCollection &&
+				(expression.kind === "cases" || expression.kind === "table-rows")) ||
 			(expression.kind === "count" && !isRelationPath(expression.via))
 		)
 			return refusal(
@@ -1129,15 +1271,6 @@ function admission(
 		return refusal(
 			"case-data-unavailable",
 			"Case information is not available before a case is chosen.",
-		);
-	if (
-		ctx.slot.entity === "form" &&
-		ctx.slot.slot === "form_display_condition" &&
-		["exists", "missing", "count"].includes(expression.kind)
-	)
-		return refusal(
-			"case-data-unavailable",
-			"A form menu can read only the case selected by its own menu.",
 		);
 	if (expression.kind === "term") return termAdmission(expression.term, ctx);
 	return undefined;
@@ -1354,9 +1487,17 @@ function termAdmission(
 				"form-node",
 				"repeat-row",
 				"case-index",
-				"location-field",
 				"location-level",
+				"worker-group-field",
 			].includes(term.kind) ||
+			(term.kind === "location-field" &&
+				!(
+					activeRowScope(ctx)?.kind === "location" &&
+					ctx.slot.entity === "module" &&
+					(ctx.slot.slot === "case_detail_tab_rows" ||
+						(ctx.slot.slot === "case_list_column_expression" &&
+							!profile.targets.has("PG")))
+				)) ||
 			// A case's type is read where a case row is in scope.
 			((term.kind === "case-type" || term.kind === "case-row-type") &&
 				activeRowScope(ctx)?.kind !== "case") ||
@@ -1400,19 +1541,32 @@ function termAdmission(
 		);
 	if (
 		term.kind === "prop" &&
-		ctx.slot.entity === "form" &&
-		ctx.slot.slot === "form_display_condition" &&
-		(term.caseType !== caseScope(ctx)?.caseType ||
-			(term.via !== undefined && term.via.kind !== "self"))
+		!caseScope(ctx) &&
+		[
+			"module_display_condition",
+			"form_display_condition",
+			"module_badge",
+			"form_badge",
+		].includes(ctx.slot.slot)
 	)
 		return refusal(
 			"case-data-unavailable",
-			"A form menu can read only the case selected by its own menu.",
+			"This menu has no selected record. You can read the worker's record or query the records on the device.",
 		);
 	// A form reads its menu's Search answers where Core keeps them: the case
 	// list registration form, and the forms of a menu whose forms read the
 	// search, whose inline query holds `search-input:results:inline`. A form
 	// link runs after the form closes, where they are gone.
+	if (
+		term.kind === "input" &&
+		ctx.ruleSet === "form" &&
+		ctx.form?.opensFromAnotherList
+	)
+		return refusal(
+			"search-answer-unavailable",
+			"Another case list opens this form without running the search that supplies this answer. You can ask for the value in the form or stop offering it from that list.",
+			"another-list",
+		);
 	if (
 		term.kind === "input" &&
 		ctx.ruleSet === "form" &&
@@ -1431,6 +1585,16 @@ function termAdmission(
 					"not-forms-read-search",
 				);
 
+	if (
+		term.kind === "owner-location-at-level" &&
+		ctx.detailConditionFixtures &&
+		!ctx.detailConditionFixtures.has("places")
+	)
+		return refusal(
+			"arm-unavailable",
+			"This tab’s condition needs places on every route that opens it. Show a place value on those screens or choose a condition based on the selected case.",
+			"detail-condition-places-unavailable",
+		);
 	if (term.kind === "session-datum") {
 		const datum = term.datum;
 		if ("module" in term.datum && !ctx.facts.moduleUuids.has(term.datum.module))
@@ -1471,6 +1635,7 @@ const HELD_SEARCH_READ_KINDS: ReadonlySet<string> = new Set([
 	"cases",
 	"table-rows",
 	"locations",
+	"worker-groups",
 	"project",
 ]);
 
@@ -1481,8 +1646,10 @@ export function chosenCaseCarrier(
 ): "case-list" | "search" | "form-display-condition" | undefined {
 	switch (ctx.slot.slot) {
 		case "case_list_filter":
+		case "case_list_action_condition":
 			return "case-list";
 		case "search_input_predicate":
+		case "case_search_filter":
 			return "search";
 		case "form_display_condition":
 			return "form-display-condition";
@@ -1813,9 +1980,13 @@ function readsRowPosition(node: Expression | Term): boolean {
 			child.kind !== "relation" &&
 			!(
 				child.kind === "expression" &&
-				["cases", "table-rows", "locations", "table-lookup"].includes(
-					child.value.kind,
-				)
+				[
+					"cases",
+					"table-rows",
+					"locations",
+					"worker-groups",
+					"table-lookup",
+				].includes(child.value.kind)
 			) &&
 			readsRowPosition(child.value),
 	);
@@ -1886,6 +2057,10 @@ export function expressionRowScope(
 			...(capturedCase === undefined ? {} : { capturedCase }),
 		} as RowScope;
 	}
+	if (expression.kind === "worker-groups")
+		return "kind" in ctx
+			? { kind: "worker-group" }
+			: { kind: "worker-group", root: "worker-groups" };
 	if (expression.kind === "locations")
 		return "kind" in ctx
 			? { kind: "location" }
@@ -1971,6 +2146,7 @@ export function expressionChildContext(
 	if (
 		(parent.kind === "cases" ||
 			parent.kind === "table-rows" ||
+			parent.kind === "worker-groups" ||
 			parent.kind === "locations" ||
 			parent.kind === "table-lookup") &&
 		child.role.kind !== "form-step-filter"
@@ -2095,6 +2271,19 @@ function inferNode(
 	): ScalarType | undefined => scalarDataType(read(value, path)?.data);
 	switch (expression.kind) {
 		case "today":
+			if (
+				expression.clock === "project-space" &&
+				(!("profile" in ctx) ||
+					ctx.ruleSet !== "record" ||
+					!serverOnlySearchSlot(ctx.profile))
+			)
+				errors.push(
+					refusal(
+						"arm-unavailable",
+						"The project space’s day is available in a search condition that runs on the server.",
+						"project-space-day",
+					),
+				);
 			return scalar("date");
 		case "now":
 			return scalar("datetime");
@@ -2511,7 +2700,7 @@ function inferNode(
 				});
 				return undefined;
 			}
-			const type = columns.get(expression.resultColumnId);
+			const type = lookupReadType(columns, expression.resultColumnId);
 			if (type === undefined)
 				errors.push({
 					path: ["table-lookup", "resultColumnId"],
@@ -2529,6 +2718,7 @@ function inferNode(
 		}
 		case "cases":
 		case "table-rows":
+		case "worker-groups":
 		case "locations": {
 			const row = expressionRowScope(expression, ctx);
 			const scoped = row === undefined ? ctx : rebind(ctx, row as RowScope);
@@ -2552,7 +2742,9 @@ function inferNode(
 					? "case"
 					: expression.kind === "table-rows"
 						? "table"
-						: "location",
+						: expression.kind === "worker-groups"
+							? "worker-group"
+							: "location",
 				"string",
 				"many",
 			);
@@ -2675,6 +2867,7 @@ function inferNode(
 				),
 				{ reason: "selected-cases", module: expression.module },
 			);
+		case "case-text":
 		case "itext":
 			return scalar("text");
 		case "choice-name":
@@ -3031,6 +3224,31 @@ function inferTerm(
 					`Property reference originating scope '${term.caseType}' must equal the current scope '${row.caseType}'.`,
 				);
 			const origin = term.caseType ?? row?.caseType;
+			// CommCare HQ's server search reaches a related record only through
+			// the record type this app declares for the link (the CSQL relation
+			// lift names it), so a condition it runs holds no reached read. A
+			// Search menu's columns and order are refused by Search's own rule
+			// (`searchRelatedCalculationCompatibility`).
+			if (term.readReached && searchesOnServer(ctx))
+				return fail(
+					"relation-destination",
+					"A search can't read whichever record a link reaches, of any type. You can read the parent through a link this app declares, or use this record's own information.",
+					"reached-in-search",
+				);
+			if (
+				term.readReached &&
+				origin !== undefined &&
+				term.via?.kind === "ancestor"
+			)
+				return nodes(
+					reachedPropertyType(
+						{ field: term.property, via: term.via.via },
+						origin,
+						ctx.facts.caseTypes,
+					),
+					"string",
+					"one",
+				);
 			const destination = resolveRelationDestination(
 				term.via,
 				origin,
@@ -3306,7 +3524,10 @@ function inferTerm(
 						? "A lookup column is available only inside its table's filter."
 						: "This rule reads a column from a different data table than the one it filters. A row rule can only read its own table's columns.",
 				);
-			const type = ctx.lookupTables.get(row.tableId)?.get(term.columnId);
+			const type = lookupReadType(
+				ctx.lookupTables.get(row.tableId),
+				term.columnId,
+			);
 			return type === undefined
 				? fail(
 						"unknown-lookup-column",
@@ -3359,6 +3580,21 @@ function inferTerm(
 						"location-level",
 					)
 				: scalar("text");
+		case "worker-group-field": {
+			if (activeRowScope(ctx)?.kind !== "worker-group")
+				return fail(
+					"row-scope",
+					"Group information needs a worker group in scope.",
+					"worker-group",
+				);
+			return nodes(
+				"text",
+				"string",
+				typeof term.field === "object" && term.field.key === undefined
+					? "many"
+					: "one",
+			);
+		}
 		case "location-field": {
 			if (activeRowScope(ctx)?.kind !== "location")
 				return fail(
@@ -3388,6 +3624,17 @@ function inferTerm(
 					"This piece of place information no longer exists.",
 					"location-property",
 				);
+			if (typeof field === "object" && "profile" in ctx) {
+				const name =
+					"level" in field
+						? ctx.facts.organizationLevels[field.level]?.code
+						: ctx.facts.locationProperties.get(field.property)?.slug;
+				if (name !== undefined && !isPortableName(name, ctx.platforms))
+					return fail(
+						"operation-context-value",
+						`A worker platform for this app cannot read the place field "${name}". Choose another field or platform.`,
+					);
+			}
 			return nodes("text", "string");
 		}
 		case "capture-link": {
@@ -3443,6 +3690,14 @@ function inferTerm(
 				return fail(
 					"operation-context-value",
 					`The destination level '${destination.name}' has no case-owning level above it to match against the current owner.`,
+				);
+			if (
+				ancestor !== undefined &&
+				!isPortableName(ancestor.code, ctx.platforms)
+			)
+				return fail(
+					"operation-context-value",
+					`A worker platform for this app cannot follow the owner path through "${ancestor.code}". Choose another owner rule or platform.`,
 				);
 			return inferTerm(
 				{ kind: "prop", caseType: term.ownerCaseType, property: "owner_id" },
@@ -3695,6 +3950,41 @@ function assignmentErrors(
 	});
 }
 
+/** A system date compared with a day: CommCare HQ's search reads the day in
+ * the project space's time zone (`comparison.py::_create_system_datetime_query`),
+ * where the day is a value and not another property of the row. */
+function systemDayComparison(
+	left: Expression,
+	right: Expression,
+	rightType: ScalarType | undefined,
+): boolean {
+	return (
+		left.kind === "term" &&
+		left.term.kind === "prop" &&
+		left.term.via === undefined &&
+		SYSTEM_DAY_PROPERTIES.has(left.term.property) &&
+		rightType === "date" &&
+		!(right.kind === "term" && right.term.kind === "prop")
+	);
+}
+function isComparisonNode(
+	node: Expression,
+): node is Extract<Expression, { kind: ComparisonKind }> {
+	return (
+		node.kind === "eq" ||
+		node.kind === "neq" ||
+		node.kind === "gt" ||
+		node.kind === "gte" ||
+		node.kind === "lt" ||
+		node.kind === "lte"
+	);
+}
+const SYSTEM_DAY_PROPERTIES: ReadonlySet<string> = new Set([
+	"date_opened",
+	"closed_on",
+	"last_modified",
+]);
+
 function checkComparison(
 	kind: ComparisonKind,
 	left: Expression,
@@ -3710,6 +4000,21 @@ function checkComparison(
 	const leftType = scalarDataType(leftNode?.data);
 	const rightType = scalarDataType(rightNode?.data);
 	if (leftType === undefined || rightType === undefined) return;
+	const serverCompares =
+		"profile" in ctx &&
+		ctx.ruleSet === "record" &&
+		serverOnlySearchSlot(ctx.profile);
+	if (
+		serverCompares &&
+		searchIndexedComparison(
+			kind === "eq" || kind === "neq",
+			left,
+			leftType,
+			right,
+			rightType,
+		)
+	)
+		return;
 	if (kind === "eq" || kind === "neq")
 		checkCaseTypeLiteral(left, right, ctx, errors, path);
 
@@ -3753,6 +4058,7 @@ function checkComparison(
 		}
 	}
 
+	if (serverCompares && systemDayComparison(left, right, rightType)) return;
 	if (!typesCompatible(leftType, rightType)) {
 		const coerced =
 			kind === "eq" || kind === "neq"
@@ -4151,8 +4457,56 @@ function csqlFindings(
 		parent: { readonly node: Expression; readonly path: CheckPath } | undefined,
 	): void => {
 		const position = csqlPositionAt(positions, path);
+		if (
+			node.kind === "today" &&
+			node.clock === "project-space" &&
+			position === "runtime"
+		) {
+			found.push({
+				...refusal(
+					"arm-unavailable",
+					"The search screen cannot read the project space’s day inside a device calculation.",
+					"project-space-day",
+				),
+				path,
+			});
+		}
 		if (node.kind === "value-list" && serverOnly)
 			valueListItems(node, path, parent, typeAt, found);
+		// HQ's own comparison rules hold where its search compares. A comparison
+		// in a value the device works out is the device's, by its own rules.
+		if (serverOnly && position === "runtime" && isComparisonNode(node)) {
+			const leftType = typeAt(node.left, [...path, "left"]);
+			const rightType = typeAt(node.right, [...path, "right"]);
+			if (
+				leftType !== undefined &&
+				rightType !== undefined &&
+				(searchIndexedComparison(
+					node.kind === "eq" || node.kind === "neq",
+					node.left,
+					leftType,
+					node.right,
+					rightType,
+				) !== undefined ||
+					systemDayComparison(node.left, node.right, rightType))
+			) {
+				const at = expressionContextAtPath(root, ctx, path);
+				checkComparison(
+					node.kind,
+					node.left,
+					node.right,
+					{
+						...at,
+						profile: {
+							...at.profile,
+							targets: new Set([...at.profile.targets, "SU"]),
+						},
+					},
+					found,
+					path,
+				);
+			}
+		}
 		if (
 			serverOnly &&
 			position !== "runtime" &&

@@ -63,10 +63,14 @@ NOVA_LABELS = {
     "user_case": "Worker records (user cases)",
     "lookup_tables": "Lookup Tables",
     "child_cases": "Child Cases",
+    "case_sharing_groups": "Case Sharing via Groups",
     "form_link_workflow": "Link to other forms in End of Form Navigation",
     "save_to_case": "Save to Case",
     "locations": "Locations",
     "data_forwarding": "Data Forwarding",
+    "app_dependencies": "App Dependencies",
+    "geocoder": "Geocoder",
+    "custom_icon_badges": "Add text or xpath based custom icon badges to menus and forms",
 }
 
 

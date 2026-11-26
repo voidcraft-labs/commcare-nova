@@ -12,6 +12,8 @@ import type { PlatformFeatureId } from "@/lib/domain/platforms";
 /** Each platform feature's manifest entries, in inventory order. */
 export const PLATFORM_FEATURE_ENTRIES = {
 	"datetime-question": ["questions/date-and-time-xsd-datetime"],
+	"worker-distance": ["menus-and-case-lists/9-distance"],
+	"sort-by-distance": ["menus-and-case-lists/type-distance"],
 	"case-list-here": [
 		"expressions-and-data/here-in-a-case-list-calculated-column-or-sort",
 	],
@@ -25,7 +27,11 @@ export const PLATFORM_FEATURE_ENTRIES = {
 		"expressions-and-data/search-input-read-in-form-expressions-of-an-inline-search-module",
 		"expressions-and-data/search-input-results-read-in-the-case-list-of-an-inline-search",
 	],
-	"list-first": ["case-search/list-first-where-web-apps-is-declared"],
+	"search-on-clear": ["case-search/search-on-clear"],
+	"list-first": [
+		"case-search/list-first-where-web-apps-is-declared",
+		"case-search/list-first-with-a-search-that-skips-to-results",
+	],
 	"several-cases": [
 		"menus-and-case-lists/detail-multi-select",
 		"menus-and-case-lists/detail-max-select-value-on-a-multi-select-basic-list",
@@ -54,6 +60,72 @@ export const PLATFORM_FEATURE_ENTRIES = {
 		"questions/question-list-unlabelled-anywhere-else",
 		"questions/groups-nested-in-a-question-list",
 	],
+	"choice-grid": [
+		"questions/select1-compact-compact-n",
+		"questions/select-compact-compact-n",
+	],
+	"choice-advance": [
+		"questions/select1-quick",
+		"questions/select1-quick-compact-n",
+	],
+	"choice-multiword": ["questions/select1-combobox-multiword"],
+	"choice-fuzzy": ["questions/select1-combobox-fuzzy"],
+	"choice-row": ["questions/select1-list", "questions/select-list"],
+	"choice-cycle": ["questions/select1-button-select"],
+	"question-receiver": [
+		"questions/select1-receive-topic-field",
+		"questions/text-receive-topic-field",
+		"questions/secret-receive-topic-field",
+	],
+	"secret-keypad": ["questions/secret-numeric"],
+	"android-keypad": ["questions/text-secret-numbers"],
+	"short-input": ["questions/short"],
+	"medium-input": ["questions/medium"],
+	"address-lookup": ["questions/text-address", "questions/secret-address"],
+	"question-sender": [
+		"questions/broadcast-topic-an-address-entry-under-the-gates-above-and",
+	],
+	"barcode-text-options": [
+		"questions/barcode-numeric-address-or-receive-topic-field",
+	],
+	"placeholder-hint": [
+		"questions/hint-as-placeholder-on-text-other-than-a-secret-without-numeric",
+	],
+	"hide-web-hint": ["questions/hint-as-placeholder-on-any-other-entry"],
+	"auto-scan": ["questions/barcode-quick"],
+	"android-calendar": [
+		"questions/date-nepali",
+		"questions/date-gregorian-gregorian-cancel",
+	],
+	"twelve-hour-clock": ["questions/time-12-hour"],
+	"android-map": ["questions/geopoint-maps"],
+	"edit-scan": ["questions/barcode-editable"],
+	"camera-only": ["questions/image-acquire", "questions/video-acquire"],
+	"photo-overlay": ["questions/image-overlay-small"],
+	"classic-recorder": ["questions/audio-legacy"],
+	"record-or-choose": ["questions/audio-acquire-or-upload"],
+	"long-recording": ["questions/audio-long"],
+	"select-label-text": ["questions/trigger-selectable"],
+	"question-banner": ["questions/floating-good-floating-caution-floating-bad"],
+	"hidden-label": [
+		"questions/a-label-whose-appearance-string-starts-with-floating-other-than",
+	],
+	"compact-group": ["questions/group-compact"],
+	"collapse-group": [
+		"questions/group-group-collapse",
+		"questions/group-collapse-open",
+	],
+	"group-border": ["questions/group-group-border"],
+	"questions-across": [
+		"questions/n-per-row-any-question-or-group-other-than-a-vellum-repeat-n-one",
+	],
+	"repeats-across": [
+		"questions/n-per-row-repeat-group-with-a-repeat-as-a-direct-child-n-one-or",
+	],
+	"question-alignment": ["questions/text-align-center-text-align-right"],
+	"combined-question-display": [
+		"questions/multi-token-strings-e-g-minimal-hint-as-placeholder-signature-2",
+	],
 	"number-keypad": ["questions/phone-number-xsd-string-appearance-numeric"],
 	"plain-text": [
 		"questions/plain-label-containing-html-text",
@@ -62,6 +134,9 @@ export const PLATFORM_FEATURE_ENTRIES = {
 	],
 	"choice-media": ["questions/choice-image", "questions/choice-audio-video"],
 	"help-media": ["questions/help-media"],
+	"label-inline-video": ["questions/label-video-inline"],
+	"label-qr-code": ["questions/label-qrcode"],
+	"label-spoken-text": ["questions/label-tts"],
 	now: ["expressions-and-data/now"],
 	today: ["expressions-and-data/today"],
 	"random-and-unique-id": [
@@ -94,6 +169,12 @@ export const PLATFORM_FEATURE_ENTRIES = {
 		"menus-and-case-lists/session-endpoint-id",
 		"menus-and-case-lists/case-list-session-endpoint-id",
 		"forms-and-case-writes/session-endpoint-id",
+		"menus-and-case-lists/shadowmodule-form-session-endpoints-non-empty",
+	],
+	"menu-layout": [
+		"application-and-settings/46-hq-use-grid-menus",
+		"application-and-settings/47-hq-grid-form-menus-none-all-some",
+		"menus-and-case-lists/module-display-style-list-grid-read-when-grid-form-menus-some-on",
 	],
 	"case-list-menu-item": [
 		"menus-and-case-lists/module-case-list-on-a-formless-basic-module-show-true",
@@ -103,8 +184,36 @@ export const PLATFORM_FEATURE_ENTRIES = {
 	"case-list-registration-media": [
 		"menus-and-case-lists/case-list-form-media-image-media-audio",
 	],
+	"menu-badge": [
+		"forms-and-case-writes/custom-icons-0",
+		"menus-and-case-lists/custom-icons-0-badge-localized-text-or-xpath",
+	],
+	"named-case-tile": [
+		"menus-and-case-lists/detail-case-tile-template-icon-text-grid",
+		"menus-and-case-lists/case-tile-field-template-slot-on-icon-text-grid",
+		// An image column differs only in a named tile's image position.
+		"menus-and-case-lists/19p-enum-image-whose-keys-are-conditions-contain-any-of-each-a",
+		"menus-and-case-lists/19-enum-image-whose-keys-are-plain-values",
+		"menus-and-case-lists/19pp-enum-image-whose-keys-are-conditions-of-any-other-form-dot",
+	],
+	"details-tile": [
+		"menus-and-case-lists/long-detail-custom-tile-case-detail-laid-out-as-a-tile",
+	],
+	"raw-custom-tile-field": [
+		"menus-and-case-lists/invisible-or-address-column-in-a-custom-tile",
+	],
 	"tile-grouping": [
 		"menus-and-case-lists/detail-case-tile-group-index-identifier-header-rows",
+	],
+	"case-list-faster-loading": [
+		"menus-and-case-lists/module-show-case-list-optimization-options",
+		"menus-and-case-lists/optimization-cache-lazy-load-cache-and-lazy-load",
+	],
+	"case-list-empty-text": [
+		"menus-and-case-lists/detail-no-items-text-other-than-hq-s-default-en-list-is-empty",
+	],
+	"case-list-continue-label": [
+		"menus-and-case-lists/detail-select-text-non-default",
 	],
 	"tile-alignment": ["menus-and-case-lists/horizontal-align-vertical-align"],
 	"tile-border-and-shading": ["menus-and-case-lists/show-border-show-shading"],
@@ -115,21 +224,45 @@ export const PLATFORM_FEATURE_ENTRIES = {
 		"menus-and-case-lists/display-lang-sort-by-label-on-a-sort-only-element",
 		"menus-and-case-lists/display-lang-on-a-sort-joined-to-an-invisible-column",
 	],
+	"case-image-descriptions": [
+		"menus-and-case-lists/enum-mappingitem-alt-text-lang",
+		"menus-and-case-lists/enum-mappingitem-alt-text-non-blank",
+	],
+	"case-map-location": ["menus-and-case-lists/8-address"],
+	"case-map-fallback-locations": [
+		"menus-and-case-lists/more-than-one-address-column-in-a-detail-of-an-advanced-module",
+	],
+	"case-map-layers": [
+		"menus-and-case-lists/11-geo-boundary",
+		"menus-and-case-lists/12-geo-boundary-color-on-the-case-list-only-needs-an-address",
+		"menus-and-case-lists/13-geo-points-on-the-case-list-only",
+		"menus-and-case-lists/14-geo-points-colors-on-the-case-list-only-needs-an-address",
+	],
+	"formatted-case-text": [
+		"menus-and-case-lists/10-markdown-outside-the-link-shape",
+	],
 	"link-column": [
 		"menus-and-case-lists/10-markdown-any-property-or-expression",
 	],
 	"search-screen-text": [
 		"case-search/title-label-lang-non-empty",
+		"case-search/title-label-blank-in-some-languages",
 		"case-search/description-lang-markdown",
 		"case-search/hint-lang",
 	],
 	"search-field-checks": [
 		"case-search/required-test-text",
 		"case-search/validations-0-test-text",
+		"case-search/a-required-or-validation-test-with-no-message-in-any-language",
 	],
+	"search-starting-dates": ["case-search/default-value-on-a-date-range-input"],
 	"barcode-search-field": ["case-search/appearance-barcode-scan"],
+	"search-for-blank": ["case-search/allow-blank-value"],
 	"hidden-search-field": [
 		"case-search/hidden-exclude-with-a-default-value-on-a-prompt-with-no-itemset",
+		"case-search/hidden-exclude-without-a-default-value-on-a-prompt-with-no",
+		"case-search/hidden-without-exclude-on-a-prompt-with-no-itemset-input-type-or",
+		"case-search/hidden-on-a-prompt-that-carries-an-itemset-input-type-or",
 	],
 	"search-first": [
 		"case-search/workflow-search-first-auto-launch-true-default-search-false",
@@ -140,17 +273,27 @@ export const PLATFORM_FEATURE_ENTRIES = {
 	"skip-to-results": [
 		"case-search/workflow-skip-to-default-results-auto-launch-true-default-search",
 	],
+	"first-menu-previous": [
+		"forms-and-case-writes/form-link-or-endpoint-through-a-first-menu-that-shares-one-case",
+		"menus-and-case-lists/case-list-form-on-a-host-under-a-menu-that-shares-the-first-menu-s-case",
+		"forms-and-case-writes/post-form-workflow-previous-screen-on-a-form-listed-on-the-first-menu",
+	],
 	"after-submit-home": ["forms-and-case-writes/post-form-workflow-default"],
 	"after-submit-several-destinations": [
 		"forms-and-case-writes/two-or-more-form-links-conditions-true-at-once",
 	],
 	"app-logo": ["application-and-settings/logo-refs-hq-logo-web-apps"],
+	"required-android-apps": [
+		"application-and-settings/31-features-dependencies",
+	],
 	"saved-forms": ["application-and-settings/20-properties-cc-show-saved"],
 	"incomplete-forms": [
 		"application-and-settings/21-properties-cc-show-incomplete",
 	],
 	"connect-location-capture": [
 		"application-and-settings/45-hq-auto-gps-capture",
+		"application-and-settings/45p-hq-auto-gps-capture-on-an-app-that-is-not-a-connect-app",
+		"forms-and-case-writes/auto-gps-capture-form",
 		"questions/hq-generated-pollsensor",
 	],
 } as const satisfies Readonly<
@@ -159,6 +302,14 @@ export const PLATFORM_FEATURE_ENTRIES = {
 
 /** HELD entries that differ by platform and that no author choice reaches, with why. */
 export const AMBIENT_PLATFORM_ENTRIES = {
+	"questions/any-other-per-row-token-the-first-token-web-apps-per-row-pattern":
+		"Nova writes the normalized number of items or repeats per row. The spelling of an equivalent number is determined at export.",
+	"questions/a-multi-token-string-holding-tokens-no-runtime-reads-on-that":
+		"Nova writes the active settings. An unrecognized word alongside them is never an author choice.",
+	"questions/a-single-string-no-row-names-that-holds-values-android-matches":
+		"Nova writes the Android control and its parameters using their canonical spelling. An incidental substring is never an author choice.",
+	"questions/a-case-variant-of-numbers-nepali-or-maps-of-video-acquire-or-of":
+		"Nova writes the calendar, camera, map and keyboard settings using their canonical spelling. Capitalization is outside the document.",
 	"application-and-settings/hq-default-app-strings":
 		"Every local archive carries HQ's default strings; Web Apps reads HQ's build, not Nova's archive.",
 	"application-and-settings/translations-lang-code-language-display-names-equal-to-the-label":
@@ -177,10 +328,6 @@ export const AMBIENT_PLATFORM_ENTRIES = {
 		"The local archive's embedded tables; Web Apps installs no archive.",
 	"forms-and-case-writes/usercase-datum-usercase-id-assertion-case-autoload-usercase-case":
 		"The missing worker-record notice; no author chooses its screen.",
-	"menus-and-case-lists/19p-enum-image-whose-keys-are-conditions-contain-any-of-each-a":
-		"Differs only in an icon-text-grid tile, which Nova never writes.",
-	"menus-and-case-lists/enum-mappingitem-alt-text-lang":
-		"Nova writes blank alt text; no author sets it yet.",
 	"questions/hq-generated-meta-deviceid-timestart-timeend-username-userid":
 		"The submission's meta block; authored reads go through the session context features.",
 	"questions/h-title-and-data-name-whatever-their-text":

@@ -38,7 +38,13 @@ import {
 	recordRemoteResource,
 } from "../store";
 import type { AppBaselineWrite } from "../types";
-import { birthAdoptedApp, OWNERSHIP, READ_AT, SOURCE } from "./adoptedBirth";
+import {
+	appMappingToken,
+	birthAdoptedApp,
+	OWNERSHIP,
+	READ_AT,
+	SOURCE,
+} from "./adoptedBirth";
 import { readable } from "./readableRecord";
 import { stopHere } from "./stopHere";
 
@@ -58,6 +64,7 @@ const HQ_APP = "c".repeat(32);
 const OTHER_HQ_APP = "d".repeat(32);
 const APP = testUuid("first-publish-app");
 const BORN_LIST: StoredFirstPublish = {
+	reviewed: 1,
 	ids: ["forms-and-settings-rewritten"],
 	webAppsOnInHq: true,
 	of: "first-publish",
@@ -212,6 +219,7 @@ describe("the stored first-publish list", () => {
 			expectedEndings: 0,
 			remoteAppId: HQ_APP,
 			comparedDigest: stored.sourceDigest,
+			comparedPushToken: appMappingToken(birth.deployment),
 			read: {
 				sourceGzip: gzipSync(Buffer.from(text, "utf8")),
 				sourceBytes: Buffer.byteLength(text, "utf8"),
@@ -236,8 +244,10 @@ describe("the stored first-publish list", () => {
 
 	it("holds a list of the next publish over a push baseline, which firstPublishOf answers for a mapping Nova created", async () => {
 		const birth = await born();
+		/* As a completed review stores it: its inputs were reviewed. */
 		const next: StoredFirstPublish = {
 			ids: ["case-settings-respelled"],
+			reviewedInputs: 1,
 			webAppsOnInHq: false,
 			of: "next-publish",
 		};
@@ -292,6 +302,7 @@ describe("the stored first-publish list", () => {
 				.set({
 					first_publish_changes: JSON.stringify({
 						ids: ["forms-and-settings-rewritten", "no-longer-registered"],
+						reviewed: 1,
 						webAppsOnInHq: true,
 						of: "first-publish",
 					}),

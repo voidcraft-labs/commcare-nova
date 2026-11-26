@@ -107,8 +107,8 @@ export function locationFixtureRows(
 			siteCode: place.siteCode,
 			name: place.name,
 			externalId: place.externalId,
-			latitude: place.latitude,
-			longitude: place.longitude,
+			latitude: place.source ? place.source.latitudeText : place.latitude,
+			longitude: place.source ? place.source.longitudeText : place.longitude,
 			values: place.values,
 			lineage,
 		};

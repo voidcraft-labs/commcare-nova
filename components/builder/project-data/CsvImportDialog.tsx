@@ -10,6 +10,7 @@
 import { Icon } from "@iconify/react/offline";
 import tablerFileSpreadsheet from "@iconify-icons/tabler/file-spreadsheet";
 import { useId, useRef, useState } from "react";
+import { v4 as uuid } from "uuid";
 import { Button } from "@/components/shadcn/button";
 import {
 	Dialog,
@@ -21,7 +22,7 @@ import {
 	DialogTitle,
 } from "@/components/shadcn/dialog";
 import { Label } from "@/components/shadcn/label";
-import { getLookupTableAction } from "@/lib/lookup/actions";
+import { getLookupTableWindowAction } from "@/lib/lookup/actions";
 import type { LookupFailure, LookupTableSnapshot } from "@/lib/lookup/types";
 import { useProjectId } from "@/lib/session/hooks";
 import {
@@ -68,6 +69,7 @@ export function CsvImportDialog({
 	const projectId = useProjectId();
 	const inputRef = useRef<HTMLInputElement>(null);
 	const generation = useRef(0);
+	const receipt = useRef<{ key: string; id: string }>(undefined);
 	const [fileState, setFileState] = useState<FileState>({ kind: "none" });
 	const [problem, setProblem] = useState<LookupFailure<string> | null>(null);
 	const [reviewRequired, setReviewRequired] = useState(false);
@@ -202,7 +204,7 @@ export function CsvImportDialog({
 		 * screen with an error and unmount the dialog holding these bytes. */
 		if (reviewRequired) {
 			try {
-				const fresh = await getLookupTableAction(
+				const fresh = await getLookupTableWindowAction(
 					selection.projectId,
 					selection.tableId,
 				);
@@ -256,7 +258,10 @@ export function CsvImportDialog({
 				<DialogHeader>
 					<DialogTitle>Replace every row from a CSV</DialogTitle>
 					<DialogDescription>
-						This replaces all {formatLookupCount(currentTable.rowCount, "row")}{" "}
+						This replaces all{" "}
+						{currentTable.rowCount === null
+							? "the source inventory"
+							: formatLookupCount(currentTable.rowCount, "row")}{" "}
 						in “{currentTable.name}” with the rows in your file. It is not a
 						merge: rows that are not in the file are removed.
 					</DialogDescription>
@@ -299,8 +304,10 @@ export function CsvImportDialog({
 								<p className="text-[13px] leading-relaxed text-nova-text-secondary">
 									This table changed after “{selection.fileName}” was checked.
 									Review the same file against the latest columns and{" "}
-									{formatLookupCount(currentTable.rowCount, "row")} before
-									replacing anything.
+									{currentTable.rowCount === null
+										? "the source inventory"
+										: formatLookupCount(currentTable.rowCount, "row")}{" "}
+									before replacing anything.
 								</p>
 								<Button
 									type="button"
@@ -374,7 +381,16 @@ export function CsvImportDialog({
 							setProblem(null);
 							let result: Awaited<ReturnType<typeof importLookupCsv>>;
 							try {
+								const key = JSON.stringify([
+									selection.projectId,
+									selection.tableId,
+									selection.generation,
+									selection.tableRevision,
+								]);
+								if (receipt.current?.key !== key)
+									receipt.current = { key, id: uuid() };
 								result = await importLookupCsv({
+									operationId: receipt.current.id,
 									projectId: selection.projectId,
 									tableId: selection.tableId,
 									expectedTableRevision: selection.tableRevision,

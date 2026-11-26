@@ -583,8 +583,9 @@ interface ModuleGenSpec {
 	/**
 	 * Whether the module's case list is laid out as a tile. The assembler
 	 * places every column on its own full-width row, which is the one
-	 * arrangement that satisfies the grid contract (inside 12 x 12, no
-	 * overlap, every Results column placed) for any generated column count.
+	 * arrangement that satisfies the grid contract (twelve columns wide and
+	 * a row for each field, at least six; no overlap; every Results column
+	 * placed) for any generated column count.
 	 */
 	readonly tile: false | { readonly persistOnForms: boolean };
 	/**
@@ -772,7 +773,9 @@ function lowerToDoc(spec: DocGenSpec): BlueprintDoc {
 				: undefined;
 
 		// Tile placement. One full-width row per column keeps every generated
-		// layout inside the 12 x 12 grid with no overlap and full coverage, so
+		// layout inside the grid (`tileRowLimit`: at least a row per column, and
+		// at most five columns are drawn, so even the hidden carrier's kept cell
+		// ends inside the six rows) with no overlap and full coverage, so
 		// the fuzz exercises `<style>`/`<grid>` emission on every column kind
 		// without needing a solver. Presentation slots rotate through the
 		// vocabulary, and a cell given none takes `tileCell()`'s defaults.

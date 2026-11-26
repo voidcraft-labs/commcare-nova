@@ -894,6 +894,14 @@ async function assertMoveLookupClosureEmpty(
 			"This app uses lookup tables and cannot move Projects yet. Remove those references or keep the app in its current Project.",
 		);
 	}
+	const assignments =
+		await sql`SELECT 1 FROM worker_group_members WHERE app_id=${appId} UNION ALL SELECT 1 FROM lookup_row_assignments WHERE app_id=${appId} LIMIT 1`.execute(
+			tx,
+		);
+	if (assignments.rows.length)
+		throw new BlueprintCommitRejectedError(
+			"Workers or places in this app have Project data assignments. You can remove those memberships and row assignments before moving the app.",
+		);
 }
 
 /**
@@ -2461,39 +2469,42 @@ export async function loadAppForInspection(
 async function loadAppForReadOnlyInspection(
 	appId: string,
 	admission: "strict" | "schema",
+	tx?: Transaction<AppDatabase>,
 ): Promise<AppDoc | null> {
-	const db = await getAppDb();
-	return db
-		.transaction()
-		.setIsolationLevel("repeatable read")
-		.setAccessMode("read only")
-		.execute(async (tx) => {
-			const row = (await tx
-				.selectFrom("apps")
-				.select(PERSISTED_BLUEPRINT_APP_COLUMNS)
-				.select(
-					sql<string | null>`${sql.ref("apps.case_types")}::text`.as(
-						"case_types_text",
-					),
-				)
-				.select(
-					sql<string | null>`${sql.ref("apps.localization")}::text`.as(
-						"localization_text",
-					),
-				)
-				.select(
-					sql<string | null>`${sql.ref("apps.app_settings")}::text`.as(
-						"app_settings_text",
-					),
-				)
-				.where("id", "=", appId)
-				.executeTakeFirst()) as PersistedBlueprintAppRow | undefined;
-			if (row === undefined) return null;
-			return admission === "strict"
-				? (await loadStrictAppSnapshotFromRowInTransaction(tx, row)).app
-				: (await loadSchemaAdmittedAppSnapshotFromRowInTransaction(tx, row))
-						.app;
-		});
+	if (tx === undefined) {
+		const db = await getAppDb();
+		return db
+			.transaction()
+			.setIsolationLevel("repeatable read")
+			.setAccessMode("read only")
+			.execute((snapshot) =>
+				loadAppForReadOnlyInspection(appId, admission, snapshot),
+			);
+	}
+	const row = (await tx
+		.selectFrom("apps")
+		.select(PERSISTED_BLUEPRINT_APP_COLUMNS)
+		.select(
+			sql<string | null>`${sql.ref("apps.case_types")}::text`.as(
+				"case_types_text",
+			),
+		)
+		.select(
+			sql<string | null>`${sql.ref("apps.localization")}::text`.as(
+				"localization_text",
+			),
+		)
+		.select(
+			sql<string | null>`${sql.ref("apps.app_settings")}::text`.as(
+				"app_settings_text",
+			),
+		)
+		.where("id", "=", appId)
+		.executeTakeFirst()) as PersistedBlueprintAppRow | undefined;
+	if (row === undefined) return null;
+	return admission === "strict"
+		? (await loadStrictAppSnapshotFromRowInTransaction(tx, row)).app
+		: (await loadSchemaAdmittedAppSnapshotFromRowInTransaction(tx, row)).app;
 }
 
 /**
@@ -2506,8 +2517,10 @@ async function loadAppForReadOnlyInspection(
  */
 export async function loadSchemaAdmittedAppForInspection(
 	appId: string,
+	/** A caller's repeatable-read maintenance snapshot, when reading related rows. */
+	tx?: Transaction<AppDatabase>,
 ): Promise<AppDoc | null> {
-	return loadAppForReadOnlyInspection(appId, "schema");
+	return loadAppForReadOnlyInspection(appId, "schema", tx);
 }
 
 /** Whoever currently HOLDS the app's run window — see {@link loadAppHolder}.

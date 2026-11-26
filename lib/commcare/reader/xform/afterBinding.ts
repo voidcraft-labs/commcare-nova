@@ -63,7 +63,7 @@ import { lookupTypes } from "../expressions/readExpression";
 import { pointerToken, sameJson } from "../jsonCursor";
 import { manifestFindingOf } from "../languages";
 import { builtScopes, sameElementWhole } from "../sameElement";
-import { sameSyntax } from "../syntaxCompare";
+import { sameSyntax, sourceFormExpression } from "../syntaxCompare";
 import { readFormSyntax } from "../syntaxRead";
 import { ownText } from "../xmlCursor";
 import { X } from "./claims";
@@ -351,7 +351,7 @@ const BOTH_KEY = "mug:DataBindOnly";
 function settleBothSources(ctx: ReadContext, form: DraftForm): void {
 	const xform = form.xform;
 	if (xform === null) return;
-	let dropped = false;
+	const removedInputs: [string, string][] = [];
 	for (const field of fieldsOf(xform)) {
 		const both = field.bothSources;
 		if (both === undefined) continue;
@@ -401,15 +401,24 @@ function settleBothSources(ctx: ReadContext, form: DraftForm): void {
 			delete (draft.fields[uuid] as { default_value?: unknown }).default_value;
 		});
 		delete field.field.default_value;
-		dropped = true;
+		const source = field.expressions.find(
+			(expr) => expr.slot === "default_value",
+		);
+		if (!source)
+			throw new Error("An accepted default lost its source expression.");
+		removedInputs.push([
+			field.node.path.join("/"),
+			sourceFormExpression(source.text),
+		]);
 	}
-	if (!dropped) return;
+	if (!removedInputs.length) return;
 	const readId =
 		ctx.input.source.modules[form.menu]?.forms[form.index]?.readUniqueId;
 	ctx.facts.sameStateRewrites.push({
 		entry: X.kind.hiddenBothUnread.node.entry,
 		path: `/_attachments/${pointerToken(`${readId ?? form.xmlns}.xml`)}`,
 		register: "hidden-value-defaults-dropped",
+		removedInputs,
 	});
 }
 
@@ -789,6 +798,23 @@ function settleProtectedMessage(
 	const wireCodes = planLanguageWire(
 		effectiveAppLocalization(doc.localization),
 	).wireCodeByTag;
+	for (const [language, value] of slot.values) {
+		const code = wireCodes.get(language);
+		if (code === undefined) continue;
+		const translated = localization.prose(code, unitId);
+		const shown = translated.parts.filter((part) => part.kind !== "text");
+		const outputs = value.parts.flatMap((part) =>
+			part.kind === "output" ? [part.output] : [],
+		);
+		if (!outputs.length) continue;
+		if (outputs.length !== shown.length) return;
+		shown.forEach((atom, index) => {
+			const output = outputs[index];
+			if (output === undefined) return;
+			atoms.push(atom);
+			outputOf.set(JSON.stringify(atom), output.text);
+		});
+	}
 	const owned = [...text.itext.allValues(message.textId)].map(
 		([language, values]) => ({
 			code: wireCodes.get(language),

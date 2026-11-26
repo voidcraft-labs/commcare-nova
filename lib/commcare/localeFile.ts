@@ -52,19 +52,25 @@
  * it is (`XFormParser.parseTextHandle`, `getLabel`) and unescapes nothing.
  */
 
-import type { TranslationUnitRole } from "@/lib/domain";
+import type { TranslationUnit, TranslationUnitRole } from "@/lib/domain";
 
 const LOCALE_FILE_TRANSLATION_ROLES: ReadonlySet<TranslationUnitRole> = new Set(
 	[
 		"app-name",
 		"module-name",
 		"form-name",
+		"menu-badge",
 		"case-list-menu-item-label",
 		"case-list-registration-label",
+		"case-detail-tab-title",
 		"case-list-header",
 		"case-list-sort-label",
+		"case-list-calculation-text",
+		"case-list-image-description",
 		"case-list-mapping-label",
 		"case-list-interval-text",
+		"case-list-empty-text",
+		"case-list-select-text",
 		"search-input-label",
 		"search-input-hint",
 		"search-input-required-message",
@@ -72,6 +78,7 @@ const LOCALE_FILE_TRANSLATION_ROLES: ReadonlySet<TranslationUnitRole> = new Set(
 		"search-screen-title",
 		"search-screen-subtitle",
 		"search-runtime-validation-message",
+		"generated-wording",
 		"case-property-option-label",
 	],
 );
@@ -91,10 +98,34 @@ export function translationUnitUsesLocaleFile(
 const ARGUMENT_SCREEN_ROLES: ReadonlySet<TranslationUnitRole> = new Set([
 	"module-name",
 	"form-name",
+	"menu-badge",
 	"case-list-menu-item-label",
 	"case-list-registration-label",
 	"search-input-label",
 ]);
+
+/** An independently customized output passes through the same native
+ * formatting as the ordinary title or label that normally supplies it. */
+export function outputLocaleRole(unit: TranslationUnit): TranslationUnitRole {
+	switch (unit.generated?.role) {
+		case "menuTitle":
+			return "module-name";
+		case "formTitle":
+		case "registrationMenuTitle":
+			return "form-name";
+		case "caseListEntry":
+			return "case-list-menu-item-label";
+		case "registerButton":
+			return "case-list-registration-label";
+		case "promptLabel":
+			return "search-input-label";
+		case "appDisplayName":
+		case "homescreenTitle":
+			return "app-name";
+		default:
+			return unit.role;
+	}
+}
 
 /**
  * What makes a device show an app string other than as typed: a backslash
@@ -301,6 +332,15 @@ export function readLocaleLineAsCore(line: string): LocaleRecord | undefined {
 			"\n",
 		),
 	};
+}
+
+/** The text Core loads under a key after HQ writes its value into a locale file. */
+export function readLocaleValueAsCore(
+	key: string,
+	raw: string,
+): string | undefined {
+	const first = hqLocaleFileValue(raw).split("\r", 1)[0];
+	return readLocaleLineAsCore(`${key}=${first}`)?.value;
 }
 
 /**

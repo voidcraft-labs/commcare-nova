@@ -128,7 +128,7 @@ def test_a_documents_web_apps_observation_reads_every_screen_of_the_walk_and_is_
 def test_a_choice_the_replay_has_no_click_for_is_refused_and_a_known_one_is_replayed():
     known = {"script": [{"menu": 1}], "steps": [{"request": {}, "response": {"type": "commands"}}]}
     replayed = observe.clicks(known)
-    assert replayed[0]["arg"]["selector"].endswith("tr:nth-child(2)")
+    assert replayed[0]["arg"]["selector"]== "#menu-region .menus-container > .formplayer-request:nth-child(2)"
     unknown = {"script": [{"swipe": "left"}], "steps": [{"request": {}, "response": {"type": "commands"}}]}
     with pytest.raises(observe.Unreplayable, match="swipe"):
         observe.clicks(unknown)

@@ -15,10 +15,12 @@ import {
 	useLocalizedModule as useDocLocalizedModule,
 	useLocalizedTranslationUnit as useDocLocalizedTranslationUnit,
 	useLocalizedValues as useDocLocalizedValues,
+	useWorkerWordingOverride as useDocWorkerWordingOverride,
 } from "@/lib/doc/hooks/useLocalization";
 import type { Mutation } from "@/lib/doc/types";
 import {
 	type AppLanguageIdentity,
+	authoredTranslationValueMode,
 	type CommitOutcome,
 	effectiveAppLocalization,
 	type Field,
@@ -32,6 +34,7 @@ import {
 	type Uuid,
 } from "@/lib/domain";
 import { languageDirection } from "@/lib/domain/languageRegistry";
+import { hasGeneratedWording } from "@/lib/domain/translationUnits";
 import {
 	pushBuilderLensHistory,
 	useBuilderSearch,
@@ -47,7 +50,9 @@ export interface BuilderLanguageState {
 	readonly languages: readonly {
 		readonly tag: LanguageTag;
 		readonly identity: AppLanguageIdentity;
+		readonly direction: "ltr" | "rtl";
 	}[];
+	readonly sourceDirection: "ltr" | "rtl";
 	readonly isSource: boolean;
 	readonly direction: "ltr" | "rtl";
 	selectLanguage(language: LanguageTag): void;
@@ -87,9 +92,11 @@ export function BuilderLocalizationProvider({
 			languages: effective.languageOrder.map((tag) => ({
 				tag,
 				identity: parseLanguageTag(tag),
+				direction: languageDirection(tag, effective),
 			})),
 			isSource: language === effective.sourceLanguage,
-			direction: languageDirection(identity),
+			direction: languageDirection(identity, effective),
+			sourceDirection: languageDirection(effective.sourceLanguage, effective),
 			selectLanguage,
 		};
 	}, [effective, language, selectLanguage]);
@@ -113,6 +120,34 @@ export function useBuilderLanguage(): BuilderLanguageState {
 	return value;
 }
 
+/** The language a file editor edits, and the app's source and default. */
+export interface FileLanguageLens {
+	readonly language: LanguageTag;
+	readonly sourceLanguage: LanguageTag;
+	readonly defaultLanguage: LanguageTag;
+	readonly isSource: boolean;
+}
+
+/**
+ * The selected worker language for an editor of one language's files. A
+ * surface outside the provider has no language lens, so it edits the source
+ * language's (shared) files, as {@link useShowsSourceLanguage} reads.
+ */
+export function useFileLanguageLens(): FileLanguageLens {
+	const value = useContext(BuilderLocalizationContext);
+	const persisted = useAppLocalization();
+	return useMemo(() => {
+		if (value !== null) return value;
+		const effective = effectiveAppLocalization(persisted);
+		return {
+			language: effective.sourceLanguage,
+			sourceLanguage: effective.sourceLanguage,
+			defaultLanguage: effective.defaultLanguage,
+			isSource: true,
+		};
+	}, [persisted, value]);
+}
+
 /**
  * Whether the builder shows the source language, which owns every setting a
  * text's languages share (a label's Format text, for one). A surface outside
@@ -120,6 +155,16 @@ export function useBuilderLanguage(): BuilderLanguageState {
  */
 export function useShowsSourceLanguage(): boolean {
 	return useContext(BuilderLocalizationContext)?.isSource ?? true;
+}
+
+/**
+ * The source language where the builder shows another language, which a
+ * text cleared there falls back to; undefined under the source, or outside
+ * the provider.
+ */
+export function useSourceLanguageBehindLens(): LanguageTag | undefined {
+	const value = useContext(BuilderLocalizationContext);
+	return value === null || value.isSource ? undefined : value.sourceLanguage;
 }
 
 export function useLocalizedTranslationUnit(
@@ -139,6 +184,14 @@ export function useLocalizedText(
 ): string | undefined {
 	const value = useLocalizedValue(unitId);
 	return typeof value === "string" ? value : undefined;
+}
+
+/** A control can have a platform-specific default. Only authored wording
+ * replaces that platform's normal label. */
+export function useWorkerWordingOverride(
+	unitId: TranslationUnitId,
+): string | undefined {
+	return useDocWorkerWordingOverride(useBuilderLanguage().language, unitId);
 }
 
 export function useLocalizedValues(): ReadonlyMap<
@@ -170,7 +223,7 @@ export function useTranslationUnitEditor(
 	const { inline } = useBlueprintMutations();
 	const saveTarget = useCallback(
 		(value: LocalizedValue): CommitOutcome => {
-			if (isSource || unit === undefined) {
+			if (unit === undefined || (isSource && !hasGeneratedWording(unit))) {
 				return { ok: false, messages: ["This is the source language."] };
 			}
 			const mutation: Mutation = {
@@ -179,6 +232,7 @@ export function useTranslationUnitEditor(
 				unitId,
 				entry: {
 					value,
+					...authoredTranslationValueMode(unit, value),
 					sourceFingerprint: unit.sourceFingerprint,
 					origin: "human",
 					review: "reviewed",

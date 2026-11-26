@@ -1,3 +1,9 @@
+import { workerLookupSchemas } from "@/lib/case-store/sql/compileLookup";
+import { USERCASE_CASE_TYPE } from "@/lib/domain/usercase";
+import {
+	type PreviewLookupScope,
+	readPreviewLookup,
+} from "./workerLookupScope";
 // lib/preview/engine/caseDataBindingHelpers.ts
 //
 // Server-only I/O helpers the running-app view's data binding wraps
@@ -24,6 +30,9 @@
 
 import "server-only";
 
+import { workerDistanceValueId } from "@/lib/domain";
+import { caseContextLine } from "@/lib/domain/caseFormContext";
+import { columnReadsDetailTabRow } from "@/lib/domain/detailTabs";
 import {
 	caseOperationProgramLookupTableIds,
 	collectConfigLookupTableIds,
@@ -57,7 +66,11 @@ import {
 	CasePropertiesValidationError,
 	SchemaNotSyncedError,
 } from "@/lib/case-store/errors";
-import { planFormCaseWire } from "@/lib/commcare/casePlacementPlan";
+import { CaseSearchUnavailableError } from "@/lib/case-store/searchRequest";
+import {
+	formSharingPlan,
+	planFormCaseWire,
+} from "@/lib/commcare/casePlacementPlan";
 import {
 	type LookupWireNaming,
 	lookupWireNaming,
@@ -71,6 +84,7 @@ import {
 	caseOperationExpressionSnapshotTypes,
 	caseOperationMultiplicityScopes,
 } from "@/lib/doc/caseOperationOrder";
+import { entryPointRequirements } from "@/lib/doc/entryPointProjection";
 import {
 	asUuid,
 	type BlueprintDoc,
@@ -89,9 +103,11 @@ import {
 	caseOperationRunsPerSelectedCase,
 	caseSelectionCardinality,
 	caseSelectionMaximum,
+	caseSortDistanceValue,
 	caseWriteValueField,
 	columnPropertyCaseType,
-	columnRelationPath,
+	creationLaunchSchema,
+	entryPointByUuid,
 	type Form,
 	type FormType,
 	isCaptureFieldKind,
@@ -101,6 +117,7 @@ import {
 	organizationLevelsOf,
 	type PersistableDoc,
 	searchInputRuntimeValueType,
+	suppliedCreationIssue,
 	TIME_SINCE_UNIT_DAYS,
 	type Uuid,
 } from "@/lib/domain";
@@ -143,16 +160,16 @@ import { mapExpressionAst } from "@/lib/domain/expression/mapAst";
 import { resolveRelationDestination } from "@/lib/domain/expression/relationDestination";
 import { effectiveFilterForEmission } from "@/lib/domain/expression/simplify";
 import { isExpression } from "@/lib/domain/expression/types";
+import {
+	capturesDeviceLocation,
+	deviceLocationSchema,
+} from "@/lib/domain/locationCapture";
 import type { LookupTableId } from "@/lib/domain/lookupIds";
 import { asWalkableDoc } from "@/lib/domain/mediaRefs";
 import { rewriteExpressionSlotValues } from "@/lib/domain/referenceSlots";
 import { log } from "@/lib/logger";
-import {
-	getLookupDefinitions,
-	getLookupFixtureData,
-} from "@/lib/lookup/service";
-import type { LookupScope } from "@/lib/lookup/types";
 import type { CaseListSortChoice } from "../caseListSortMenu";
+import { previewPlatformRules } from "../platform";
 import { javaTrim } from "../xpath/javaString";
 import type { CaptureSubmissionProjection } from "./captureSubmissionValidation";
 import type {
@@ -172,6 +189,7 @@ import { entryCreatedCaseKeys } from "./entrySessionData";
 import { previewSessionValues, type ResolvedPreviewIdentity } from "./identity";
 import { type PreviewLookupData, previewLookupData } from "./lookupEvaluation";
 import type { PreviewDevice } from "./previewDevice";
+import { resolveRestoreScope, type WorkerRestoreScope } from "./restoreScope";
 import {
 	bindSearchInputValuesInPredicate,
 	composeRuntimeFilter,
@@ -195,13 +213,75 @@ export const SAMPLE_CASE_DEFAULT_COUNT = 30;
  * every one of a list with no tile layout, hidden ones included, since each
  * is a field of the short detail. A calculation no runtime evaluates remains
  * fully valid but contributes no query projection. */
+function caseCalculation(
+	column: Extract<Column, { kind: "calculated" }>,
+	locale?: CaseListOrderLocale,
+): Expression {
+	if (!column.texts?.length) return column.expression;
+	const labels = new Map(
+		column.texts.map((piece) => [
+			piece.uuid,
+			locale?.calculationText(column, piece) ?? piece.label,
+		]),
+	);
+	return mapExpressionAst(column.expression, {
+		mapExpression: (node) => {
+			if (node.kind !== "case-text") return undefined;
+			const label = labels.get(node.textUuid);
+			if (label === undefined)
+				throw new Error("A calculated field lost its translated text.");
+			// The runtime preserves a blank locale string as one nonbreaking space.
+			return term(literal(label || "\u00a0"));
+		},
+	});
+}
 function runtimeCalculatedColumns(
 	config: CaseListConfig | undefined,
-): Extract<Column, { kind: "calculated" }>[] | undefined {
-	return config?.columns.filter(
+	locale?: CaseListOrderLocale,
+) {
+	if (!config) return undefined;
+	const columns = config.columns.filter(
 		(column): column is Extract<Column, { kind: "calculated" }> =>
-			column.kind === "calculated" && caseListColumnRuns(column, config),
+			column.kind === "calculated" &&
+			caseListColumnRuns(column, config) &&
+			!columnReadsDetailTabRow(config, column),
 	);
+	return [
+		...columns.map((column) => ({
+			...column,
+			expression: caseCalculation(column, locale),
+		})),
+		...config.columns.flatMap((column) =>
+			(column.kind === "id-mapping" || column.kind === "image-map") &&
+			caseListColumnRuns(column, config)
+				? column.mapping.flatMap((row) =>
+						row.when && row.uuid
+							? [
+									{
+										uuid: row.uuid,
+										expression: ifExpr(
+											row.when,
+											term(literal("1")),
+											term(literal("")),
+										),
+										deviceText: true as const,
+									},
+								]
+							: [],
+					)
+				: [],
+		),
+		...(config.calculatedSorts ?? []).map((rule) => ({
+			uuid: rule.uuid,
+			expression: rule.expression,
+			deviceText: true as const,
+		})),
+		...(config.detailTabs ?? []).flatMap((tab) =>
+			tab.displayCondition
+				? [{ uuid: tab.uuid, expression: tab.displayCondition }]
+				: [],
+		),
+	];
 }
 
 /** The value each property column read through a relation shows: the
@@ -212,22 +292,55 @@ function runtimeCalculatedColumns(
 function runtimeRelatedReads(
 	config: CaseListConfig | undefined,
 	caseType: string,
-	caseTypeSchemas: ReadonlyMap<string, CaseType> | undefined,
 ): RelatedRead[] | undefined {
 	if (config === undefined) return undefined;
-	const types = [...(caseTypeSchemas?.values() ?? [])];
 	return config.columns.flatMap((column): RelatedRead[] => {
-		if (column.kind === "calculated" || column.via === undefined) return [];
-		const reached = columnPropertyCaseType(column, caseType, types);
-		if (reached === undefined) return [];
-		return [
-			{
+		if (column.kind === "calculated") return [];
+		if (columnReadsDetailTabRow(config, column)) return [];
+		const distance =
+			column.kind === "worker-distance" &&
+			(column.visibleInDetail !== false ||
+				(column.visibleInList !== false && !column.notOnList));
+		const projected = !!(column.via || column.readFrom || column.showOwner);
+		if (!distance && !projected) return [];
+		const expression = term(
+			column.readFrom
+				? column.workerPropertyUuid
+					? {
+							kind: "session-user-property",
+							userPropertyUuid: column.workerPropertyUuid,
+							source: "worker-record",
+						}
+					: {
+							kind: "session-user",
+							field: column.field,
+							source: "worker-record",
+						}
+				: column.via === undefined
+					? prop(caseType, column.field)
+					: {
+							kind: "prop",
+							caseType,
+							property: column.field,
+							via: { kind: "ancestor", via: column.via },
+							readReached: true,
+						},
+		);
+		const reads: RelatedRead[] = [];
+		if (projected)
+			reads.push({
 				uuid: column.uuid,
-				expression: term(
-					prop(reached, column.field, columnRelationPath(column)),
-				),
-			},
-		];
+				expression,
+				...(column.showOwner && { showOwner: column.showOwner }),
+			});
+		if (distance)
+			reads.push({
+				uuid: workerDistanceValueId(column.uuid),
+				expression,
+				display: "distance",
+				...(column.showOwner && { showOwner: column.showOwner }),
+			});
+		return reads;
 	});
 }
 
@@ -285,6 +398,31 @@ function caseReadCore(
 		})),
 		restoreScope: args.restoreScope,
 		searchPopulation: args.searchPopulation,
+	};
+}
+
+function runningCasePredicate(args: Parameters<typeof readCases>[1]) {
+	return composeQueryPredicate(
+		args.caseListConfig,
+		args.inputValues,
+		args.caseType,
+		args.caseTypeSchemas,
+		args.excludedOwnerIds,
+		args.authoredExcludedOwnerIds,
+		args.parentCase,
+		args.searchCsql,
+		args.searchPopulation?.request?.parameters,
+		args.searchPopulation?.request?.unsentPrompts,
+	);
+}
+
+/** The worker's entire Results query before its transport page. */
+export function runningCaseSelectionQuery(
+	args: Parameters<typeof readCases>[1],
+) {
+	return {
+		...caseReadCore(args, runningCasePredicate(args).predicate),
+		sort: buildCaseStoreSortKeys(args.order, args.caseType),
 	};
 }
 
@@ -372,7 +510,8 @@ async function emptyCaseResult(
  * sort order, and empty-state semantics all see the truthful population.
  */
 export async function readCases(
-	store: Pick<CaseStore, "query" | "count" | "queryGrouped">,
+	store: Pick<CaseStore, "query" | "count" | "queryGrouped"> &
+		Partial<Pick<CaseStore, "querySearchResults">>,
 	args: {
 		appId: string;
 		caseType: string;
@@ -396,7 +535,9 @@ export async function readCases(
 		inputValues?: SearchInputValues;
 		/** A search's `_xpath_query` rows, folded with what the device worked
 		 *  out (`searchCsqlRuntime.ts::foldSearchCsql`). Present, they stand
-		 *  for the case list filter and the advanced inputs' predicates. */
+		 *  for the search condition and the advanced inputs' predicates, and
+		 *  the device list's own condition never applies. Every searched read
+		 *  carries them, an unrestricted one as `match-all`. */
 		searchCsql?: SearchCsqlQuery;
 		bindings?: TermBindings;
 		/** Rows-free lookup definition types for the compiler's
@@ -427,16 +568,7 @@ export async function readCases(
 		searchPopulation?: SearchPopulation;
 	},
 ): Promise<LoadCasesResult> {
-	const composedQuery = composeQueryPredicate(
-		args.caseListConfig,
-		args.inputValues,
-		args.caseType,
-		args.caseTypeSchemas,
-		args.excludedOwnerIds,
-		args.authoredExcludedOwnerIds,
-		args.parentCase,
-		args.searchCsql,
-	);
+	const composedQuery = runningCasePredicate(args);
 	const page = normalizeCaseListPage(args.page);
 	// Grouping is a property of a BOUNDED running-list read. An unpaged
 	// caller (the form auto-selection candidate read) wants the complete
@@ -461,6 +593,64 @@ export async function readCases(
 	// the grouped path gets its totals from the page's own statement and needs
 	// no recount — so adding to the tail below still means asking whether the
 	// grouped reader needs it, and it will not be told by the compiler.
+	if (args.searchPopulation?.request) {
+		if (!store.querySearchResults)
+			throw new Error("This case store has no completed-search reader.");
+		const found = await store.querySearchResults(
+			{
+				...caseReadCore(args, composedQuery.predicate),
+				sort: buildCaseStoreSortKeys(args.order, args.caseType),
+				calculated: runtimeCalculatedColumns(args.caseListConfig),
+				related: runtimeRelatedReads(args.caseListConfig, args.caseType),
+				offset: page?.offset,
+				limit: page?.limit ?? args.cap,
+			},
+			grouping?.identifier,
+		);
+		const common = {
+			constraintSource: composedQuery.constraintSource,
+			searchMatchCount: found.primaryCount,
+		};
+		if (!found.rows.length) {
+			// The empty state may explain what clearing a worker's answers
+			// would reveal. This second query can require a different cutoff
+			// or matcher. Its uncertainty does not invalidate the actual read.
+			let authoredMatchingCount: number | undefined;
+			if (composedQuery.constraintSource === "worker-search") {
+				try {
+					authoredMatchingCount = await countAuthoredCasePopulation(
+						store,
+						args,
+					);
+				} catch (error) {
+					if (!(error instanceof CaseSearchUnavailableError)) throw error;
+				}
+			}
+			return {
+				kind: "empty",
+				...common,
+				...(authoredMatchingCount !== undefined && { authoredMatchingCount }),
+			};
+		}
+		return {
+			kind: "rows",
+			...common,
+			rows: found.rows,
+			totalCount: found.totalRows,
+			...(page &&
+				(found.grouped
+					? {
+							grouped: {
+								groups: found.grouped.groups,
+								listOrder: found.grouped.listOrder,
+								pageOffset: found.offset,
+								pageSize: page.limit,
+								totalGroupCount: found.grouped.totalGroups,
+							},
+						}
+					: { pageOffset: found.offset, pageSize: page.limit })),
+		};
+	}
 	if (grouping !== undefined && page !== undefined) {
 		return readGroupedCases(store, args, composedQuery, page, grouping);
 	}
@@ -497,12 +687,11 @@ export async function readCases(
 		store.query({
 			...caseReadCore(args, composedQuery.predicate),
 			sort: buildCaseStoreSortKeys(args.order, args.caseType),
-			calculated: runtimeCalculatedColumns(args.caseListConfig),
-			related: runtimeRelatedReads(
+			calculated: runtimeCalculatedColumns(
 				args.caseListConfig,
-				args.caseType,
-				args.caseTypeSchemas,
+				args.order?.locale,
 			),
+			related: runtimeRelatedReads(args.caseListConfig, args.caseType),
 			limit: page?.limit ?? cap,
 			offset: page === undefined ? undefined : offset,
 		});
@@ -611,12 +800,11 @@ async function readGroupedCases(
 		store.queryGrouped({
 			...caseReadCore(args, composedQuery.predicate),
 			sort: buildCaseStoreSortKeys(args.order, args.caseType),
-			calculated: runtimeCalculatedColumns(args.caseListConfig),
-			related: runtimeRelatedReads(
+			calculated: runtimeCalculatedColumns(
 				args.caseListConfig,
-				args.caseType,
-				args.caseTypeSchemas,
+				args.order?.locale,
 			),
+			related: runtimeRelatedReads(args.caseListConfig, args.caseType),
 			indexIdentifier: grouping.identifier,
 			groupOffset,
 			groupLimit: page.limit,
@@ -720,6 +908,17 @@ async function countAuthoredCasePopulation(
 	);
 	return store.count({
 		...caseReadCore(args, authoredQuery.predicate),
+		...(args.searchPopulation?.request && {
+			searchPopulation: {
+				...args.searchPopulation,
+				request: {
+					...args.searchPopulation.request,
+					parameters: args.searchPopulation.request.parameters?.filter(
+						(parameter) => !parameter.readsAnswers,
+					),
+				},
+			},
+		}),
 		// The same restore the caller's own count used. This number answers
 		// "would clearing Search reveal a case?", and a device that cannot
 		// hold the case would not reveal it either.
@@ -764,10 +963,18 @@ function composeQueryPredicate(
 	authoredExcludedOwnerIds: readonly string[] | undefined = excludedOwnerIds,
 	parentCase?: ParentCaseSelection,
 	searchCsql?: SearchCsqlQuery,
+	parameters?: readonly import("@/lib/case-store/searchRequest").CaseSearchParameter[],
+	unsentPrompts: readonly string[] = [],
 ): ComposedCaseQuery {
 	const clauses: Expression[] = [];
-	let hasAuthoredConstraint = false;
-	let hasWorkerConstraint = false;
+	let hasAuthoredConstraint = parameters?.some((p) => !p.readsAnswers) ?? false;
+	let hasWorkerConstraint = parameters?.some((p) => p.readsAnswers) ?? false;
+	/* A field the request matches by its own key, or whose prompt a default
+	 * search left out of it, adds no clause of its own here. */
+	const sentKeys = new Set([
+		...(parameters?.map((p) => p.key) ?? []),
+		...unsentPrompts,
+	]);
 	if (parentCase !== undefined) {
 		hasAuthoredConstraint = true;
 	}
@@ -828,10 +1035,10 @@ function composeQueryPredicate(
 			// Expression ASTs are canonical JSON-shaped values. A changed effective
 			// filter means submitted prompt values added narrowing the worker can
 			// remove; the empty-bound remainder is the always-authored contribution.
-			hasWorkerConstraint =
+			hasWorkerConstraint ||=
 				JSON.stringify(baseFilter) !==
 				JSON.stringify(baseFilterWithoutWorkerValues);
-			hasAuthoredConstraint = baseFilterWithoutWorkerValues !== undefined;
+			hasAuthoredConstraint ||= baseFilterWithoutWorkerValues !== undefined;
 		}
 	}
 
@@ -849,7 +1056,7 @@ function composeQueryPredicate(
 	if (inputValues !== undefined && answeredInputs.length > 0) {
 		const runtimeFilter = effectiveFilterForEmission(
 			composeRuntimeFilter(
-				answeredInputs,
+				answeredInputs.filter((input) => !sentKeys.has(input.name)),
 				inputValues,
 				caseType,
 				caseTypeSchemas,
@@ -997,12 +1204,11 @@ export async function readFilterPreview(
 	// callers receive the same row shape as the running case list.
 	const rows = await store.query({
 		...caseReadCore(args, predicate),
-		calculated: runtimeCalculatedColumns(args.caseListConfig),
-		related: runtimeRelatedReads(
+		calculated: runtimeCalculatedColumns(
 			args.caseListConfig,
-			args.caseType,
-			args.caseTypeSchemas,
+			args.order?.locale,
 		),
+		related: runtimeRelatedReads(args.caseListConfig, args.caseType),
 		sort: buildCaseStoreSortKeys(args.order, args.caseType),
 		limit,
 	});
@@ -1071,6 +1277,15 @@ function buildCaseStoreSortKeys(
 	};
 	if (order === undefined) return [stablePageTieBreaker];
 	const rules = [
+		...order.plan.calculations.map((calc) => ({
+			rule: {
+				order: calc.order,
+				direction: calc.sort.direction,
+				blanks: calc.blanks,
+			},
+			key: { kind: "independent-calculation", sort: calc.sort } as const,
+			comparator: calc.comparator,
+		})),
 		...order.plan.fields.flatMap((field) =>
 			field.rule === undefined || field.key === undefined
 				? []
@@ -1078,11 +1293,7 @@ function buildCaseStoreSortKeys(
 		),
 		...order.plan.carriers.map((carrier) => ({
 			rule: carrier.rule,
-			key: {
-				kind: "property",
-				property: carrier.field,
-				...(carrier.via !== undefined && { via: carrier.via }),
-			} as CaseListSortKey,
+			key: carrier.key,
 			comparator: carrier.comparator,
 		})),
 	].sort((a, b) => a.rule.order - b.rule.order);
@@ -1135,11 +1346,23 @@ function sortKeysForRule(
 	columns: ReadonlyMap<string, Column>,
 	order: CaseStoreOrder,
 ): CaseStoreSortKey[] {
+	const source =
+		"property" in key
+			? key
+			: "column" in key
+				? columns.get(key.column)
+				: undefined;
+	const propertySource =
+		source && source.kind !== "calculated" ? source : undefined;
+	const displayOwner = propertySource?.showOwner
+		? { showOwner: propertySource.showOwner }
+		: {};
 	const expressionKey = (
 		expression: Expression,
 		keyComparator: CaseListComparator = comparator,
 	): CaseStoreSortKey => ({
 		kind: "expression",
+		...displayOwner,
 		expression,
 		comparator: keyComparator,
 		direction,
@@ -1150,20 +1373,60 @@ function sortKeysForRule(
 	const reachedType = (via: ColumnVia | undefined) =>
 		via === undefined
 			? caseType
-			: (columnPropertyCaseType({ via }, caseType, order.caseTypes) ??
-				caseType);
+			: columnPropertyCaseType({ via }, caseType, order.caseTypes);
 	/** A property read, through a column's walk where it has one. */
-	const read = (property: string, via: ColumnVia | undefined) =>
-		via === undefined
-			? prop(caseType, property)
-			: prop(reachedType(via), property, { kind: "ancestor", via });
+	const read = (property: string, via: ColumnVia | undefined): Term =>
+		propertySource?.readFrom
+			? { kind: "session-user", field: property, source: "worker-record" }
+			: via === undefined
+				? prop(caseType, property)
+				: {
+						kind: "prop",
+						caseType,
+						property,
+						via: { kind: "ancestor", via },
+						readReached: true,
+					};
+	/** Whether a read holds one choice among its tokens. A worker's record
+	 *  is no case property reference, so it is tested as its read value. */
+	const containsOption = (value: Term, option: string): Expression =>
+		value.kind === "prop"
+			? multiSelectAny(value, literal(option))
+			: {
+					kind: "multi-select-contains",
+					property: term(value),
+					values: [literal(option)],
+					quantifier: "any",
+				};
+	const linkDisplayValue = (column: Extract<Column, { kind: "link" }>) => {
+		const raw = read(column.field, column.via);
+		return ifExpr(
+			isBlank(raw),
+			textLiteral(""),
+			concat(textLiteral(`[${column.linkText}](`), term(raw), textLiteral(")")),
+		);
+	};
+	if (key.kind === "independent-calculation")
+		return [expressionKey(key.sort.expression)];
+	if (key.kind === "distance-property") {
+		return [
+			{
+				kind: "distance",
+				valueId: caseSortDistanceValue(key.column),
+				expression: term(read(key.property, key.via)),
+				comparator,
+				direction,
+				blanks,
+			},
+		];
+	}
 	if (key.kind === "property") {
 		return [expressionKey(term(read(key.property, key.via)))];
 	}
 	if (key.kind === "option-label") {
-		const optionType = reachedType(key.via);
+		const optionType = key.readFrom ? USERCASE_CASE_TYPE : reachedType(key.via);
 		const property = (
-			key.via === undefined
+			!key.readFrom && key.via === undefined
 				? order.caseProperties
 				: (order.caseTypes.find((type) => type.name === optionType)
 						?.properties ?? [])
@@ -1181,7 +1444,7 @@ function sortKeysForRule(
 			);
 			const [first, ...rest] = tokens.map(({ option, index }) =>
 				ifExpr(
-					multiSelectAny(read(key.property, key.via), literal(option.value)),
+					containsOption(read(key.property, key.via), option.value),
 					textLiteral(
 						`${order.locale.optionLabel(property, index, optionType)} `,
 					),
@@ -1209,54 +1472,82 @@ function sortKeysForRule(
 	}
 	const column = columns.get(key.column);
 	if (column === undefined) return [];
-	if (key.kind === "calculated") {
-		if (column.kind !== "calculated") return [];
-		return [expressionKey(column.expression, comparator)];
-	}
-	if (column.kind === "calculated") return [];
-	const raw = read(column.field, column.via);
-	if (key.kind === "mapping-position") {
-		if (column.kind !== "id-mapping" && column.kind !== "image-map") return [];
+	if (key.kind === "distance-calculated") {
+		const expression =
+			column.kind === "calculated"
+				? caseCalculation(column, order.locale)
+				: column.kind === "link" && column.visibleInList !== false
+					? linkDisplayValue(column)
+					: term(read(column.field, column.via));
 		return [
 			{
-				kind: "mapping-position",
-				expression: term(raw),
-				values: column.mapping.map((entry) => javaTrim(entry.value)),
+				kind: "distance",
+				valueId: caseSortDistanceValue(key.column),
+				expression,
+				comparator,
 				direction,
 				blanks,
 			},
 		];
 	}
-	if (key.kind === "link-text") {
-		if (column.kind !== "link") return [];
+	if (key.kind === "calculated") {
+		if (column.kind !== "calculated") return [];
+		return [expressionKey(caseCalculation(column, order.locale), comparator)];
+	}
+	if (column.kind === "calculated") return [];
+	const raw = read(column.field, column.via);
+	if (key.kind === "mapping-label" || key.kind === "mapping-position") {
+		if (column.kind !== "id-mapping" && column.kind !== "image-map") return [];
 		return [
-			expressionKey(
-				ifExpr(
-					isBlank(raw),
-					textLiteral(""),
-					concat(
-						textLiteral(`[${column.linkText}](`),
-						term(raw),
-						textLiteral(")"),
-					),
-				),
-				"text",
-			),
+			{
+				kind: "case-mapping",
+				...displayOwner,
+				expression: term(raw),
+				direction,
+				blanks,
+				rows: column.mapping.map((row, index) => {
+					const result =
+						key.kind === "mapping-label" && column.kind === "id-mapping"
+							? order.locale.mappingLabel(column, index)
+							: String(index);
+					if (row.when) return { match: "condition", when: row.when, result };
+					const entire =
+						key.kind === "mapping-label" ||
+						("match" in row && row.match === "exact");
+					return {
+						match: entire ? "exact" : "selected",
+						value: entire ? (row.value ?? "") : javaTrim(row.value ?? ""),
+						result,
+					};
+				}),
+			},
 		];
 	}
-	if (column.kind !== "interval") return [];
-	const divisorDays = TIME_SINCE_UNIT_DAYS[column.unit];
+	if (key.kind === "link-text") {
+		return column.kind === "link"
+			? [expressionKey(linkDisplayValue(column), "text")]
+			: [];
+	}
+	if (column.kind !== "interval" && column.kind !== "overdue-marker") return [];
+	const divisorDays =
+		column.kind === "interval" ? TIME_SINCE_UNIT_DAYS[column.unit] : 1;
 	return [
 		{
 			kind: "interval-text",
+			...displayOwner,
+			readFrom: column.readFrom,
 			property: column.field,
 			...(column.via !== undefined && {
-				relation: { caseType: reachedType(column.via), via: column.via },
+				relation: { via: column.via },
 			}),
-			display: column.display,
-			thresholdDays: column.threshold * divisorDays,
+			display: column.kind === "interval" ? column.display : "flag",
+			thresholdDays:
+				column.kind === "interval"
+					? column.threshold * divisorDays
+					: column.afterDays,
 			divisorDays,
-			text: order.locale.intervalText(column),
+			text:
+				column.kind === "interval" ? order.locale.intervalText(column) : "*",
 			direction,
 			blanks,
 		},
@@ -1314,6 +1605,8 @@ export async function readCaseData(
 		 * direct non-extension case-index population. */
 		parentCase?: ParentCaseSelection;
 		caseListConfig?: CaseListConfig;
+		locale?: CaseListOrderLocale;
+		contextModuleUuid?: Uuid;
 		caseTypeSchemas?: ReadonlyMap<string, CaseType>;
 		bindings?: TermBindings;
 		lookupTableSchemas?: LookupTableSchemas;
@@ -1336,18 +1629,20 @@ export async function readCaseData(
 		searchPopulation?: SearchPopulation;
 	},
 ): Promise<LoadCaseDataResult> {
+	const contextLine = caseContextLine(args.caseListConfig?.contextAboveForm);
 	const rows = await store.query({
 		...caseReadCore(
 			args,
 			eq(prop(args.caseType, "case_id"), literal(args.caseId)),
 		),
 		parentCases: args.parentCase,
-		calculated: runtimeCalculatedColumns(args.caseListConfig),
-		related: runtimeRelatedReads(
-			args.caseListConfig,
-			args.caseType,
-			args.caseTypeSchemas,
-		),
+		calculated: [
+			...(runtimeCalculatedColumns(args.caseListConfig, args.locale) ?? []),
+			...(args.contextModuleUuid && contextLine
+				? [{ uuid: args.contextModuleUuid, expression: contextLine }]
+				: []),
+		],
+		related: runtimeRelatedReads(args.caseListConfig, args.caseType),
 		limit: 1,
 		includeHeld: args.includeHeld,
 	});
@@ -1567,6 +1862,7 @@ export async function resetSampleCases(
  * own case first), and the selection its session holds.
  */
 export interface BuiltSubmissionOperations {
+	readonly submissionLocation?: ApplySubmissionArgs["submissionLocation"];
 	readonly program?: CaseOperationProgram;
 	/** The selection the committed form type and module admit, with the
 	 * client's selected ids. It carries no case write. */
@@ -1692,7 +1988,7 @@ export async function buildSubmissionOperationProgram(args: {
 	/** The device the form ran on, whose session context values a case
 	 *  operation writing one writes. */
 	readonly device: PreviewDevice;
-	readonly lookupScope: LookupScope;
+	readonly lookupScope: PreviewLookupScope;
 	/** An authorized pinned snapshot, used by disposable workflow tests. */
 	readonly lookupTableSchemas?: LookupTableSchemas;
 	readonly mutation: SubmissionMutation;
@@ -1703,6 +1999,8 @@ export async function buildSubmissionOperationProgram(args: {
 	/** The ids of the places the entry's device snapshot held when the form
 	 * opened, which an owner moved to a place is resolved among. Absent, the
 	 * entry carried no snapshot of places, and they are read now. */
+	readonly testWorkerGroups?: WorkerRestoreScope["groups"];
+	readonly entryGroupOwner?: string;
 	readonly workerPlaceIds?: readonly string[];
 }): Promise<BuiltSubmissionOperations> {
 	const receiptIdentity = buildSubmissionReceiptIdentity({
@@ -1728,7 +2026,18 @@ export async function buildSubmissionOperationProgram(args: {
 	const movesOwnerToPlace = (
 		app.blueprint.forms[args.projection.formUuid]?.caseOperations ?? []
 	).some(operationOwnerMovesToPlace);
+	const workerScope =
+		app.blueprint.appSettings.caseSharing && !args.testWorkerGroups
+			? await resolveRestoreScope({
+					appId: args.appId,
+					projectId: args.lookupScope.projectId,
+					identity: args.identity,
+					blueprint: app.blueprint,
+				})
+			: undefined;
 	const built = buildCaseOperationProgramFromDoc({
+		workerGroups: args.testWorkerGroups ?? workerScope?.groups,
+		workerScopeRevision: workerScope?.revisions,
 		blueprint: app.blueprint,
 		mutation: args.mutation,
 		projection: args.projection,
@@ -1747,6 +2056,15 @@ export async function buildSubmissionOperationProgram(args: {
 			viewerTimeZone: args.viewerTimeZone,
 		}),
 	});
+	if (
+		workerScope &&
+		built.program?.groupDefaults &&
+		built.program.groupDefaults.owner !== args.entryGroupOwner
+	)
+		throw new CaptureSubmissionRejectedError(
+			"The group that receives new cases changed. You can reopen the form with the worker's current groups.",
+		);
+
 	/* Attach the program's rows-free lookup-definition snapshot BEFORE the
 	 * capture intent, so both augmentations ride one returned value. A
 	 * program-free submission has nothing to look up but must still reach
@@ -1759,6 +2077,21 @@ export async function buildSubmissionOperationProgram(args: {
 		args.lookupTableSchemas,
 	);
 
+	const capture = capturesDeviceLocation(
+		app.blueprint,
+		app.blueprint.forms[args.projection.formUuid],
+	);
+	const fix = args.mutation.locationFix;
+	if (
+		fix !== undefined &&
+		(!capture ||
+			!previewPlatformRules(args.device.platform).automaticLocation ||
+			!deviceLocationSchema.safeParse(fix).success)
+	)
+		throw new CaptureSubmissionRejectedError(
+			"This form could not use the supplied device location. Open it again with the current app and Preview phone settings.",
+		);
+	const metadata = capture ? { submissionLocation: fix ?? null } : {};
 	const validated = args.projection;
 	const allowedAttachments = Object.values(app.blueprint.fields).flatMap(
 		(field) => {
@@ -1789,6 +2122,7 @@ export async function buildSubmissionOperationProgram(args: {
 	) {
 		return {
 			...withLookups,
+			...metadata,
 			submissionReceipt: {
 				...receiptIdentity,
 				expectedAppMutationSeq: app.mutation_seq,
@@ -1806,6 +2140,7 @@ export async function buildSubmissionOperationProgram(args: {
 	};
 	return {
 		...withLookups,
+		...metadata,
 		submissionReceipt: {
 			...receiptIdentity,
 			expectedAppMutationSeq: app.mutation_seq,
@@ -1826,7 +2161,7 @@ export async function buildSubmissionOperationProgram(args: {
 async function withProgramLookupTableSchemas(
 	built: BuiltSubmissionOperations,
 	blueprint: AppDoc["blueprint"],
-	lookupScope: LookupScope,
+	lookupScope: PreviewLookupScope,
 	pinnedSchemas?: LookupTableSchemas,
 ): Promise<BuiltSubmissionOperations> {
 	if (built.program === undefined) return built;
@@ -1993,6 +2328,8 @@ export function buildCaseOperationProgramFromDoc(args: {
 	readonly device: PreviewDevice;
 	/** The ids of the places the worker's `locations` fixture holds, read by
 	 * the I/O half when an operation moves its owner to a place. */
+	readonly workerGroups?: WorkerRestoreScope["groups"];
+	readonly workerScopeRevision?: WorkerRestoreScope["revisions"];
 	readonly workerPlaceIds?: readonly string[];
 	readonly viewerTimeZone?: string;
 }): BuiltSubmissionOperations {
@@ -2030,6 +2367,38 @@ export function buildCaseOperationProgramFromDoc(args: {
 	};
 	const committed = committedProgramForm(doc, formUuid);
 	const operations = committed.operations;
+	if (operations.length === 0 && mutation.entrySupplies === undefined)
+		return ordinaryStructure;
+	const entryCaseKeys = entryNamedCreates(doc, formUuid);
+	const suppliedCaseIds = new Map<Uuid, string>();
+	if (mutation.entrySupplies !== undefined) {
+		const parsed = creationLaunchSchema.safeParse(mutation.entrySupplies);
+		if (!parsed.success)
+			throw new CaptureSubmissionRejectedError(
+				"These deep link case IDs are incomplete. Open the link again.",
+			);
+		const launch = parsed.data;
+		const target = entryPointByUuid(doc, launch.entryPointUuid)?.target;
+		if (target?.kind !== "form" || target.formUuid !== formUuid)
+			throw new CaptureSubmissionRejectedError(
+				"The deep link no longer opens this form. Open its current link and try again.",
+			);
+		const requirements = entryPointRequirements(doc, target);
+		if (!requirements.available)
+			throw new CaptureSubmissionRejectedError(requirements.message);
+		const issue = suppliedCreationIssue(
+			requirements.requiredCreations,
+			launch.creations,
+		);
+		if (issue) throw new CaptureSubmissionRejectedError(issue);
+		for (const creation of launch.creations) {
+			if (!entryCaseKeys.has(creation.operationUuid))
+				throw new CaptureSubmissionRejectedError(
+					"The form no longer creates a case named by this deep link. Open the current link and try again.",
+				);
+			suppliedCaseIds.set(creation.operationUuid, creation.caseId);
+		}
+	}
 	if (operations.length === 0) return ordinaryStructure;
 	/* A client that sent no answers sent none for any question: a form whose
 	 * operations read none (an own case that only touches the case it
@@ -2220,7 +2589,12 @@ export function buildCaseOperationProgramFromDoc(args: {
 	for (const [field, value] of Object.entries(session.context)) {
 		if (value !== undefined) sessionContext.set(field, value);
 	}
-	const entryCaseKeys = entryNamedCreates(doc, formUuid);
+	const sharing = formSharingPlan(doc, formUuid);
+	const group = args.workerGroups?.[0];
+	if (sharing && (!group || args.workerGroups?.length !== 1))
+		throw new CaptureSubmissionRejectedError(
+			"This form needs one group to own its new cases. You can check this worker's groups and places, then open it again.",
+		);
 	return {
 		...ordinaryStructure,
 		program: {
@@ -2228,6 +2602,15 @@ export function buildCaseOperationProgramFromDoc(args: {
 			operations: envelopeOperations,
 			...(ownCase === undefined ? {} : { ownCase }),
 			...(entryCaseKeys.size > 0 && { entryCaseKeys }),
+			...(sharing &&
+				group && {
+					groupDefaults: {
+						owner: group.id,
+						operations: sharing.groupDefaultOwners,
+						revisions: args.workerScopeRevision,
+					},
+				}),
+			...(suppliedCaseIds.size > 0 && { suppliedCaseIds }),
 			scopes,
 			...(mutation.kind === "followup" || mutation.kind === "close"
 				? { sessionCaseIds: mutation.caseIds }
@@ -2442,6 +2825,9 @@ export function submissionEnvelopeArgs(
 	if (mutation.kind !== built.ordinaryFormType) rejectFormTypeMismatch();
 	return {
 		appId,
+		...(built.submissionLocation !== undefined && {
+			submissionLocation: built.submissionLocation,
+		}),
 		ordinary: built.ordinaryAction,
 		...operations,
 		...submissionReceipt,
@@ -2572,7 +2958,7 @@ export async function gatedCaseStoreWithScope(
 	required: AppCapability,
 ): Promise<{
 	store: CaseStore;
-	scope: LookupScope;
+	scope: PreviewLookupScope;
 	projectId: string;
 	role: string;
 }> {
@@ -2608,23 +2994,27 @@ export async function gatedCaseStoreWithScope(
  */
 /**
  * Fixture data (definitions + complete ordered rows) for the lookup
- * tables ONE scalar-evaluated expression references — the fold input
+ * tables the scalar-evaluated expressions reference in one revision — the fold input
  * for the excluded-owner value, which resolves server-side rather
  * than compiling to SQL. `undefined` when the expression is absent or
  * carrier-free, so the common path loads nothing.
  */
 export async function loadExpressionLookupData(
-	scope: LookupScope,
-	expression: Expression | undefined,
+	scope: PreviewLookupScope,
+	expressions: readonly (Expression | undefined)[],
 ): Promise<PreviewLookupData | undefined> {
-	if (expression === undefined) return undefined;
-	const tableIds = collectConfigLookupTableIds(undefined, [expression]);
+	const tableIds = collectConfigLookupTableIds(
+		undefined,
+		expressions.filter(
+			(expression): expression is Expression => expression !== undefined,
+		),
+	);
 	if (tableIds.length === 0) return undefined;
-	return previewLookupData(await getLookupFixtureData(scope, tableIds));
+	return previewLookupData(await readPreviewLookup(scope, tableIds));
 }
 
 export async function loadLookupTableSchemas(
-	scope: LookupScope,
+	scope: PreviewLookupScope,
 	tableIds: readonly LookupTableId[],
 ): Promise<LookupTableSchemas | undefined> {
 	return (await loadLookupDefinitionsFor(scope, tableIds))?.schemas;
@@ -2634,23 +3024,16 @@ export async function loadLookupTableSchemas(
  * for the compiler, and their wire naming, which types a search clause's
  * lookup reads as the browser's evaluation typed them. */
 export async function loadLookupDefinitionsFor(
-	scope: LookupScope,
+	scope: PreviewLookupScope,
 	tableIds: readonly LookupTableId[],
 ): Promise<
 	| { readonly schemas: LookupTableSchemas; readonly naming: LookupWireNaming }
 	| undefined
 > {
 	if (tableIds.length === 0) return undefined;
-	const snapshot = await getLookupDefinitions(scope, tableIds);
+	const snapshot = await readPreviewLookup(scope, tableIds);
 	return {
-		schemas: new Map(
-			snapshot.definitions.map((table) => [
-				table.id as string,
-				new Map(
-					table.columns.map((column) => [column.id as string, column.dataType]),
-				),
-			]),
-		),
+		schemas: workerLookupSchemas(scope.projectId, snapshot),
 		naming: lookupWireNaming(snapshot.definitions),
 	};
 }
@@ -2686,6 +3069,9 @@ export function schemaHealingCaseStore(
 		// missing/stale-schema signals the wrapper remedies.
 		readDeviceCaseDatabase: (a) => store.readDeviceCaseDatabase(a),
 		readCaseDatabasePatch: (a) => store.readCaseDatabasePatch(a),
+		readSearchResultInstance: (a) =>
+			heal(() => store.readSearchResultInstance(a)),
+		querySearchResults: (a, g) => heal(() => store.querySearchResults(a, g)),
 		queryGrouped: (a) => heal(() => store.queryGrouped(a)),
 		count: (a) => heal(() => store.count(a)),
 		insert: (a) => heal(() => store.insert(a)),

@@ -139,7 +139,9 @@ export interface AcceptReadingInput {
 		| "media"
 		| "appStrings"
 		| "recordDialect"
+		| "sourceProjectFactories"
 		| "saveOnlyEditedApplied"
+		| "caseListActionsApplied"
 	>;
 	/**
 	 * The declarations to judge and to offer: the draft's, less each choice
@@ -593,6 +595,8 @@ export function* acceptReadingSteps(
 			const runsOnlyOn = choice.runsOnlyOn ?? null;
 			const firstPublishFacts = calling("firstPublishFactsOf", () =>
 				firstPublishFactsOf({
+					lookup: input.reader.lookup,
+					columnFieldWords: draft.identities.columnFieldWords,
 					source,
 					doc,
 					facts: draft.facts,
@@ -830,11 +834,15 @@ function* fixedPointCheck(
 					resolver,
 					lookup: input.reader.lookup,
 					organization: input.reader.organization,
+					sourceProjectFactories: input.reader.sourceProjectFactories,
 					media: input.reader.media,
 					appStrings: input.reader.appStrings,
 					recordDialect: input.reader.recordDialect,
 					...(input.reader.saveOnlyEditedApplied !== undefined && {
 						saveOnlyEditedApplied: input.reader.saveOnlyEditedApplied,
+					}),
+					...(input.reader.caseListActionsApplied !== undefined && {
+						caseListActionsApplied: input.reader.caseListActionsApplied,
 					}),
 					knownCaseTypes: knownCaseTypesOf(doc),
 					knownLanguageCodes: knownLanguageCodesOf(doc),
@@ -905,7 +913,7 @@ function* fixedPointCheck(
 				matchingResolver(
 					input.appId,
 					calling("externalIdentityMap", () =>
-						externalIdentityMap(expected, identity),
+						externalIdentityMap(expected, identity, options.lookupNaming),
 					),
 				),
 			);

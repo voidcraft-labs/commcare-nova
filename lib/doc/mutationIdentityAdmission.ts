@@ -5,6 +5,8 @@ import {
 	type BlueprintAuthoredIdentity,
 	type BlueprintAuthoredIdentityKind,
 	type BlueprintDoc,
+	type EntryPointTarget,
+	entryPointByUuid,
 	type Uuid,
 	uuidSchema,
 } from "@/lib/domain";
@@ -23,7 +25,11 @@ function nestedModuleIdentities(
 ): BlueprintAuthoredIdentity[] {
 	return [
 		{ uuid: module.uuid, kind: "module" },
-		...[module.entryPoint, module.caseListEntryPoint].flatMap((e) =>
+		...[
+			module.entryPoint,
+			module.caseListEntryPoint,
+			...(module.formsFromMenu?.entryPoints ?? []).map((row) => row.entryPoint),
+		].flatMap((e) =>
 			e
 				? [
 						{
@@ -34,9 +40,24 @@ function nestedModuleIdentities(
 					]
 				: [],
 		),
+		...(module.caseListConfig?.calculatedSorts ?? []).map((sort) => ({
+			uuid: sort.uuid,
+			kind: "caseListSort" as const,
+			ownerUuid: module.uuid,
+		})),
+		...(module.caseListConfig?.detailTabs ?? []).map((tab) => ({
+			uuid: tab.uuid,
+			kind: "caseDetailTab" as const,
+			ownerUuid: module.uuid,
+		})),
 		...(module.caseListConfig?.columns ?? []).map((column) => ({
 			uuid: column.uuid,
 			kind: "caseListColumn" as const,
+			ownerUuid: module.uuid,
+		})),
+		...(module.caseListConfig?.searchFilters ?? []).map((filter) => ({
+			uuid: filter.uuid,
+			kind: "searchFilter" as const,
 			ownerUuid: module.uuid,
 		})),
 		...(module.caseListConfig?.searchInputs ?? []).map((input) => ({
@@ -239,6 +260,16 @@ function ownedIdentityReplacementBy(
 	mutation: Mutation,
 ): OwnedIdentityReplacement | undefined {
 	switch (mutation.kind) {
+		case "setCaseListMeta":
+			return mutation.patch.detailTabs === undefined
+				? undefined
+				: {
+						kind: "caseDetailTab",
+						ownerUuid: mutation.uuid,
+						retainedUuids: new Set(
+							(mutation.patch.detailTabs ?? []).map((tab) => tab.uuid),
+						),
+					};
 		case "updateField": {
 			if (!("optionsSource" in mutation.patch)) return undefined;
 			return {
@@ -353,6 +384,36 @@ function identitiesClaimedBy(mutation: Mutation): MutationIdentityClaim[] {
 					ownerUuid: mutation.fieldUuid,
 				},
 			]);
+		case "addCalculatedSort":
+			return createClaims([
+				{
+					uuid: mutation.sort.uuid,
+					kind: "caseListSort",
+					ownerUuid: mutation.moduleUuid,
+				},
+			]);
+		case "setCaseListMeta": {
+			const edit = mutation.patch.searchFilterEdit;
+			return [
+				...(mutation.patch.detailTabs ?? []).map((tab) => ({
+					identity: {
+						uuid: tab.uuid,
+						kind: "caseDetailTab" as const,
+						ownerUuid: mutation.uuid,
+					},
+					preserveIfOwnedBy: mutation.uuid,
+				})),
+				...(edit?.operation === "add"
+					? createClaims([
+							{
+								uuid: edit.filter.uuid,
+								kind: "searchFilter",
+								ownerUuid: mutation.uuid,
+							},
+						])
+					: []),
+			];
+		}
 		case "addColumn":
 			return createClaims([
 				{
@@ -456,6 +517,8 @@ function identitiesClaimedBy(mutation: Mutation): MutationIdentityClaim[] {
 		case "removeOption":
 		case "moveOption":
 		case "updateOption":
+		case "updateCalculatedSort":
+		case "removeCalculatedSort":
 		case "removeColumn":
 		case "moveColumn":
 		case "updateColumn":
@@ -483,6 +546,10 @@ function identitiesClaimedBy(mutation: Mutation): MutationIdentityClaim[] {
 		case "relabelSourceLanguage":
 		case "addLanguage":
 		case "removeLanguage":
+		case "rebindLanguageCodes":
+		case "rebaseSourceLanguage":
+		case "setProjectLanguageDirection":
+		case "moveLanguage":
 		case "setDefaultLanguage":
 		case "setTranslation":
 		case "reviewTranslation":
@@ -491,9 +558,9 @@ function identitiesClaimedBy(mutation: Mutation): MutationIdentityClaim[] {
 		case "retireCaseType":
 		case "addCaseProperty":
 		case "setCaseProperty":
+		case "moveCaseProperty":
 		case "removeCaseProperty":
 		case "setCaseTypeMeta":
-		case "setCaseListMeta":
 		case "updateFormLink":
 		case "removeFormLink":
 		case "moveFormLink":
@@ -545,7 +612,37 @@ export function mutationIdentityAdmissionIssue(
 		Uuid,
 		{ readonly formUuid: Uuid; readonly role: FormLinkRole }
 	>();
+	// A saved HQ edit can move a form to another owner and change the source of
+	// its secondary route together. Its external link still names exactly the
+	// same (route, form). Keep only links explicitly removed before that move.
+	const removedRoutePoints = new Map<
+		Uuid,
+		Extract<EntryPointTarget, { kind: "form" }>
+	>();
+	const movedTo = new Map<Uuid, Uuid>();
+	const changedSource = new Map<Uuid, Uuid>();
+
 	for (const [mutationIndex, mutation] of mutations.entries()) {
+		if (mutation.kind === "removeEntryPoint") {
+			const before = entryPointByUuid(doc, mutation.entryPointUuid);
+			if (
+				before?.target.kind === "form" &&
+				doc.modules[before.target.moduleUuid]?.formsFromMenu
+			) {
+				removedRoutePoints.set(before.entryPoint.uuid, before.target);
+			}
+		} else if (mutation.kind === "moveForm") {
+			movedTo.set(mutation.uuid, mutation.toModuleUuid);
+		} else if (
+			mutation.kind === "updateModule" &&
+			mutation.patch.formsFromMenu
+		) {
+			const next = mutation.patch.formsFromMenu.menuUuid;
+			if (doc.modules[mutation.uuid]?.formsFromMenu?.menuUuid !== next)
+				changedSource.set(mutation.uuid, next);
+			else changedSource.delete(mutation.uuid);
+		}
+
 		// Duplicate claims inside one payload are collisions. A later atomic
 		// replacement may still preserve identities continuously owned here.
 		const claimedInMutation = new Set<Uuid>();
@@ -648,6 +745,26 @@ export function mutationIdentityAdmissionIssue(
 					continue;
 				}
 			}
+			if (
+				mutation.kind === "addEntryPoint" &&
+				mutation.target.kind === "form"
+			) {
+				const { moduleUuid, formUuid } = mutation.target;
+				const removed = removedRoutePoints.get(identity.uuid);
+				const next = changedSource.get(moduleUuid);
+				if (
+					removed?.moduleUuid === moduleUuid &&
+					removed.formUuid === formUuid &&
+					next !== undefined &&
+					movedTo.get(formUuid) === next
+				) {
+					removedRoutePoints.delete(identity.uuid);
+					live.set(identity.uuid, { ...identity, ownerUuid: moduleUuid });
+					claimedInMutation.add(identity.uuid);
+					continue;
+				}
+			}
+
 			const removedLink = removedLinks.get(identity.uuid);
 			const reclaimsRemovedLink =
 				claim.reclaimsRemovedLink !== undefined &&

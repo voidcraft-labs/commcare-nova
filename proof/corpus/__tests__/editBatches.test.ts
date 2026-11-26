@@ -649,7 +649,7 @@ describe("a batch that leaves the document as it was", () => {
 });
 
 describe("the publish-side checks the commit gate does not cover", () => {
-	it("refuses a batch that takes the app past the media export budget, and keeps one that reaches it", () => {
+	it("keeps a batch that takes the app past what one in-memory export holds: Nova's publish streams its media", () => {
 		const input = stored("arithmetic", arithmeticFixture().doc);
 		const doc = hydrateAdmittedDocument(input);
 		const moduleUuid = doc.moduleOrder[0];
@@ -675,12 +675,9 @@ describe("the publish-side checks the commit gate does not cover", () => {
 					},
 				},
 			}));
-		expect(admitEditBatch(input, pictures(MAX_MEDIA_EXPORT_ASSETS)).ok).toBe(
-			true,
-		);
 		expect(
-			admitEditBatch(input, pictures(MAX_MEDIA_EXPORT_ASSETS + 1)),
-		).toEqual({ ok: false, codes: ["publish:MEDIA_EXPORT_TOO_LARGE"] });
+			admitEditBatch(input, pictures(MAX_MEDIA_EXPORT_ASSETS + 1)).ok,
+		).toBe(true);
 	});
 
 	it("refuses a document whose HQ projection Nova's publish refuses, and admits its publishable sibling", () => {

@@ -492,10 +492,10 @@ test("custom connection directions retain destinations and name drafts commit on
 	});
 	await page.getByRole("button", { name: "More settings" }).click();
 	const name = page.getByRole("textbox", { name: "Connection name" });
-	await name.fill("not-valid");
+	await name.fill("not valid");
 	await name.press("Tab");
 	await expect(page.getByRole("alert")).toContainText(
-		"letters, numbers, and underscores",
+		"letters, numbers, underscores, hyphens, and periods",
 	);
 	await expect(page.getByLabel("Commit count")).toHaveText("2");
 	await name.fill("guardian_link");

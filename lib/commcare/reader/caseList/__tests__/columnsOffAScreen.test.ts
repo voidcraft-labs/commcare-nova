@@ -7,9 +7,9 @@
  * pair; a canonical choice that changes what the export prints or moves a column a screen shows.
  */
 import { expect, it } from "vitest";
-import type { BlueprintDoc, Column } from "@/lib/domain";
-import { plainColumn } from "@/lib/domain/modules";
-import { columnsOffAScreenLast } from "../details";
+import type { BlueprintDoc, CaseTileLayout, Column } from "@/lib/domain";
+import { NAMED_TILE_SLOTS, plainColumn, tileCell } from "@/lib/domain/modules";
+import { columnsJoinedAsRead, columnsOffAScreenLast } from "../details";
 import { patients, uuid } from "./fixtures";
 import { codes, emittedApp, listOf, readLists } from "./listReading";
 
@@ -70,4 +70,66 @@ it("reads Nova's export of either order as the canonical one", async () => {
 	expect(fieldOf(read.detailColumnOrder, read.columns)).toEqual(
 		fieldOf(want.detailColumnOrder, want.columns),
 	);
+});
+
+it("preserves named Results positions and Details cells when an off-list twin swaps identities", async () => {
+	const offListTwin: Column = {
+		...plainColumn(uuid(21), "case_name", "Details only"),
+		visibleInList: false,
+		notOnList: true,
+	};
+	const namedColumns = NAMED_TILE_SLOTS.map((slot, index) =>
+		plainColumn(uuid(index + 22), index === 0 ? "case_name" : "notes", slot),
+	);
+	const namedSlots = Object.fromEntries(
+		NAMED_TILE_SLOTS.map((slot, index) => [slot, namedColumns[index].uuid]),
+	) as NonNullable<CaseTileLayout["namedSlots"]>;
+	const doc = patients([offListTwin, ...namedColumns], {
+		list: {
+			tile: { namedSlots },
+			detailTile: {
+				cells: Object.fromEntries(
+					[offListTwin, ...namedColumns].map((column, index) => [
+						column.uuid,
+						tileCell(0, index, 12, 1),
+					]),
+				),
+			},
+		},
+	});
+	const chosen = columnsOffAScreenLast(doc);
+	const config = chosen.modules[chosen.moduleOrder[0]]?.caseListConfig;
+	expect(config?.tile?.namedSlots?.[NAMED_TILE_SLOTS[0]]).toBe(
+		offListTwin.uuid,
+	);
+	expect(config?.detailTile?.cells[offListTwin.uuid]).toEqual(
+		tileCell(0, 1, 12, 1),
+	);
+	expect(await details(chosen)).toEqual(await details(doc));
+});
+
+it("preserves independent Details cells when identical displayed columns join in a different order", async () => {
+	const first = {
+		...plainColumn(uuid(41), "case_name", "Name"),
+		tile: tileCell(0, 0, 12, 1),
+	};
+	const second = {
+		...plainColumn(uuid(42), "case_name", "Name"),
+		tile: tileCell(0, 1, 12, 1),
+	};
+	const doc = patients([first, second], {
+		detailOrder: [second.uuid, first.uuid],
+		list: {
+			tile: {},
+			detailTile: {
+				cells: {
+					[first.uuid]: tileCell(0, 4, 12, 1),
+					[second.uuid]: tileCell(0, 2, 12, 1),
+				},
+			},
+		},
+	});
+	const joined = columnsJoinedAsRead(doc);
+	expect(joined).not.toBe(doc);
+	expect(await details(joined)).toEqual(await details(doc));
 });

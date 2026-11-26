@@ -55,6 +55,7 @@ import { useDeploymentTargetFacts } from "@/components/builder/DeploymentTargetP
 import {
 	useBuilderLanguage,
 	useLocalizedValues,
+	useWorkerWordingOverride,
 } from "@/components/builder/localization/BuilderLocalizationProvider";
 import { ProjectMediaImage } from "@/components/builder/media/ProjectMediaResource";
 import {
@@ -62,6 +63,7 @@ import {
 	previewParentCaseStepBack,
 	previewTargetKeptForParentCase,
 } from "@/components/preview/screens/moduleScreenNavigation";
+import { CaseDetailFields } from "@/components/preview/shared/CaseDetailFields";
 import { CaseListSortMenu } from "@/components/preview/shared/CaseListSortMenu";
 import { CaseTile } from "@/components/preview/shared/CaseTile";
 import { CaseTileGroup } from "@/components/preview/shared/CaseTileGroup";
@@ -80,9 +82,13 @@ import {
 	RestoreScopeNote,
 	restoreScopeEmptyCopy,
 } from "@/components/preview/shared/RestoreScopeNote";
-import { SearchInputForm } from "@/components/preview/shared/SearchInputForm";
+import {
+	type SearchFormClear,
+	SearchInputForm,
+} from "@/components/preview/shared/SearchInputForm";
 import { useColumnDisplayContext } from "@/components/preview/shared/useColumnDisplayContext";
 import { useImageReference } from "@/components/preview/shared/useImageReference";
+import { Badge } from "@/components/shadcn/badge";
 import { Button } from "@/components/shadcn/button";
 import { Checkbox } from "@/components/shadcn/checkbox";
 import {
@@ -112,20 +118,21 @@ import {
 	type CaseListConfig,
 	type CaseProperty,
 	type Column,
-	childModuleUuids,
 	effectiveCaseSearchConfig,
 	makeTranslationUnitId,
 	moduleFormsReadSearch,
 	moduleSearchWorkflow,
+	moduleShowsFormsInMenuAbove,
 	orderedColumns,
 	reachableCaseTypes,
 	SEARCH_RUNTIME_VALIDATION_MESSAGES,
 	searchScreenTitleText,
 	visibleSearchInputs,
 } from "@/lib/domain";
+import { resolveCaseFormContext } from "@/lib/domain/caseFormContext";
 import { effectiveFilterForEmission } from "@/lib/domain/expression/simplify";
 import type { Expression } from "@/lib/domain/expression/types";
-import { formTypeIcons } from "@/lib/domain/formTypeIcons";
+import { generatedWordingId } from "@/lib/domain/generatedWording";
 import { PreviewMarkdown } from "@/lib/markdown";
 import { caseColumnLabel } from "@/lib/preview/caseColumnLabel";
 import {
@@ -140,7 +147,10 @@ import {
 	caseListScreenStep,
 	resultsConstraintContext,
 } from "@/lib/preview/caseListPhase";
-import { previewRegisterAction } from "@/lib/preview/caseListRegistration";
+import {
+	caseListActionChoices,
+	previewRegisterAction,
+} from "@/lib/preview/caseListRegistration";
 import {
 	type CaseListPlace,
 	caseListPlaceOnReturn,
@@ -153,6 +163,8 @@ import {
 	LIST_ORDER,
 	pickCaseListSort,
 } from "@/lib/preview/caseListSortMenu";
+import { caseListOwnWording } from "@/lib/preview/caseListWording";
+import { ordinaryCaseResultCell } from "@/lib/preview/caseMap";
 import {
 	caseSelectionRouteCaseAction,
 	caseSelectionRowAction,
@@ -193,6 +205,7 @@ import {
 	formDisplayVisibility,
 	navigationSelectedCase,
 } from "@/lib/preview/engine/displayConditionEvaluation";
+import { expressionReadsCaseDatabase } from "@/lib/preview/engine/expressionCaseReads";
 import { previewExpressionContext } from "@/lib/preview/engine/expressionContext";
 import {
 	awaitsPreviewIdentity,
@@ -210,7 +223,10 @@ import {
 import { searchOutcomeFromLoad } from "@/lib/preview/engine/searchPhase";
 import type { PreviewScreen } from "@/lib/preview/engine/types";
 import { usePreviewLookupStatus } from "@/lib/preview/engine/useLookupPreviewData";
-import { useNavigationDeviceCases } from "@/lib/preview/engine/useNavigationDeviceCases";
+import {
+	useDeviceCaseDatabaseLoad,
+	useNavigationDeviceCases,
+} from "@/lib/preview/engine/useNavigationDeviceCases";
 import { columnsReadHere } from "@/lib/preview/engine/viewerLocation";
 import { useCaseDataReplacementRevision } from "@/lib/preview/hooks/caseDataInvalidation";
 import {
@@ -235,11 +251,12 @@ import { useSearchInputRunState } from "@/lib/preview/hooks/useSearchInputRunSta
 import { useSelectedPreviewIdentity } from "@/lib/preview/hooks/useSelectedPreviewIdentity";
 import { useViewerPositionWatch } from "@/lib/preview/hooks/useViewerPosition";
 import {
-	previewCaseDescendantModuleUuids,
+	dependentMenuSelectionUuids,
 	previewCaseListContinuation,
 	previewCaseListFormRequest,
 	previewCaseListHeldChoices,
 	previewCaseListMenuChoice,
+	previewEntryBadge,
 	previewMenuCaseContext,
 	previewSelectionsBefore,
 } from "@/lib/preview/menuProjection";
@@ -266,7 +283,9 @@ import {
 	previewSearchClearOffered,
 	previewSearchReopened,
 	previewSearchRunFollows,
+	searchAfterClear,
 } from "@/lib/preview/searchStanding";
+import { projectWorkerColumn } from "@/lib/preview/workerModule";
 import { toBoolean } from "@/lib/preview/xpath/coerce";
 import {
 	useLocation,
@@ -318,7 +337,10 @@ import type { PreviewCaseChoice } from "@/lib/session/types";
 import type { ViewerPositionStatus } from "@/lib/session/viewerPosition";
 import { useDeferredFocus } from "@/lib/ui/hooks/useDeferredFocus";
 import { showToast } from "@/lib/ui/toastStore";
+import { CaseMap } from "../shared/CaseMap";
 import { useWorkerMessage, WorkerText } from "../shared/WorkerText";
+import { PreviewMenuChoice, PreviewMenuChoices } from "./MenuLayout";
+import { PreviewFormChoiceIcon } from "./MenuScreenRows";
 
 /** Canvas width where search sits beside the results instead of above
  *  them: the same responsive truth the running app follows. */
@@ -353,6 +375,7 @@ interface PreviewChoiceStep {
 }
 
 interface CaseListScreenProps {
+	readonly caseListMapConfirmed?: boolean | null;
 	/** Passed from PreviewShell so the component stays valid while Activity hides it. */
 	screen: Extract<PreviewScreen, { type: "caseList" }>;
 	/** The location on show is a list's. While a step away renders,
@@ -362,10 +385,15 @@ interface CaseListScreenProps {
 	current: boolean;
 }
 
-export function CaseListScreen({ screen, current }: CaseListScreenProps) {
+export function CaseListScreen({
+	screen,
+	current,
+	caseListMapConfirmed,
+}: CaseListScreenProps) {
 	const loc = useLocation();
 	const navigate = useNavigate();
-	const menuSource = usePreviewMenuSource();
+	const language = useBuilderLanguage();
+	const menuSource = usePreviewMenuSource(language.language);
 	const menuCaseSelections = usePreviewMenuCaseSelections();
 	const setPreviewMenuCaseSelection = useSetPreviewMenuCaseSelection();
 	const previewParentCaseRequest = usePreviewParentCaseRequest();
@@ -525,7 +553,6 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 		seededFormUuid !== undefined ||
 		caseLoadingForms.length > 0;
 
-	const language = useBuilderLanguage();
 	const message = useWorkerMessage();
 	const mod = useWorkerModule(language.language, moduleUuid);
 	const menuCaseContext = useMemo(
@@ -570,8 +597,21 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 		setPreviewParentCaseRequest,
 	]);
 	const localizedValues = useLocalizedValues();
+	const searchButton =
+		useWorkerWordingOverride(generatedWordingId(moduleUuid, "searchButton")) ??
+		CASE_SEARCH_BUTTON_LABEL;
+	const selectWording = useWorkerWordingOverride(
+		generatedWordingId(moduleUuid, "selectCase"),
+	);
+	const noItemsWording = useWorkerWordingOverride(
+		generatedWordingId(moduleUuid, "emptyList"),
+	);
+	const caseTitle = useWorkerWordingOverride(
+		generatedWordingId("app", "caseTitle"),
+	);
 	const caseType = caseTypes.find((ct) => ct.name === mod?.caseType);
 	const config = mod?.caseListConfig;
+	const ownWording = caseListOwnWording(platformRules, config);
 	const canonicalConfig = menuSource.doc.modules[moduleUuid]?.caseListConfig;
 	const searchConfig = mod ? effectiveCaseSearchConfig(mod) : undefined;
 	const projectProse = useProseProjection();
@@ -597,6 +637,7 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 	);
 	const lookupStatus = usePreviewLookupStatus();
 	const navigationDeviceCases = useNavigationDeviceCases(menuSource.caseTypes);
+	const deviceCaseLoad = useDeviceCaseDatabaseLoad();
 	/* The session at this list's step: the datums chosen before it, which
 	 * its Search screen reads, and the cases chosen in earlier menus, which
 	 * a browse filter reads. */
@@ -627,77 +668,80 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 	 * reach this running-app pane, so no edit gate is needed here. A case
 	 * the choice just claimed is read once the device holds it: until then a
 	 * condition that reads the device's cases is still loading. */
-	const decideCaseLoadingForms = useCallback(
+	const formMenuItem = useCallback(
 		(
-			row: Pick<FormMenuCase, "case_id">,
+			form: (typeof caseLoadingForms)[number],
+			row?: Pick<FormMenuCase, "case_id">,
 			claimedCaseIds: readonly string[] = NO_CLAIMED_CASES,
-		) =>
-			caseLoadingForms.map((form) => ({
-				form,
-				visibility: formDisplayVisibility({
-					condition: form.displayCondition,
-					hiddenFromMenu: form.hiddenFromMenu === true,
-					session: searchSession,
-					types: previewExpressionContext(
-						menuSource.doc,
-						{ entity: "form", uuid: form.uuid, slot: "form_display_condition" },
-						searchEnvironment.lookup,
-					),
-					selectedCase: navigationSelectedCase(
+		) => {
+			const selectedCase = row
+				? navigationSelectedCase(
 						menuSource.doc,
 						moduleUuid,
 						form.uuid,
 						row.case_id,
 						stepSession.data,
-					),
-					deviceCases: deviceCasesHoldingClaims(
-						navigationDeviceCases,
-						claimedCaseIds,
-					),
-					lookup: lookupStatus,
-				}),
-			})),
+					)
+				: undefined;
+			const deviceCases = deviceCasesHoldingClaims(
+				navigationDeviceCases,
+				claimedCaseIds,
+			);
+			const visibility = formDisplayVisibility({
+				condition: form.displayCondition,
+				hiddenFromMenu: form.hiddenFromMenu === true,
+				session: searchSession,
+				types: previewExpressionContext(
+					menuSource.doc,
+					{ entity: "form", uuid: form.uuid, slot: "form_display_condition" },
+					searchEnvironment.lookup,
+				),
+				selectedCase,
+				deviceCases,
+				lookup: lookupStatus,
+			});
+			const badge =
+				visibility === "shown"
+					? previewEntryBadge({
+							doc: menuSource.doc,
+							entry: { kind: "form", moduleUuid, formUuid: form.uuid },
+							selectedCase,
+							session: searchSession,
+							lookup: lookupStatus,
+							deviceCases,
+							platform: device.platform,
+							localizedValues,
+						})
+					: "";
+			return {
+				form,
+				badge,
+				visibility: badge === undefined ? ("pending" as const) : visibility,
+			};
+		},
 		[
-			caseLoadingForms,
-			searchSession,
+			device.platform,
+			lookupStatus,
 			menuSource.doc,
 			moduleUuid,
 			navigationDeviceCases,
-			lookupStatus,
+			localizedValues,
 			searchEnvironment.lookup,
+			searchSession,
 			stepSession.data,
 		],
 	);
-	/* A several-case form menu uses the same three-valued display-condition
-	 * projection as the ordinary post-selection menu. Valid-by-construction
-	 * keeps selected-case properties out of these shared conditions, so the
-	 * worker/session/user/lookup world is complete without pretending one of
-	 * the selected rows represents the whole collection. */
+	const decideCaseLoadingForms = useCallback(
+		(
+			row: Pick<FormMenuCase, "case_id">,
+			claimedCaseIds: readonly string[] = NO_CLAIMED_CASES,
+		) =>
+			caseLoadingForms.map((form) => formMenuItem(form, row, claimedCaseIds)),
+		[caseLoadingForms, formMenuItem],
+	);
 	const decideMultiCaseLoadingForms = useCallback(
-		() =>
-			caseLoadingForms.map((form) => ({
-				form,
-				visibility: formDisplayVisibility({
-					condition: form.displayCondition,
-					hiddenFromMenu: form.hiddenFromMenu === true,
-					session: searchSession,
-					types: previewExpressionContext(
-						menuSource.doc,
-						{ entity: "form", uuid: form.uuid, slot: "form_display_condition" },
-						searchEnvironment.lookup,
-					),
-					deviceCases: navigationDeviceCases,
-					lookup: lookupStatus,
-				}),
-			})),
-		[
-			caseLoadingForms,
-			searchSession,
-			menuSource.doc,
-			navigationDeviceCases,
-			lookupStatus,
-			searchEnvironment.lookup,
-		],
+		() => caseLoadingForms.map((form) => formMenuItem(form)),
+		[caseLoadingForms, formMenuItem],
 	);
 
 	// ── Responsive split: the canvas's own width decides ──
@@ -726,8 +770,20 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 	 * Preview run starts the menu's search over (its answers and hidden
 	 * values were another session's), as a device's new session holds no
 	 * query. */
+	const currentSearchScreen = useRef(current);
+	currentSearchScreen.current = current;
+	const clearFormRef = useRef<SearchFormClear>(null);
 	const searchRun = useSearchInputRunState({
-		scopeKey: `${scopeEpoch}:${previewSessionId}:${moduleUuid ?? ""}`,
+		scopeKey: JSON.stringify([
+			scopeEpoch,
+			previewSessionId,
+			moduleUuid,
+			device.searchConfiguration?.revision,
+		]),
+		rangeTarget:
+			current && appId && accessPhase === "authorized"
+				? { appId, device, personaUuid: identity?.personaUuid }
+				: undefined,
 		searchInputs: config?.searchInputs ?? [],
 		session: searchSession,
 		environment: searchEnvironment,
@@ -737,11 +793,11 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 	/* The submission whose search found nothing on a phone, which keeps the
 	 * search screen with the answers as typed (`caseListStep`). */
 	const [emptySubmission, setEmptySubmission] = useState<object>();
-	/* Hidden inputs are answered by the system at submit, so only visible
-	 * prompts decide whether a worker has a Search screen to fill in; the wire
-	 * makes the same distinction in `searchWireShape`. */
-	const hasSearchInputs =
-		visibleSearchInputs(config?.searchInputs ?? []).length > 0;
+	/* Hidden inputs are answered by the system at submit, so only the
+	 * prompts the platform draws decide whether a worker has a Search screen
+	 * to fill in: Web Apps draws no field marked hidden, Android draws it
+	 * (`drawnSearchInputs`). */
+	const hasSearchInputs = visibleSearchInputs(searchRun.drawnInputs).length > 0;
 	const searchButtonCondition = searchConfig?.searchButtonDisplayCondition;
 	/* CommCare evaluates this predicate on the case-list Search action, before
 	 * the prompt screen exists. Preview's combined Search + Results composition
@@ -754,42 +810,67 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 	/* A condition that reads data the device lacks (a place key of a worker
 	 * assigned nowhere) is Core's refusal of the list whose action it gates,
 	 * held as the screen's state (`readPreviewScreen`). */
-	const searchActionRead = readPreviewScreen((): boolean | "undecided" => {
-		if (searchConfig === undefined) return false;
-		if (searchButtonCondition === undefined) return true;
-		/* A session still waiting for its worker decides nothing
-		 * (`awaitsPreviewIdentity`): the condition is undecided until the
-		 * worker arrives, as it is while lookups load. */
-		if (awaitsPreviewIdentity(searchSession)) return "undecided";
-		/* A condition whose carriers the held snapshot doesn't cover (still
-		 * loading, or a valid edit the stale snapshot predates) is undecided:
-		 * the Search pane stays withheld, and a step that depends on it waits
-		 * (`caseListScreenStep`), rather than flashing a surface the decided
-		 * value may retract. A lookup load that failed decides it false. */
-		if (
-			!predicateLookupsCovered(
-				searchButtonCondition,
-				lookupStatus.kind === "data" ? lookupStatus.data : undefined,
+	const readAction = (
+		condition: typeof searchButtonCondition,
+		slot: "search_button_display_condition" | "case_list_action_condition",
+	) =>
+		readPreviewScreen((): boolean | "undecided" => {
+			if (condition === undefined) return true;
+			/* A session still waiting for its worker decides nothing
+			 * (`awaitsPreviewIdentity`): the condition is undecided until the
+			 * worker arrives, as it is while lookups load. */
+			if (awaitsPreviewIdentity(searchSession)) return "undecided";
+			/* A condition whose carriers the held snapshot doesn't cover (still
+			 * loading, or a valid edit the stale snapshot predates) is undecided:
+			 * the Search pane stays withheld, and a step that depends on it waits
+			 * (`caseListScreenStep`), rather than flashing a surface the decided
+			 * value may retract. A lookup load that failed decides it false. */
+			if (
+				!predicateLookupsCovered(
+					condition,
+					lookupStatus.kind === "data" ? lookupStatus.data : undefined,
+				)
 			)
-		)
-			return lookupStatus.kind === "error" ? false : "undecided";
-		return evaluatePreviewSearchPredicate(
-			searchButtonCondition,
-			previewExpressionContext(
-				menuSource.doc,
-				{
-					entity: "module",
-					uuid: moduleUuid,
-					slot: "search_button_display_condition",
-				},
-				searchEnvironment.lookup,
-			),
-			searchEnvironment,
-			config?.searchInputs ?? [],
-			searchSession,
-			EMPTY_SEARCH_INPUT_VALUES,
-		);
-	});
+				return lookupStatus.kind === "error" ? false : "undecided";
+			return evaluatePreviewSearchPredicate(
+				condition,
+				previewExpressionContext(
+					menuSource.doc,
+					{
+						entity: "module",
+						uuid: moduleUuid,
+						slot,
+					},
+					searchEnvironment.lookup,
+				),
+				searchEnvironment,
+				slot === "case_list_action_condition"
+					? []
+					: (config?.searchInputs ?? []),
+				searchSession,
+				EMPTY_SEARCH_INPUT_VALUES,
+			);
+		});
+	const searchActionRead =
+		searchConfig === undefined || (mod && moduleShowsFormsInMenuAbove(mod))
+			? { kind: "read" as const, value: false }
+			: readAction(searchButtonCondition, "search_button_display_condition");
+	const formActionRule =
+		mod?.caseListRegistrationForm?.kind === "always"
+			? mod.caseListRegistrationForm.showWhen
+			: undefined;
+	const actionWaitsForCases =
+		formActionRule?.kind === "condition" &&
+		navigationDeviceCases.snapshot === null &&
+		expressionReadsCaseDatabase(formActionRule.condition, menuSource.doc);
+	const formActionRead = actionWaitsForCases
+		? { kind: "read" as const, value: "undecided" as const }
+		: readAction(
+				formActionRule?.kind === "condition"
+					? formActionRule.condition
+					: undefined,
+				"case_list_action_condition",
+			);
 	const searchActionIsRelevant =
 		searchActionRead.kind === "read" && searchActionRead.value === true;
 	/* The menu's forms read the search (CommCare's inline search): the
@@ -837,9 +918,10 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 	 * again. The answers a Search press sends, the hidden values among them,
 	 * are the ones Web Apps keeps for the query (`query.js::getAnswers` into
 	 * `utils.js::CloudcareUrl.setQueryData`); the menu's default search
-	 * (`automatic`) gives none. */
+	 * (`automatic`) uses the original answers of Core’s query manager. */
 	const submitSearch = useCallback(
 		(next: ReadonlyMap<string, string>, automatic = false) => {
+			if (!currentSearchScreen.current) return;
 			searchRun.submit(next);
 			if (moduleUuid === undefined) return;
 			const given = Object.fromEntries(next);
@@ -855,7 +937,8 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 					: actionSearch(answers, submission, automatic)
 			) as PreviewSubmittedSearch;
 			heldSearchRef.current = submittedSearchKey(search);
-			if (formsReadSearch) awaitingSearchFetchRef.current = true;
+			sawSearchFetchRef.current = false;
+			awaitingSearchFetchRef.current = formsReadSearch;
 			setPreviewSearchState(moduleUuid, search);
 		},
 		[
@@ -891,8 +974,19 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 		searchRun.clear();
 		heldSearchRef.current = undefined;
 		if (moduleUuid !== undefined)
-			setPreviewSearchState(moduleUuid, previewSearchAfterClear(searchState));
-	}, [searchRun, moduleUuid, searchState, setPreviewSearchState]);
+			setPreviewSearchState(
+				moduleUuid,
+				searchConfig?.searchOnClear
+					? manualSearch()
+					: previewSearchAfterClear(searchState),
+			);
+	}, [
+		searchRun,
+		moduleUuid,
+		searchState,
+		searchConfig?.searchOnClear,
+		setPreviewSearchState,
+	]);
 	/* Search again from Results opens the Search screen, including where
 	 * the menu ran its default search as it opened. */
 	const searchAgain = useCallback(() => {
@@ -1235,7 +1329,8 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 	/* A claim is a case row the store holds, so the restore scope follows
 	 * what the worker owns and a claim never retires the choice that made
 	 * it: the device's next read holds the claimed case. */
-	const selectionScopeKey = `${stateScopeKey}\u0000${restoreScopeKey}`;
+	const standingSubmission = submittedSearchOf(searchState)?.submission ?? "";
+	const selectionScopeKey = `${standingSubmission}\u0000${stateScopeKey}\u0000${restoreScopeKey}`;
 	const [multiSelectionState, setMultiSelectionState] = useState<{
 		readonly scopeKey: string;
 		readonly choices: readonly PreviewCaseChoice[];
@@ -1352,12 +1447,16 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 	);
 	/* After the no-matches form registers a case, Results shows exactly that
 	 * case: the wire's return frame re-keys the inline search to the new
-	 * case id (`CaseListFormWorkflow`), and Search again starts over. */
+	 * case id (`CaseListFormWorkflow`), and Search again starts over. Where
+	 * the frame ends on the search, Web Apps lists no row of it
+	 * (`listsNoRow`), and neither does Results. */
 	const registeredCaseIds = useMemo(
 		() =>
 			searchState?.kind === "completed" &&
 			searchState.registeredCaseId !== undefined
-				? [searchState.registeredCaseId]
+				? searchState.listsNoRow === true
+					? []
+					: [searchState.registeredCaseId]
 				: undefined,
 		[searchState],
 	);
@@ -1379,11 +1478,16 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 			doc: menuSource.doc,
 			moduleUuid,
 			reading: readsSearchResults ? "results" : "casedb",
+			searchOutput: claimsAtResult,
 		},
 	);
 	/* Results rows and tiles, and the Quick Filter that matches what they
 	 * say, read a link column as the platform's list draws it; the case
 	 * detail keeps the link on both. */
+	const detailDisplayContext = useMemo(
+		() => ({ ...columnDisplayContext, ...columnDisplayContext.detailWording }),
+		[columnDisplayContext],
+	);
 	const resultsDisplayContext = useMemo<ColumnDisplayContext>(
 		() => ({
 			...columnDisplayContext,
@@ -1526,8 +1630,14 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 		/* What the worker owns is the list's identity; a claim re-reads the
 		 * list through the case data revision and keeps the settled rows on
 		 * screen. */
-		requestScopeKey: `${stateScopeKey}\u0000${restoreScopeKey}`,
+		requestScopeKey: selectionScopeKey,
 		search: readsSearchResults,
+		/* The menu's default search sends no prompt's answer (Formplayer's
+		 * `doQuery` with `isDefaultSearch`), so a starting value narrows only
+		 * where a row or a hidden value reads it. */
+		defaultSearch:
+			activeSearchInputValues !== undefined &&
+			submittedSearchOf(searchState)?.automatic === true,
 		...(csqlRuntime !== undefined && { csqlRuntime }),
 		chosenCaseIds: stepSession.chosenCaseIds,
 		sortChoice,
@@ -1634,6 +1744,7 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 	 * sending the same display config/catalog solely for calculated projection;
 	 * when the list query also contains the row, prefer that existing projection. */
 	const { state: routeCaseState, reload: reloadRouteCase } = useCaseData({
+		language: language.language,
 		appId,
 		caseType: caseType?.name,
 		caseId: routeCaseId,
@@ -1664,7 +1775,11 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 		focusNextFrame(() => resultsTitleRef.current);
 	}, [focusNextFrame, reloadCases]);
 	const retryDeviceCases =
-		deviceValues.kind === "unavailable" ? deviceValues.retry : undefined;
+		deviceValues.kind === "unavailable"
+			? deviceValues.retry
+			: actionWaitsForCases && deviceCaseLoad.status === "error"
+				? deviceCaseLoad.retry
+				: undefined;
 	const retryDeviceCasesWithFocus = useCallback(async () => {
 		const pending = retryDeviceCases?.();
 		focusNextFrame(() => resultsTitleRef.current);
@@ -1699,6 +1814,14 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 	 * interchangeable when they are not. */
 	const clearSearch = () => {
 		resetSearch();
+		const alsoSearch = searchAfterClear(
+			searchConfig?.searchOnClear === true,
+			platformRules,
+			withNavigationWidth(device).windowWidth,
+		);
+		if (clearFormRef.current) clearFormRef.current.clear(alsoSearch);
+		else if (alsoSearch && !hasSearchInputs)
+			submitSearch(EMPTY_SEARCH_INPUT_VALUES);
 		focusFirstSearchControl();
 	};
 
@@ -1706,10 +1829,15 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 	// sequence, so rearranging one running-app screen cannot silently
 	// rearrange the other.
 	const listOrderedColumns =
-		config === undefined ? [] : orderedColumns(config, "list");
-	const visibleColumns = listOrderedColumns.filter(
+		config === undefined
+			? []
+			: orderedColumns(config, "list").map((column) =>
+					projectWorkerColumn(column, claimsAtResult, false, localizedValues),
+				);
+	const shownColumns = listOrderedColumns.filter(
 		(col) => col.visibleInList ?? true,
 	);
+	const visibleColumns = shownColumns.filter(ordinaryCaseResultCell);
 	/* The quick filter matches what a device's search matches: every field's
 	 * text, the hidden fields and the order plan's carriers included, an
 	 * image map's field by the path a device holds for its image. */
@@ -1777,7 +1905,11 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 			};
 	const detailColumns = (
 		config === undefined ? [] : orderedColumns(config, "detail")
-	).filter((col) => col.visibleInDetail !== false);
+	)
+		.filter((col) => col.visibleInDetail !== false)
+		.map((column) =>
+			projectWorkerColumn(column, claimsAtResult, true, localizedValues),
+		);
 	/* Clear lives with the search, where you would reach to start over, and
 	 * shows only where the platform's Search screen has one and there is
 	 * something to clear (`searchStanding.ts::previewSearchClearOffered`). */
@@ -1868,11 +2000,15 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 					}),
 				})
 			: undefined;
+	const inlineDetails =
+		moduleUuid &&
+		resolveCaseFormContext(menuSource.doc.modules, moduleUuid)
+			?.inlineModuleUuid;
 	const rowAction = caseSelectionRowAction({
 		hasDetails:
-			parentListHasDetails !== undefined
-				? parentListHasDetails && detailColumns.length > 0
-				: detailColumns.length > 0,
+			!inlineDetails &&
+			parentListHasDetails !== false &&
+			detailColumns.length > 0,
 		multiple: multipleSelection !== undefined,
 		canContinue,
 	});
@@ -1882,7 +2018,7 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 	 * (`caseSelectionNavigation.ts::caseSelectionRouteCaseAction`). */
 	const routeCaseAction = caseSelectionRouteCaseAction({
 		rowAction,
-		selectsForParentRequest,
+		selectsForParentRequest: selectsForParentRequest || !!inlineDetails,
 	});
 	const routeCaseGoesOnRef = useRef<
 		((row: CaseRowWithCalculated) => void) | null
@@ -2112,18 +2248,21 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 		: message(pageLocalFilter ? "showingResults" : "resultsFound", {
 				count: visibleResultCount,
 			});
-	const sourceSearchTitle = searchScreenTitleText(searchConfig);
+	// The title as the worker's language shows it: its own text, or none
+	// where that language holds the title blank, which a search with no title
+	// in its source language may leave beside a heading in another.
+	const localizedSearchTitle =
+		(localizedValues.get(
+			makeTranslationUnitId("module", moduleUuid ?? "missing", "search-title"),
+		) as string | undefined) ??
+		searchScreenTitleText(searchConfig) ??
+		"";
+	const workerSearchTitle =
+		(localizedValues.get(generatedWordingId(moduleUuid, "searchTitle")) as
+			| string
+			| undefined) ?? localizedSearchTitle;
 	const { title, subtitle } = searchScreenHeading(platformRules, {
-		title:
-			sourceSearchTitle === null
-				? null
-				: ((localizedValues.get(
-						makeTranslationUnitId(
-							"module",
-							moduleUuid ?? "missing",
-							"search-title",
-						),
-					) as string | undefined) ?? sourceSearchTitle),
+		title: workerSearchTitle === "" ? null : workerSearchTitle,
 		subtitle:
 			(localizedValues.get(
 				makeTranslationUnitId(
@@ -2205,9 +2344,9 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 	const registerLabel =
 		registerAction === undefined
 			? undefined
-			: ((localizedValues.get(registerAction.labelUnitId) as
-					| string
-					| undefined) ?? registerAction.label);
+			: ((localizedValues.get(
+					generatedWordingId(moduleUuid, "registerButton"),
+				) as string | undefined) ?? registerAction.label);
 	const noMatchesAction = useMemo(() => {
 		if (
 			!previewing ||
@@ -2224,6 +2363,11 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 			label: registerLabel,
 			onClick: () => {
 				setOpenCase(null);
+				setPreviewCaseListRegistrationEntry({
+					hostModuleUuid: moduleUuid,
+					moduleUuid,
+					formUuid: registrationForm.uuid,
+				});
 				setPreviewCaseTarget({
 					formUuid: registrationForm.uuid,
 					searchLaunch: { moduleUuid, attempt },
@@ -2238,14 +2382,20 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 		registerLabel,
 		registrationForm,
 		searchState,
+		setPreviewCaseListRegistrationEntry,
 		setPreviewCaseTarget,
 		navigate,
 	]);
+	const showListForm =
+		formActionRule?.kind === "empty-search"
+			? noMatchesActionAvailable(searchState)
+			: formActionRead.kind === "read" && formActionRead.value === true;
 	const alwaysRegisterAction = useMemo(() => {
 		if (
 			!previewing ||
 			moduleUuid === undefined ||
 			registerAction?.arm !== "always" ||
+			!showListForm ||
 			registerLabel === undefined
 		)
 			return undefined;
@@ -2255,12 +2405,17 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 			icon,
 			onClick: () => {
 				setOpenCase(null);
-				/* A registration form opens with no case; the launch is its
-				 * own fact, naming the entry it opens, so it ends with that
-				 * entry rather than with whatever next sets the case target. */
-				setPreviewCaseTarget(undefined);
+				const selections = caseListActionChoices(
+					menuSource.doc,
+					moduleUuid,
+					formUuid,
+					menuCaseSelections,
+				);
+				const cases = selections[formModuleUuid]?.cases;
+				setPreviewCaseTarget({ formUuid, ...(cases && { cases }) });
 				setPreviewCaseListRegistrationEntry({
 					hostModuleUuid: moduleUuid,
+					selections,
 					moduleUuid: formModuleUuid,
 					formUuid,
 				});
@@ -2272,6 +2427,9 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 		moduleUuid,
 		registerAction,
 		registerLabel,
+		menuSource.doc,
+		menuCaseSelections,
+		showListForm,
 		setPreviewCaseTarget,
 		setPreviewCaseListRegistrationEntry,
 		navigate,
@@ -2341,8 +2499,8 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 			automaticSearchToken,
 		);
 		launchedAutomaticSearchRef.current = pass.launched;
-		if (pass.launch) submitSearch(EMPTY_SEARCH_INPUT_VALUES, true);
-	}, [automaticSearchToken, current, submitSearch]);
+		if (pass.launch) submitSearch(searchRun.defaults, true);
+	}, [automaticSearchToken, current, searchRun.defaults, submitSearch]);
 	/* A case the list's address names on a parent's list whose datum names
 	 * no details screen goes on once it has loaded, as its row would
 	 * (`routeCaseAction`). The row's handler is the screen's own, which the
@@ -2384,7 +2542,7 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 			</ContentFrame>
 		);
 	}
-	if (visibleColumns.length === 0) {
+	if (shownColumns.length === 0) {
 		return (
 			<ContentFrame width="5xl" className="px-6 pt-6 pb-24">
 				<CaseListEmptyNotice
@@ -2503,10 +2661,10 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 			caseType: mod.caseType,
 			cases,
 		});
-		const staleSelectionModuleUuids = new Set([
-			...childModuleUuids(menuSource, moduleUuid),
-			...previewCaseDescendantModuleUuids(menuSource, mod.caseType),
-		]);
+		const staleSelectionModuleUuids = dependentMenuSelectionUuids(
+			menuSource,
+			moduleUuid,
+		);
 		for (const staleModuleUuid of staleSelectionModuleUuids) {
 			setPreviewMenuCaseSelection(staleModuleUuid, undefined);
 		}
@@ -2844,11 +3002,19 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 	 * with no visible field holds only its Search button. */
 	const searchPane =
 		step === "search" ||
-		(hasSearchInputs && searchActionIsRelevant && step === "browse") ? (
+		(hasSearchInputs &&
+			searchActionIsRelevant &&
+			(step === "browse" ||
+				(step === "results" &&
+					searchAfterClear(
+						searchConfig?.searchOnClear === true,
+						platformRules,
+						withNavigationWidth(device).windowWidth,
+					)))) ? (
 			<div
 				ref={searchPaneRef}
 				data-case-list-step={step}
-				className={`${split && step === "browse" ? "w-72 shrink-0" : "w-full max-w-lg"} grid self-start gap-4 rounded-lg border border-pv-input-border bg-pv-surface p-4`}
+				className={`${split && step !== "search" ? "w-72 shrink-0" : "w-full max-w-lg"} grid self-start gap-4 rounded-lg border border-pv-input-border bg-pv-surface p-4`}
 			>
 				<div>
 					{/* A search with no title draws no heading; the row stays only
@@ -2898,37 +3064,55 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 						data-search-waiting
 						className="text-sm text-nova-text-muted"
 					>
-						{message("searchGettingReady")}
+						{searchRun.openingMessage && (
+							<span className="block">{searchRun.openingMessage}</span>
+						)}
+						{searchRun.retryOpening ? (
+							<Button
+								type="button"
+								variant="outline"
+								onClick={searchRun.retryOpening}
+							>
+								{message("retrySearchStartingDates")}
+							</Button>
+						) : (
+							message("searchGettingReady")
+						)}
 					</p>
 				)}
+				{/* A screen that draws no field still sends every field's
+				 *  answer: Web Apps only hides a hidden field's row
+				 *  (`query.js` adds `d-none`) and `getAnswers` collects it, so
+				 *  the press sends the draft, each hidden field's starting value
+				 *  in it, and a cleared draft after Clear. */}
 				{accessPhase === "authorized" &&
 					!hasSearchInputs &&
+					searchRun.refusal === undefined &&
 					searchRun.pending !== true && (
 						<Button
 							type="button"
 							data-search-submit
-							onClick={() => submitSearch(EMPTY_SEARCH_INPUT_VALUES)}
+							onClick={() => submitSearch(searchRun.draft)}
 							className="h-auto min-h-11 w-full whitespace-normal break-words rounded-md bg-pv-accent px-4 py-2.5 text-center text-sm font-semibold text-nova-void not-disabled:hover:bg-pv-accent not-disabled:hover:brightness-110"
 						>
 							<Icon icon={tablerSearch} width="15" height="15" />
-							{CASE_SEARCH_BUTTON_LABEL}
+							{searchButton}
 						</Button>
 					)}
-				{accessPhase === "authorized" &&
-					hasSearchInputs &&
-					searchRun.refusal !== undefined && (
-						<PreviewDataRefusalPanel
-							surface="search"
-							reason={searchRun.refusal.reason}
-							moduleUuid={moduleUuid}
-						/>
-					)}
+				{accessPhase === "authorized" && searchRun.refusal !== undefined && (
+					<PreviewDataRefusalPanel
+						surface="search"
+						reason={searchRun.refusal.reason}
+						moduleUuid={moduleUuid}
+					/>
+				)}
 				{accessPhase === "authorized" &&
 					hasSearchInputs &&
 					searchRun.refusal === undefined &&
 					searchRun.pending !== true && (
 						<SearchInputForm
-							key={`${scopeEpoch}:${moduleUuid}`}
+							key={`${scopeEpoch}:${previewSessionId}:${moduleUuid}:${current}`}
+							clearRef={clearFormRef}
 							landmarkLabel={title ?? undefined}
 							scopeKey={moduleUuid}
 							searchInputs={config?.searchInputs ?? []}
@@ -2940,7 +3124,7 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 							value={searchRun.draft}
 							onChange={changeSearchDraft}
 							onSubmit={submitSearch}
-							submitLabel={CASE_SEARCH_BUTTON_LABEL}
+							submitLabel={searchButton}
 							localizeValidationMessage={localizeSearchValidationMessage}
 							platformRules={platformRules}
 							renderRefusal={(reason) => (
@@ -2964,9 +3148,11 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 							{localizeSearchValidationMessage(state.message)}
 						</p>
 						<p className="mt-1 text-xs leading-relaxed text-nova-text-muted">
-							{state.repair === "inputs"
-								? message("retrySearchInformation")
-								: "Return to edit mode and review Search settings"}
+							{state.reason?.kind === "link-history-unavailable"
+								? `“${state.reason.field}” searches the “${state.reason.identifier}” link. You can change that search field or try newly created records in an isolated App Test.`
+								: state.repair === "inputs"
+									? message("retrySearchInformation")
+									: "Return to edit mode and review Search settings"}
 						</p>
 					</div>
 				)}
@@ -2978,6 +3164,7 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 	const menuItemDetailAction = openedFromCaseListMenuItem
 		? caseListMenuItemDetailAction(platformRules)
 		: undefined;
+
 	const detailPane = displayedOpenCase !== null && (
 		<div className="max-w-lg min-w-0 flex-1">
 			<Button
@@ -2994,33 +3181,14 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 				data-case-detail-title
 				className="mb-4 min-w-0 font-display font-bold text-xl whitespace-normal break-words tracking-tighter text-nova-text [overflow-wrap:anywhere]"
 			>
-				{displayedOpenCase.case_name || message("case")}
+				{caseTitle ?? (displayedOpenCase.case_name || message("case"))}
 			</h1>
-			<dl
-				data-case-detail="responsive"
-				className="@container/detail overflow-hidden rounded-lg border border-pv-input-border bg-pv-surface"
-			>
-				{detailColumns.map((col, i) => {
-					const label = caseColumnLabel(col, caseType.properties, projectProse);
-					return (
-						<div
-							key={col.uuid}
-							data-case-detail-field={col.uuid}
-							className={`grid grid-cols-1 items-start gap-1 px-4 py-3 @sm/detail:grid-cols-[minmax(110px,0.38fr)_minmax(0,1fr)] @sm/detail:gap-3 ${i > 0 ? "border-t border-nova-violet/[0.08]" : ""}`}
-						>
-							<dt className="break-words text-xs font-medium text-nova-text-muted">
-								{label}
-							</dt>
-							<dd
-								data-case-detail-value
-								className="min-w-0 break-words text-[14px] leading-relaxed text-nova-text-secondary [overflow-wrap:anywhere]"
-							>
-								{renderColumnCell(col, displayedOpenCase, columnDisplayContext)}
-							</dd>
-						</div>
-					);
-				})}
-			</dl>
+			<CaseDetailFields
+				config={config}
+				columns={detailColumns}
+				row={displayedOpenCase}
+				displayContext={detailDisplayContext}
+			/>
 			{/* The running app's confirm step ends in Continue: on to the
 			 *  case-loading form (or the form menu, when the module has more
 			 *  than one). A module with no case-loading form has nowhere to
@@ -3156,12 +3324,15 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 					{message("chooseCaseTask")}
 				</p>
 			)}
-			<div className="grid gap-2">
-				{formMenuDecided.map(({ form, visibility }) => {
+			<PreviewMenuChoices
+				doc={menuSource.doc}
+				screen={{ kind: "menu", moduleUuid }}
+			>
+				{formMenuDecided.map(({ form, visibility, badge }) => {
 					const localizedFormName =
-						(localizedValues.get(
-							makeTranslationUnitId("form", form.uuid, "name"),
-						) as string | undefined) ?? form.name;
+						(localizedValues.get(generatedWordingId(form.uuid, "formTitle")) as
+							| string
+							| undefined) ?? form.name;
 					if (visibility === "hidden") return null;
 					if (visibility === "pending") {
 						return (
@@ -3172,37 +3343,40 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 						);
 					}
 					return (
-						<Button
+						<PreviewMenuChoice
 							key={form.uuid}
-							type="button"
-							variant="outline"
-							onClick={() =>
-								void openFormWithCase(form.uuid, displayedFormMenuCase, true)
-							}
-							className="group h-auto min-h-11 w-full justify-start gap-3 whitespace-normal rounded-lg border-pv-input-border bg-pv-surface p-3 text-left duration-200 not-disabled:hover:border-pv-input-focus not-disabled:hover:bg-pv-surface not-disabled:hover:text-foreground"
+							audioLabel={menuSource.forms[form.uuid]?.audioLabel}
+							label={localizedFormName}
 						>
-							<Icon
-								icon={formTypeIcons[form.type]}
-								width="18"
-								height="18"
-								className="text-nova-text-muted group-hover:text-pv-accent-bright transition-colors shrink-0"
-							/>
-							<span
-								data-form-menu-choice-label
-								className="min-w-0 flex-1 whitespace-normal break-words text-sm font-medium text-nova-text [overflow-wrap:anywhere]"
+							<Button
+								type="button"
+								variant="outline"
+								onClick={() =>
+									void openFormWithCase(form.uuid, displayedFormMenuCase, true)
+								}
+								className="group h-auto min-h-11 w-full justify-start gap-3 whitespace-normal rounded-lg border-pv-input-border bg-pv-surface p-3 text-left duration-200 not-disabled:hover:border-pv-input-focus not-disabled:hover:bg-pv-surface not-disabled:hover:text-foreground"
 							>
-								{localizedFormName}
-							</span>
-							<Icon
-								icon={tablerArrowRight}
-								width="15"
-								height="15"
-								className="text-nova-text-muted shrink-0"
-							/>
-						</Button>
+								<PreviewFormChoiceIcon
+									form={menuSource.forms[form.uuid] ?? form}
+								/>
+								<span
+									data-form-menu-choice-label
+									className="min-w-0 flex-1 whitespace-normal break-words text-sm font-medium text-nova-text [overflow-wrap:anywhere]"
+								>
+									{localizedFormName}
+								</span>
+								{badge && <Badge variant="muted">{badge}</Badge>}
+								<Icon
+									icon={tablerArrowRight}
+									width="15"
+									height="15"
+									className="text-nova-text-muted shrink-0"
+								/>
+							</Button>
+						</PreviewMenuChoice>
 					);
 				})}
-			</div>
+			</PreviewMenuChoices>
 			<HiddenItemsReveal items={formMenuHidden} />
 		</div>
 	);
@@ -3254,12 +3428,15 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 					{message("chooseCasesForm")}
 				</p>
 			)}
-			<div className="grid gap-2">
-				{multiFormMenuDecided.map(({ form, visibility }) => {
+			<PreviewMenuChoices
+				doc={menuSource.doc}
+				screen={{ kind: "menu", moduleUuid }}
+			>
+				{multiFormMenuDecided.map(({ form, visibility, badge }) => {
 					const localizedFormName =
-						(localizedValues.get(
-							makeTranslationUnitId("form", form.uuid, "name"),
-						) as string | undefined) ?? form.name;
+						(localizedValues.get(generatedWordingId(form.uuid, "formTitle")) as
+							| string
+							| undefined) ?? form.name;
 					if (visibility === "hidden") return null;
 					if (visibility === "pending") {
 						return (
@@ -3270,34 +3447,37 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 						);
 					}
 					return (
-						<Button
+						<PreviewMenuChoice
 							key={form.uuid}
-							type="button"
-							variant="outline"
-							onClick={() =>
-								void openFormWithCases(form.uuid, multiFormMenuChoices, true)
-							}
-							className="group h-auto min-h-11 w-full justify-start gap-3 whitespace-normal rounded-lg border-pv-input-border bg-pv-surface p-3 text-left duration-200 not-disabled:hover:border-pv-input-focus not-disabled:hover:bg-pv-surface not-disabled:hover:text-foreground"
+							audioLabel={menuSource.forms[form.uuid]?.audioLabel}
+							label={localizedFormName}
 						>
-							<Icon
-								icon={formTypeIcons[form.type]}
-								width="18"
-								height="18"
-								className="shrink-0 text-nova-text-muted transition-colors group-hover:text-pv-accent-bright"
-							/>
-							<span className="min-w-0 flex-1 whitespace-normal break-words text-sm font-medium text-nova-text [overflow-wrap:anywhere]">
-								{localizedFormName}
-							</span>
-							<Icon
-								icon={tablerArrowRight}
-								width="15"
-								height="15"
-								className="shrink-0 text-nova-text-muted"
-							/>
-						</Button>
+							<Button
+								type="button"
+								variant="outline"
+								onClick={() =>
+									void openFormWithCases(form.uuid, multiFormMenuChoices, true)
+								}
+								className="group h-auto min-h-11 w-full justify-start gap-3 whitespace-normal rounded-lg border-pv-input-border bg-pv-surface p-3 text-left duration-200 not-disabled:hover:border-pv-input-focus not-disabled:hover:bg-pv-surface not-disabled:hover:text-foreground"
+							>
+								<PreviewFormChoiceIcon
+									form={menuSource.forms[form.uuid] ?? form}
+								/>
+								<span className="min-w-0 flex-1 whitespace-normal break-words text-sm font-medium text-nova-text [overflow-wrap:anywhere]">
+									{localizedFormName}
+								</span>
+								{badge && <Badge variant="muted">{badge}</Badge>}
+								<Icon
+									icon={tablerArrowRight}
+									width="15"
+									height="15"
+									className="shrink-0 text-nova-text-muted"
+								/>
+							</Button>
+						</PreviewMenuChoice>
 					);
 				})}
-			</div>
+			</PreviewMenuChoices>
 			<HiddenItemsReveal items={multiFormMenuHidden} />
 		</div>
 	);
@@ -3373,7 +3553,20 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 						data-search-waiting
 						className="mb-4 text-sm text-nova-text-muted"
 					>
-						{message("searchGettingReady")}
+						{searchRun.openingMessage && (
+							<span className="block">{searchRun.openingMessage}</span>
+						)}
+						{searchRun.retryOpening ? (
+							<Button
+								type="button"
+								variant="outline"
+								onClick={searchRun.retryOpening}
+							>
+								{message("retrySearchStartingDates")}
+							</Button>
+						) : (
+							message("searchGettingReady")
+						)}
 					</p>
 				)}
 			{alwaysRegisterAction !== undefined &&
@@ -3417,13 +3610,13 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 					<Button
 						type="button"
 						onClick={() => {
-							submitSearch(EMPTY_SEARCH_INPUT_VALUES);
+							submitSearch(searchRun.draft);
 							focusNextFrame(() => resultsTitleRef.current);
 						}}
 						className="mb-4 h-auto min-h-11 max-w-full gap-2 whitespace-normal break-words rounded-lg bg-pv-accent px-4 py-2.5 text-center text-[14px] font-semibold text-nova-void not-disabled:hover:bg-pv-accent not-disabled:hover:brightness-110 [overflow-wrap:anywhere]"
 					>
 						<Icon icon={tablerSearch} width="16" height="16" />
-						{CASE_SEARCH_BUTTON_LABEL}
+						{searchButton}
 					</Button>
 				)}
 			{state.kind === "rows" && loadedRows.length > 0 && (
@@ -3433,11 +3626,13 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 							<CaseListSortMenu
 								options={sortOptions}
 								nameOf={(option) =>
-									caseColumnLabel(
-										option.column,
-										caseType.properties,
-										projectProse,
-									)
+									option.column.kind === "independent-calculation"
+										? option.column.header
+										: caseColumnLabel(
+												option.column,
+												caseType.properties,
+												projectProse,
+											)
 								}
 								onPick={pickSort}
 							/>
@@ -3492,11 +3687,26 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 					onShare={viewerPosition.share}
 				/>
 			)}
+			{config &&
+				state.kind === "rows" &&
+				deviceValues.kind !== "unavailable" && (
+					<CaseMap
+						config={config}
+						platform={platform}
+						confirmed={caseListMapConfirmed}
+						rows={filteredRows}
+						context={resultsDisplayContext}
+						onOpenCase={handleOpenCase}
+					/>
+				)}
 			<ResultsBody
 				state={
 					/* The device's cases the search reads didn't load: the
 					 * Results can't be read until they do. */
-					deviceValues.kind === "unavailable" ? CASES_LOAD_FAILED : state
+					deviceValues.kind === "unavailable" ||
+					(actionWaitsForCases && deviceCaseLoad.status === "error")
+						? CASES_LOAD_FAILED
+						: state
 				}
 				unfilteredCountState={unfilteredCountState}
 				authoredMatchingCount={authoredMatchingCount}
@@ -3504,11 +3714,14 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 				previewWorker={previewWorker}
 				fetching={fetching}
 				onRetryCases={
-					deviceValues.kind === "unavailable"
+					retryDeviceCases !== undefined
 						? retryDeviceCasesWithFocus
 						: retryCasesWithFocus
 				}
-				deviceCasesFailed={deviceValues.kind === "unavailable"}
+				deviceCasesFailed={
+					deviceValues.kind === "unavailable" ||
+					(actionWaitsForCases && deviceCaseLoad.status === "error")
+				}
 				onRetryCount={retryCountWithFocus}
 				onSignIn={() => void signIn()}
 				rows={filteredRows}
@@ -3520,6 +3733,10 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 				caseProperties={caseType.properties}
 				columnDisplayContext={resultsDisplayContext}
 				emptyResultContext={resultsContext}
+				workerEmptyText={
+					(platformRules.caseListDetailWording ? noItemsWording : undefined) ??
+					ownWording.emptyText
+				}
 				parentScoped={menuCaseContext?.parentCase !== undefined}
 				canEdit={canEdit}
 				searchErrorShown={hasSearchInputs && searchActionIsRelevant}
@@ -3556,6 +3773,10 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 						);
 					}}
 					onContinue={continueWithSelectedCases}
+					continueText={
+						(platformRules.caseListDetailWording ? selectWording : undefined) ??
+						ownWording.continueText
+					}
 					validating={validatingSelection}
 				/>
 			)}
@@ -3624,13 +3845,15 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 	 * menu that opens on its search or its results meets at once. A list that
 	 * opens first keeps its cases, and its Search pane shows the refusal. */
 	const screenRefusal =
-		searchActionRead.kind === "refused"
-			? { surface: "list" as const, refusal: searchActionRead.refusal }
-			: searchRun.refusal !== undefined &&
-					step !== "browse" &&
-					step !== "waiting"
-				? { surface: "search" as const, refusal: searchRun.refusal }
-				: undefined;
+		step !== "search" && formActionRead.kind === "refused"
+			? { surface: "list" as const, refusal: formActionRead.refusal }
+			: searchActionRead.kind === "refused"
+				? { surface: "list" as const, refusal: searchActionRead.refusal }
+				: searchRun.refusal !== undefined &&
+						step !== "browse" &&
+						step !== "waiting"
+					? { surface: "search" as const, refusal: searchRun.refusal }
+					: undefined;
 	if (screenRefusal !== undefined)
 		return (
 			<ContentFrame ref={containerRef} width="5xl" className="px-6 pt-6 pb-24">
@@ -3752,7 +3975,36 @@ function CasesLoading() {
 	);
 }
 
+/** Results, with the list's own empty text above an empty result where the
+ *  platform draws it: Web Apps shows the worker that text on any empty list,
+ *  and the author's notice stays beneath it. */
 function ResultsBody({
+	workerEmptyText,
+	...props
+}: Parameters<typeof ResultsContent>[0] & {
+	readonly workerEmptyText?: string;
+}) {
+	const content = <ResultsContent {...props} />;
+	if (
+		workerEmptyText === undefined ||
+		props.state.kind !== "empty" ||
+		props.fetching
+	)
+		return content;
+	return (
+		<div className="flex flex-col gap-3">
+			<p
+				className="text-sm text-nova-text-secondary"
+				data-testid="case-list-empty-text"
+			>
+				{workerEmptyText}
+			</p>
+			{content}
+		</div>
+	);
+}
+
+function ResultsContent({
 	state,
 	unfilteredCountState,
 	authoredMatchingCount,
@@ -4043,6 +4295,7 @@ function MultiSelectionTray({
 	onReviewOpenChange,
 	onRemove,
 	onContinue,
+	continueText,
 	validating,
 }: {
 	readonly choices: readonly PreviewCaseChoice[];
@@ -4052,6 +4305,8 @@ function MultiSelectionTray({
 	readonly onReviewOpenChange: (open: boolean) => void;
 	readonly onRemove: (caseId: string) => void;
 	readonly onContinue: () => void | Promise<void>;
+	/** The list's own Continue label, where the platform draws it. */
+	readonly continueText?: string;
 	readonly validating: boolean;
 }) {
 	const message = useWorkerMessage();
@@ -4089,7 +4344,11 @@ function MultiSelectionTray({
 						onClick={() => void onContinue()}
 						className="bg-pv-accent text-nova-void not-disabled:hover:bg-pv-accent not-disabled:hover:brightness-110"
 					>
-						<WorkerText message={validating ? "checkingCases" : "continue"} />
+						{!validating && continueText !== undefined ? (
+							continueText
+						) : (
+							<WorkerText message={validating ? "checkingCases" : "continue"} />
+						)}
 					</Button>
 				</div>
 				{blocker !== undefined && (
@@ -4446,7 +4705,7 @@ function ResultsTable({
 	const clickable = rowAction !== "none";
 	const message = useWorkerMessage();
 	const layout = resultsLayoutClasses(visibleColumns.length);
-	const gridTemplateColumns = `${visibleColumns.map(() => "minmax(0, 1fr)").join(" ")} 36px`;
+	const gridTemplateColumns = `${visibleColumns.map((column) => (column.kind === "overdue-marker" ? "11%" : "minmax(0, 1fr)")).join(" ")} 36px`;
 	return (
 		<div
 			data-case-results="responsive"
@@ -4470,6 +4729,7 @@ function ResultsTable({
 							col,
 							caseProperties,
 							columnDisplayContext.projectProse,
+							"list",
 						)}
 					</div>
 				))}
@@ -4499,6 +4759,7 @@ function ResultsTable({
 											col,
 											caseProperties,
 											columnDisplayContext.projectProse,
+											"list",
 										)}
 									</span>
 									<span

@@ -33,6 +33,7 @@ import {
 	Activity,
 	type ReactNode,
 	useCallback,
+	useContext,
 	useEffect,
 	useLayoutEffect,
 	useMemo,
@@ -58,9 +59,15 @@ import {
 } from "@/components/shadcn/alert-dialog";
 import { Button } from "@/components/shadcn/button";
 import { SimpleTooltip } from "@/components/shadcn/tooltip";
+import { BlueprintAuthoringLanguageContext } from "@/lib/doc/authoringLanguageContext";
+import { calculatedSortMutations } from "@/lib/doc/calculatedSortMutations";
+import { planDetailTabGroups } from "@/lib/doc/caseDetailTabMutations";
+import { retireCaseFormContextTile } from "@/lib/doc/caseFormContextMutations";
 import {
 	columnSnapshotBatchMutations,
 	columnSnapshotMutations,
+	fasterLoadingFollowsColumn,
+	mappingRowTranslationCarry,
 } from "@/lib/doc/caseListColumnMutations";
 import {
 	cleanupCaseSearchAfterFinalInputMutation,
@@ -78,6 +85,7 @@ import {
 	planCaseSelectionTransition,
 } from "@/lib/doc/caseSelectionMutations";
 import { deepEqual } from "@/lib/doc/deepEqual";
+import { withDetailFieldLayout } from "@/lib/doc/detailFieldVisibility";
 import { useBlueprintDocApi } from "@/lib/doc/hooks/useBlueprintDoc";
 import {
 	type StructuredCommitFinding,
@@ -90,9 +98,9 @@ import { useIsBareCaseListModule } from "@/lib/doc/hooks/useModuleIds";
 import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
 import { useUserProperties } from "@/lib/doc/hooks/useUserCollections";
 import type { IdentityMove } from "@/lib/doc/identityMoves";
+import { projectBuilderLanguageMutations } from "@/lib/doc/projectBuilderLanguageMutations";
 import { searchInputUpdateMutation } from "@/lib/doc/searchInputMutations";
 import type { BlueprintDoc, Mutation, Uuid } from "@/lib/doc/types";
-import { menuAboveSearchSentence } from "@/lib/doc/userFacingErrors";
 import {
 	type CaseListConfig,
 	type CaseProperty,
@@ -102,6 +110,7 @@ import {
 	type Column,
 	caseListOrdersByMapping,
 	caseSearchConfigAfterFinalInputRemoval,
+	columnSupportsLoadBehavior,
 	effectiveCaseSearchConfig,
 	emptyCaseListConfig,
 	type Field,
@@ -109,18 +118,24 @@ import {
 	humanizeId,
 	isCaptureField,
 	isOwnerOnlyCaseSearchConfig,
+	mapLayerColumn,
+	mapLocationColumn,
 	moduleShowsFormsInMenuAbove,
 	type OrdinaryCaseSearchConfig,
+	resultsTileFieldCount,
 	type SearchInputDef,
+	searchOpensOnList,
 	searchScreenTitleText,
 	searchWorkflow,
 	type TileCell,
+	tileRowLimit,
 	visibleSearchInputs,
 } from "@/lib/domain";
-import {
-	type Expression,
-	effectiveFilterForEmission,
-} from "@/lib/domain/expression";
+import { formContextPatch } from "@/lib/domain/caseFormContext";
+import type { Expression } from "@/lib/domain/expression";
+import { resolveAppLanguage } from "@/lib/domain/localization";
+import { propertyDisplayLabelForName } from "@/lib/domain/propertyDisplay";
+import { searchContentWithoutInputs } from "@/lib/domain/searchConditions";
 import { useCaseListOrderPlan } from "@/lib/preview/hooks/useCaseListOrderPlan";
 import { useNavigate } from "@/lib/routing/hooks";
 import { useAppId, useCanEdit, usePreviewing } from "@/lib/session/hooks";
@@ -157,6 +172,8 @@ import {
 } from "./configValidity";
 import { SearchInputEditor } from "./inspector/SearchInputEditor";
 import type { SearchPanelInspectorBodyProps } from "./inspector/SearchPanelInspectorBody";
+import { LoadBehaviorSection } from "./LoadBehaviorSection";
+import { type MapLayerSetup, MapLayerSetupDialog } from "./MapLayerSetupDialog";
 import { withPreservedIdentity } from "./preserveIdentity";
 import {
 	searchInputConditionAt,
@@ -195,6 +212,7 @@ import {
 	tileCellMutations,
 } from "./tile/tileMutationPlan";
 import { TILE_PRESETS, type TilePresetId } from "./tile/tilePresets";
+import { newUuid } from "./uuid";
 import {
 	type CaseDisplaySurface,
 	keepColumnOnList,
@@ -534,6 +552,7 @@ function useController(target: CaseListWorkspaceTarget | null) {
 	const projectProse = useProseProjection();
 	const navigate = useNavigate();
 	const docApi = useBlueprintDocApi();
+	const authoringLanguage = useContext(BlueprintAuthoringLanguageContext);
 	const { moveColumnOnSurface, moveSearchInputToIndex, commitMany, inline } =
 		useBlueprintMutations();
 	/* This controller lives ABOVE the preview boundary, so entering preview does
@@ -561,6 +580,11 @@ function useController(target: CaseListWorkspaceTarget | null) {
 
 	// ── Selection ──
 	const [sel, setSel] = useState<WorkspaceSelection | null>(null);
+	const [pendingMapLayer, setPendingMapLayer] = useState<{
+		moduleUuid: Uuid;
+		original: Column;
+		next: MapLayerSetup["column"];
+	} | null>(null);
 	const [workspaceAnnouncement, setWorkspaceAnnouncement] = useState("");
 	const pendingCanvasFocusRef = useRef<CaseDisplaySurface | null>(null);
 	const pendingSearchFocusRef = useRef<SearchInputDef["uuid"] | "add" | null>(
@@ -913,8 +937,11 @@ function useController(target: CaseListWorkspaceTarget | null) {
 	const updateExcludedOwnerIds = useCallback(
 		(next: Expression | undefined) => {
 			if (next !== undefined) {
+				// A menu whose search filters keep Search on takes the rule as a
+				// Search setting: the owner-only marker is for a menu with no Search.
 				if (
-					searchConfig === undefined ||
+					(searchConfig === undefined &&
+						(config.searchFilters?.length ?? 0) === 0) ||
 					isOwnerOnlyCaseSearchConfig(searchConfig)
 				) {
 					commitMany([
@@ -959,7 +986,7 @@ function useController(target: CaseListWorkspaceTarget | null) {
 				),
 			);
 		},
-		[commitMany, moduleUuid, searchConfig],
+		[commitMany, config.searchFilters, moduleUuid, searchConfig],
 	);
 	const configureSearchAction = useCallback(() => {
 		/* Search with nothing to fill in opens on its results: the planner
@@ -992,12 +1019,9 @@ function useController(target: CaseListWorkspaceTarget | null) {
 	);
 
 	const ct = caseTypes.find((c) => c.name === caseType);
-	/* A menu that shows its forms in the menu above takes no Search, so the
-	 * Search panel's controls say why instead of adding one the gate would
-	 * refuse. */
-	const searchUnavailableReason =
+	const formsAboveSearchNote =
 		mod !== undefined && moduleShowsFormsInMenuAbove(mod)
-			? menuAboveSearchSentence(mod.name)
+			? "This menu shows its forms in the menu above. Its case list has no Search or Register button."
 			: undefined;
 	const addDisabledReason =
 		(ct?.properties.length ?? 0) === 0 ? PROPERTYLESS_HINT : undefined;
@@ -1012,10 +1036,13 @@ function useController(target: CaseListWorkspaceTarget | null) {
 	 * opens. */
 	const TILE_FULL_REASON =
 		"The tile has no room left. Make a field smaller before adding more information.";
+	/* A field that joins the tile brings a row with it once the tile holds
+	 * six or more (`tileRowLimit`). */
 	const tileHasRoom =
 		config.tile === undefined ||
 		nextFreeTilePlacement(
 			tileMembership(config).placed.map((entry) => entry.cell),
+			tileRowLimit(resultsTileFieldCount(config) + 1),
 		) !== null;
 	const addResultsDisabledReason =
 		addDisabledReason ?? (tileHasRoom ? undefined : TILE_FULL_REASON);
@@ -1029,19 +1056,168 @@ function useController(target: CaseListWorkspaceTarget | null) {
 		return place === null ? null : ({ ...column, tile: place } as Column);
 	};
 
+	const commitFieldChanges = (changes: readonly Mutation[]) =>
+		commitMany(
+			withDetailFieldLayout(
+				requireRetainedModuleUuid(moduleUuid),
+				config,
+				changes,
+			),
+		);
 	const replaceColumn = (uuid: string, next: Column) => {
 		// Carry identity and tile placement forward; display sequence lives in
 		// the two config arrays.
 		const current = config.columns.find((column) => column.uuid === uuid);
 		if (current === undefined) return;
-		const replacement = withPreservedIdentity(current, next);
-		commitMany(
-			columnSnapshotMutations(
+		const preserved = withPreservedIdentity(current, next);
+		// A column that can no longer keep a load behavior drops it in the same
+		// save, and the list's faster loading follows the column's choice.
+		const replacement =
+			"loadBehavior" in preserved && !columnSupportsLoadBehavior(preserved)
+				? (({ loadBehavior: _dropped, ...rest }) => rest as Column)(preserved)
+				: preserved;
+		const loading = fasterLoadingFollowsColumn(
+			requireRetainedModuleUuid(moduleUuid),
+			config,
+			current,
+			replacement,
+		);
+		if (
+			replacement.kind === "map-layer" &&
+			(current.kind !== "map-layer" || current.layer !== replacement.layer)
+		) {
+			setPendingMapLayer({
+				moduleUuid: requireRetainedModuleUuid(moduleUuid),
+				original: current,
+				next: replacement,
+			});
+			return;
+		}
+		// A mapping row keyed by its saved value keeps its translations as it
+		// gains an identity or a new value.
+		const columnMutations = [
+			...loading.before,
+			...columnSnapshotMutations(
 				requireRetainedModuleUuid(moduleUuid),
 				current,
 				replacement,
 			),
+			...loading.after,
+		];
+		// The carry is planned over the column's update as the worker-language
+		// lens will shape it, which is what the gate reads before the carry.
+		const doc = docApi.getState();
+		const shaped = projectBuilderLanguageMutations(
+			doc,
+			authoringLanguage === null
+				? null
+				: resolveAppLanguage(doc.localization, authoringLanguage),
+			columnMutations,
 		);
+		const carry = mappingRowTranslationCarry(
+			doc,
+			current,
+			replacement,
+			shaped.ok ? shaped.mutations : columnMutations,
+		);
+		commitFieldChanges([...carry.before, ...columnMutations, ...carry.after]);
+	};
+	const saveMapLayer = ({ column, location, geometry }: MapLayerSetup) => {
+		if (!pendingMapLayer || pendingMapLayer.moduleUuid !== moduleUuid) return;
+		const original = config.columns.find((c) => c.uuid === column.uuid);
+		if (!original || !deepEqual(original, pendingMapLayer.original)) {
+			setWorkspaceAnnouncement(
+				"This information changed while you were choosing map sources. You can open the map layer again.",
+			);
+			setPendingMapLayer(null);
+			return;
+		}
+		const supporting: Column[] = [];
+		if (location)
+			supporting.push(
+				mapLocationColumn(
+					newUuid(),
+					location,
+					propertyDisplayLabelForName(
+						location,
+						ct?.properties ?? [],
+						projectProse,
+					),
+					{
+						visibleInDetail: false,
+					},
+				),
+			);
+		if (geometry)
+			supporting.push(
+				mapLayerColumn(
+					newUuid(),
+					geometry.field,
+					propertyDisplayLabelForName(
+						geometry.field,
+						ct?.properties ?? [],
+						projectProse,
+					),
+					geometry.role,
+				),
+			);
+		const mutations: Mutation[] = [];
+		let projected = config;
+		let selected: Column = column;
+		if (config.tile) {
+			const tile = placementForJoiningTile(config, column);
+			if (!tile) {
+				setWorkspaceAnnouncement(TILE_FULL_REASON);
+				return;
+			}
+			selected = { ...column, tile };
+		}
+		mutations.push(
+			...columnSnapshotMutations(
+				pendingMapLayer.moduleUuid,
+				original,
+				selected,
+			),
+		);
+		projected = {
+			...projected,
+			columns: projected.columns.map((c) =>
+				c.uuid === selected.uuid ? selected : c,
+			),
+		};
+		for (let supportingColumn of supporting) {
+			if (projected.tile) {
+				const tile = placementForJoiningTile(projected, supportingColumn);
+				if (!tile) {
+					setWorkspaceAnnouncement(TILE_FULL_REASON);
+					return;
+				}
+				supportingColumn = { ...supportingColumn, tile };
+			}
+			mutations.push(
+				seededColumnAddMutation(
+					pendingMapLayer.moduleUuid,
+					projected,
+					"list",
+					supportingColumn,
+				),
+			);
+			projected = {
+				...projected,
+				columns: [...projected.columns, supportingColumn],
+				listColumnOrder: [...projected.listColumnOrder, supportingColumn.uuid],
+				detailColumnOrder: [
+					...projected.detailColumnOrder,
+					supportingColumn.uuid,
+				],
+			};
+		}
+		if (
+			commitMany(
+				withDetailFieldLayout(pendingMapLayer.moduleUuid, config, mutations),
+			).ok
+		)
+			setPendingMapLayer(null);
 	};
 	const addSeededColumn = (surface: CaseDisplaySurface, seedColumn: Column) => {
 		const seed = surface === "list" ? placedForResults(seedColumn) : seedColumn;
@@ -1055,7 +1231,7 @@ function useController(target: CaseListWorkspaceTarget | null) {
 			surface,
 			seed,
 		);
-		const outcome = commitMany([mutation]);
+		const outcome = commitFieldChanges([mutation]);
 		if (outcome.ok) {
 			setWorkspaceAnnouncement(
 				`${columnDisplayLabel(seed)} added to ${surfaceDisplayName(surface)}`,
@@ -1099,14 +1275,21 @@ function useController(target: CaseListWorkspaceTarget | null) {
 			surface,
 			toIndex,
 		);
-	const updateColumns = (next: readonly Column[]) => {
-		commitMany(
-			columnSnapshotBatchMutations(
-				requireRetainedModuleUuid(moduleUuid),
-				config,
-				next,
-			),
-		);
+	const updateColumns = (
+		next: readonly Column[],
+		calculations?: readonly import("@/lib/domain").CalculatedSort[],
+	) => {
+		const owner = requireRetainedModuleUuid(moduleUuid);
+		commitFieldChanges([
+			...columnSnapshotBatchMutations(owner, config, next),
+			...(calculations === undefined
+				? []
+				: calculatedSortMutations(
+						owner,
+						config.calculatedSorts ?? [],
+						calculations,
+					)),
+		]);
 	};
 	const hideColumnFromSurface = (
 		surface: CaseDisplaySurface,
@@ -1121,7 +1304,7 @@ function useController(target: CaseListWorkspaceTarget | null) {
 			surface,
 		).find((candidate) => candidate.uuid === column.uuid);
 		if (hidden === undefined) return;
-		const outcome = commitMany(
+		const outcome = commitFieldChanges(
 			columnSnapshotMutations(
 				requireRetainedModuleUuid(moduleUuid),
 				column,
@@ -1146,12 +1329,20 @@ function useController(target: CaseListWorkspaceTarget | null) {
 			...(column.visibleInList !== false ? ["Results"] : []),
 			...(column.visibleInDetail !== false ? ["Details"] : []),
 		];
-		const outcome = commitMany([
+		// Removing the last column that chooses how a phone loads it turns the
+		// list's faster loading off in the same save.
+		const outcome = commitFieldChanges([
 			{
 				kind: "removeColumn",
 				moduleUuid: requireRetainedModuleUuid(moduleUuid),
 				uuid: column.uuid,
 			},
+			...fasterLoadingFollowsColumn(
+				requireRetainedModuleUuid(moduleUuid),
+				config,
+				column,
+				undefined,
+			).after,
 		]);
 		if (!outcome.ok) return;
 		pendingCanvasFocusRef.current = surface;
@@ -1177,11 +1368,12 @@ function useController(target: CaseListWorkspaceTarget | null) {
 		/* The saved definition is already fully valid. The same gate still
 		 * adjudicates the visibility/placement batch, so a malformed external
 		 * snapshot can never be revealed. */
+		const id = requireRetainedModuleUuid(moduleUuid);
 		const outcome = inline.commitMany(
-			columnSnapshotMutations(
-				requireRetainedModuleUuid(moduleUuid),
-				column,
-				target,
+			withDetailFieldLayout(
+				id,
+				config,
+				columnSnapshotMutations(id, column, target),
 			),
 		);
 		if (!outcome.ok) {
@@ -1221,8 +1413,7 @@ function useController(target: CaseListWorkspaceTarget | null) {
 			(input) => input.uuid !== uuid,
 		);
 		const removesVisibleSearchScreen = remainingInputs.length === 0;
-		const hasCasesAvailableCondition =
-			effectiveFilterForEmission(config.filter) !== undefined;
+		const hasCasesAvailableCondition = searchContentWithoutInputs(config);
 		const nextSearchConfig = removesVisibleSearchScreen
 			? caseSearchConfigAfterFinalInputRemoval(
 					searchConfig,
@@ -1439,28 +1630,37 @@ function useController(target: CaseListWorkspaceTarget | null) {
 			uuid,
 			toIndex,
 		);
-	const clearFilter = useCallback(
-		(nextFilter: Expression | undefined) => {
-			const mutations: Mutation[] = [
+	const updateSearchFilter = useCallback(
+		(
+			edit: NonNullable<
+				Extract<
+					Mutation,
+					{ kind: "setCaseListMeta" }
+				>["patch"]["searchFilterEdit"]
+			>,
+		) => {
+			return commitMany([
 				{
 					kind: "setCaseListMeta",
 					uuid: requireRetainedModuleUuid(moduleUuid),
-					patch: { filter: nextFilter ?? null },
+					patch: { searchFilterEdit: edit },
 				},
-			];
-			// Cases available and Search intent are independent. `{}` is a real
-			// zero-input manual Search action, so "Show all cases" never removes it.
-			return commitMany(mutations);
+			]);
 		},
 		[commitMany, moduleUuid],
 	);
 	const updateFilter = useCallback(
-		(nextFilter: Expression | undefined) =>
+		(next: Expression | undefined, surface?: "list" | "search") =>
 			commitMany([
 				{
 					kind: "setCaseListMeta",
 					uuid: requireRetainedModuleUuid(moduleUuid),
-					patch: { filter: nextFilter ?? null },
+					patch:
+						surface === "search"
+							? { searchCondition: next ?? null }
+							: surface === "list"
+								? { listCondition: next ?? null }
+								: { filter: next ?? null },
 				},
 			]),
 		[commitMany, moduleUuid],
@@ -1502,6 +1702,10 @@ function useController(target: CaseListWorkspaceTarget | null) {
 			if (
 				commitMany([
 					...planTileLayoutDisable(requireRetainedModuleUuid(moduleUuid)),
+					...retireCaseFormContextTile(
+						docApi.getState(),
+						requireRetainedModuleUuid(moduleUuid),
+					),
 				]).ok
 			) {
 				// Every cell survives, but the tile's own setting cannot: with no
@@ -1514,7 +1718,7 @@ function useController(target: CaseListWorkspaceTarget | null) {
 				);
 			}
 		},
-		[commitMany, config.columns, config.tile, moduleUuid, config],
+		[commitMany, config.columns, config.tile, moduleUuid, config, docApi],
 	);
 
 	const closeSelectionReviewForNavigation = useCallback(() => {
@@ -1940,7 +2144,7 @@ function useController(target: CaseListWorkspaceTarget | null) {
 				openSearchCondition({ kind: "input", uuid, slot }),
 			onEditSearchButtonCondition: editSearchButtonCondition,
 			searchSettingsHasError: searchButtonConditionBroken,
-			searchUnavailableReason,
+			formsAboveSearchNote,
 			onHideColumn: hideColumnFromSurface,
 			onDeleteColumn: deleteColumn,
 			onRemoveInput: removeInput,
@@ -2068,6 +2272,7 @@ function useController(target: CaseListWorkspaceTarget | null) {
 		) {
 			resultsDependencyReview = {
 				kind: "cases-available",
+				surface: inputRemovalReview.dependency.surface,
 				token: inputRemovalReview.token,
 				path: inputRemovalReview.dependency.paths[0],
 				inputLabel: inputRemovalReview.inputLabel,
@@ -2081,11 +2286,21 @@ function useController(target: CaseListWorkspaceTarget | null) {
 				token: inputRemovalReview.token,
 				inputLabel: inputRemovalReview.inputLabel,
 			};
+		} else if (
+			inputRemovalReview?.phase === "target" &&
+			inputRemovalReview.dependency.kind === "search-filter"
+		) {
+			resultsDependencyReview = {
+				kind: "search-filter",
+				token: inputRemovalReview.token,
+				inputLabel: inputRemovalReview.inputLabel,
+			};
 		}
 	}
 
 	return {
 		active,
+		commitLayout: inline.commitMany,
 		moduleUuid,
 		tab,
 		announcement: workspaceAnnouncement,
@@ -2113,6 +2328,9 @@ function useController(target: CaseListWorkspaceTarget | null) {
 			next: CaseListConfig["selection"],
 			origin?: HTMLElement,
 		) => prepareCaseSelectionReview(next, true, origin),
+		pendingMapLayer,
+		saveMapLayer,
+		cancelMapLayer: () => setPendingMapLayer(null),
 		caseSelectionReview,
 		cancelCaseSelectionReview: () => setCaseSelectionReview(null),
 		confirmCaseSelection,
@@ -2123,7 +2341,7 @@ function useController(target: CaseListWorkspaceTarget | null) {
 		setTilePersistOnForms,
 		setTileGrouping,
 		addDisabledReason,
-		searchUnavailableReason,
+		formsAboveSearchNote,
 		addResultsDisabledReason,
 		opensResultsAutomatically,
 		searchConditionSurface,
@@ -2138,7 +2356,7 @@ function useController(target: CaseListWorkspaceTarget | null) {
 		updateColumns,
 		showColumn,
 		updateFilter,
-		clearFilter,
+		updateSearchFilter,
 		updateExcludedOwnerIds,
 		returnToInputRemovalReview,
 	};
@@ -2321,6 +2539,7 @@ export function CaseListWorkspaceCanvas() {
 	}
 	const workspaceModuleUuid = ws.moduleUuid;
 	const {
+		commitLayout,
 		tab,
 		errorAreas,
 		isBareCaseList,
@@ -2343,6 +2562,9 @@ export function CaseListWorkspaceCanvas() {
 		tileDisabledReason,
 		setArrangement,
 		setCaseSelection,
+		pendingMapLayer,
+		saveMapLayer,
+		cancelMapLayer,
 		caseSelectionReview,
 		cancelCaseSelectionReview,
 		confirmCaseSelection,
@@ -2353,7 +2575,7 @@ export function CaseListWorkspaceCanvas() {
 		setTilePersistOnForms,
 		setTileGrouping,
 		addDisabledReason,
-		searchUnavailableReason,
+		formsAboveSearchNote,
 		addResultsDisabledReason,
 		opensResultsAutomatically,
 		resultsDependencyReview,
@@ -2367,7 +2589,7 @@ export function CaseListWorkspaceCanvas() {
 		updateColumns,
 		showColumn,
 		updateFilter,
-		clearFilter,
+		updateSearchFilter,
 		updateExcludedOwnerIds,
 		returnToInputRemovalReview,
 	} = ws;
@@ -2434,11 +2656,9 @@ export function CaseListWorkspaceCanvas() {
 								onConfigureSearchAction={configureSearchAction}
 								onAddInput={addInput}
 								onAddHiddenInput={addHiddenInput}
-								addInputDisabledReason={
-									searchUnavailableReason ?? addDisabledReason
-								}
-								{...(searchUnavailableReason !== undefined && {
-									searchUnavailableReason,
+								addInputDisabledReason={addDisabledReason}
+								{...(formsAboveSearchNote !== undefined && {
+									formsAboveSearchNote,
 								})}
 								hasSearchSurface={config.searchInputs.length > 0}
 								hasSearchAction={effectiveSearchConfig !== undefined}
@@ -2485,7 +2705,8 @@ export function CaseListWorkspaceCanvas() {
 							filterBroken={filterBroken}
 							excludedOwnerIdsBroken={excludedOwnerIdsBroken}
 							onFilterChange={updateFilter}
-							onClearFilter={clearFilter}
+							onSearchFilterEdit={updateSearchFilter}
+							onClearFilter={updateFilter}
 							searchConfig={searchConfig}
 							onExcludedOwnerIdsChange={updateExcludedOwnerIds}
 							appId={appId}
@@ -2493,12 +2714,38 @@ export function CaseListWorkspaceCanvas() {
 							onReturnToSearchField={returnToInputRemovalReview}
 							tileIssues={tileIssues}
 							tileDisabledReason={tileDisabledReason}
+							onNamedTileChange={(namedSlots, rawSlots) => {
+								const { rawSlots: prior, ...tile } = config.tile ?? {};
+								const result = commitLayout([
+									{
+										kind: "setCaseListMeta",
+										uuid: requireRetainedModuleUuid(moduleUuid),
+										patch: {
+											tile: {
+												...tile,
+												namedSlots,
+												...(rawSlots.length > 0 && { rawSlots }),
+											},
+										},
+									},
+								]);
+								return result.ok ? undefined : result.messages.join(" ");
+							}}
 							onArrangementChange={setArrangement}
 							onPlaceTileCell={placeTileCell}
 							onPutColumnOnTile={putColumnOnTile}
 							onApplyTilePreset={applyTilePreset}
 							onTilePersistOnFormsChange={setTilePersistOnForms}
 							onCaseSelectionChange={setCaseSelection}
+							onWordingChange={(slot, next) =>
+								commitLayout([
+									{
+										kind: "setCaseListMeta",
+										uuid: requireRetainedModuleUuid(moduleUuid),
+										patch: { [slot]: next },
+									},
+								])
+							}
 						/>
 					</div>
 				</Activity>
@@ -2512,6 +2759,42 @@ export function CaseListWorkspaceCanvas() {
 						className="h-full overflow-y-auto overflow-x-hidden overscroll-contain [overflow-anchor:none] [scrollbar-gutter:stable_both-edges]"
 					>
 						<DetailCanvas
+							moduleUuid={requireRetainedModuleUuid(moduleUuid)}
+							caseTypes={caseTypes}
+							userProperties={userProperties}
+							onSaveContext={(choice) => {
+								const plan = formContextPatch(config, choice);
+								if ("error" in plan && plan.error) return plan.error;
+								if (!plan.patch) return;
+								const result = commitLayout([
+									{
+										kind: "setCaseListMeta",
+										uuid: requireRetainedModuleUuid(moduleUuid),
+										patch: plan.patch,
+									},
+								]);
+								return result.ok ? undefined : result.messages.join(" ");
+							}}
+							onSaveTile={(detailTile) => {
+								const result = commitLayout([
+									{
+										kind: "setCaseListMeta",
+										uuid: requireRetainedModuleUuid(moduleUuid),
+										patch: { detailTile },
+									},
+								]);
+								return result.ok ? undefined : result.messages.join(" ");
+							}}
+							onSaveTabs={(groups) => {
+								const plan = planDetailTabGroups(
+									requireRetainedModuleUuid(moduleUuid),
+									config,
+									groups,
+								);
+								if ("error" in plan) return plan.error;
+								const result = commitLayout(plan.mutations);
+								return result.ok ? undefined : result.messages.join(" ");
+							}}
 							config={config}
 							caseType={ct}
 							brokenColumns={brokenColumns}
@@ -2528,6 +2811,17 @@ export function CaseListWorkspaceCanvas() {
 					</div>
 				</Activity>
 			</div>
+			{pendingMapLayer &&
+				pendingMapLayer.moduleUuid === workspaceModuleUuid &&
+				ct && (
+					<MapLayerSetupDialog
+						config={config}
+						properties={ct.properties}
+						column={pendingMapLayer.next}
+						onCancel={cancelMapLayer}
+						onSave={saveMapLayer}
+					/>
+				)}
 			{caseSelectionReview !== null && (
 				<CaseSelectionReviewDialog
 					sourceModuleUuid={caseSelectionReview.sourceModuleUuid}
@@ -2572,8 +2866,8 @@ interface ResolveInspectorArgs {
 	) => void;
 	readonly onEditSearchButtonCondition: (focusNewCondition?: boolean) => void;
 	readonly searchSettingsHasError: boolean;
-	/** Why this menu takes no Search (it shows its forms in the menu above). */
-	readonly searchUnavailableReason: string | undefined;
+	/** Where a worker can use the search when this menu shows its forms above. */
+	readonly formsAboveSearchNote: string | undefined;
 	readonly onHideColumn: (surface: CaseDisplaySurface, column: Column) => void;
 	readonly onDeleteColumn: (
 		surface: CaseDisplaySurface,
@@ -2715,7 +3009,7 @@ function resolveInspector(args: ResolveInspectorArgs): {
 							sortedInputs.length === 1 &&
 							opensOnResultsAfterFinalInput(
 								args.searchConfig,
-								effectiveFilterForEmission(config.filter) !== undefined,
+								searchContentWithoutInputs(config),
 							)
 						}
 						preservesAssignedCaseRule={
@@ -2763,8 +3057,8 @@ function resolveInspector(args: ResolveInspectorArgs): {
 						hasSearchAction={effectiveSearch !== undefined}
 						onEditDisplayCondition={args.onEditSearchButtonCondition}
 						searchSettingsHasError={args.searchSettingsHasError}
-						{...(args.searchUnavailableReason !== undefined && {
-							searchUnavailableReason: args.searchUnavailableReason,
+						{...(args.formsAboveSearchNote !== undefined && {
+							formsAboveSearchNote: args.formsAboveSearchNote,
 						})}
 					/>
 				),
@@ -2864,6 +3158,19 @@ function ColumnInspectorBody({
 					caseListOrdersByMapping(orderPlan, column.uuid)
 				}
 			/>
+			{(column.kind === "calculated" || column.kind === "link") &&
+				columnSupportsLoadBehavior(column) && (
+					<LoadBehaviorSection
+						value={column.loadBehavior}
+						canEdit={canEdit}
+						onChange={(loadBehavior) => {
+							const { loadBehavior: _prior, ...rest } = column;
+							onChange(
+								loadBehavior === undefined ? rest : { ...rest, loadBehavior },
+							);
+						}}
+					/>
+				)}
 			<TileCellInspector
 				moduleUuid={moduleUuid}
 				column={column}
@@ -3102,7 +3409,9 @@ function SearchInputInspectorBody({
 											? `${dependency.inputUuid}:${dependency.slot}`
 											: dependency.kind === "form-field"
 												? dependency.fieldUuid
-												: "results"
+												: dependency.kind === "search-filter"
+													? dependency.filterUuid
+													: "results"
 									}:${
 										dependency.kind === "form-field"
 											? dependency.uses
@@ -3332,6 +3641,6 @@ function opensOnResultsAfterFinalInput(
 	return (
 		next !== undefined &&
 		!isOwnerOnlyCaseSearchConfig(next) &&
-		searchWorkflow(next) !== "listFirst"
+		!searchOpensOnList(searchWorkflow(next))
 	);
 }

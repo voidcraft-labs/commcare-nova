@@ -643,7 +643,14 @@ HQ omits `<prompt default>` without it and its editors offer none of the others
 without it. A search's own filter (`_xpath_query`), the zero-input `match-all()`
 included, does not add it: HQ's Case List page offers and keeps a default
 filter for every project space. Both export paths send the zero-input filter.
-Missing or
+An app that runs in Web Apps and holds a question searching for an
+address meets the address-search target condition
+(`lib/domain/platformUses.ts::targetConditionUses`): the `address-search`
+capability probes `CASE_SEARCH_ADVANCED`, and the `geocoder` plan feature
+(Enterprise) is confirmed by a person, both with one reason per form
+(`planPrivileges.ts::addressSearchFormReasons`). A bring-in never records
+Geocoder as confirmed, since HQ's form builder offers the appearance on
+every plan. Missing or
 unverified required capabilities block before writes.
 
 `planPrivileges.ts::requiredPlanPrivileges` derives, from the document, what
@@ -651,7 +658,7 @@ the publish pushes, and the attachment target the emitter is handed (a capture
 saved as a link is a case write only where there is a link to write), the plan
 features the content needs (`cloudcare` for an app that declares Web Apps,
 `user_case`, `lookup_tables`, `child_cases`, `form_link_workflow`,
-`save_to_case`, `locations`, `data_forwarding`), each
+`save_to_case`, `locations`, `data_forwarding`, `app_dependencies`, `geocoder`), each
 with the sentences that say why this app needs it. The `locations` feature
 and the flat location list's confirmation name each form whose source or
 links read places (`locations/readsLocationsFixture.ts::formsReadingLocationsFixture`):
@@ -808,10 +815,13 @@ refused before it is parsed. The throttled reads of one bring-in run one at a ti
 bring-in, a table's row read and the place list stop once they are certain to pass Nova's limit
 (the row read's `maxRows`, the place list's `stopPast`), or pass their byte bound.
 
-`client.ts::readHqSaveOnlyEditedAnswers` reads the one flag a bring-in needs of the source
-project space, by the two lists the publish probe reads, and answers a failure where a publish's
-probe would answer `unverified`: a bring-in never guesses whether a write is saved only if
-changed.
+`client.ts::readHqSourceFlag` reads the source project’s membership and a domain-only feature
+flag through the two lists the publish probe reads. A reading asks for the flag when case
+updates depend on “save only if changed”, or an active expression needs a project-dependent
+instance. With hierarchical locations enabled, the flat-fixture setting comes from an actual
+working form or suite in that project. Both requests use the working id that the bracketed
+application read authenticated and identified as a working app. They address this document
+directly, including on project spaces with location-specific releases. The reader keeps an unverified declaration unresolved.
 
 `hq/media.ts::readHqMediaFile` reads one file from the address HQ gives its media map item
 (`hqmedia/models.py::HQMediaMapItem.url`), bounded by the caller's limit, under a deadline of its
@@ -990,7 +1000,7 @@ Reference-capable label/hint text is a typed `ProseTemplate`; only explicit atom
 
 ### Markdown itext
 
-A label and an inline choice write `<value form="markdown">` in every language unless their owner holds `plainLabel`, and a help text unless its question holds `plainHelp`; a form holding `plainText` writes none and carries `vellum:ignore="markdown"`. A hint and a validation message never write one: no runtime reads it. CommCare holds markdown per text across every language, so no setting is per language.
+A label and an inline choice write `<value form="markdown">` in every language unless their owner holds `plainLabel`, and a help text unless its question holds `plainHelp`; a form holding `plainText` writes none and carries `vellum:ignore="markdown"`. A hint and a validation message never write one: no runtime reads it. CommCare holds markdown per text across every language, so no setting is per language. A question's extended text, QR code and spoken text (`lib/domain/labelForms.ts`) are written after the label's markdown form as its `long`, `qrcode` and `tts` forms, in every language, wherever the field holds them, a blank one included (`xform/builder.ts::addItext`); the reader holds them back on a question's label (`reader/xform/prose.ts::readLabelTexts`), refuses one the form's default language lacks, leaves a `long` form on any other text not yet held (both runtimes show it in place of a group's label, a hint, a help text, a validation message its alert names, or a choice: `FormEntryCaption.getQuestionText`, `FormEntryPrompt.getSelectItemText`), and drops a `qrcode` or `tts` form on any other text as inert. A question label's inline video (`label_media.videoInline`) is written as its `video-inline` form after the label's other media (`multimedia/itextMedia.ts`), which HQ's `xform.py::video_references` collects beside `video`, so its file ships; the reader holds it as the label's media (`reader/xform/media.ts`, one file, a file per language, and the media refusals), and leaves one on any other text not yet held (`prose.ts::heldMediaForm`): Android asks a question's label alone for it.
 
 `xform/builder.ts::buildLabelNodes` protects authored whitespace-only runs with
 outputs that carry no Vellum shadow. Core's `XFormParser::getXMLDocument` removes
@@ -1131,12 +1141,10 @@ refuses an otherwise outside the same set less `app_home`
 refuses is unoffered (`previous` where exactly one of the menu and its parent
 selects several cases, `previous` in a menu whose forms read the search, `parentMenu`
 with no parent, `module` in a menu that shows its forms above, `parentMenu`
-under one, and `previous` for a form listed on the first menu, which is Nova's
-own narrowing, as is `module` in a submenu that keeps its screen under a
-top-level menu above while every form of every menu above opens one chosen
-case, `menu-opens-with-first-menu-case`, whose finding is the app rule
-`FORM_LINK_TARGET_SHARES_FIRST_MENU_CASE`), so the one rule covers the editor
-and the build. The SA only
+under one). A static destination through the shared first menu requires a compatible
+selection in the submitting entry. Android keeps that datum when the worker
+steps back, so another reachable command must consume it with the same type
+and multiplicity. Web Apps rebuilds the chosen command path and starts Home fresh. The SA only
 sets `post_submit` when overriding the default.
 
 ### Ordinary nested menus
@@ -1150,6 +1158,14 @@ true exactly where the module shows its forms in the menu above
 the conjoined condition of a submenu that shows above (`compiler.ts`), as
 `id_strings.py::menu_id` and `menus.py::_generate_menu` do. No other menu's
 condition is conjoined, and nothing is projected as `ShadowModule`.
+
+`use_grid_menus` applies to every suite contribution with id `root`.
+`grid_form_menus=all` applies to every other id, while `some` reads
+`display_style=grid` only from ordinary modules. A default list omits the
+suite style. If a grid first menu has no contribution, HQ's
+`GridMenuHelper` appends a styled empty `root` menu with a text child.
+The local compiler emits the same root, and both HQ settings are written
+explicitly so a later publish can return an existing target to lists.
 
 A menu that shows its forms in the menu above (`Module.formsInMenuAbove`) is
 HQ's `put_in_root: true`, which adds the `menu_mode` add-on; the HQ JSON keeps
@@ -1165,14 +1181,16 @@ has none. Several `<menu>` elements share an id; the suite oracle admits that
 and the root id `root`.
 
 HQ's `add_parent_datums` aligns a child entry against the root module's first
-form. A bare case list root (a case list menu item and no forms) therefore
-admits only same-case-type children: they reuse the one `case_id` and need no alignment. A different-type
-child is rejected by `NESTED_MENU_CROSS_TYPE_ROOT_REQUIRES_FORM` at the commit
-gate; it needs a form-bearing root so HQ can keep the two selections distinct.
+form. A root with no forms contributes no datums, renames none and aligns
+none (`_get_first_forms_datums` is empty, so `return datums`): a child of a
+different case type keeps `case_id` (and `parent_id` for its parent
+selection) even when its parent lists cases, and the form reads those ids. A
+same-type selection the domain matches to such a root still answers for the
+root's chosen case under the child's own id.
 
 `formLinkProjection.ts::entrySessionDatums` owns the entry namespace shared by
 the suite, XForm, form links, and post-submit frames. First it builds the
-parent-select chain from case-type relationships. Then, for a child menu, it
+parent-select chain from the explicitly selected menus. Then, for a child menu, it
 mirrors HQ's `add_parent_datums` against the root module's first form datums:
 same-case selections at the same remaining position reuse the root id; an id
 collision for a different case type becomes `case_id_<case-type>`; computed
@@ -1302,13 +1320,19 @@ engine can reach it too); `session.ts::deriveFormLinkStack` and
   datums in the target module → form command → the target form's remaining
   datums. The module command is the menu id (`menuIdOf`); where it is `root`
   there is none, and the prefix runs over the form entries of every menu that
-  shows its forms above (`_root_module_datums`). The parent prepend drops
-  every child whose id, a command's or a datum's, the parent part holds. No
-  frame of an admitted document holds a selection ahead of its first command
-  (`frameLeadsWithSelection`): `previous` is not offered to a form listed on
-  the first menu, `module` is not offered in a submenu whose screen opens with
-  the first menu's shared case, and a link, an entry point or a Register return
-  whose frame would open with that case is refused (`firstMenuSharedCase`). A single-form module's whole datum list is that prefix, so its
+  shows its forms above (`_root_module_datums`). HQ's endpoint builder is the
+  one exception (`FrameBuilder` `endpoint`, `rootListsSeenBy`):
+  `EndpointsHelper` builds its `WorkflowHelper` over the `app.get_modules()`
+  generator, which the entry pass's detail lookup reads to its end once any
+  form entry selects a case, so a deep link toward a first-menu form carries
+  no root prefix, `[command, datum…]`; entry stacks, links and returns keep it.
+  The parent prepend drops
+  every child whose id, a command's or a datum's, the parent part holds. `homeSelectionConsumers` reads each physical selection before the first
+  command. A link, deep link, static module return or list action installs
+  the selection for the destination that consumes that ID. On Android, Back
+  to Home also carries the datum to each command requesting it. On Web Apps,
+  Home starts fresh. A conflicting kind or count of records refuses at the
+  authoring slot. A single-form module's whole datum list is that prefix, so its
   selection datum is hoisted AHEAD of the form command. For a child target HQ
   prepends the root module frame and its common user selections; a module target
   carries that root path plus the child command, while a form target carries the
@@ -1701,7 +1725,7 @@ The OpenRosa `<meta>` block (`<deviceID>`/`<timeStart>`/`<timeEnd>`/`<username>`
 
 `addCaseBlocks` and `addMetaBlock` share `xform/domSplice.ts` so the two render-time injections stay in lockstep: one splice-into-`<data>`/`<model>` path, one instance set their printed reads join, one `serializeXml` escaping authority.
 
-For a Connect app, and for an app whose project space captures location with every form (`TargetFacts.autoGpsCapture` from the last verified source, including after Connect is disabled), the local block also captures location, as HQ's build does (`metaBlock.ts::addMetaBlock(xform, { captureLocation })`, with `captureLocation` the condition `expandDoc` uses for HQ's `auto_gps_capture` or that fact): `<cc:location/>` is the last child of `<orx:meta>`, after `<orx:drift/>`, and the model's last two children are `<orx:pollsensor event="xforms-ready" ref="/data/meta/location"/>` and `<bind nodeset="/data/meta/location" type="geopoint"/>`. A model holds one `pollsensor` or none, as `xform.py::XForm._add_meta_2` writes it.
+Android capture uses the independent app and form settings (`capturesDeviceLocation`). Connect requests location for every form. HQ receives explicit booleans, including false on clear. Local XForms mirror `XForm._add_meta_2` with the location metadata node, typed bind and targeted sensor action when capture is active, and a bare action only for an ordinary geopoint question otherwise.
 
 ### Form reads
 
@@ -1732,9 +1756,11 @@ Both detail surfaces (`<detail id="m{n}_case_short">` / `m{n}_case_long`) share 
 
 **A list's fields and order are one derived plan.** `lib/domain/caseListOrder.ts::caseListOrderPlan` states what HQ's build writes for the app Nova sends: the short detail's fields in stored order, each field's wire class (property or expression) and join text (its HQ `field`), the sort key each field keeps with no rule, each rule's element, and the carriers HQ appends for a rule no field's text equals. Its three readers are `hqJson/caseList.ts` (the stored columns and `sort_elements`), `suite/case-list/` (`shortDetail.ts` walks the plan's fields; `sortKeys.ts::planSortNodes` writes each field's `<sort>`, and a carrier as an appended width 0 field), and Preview through the case store. Every reader builds it through `suite/case-list/orderPlanOptions.ts::caseListOrderOptions`, so none can pass different options; the validator and Preview pass `mediaOn: true` and no lookup naming (join texts print under `lookup/naming.ts::identityLookupWireNaming`). A difference proof 3 reports between HQ's build and the local suite is a wrong rule in the plan or a wrong spelling in an emitter, never a register entry. A column that is not on the list (`Column.notOnList`) is no field of the short detail in either layout, takes no order rule and has no carrier; the case detail alone holds it, so no device matches it when a worker filters the list (`validator/rules/case-list/columnNotOnList.ts`, `CASE_LIST_COLUMN_NOT_ON_LIST_INVALID`, refuses it shown on Results or with an order rule). `reader/caseList` inverts the order plan and joins the two details into one set of columns, reading a column the detail alone shows as not on the list.
 
+A tile's extra property choices and every list's independent calculations each keep their own worker menu sequence. CommCare HQ introduces them in the order of each raw key's first occurrence and applies the rule at its final occurrence. A property rule's optional `menuPosition` puts it among the early extra choices. Remaining choices follow the default priority. The `calculatedSorts` array gives calculations their menu sequence. The writer repeats only the prefix each group needs in `sort_elements` and both suites and Preview follow the two native sequences. The reader drops stale earlier labels, keeps the current label and rule, and reports any actual rewrite in the first-publish review.
+
 A column over the case's id (`lib/domain/standardCaseProperties.ts::EXPRESSION_ONLY_COLUMN_PROPERTIES`) is an expression column on HQ's paths, shown or hidden: `field: "@case_id"` with `useXpathExpression: true`, because HQ reads a property column's `field` as a property name, which takes no `@`, through its `CASE_PROPERTY_MAP`, which has no entry for `case_id`. A column over `status` or `owner_id` is the property column HQ's Case List page stores (`status` is one of the page's own defaults, `views/modules.py::_setup_case_property_builder`), which the map reads as the case's attribute, so a column of an app made in CommCare HQ keeps its `field` and the app string ids HQ's build gives it by that `field` (`id_strings.py::detail_column_header_locale`). An image-map field written as images (`lib/domain/modules.ts::imageMapShowsImages`) writes `width="13%"` on its header and template on both details, as HQ's `EnumImage` does. HQ writes a date column's pattern unescaped between straight apostrophes, so a pattern holding `'` builds a suite Core refuses; the gate refuses it (`CASE_LIST_DATE_PATTERN_APOSTROPHE`).
 
-Every short detail of the local suite, the search target's included, carries `<select_text>` (`m<N>_select_text=Continue`), written after the fields and the action; every form has `forms.m<N>f<M>.submit_label=Submit` in every language; every image-map field carries `<alt_text>` as its last child, built as HQ's `EnumImage.alt_text` builds it. `<no_items_text>` (`List is empty.`) is written exactly where HQ's build writes it, which is where the target's flag is on: every publish reads that flag, stores it as `app_deployments.target_empty_case_list_text`, and a `.ccz` made for that deployment reads it. The texts are one constant each (`suite/case-list/detailTexts.ts::SELECT_TEXT`, `EMPTY_CASE_LIST_TEXT`, `suite/formStrings.ts::FORM_SUBMIT_LABEL`). The HQ JSON holds the empty-list text on every menu's short detail, a menu with no case list included, under every app language's wire code (`expander.ts::expandDoc`): HQ's model default holds `en` alone, and its module settings save writes the page's language into the short detail of every menu, which reads blank in an app with no English.
+Every short detail of the local suite, the search target's included, carries `<select_text>` (`m<N>_select_text=Continue`), written after the fields and the action; every form has `forms.m<N>f<M>.submit_label=Submit` in every language; every image-map field carries `<alt_text>` as its last child, built as HQ's `EnumImage.alt_text` builds it. `<no_items_text>` (`List is empty.`) is written exactly where HQ's build writes it, which is where the target's flag is on: every publish reads that flag, stores it as `app_deployments.target_empty_case_list_text`, and a `.ccz` made for that deployment reads it. The texts are one constant each (`suite/case-list/detailTexts.ts::SELECT_TEXT`, `EMPTY_CASE_LIST_TEXT`, `suite/formStrings.ts::FORM_SUBMIT_LABEL`), except where a case list holds its own (`caseListConfig.emptyText`, `selectButtonText`): then its unit (`module:<uuid>:list-empty-text`, `list-select-text`) gives each language's string, locally and in the HQ JSON's `no_items_text`/`select_text` maps (`hqJson/caseList.ts`), and the empty text needs the target's flag (capability `empty-case-list-text`). The reader holds a short detail's non-default texts as these fields with their translations; a case detail's, or a menu with no case type's, no worker reads (`detail-texts-no-worker-reads`, INERT, respelled to the default by the first publish). A case list's faster loading (`caseListConfig.optimizations`, capability `case-list-optimizations`) writes `show_case_list_optimization_options` on the menu and each calculated or link column's `loadBehavior` as HQ's `optimization` on every detail column it projects to, and locally as `lazy_loading`/`cache_enabled` on the field and, as HQ's build promotes them, on the detail (`suite/case-list/optimizations.ts`). The reader holds a column's `optimization` only where HQ keeps one (an expression column of a format `FORMATS_SUPPORTING_CASE_LIST_OPTIMIZATIONS` names, in a menu whose setting is on), on the link or calculated column it reads (an expression over a lone attribute that keeps one reads as the calculation, since a plain column holds none); any other reads as inert. The gate twins the schema's two rules (`CASE_LIST_LOAD_BEHAVIOR_INVALID`: a behavior on a column that can't use one, or on a list whose faster loading is off), and the Builder's column edits keep the setting in step (`lib/doc/caseListColumnMutations.ts::fasterLoadingFollowsColumn`): a column's first behavior turns it on, clearing or removing the last turns it off, and an edit that gives or takes none leaves a setting held with no column's choice as it is. The HQ JSON holds the empty-list text on every menu's short detail, a menu with no case list included, under every app language's wire code (`expander.ts::expandDoc`): HQ's model default holds `en` alone, and its module settings save writes the page's language into the short detail of every menu, which reads blank in an app with no English.
 
 Every search's `search_config` holds `title_label` and `description` under every app language's wire code, blank where nothing is authored (`hqShells.ts::caseSearchConfigShell`), because HQ's Case List save writes both for the page's language on every menu (`views/modules.py::_gather_and_update_search_properties`); the oracle refuses a map missing a language (`HQJSON_BAD_SEARCH_LABEL`). Locally every search's `<query>` writes `<description>` after its `<title>` (`suite/case-search/searchSession.ts::buildSearchQuery`), whose `case_search.m<N>.description` is a blank string where no subtitle is authored, written as a non-breaking space as HQ's locale writer writes it.
 
@@ -1742,13 +1768,13 @@ Every search's `search_config` holds `title_label` and `description` under every
 
 `suite/case-list/tileStyle.ts` is the ONLY place the package emits CommCare's grid vocabulary, and `<style>` + `<grid>` is one indivisible wire unit, not an element with an optional child: `commcare-core .../xml/DetailFieldParser.java::parseStyle` runs `GridParser` unconditionally after `StyleParser`, `GridParser::parse` opens with `checkNode("grid")`, and all four coordinates go through UNGUARDED `Integer.parseInt`. So a `<style>` with no `<grid>` is an install-time `InvalidStructureException` and a `<grid>` missing one attribute is a raw `NumberFormatException` outside the parser's structured-error path. CCHQ can emit both (its custom branch guards on `any(... is not None ...)`, not `all(...)`); Nova can't, because `TileCell` carries the four as required slots of one object. The corollary reaches authoring: the five presentation attributes are reachable only for a placed cell, so no surface may offer alignment / size / border / shading on an unplaced column.
 
-**Whether a column holds a square is `lib/domain/modules.ts::tileCellFor`'s decision and nobody else's.** All FOUR consumers call it — `suite/case-list/columns.ts::tileStyleChildren`, `hqJson/caseList.ts::applyTileLayoutToShortDetail`, `lib/preview/caseTileRendering.ts::tileResultsColumns`, and the SA read surface `lib/agent/summarizeBlueprint.ts::tilePlace`.
+`tileCellFor` resolves each stored Results rectangle. The suite, HQ JSON, Preview and authoring reads share it. An independent Details rectangle comes from `detailTile.cells[column.uuid]`. Named image and text positions use their own fixed rectangles.
 
-Every surface that decides this independently diverges. An HQ JSON writer (the PRIMARY delivery path) without the visibility check draws a different tile from the local `.ccz`. A read surface that reports a placement the wire refuses, or reports one in the Details block, which is never a tile, is not cosmetic: the SA reasons about overlap from that text, so a phantom cell makes the model route around an obstacle that is not on the grid and then refuse its own next layout for a collision that cannot happen. A new delivery path, renderer, or read surface calls this predicate rather than re-deriving the rule. `__tests__/tileEmissionParity.test.ts` asserts the three emission paths against one document; `lib/agent/tools/case-list-config/__tests__/caseListReadProjection.test.ts` covers the read surface.
+A read surface reports placement on the screen where the worker sees it. `tileEmissionParity.test.ts` compares wire paths, and `caseListReadProjection.test.ts` exercises the authoring read.
 
-Its two conditions: the case list has a `tile` layout, and the column is shown in Results. Cells persist while the layout is off (switching tiles off keeps the drawing) and emit nothing until it is on. Which detail SURFACE is a separate axis that stays with the emitter — the detail must be SHORT, and the case-detail screen stays a plain field list even though CCHQ allows `custom` there. `case_tile_template` is written only on the HQ-JSON short detail, and `Module.search_detail`'s deepcopy is what carries the tile to search results — never a second projection.
+A Results rectangle stays in the document when its layout is turned off. Placed fields in a custom layout are visible on both platforms unless the source marks them Android-only. HQ’s case-search detail copies the relevant layouts. A custom Details layout is rendered in Web Apps, and Android renders those same fields in ordinary rows.
 
-In a tile list a column hidden from Results is no field of the short detail: a stored hidden column would be given a cell by HQ's Case List save and a `<style>` by the build after it. Its order rule rides as a sort-only property carrier, a sort row on the property with no stored column, unless a placed column's join text is that property, which then takes the rule. HQ appends the carrier as a width 0 field with its `<sort>` and no `<style>` (`util.py::create_temp_sort_column`); `owner_id` and `status` ride under their bare names. A hidden calculated column, or a hidden column over `case_id`, with an order rule has no spelling HQ's editors keep and is refused (`CASE_TILE_HIDDEN_CALCULATED_SORT`). The carrier draws nothing on any runtime: Android lays out the placed cells alone, and the Web Apps client keeps the carrier's cell out of the layout. Width 0 is CCHQ's own reserved hidden-field spelling: `commcare-core .../suite/model/Style.java::Style(DetailField)` comments "'0' is reserved for hidden (Search) fields", both cloudcare tile templates branch on `styles[index].widthHint === 0` into a `d-none` wrapper, `views.js::buildCellLayout` writes no rule for a null tile entry, and `formplayer-common/grid.scss::.box` adds no box size. So a tile keeps the hide-but-sort affordance a row layout has. A tile list's search matches a hidden column only through that carrier.
+In a custom tile list, an ordinary unplaced column hidden from Results is no field of the short detail: a stored hidden column would be given a cell by HQ's Case List save and a `<style>` by the build after it. Its order rule rides as a sort-only property carrier, a sort row on the property with no stored column, unless a placed column's join text is that property, which then takes the rule. HQ appends the carrier as a width 0 field with its `<sort>` and no `<style>` (`util.py::create_temp_sort_column`); `owner_id` and `status` ride under their bare names. A hidden calculated column, or a hidden column over `case_id`, with an order rule has no spelling HQ's editors keep and is refused (`CASE_TILE_HIDDEN_CALCULATED_SORT`). The carrier draws nothing on any runtime: Android lays out the placed cells alone, and the Web Apps client keeps the carrier's cell out of the layout. Width 0 is CCHQ's own reserved hidden-field spelling: `commcare-core .../suite/model/Style.java::Style(DetailField)` comments "'0' is reserved for hidden (Search) fields", both cloudcare tile templates branch on `styles[index].widthHint === 0` into a `d-none` wrapper, `views.js::buildCellLayout` writes no rule for a null tile entry, and `formplayer-common/grid.scss::.box` adds no box size. So a tile keeps the hide-but-sort affordance a row layout has. A tile list's search matches a hidden column only through that carrier.
 
 Nova's authoring words for vertical alignment (`top`/`middle`/`bottom`) map to `start`/`center`/`end` at emission through `TILE_VERTICAL_ALIGN_WIRE`, because `cloudcare .../menus/views.js::getValidFieldAlignment` silently rewrites anything outside `constants.js::ALLOWED_FIELD_ALIGNMENTS` to `start` — CCHQ's own `icon_text_grid` template emits a `vert-align` its renderer ignores. Both emitters write alignment and size on every cell: `horizontal_align`, `vertical_align` and `font_size` in the HQ JSON, and `horz-align`, `vert-align` and `font-size` on `<style>`. The document requires the three (`tileCell()` fills `left`, `top` and `medium`), because HQ's Case List save writes all three into a cell that holds none, so a cell without them changes on the first save. `showBorder` and `showShading` stay optional and stay off the wire when unset.
 
@@ -1880,7 +1906,7 @@ produce the same operation order and transaction meaning.
 
 Integer division is its own operator, `quotient`; `div` is XPath's real division in every slot. `xpath/wire/fromExpression.ts::toWire` lowers `quotient` by removing the signed remainder before dividing (`if(r = 0, l div r, (l - l mod r) div r)`), avoiding Core's 32-bit `int()` conversion; a zero divisor keeps raw division's native Infinity/NaN. `ArithmeticRuntimeTest.java` executes the admitted `arithmeticFixture` form through Core's case transaction processor, with the same fixture submitted to real Postgres in the Preview program acceptance suite.
 
-The `<remote-request>` block's `<session>` carries ONE `<data key="_xpath_query">` element PER composed clause — the unified filter's top-level conjuncts, each advanced-arm search input's predicate, and each simple-arm input whose `(mode, via)` shape needs explicit-predicate emission. The server AND-composes every `_xpath_query` value it receives (`commcare-hq/corehq/apps/case_search/utils.py::_apply_filter` loops the multi-term criteria into one ES filter each; `commcare-core .../session/RemoteQuerySessionManager.java::getRawQueryParams` accumulates a `Multimap`, formplayer forwards repeated params, and Django folds them into a list at `corehq/apps/ota/views.py::app_aware_search`), so N small readable expressions filter identically to one fused mega-expression. On HQ JSON the same clauses land as N `default_properties[]` rows (`DefaultCaseSearchProperty` is a `SchemaListProperty`; CCHQ's `remote_requests.py::_remote_request_query_datums` loops every row into its own `<data>`). `reader/search` reads each top-level conjunct of each `_xpath_query` row as a restated list filter clause, a Search field's derivation, a condition on an excluded field or a list filter clause that waits for a field. Where a menu's forms read its search, HQ applies the list filter to the results too, so there a conjunct with no field joins the list filter and an unrestated list clause is held; on any other searching menu each is not-yet.
+The `<remote-request>` block's `<session>` carries ONE `<data key="_xpath_query">` element PER composed clause — the unified filter's top-level conjuncts, each advanced-arm search input's predicate, and each simple-arm input whose `(mode, via)` shape needs explicit-predicate emission. The server AND-composes every `_xpath_query` value it receives (`commcare-hq/corehq/apps/case_search/utils.py::_apply_filter` loops the multi-term criteria into one ES filter each; `commcare-core .../session/RemoteQuerySessionManager.java::getRawQueryParams` accumulates a `Multimap`, formplayer forwards repeated params, and Django folds them into a list at `corehq/apps/ota/views.py::app_aware_search`), so N small readable expressions filter identically to one fused mega-expression. On HQ JSON the same clauses land as N `default_properties[]` rows (`DefaultCaseSearchProperty` is a `SchemaListProperty`; CCHQ's `remote_requests.py::_remote_request_query_datums` loops every row into its own `<data>`). The clauses come in one order: the search condition's, then every advanced field's conjunct that reads no Search field (a condition on the whole search, `lib/domain/searchConditions.ts::readsSearchField`), then the fields' conjuncts that read fields, then the derived matches; HQ applies each row as its own filter of one search, so the order finds the same cases. `reader/search` reads each top-level conjunct of each `_xpath_query` row as a restated list filter clause, a Search field's derivation, a condition on an excluded field, a list filter clause that waits for a field, or, where it reads no field, the search's own condition. Where a menu's forms read its search, HQ applies the list filter to the results too, so there a conjunct with no field that the device reads as HQ's search does joins the list filter; anywhere else it is the search condition, independent of the list a device runs.
 
 CSQL text is a `CsqlNode` tree (`csql/tree.ts`) printed by `csql/print.ts::printCsql`, the only place CSQL text is assembled; each node's position (query, anchor, server value, raw argument, runtime; `csql/positions.ts`, whose core `lib/domain/expression/csqlPositions.ts` the checker reads too) decides its emission, and the wrapper is a wire tree printed by `serializeWire`. A runtime segment is on-device XPath and takes the on-device lowering; no lowering enters CSQL text, because HQ compares instants itself. Each runtime segment carries its raw read and a segment key, the checker path of its subtree in `csql/emitter.ts::prepareCsqlClause`'s clause. Each `_xpath_query` source is typed in its own slot (`xpathQuery.ts::composeXPathQueryClauses`), and a case chosen in an earlier menu prints under the id the module's case list step holds (`formLinkProjection.ts::caseListStepDatumId`; HQ JSON's `case_details.short.filter` takes the id before root alignment).
 
@@ -1891,13 +1917,13 @@ A runtime value compared by any operator with `date_opened`, `closed_on` or `las
 The clause composition runs through `suite/case-search/xpathQuery.ts::composeXPathQueryEmission`, the single contract both the suite-XML emitter and the HQ-JSON emitter (`hqJson/caseList.ts::projectDefaultProperties`) consume. Simple-arm inputs that need explicit-predicate emission route through `suite/case-search/simpleArmDerivation.ts::deriveSimpleArmPredicate`, which lifts the `(property, mode, via)` shape to an advanced-style predicate (`when-input-present(input(name), op(prop, input(name)))`). Every search input still emits a prompt binding on both wire paths (`<prompt>` in local suite XML; `search_config.properties[]` in HQ JSON) because that is the only source CommCare uses to populate `instance('search-input:results')`. Every advanced prompt, plus every simple prompt routed through `_xpath_query`, emits `exclude="true()"` (suite XML) / `exclude: true` (HQ JSON): Core continues binding the typed value but does not ALSO submit the prompt key as an implicit exact case-property filter. Without that exclusion the automatic query parameter silently ANDs with the authored predicate; omitting an advanced `properties[]` row on HQ JSON removes the input from CCHQ's regenerated search screen entirely. Three CCHQ-runtime facts drive the routing rule:
 
 - CCHQ's `CaseSearchProperty` carries no per-input matcher-strategy flag — verified against `commcare-hq/corehq/apps/app_manager/models.py::CaseSearchProperty`. The runtime default for a bare prompt is exact full-string match (`commcare-hq/corehq/apps/es/case_search.py::case_property_query` → `exact_case_property_text_query`). Fuzzy / phonetic / starts-with / fuzzy-date matching only reaches the runtime through an explicit XPath function call inside `_xpath_query` (`fuzzy-match` / `phonetic-match` / `starts-with` / `fuzzy-date` registered at `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py::XPATH_QUERY_FUNCTIONS`).
-- CCHQ's `daterange` prompt binds one inseparable start/end pair. Nova therefore requires `range` mode if and only if the widget is `date-range`; that exact stored arm has no scalar `default` slot. Do not reinterpret one scalar as a From-only default. Exact one-date searches against datetime properties lower to UTC half-open day bounds, matching CCHQ CSQL's verified `datetime('YYYY-MM-DD')` UTC result rather than a hidden project or database-session timezone. `today()` in a search is the worker's day: it is sent as Core's `today()` in a runtime segment, so HQ's search, the device's list and Preview read one day. `eq`, `neq` and `in` on a date-and-time anchor emit the closed instant range `(p >= v and p <= v)` (negated for `neq`, an `or` of ranges for `in`; `csql/emitter.ts::readsInstantByRange`), because HQ answers `=` on a custom property by text equality and would miss every other spelling of the instant; a custom property takes the range in every CSQL slot, `date_opened`, `last_modified` and `closed_on` only where no device evaluates the slot, and a date-and-time literal holds at most milliseconds. `closed_on` is readable only in an advanced Search rule, because neither a device's case database nor HQ's results carry it. `@case_type` is authorable as `record-type()`, all nine of HQ's distance units and a runtime radius and unit are authorable, a runtime `if` or `switch` chooses between clauses, and an ancestor case-id equality against the case chosen in an earlier menu is written `parent/@case_id = v`, which needs no related-lookups flag.
+- CCHQ's `daterange` prompt binds one inseparable start/end pair. Nova requires `range` mode on that simple widget. A date range carries one starting expression. A fixed pair is emitted as an already encoded range string so Core preserves the selected calendar dates in any zone. Imported calculations keep their spelling through the expression reader and compiler. Exact one-date searches against datetime properties lower to UTC half-open day bounds, matching CCHQ CSQL's verified `datetime('YYYY-MM-DD')` UTC result rather than a hidden project or database-session timezone. `today()` in a search is the worker's day: it is sent as Core's `today()` in a runtime segment, so HQ's search, the device's list and Preview read one day. `eq`, `neq` and `in` on a date-and-time anchor emit the closed instant range `(p >= v and p <= v)` (negated for `neq`, an `or` of ranges for `in`; `csql/emitter.ts::readsInstantByRange`), because HQ answers `=` on a custom property by text equality and would miss every other spelling of the instant; a custom property takes the range in every CSQL slot, `date_opened`, `last_modified` and `closed_on` only where no device evaluates the slot, and a date-and-time literal holds at most milliseconds. `closed_on` is readable only in an advanced Search rule, because neither a device's case database nor HQ's results carry it. `@case_type` is authorable as `record-type()`, all nine of HQ's distance units and a runtime radius and unit are authorable, a runtime `if` or `switch` chooses between clauses, and an ancestor case-id equality against the case chosen in an earlier menu is written `parent/@case_id = v`, which needs no related-lookups flag.
 - Each `<prompt key="X">` binds one runtime value via `instance('search-input:results')/input/field[@name='X']` and carries no relation-walk metadata.
 - CCHQ's runtime auto-matches the typed value against the case property NAMED BY the prompt key — verified against `commcare-hq/corehq/apps/app_manager/suite_xml/post_process/remote_requests.py::build_query_prompts` (`'key': prop.name`) and `commcare-hq/corehq/apps/case_search/utils.py::_apply_filter` (the non-special key routes through `_get_case_property_query(criteria)` keyed on `criteria.key` as the case property name). Nova's authoring keeps the prompt key (`SearchInputDef.name`) and the targeted property (`SearchInputDef.property`) as separate slots; when the two diverge, the auto-match queries a property that may not exist. The `exclude="true()"` attribute (verified at `commcare-core/.../session/RemoteQuerySessionManager.java::RemoteQuerySessionManager.getRawQueryParams`) suppresses the auto-match without unbinding the typed value.
 
 The routing rule is `(input type, mode, via, name vs property)`-shaped: a non-date `exact` input (or `range`) on self-walk / absent `via` AND `name === property` rides on the bare prompt slot alone (CCHQ's runtime auto-match against the prompt key IS the authored comparison; the `daterange` widget handles the two-bound semantic internally for the current case). A simple `date` input in exact mode always routes through `_xpath_query`: Nova lowers it to a half-open whole-day interval, using date boundaries for date properties and UTC datetime boundaries for datetime properties (including indexed metadata), because bare exact equality would miss every non-midnight datetime. Every other combination — non-`exact` modes on any via, `exact` mode with a non-self via, OR `exact` mode with `name !== property` — also routes through `_xpath_query` and stamps `exclude="true()"` on the prompt. Simple-arm properties are structurally nonblank, so every stored input reaches one of these final wire paths.
 
-**Prompt children and the seven arms.** `suite/case-search/searchPrompts.ts::searchPromptWire` lowers one input to everything a `<prompt>` / `CaseSearchProperty` carries, and both wire paths read that one description. Children emit in `QueryPrompt`'s order — `<display><text/><hint><text/></hint></display>`, `<itemset nodeset><label ref/><value ref/><sort ref/></itemset>`, `<required test><text/></required>`, `<validation test><text/></validation>` — and attributes in `key appearance hidden input default exclude` order (native HQ regenerates complete prompt-bearing entries from the admitted `searchPromptFixture` corpus; `SearchPromptRuntimeTest.java` evaluates defaults, required/validation transitions and dynamic itemsets with Core's actual query manager). A lookup-backed `select` is `input="select1"` and `multi-select` is `input="select"` (Core's `QueryScreen::getSupportedPrompts`); the itemset nodeset is `instance('item-list:<tag>')/<list>/<row>[filter]` through `lookup/naming.ts`, the label/value refs are the columns' wire names, and the fixture id joins the remote-request's instance list. `required.when` and `validation.rule` lower through `toWire` with an unaddressable case anchor, so a bare `input(uuid)` prints as the absolute `instance('search-input:results')/input/field[@name = '…']` path and `matches-pattern` prints as `regex(...)`; an always-required input carries the literal `true()`. Core keeps only the LAST `<validation>` it parses (`xml/QueryPromptParser.java`), so the authored rule and the compiler's CSQL quote guard share ONE element: `(authored) and (guard)`, messages joined by a space, each half keeping its own translation unit. A hidden input is `hidden="true"`, its value in `@default` (Core re-evaluates it at every query-screen construction and seeds it even under `default_search`), and `exclude="true()"`, so the value binds to the search-input instance without ever auto-matching a property. The three new locale ids are `search_property.<m>.<key>.hint`, `.required.text`, and `.validation.0.text`. Required and validation are enforced by Web Apps only, since Android never runs prompt validation; where an app also runs on Android, the `search-field-checks` platform note says Android searches without checking the answer. The on-device quote guard remains the injection defense there because the runtime validation that would carry it does not run.
+**Prompt children and the seven arms.** `suite/case-search/searchPrompts.ts::searchPromptWire` lowers one input to everything a `<prompt>` / `CaseSearchProperty` carries, and both wire paths read that one description. Children emit in `QueryPrompt`'s order — `<display><text/><hint><text/></hint></display>`, `<itemset nodeset><label ref/><value ref/><sort ref/></itemset>`, `<required test><text/></required>`, `<validation test><text/></validation>` — and attributes in `key appearance hidden input default exclude` order (native HQ regenerates complete prompt-bearing entries from the admitted `searchPromptFixture` corpus; `SearchPromptRuntimeTest.java` evaluates defaults, required/validation transitions and dynamic itemsets with Core's actual query manager). A lookup-backed `select` is `input="select1"` and `multi-select` is `input="select"` (Core's `QueryScreen::getSupportedPrompts`); the itemset nodeset is `instance('item-list:<tag>')/<list>/<row>[filter]` through `lookup/naming.ts`, the label/value refs are the columns' wire names, and the fixture id joins the remote-request's instance list. `required.when` and `validation.rule` lower through `toWire` with an unaddressable case anchor, so a bare `input(uuid)` prints as the absolute `instance('search-input:results')/input/field[@name = '…']` path and `matches-pattern` prints as `regex(...)`; an always-required input carries the literal `true()`. Core keeps only the LAST `<validation>` it parses (`xml/QueryPromptParser.java`), so the authored rule and the compiler's CSQL quote guard share ONE element: `(authored) and (guard)`, with messages joined by a space when the authored check supplies one. Each half keeps its own translation unit. When the authored check has no message, both branches use Core's own sentence. A hidden input is `hidden="true"`, its value in `@default` (Core re-evaluates it at every query-screen construction and seeds it even under `default_search`), and `exclude="true()"`, so the value binds to the search-input instance without ever auto-matching a property. The three new locale ids are `search_property.<m>.<key>.hint`, `.required.text`, and `.validation.0.text`. Required and validation are enforced by Web Apps only, since Android never runs prompt validation; where an app also runs on Android, the `search-field-checks` platform note says Android searches without checking the answer. The on-device quote guard remains the injection defense there because the runtime validation that would carry it does not run.
 
 Validator rules anchoring the wire contract:
 - `searchInputViaModeCompatibility` — rejects `range` on a non-self via and `range` with `name !== property` on self-walk. A choice input admits `exact` only.
@@ -1906,7 +1932,7 @@ Validator rules anchoring the wire contract:
 - `validator/onDeviceCompatibility.ts` owns the structured, type-aware date-arithmetic capability decision shared by module slots, navigation display conditions, form case operations, lookup-backed select filters, and the builder's complete-candidate admission seam in `lib/doc/commitVerdicts.ts`. A property reference stores identity rather than its resolved type, so emitter dry-runs are only defensive totality checks and never the semantic source for deciding whether a `date-add` base is a date or datetime; lookup-row filters additionally install their table scope before resolving a column's type. `dateAddOnDeviceCompatibility` maps that shared decision into module-slot findings. JavaRosa-on-device date arithmetic stays on the portable fixed-duration lowering: a date-typed base plus seconds, minutes, hours, days, or weeks. Core registers no `date-add` / `datetime-add`, but it does provide numeric epoch-day arithmetic and `floor()`, so the emitter scales the quantity to days and emits `date(floor(base + scaledQuantity))`; this preserves positive, negative, fractional, and pre-epoch date results. Datetime bases (time-of-day would be lost) and calendar-relative months/years are rejected across every on-device expression slot. Advanced predicates are mixed-dialect: direct native CSQL `date-add` / `datetime-add` calls retain the full server surface, while date arithmetic beneath a non-native value root is checked because that subtree is interpolated through JavaRosa. Builder menus use the same dialect-state walk, so an unavailable choice is withheld before mutation rather than first surfacing at commit or export.
 - `onDeviceExpressionCompatibility` — blocks persisted scalar-expression shapes Core cannot evaluate safely: `prop(via: subcase|any-relation)` in a standalone scalar value slot (the walk can return several cases while Core scalar-unpack requires one), and a child/any count nested beneath a multi-case child/any scope that Core cannot name. Self/ancestor reads remain valid; `count(self)` reduces to 1/0, root child counts are valid, and a child count beneath a pure singleton ancestor chain uses that ancestor's absolute case-id anchor. Predicate-rooted relation reads are owned by the relation-scope normalizer instead. Table lookups are on-device expressions: their table-scoped row predicate lowers against the declared lookup fixture and their result is then interpolated into CSQL where needed. The rule validates saved calculated/default definitions even while latent so a later visibility or input change cannot activate a runtime-failing expression.
 - `excludedOwnerIdsTypeCheck` — treats the assigned-case exclusion as one global value resolved before a case is selected. It rejects every case-property or relationship read (including nested `prop`, `count`, `exists`, and `missing`) so Preview cannot resolve blank while an ordinary suite nodeset evaluates the same expression per row; literals, session/current-user values, Search answers, and pure calculations over them remain valid and must resolve to text.
-- `searchInputDefaultTypeCheck` + `searchButtonDisplayConditionTypeCheck` carry the same global-context guard for their slots (`CASE_LIST_SEARCH_INPUT_DEFAULT_CASE_DATA_UNAVAILABLE` / `CASE_SEARCH_BUTTON_DISPLAY_CONDITION_CASE_DATA_UNAVAILABLE`): a prompt default evaluates when the search screen opens and the display condition emits as the Search action's `relevant` — both before any case is selected, where a case read emits as a bare relative leaf path that resolves blank (Preview deliberately resolves it blank too). Search answers are additionally invalid in these two (the default fires before the user types; the action relevance evaluates where the search-input instance isn't loaded — the standing `CASE_LIST_BARE_SEARCH_INPUT_REF` forbids-input-ref arm). Unlike the paired type-error codes these never depend on the catalog: the read is invalid whatever the property's type.
+- `searchInputDefaultTypeCheck` + `searchButtonDisplayConditionTypeCheck` carry the same global-context guard for their slots (`CASE_LIST_SEARCH_INPUT_DEFAULT_CASE_DATA_UNAVAILABLE` / `CASE_SEARCH_BUTTON_DISPLAY_CONDITION_CASE_DATA_UNAVAILABLE`): a prompt default evaluates when the search screen opens and the display condition emits as the Search action's `relevant` — both before any case is selected, where a case read emits as a bare relative leaf path that resolves blank (Preview deliberately resolves it blank too). Search answers are additionally invalid in these two (the default fires before the user types; the action relevance evaluates where the search-input instance isn't loaded — the standing `CASE_LIST_BARE_SEARCH_INPUT_REF` forbids-input-ref arm). Unlike the paired type-error codes these never depend on the catalog: the read is invalid whatever the property's type. `searchButtonDisplayConditionTypeCheck` also refuses (`CASE_SEARCH_BUTTON_DISPLAY_CONDITION_NOT_ON_THE_LIST`) a condition reading an instance some entry that shows `m{N}_case_short` doesn't declare: HQ's build declares an entry's instances from its datums, the details they name, its command's `relevant` and its stack (`post_process/instances.py::_get_all_xpaths_for_entry`, `xml_models.py::Detail.get_all_xpaths`) and never collects an action's `relevant`, so Core's evaluation of the button in the entry's scope throws and the list doesn't open. `suite/case-search/buttonCondition.ts::searchButtonUndeclaredInstances` is the one home of that answer (datums, form display conditions and after-submit frames counted; list columns not, since HQ collects a column's template but not its sort); the reader's `settleSearchButtonConditions` refuses the same shape after `settleMenus`, since a parent selection is among what the list loads, and the scoped Builder gate adds every menu holding a condition to each footprint (`lib/doc/incrementalValidationScope.ts`).
 - `moduleDisplayCondition` + `formDisplayCondition` gate navigation conditions
   against their exact evaluation contexts. Modules admit no case/Search reads.
   Forms admit a direct self property of the owning case type only when
@@ -1993,9 +2019,7 @@ supplies one to the XForm/suite emitters, so a carrier reaching any other
 surface fails loudly.
 `fixtures.ts` builds the suite-embedded global `<fixture id="item-list:<tag>">`
 blocks — one `<{tag}_list>` body, one `<{tag}>` per row in authored
-`(order_key, row UUID)` order, EVERY defined column as a child element in
-authored column order with an empty element for missing and stored-empty cells
-alike, matching HQ's `ItemListsProvider` body so the same XPaths work
+`(order_key, row UUID)` order, declared row attributes and columns in definition order with each field’s actual occurrence order and details. A missing field contributes one empty element, an explicit empty list contributes zero, and one empty value contributes one. Reading a missing declared attribute refuses the source. This is the same shape as the worker fixture, matching HQ's `ItemListsProvider` body so the same XPaths work
 whichever path later delivers the data. `SuiteParser`/`FixtureXmlParser`
 (no `user_id` → global storage, overwrite on app upgrade) are the wire
 authority: HQ never emits suite-embedded item-list fixtures. `compileCcz`
@@ -2005,6 +2029,8 @@ are the canonical JS number spelling); the aggregate 10,000-row /
 100,000-cell / 16 MiB-exact-byte budgets and the row-dependent select-source
 validity live at the export boundary, measured on the exact serialized blocks
 the compiler embeds.
+
+A lookup selector binds its table, column, row detail and occurrence details by UUID. Lowering resolves the current names of those members. A row attribute reads `@code`; a field value qualified by a property and position reads `name[@lang='fr'][1]`. A calculation can read an occurrence’s property as `name[1]/@lang`. Vellum strips predicates before checking the form’s choice label/value against HQ’s field names and row attributes. The question rejects a terminal field property and a qualifying literal whose opening bracket disrupts that edit. A scalar choice must identify one value for every row in the complete worker-specific base table.
 
 Lowering: a `table-lookup` becomes
 `instance('item-list:<tag>')/<tag>_list/<tag>[<where>][1]/<column>` — the
@@ -2021,7 +2047,7 @@ then value column refs, filter predicate on the nodeset) with zero inline
 `<item>`s and no option itext; its filter's form answers print absolute paths
 at root and `current()`-relative paths for repeat-borne fields
 (`bindLookupFilterFieldPaths` — `ItemSetUtils.populateDynamicChoices` binds
-`current()` to the question node contextualized to its iteration). A carrier's lookup root declares itself wherever its tree is printed, from the serializer's instance set under the lookup naming: in an XForm the bare tag with source `jr://fixture/item-list:<tag>`, and in entries, menus and remote requests `item-list:<tag>`. Form logic reads a table too, by table and column UUID: `instance('<tag>')/<tag>_list/<tag>[…]` in a form and `instance('item-list:<tag>')/…` in a form link, printed under the current tag and wire names, so a rename keeps the read. Its reads join the reference edges (`lib/doc/lookupReferences.ts`), so the publish push, the `.ccz` fixtures and the plan feature follow. The suite oracle
+`current()` to the question node contextualized to its iteration). A carrier's lookup root declares itself wherever its tree is printed, from the serializer's instance set under the lookup naming: an XForm declares the fixture source `jr://fixture/item-list:<tag>` under the tag, using `item-list:<tag>` when the tag coincides with a runtime instance name. Entries, menus and remote requests use `item-list:<tag>` throughout. Form logic reads a table by table and column UUID, as `instance('<id>')/<tag>_list/<tag>[…]` in a form and `instance('item-list:<tag>')/…` in a form link, printed under the current tag and wire names, so a rename keeps the read. Its reads join the reference edges (`lib/doc/lookupReferences.ts`), so the publish push, the `.ccz` fixtures and the plan feature follow. The suite oracle
 cross-checks embedded fixtures (`SUITE_FIXTURE_INVALID`: id required/unique,
 single body element, no `user_id`, every declared `jr://fixture/` src
 delivered) and the XForm oracle checks itemset shape
@@ -2044,11 +2070,30 @@ strings are the contract, not labels: a mandatory `types` sheet
 definition, and one data sheet per table NAMED BY ITS TAG (`UID`,
 `Delete(Y/N)`, `field: <wireName>`…). `IteratorJSONReader.set_field_value` is
 the header grammar (`a N` is a list, `a: b` nests, `a?` is a boolean). Because
-the types sheet carries the definition, CommCare HQ's JSON `lookup_table`
-resource is not on the write path at all. `lib/commcare/hq/lookupTables.ts`
+the types sheet carries the definition, the workbook needs CommCare HQ's JSON
+`lookup_table` resource only to read. `lib/commcare/hq/lookupTables.ts`
 drives both endpoints; `lib/deployment` owns what may be written over.
 
-`searchWireShape.ts` is the authored workflow's spelling, one three-flag `WireShape` for every platform an app declares: `auto_launch` unless list first, `default_search` for skip to results, `inline_search` for forms that read the search (`caseSearchConfig.workflow`, absent search first, and `formsReadSearch`; list first beside Forms read the search is unrepresentable). The case list's filter and inputs choose none of the flags. Android reads no `auto_launch` and opens the list first, which the platform table states (`search-first`, `skip-to-results`). The flags drive the orchestrator's `<query>` attributes + storage-instance choice + the case-list short-detail emitter's `<action auto_launch>` attribute, HQ's `AUTO_LAUNCH_EXPRESSIONS` expression wherever `auto_launch` is on: the multi-select one for a list that selects several cases (`module.is_multi_select()`), which reads the chosen cases as `instance('next_input')`, the instance a multi-select screen builds into the condition's own context and no suite element declares (the suite oracle admits it in `<action auto_launch>` alone), and the single-select one otherwise. Both export paths send a match-all filter for a zero-input search (`suite/case-search/xpathQuery.ts::ZERO_INPUT_SEARCH_SENTINEL`), because CCHQ offers Search only when a property or default property exists; this is wire scaffolding, not an authored filter.
+`lib/commcare/hq/lookupJson.ts` is the second carrier, for what a workbook
+cannot hold: a table tagged `types`, a row past the workbook's 500,000, a
+value with surrounding spaces or a repeated empty value. It writes one
+definition or one row per request through `lookup_table/v1/` and
+`lookup_table_item/v2/` and answers each as `applied`, `not-applied` or
+`uncertain`, which a journaled caller resumes from; it never retries. Its
+resources carry no index and no row owner (`LookupTableResource`'s schema
+admits a field's name and properties only, and a PUT of `fields` resets every
+`is_indexed`), so only a global table with no index takes it. The plan of its
+writes is `lib/deployment/lookupJsonPlan.ts`, which keys every row by the
+destination ledger's mapping of a Nova row UUID to CommCare HQ's row id,
+never by its values; `lib/deployment/lookupJsonExecutor.ts` sends it, and
+`lookup/jsonRows.ts` is a Nova row in the resource's shape, walked by the
+same atoms as the worker's fixture row, but a repeated column the row holds no
+list of, which HQ's row keeps as no key while its restore writes one empty
+element for it: the fixture atoms alone would send it as one empty value.
+`lookup/workbookReceipt.ts::intendedHqRow`, the row HQ is expected to hold of
+Nova's copy, leaves it out the same way.
+
+`searchWireShape.ts` is the authored workflow's spelling, one three-flag `WireShape` for every platform an app declares: `auto_launch` unless list first, `default_search` for skip to results and for `listFirstWithDefaultResults`, `inline_search` for forms that read the search (`caseSearchConfig.workflow`, absent search first, and `formsReadSearch`; list first beside Forms read the search is unrepresentable). The case list's filter and inputs choose none of the flags. Android reads no `auto_launch` and opens the list first, which the platform table states (`search-first`, `skip-to-results`). The flags drive the orchestrator's `<query>` attributes + storage-instance choice + the case-list short-detail emitter's `<action auto_launch>` attribute, HQ's `AUTO_LAUNCH_EXPRESSIONS` expression wherever `auto_launch` is on: the multi-select one for a list that selects several cases (`module.is_multi_select()`), which reads the chosen cases as `instance('next_input')`, the instance a multi-select screen builds into the condition's own context and no suite element declares (the suite oracle admits it in `<action auto_launch>` alone), and the single-select one otherwise. Both export paths send a match-all filter for a zero-input search (`suite/case-search/xpathQuery.ts::ZERO_INPUT_SEARCH_SENTINEL`), because CCHQ offers Search only when a property or default property exists; this is wire scaffolding, not an authored filter.
 
 Every search button reads `lib/domain/modules.ts::CASE_SEARCH_BUTTON_LABEL` ("Search All Cases") in every language, on both export paths and in Preview: HQ's Case List save keeps no other label, and the document holds none. A lookup-backed search input's `<sort ref>` is its `sortColumnId`, or its label column where none is set. `suite/case-search/reservedInputNames.ts::RESERVED_SEARCH_INPUT_NAMES` holds the sixteen names HQ's search request keeps for itself, and `RESERVED_SEARCH_INPUT_NAME_PREFIXES` the `indices.` prefix; `isReservedSearchInputName` tests a name against both, and a search input and a default filter may use none of them. A menu uploads its own case type, a survey-only menu's included, and `formLinkProjection.ts::moduleCaseTypeForActions` gates only what is built from the type. Four spellings are HQ's own and Nova writes them: no `no_vellum`, no `custom_variables`, a calculated column as `format: "plain"`, and one `name` column on a short list that holds none.
 
@@ -2153,6 +2198,17 @@ because there is no search to open on.
 
 `caseSearchConfig.searchButtonDisplayCondition` is orthogonal to that flag decision. It emits as the case-list Search action's `relevant` predicate, not as a Results-row filter and not as the `auto_launch` expression itself. Core first removes irrelevant actions and then evaluates auto-launch among the remaining actions, so the predicate gates the automatic transition wherever the workflow auto-launches (search first and skip to results whose forms read their own case); in list first it gates the manual Search action. Preview and authoring copy must preserve that distinction rather than treating any input-free search config as a generic “go to Results” rule.
 
+Working HQ suite reads also resolve the lookup instances consumed by menu
+and form filters and badges. The reader reads each menu contribution's own
+declarations, including when several contributions share a displayed menu
+ID. A form uses its entry and every listed copy of that entry. A parent
+filter also uses display-only child contributions that inherit its condition.
+Those physical scopes must agree. A declaration in an unrelated entry, or
+a slot's scanner-visible spelling after HQ already proved the declaration
+absent, cannot supply the instance. Working suite evidence stays bound to
+the current source bracket and every available build profile. Calculated
+details, XForms, and Search use their own existing scope rules.
+
 ### Registration from the case list lowering
 
 Explicit `postSubmit: "firstMenu"` on a case list registration form emits HQ `root` and
@@ -2167,6 +2223,13 @@ that scalar `uuid()` as a selected-entities instance. Admission reports
 `CASE_LIST_REGISTRATION_MULTIPLE_RETURN`; never widen the instance allowlist
 or locally scalarize a query that HQ regenerates as a collection.
 
+A return frame can fetch the created case through HQ's case fixture. The
+frame for a registration that skips creating the case can still contain that
+query. HQ then accepts the form but returns 404 to Formplayer for the case
+that never existed. Admission and HQ reading refuse only conditional case
+creation with this return query (`CASE_LIST_REGISTRATION_REQUIRES_CREATED_RESULT`).
+An explicit form destination or a return frame without that query can still
+use conditional creation.
 
 `Module.caseListRegistrationForm` (`lib/domain/menuForms.ts::afterEmptySearchRegistrationFormOf`
 for the arm on no menu, `alwaysOfferedRegistrationOf` for the arm that stays
@@ -2181,12 +2244,26 @@ one form. `compiler.ts` and `expander.ts` consume the plan, so `m{N}` /
 `unique_id` / `owningModuleOf` agree on both paths. The lowering is emitted
 only when `hostLowersCaseListRegistration(host)` (the host's forms read the
 search and it has a case type); a slot whose module fails that is a validator
-finding, not a partial emission. The `always` arm writes the block for a form
-that stays on its own menu, with no synthetic module and no
-`relevancy_expression`, the Register action on both short details, and one
-return frame for `case-list` or two for `new-case`, only where the form's own
-after-submit is Home. `formLinkProjection.ts::caseListFormReturnFrames` builds
-them in HQ's two passes (`CaseListFormWorkflow._add_stack_children_for_target`):
+finding, not a partial emission. An ordinary list action names the form in the physical menu that holds it. A
+second host may name a form already lifted for its first host. The host
+keeps its own button text, media, visibility and return destination.
+`case-list/actionCondition.ts` prints a typed condition in the list step’s
+scope. An empty-search rule reads the completed query. Confirm the source
+space’s `FOLLOWUP_FORMS_AS_CASE_LIST_FORM` before interpreting either a
+nonblank condition or a selected parent’s follow-up. HQ ignores a condition
+with that setting off. A pure parent follow-up gets the selected parent from
+the host’s first entry when exactly one selection has that type. It uses the
+target’s own navigation after submit. A registration by a child open binds
+the actual operation UUID on read and derives its physical datum from the
+form’s held placement on export. `formLinkProjection.ts::caseListFormReturnFrames`
+builds one return frame for `case-list` and two for `new-case`, only where
+the form follows its host. Every selection on a return frame is matched to
+the form's own datums as a link's are (`matchChildrenToSource`, HQ's
+`_get_datums_matched_to_source`), so a case the form creates takes the place
+of the earlier selection of its type: a members list under a chosen
+household, offered a form registering a household and a member, returns
+under the new household (`CaseListFormReturnFrame.createdSelections`). The hidden empty-search placement can choose
+either return. The compiler builds them in HQ's two passes (`CaseListFormWorkflow._add_stack_children_for_target`):
 a submenu host's parent's `get_frame_children`, then the host's, each pass
 matched on its own and each adding to the cut frame up to its first matched
 selection; in `new-case` the host pass drops every id the frame carrying the
@@ -2224,7 +2301,11 @@ and App Tests record as that search.
   `<create if="count(instance('commcaresession')/session/data/return_to) = 1 and instance('commcaresession')/session/data/return_to = 'm{N}'">`
   with the host command plus the `case_fixture` query child
   (`formLinkProjection.ts::caseListFormReturnFrames`), so the worker lands on
-  Results showing exactly the case they registered; HQ regenerates the same
+  Results keyed to exactly the case they registered, which Formplayer shows
+  with no row: it rebuilds the frame counting no query step toward a full
+  entity screen (`MenuSessionFactory.rebuildSessionFromFrame`,
+  `EntityScreen.initListSubScreen`), for this frame and for HQ's own of the
+  same journey (`proof/formplayer/test_search.py`); HQ regenerates the same
   frame from `post_form_workflow: case_list`
   (`test_form_linking_to_inline_search_module_from_registration_form`). A
   host without menu forms has no common datum prefix (HQ reads form entries
@@ -2283,7 +2364,7 @@ change equality/inequality semantics.
 
 ### Instance accumulation — local `.ccz` vs HQ-regenerated suite
 
-CCHQ's server-side suite post-process (`commcare-hq/.../suite_xml/post_process/instances.py::InstancesHelper.add_entry_instances`) walks every detail an entry references and adds the matching `<instance>` declarations on the enclosing `<entry>` / `<remote-request>`. Nova's local `.ccz` emission has no equivalent post-pass, so `session.ts::deriveEntryDefinition` and `suite/case-search/searchSession.ts::buildSearchSession` union the instance sets of every wire tree the body prints — `caseListConfig.filter`, advanced-arm predicates, simple-arm-with-via derivations, prompt defaults, `excludedOwnerIds`, `searchButtonDisplayCondition`, form command display conditions, and each calculated expression a runtime evaluates (`lib/domain/modules.ts::caseListColumnRuns`). Every column of a list with no tile layout is a field of the short detail, so a calculated column hidden from both screens with no order rule is evaluated for every row and its instances are declared on the entry and on the remote request, as HQ's build declares them for an `invisible` expression column. In a tile list a column hidden from both screens declares nothing: with an order rule it rides as a property carrier, which reads the case's own property, and with none it has no runtime role. A missing accumulation surfaces as an undeclared-instance XPathException at runtime; the HQ-upload path is unaffected because CCHQ regenerates the suite from the persisted document.
+CCHQ's server-side suite post-process (`commcare-hq/.../suite_xml/post_process/instances.py::InstancesHelper.add_entry_instances`) walks every detail an entry references and adds the matching `<instance>` declarations on the enclosing `<entry>` / `<remote-request>`. Nova's local `.ccz` emission has no equivalent post-pass, so `session.ts::deriveEntryDefinition` and `suite/case-search/searchSession.ts::buildSearchSession` union the instance sets of every wire tree the body prints — `caseListConfig.filter`, advanced-arm predicates, simple-arm-with-via derivations, prompt defaults, `excludedOwnerIds`, `searchButtonDisplayCondition`, form command display conditions, and each calculated expression a runtime evaluates (`lib/domain/modules.ts::caseListColumnRuns`). Every column of a list with no tile layout is a field of the short detail, so a calculated column hidden from both screens with no order rule is evaluated for every row and its instances are declared on the entry and on the remote request, as HQ's build declares them for an `invisible` expression column. In a tile list a column hidden from both screens declares nothing: with an order rule it rides as a property carrier, which reads the case's own property, and with none it has no runtime role. A missing accumulation surfaces as an undeclared-instance XPathException at runtime; the HQ-upload path is unaffected because CCHQ regenerates the suite from the persisted document, except for `searchButtonDisplayCondition`, whose instances HQ's regeneration never declares (`searchButtonUndeclaredInstances` above, which the gate refuses).
 
 Search carries supporting parent cases only when an emitted calculated Results/Details/Default-order value is exactly one direct ancestor property. `suite/case-search/relatedCaseProjection.ts` is the private shared decision: every saved definition is validated, and every column a runtime evaluates (`caseListColumnRuns`) triggers its emitted support rows; subcase, ambiguous, aggregate, and wrapped relation calculations are rejected for effective Search. The direct suite derives one `x_commcare_include_all_related_cases='true'` query datum. HQ JSON sets `include_all_related_cases` and stores the allowed column as a calculated `current()/../case[...]` expression, so CCHQ's copied ordinary/Search details resolve against their containing roster without losing canonical `@case_type` qualifiers; reserved case metadata leaves use their `@case_id` / `@case_type` / `@owner_id` / `@status` spellings. Both selection datums keep CCHQ's `[not(commcare_is_related_case = true())]` predicate exactly once, so supporting rows never become choices. Ordinary non-Search relation calculations retain their existing on-device expression projection.
 
@@ -2304,7 +2385,24 @@ Details; the translation units and the media reference walks read it. Hiding
 never creates deferred invalid state and revealing never repairs or rewrites a
 definition.
 
-Sort lives on each column. `lib/domain/caseListOrder.ts::caseListOrderPlan` is the one statement of a list's order: what HQ's build writes for the app Nova sends, each rule with its citation in the module. Its `fields` are the short detail's fields in stored order, each with its wire class (a property column or an expression column), the text HQ joins a sort element to it by, the sort key it keeps with no rule, and its rule if the list orders by it; its `carriers` are the hidden sort fields HQ appends for rules that join no field. Authored rules become elements in `priority` order, ties by Results position; each lands on the first field whose join text equals its own; a list with no authored rule orders by its first shown field's own key, ascending, compared as text; blanks follow the rule's own blanks, first ascending and last descending where the author says nothing. HQ JSON, the local suite and Preview's case store all read the plan, so the three order alike. `CASE_LIST_DUPLICATE_SORT_PRIORITY` stays soundness, and `CASE_LIST_SORT_PROPERTY_AMBIGUOUS` refuses two rules over one value, and a rule that would land on a field with another key, so in an admitted document every rule orders as authored. The schema has no parallel `SortKey[]` array, so sort directives cannot refer to a non-existent column. HQ JSON writes each element in the Case List page's own spelling (`type` `plain`, `date`, `int` or `double`, `blanks` `first` or `last`, `display` keyed by the first language's wire code, `sort_calculation` empty), so a save there changes nothing.
+A column's order rule lives on the column. A separate calculation can order
+cases without adding a field to Results or Details. Each calculation has its
+own identity, typed expression, priority, comparison and optional translated
+worker name. `lib/domain/caseListOrder.ts::caseListOrderPlan` resolves both
+kinds of rule for HQ JSON, the local suite and Preview's case store. A field
+rule joins HQ's first matching short-detail field or supplies a hidden field.
+With no authored rule the first shown field orders the list by its own key,
+ascending as text. With an authored rule its comparison, direction and blank
+placement decide the order. The gate rejects ambiguous field ownership and
+duplicate priority. The HQ writer spells comparisons and blank placement as
+the Case List editor saves them.
+HQ groups calculation-only order rows by their exact expression text. The first
+occurrence places the worker choice and its last occurrence sets precedence.
+The case list writer keeps this distinction for reading, applying an HQ edit
+and projecting an app back to the Case List editor. The target needs
+`SORT_CALCULATION_IN_CASE_LIST` to keep these rules on save. A sort over a
+named property that no displayed column shows still uses a hidden column.
+
 
 The comparator of each element is derived in the plan, not authored: integer or decimal only for a `property` or `calculated` key over an integer or decimal value (`caseListOrder.ts::comparatorForDataType`, and the plan's `calculatedType` option for a calculated column), and text for every key a field keeps on its own (a date's stored value, a mapping's position, a select's label, an interval's text).
 
@@ -2426,13 +2524,34 @@ empty) and never written over a value the target holds, because Nova does not
 yet hold them as settings an author sets, and writing over a person's choice
 in HQ would undo it at every publish; the local `.ccz` writes the same
 seventeen the project space then holds (`keptProfile.ts::targetProfileProperties`).
-In `translations`, of the keys HQ generates Nova writes only
-`app.display.name` and `homescreen.title`, each only in a language whose
-localized app name differs from `appName`, and it writes every current
-language's name; `android.package.name.*`, every runtime UI-catalog key and
-any other key keep HQ's value verbatim, and a generated key is never carried
-(`appStringKeys.ts::translationKeyOwner`): Nova holds no UI string overrides,
-and a `.ccz` made for the project space carries the ones it holds. A key is
+Required Android apps have one generated package name in every language.
+A destination's UI translation replaces the name only for its own language.
+The default archive locale merges each language's generated and translated
+names in reverse build order, as HQ's app strings writer does. Android
+Preview reads destination text as Core reads the resulting locale record,
+including its escaped number signs and line breaks.
+
+In `translations`, Nova projects each saved worker-wording override under
+the locale id its current control and output role generate. Ordinary app
+name translations supply `app.display.name` and `homescreen.title`
+when a language’s display name differs from the source. Each of the two
+keys also has its own wording unit over the app's name
+(`appDisplayName`, `homescreenTitle`, `generatedWording.ts::appNameWordingKeys`),
+written under its key whatever it equals, so a pair CommCare HQ stores
+otherwise than a translation (one key alone, the two different, either
+equal to `name`, or any value in the source language) reads back and
+publishes as stored. A reading takes the pair, alike and other than `name`
+in a language other than the source, as the app name's translation there
+(`reader/appShell.ts::readTranslations`). For an app born in Nova the
+document's name wins over a pair CommCare HQ holds in the source language:
+the publish writes `name` from the document and drops the pair, because a
+Nova-born app's name has one owner, the document, and Preview shows it.
+CommCare HQ changing the pair or `name` afterwards is a change the review
+of HQ changes reports against the baseline like any other. Runtime catalog
+overrides, the language selector wording and `android.package.name.*`
+belong to their destination. A local archive merges generated wording
+and the destination’s text in the order of HQ’s builder.
+A key is
 judged as HQ's build writes it, stripped and on one line
 (`commcare_translations.py::dumps`): ` modules.m0` is the generated
 `modules.m0`, and a key that is then no locale record of its own name (one
@@ -2449,7 +2568,7 @@ ownership rule (`proof/checks/compare/app_strings.py::translation_key_owner`),
 held with Nova's to one table of keys
 (`proof/checks/fixtures/translation-key-owners.json`).
 `add_ons` sets needed slugs `true` and keeps the rest; `auto_gps_capture` is
-`true` for a Connect app and otherwise omitted. `profile`, `translations` and
+`true` for a Connect app and otherwise the app’s authored boolean, including false on clear. `profile`, `translations` and
 `add_ons` are the three keys an update projects against the target's current
 value (`targetOverlay.ts`), and an update carries `profile` whenever a
 projected key differs from what the target holds, under any Search advisory.
@@ -2461,7 +2580,7 @@ every emitted field stomps the target's value on every republish.
 HQ features the pipeline does not cover yet — the validator's `app`/`module`/`form`/`field` rules gate additions as they land:
 
 - Shadow modules, parent-select cycles
-- Smart links, case list field actions
+- Smart links; a case list icon's destination (see "Case list icon actions" below)
 - Sort field format regex, multimedia
 - Itemset `<copy>` mode (lookup-backed selects emit value/label itemsets)
 - Repeat homogeneity
@@ -2472,13 +2591,33 @@ HQ features the pipeline does not cover yet — the validator's `app`/`module`/`
 `entryPointProjection.ts` shares the form-link frame machinery and projects
 against the emission document, so hidden case list registration forms never change the
 common selection prefix. Module endpoints include the destination's common
-selections; case-list endpoints omit only the final selection, and are refused
+selections; a menu listing another menu's forms takes that prefix over its
+source's entries (`get_frame_children` reads `get_module_datums(source)` for a
+`ShadowModule`). Case-list endpoints omit only the final selection, and are refused
 when that does not faithfully open a list. A formless module keeps its actual
 module command. A case list registration form never admits an endpoint.
 
 `entryPointSuite.ts` mirrors HQ `EndpointsHelper`: one argument per selectable
 case datum, ordered claim push frames and resolvable remote-request commands,
-then a navigation push. Collection arguments use the selected-entities instance;
+then a navigation push. Because each claim push comes before the navigation,
+Android's Back pops the navigation, then each posted claim with every case
+claimed after the first, and stops on Home with the first claimed case still
+chosen, whatever menu the destination is in (`CommCareSession.stepBack`,
+witnessed by `proof/native/core/EndpointRuntimeTest.java`). That Back is a menu
+or case list destination's: the first form of a visit a deep link opened ends
+the visit on Android, submitted or left, before any after-submit runs. Home,
+launched from outside, resets the session and hands `RESULT_CANCELED` back to
+the app that opened the link (`SessionLaunchDelegate.kt::exitFromExternalLaunch`,
+`ccodk_exit_after_form_submission`, true unless the caller says otherwise;
+witnessed by `proof/android/test_navigation.py`), which Preview plays as the
+phone's home screen (`lib/session/store.ts::previewEntryPointVisit`).
+`EntryPointProjection.homeFrame` is that carry (the endpoint frame itself
+with inline search, which claims nothing), and it gives each menu reading that
+case under the same id, type and count its `firstMenuConsumers` for
+Preview's Android launch. The first-menu rules and the reader read
+`firstMenuFrame` instead, the workflow frame, which leads with a selection
+only where the destination opens with the first menu's shared case.
+Collection arguments use the selected-entities instance;
 computed datums remain owned by their entry. Only form endpoints can bypass
 relevancy. Inline-search destinations hydrate a known case through the selected
 target's case-fixture URL and reuse their entry's claim behavior. Current HQ
@@ -2497,6 +2636,34 @@ compares known XPath slots through the Lezer tree, ignoring only spelling whites
 and quote delimiters while preserving operands, grouping and literal contents.
 Canonical wire formatting therefore does not invalidate an already published endpoint;
 ordinary values and URLs remain exact, and malformed or unknown shapes fail closed.
+
+### Case list icon actions
+
+An image column on Results may name a form's deep link by identity
+(`Column.entryPointUuid`, image-map only): CommCare's clickable icon, which a
+worker taps in Web Apps to submit that form for the tapped case without leaving
+the list. `listIconAction.ts` is the one place that decides it. A destination
+is a form's entry point on a form that requires a chosen case
+(`Form.requires_case`), is reached from the menu or ignores display conditions,
+and takes exactly one argument, a single case of the type the tap passes. The
+tap passes the row's case, a grouped tile's header passes the group's index
+target, and a grouped tile's body is refused, since Web Apps keeps only each
+group's first case and passes it for every body icon (`menus/views.js::iconClick`,
+`CaseTileGroupedListView.initialize`). Android shows the image's path and runs
+nothing, so an app that runs on Android holds none. HQ's Case List editor offers
+only forms whose XForm makes `Pragma-Submit-Automatically` a question's label
+(`views/modules.py::_form_endpoint_options`, `Form.is_auto_submitting_form`);
+that answer comes from `lib/domain/automaticSubmission.ts`, and while Nova has no
+automatic submission no form qualifies and the gate refuses every icon action
+(`CASE_LIST_ICON_ACTION_INVALID`, an app rule, since an edit to another menu's
+form can strand it). The HQ JSON writes the short detail's column as
+`clickable-icon` with the destination's current `endpoint_action_id`; the suite
+writes `template form="clickable-icon"` and `<endpoint_action endpoint_id=…
+background="true"/>` after the template (`xml_models.py::Field.ORDER`), and in a
+named tile after the cell's template as `icon_text_grid.xml` does. The case
+detail keeps the image. The project space needs `CASE_LIST_CLICKABLE_ICON`
+beside the deep links' `SESSION_ENDPOINTS`. The reader still refuses an HQ
+clickable icon as HELD-NEW (`menus-and-case-lists/16-clickable-icon-…`).
 
 ### Manual links into Search
 
@@ -2584,3 +2751,49 @@ options, or inject fallback expressions into exported XForms or HQ JSON.
 The retained native `ChoiceStartingValueRuntimeTest` documents Core's failure
 boundary for historical answers; source evidence is in
 `docs/research/inline-choice-starting-values.md`.
+
+### Question control presentation
+
+The importer classifies a source appearance on its actual control and bind in `reader/xform/appearances.ts`. `xform/readDisplaySettings.ts` projects its worker and editor effects onto typed settings. `xform/appearance.ts` writes a canonical recipe. Reading the recipe must preserve the editor kind, precedence, Android whole-control behavior, Web Apps word positions, parameter values and returned answer. The validator checks this at authoring and export. `hq/appearanceIdentity.ts` compares the actual source and published controls, and protects every effective setting from a reading claiming it was inert. An image that collects a signature only in Web Apps keeps its native picture identity.
+
+### Trusted lookup source reads
+
+`hq/lookupSource.ts` follows HQ's filtered fixture inventory, reads only selected row detail URLs and never follows peer-supplied continuation URLs. Rich details must match the requested ID, table, listed fields and native sort key order on both complete passes. Staged pages carry an ordered prefix digest bound to the selected source. `hq/lookupCoverage.ts` accepts a global fixture's independent count together with distinct source-scoped candidate IDs and two ordered comparisons against native worker bytes. An assigned worker sample cannot establish complete inventory.
+
+`hq/lookupRestore.ts` extracts a single table from an authenticated OpenRosa response. The XML parser binds token, registration, project, principal, fixture tag and worker. It retains no cases, registration password or other fixtures. A previously verified full observation can supply a missing fixture in a continuous delta for the same scope. Worker-visible rows have no administrative IDs. The current worker entry acquires a fresh full observation.
+
+`hq/lookupWorkbook.ts` compares a selected HQ download against that table's independently read ordered rows. It checks the literal header and value projection of `fixtures/download.py::_prepare_fixture`, including blank padding and propertyless fields with multiple occurrences. It never promotes the workbook's lossy cell view to canonical source values. Group and place directories are read under the editor's own approved source grant only when their names occur on the workbook. Only matching owner identities and names survive the check.
+
+## Forms listed in another menu
+
+For a source-backed menu, the emitted command identifies the route menu and the physical ordinal of the source form, including earlier excluded forms. Both commands use the same source-form title and namespace. Export includes one physical XForm per owned form. The HQ output uses a version 2 ShadowModule with the deployment's menu and form IDs. The reader resolves exclusions and form endpoints through the aligned application resource's real form IDs. Downloaded form IDs can change independently. Relevance bypass belongs to an ordinary form endpoint. A mirror form endpoint runs only while the menu has an endpoint and lists the form. Its reserved ID survives either setting being turned off.
+
+### First-menu Previous frames
+
+The reader binds `previous_screen` to the form’s explicit Previous choice wherever the form’s menu offers it. The frame projector uses the actual ordered entries to distinguish a commandless Home frame from a form command that still needs a selection. For Android, the projected Home frame includes each other form and browse command that reads the same selected datum and record type. A shared datum that an unrelated command uses for a different record type raises a placed finding.
+
+HQ’s `function_datum_endpoints` stores computed datum names on each source form independently of `session_endpoint_id`. `availableEntryCaseCreations` joins the actual frame’s function datums to the case operations whose XForms use them. An exposed creation becomes one scalar argument and a bound stack datum on that form’s endpoint. It contributes no claim request. Source order and repeated choices survive an HQ read and publish. HQ tests membership as it walks the frame, so a repeated choice still yields one argument. The reader places a finding when a purported supply has no unique case creation on its frame.
+
+A calculated case field with translated wording lowers to an HQ
+`translatable-enum`. Its declared variables bind both template and sort.
+HQ expands each native key across its entire field, including quoted
+literals, in declaration order. The reader performs that expansion before
+binding real variable nodes to their scoped text UUIDs. Export chooses keys
+that cannot rewrite literal data or resolved property and lookup names.
+
+### Long detail and persistent context
+
+The HQ writer and suite compiler use the same tab partition, selected-case
+condition and typed row source. Direct fixture fields keep HQ's property-header
+identity. Calculations use a calculated header identity. The long detail emits
+localized nested detail titles in the physical column order. A custom long
+tile uses its own geometry on each span. Named short tiles use the fixed
+reader order and the native label prefix. Form entries carry the effective
+source's persistent detail, and an inline detail replaces case confirmation.
+The one-line fallback emits a dedicated centered detail. An unrelated menu's
+tile always renders the case already selected for this entry.
+
+
+A menu with `put_in_root` keeps its ordinary remote search and the independently gated form-entry claim. Both short detail actions are withheld as in HQ’s `details.py`. Effective inline search on the same menu is a build refusal. The search’s `search_on_clear` flag round-trips only without HQ’s short-list auto-select. Publishing requires advanced case search for this flag.
+
+A search's server order and its search-only owner exclusion (`suite/case-search/requestOrder.ts`, `nativeFilters.ts`, `searchSession.ts`, `hqJson/caseList.ts`) follow HQ's datum order (`remote_requests.py::_remote_request_query_datums`): the default filters in stored order, an order among them sent as its literal `commcare_sort` text, then `blacklisted_owner_ids_expression`, then `custom_sort_properties` joined into one `commcare_sort`; the local suite and the HQ JSON print the same text. An order term names a property or a record attribute by the key HQ's index holds it under (`@status` is the record's state; a bare attribute name is a saved property Nova reserves, refused on read). The dedicated order needs CASE_SEARCH_ADVANCED (`projectSpaceCompatibility.ts::advancedCaseSearchReasons`); an order among the default filters does not. A search's own owner exclusion (`searchOwnerOverride`) replaces `excludedOwnerIds` on the request only, so the key is sent once; the device list keeps `excludedOwnerIds`'s clause. An order or a default-filter owner exclusion is a default property, so a search holding one sends no zero-input sentinel; the dedicated exclusion is not one.

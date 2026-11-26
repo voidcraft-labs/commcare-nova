@@ -58,7 +58,13 @@ import {
 import { publishReadyMedia } from "@/lib/media/publishReadyMedia";
 import { validateSniffedMediaBytes } from "@/lib/media/validate";
 import { extractLocationReferenceTargets } from "@/lib/organization/commitIntegrity";
-import { deleteAsset, uploadAssetBytes } from "@/lib/storage/media";
+import {
+	copyAssetObjectIfAbsent,
+	deleteAsset,
+	deleteAssetGeneration,
+	stageAssetBytes,
+	uploadAssetBytes,
+} from "@/lib/storage/media";
 import { birthAdoptedApp } from "../../__tests__/adoptedBirth";
 import { broughtInAppId } from "../appId";
 import {
@@ -74,6 +80,10 @@ import {
 	readingProjectDataWrite,
 } from "../projectData";
 import { broughtInLookupTableId } from "../projectData/lookupIds";
+import {
+	type MediaStaging,
+	memoryMediaStaging,
+} from "../projectData/mediaStore";
 import {
 	postgresProjectSide,
 	readReadingProjectData,
@@ -98,6 +108,17 @@ import {
 	withIcons,
 } from "./adoptionFixture";
 
+/** A create's staging held in this test: each content is named, never written. */
+const TEST_STAGING: MediaStaging = {
+	...memoryMediaStaging(),
+	stage: async (file) => ({
+		gcsObjectKey: `pending/test/${file.contentHash}`,
+		generation: "1",
+		checksum: "test",
+	}),
+	discard: async () => {},
+};
+
 const seam = vi.hoisted(() => ({
 	beforeBirth: null as
 		| null
@@ -121,6 +142,18 @@ vi.mock("@/lib/storage/media", () => ({
 	uploadAssetBytes: vi.fn(),
 	deleteAsset: vi.fn(),
 	downloadAssetBytes: vi.fn(),
+	stageAssetBytes: vi.fn(
+		async ({ gcsObjectKey }: { gcsObjectKey: string }) => ({
+			gcsObjectKey,
+			generation: "1",
+			checksum: "staged",
+		}),
+	),
+	copyAssetObjectIfAbsent: vi.fn(async () => ({
+		destinationGeneration: "1",
+		replay: false,
+	})),
+	deleteAssetGeneration: vi.fn(async () => undefined),
 }));
 beforeEach(() => {
 	seam.beforeBirth = null;
@@ -129,7 +162,21 @@ beforeEach(() => {
 	vi.mocked(uploadAssetBytes).mockReset();
 	vi.mocked(uploadAssetBytes).mockResolvedValue(undefined);
 	vi.mocked(deleteAsset).mockReset();
+	vi.mocked(stageAssetBytes).mockClear();
+	vi.mocked(copyAssetObjectIfAbsent).mockClear();
+	vi.mocked(deleteAssetGeneration).mockClear();
 });
+
+/** The staged objects a create wrote and did not delete, by key. */
+function stagedKeysLeft(): readonly string[] {
+	const deleted = new Set(
+		vi.mocked(deleteAssetGeneration).mock.calls.map(([key]) => key),
+	);
+	return vi
+		.mocked(stageAssetBytes)
+		.mock.calls.map(([args]) => args.gcsObjectKey)
+		.filter((key) => !deleted.has(key));
+}
 
 const h = setupAppStateTestDb("bring_in_birth_", {
 	authSchema: "migrated",
@@ -178,7 +225,7 @@ async function preparedBirth(
 			key: KEY,
 			readingId: READING_ID,
 			appId,
-			keepMedia: true,
+			stageMedia: TEST_STAGING,
 			onEvent: () => {},
 		});
 	});
@@ -204,6 +251,7 @@ async function preparedBirth(
 	return {
 		gathered,
 		birth: {
+			reviewedRole: SCOPE.role,
 			actorUserId: ACTOR,
 			runId: "6f1c2b3a-4e5f-4a6b-8c7d-9e0f1a2b3c4d",
 			candidate,
@@ -256,7 +304,23 @@ async function placesRead(): Promise<ReadingProjectData> {
 		code: "district",
 		parent: `/a/${FIXTURE_DOMAIN}/api/location_type/v1/1/`,
 	};
-	const places = retainedGroupRead("places/locations");
+	const placeAnswer = (name: string) => {
+		const held = retainedGroupRead(`places/${name}`);
+		if (typeof held.body !== "string")
+			throw new Error(
+				"The retained place answer needs its original JSON text.",
+			);
+		return {
+			...held,
+			body: held.body
+				.replaceAll("nova-proof", FIXTURE_DOMAIN)
+				.replaceAll(
+					"https://www.commcarehq.org",
+					"https://india.commcarehq.org",
+				),
+		};
+	};
+	const places = placeAnswer("locations");
 	const source = await sourceFromBody(retainedBodyJson(fixtureSource()));
 	const answer = await withHttpPeer(async (peer) => {
 		serveFixtureTables(peer);
@@ -272,6 +336,11 @@ async function placesRead(): Promise<ReadingProjectData> {
 			peer,
 			`/a/${FIXTURE_DOMAIN}/api/location/v2/?limit=5000`,
 			places,
+		);
+		serveAnswer(
+			peer,
+			`/a/${FIXTURE_DOMAIN}/api/location/v1/?limit=1000`,
+			placeAnswer("locations-v1"),
 		);
 		const appId = "0b4f6a52-7c55-4a35-9d1e-3c2f8a1b4e6d";
 		return readReadingProjectData({
@@ -719,7 +788,9 @@ describe("adoptHqAppInTransaction", () => {
 			});
 		});
 		expect(again.kind).toBe("created");
-		expect(uploadAssetBytes).toHaveBeenCalledTimes(2);
+		/* Each create published its one file; the refused one deleted what it staged. */
+		expect(copyAssetObjectIfAbsent).toHaveBeenCalledTimes(2);
+		expect(stagedKeysLeft()).toEqual([]);
 	});
 
 	it("answers read-again where a table of a tag the app reads was made after the create's read, and the next review asks its choice", async () => {

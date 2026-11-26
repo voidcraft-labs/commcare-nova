@@ -1,0 +1,19 @@
+{
+	"id": "hq-lookup-aliases",
+	"configuration": {
+		"flags": [],
+		"namedPrivileges": [
+			"CLOUDCARE",
+			"LOCATIONS",
+			"LOOKUP_TABLES"
+		],
+		"commcareVersion": "2.57.0",
+		"commtrack": false,
+		"syncCasesOnFormEntry": false,
+		"caseSearchEnabled": false
+	},
+	"declaration": "preselected",
+	"exhibits": [
+		"expressions-and-data/tag-equal-to-an-instance-name-commcare-owns"
+	]
+}

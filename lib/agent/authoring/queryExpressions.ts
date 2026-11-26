@@ -7,13 +7,20 @@ import {
 	DISTANCE_UNITS,
 	type DistanceUnit,
 } from "@/lib/domain/expression/distance";
-import { scalarDataType, typeOf } from "@/lib/domain/expression/typeChecker";
+import {
+	expressionRowScope,
+	scalarDataType,
+	typeOf,
+} from "@/lib/domain/expression/typeChecker";
 import {
 	type Choice,
 	caseTypeNameSchema,
 	conditionSchema,
 	type Expression,
+	isExpression,
 	type Literal,
+	locationRowFieldSchema,
+	propertyRefSchema,
 	type RelationPath,
 	relationPathSchema,
 	type Term,
@@ -25,7 +32,12 @@ import {
 	functionArityIssue,
 	QUERY_FUNCTIONS,
 } from "@/lib/domain/expressionFunctions";
-import type { Uuid } from "@/lib/domain/uuid";
+import {
+	type LookupMemberId,
+	lookupColumnIdSchema,
+} from "@/lib/domain/lookupIds";
+import { type LookupRead, lookupReadSchema } from "@/lib/domain/lookupRead";
+import { type Uuid, uuidSchema } from "@/lib/domain/uuid";
 import { AuthoringInputError } from "./errors";
 import {
 	type AuthoredExpression,
@@ -42,15 +54,30 @@ export interface QueryBindings {
 	 *  property of the scope's record, never a form's record of that type. */
 	recordProperty(caseType: string, property: string): Term;
 	identity(
-		kind: "table" | "column" | "operation" | "location" | "level" | "module",
+		kind:
+			| "table"
+			| "column"
+			| "operation"
+			| "location"
+			| "level"
+			| "module"
+			| "place-property",
 		name: string,
 		owner?: string,
 	): string;
 	/** The menu a chosen-case read names, refused unless one case is chosen
 	 *  there: its module and that module's case type. */
+	memberIdentity?(
+		tableId: string,
+		columnId: string | undefined,
+		name: string,
+	): LookupMemberId;
 	chosenCaseMenu(name: string): { module: Uuid; caseType: string };
 	forRelation(relation: RelationPath): QueryBindings;
+	forDeviceRecords(caseType?: string): QueryBindings;
 	forTable(tableId: string): QueryBindings;
+	/** The scope a condition over the open cases of one type reads them in. */
+	forRows(caseType: string): QueryBindings;
 }
 
 type Node = AuthoredExpression;
@@ -221,11 +248,92 @@ function relation(node: Node): RelationPath {
 				return { identifier: string(step) };
 			}),
 		};
-	} else
-		throw new AuthoringInputError(`Unknown relationship function: ${name}.`);
+	} else if (name === "reached")
+		throw new AuthoringInputError(
+			"reached() names the links one property() reads through, as in property('patient', 'village', reached('parent')). Name a record relationship here with self(), children(), or ancestor().",
+		);
+	else throw new AuthoringInputError(`Unknown relationship function: ${name}.`);
 	return relationPathSchema.parse(result);
 }
 
+/** A name identifies one owner, and the shape preserves the order in which
+ * a worker filters occurrences, chooses a position, then reads a detail. */
+function readSelector(
+	node: Node,
+	table: string,
+	bindings: QueryBindings,
+): LookupRead {
+	const member = (column: string | undefined, name: string) => {
+		if (!bindings.memberIdentity)
+			throw new AuthoringInputError(
+				"The data table’s details are unavailable.",
+			);
+		return bindings.memberIdentity(table, column, name);
+	};
+	if (
+		node.kind !== "call" ||
+		!["row-detail", "value-with", "value-at", "value-detail"].includes(
+			node.name,
+		)
+	)
+		return lookupColumnIdSchema.parse(
+			bindings.identity("column", string(node), table),
+		);
+	const { name, args } = node;
+	arity(name, args);
+	if (name === "row-detail")
+		return { attributeId: member(undefined, string(args[0])) };
+	const inner = readSelector(args[0], table, bindings);
+	if (typeof inner !== "string" && ("attributeId" in inner || inner.propertyId))
+		throw new AuthoringInputError(
+			"Choose a data column before selecting a value or its detail.",
+		);
+	const base = typeof inner === "string" ? { columnId: inner } : inner;
+	if (name === "value-with" && base.where)
+		throw new AuthoringInputError("Choose a single value detail to match.");
+	if (name === "value-at" && base.occurrence !== undefined)
+		throw new AuthoringInputError("Choose one position in the list of values.");
+	const selected =
+		name === "value-at"
+			? { ...base, occurrence: number(args[1]) }
+			: name === "value-with"
+				? {
+						...base,
+						...(base.occurrence !== undefined && {
+							positionBeforeFilter: true as const,
+						}),
+						where: {
+							propertyId: member(base.columnId, string(args[1])),
+							equals: string(args[2]),
+						},
+					}
+				: { ...base, propertyId: member(base.columnId, string(args[1])) };
+	const result = lookupReadSchema.safeParse(selected);
+	if (!result.success)
+		throw new AuthoringInputError(
+			"Choose a whole value position starting at one.",
+		);
+	return result.data;
+}
+/** A case query sets its own row. Only a direct type equality narrows it,
+ * just as the semantic checker narrows a restored-case row. */
+function guardedRecordType(nodes: readonly Node[]): string | undefined {
+	for (const node of nodes) {
+		if (node.kind !== "binary" || node.operator !== "=") continue;
+		for (const [left, right] of [
+			[node.left, node.right],
+			[node.right, node.left],
+		] as const) {
+			if (
+				isCall(left, "record-type") &&
+				right.kind === "literal" &&
+				typeof right.value === "string"
+			)
+				return right.value;
+		}
+	}
+	return undefined;
+}
 function compiler(bindings: QueryBindings) {
 	function term(node: Node): ObjectValue {
 		if (node.kind === "reference")
@@ -233,6 +341,26 @@ function compiler(bindings: QueryBindings) {
 		if (node.kind === "call") {
 			const { name, args } = node;
 			arity(name, args);
+			if (name === "property" && args[2] && isCall(args[2], "reached")) {
+				// A walk of each named link to whatever record it reaches, of any type: the
+				// property is read as that record holds it, declared or not.
+				const origin = string(args[0]);
+				if (origin !== bindings.currentCaseType)
+					throw new AuthoringInputError(
+						`property() starts from ${bindings.currentCaseType ?? "an unspecified record"}, not ${origin}.`,
+					);
+				const steps = args[2].kind === "call" ? args[2].args : [];
+				return propertyRefSchema.parse({
+					kind: "prop",
+					caseType: origin,
+					property: string(args[1]),
+					via: {
+						kind: "ancestor",
+						via: steps.map((step) => ({ identifier: string(step) })),
+					},
+					readReached: true,
+				});
+			}
 			if (name === "property") {
 				const via = args[2] ? relation(args[2]) : undefined;
 				const origin = string(args[0]);
@@ -272,6 +400,20 @@ function compiler(bindings: QueryBindings) {
 				return { kind: "session-context", field: string(args[0]) };
 			}
 			if (name === "record-type") return { kind: "case-row-type" };
+			if (name === "worker-record") {
+				const property = term(args[0]);
+				if (property.kind === "session-user-property")
+					return { ...property, source: "worker-record" };
+				if (property.kind === "literal" && typeof property.value === "string")
+					return {
+						kind: "session-user",
+						field: property.value,
+						source: "worker-record",
+					};
+				throw new AuthoringInputError(
+					"worker-record() takes a worker property or a saved field name.",
+				);
+			}
 			if (name === "external-user") {
 				return { kind: "session-user", field: string(args[0]) };
 			}
@@ -288,12 +430,29 @@ function compiler(bindings: QueryBindings) {
 					ownerCaseType: string(args[1]),
 				};
 			}
+			if (name === "place-field")
+				return {
+					kind: "location-field",
+					field: locationRowFieldSchema.parse(string(args[0])),
+				};
+			if (name === "place-level")
+				return {
+					kind: "location-field",
+					field: { level: bindings.identity("level", string(args[0])) },
+				};
+			if (name === "place-property")
+				return {
+					kind: "location-field",
+					field: {
+						property: bindings.identity("place-property", string(args[0])),
+					},
+				};
 			if (name === "table-column") {
 				const tableId = bindings.identity("table", string(args[0]));
 				return {
 					kind: "table-column",
 					tableId,
-					columnId: bindings.identity("column", string(args[1]), tableId),
+					columnId: readSelector(args[1], tableId, bindings),
 				};
 			}
 		}
@@ -394,6 +553,10 @@ function compiler(bindings: QueryBindings) {
 				right,
 			};
 		}
+		if (name === "project-today") {
+			arity(name, args);
+			return { kind: "today", clock: "project-space" };
+		}
 		if (["today", "now", "here", "acting-user", "unowned"].includes(name)) {
 			arity(name, args);
 			return { kind: name };
@@ -410,6 +573,10 @@ function compiler(bindings: QueryBindings) {
 				term: { kind: "capture-link", field: question.uuid },
 			};
 		}
+		if (name === "case-text") {
+			arity(name, args);
+			return { kind: "case-text", textUuid: uuidSchema.parse(string(args[0])) };
+		}
 		if (name === "id-of") {
 			arity(name, args);
 			return {
@@ -423,7 +590,7 @@ function compiler(bindings: QueryBindings) {
 			return {
 				kind: "table-lookup",
 				tableId,
-				resultColumnId: bindings.identity("column", string(args[1]), tableId),
+				resultColumnId: readSelector(args[1], tableId, bindings),
 				where: compiler(bindings.forTable(tableId)).predicate(args[2]),
 			};
 		}
@@ -484,8 +651,58 @@ function compiler(bindings: QueryBindings) {
 				fallback: value(args[args.length - 1]),
 			};
 		}
+		if (name === "device-records") {
+			arity(name, args);
+			return {
+				kind: "cases",
+				source: "casedb",
+				where: args.map(
+					compiler(bindings.forDeviceRecords(guardedRecordType(args)))
+						.predicate,
+				),
+			};
+		}
+		if (name === "table-rows") {
+			arity(name, args);
+			const tableId = bindings.identity("table", string(args[0]));
+			return {
+				kind: "table-rows",
+				tableId,
+				where: args
+					.slice(1)
+					.map(compiler(bindings.forTable(tableId)).predicate),
+			};
+		}
+		if (name === "row-value") {
+			arity(name, args);
+			const rows = value(args[0]);
+			let rowBindings = bindings;
+			if (rows.kind === "table-rows") {
+				rowBindings = bindings.forTable(String(rows.tableId));
+			} else if (rows.kind === "cases" && isExpression(rows)) {
+				const row = expressionRowScope(rows, bindings.typeContext);
+				rowBindings = bindings.forDeviceRecords(
+					row?.kind === "case" ? row.caseType : undefined,
+				);
+			}
+			return {
+				kind: "project",
+				of: rows,
+				value: compiler(rowBindings).term(args[1]),
+			};
+		}
 		if (name === "count") {
 			arity(name, args);
+			if (
+				args[0]?.kind === "call" &&
+				["device-records", "cases", "table-rows"].includes(args[0].name)
+			) {
+				if (args.length !== 1)
+					throw new AuthoringInputError(
+						"Put the condition inside the records or table rows being counted.",
+					);
+				return { kind: "count", via: value(args[0]) };
+			}
 			const via = relation(args[0]);
 			return {
 				kind: name,
@@ -498,6 +715,37 @@ function compiler(bindings: QueryBindings) {
 		if (name === "format-date") {
 			arity(name, args);
 			return { kind: name, date: value(args[0]), pattern: string(args[1]) };
+		}
+		if (name === "cases") {
+			arity(name, args);
+			const caseType = caseTypeNameSchema.parse(string(args[0]));
+			const rows = compiler(bindings.forRows(caseType));
+			return {
+				kind: "cases",
+				source: "casedb",
+				where: [
+					{
+						kind: "eq",
+						left: { kind: "term", term: { kind: "case-row-type" } },
+						right: { kind: "term", term: { kind: "case-type", caseType } },
+					},
+					...args.slice(1).map(rows.predicate),
+				],
+			};
+		}
+		if (name === "table-rows") {
+			arity(name, args);
+			const tableId = bindings.identity("table", string(args[0]));
+			const rows = compiler(bindings.forTable(tableId));
+			return {
+				kind: "table-rows",
+				tableId,
+				where: args.slice(1).map(rows.predicate),
+			};
+		}
+		if (name === "places") {
+			arity(name, args);
+			return { kind: "locations", where: [] };
 		}
 		if (name === "chosen-case") {
 			arity(name, args);
@@ -544,7 +792,11 @@ function compiler(bindings: QueryBindings) {
 		}
 		// A read stands as a condition where its slot's checker finds it holds a
 		// yes or no, such as a Hidden Value calculated by a condition.
-		if (node.kind === "reference" || isCall(node, "field"))
+		if (
+			node.kind === "reference" ||
+			isCall(node, "field") ||
+			isCall(node, "worker-record")
+		)
 			return { kind: "term", term: term(node) };
 		if (node.kind !== "call")
 			throw new AuthoringInputError(

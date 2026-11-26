@@ -51,6 +51,9 @@ import {
 	type SearchableChoice,
 	SearchableChoiceCombobox,
 } from "@/components/builder/case-list-config/SearchableChoiceCombobox";
+import { ToggleRow } from "@/components/builder/inspector/inspectorChrome";
+import { useSourceLanguageBehindLens } from "@/components/builder/localization/BuilderLocalizationProvider";
+import { ControlWording } from "@/components/builder/localization/ControlWording";
 import { firstComparisonDefault } from "@/components/builder/shared/cards/comparisonSeed";
 import { ExpressionSlotEditor } from "@/components/builder/shared/ExpressionSlotEditors";
 import { editorAxesOf } from "@/components/builder/shared/editorAxes";
@@ -85,6 +88,7 @@ import {
 	DropdownMenuSeparator,
 	DropdownMenuTrigger,
 } from "@/components/shadcn/dropdown-menu";
+import { fixedSearchRangeDates } from "@/lib/doc/expressionText";
 import { expressionEditVerdict } from "@/lib/doc/hooks/predicateVerdicts";
 import { useDeclaredPlatforms } from "@/lib/doc/hooks/useDeclaredPlatforms";
 import {
@@ -102,6 +106,7 @@ import {
 	type CaseProperty,
 	type CasePropertyDataType,
 	type CaseType,
+	COMMCARE_SEARCH_INVALID_MESSAGE,
 	DEFAULT_SEARCH_MODE_KIND,
 	effectiveDataType,
 	isSelectSearchInputType,
@@ -134,6 +139,13 @@ import {
 	type RelationPath,
 	relationStep,
 } from "@/lib/domain/expression";
+import { languageDisplayLabel } from "@/lib/domain/languageRegistry";
+import {
+	hiddenSearchFieldRefusal,
+	projectSpaceMatchingFits,
+	searchForBlankRefusal,
+	takesMultipleSearchChoices,
+} from "@/lib/domain/modules";
 import {
 	type Platform,
 	type PlatformFeatureId,
@@ -158,6 +170,7 @@ import {
 	canSeedCustomConditionFaithfully,
 	constraintForDefault,
 	effectiveModeKind,
+	modeCandidate,
 	NO_SEARCH_INPUTS,
 	type PropertyState,
 	type ResolvedRow,
@@ -165,15 +178,17 @@ import {
 	resolveDestinationCaseType,
 	resolveProperty,
 	resolveRows,
-	type ScalarDefaultSearchInputType,
 	SEARCH_INPUT_TYPE_DESCRIPTIONS,
 	SEARCH_INPUT_TYPE_ICONS,
 	SEARCH_INPUT_TYPE_LABELS,
 	SEARCH_MODE_DESCRIPTIONS,
 	SEARCH_MODE_LABELS,
+	searchFieldCandidateRefusal,
 	searchInputDecls,
 	seedCustomCondition,
 	seedDefaultExpression,
+	typeCandidate,
+	withSearchForBlankItCanCarry,
 } from "../searchInputResolution";
 import {
 	labelFromProperty,
@@ -185,6 +200,7 @@ import {
 import type { SearchConditionSlot } from "../workspaceSelection";
 import { HiddenSearchValueEditor } from "./HiddenSearchValueEditor";
 import { SearchChoiceSourceEditor } from "./SearchChoiceSourceEditor";
+import { SearchRangeStartingDates } from "./SearchRangeStartingDates";
 import { FieldRow } from "./searchInputFieldRow";
 
 // ── Public types ──────────────────────────────────────────────────
@@ -230,7 +246,9 @@ function freeTextQuoteMarksHint(
 const SEARCH_INPUT_NOTE_FEATURES: readonly PlatformFeatureId[] = [
 	"search-screen-text",
 	"search-field-checks",
+	"search-starting-dates",
 	"barcode-search-field",
+	"search-for-blank",
 	"hidden-search-field",
 	...EXPRESSION_PLATFORM_FEATURES,
 ];
@@ -272,6 +290,8 @@ interface PendingStandardReplacement {
 	readonly resultingMode: SearchInputMode["kind"];
 	readonly modeAdjustment?: string;
 	readonly meaningfulDefaultRemoved: boolean;
+	/** The replacement can't search for blank, so Also find blank turns off. */
+	readonly searchForBlankRemoved: boolean;
 }
 
 const PICKER_TRIGGER_CLS =
@@ -427,12 +447,21 @@ function VisibleSearchInputEditor({
 			setNameRefusal(grammarRefusal);
 			return;
 		}
-		if (value.kind === "simple" && value.type === "multi-select") {
+		if (value.kind === "simple" && takesMultipleSearchChoices(value.type)) {
 			const refusal = multiSelectSearchInputRefusal({ ...value, name });
 			if (refusal !== undefined) {
 				setNameRefusal(refusal);
 				return;
 			}
+		}
+		// A hidden text field searches the property of its own name.
+		const hiddenRefusal =
+			value.hidden === true
+				? hiddenSearchFieldRefusal(rebuildRow(value, { name }))
+				: undefined;
+		if (hiddenRefusal !== undefined) {
+			setNameRefusal(hiddenRefusal);
+			return;
 		}
 		setNameRefusal(null);
 		onChange(rebuildRow(value, { name }));
@@ -440,7 +469,7 @@ function VisibleSearchInputEditor({
 	/* The reason a multiple-choice widget is withheld from this row, if any:
 	 * the same verdict the commit gate applies. */
 	const multiSelectRefusal =
-		value.kind === "simple" && value.type !== "multi-select"
+		value.kind === "simple" && !takesMultipleSearchChoices(value.type)
 			? multiSelectSearchInputRefusal(value)
 			: undefined;
 	/* The field types a platform the app runs on can't show, each with that
@@ -479,7 +508,13 @@ function VisibleSearchInputEditor({
 		const choicesRemoved =
 			searchInputOptions(value) !== undefined &&
 			searchInputOptions(next) === undefined;
-		if (!modeChanged && !meaningfulDefaultRemoved && !choicesRemoved) {
+		const hiddenRemoved = value.hidden === true && next.hidden !== true;
+		if (
+			!modeChanged &&
+			!meaningfulDefaultRemoved &&
+			!choicesRemoved &&
+			!hiddenRemoved
+		) {
 			onChange(next);
 			return;
 		}
@@ -501,6 +536,11 @@ function VisibleSearchInputEditor({
 				`The choice list will be removed because ${targetDescription} doesn't offer choices.`,
 			);
 		}
+		if (hiddenRemoved) {
+			consequences.push(
+				"Web Apps will show the field, because a hidden text field can only search the property of its own name exactly.",
+			);
+		}
 		consequences.push("You can undo this change.");
 		setPendingInputTransition({
 			source: value,
@@ -519,12 +559,13 @@ function VisibleSearchInputEditor({
 		const currentDefault = searchInputDefault(value);
 		const keepDefault =
 			currentDefault === undefined ||
-			defaultFits(
-				rebuildRow(value, {
-					type,
-					...(options === undefined ? {} : { options }),
-				}),
-			);
+			((type === "date-range") === (value.type === "date-range") &&
+				defaultFits(
+					rebuildRow(value, {
+						type,
+						...(options === undefined ? {} : { options }),
+					}),
+				));
 		const next = rebuildRow(value, {
 			type,
 			...(options === undefined ? {} : { options }),
@@ -622,7 +663,18 @@ function VisibleSearchInputEditor({
 			);
 		}
 
-		if (propertyDef !== undefined) {
+		// The project space matches a field it still fits whatever the
+		// property's type, so the widget and the match stay as they are.
+		const keepsProjectSpaceMatching =
+			value.matching === "project-space" &&
+			projectSpaceMatchingFits({
+				name: patch.name ?? value.name,
+				property,
+				via,
+				type: value.type,
+				mode: value.mode,
+			});
+		if (propertyDef !== undefined && !keepsProjectSpaceMatching) {
 			const dataType = effectiveDataType(propertyDef);
 			// A multiple-choice field also has to keep riding the bare prompt
 			// (this case, a name equal to the property); a binding that breaks
@@ -631,7 +683,7 @@ function VisibleSearchInputEditor({
 			const typeAllowed =
 				(SEARCH_INPUT_TYPE_PROPERTY_TYPES[value.type]?.includes(dataType) ??
 					true) &&
-				(value.type !== "multi-select" ||
+				(!takesMultipleSearchChoices(value.type) ||
 					multiSelectSearchInputRefusal({
 						name: patch.name ?? value.name,
 						property,
@@ -659,7 +711,13 @@ function VisibleSearchInputEditor({
 			patch.default = undefined;
 		}
 
-		const next = rebuildRow(value, patch);
+		const bound = rebuildRow(value, patch);
+		// A hidden text field that no longer searches the property of its own
+		// name can't stay hidden: the transition says Web Apps will show it.
+		const next =
+			bound.hidden === true && hiddenSearchFieldRefusal(bound) !== undefined
+				? rebuildRow(bound, { hidden: undefined })
+				: bound;
 		const targetLabel =
 			propertyDef === undefined
 				? propertyFallbackDisplayLabel(property)
@@ -793,7 +851,11 @@ function VisibleSearchInputEditor({
 						value.label,
 						type,
 						propertyDef.name,
-						{ ...visible, mode: { kind: "range" } },
+						{
+							...visible,
+							default: value.type === "date-range" ? currentDefault : undefined,
+							mode: { kind: "range" },
+						},
 					)
 				: isSelectSearchInputType(type) && currentOptions !== undefined
 					? simpleSearchInputDef(
@@ -823,9 +885,12 @@ function VisibleSearchInputEditor({
 							},
 						);
 		const keepDefault = defaultFits(withDefault);
-		const next = keepDefault
-			? withDefault
-			: rebuildRow(withDefault, { default: undefined });
+		const { row: next, removed: searchForBlankRemoved } =
+			withSearchForBlankItCanCarry(
+				keepDefault
+					? withDefault
+					: rebuildRow(withDefault, { default: undefined }),
+			);
 		const resultingMode = effectiveModeKind(next);
 		const targetPropertyLabel = propertyDisplayLabel(propertyDef, projectProse);
 		return {
@@ -841,6 +906,7 @@ function VisibleSearchInputEditor({
 				!keepDefault &&
 				currentDefault !== undefined &&
 				expressionHasMeaningfulContent(currentDefault),
+			searchForBlankRemoved,
 		};
 	};
 
@@ -875,6 +941,7 @@ function VisibleSearchInputEditor({
 			validityIndex={emptyValidityIndex}
 		>
 			<div className="space-y-5">
+				{moduleUuid && <ControlWording owner={value.uuid} />}
 				<FieldRow label="Label" hint="Shown above the field">
 					<BlurCommitTextInput
 						value={value.label}
@@ -884,14 +951,22 @@ function VisibleSearchInputEditor({
 					{resolved.labelEmpty && <InlineError errors={["Enter a label"]} />}
 				</FieldRow>
 
-				<FieldRow label="Hint" hint="A short line under the label, if it helps">
-					<BlurCommitTextInput
-						value={value.hint ?? ""}
-						onCommit={setHint}
-						placeholder="Optional"
-						ariaLabel={`Search field ${index + 1} hint`}
-					/>
-				</FieldRow>
+				{/* A field Web Apps hides shows no hint, requirement or check
+				    (`hiddenSearchFieldRefusal`): each is offered on a hidden
+				    field only while it is still there to remove. */}
+				{(value.hidden !== true || value.hint !== undefined) && (
+					<FieldRow
+						label="Hint"
+						hint="A short line under the label, if it helps"
+					>
+						<BlurCommitTextInput
+							value={value.hint ?? ""}
+							onCommit={setHint}
+							placeholder="Optional"
+							ariaLabel={`Search field ${index + 1} hint`}
+						/>
+					</FieldRow>
+				)}
 
 				{value.kind === "simple" && (
 					<FieldRow label="Case information">
@@ -920,7 +995,14 @@ function VisibleSearchInputEditor({
 					<TypePicker
 						value={pendingChoiceType ?? value.type}
 						onChange={setType}
-						propertyDataType={propertyDataType}
+						candidateRefusal={(type) =>
+							type === value.type
+								? undefined
+								: searchFieldCandidateRefusal(
+										typeCandidate(value, type),
+										propertyDataType,
+									)
+						}
 						multiSelectRefusal={multiSelectRefusal}
 						platformRefusals={platformRefusals}
 						rowIndex={index}
@@ -950,7 +1032,7 @@ function VisibleSearchInputEditor({
 					<FieldRow
 						label="Choices"
 						hint={
-							value.type === "multi-select"
+							takesMultipleSearchChoices(value.type)
 								? "People tick any that apply, and a case matches when it holds one of them"
 								: "People pick one, and a case matches when it holds that value"
 						}
@@ -977,7 +1059,23 @@ function VisibleSearchInputEditor({
 				>
 					<MatchPicker
 						value={value}
-						propertyDataType={propertyDataType}
+						candidateRefusal={(kind) =>
+							value.kind === "simple"
+								? searchFieldCandidateRefusal(
+										modeCandidate(value, kind),
+										propertyDataType,
+									)
+								: undefined
+						}
+						customRefusal={
+							value.kind === "simple" && value.hidden === true
+								? hiddenSearchFieldRefusal({
+										...value,
+										kind: "advanced",
+										predicate: { kind: "match-all" },
+									} as VisibleSearchInputDef)
+								: undefined
+						}
 						invalid={resolved.typeCouplingErrors.length > 0}
 						rowIndex={index}
 						triggerRef={matchTriggerRef}
@@ -987,6 +1085,62 @@ function VisibleSearchInputEditor({
 						onPickCustom={toCustomCondition}
 					/>
 				</FieldRow>
+
+				{/* Offered wherever the gate admits it (`projectSpaceMatchingFits`):
+				    a field over its own property, under that property's name,
+				    matched exactly or by a date range. With it on, the widget and
+				    the match need not fit the property's type. */}
+				{value.kind === "simple" &&
+					projectSpaceMatchingFits(value) &&
+					(effectiveModeKind(value) === "exact" ||
+						value.type === "date-range") && (
+						<ToggleRow
+							label="Use project space matching"
+							description="Send the answer to the project space using this field’s name."
+							checked={value.matching === "project-space"}
+							onChange={(enabled) =>
+								onChange(
+									rebuildRow(value, {
+										matching: enabled ? "project-space" : undefined,
+									}),
+								)
+							}
+						/>
+					)}
+
+				<ToggleRow
+					label="Hidden in Web Apps"
+					description="Web Apps searches with the starting value without showing the field. Android still shows it, where people can change it."
+					checked={value.hidden === true}
+					onChange={(enabled) =>
+						onChange(
+							rebuildRow(value, {
+								hidden: enabled ? true : undefined,
+							}),
+						)
+					}
+					disabledReason={
+						value.hidden === true ? undefined : hiddenSearchFieldRefusal(value)
+					}
+				/>
+
+				{(value.allowBlank === true ||
+					(value.kind === "simple" &&
+						value.hidden !== true &&
+						searchForBlankRefusal(value) === undefined)) && (
+					<ToggleRow
+						label="Also find blank"
+						description="In Web Apps, people can include cases where this is blank."
+						checked={value.allowBlank === true}
+						onChange={(enabled) =>
+							onChange(
+								rebuildRow(value, {
+									allowBlank: enabled ? true : undefined,
+								}),
+							)
+						}
+					/>
+				)}
 
 				{value.kind === "advanced" && (
 					<FieldRow
@@ -1017,47 +1171,49 @@ function VisibleSearchInputEditor({
 
 				<InlineError errors={resolved.typeCouplingErrors} />
 
-				{value.type === "date-range" ? null : (
-					<DefaultValueSlot
-						slot={inputSlot("search_input_default")}
-						candidate={value}
-						value={searchInputDefault(value)}
-						inputType={value.type}
-						caseTypes={caseTypes}
-						currentCaseType={currentCaseType}
-						userProperties={userProperties}
+				<DefaultValueSlot
+					slot={inputSlot("search_input_default")}
+					candidate={value}
+					value={searchInputDefault(value)}
+					inputType={value.type}
+					caseTypes={caseTypes}
+					currentCaseType={currentCaseType}
+					userProperties={userProperties}
+					rowIndex={index}
+					onChange={setDefault}
+				/>
+
+				{(value.hidden !== true || value.required !== undefined) && (
+					<RequiredSlot
+						expressionContext={requiredContext}
+						value={value.required}
 						rowIndex={index}
-						onChange={setDefault}
+						summaryContext={{
+							caseTypes,
+							currentCaseType,
+							knownInputs,
+							projectProse,
+						}}
+						onChange={setRequired}
+						onEditCondition={() => onEditCondition("required")}
 					/>
 				)}
 
-				<RequiredSlot
-					expressionContext={requiredContext}
-					value={value.required}
-					rowIndex={index}
-					summaryContext={{
-						caseTypes,
-						currentCaseType,
-						knownInputs,
-						projectProse,
-					}}
-					onChange={setRequired}
-					onEditCondition={() => onEditCondition("required")}
-				/>
-
-				<CheckSlot
-					expressionContext={validationContext}
-					value={value.validation}
-					rowIndex={index}
-					summaryContext={{
-						caseTypes,
-						currentCaseType,
-						knownInputs,
-						projectProse,
-					}}
-					onChange={setValidation}
-					onEditRule={() => onEditCondition("validation")}
-				/>
+				{(value.hidden !== true || value.validation !== undefined) && (
+					<CheckSlot
+						expressionContext={validationContext}
+						value={value.validation}
+						rowIndex={index}
+						summaryContext={{
+							caseTypes,
+							currentCaseType,
+							knownInputs,
+							projectProse,
+						}}
+						onChange={setValidation}
+						onEditRule={() => onEditCondition("validation")}
+					/>
+				)}
 
 				<SearchInputPlatformNotes
 					moduleUuid={moduleUuid}
@@ -1292,6 +1448,19 @@ interface RequiredSlotProps {
 	readonly onEditCondition: () => void;
 }
 
+/** What leaving a message blank shows, under a language other than the
+ *  source: that language takes the source's message (the Builder clears its
+ *  own translation), not CommCare's or Nova's standard sentence. Undefined
+ *  under the source, whose own line says what a blank shows. */
+function useBlankMessageLine(): string | undefined {
+	const sourceLanguage = useSourceLanguageBehindLens();
+	if (sourceLanguage === undefined) return undefined;
+	const source = languageDisplayLabel(sourceLanguage);
+	return source === undefined
+		? "Leave it blank to show the source language's message"
+		: `Leave it blank to show the ${source} message`;
+}
+
 function RequiredSlot({
 	expressionContext,
 	value,
@@ -1300,6 +1469,7 @@ function RequiredSlot({
 	onChange,
 	onEditCondition,
 }: RequiredSlotProps) {
+	const blankMessageLine = useBlankMessageLine();
 	const choice = requiredChoiceOf(value);
 	const pick = (next: RequiredChoice) => {
 		if (next === choice) return;
@@ -1308,19 +1478,14 @@ function RequiredSlot({
 				onChange(undefined);
 				return;
 			case "always":
-				onChange(
-					value?.message === undefined ? {} : { message: value.message },
-				);
+				onChange(messageOf(value));
 				return;
 			case "conditional": {
 				if (expressionContext === undefined) return;
 				const when = firstComparisonDefault(
 					summaryContextToEditContext(summaryContext, expressionContext),
 				);
-				onChange({
-					...(value?.message === undefined ? {} : { message: value.message }),
-					when,
-				});
+				onChange({ ...messageOf(value), when });
 				onEditCondition();
 				return;
 			}
@@ -1402,29 +1567,62 @@ function RequiredSlot({
 							</Button>
 						</div>
 					)}
-					<div className="flex flex-col gap-2">
-						<div className="text-[13px] font-medium leading-5 text-nova-text-secondary">
-							Message when unanswered
+					{value.noMessage === true ? (
+						<div className="flex flex-col gap-2">
+							<div className="text-[13px] font-medium leading-5 text-nova-text-secondary">
+								Message when unanswered
+							</div>
+							<p className="text-[13px] leading-relaxed text-nova-text-muted">
+								No message. In Web Apps the search waits until this field is
+								answered, and the field shows as needing attention without
+								saying why.
+							</p>
+							<Button
+								type="button"
+								variant="outline"
+								onClick={() =>
+									onChange(value.when === undefined ? {} : { when: value.when })
+								}
+								className="w-full"
+								aria-label={`Show a message for search field ${rowIndex + 1} when it's unanswered`}
+							>
+								Show a message
+							</Button>
 						</div>
-						<BlurCommitTextInput
-							value={value.message ?? ""}
-							onCommit={(message) =>
-								onChange({
-									...(value.when === undefined ? {} : { when: value.when }),
-									...(message === "" ? {} : { message }),
-								})
-							}
-							placeholder={SEARCH_INPUT_REQUIRED_DEFAULT_MESSAGE}
-							ariaLabel={`Search field ${rowIndex + 1} required message`}
-						/>
-						<p className="text-[13px] leading-relaxed text-nova-text-muted">
-							Leave it blank to use the standard message
-						</p>
-					</div>
+					) : (
+						<div className="flex flex-col gap-2">
+							<div className="text-[13px] font-medium leading-5 text-nova-text-secondary">
+								Message when unanswered
+							</div>
+							<BlurCommitTextInput
+								value={value.message ?? ""}
+								onCommit={(message) =>
+									onChange({
+										...(value.when === undefined ? {} : { when: value.when }),
+										...(message === "" ? {} : { message }),
+									})
+								}
+								placeholder={SEARCH_INPUT_REQUIRED_DEFAULT_MESSAGE}
+								ariaLabel={`Search field ${rowIndex + 1} required message`}
+							/>
+							<p className="text-[13px] leading-relaxed text-nova-text-muted">
+								{blankMessageLine ??
+									"Leave it blank to use the standard message"}
+							</p>
+						</div>
+					)}
 				</div>
 			)}
 		</FieldRow>
 	);
+}
+
+/** A requirement's message settings, carried across a change of when it applies. */
+function messageOf(
+	required: SearchInputRequired | undefined,
+): SearchInputRequired {
+	if (required?.noMessage === true) return { noMessage: true };
+	return required?.message === undefined ? {} : { message: required.message };
 }
 
 interface CheckSlotProps {
@@ -1444,7 +1642,7 @@ function CheckSlot({
 	onChange,
 	onEditRule,
 }: CheckSlotProps) {
-	const [messageError, setMessageError] = useState<string | null>(null);
+	const blankMessageLine = useBlankMessageLine();
 	return (
 		<FieldRow
 			label="Check on the answer"
@@ -1496,20 +1694,20 @@ function CheckSlot({
 							Message when the check fails
 						</div>
 						<BlurCommitTextInput
-							value={value.message}
-							onCommit={(message) => {
-								if (message === "") {
-									setMessageError(
-										"Enter the message people read when the check fails",
-									);
-									return;
-								}
-								setMessageError(null);
-								onChange({ rule: value.rule, message });
-							}}
+							value={value.message ?? ""}
+							onCommit={(message) =>
+								onChange({
+									rule: value.rule,
+									...(message === "" ? {} : { message }),
+								})
+							}
+							placeholder={COMMCARE_SEARCH_INVALID_MESSAGE}
 							ariaLabel={`Search field ${rowIndex + 1} check message`}
 						/>
-						{messageError !== null && <InlineError errors={[messageError]} />}
+						<p className="text-[13px] leading-relaxed text-nova-text-muted">
+							{blankMessageLine ??
+								"Leave it blank to show CommCare's own message"}
+						</p>
 					</div>
 					<Button
 						type="button"
@@ -1803,7 +2001,10 @@ function standardReplacementConsequence(
 	const defaultConsequence = pending.meaningfulDefaultRemoved
 		? ` The starting value will also be removed because ${SEARCH_INPUT_TYPE_LABELS[pending.next.type]} can't use it.`
 		: "";
-	return `${modeAdjustment}${modeAdjustment === "" ? "" : " "}Some parts of the custom condition don't fit “${match}” and will be removed.${defaultConsequence} You can undo this change.`;
+	const blankConsequence = pending.searchForBlankRemoved
+		? " Also find blank will be turned off because this match can't search for blank."
+		: "";
+	return `${modeAdjustment}${modeAdjustment === "" ? "" : " "}Some parts of the custom condition don't fit “${match}” and will be removed.${defaultConsequence}${blankConsequence} You can undo this change.`;
 }
 
 function customConversionConsequence(row: SimpleSearchInputDef | null): string {
@@ -1830,11 +2031,14 @@ interface RowPatch {
 	readonly property?: string;
 	readonly via?: RelationPath | undefined;
 	readonly mode?: SearchInputMode | undefined;
+	readonly matching?: "project-space" | undefined;
 	readonly default?: Expression | undefined;
 	readonly hint?: string | undefined;
 	readonly required?: SearchInputRequired | undefined;
 	readonly validation?: SearchInputValidation | undefined;
 	readonly options?: LookupOptionsSource;
+	readonly allowBlank?: true | undefined;
+	readonly hidden?: true | undefined;
 }
 
 /** The slots every visible prompt carries beside its widget. */
@@ -1847,6 +2051,8 @@ function visibleSlotsOf(value: VisibleSearchInputDef): {
 		...(value.hint === undefined ? {} : { hint: value.hint }),
 		...(value.required === undefined ? {} : { required: value.required }),
 		...(value.validation === undefined ? {} : { validation: value.validation }),
+		...(value.allowBlank === true && { allowBlank: true as const }),
+		...(value.hidden === true && { hidden: true as const }),
 	};
 }
 
@@ -1869,10 +2075,15 @@ function rebuildRow(
 	const required = "required" in patch ? patch.required : value.required;
 	const validation =
 		"validation" in patch ? patch.validation : value.validation;
+	const allowBlank =
+		"allowBlank" in patch ? patch.allowBlank : value.allowBlank;
+	const hidden = "hidden" in patch ? patch.hidden : value.hidden;
 	const visible = {
 		...(hint === undefined ? {} : { hint }),
 		...(required === undefined ? {} : { required }),
 		...(validation === undefined ? {} : { validation }),
+		...(allowBlank === true && { allowBlank }),
+		...(hidden === true && { hidden }),
 	};
 	const dflt = "default" in patch ? patch.default : searchInputDefault(value);
 	// A choice widget's list rides along whenever the target is still a choice
@@ -1890,9 +2101,38 @@ function rebuildRow(
 		const property = patch.property ?? value.property;
 		const via = "via" in patch ? patch.via : value.via;
 		const mode = "mode" in patch ? patch.mode : value.mode;
+		const matching = "matching" in patch ? patch.matching : value.matching;
+		const native =
+			matching &&
+			projectSpaceMatchingFits({
+				name,
+				property,
+				via,
+				type,
+				mode: type === "date-range" ? { kind: "range" } : mode,
+			})
+				? { matching }
+				: {};
+		// A change that leaves the field no way to search for blank (a linked
+		// case, another name, a matching option) turns the search for blank off
+		// in the same edit, so the edit never makes the field refused.
+		if (
+			visible.allowBlank === true &&
+			searchForBlankRefusal({
+				name,
+				property,
+				via,
+				type,
+				mode: type === "date-range" ? { kind: "range" } : mode,
+				...native,
+			}) !== undefined
+		)
+			delete (visible as { allowBlank?: true }).allowBlank;
 		if (type === "date-range") {
 			return simpleSearchInputDef(value.uuid, name, label, type, property, {
 				...visible,
+				...native,
+				default: dflt,
 				via,
 				mode: { kind: "range" },
 			});
@@ -1900,6 +2140,7 @@ function rebuildRow(
 		if (isSelectSearchInputType(type) && options !== undefined) {
 			return simpleSearchInputDef(value.uuid, name, label, type, property, {
 				...visible,
+				...native,
 				via,
 				options,
 				default: dflt,
@@ -1907,6 +2148,7 @@ function rebuildRow(
 		}
 		return simpleSearchInputDef(value.uuid, name, label, type, property, {
 			...visible,
+			...native,
 			via,
 			...(mode !== undefined && mode.kind !== "range" ? { mode } : {}),
 			default: dflt,
@@ -1919,7 +2161,7 @@ function rebuildRow(
 			label,
 			type,
 			value.predicate,
-			visible,
+			{ ...visible, default: dflt },
 		);
 	}
 	return advancedSearchInputDef(
@@ -1941,11 +2183,10 @@ function rebuildRow(
 interface TypePickerProps {
 	readonly value: SearchInputType;
 	readonly onChange: (next: SearchInputType) => void;
-	/** Effective data type of the bound property (simple arm only):
-	 *  gates which field types are selectable, mirroring the Match
-	 *  picker. `undefined` (custom condition / unresolved property)
-	 *  gates nothing, matching the validator's skip. */
-	readonly propertyDataType: CasePropertyDataType | undefined;
+	/** Why the gate would refuse the row a field type makes
+	 *  (`searchFieldCandidateRefusal`): the type over the bound property,
+	 *  or a hidden field it can't keep hidden. */
+	readonly candidateRefusal: (type: SearchInputType) => string | undefined;
 	/** Why a multiple-choice widget is withheld from this row, when it is:
 	 *  the commit gate's own reason, shown on the disabled item. */
 	readonly multiSelectRefusal?: string;
@@ -1959,7 +2200,7 @@ interface TypePickerProps {
 function TypePicker({
 	value,
 	onChange,
-	propertyDataType,
+	candidateRefusal,
 	multiSelectRefusal,
 	platformRefusals,
 	rowIndex,
@@ -2007,14 +2248,11 @@ function TypePicker({
 						// than selectable into a validation error.
 						const refusal =
 							platformRefusals[t] ??
-							(t === "multi-select" ? multiSelectRefusal : undefined);
-						const admitted =
-							refusal === undefined &&
-							(propertyDataType === undefined ||
-								(SEARCH_INPUT_TYPE_PROPERTY_TYPES[t]?.includes(
-									propertyDataType,
-								) ??
-									true));
+							(takesMultipleSearchChoices(t)
+								? multiSelectRefusal
+								: undefined) ??
+							candidateRefusal(t);
+						const admitted = refusal === undefined;
 						return (
 							<DropdownMenuRadioItem
 								key={t}
@@ -2043,10 +2281,7 @@ function TypePicker({
 												: "text-nova-text-muted"
 										}`}
 									>
-										{admitted
-											? SEARCH_INPUT_TYPE_DESCRIPTIONS[t]
-											: (refusal ??
-												"This field type doesn't work with this information")}
+										{refusal ?? SEARCH_INPUT_TYPE_DESCRIPTIONS[t]}
 									</div>
 								</span>
 							</DropdownMenuRadioItem>
@@ -2062,10 +2297,15 @@ function TypePicker({
 
 interface MatchPickerProps {
 	readonly value: VisibleSearchInputDef;
-	/** Effective data type of the bound property: gates which modes
-	 *  are selectable. `undefined` (unresolved property / custom
-	 *  condition) gates nothing, matching the validator's skip. */
-	readonly propertyDataType: CasePropertyDataType | undefined;
+	/** Why the gate would refuse the row a standard match makes
+	 *  (`searchFieldCandidateRefusal`); a custom condition's row gates
+	 *  nothing here, as the validator skips it. */
+	readonly candidateRefusal: (
+		kind: SearchInputMode["kind"],
+	) => string | undefined;
+	/** Why the row can't become a custom condition: a hidden text field
+	 *  only searches the property of its own name. */
+	readonly customRefusal?: string;
 	readonly invalid: boolean;
 	readonly rowIndex: number;
 	readonly triggerRef: RefObject<HTMLButtonElement | null>;
@@ -2075,7 +2315,8 @@ interface MatchPickerProps {
 
 function MatchPicker({
 	value,
-	propertyDataType,
+	candidateRefusal,
+	customRefusal,
 	invalid,
 	rowIndex,
 	triggerRef,
@@ -2137,10 +2378,8 @@ function MatchPicker({
 						// property's data type can't run would only land the
 						// row in a validation error, so the item is disabled
 						// and says why instead.
-						const admitted =
-							propertyDataType === undefined ||
-							(SEARCH_MODE_PROPERTY_TYPES[kind]?.includes(propertyDataType) ??
-								true);
+						const refusal = candidateRefusal(kind);
+						const admitted = refusal === undefined;
 						return (
 							<DropdownMenuRadioItem
 								key={kind}
@@ -2159,9 +2398,7 @@ function MatchPicker({
 												: "text-nova-text-muted"
 										}`}
 									>
-										{admitted
-											? SEARCH_MODE_DESCRIPTIONS[kind]
-											: "This match doesn't work with this information"}
+										{refusal ?? SEARCH_MODE_DESCRIPTIONS[kind]}
 									</div>
 								</span>
 							</DropdownMenuRadioItem>
@@ -2170,6 +2407,7 @@ function MatchPicker({
 					<DropdownMenuSeparator />
 					<DropdownMenuRadioItem
 						value="custom"
+						disabled={customRefusal !== undefined}
 						className={
 							isCustom ? "text-nova-violet-bright bg-nova-violet/10" : ""
 						}
@@ -2189,7 +2427,8 @@ function MatchPicker({
 									isCustom ? "text-nova-violet-bright" : "text-nova-text-muted"
 								}`}
 							>
-								Combine case information to decide what matches
+								{customRefusal ??
+									"Combine case information to decide what matches"}
 							</div>
 						</span>
 					</DropdownMenuRadioItem>
@@ -2205,7 +2444,7 @@ interface DefaultValueSlotProps {
 	readonly slot: ExpressionSlotRef | undefined;
 	readonly candidate: SearchInputDef;
 	readonly value: Expression | undefined;
-	readonly inputType: ScalarDefaultSearchInputType;
+	readonly inputType: SearchInputType;
 	readonly caseTypes: readonly CaseType[];
 	readonly currentCaseType: string;
 	readonly userProperties: readonly UserProperty[];
@@ -2225,6 +2464,66 @@ function DefaultValueSlot({
 	onChange,
 }: DefaultValueSlotProps) {
 	const constraint = constraintForDefault(inputType);
+	const [editingDates, setEditingDates] = useState(false);
+	const [editingCalculation, setEditingCalculation] = useState(false);
+	const fixed =
+		inputType === "date-range" ? fixedSearchRangeDates(value) : undefined;
+	if (
+		inputType === "date-range" &&
+		(editingDates || (!editingCalculation && (value === undefined || fixed)))
+	) {
+		return (
+			<FieldRow
+				label="Starting dates"
+				hint="People can change these dates before searching"
+			>
+				{editingDates ? (
+					<SearchRangeStartingDates
+						initial={fixed}
+						onChange={onChange}
+						onClose={() => setEditingDates(false)}
+					/>
+				) : (
+					<div className="space-y-2">
+						{fixed && (
+							<p>
+								{fixed.from} to {fixed.to}
+							</p>
+						)}
+						<Button
+							type="button"
+							variant="outline"
+							onClick={() => setEditingDates(true)}
+						>
+							{fixed ? "Change dates" : "Choose dates"}
+						</Button>
+						<Button
+							type="button"
+							variant="ghost"
+							onClick={() => {
+								setEditingCalculation(true);
+								if (!value) onChange(seedDefaultExpression(inputType));
+							}}
+						>
+							Use a calculation
+						</Button>
+						{value && (
+							<Button
+								type="button"
+								variant="ghost"
+								onClick={() => {
+									setEditingCalculation(false);
+									onChange(undefined);
+								}}
+							>
+								Remove starting dates
+							</Button>
+						)}
+					</div>
+				)}
+			</FieldRow>
+		);
+	}
 	return (
 		<FieldRow
 			label="Starting value"
@@ -2243,6 +2542,18 @@ function DefaultValueSlot({
 				</Button>
 			) : (
 				<div className="space-y-3 rounded-xl border border-white/[0.06] bg-nova-deep/30 p-3">
+					{inputType === "date-range" && (
+						<Button
+							type="button"
+							variant="ghost"
+							onClick={() => {
+								setEditingCalculation(false);
+								setEditingDates(true);
+							}}
+						>
+							Choose dates
+						</Button>
+					)}
 					{/* Forbids input refs: the default fills the field before
 				    the search screen opens. See NO_SEARCH_INPUTS. */}
 					{slot === undefined ? (
@@ -2262,7 +2573,10 @@ function DefaultValueSlot({
 					)}
 					<Button
 						type="button"
-						onClick={() => onChange(undefined)}
+						onClick={() => {
+							setEditingCalculation(false);
+							onChange(undefined);
+						}}
 						variant="destructive"
 						className="w-full px-3 text-[14px]"
 						aria-label={`Remove the starting value for search field ${rowIndex + 1}`}

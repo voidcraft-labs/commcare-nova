@@ -11,6 +11,7 @@ import { APP_SHELL_KEYS } from "@/lib/commcare/expander";
 import type { HqAppSource } from "@/lib/commcare/hq/appSource";
 import { DERIVED_WIRE_IDENTITY } from "@/lib/commcare/wireIdentity";
 import type { BlueprintDoc } from "@/lib/domain";
+import { NEW_APP_SETTINGS } from "@/lib/domain/blueprint";
 import { hqImportApplication } from "../importApplication";
 
 const TARGET = { server: "production", domain: "field-ops" } as const;
@@ -70,22 +71,32 @@ describe("hqImportApplication", () => {
 	it("sends the shell its own keys, with no add-on and no profile key in its ownership", () => {
 		const doc = buildDoc({ appName: "Visits" });
 		const { application, ownership } = hqImportApplication(shell(doc));
+		// `case_sharing` is there only for an app that shares cases.
 		expect(Object.keys(application)).toEqual(
-			APP_SHELL_KEYS.filter((key) => key !== "auto_gps_capture"),
+			APP_SHELL_KEYS.filter((key) => key !== "case_sharing"),
 		);
 		expect(ownership).toEqual({
 			addOns: [],
 			profileProperties: [],
 			profileCustomProperties: [],
-			autoGpsCapture: false,
+			autoGpsCapture: true,
 		});
 		if (connect === undefined) throw new Error("Missing the Connect fixture.");
 		const connectShell = hqImportApplication(shell(connect));
-		expect(Object.keys(connectShell.application)).toEqual([...APP_SHELL_KEYS]);
+		expect(Object.keys(connectShell.application)).toEqual(
+			APP_SHELL_KEYS.filter((key) => key !== "case_sharing"),
+		);
 		expect(connectShell.ownership.autoGpsCapture).toBe(true);
+		const sharing = buildDoc({
+			appName: "Visits",
+			appSettings: { ...NEW_APP_SETTINGS, caseSharing: true },
+		});
+		const sharingShell = hqImportApplication(shell(sharing)).application;
+		expect(Object.keys(sharingShell)).toEqual(APP_SHELL_KEYS);
+		expect(sharingShell.case_sharing).toBe(true);
 	});
 
-	it("fills the shell with the three keys over its source, and owns the two settings", () => {
+	it("fills the shell with the three keys over its source, and owns the form lists, the Android app selection, the location switch and case sharing", () => {
 		const doc = buildDoc({
 			appName: "Visits",
 			appSettings: { showSavedForms: true, showIncompleteForms: false },
@@ -93,7 +104,7 @@ describe("hqImportApplication", () => {
 		const { application, ownership } = hqImportApplication(
 			update(doc, shellSource({ addOns: { menu_mode: false } })),
 		);
-		expect(Object.hasOwn(application, "auto_gps_capture")).toBe(false);
+		expect(application.auto_gps_capture).toBe(false);
 		expect(Object.hasOwn(application, "add_ons")).toBe(false);
 		expect(application.profile?.properties).toEqual(
 			Object.fromEntries(
@@ -101,11 +112,15 @@ describe("hqImportApplication", () => {
 			),
 		);
 		expect(Object.keys(application).at(-1)).toBe("_attachments");
+		/* The update writes or removes the Android apps workers need. */
 		expect(ownership).toEqual({
+			menuLayouts: true,
 			addOns: [],
 			profileProperties: ["cc-show-saved", "cc-show-incomplete"],
+			profileFeatures: ["dependencies"],
 			profileCustomProperties: [],
-			autoGpsCapture: false,
+			autoGpsCapture: true,
+			caseSharing: true,
 		});
 	});
 

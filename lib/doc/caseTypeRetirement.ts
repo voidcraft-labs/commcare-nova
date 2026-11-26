@@ -68,6 +68,8 @@ import {
 	type Term,
 } from "@/lib/domain/expression/types";
 import { walkExpression } from "@/lib/domain/expression/walk";
+import { languageDisplayLabel } from "@/lib/domain/languageRegistry";
+import { translatedFieldProse } from "@/lib/domain/referenceSlots";
 
 // ── Outcome shape ───────────────────────────────────────────────────────
 
@@ -108,6 +110,8 @@ const SLOT_LABEL: Readonly<Record<string, string>> = {
 	option_label: "option label",
 	form_display_condition: "display condition",
 	module_display_condition: "display condition",
+	form_badge: "badge",
+	module_badge: "badge",
 	form_link_condition: "after-submit link condition",
 	form_link_datum_xpath: "after-submit link value",
 	assessment_user_score: "Connect score",
@@ -296,6 +300,13 @@ function findCaseTypeReferences(
 	const references: RetirementReference[] = [];
 
 	for (const ct of doc.caseTypes ?? []) {
+		for (const edge of ct.relations ?? [])
+			if (ct.name !== caseType && edge.targetType === caseType)
+				references.push(
+					sameRef(
+						`case type "${ct.name}" uses the "${edge.identifier}" link to "${caseType}"`,
+					),
+				);
 		if (ct.name !== caseType && ct.parent_type === caseType) {
 			references.push(
 				sameRef(`case type "${ct.name}" declares "${caseType}" as its parent`),
@@ -347,7 +358,13 @@ function findCaseTypeReferences(
 			const form = formUuid !== undefined ? doc.forms[formUuid] : undefined;
 			if (!form) continue;
 			const where = `form "${form.name}" (module "${mod.name}")`;
-			collectFieldReferences(field, caseType, where, references);
+			collectFieldReferences(
+				field,
+				caseType,
+				where,
+				references,
+				doc.localization,
+			);
 			continue;
 		}
 		const form = doc.forms[uuid];
@@ -470,7 +487,21 @@ function collectFieldReferences(
 	caseType: string,
 	where: string,
 	out: RetirementReference[],
+	localization: BlueprintDoc["localization"],
 ): void {
+	/* A translation that shows values of its own names what it reads in its
+	 * language, where the source may name nothing. */
+	for (const { ref, template, language } of translatedFieldProse(
+		localization,
+		field,
+	)) {
+		if (!proseNamesCaseType(template, caseType)) continue;
+		const name = languageDisplayLabel(language) ?? language;
+		out.push({
+			verbose: `field "${field.id}" in ${where} references #${caseType}/… in its "${ref.slot}" text in ${name}`,
+			concise: `field "${field.id}" in ${where} mentions it in its ${slotLabel(ref.slot)} text in ${name}`,
+		});
+	}
 	const repeatMode = field.kind === "repeat" ? field.repeat_mode : undefined;
 	for (const slot of fieldReferenceSlotsFor(field.kind, repeatMode)) {
 		switch (slot.kind) {
@@ -520,6 +551,7 @@ function collectFieldReferences(
 			case "case-property-ref":
 			case "relation-path":
 			case "datum-ref":
+			case "worker-property-ref":
 				// No field slot carries these kinds — kept explicit so
 				// the registry's kind union stays exhaustively handled here,
 				// the same contract the rename rewriters hold.
@@ -702,10 +734,30 @@ function collectModuleConfigReferences(
 	for (const slot of MODULE_REFERENCE_SLOTS) {
 		switch (slot.slot) {
 			case "module_parent":
+			case "case_form_context_menu":
 			case "module_case_parent":
+			case "listed_forms_source":
+			case "unlisted_source_form":
+			case "listed_form_link":
 			case "module_case_list_registration_form":
+			case "case_list_action_created_case":
+			case "case_list_action_chosen_parent":
 				// Entity parentage and the registration form's identity are
 				// unrelated to the case-type catalog.
+				break;
+			case "module_badge":
+				if (
+					mod.badge?.kind === "calculation" &&
+					expressionRefsCaseType(mod.badge.expression, caseType)
+				)
+					out.push(
+						sameRef(`the badge on ${where} uses "${caseType}" information`),
+					);
+				break;
+			case "case_list_icon_action":
+				// An icon names a form's deep link by identity; whether that form
+				// takes the list's cases is the gate's question
+				// (`CASE_LIST_ICON_ACTION_INVALID`), not the catalog's.
 				break;
 			case "module_display_condition": {
 				if (
@@ -728,6 +780,10 @@ function collectModuleConfigReferences(
 				// A column's property name follows the type it reads, which is
 				// the module's own or the one its walk reaches.
 				break;
+			case "case_list_column_worker_information":
+				// A worker information identity names the worker's own record,
+				// never a case type a menu manages.
+				break;
 			case "case_list_column_via": {
 				// A column read through a relation names the types its walk
 				// passes through.
@@ -745,10 +801,72 @@ function collectModuleConfigReferences(
 				}
 				break;
 			}
+			case "search_order_property":
+			case "search_filter_order_property":
 			case "search_input_property":
 				// Contextual property names — they follow the module's own
 				// type and never name a type.
 				break;
+			case "case_list_sort_expression": {
+				for (const rule of list?.calculatedSorts ?? []) {
+					if (expressionRefsCaseType(rule.expression, caseType)) {
+						out.push({
+							verbose: `a default order calculation on ${where} reads a "${caseType}" property`,
+							concise: `the default order on ${where} uses "${caseType}" information`,
+						});
+					}
+				}
+				break;
+			}
+			case "case_list_mapping_condition": {
+				for (const col of list?.columns ?? []) {
+					if (
+						(col.kind === "image-map" || col.kind === "id-mapping") &&
+						col.mapping.some(
+							(row) => row.when && expressionRefsCaseType(row.when, caseType),
+						)
+					)
+						out.push({
+							verbose: `a mapping condition in "${col.header}" on ${where} reads a "${caseType}" property`,
+							concise: `a rule in "${col.header}" on ${where} uses "${caseType}" information`,
+						});
+				}
+				break;
+			}
+			case "case_detail_tab_child_type":
+			case "case_detail_tab_search_child_type": {
+				for (const tab of list?.detailTabs ?? []) {
+					const source = tab.rowSource;
+					const type =
+						slot.slot === "case_detail_tab_child_type" &&
+						source?.kind === "children"
+							? source.caseType
+							: slot.slot === "case_detail_tab_search_child_type" &&
+									source?.kind === "records"
+								? source.includeChildrenOfType
+								: undefined;
+					if (type === caseType)
+						out.push(
+							sameRef(
+								`the Details tab "${tab.title}" on ${where} uses child cases of type "${caseType}"`,
+							),
+						);
+				}
+				break;
+			}
+			case "case_form_context_line":
+			case "case_detail_tab_rows":
+			case "case_detail_tab_filter":
+			case "case_detail_tab_condition": {
+				for (const { value } of readSlotValues(mod, slot.path))
+					if (value && expressionRefsCaseType(value as Expression, caseType))
+						out.push(
+							sameRef(
+								`a Details setting on ${where} uses "${caseType}" information`,
+							),
+						);
+				break;
+			}
 			case "case_list_column_expression": {
 				for (const col of list?.columns ?? []) {
 					if (
@@ -763,11 +881,69 @@ function collectModuleConfigReferences(
 				}
 				break;
 			}
+			case "case_list_action_condition": {
+				const slot = mod.caseListRegistrationForm;
+				if (
+					slot?.kind === "always" &&
+					slot.showWhen?.kind === "condition" &&
+					expressionRefsCaseType(slot.showWhen.condition, caseType)
+				) {
+					out.push({
+						verbose: `the form offered on ${where} uses "${caseType}" information in its condition`,
+						concise: `the form offered on ${where} uses "${caseType}" information in its condition`,
+					});
+				}
+				break;
+			}
 			case "case_list_filter": {
 				if (list?.filter && expressionRefsCaseType(list.filter, caseType)) {
 					out.push({
 						verbose: `the case-list filter on ${where} reads a "${caseType}" property`,
 						concise: `the Cases available setting on ${where} uses "${caseType}" information`,
+					});
+				}
+				break;
+			}
+			case "search_filter_property":
+			case "search_filter_ancestor_type": {
+				if (
+					slot.slot === "search_filter_ancestor_type" &&
+					list?.searchFilters?.some(
+						(filter) =>
+							"target" in filter &&
+							"ancestors" in filter.target &&
+							filter.target.ancestors?.some(
+								(step) => step.throughCaseType === caseType,
+							),
+					)
+				)
+					out.push({
+						verbose: `a search filter follows a link to "${caseType}"`,
+						concise: `a search filter uses "${caseType}" information`,
+					});
+				break;
+			}
+			case "search_filter_value": {
+				for (const filter of list?.searchFilters ?? []) {
+					if (
+						"value" in filter &&
+						expressionRefsCaseType(filter.value, caseType)
+					)
+						out.push({
+							verbose: `a search filter reads a "${caseType}" property`,
+							concise: `a search filter uses "${caseType}" information`,
+						});
+				}
+				break;
+			}
+			case "case_search_filter": {
+				if (
+					list?.searchCondition &&
+					expressionRefsCaseType(list.searchCondition, caseType)
+				) {
+					out.push({
+						verbose: `the search condition on ${where} reads a "${caseType}" property`,
+						concise: `the Search condition on ${where} uses "${caseType}" information`,
 					});
 				}
 				break;
@@ -867,6 +1043,7 @@ function collectModuleConfigReferences(
 				for (const input of list?.searchInputs ?? []) {
 					if (
 						input.kind === "hidden" &&
+						input.value !== undefined &&
 						expressionRefsCaseType(input.value, caseType)
 					) {
 						out.push({
@@ -941,6 +1118,7 @@ function termRefsCaseType(term: Term, caseType: string): boolean {
 		case "case-row-type":
 		case "repeat-row":
 		case "location-level":
+		case "worker-group-field":
 		case "location-field":
 			return false;
 		default: {

@@ -27,5 +27,7 @@ export function blanksAfterDirectionChange(
 		rule.priority,
 		picked ?? rule.blanks,
 		rule.label,
+		rule.comparator,
+		rule.menuPosition,
 	);
 }

@@ -40,6 +40,7 @@ import {
 	moduleHasOwnScreen,
 	type Uuid,
 } from "@/lib/domain";
+import { routeContainsForm } from "@/lib/domain/listedForms";
 import {
 	collectedBefore,
 	collectSharedDatums,
@@ -185,7 +186,7 @@ export function previewLeafAsksParentCase(
 	const chain = parentChain(doc, moduleUuid);
 	if (chain.size === 0) return false;
 	if (formUuid === undefined) return true;
-	if (!(doc.formOrder[moduleUuid] ?? []).includes(formUuid)) return false;
+	if (!routeContainsForm(doc, moduleUuid, formUuid)) return false;
 	const ctx = contextOf(doc);
 	return entrySessionDatums(doc, ctx, moduleUuid, formUuid).some((datum) =>
 		isParentDatum(ctx, chain, datum),

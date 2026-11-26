@@ -1,3 +1,5 @@
+import { generatedFormInstances, sourceFactories } from "../sourceFactories";
+import { builtFormInstanceSources } from "./buildInstances";
 /**
  * The form reader: each form's source read into the draft's fields (stage 3),
  * then each field minted in document order and its expressions registered for
@@ -158,6 +160,7 @@ export interface DraftExpression {
 	readonly event?: DefaultEvent;
 	/** A text whose uses alone the expression stage claims (`PendingExpression.usesOnly`). */
 	readonly usesOnly?: true;
+	readonly translatedOutput?: true;
 }
 
 /** A field as the form reader builds it: its kind's slots, less its logic, which is pending. */
@@ -261,6 +264,7 @@ export interface ReadXForm {
 	readonly itext: ItextTable;
 	/** Each declared secondary instance id to its `src`. */
 	readonly instanceSources: ReadonlyMap<string, string>;
+	readonly readSources: ReadonlyMap<string, string>;
 	/** The instance ids a choice list's lookup itemset reads. */
 	readonly carrierInstances: ReadonlySet<string>;
 	/** Set by `mintFields`. */
@@ -268,6 +272,9 @@ export interface ReadXForm {
 	/** The data path of every control whose appearance was accounted under an inert entry, in
 	 *  body order: what `ReadFormFacts.inertAppearances` lists. */
 	readonly inertAppearances: readonly string[];
+	/** The data path of every control whose appearance's settings Nova writes in another spelling,
+	 *  in body order: what `ReadFormFacts.respelledAppearances` lists. */
+	readonly respelledAppearances: readonly string[];
 	/** Each select's case choices, which stage 10 settles over the bound filter. */
 	readonly caseChoices: ReadonlyMap<DraftField, CaseChoicesProposal>;
 	/** The model-iteration repeats, which stage 10 holds to where model iteration is held. */
@@ -406,7 +413,6 @@ function readForm(
 	);
 	const setvalues = readSetvalues(parsed, tree);
 	const instanceSources = readInstances(parsed, cursor, formPlace);
-	const carrierInstances = new Set<string>();
 	const controls = readControls({
 		parsed,
 		tree,
@@ -415,6 +421,47 @@ function readForm(
 		accounting,
 		formPlace,
 	});
+	const uploads = new Set(
+		controls.all
+			.filter((control) => control.tag === "upload")
+			.map((control) => control.element.attribs.ref),
+	);
+	const buildInstances = generatedFormInstances(ctx.input, form, uploads);
+	// The case/meta builder uses literal local IDs and never replaces a
+	// declaration. selected_cases is supplied for authored expressions only.
+	for (const instance of parsed.instances) {
+		const required = buildInstances.get(instance.id);
+		if (
+			required !== undefined &&
+			instance.id !== "selected_cases" &&
+			instance.src !== required
+		) {
+			accounting.circumstance("form-data-source-conflict", formPlace, {
+				name: instance.id,
+			});
+		}
+	}
+	const readSources = builtFormInstanceSources(
+		parsed,
+		ctx.input.source,
+		instanceSources,
+		sourceFactories(ctx.input),
+		buildInstances,
+		(id) =>
+			accounting.circumstance("unbuildable-data-source-name", formPlace, {
+				name: id,
+			}),
+		ctx.input.observeFactory &&
+			((profile) => (kind, id) =>
+				ctx.input.observeFactory?.(kind, id, {
+					menu: form.menu,
+					form: form.index,
+					xmlns: form.xmlns,
+					profile,
+				})),
+	);
+	const carrierInstances = new Set<string>();
+
 	const intents: AppearanceForm = {
 		intents: new Set(
 			parsed.head.children
@@ -453,7 +500,7 @@ function readForm(
 		accounting,
 		formPlace,
 		lookup: ctx.input.lookup,
-		instanceSources,
+		instanceSources: readSources,
 		intents,
 		unreadTable: (table) => ctx.facts.unreadTables.push(table),
 		carrierRead: (id) => carrierInstances.add(id),
@@ -467,6 +514,7 @@ function readForm(
 			field.control !== undefined && labelCarriesMedia(field.control, parsed),
 	});
 	const inertAppearances = [...joined.inertAppearances];
+	const respelledAppearances = [...joined.respelledAppearances];
 	readContainers({
 		cursor,
 		accounting,
@@ -478,6 +526,7 @@ function readForm(
 		placeOf: (field) => field.place,
 		intents,
 		inertAppearance: (path) => inertAppearances.push(path),
+		respelledAppearance: (path) => respelledAppearances.push(path),
 	});
 	const bodyIndex = new Map<string, number>();
 	for (const field of joined.fields)
@@ -486,9 +535,8 @@ function readForm(
 				field.node.path.join("/"),
 				controls.all.indexOf(field.control),
 			);
-	inertAppearances.sort(
-		(a, b) => (bodyIndex.get(a) ?? 0) - (bodyIndex.get(b) ?? 0),
-	);
+	for (const paths of [inertAppearances, respelledAppearances])
+		paths.sort((a, b) => (bodyIndex.get(a) ?? 0) - (bodyIndex.get(b) ?? 0));
 
 	// A finding on a node stands at the nearest question, else at the form: a data node, its
 	// bind, its control and its setvalues stand for it, and a generated node for its owner.
@@ -675,6 +723,7 @@ function readForm(
 				entry: DATETIME_SIBLING_ENTRY,
 				path: `/_attachments/${pointerToken(`${readId ?? form.xmlns}.xml`)}`,
 				register: "date-and-time-saved-as-hq-stores-it",
+				removedInputs: [["datetime-question", ownerPath.toXPath()]],
 			});
 		}
 	};
@@ -752,9 +801,11 @@ function readForm(
 		connect: connect.connect,
 		itext: itext ?? EMPTY_ITEXT_TABLE,
 		instanceSources,
+		readSources,
 		carrierInstances,
 		sourceNames: undefined,
 		inertAppearances,
+		respelledAppearances,
 		caseChoices: joined.caseChoices,
 		modelIterations: new Set(joined.modelIterations.keys()),
 	};
@@ -924,6 +975,9 @@ export function mintFields(ctx: ReadContext): void {
 								place: field.place,
 								key: expression.key,
 								...(expression.usesOnly === true && { usesOnly: true }),
+								...(expression.translatedOutput === true && {
+									translatedOutput: true,
+								}),
 							},
 							expression.at,
 							expression.event === undefined
@@ -1072,6 +1126,7 @@ export function expressionEnvOf(ctx: ReadContext): ExpressionReadEnv {
 	const sourceNames = new Map<Uuid, ReadSourceNames>();
 	const itextUnits = new Map<Uuid, ReadonlyMap<string, ItextUnit>>();
 	const instanceSources = new Map<Uuid, ReadonlyMap<string, string>>();
+	const formReadSources = new Map<Uuid, ReadonlyMap<string, string>>();
 	const generatedValues = new Map<Uuid, ReadonlyMap<string, GeneratedValue>>();
 	const operationIdPaths = new Map<Uuid, ReadonlyMap<string, Uuid>>();
 	const formPlaces = new Map<Uuid, HqPlace>();
@@ -1087,6 +1142,7 @@ export function expressionEnvOf(ctx: ReadContext): ExpressionReadEnv {
 			if (xform.sourceNames !== undefined)
 				sourceNames.set(form.uuid, xform.sourceNames);
 			instanceSources.set(form.uuid, xform.instanceSources);
+			formReadSources.set(form.uuid, xform.readSources);
 			generatedValues.set(form.uuid, xform.generatedValues);
 			const units = new Map<string, ItextUnit>();
 			for (const id of xform.itext.ids()) {
@@ -1098,9 +1154,11 @@ export function expressionEnvOf(ctx: ReadContext): ExpressionReadEnv {
 		}
 	return {
 		lookup: ctx.input.lookup.definitions,
+		factories: sourceFactories(ctx.input),
 		sourceNames,
 		itextUnits,
 		instanceSources,
+		formReadSources,
 		generatedValues,
 		operationIdPaths,
 		recordDialect: ctx.input.recordDialect,

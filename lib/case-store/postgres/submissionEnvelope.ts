@@ -83,6 +83,7 @@ import {
 	validateResolvedCaseOperationTypeSequence,
 } from "../caseOperationTargets";
 import {
+	CaptureSubmissionRejectedError,
 	CaseNotFoundError,
 	CasePropertiesValidationError,
 	SubmissionRejectedError,
@@ -104,6 +105,7 @@ import type {
 	OperationEffectRecord,
 	SubmissionEnvelopeResult,
 } from "../submission";
+import { replaceCaseIndex } from "./caseIndexWrites";
 
 /**
  * The store internals the executor borrows — narrow closures so the
@@ -450,7 +452,9 @@ function allocateCreateIdentities(
 		const entryCaseKey = program.entryCaseKeys?.get(operation.uuid);
 		if (entryCaseKey !== undefined) {
 			allocations.set(index, {
-				caseId: entryDatumCaseId(appId, entryKey, entryCaseKey),
+				caseId:
+					program.suppliedCaseIds?.get(operation.uuid) ??
+					entryDatumCaseId(appId, entryKey, entryCaseKey),
 				authored: false,
 				entryNamed: true,
 			});
@@ -1165,6 +1169,30 @@ async function resolveOperationProgram(
 }> {
 	const appId = args.appId;
 	const ordinary = args.ordinary;
+	const revisions = program.groupDefaults?.revisions;
+	if (revisions) {
+		// A zero revision can mean no prior writer. Materialize both clock rows
+		// before locking so the first concurrent membership or place edit also waits.
+		await sql`INSERT INTO lookup_project_state(project_id) VALUES (${host.projectId}) ON CONFLICT DO NOTHING`.execute(
+			trx,
+		);
+		await sql`INSERT INTO app_organization_state(app_id) VALUES (${appId}) ON CONFLICT DO NOTHING`.execute(
+			trx,
+		);
+		const current = await sql<{
+			project: string;
+			places: string;
+		}>`SELECT COALESCE((SELECT revision FROM lookup_project_state WHERE project_id=${host.projectId} FOR SHARE),0)::text project,
+   COALESCE((SELECT revision FROM app_organization_state WHERE app_id=${appId} FOR SHARE),0)::text places`.execute(
+			trx,
+		);
+		const [row] = current.rows;
+		if (row.project !== revisions.project || row.places !== revisions.places)
+			throw new CaptureSubmissionRejectedError(
+				"The worker’s groups or places changed. You can reopen the form with their current assignments.",
+			);
+	}
+
 	// Lookup writers take the table FOR UPDATE before changing definitions or
 	// rows. Hold each referenced table in UUID order across every evaluation
 	// phase, so a guard and its value cannot observe different generations.
@@ -1490,6 +1518,23 @@ async function resolveOperationProgram(
 		anyIds: [...authoredIds, ...(program.sessionCaseIds ?? [])],
 	});
 
+	// A case id supplied by an entry can also appear as an independently
+	// resolved expression target or another create's allocation. Each
+	// executing create named by the entry requires a fresh row.
+	const entryNamedByCaseId = new Map<string, boolean>();
+	for (const [index, allocation] of allocations) {
+		if (!executing[index]) continue;
+		const entryNamed = allocation.entryNamed === true;
+		const prior = entryNamedByCaseId.get(allocation.caseId);
+		if (
+			(entryNamed &&
+				(knownRows.has(allocation.caseId) || prior !== undefined)) ||
+			prior === true
+		)
+			rejectTakenCaseId(allocation.caseId);
+		entryNamedByCaseId.set(allocation.caseId, entryNamed);
+	}
+
 	// Resolve every executing instance's target + links.
 	const resolvedInstances: ResolvedInstance[] = [];
 	for (const [index, instance] of instances.entries()) {
@@ -1784,9 +1829,11 @@ async function resolveOperationProgram(
 		if (operation.action === "create") {
 			preparedOwner = prepareText(
 				"owner",
-				operation.owner === undefined
-					? host.actingUserId
-					: evaluatedText(bag?.owner),
+				program.groupDefaults?.operations.includes(operation.uuid)
+					? program.groupDefaults.owner
+					: operation.owner === undefined
+						? host.actingUserId
+						: evaluatedText(bag?.owner),
 			);
 		} else if (
 			operation.action === "update" &&
@@ -2234,6 +2281,14 @@ function partitionWrites(writes: ResolvedInstance["writes"]): {
 	};
 }
 
+function rejectTakenCaseId(caseId: string): never {
+	throw new SubmissionRejectedError({
+		kind: "new-case",
+		reason: "case-id-taken",
+		caseId,
+	});
+}
+
 async function applyCreateEffect(
 	trx: Transaction<Database>,
 	host: SubmissionEnvelopeHost,
@@ -2302,15 +2357,7 @@ async function applyCreateEffect(
 		// submission inside this transaction rather than merging; an exact
 		// retry of a saved entry replays its receipt before reaching here.
 		...(entry.entryNamed
-			? {
-					caseIdTaken: () => {
-						throw new SubmissionRejectedError({
-							kind: "new-case",
-							reason: "case-id-taken",
-							caseId: entry.caseId,
-						});
-					},
-				}
+			? { caseIdTaken: () => rejectTakenCaseId(entry.caseId) }
 			: {}),
 	});
 	createdInEnvelope.add(entry.caseId);
@@ -2531,24 +2578,19 @@ export async function applyLinkEffect(
 	caseId: string,
 	link: ResolvedLink,
 ): Promise<void> {
-	await trx
-		.deleteFrom("case_indices")
-		.where("case_indices.case_id", "=", caseId)
-		.where("case_indices.identifier", "=", link.identifier)
-		.execute();
-	if (link.targetCaseId !== null) {
-		await trx
-			.insertInto("case_indices")
-			.values({
-				case_id: caseId,
-				ancestor_id: link.targetCaseId,
-				target_case_type: link.targetType,
-				identifier: link.identifier,
-				relationship: link.relationship,
-				depth: 1,
-			})
-			.execute();
-	}
+	await replaceCaseIndex(
+		trx,
+		{ appId, projectId: host.projectId },
+		caseId,
+		link.identifier,
+		link.targetCaseId === null
+			? null
+			: {
+					id: link.targetCaseId,
+					caseType: link.targetType,
+					relationship: link.relationship,
+				},
+	);
 	if (link.identifier === "parent") {
 		await trx
 			.updateTable("cases as c")

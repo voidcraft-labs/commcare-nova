@@ -12,6 +12,12 @@ import type { FormStructure } from "./expression/formStructure";
 import { type DatumRef, datumRefKey } from "./expression/types";
 import type { ResolvedFormLinkTarget } from "./formLinkTargets";
 import { CASE_LOADING_FORM_TYPES } from "./forms";
+import {
+	basicMenuSelectionPath,
+	formRouteUuids,
+	menuWithInheritedCaseSettings,
+	routeContainsForm,
+} from "./listedForms";
 import { menuFormUuidsOf } from "./menuForms";
 import { menuScreenOf, screenChoosesCaseFirst } from "./menuScreens";
 import { moduleParent } from "./moduleHierarchy";
@@ -97,17 +103,9 @@ function parentSelectionChain(
 	doc: Pick<EntrySelectionSource, "modules">,
 	moduleUuid: Uuid,
 ): Uuid[] {
-	const reverse: Uuid[] = [];
-	const seen = new Set<Uuid>([moduleUuid]);
-	let current = moduleUuid;
-	while (true) {
-		const parent = doc.modules[current]?.parentCaseModuleUuid;
-		if (parent === undefined || seen.has(parent)) break;
-		seen.add(parent);
-		reverse.push(parent);
-		current = parent;
-	}
-	return reverse.reverse();
+	return basicMenuSelectionPath(doc, moduleUuid)
+		.slice(0, -1)
+		.map((row) => row.detail);
 }
 
 function selectionModules(
@@ -123,7 +121,7 @@ function selectionModules(
 			return [];
 	}
 	return [...parentSelectionChain(doc, entry.module), entry.module].filter(
-		(uuid) => Boolean(doc.modules[uuid]?.caseType),
+		(uuid) => Boolean(menuWithInheritedCaseSettings(doc, uuid)?.caseType),
 	);
 }
 
@@ -162,8 +160,8 @@ export function rootSelectionAlignment(
 		for (const sourceModuleUuid of selectionModules(doc, parentEntry)) {
 			const targetModuleUuid = remaining[0];
 			if (targetModuleUuid === undefined) break;
-			const source = doc.modules[sourceModuleUuid];
-			const target = doc.modules[targetModuleUuid];
+			const source = menuWithInheritedCaseSettings(doc, sourceModuleUuid);
+			const target = menuWithInheritedCaseSettings(doc, targetModuleUuid);
 			if (source === undefined || target === undefined) continue;
 			if (
 				source.caseType === target.caseType &&
@@ -212,21 +210,33 @@ function suppliedAtEntry(
 	visiting: ReadonlySet<Uuid>,
 	prepared?: FormStructure,
 ): EntryDatumSupplies {
-	const mod = doc.modules[entry.module];
+	const mod = menuWithInheritedCaseSettings(doc, entry.module);
 	if (mod === undefined || visiting.has(entry.module)) return EMPTY_SUPPLIES;
 	const refs = new Map<string, { ref: DatumRef; scalar: boolean }>();
 	const add = (ref: DatumRef, scalar = true): void => {
 		refs.set(datumRefKey(ref), { ref, scalar });
 	};
-	if (menuEmittedAdvanced(doc, entry.module)) {
+	if (menuEmittedAdvanced(doc, mod.formsFromMenu?.menuUuid ?? entry.module)) {
 		const advanced = suppliedAtAdvancedEntry(doc, entry, visiting, prepared);
 		if (advanced !== undefined) return advanced;
 	}
 	const selected = selectionModules(doc, entry, prepared);
+	const sources = new Map(
+		basicMenuSelectionPath(doc, entry.module).map((row) => [
+			row.detail,
+			row.source,
+		]),
+	);
 	const alignment = rootSelectionAlignment(doc, entry, prepared);
 	for (const module of selected) {
-		const scalar = caseSelectionCardinality(doc.modules[module]) === "single";
+		const source = sources.get(module) ?? module;
+		const scalar =
+			caseSelectionCardinality(
+				menuWithInheritedCaseSettings(doc, source) ?? doc.modules[source],
+			) === "single";
 		add({ kind: "selected-case", module }, scalar);
+		if (source !== module)
+			add({ kind: "selected-case", module: source }, scalar);
 		const match = alignment.matches.find(
 			(pair) => pair.targetModuleUuid === module,
 		);
@@ -408,7 +418,7 @@ export function formLinkTargetSupplies(
 	}
 	if (
 		target.type === "form" &&
-		doc.formOrder[target.moduleUuid]?.includes(target.formUuid)
+		routeContainsForm(doc, target.moduleUuid, target.formUuid)
 	)
 		addSelections({
 			kind: "form",
@@ -427,7 +437,8 @@ export function formLinkTargetSupplies(
  * `parent_` prefixes, and whether it holds several cases), and the root
  * alignment, under which an aligned selection takes the root datum's id and
  * an unaligned one that collides with a root datum is renamed by its case
- * type. A root datum other than a selection never collides with one.
+ * type. A root datum other than a selection never collides with one, and a
+ * root with no forms aligns and renames nothing.
  */
 export interface EntrySelection {
 	readonly module: Uuid;
@@ -442,10 +453,13 @@ export function entrySelections(
 	visiting: ReadonlySet<Uuid> = new Set(),
 ): readonly EntrySelection[] {
 	if (visiting.has(entry.module)) return [];
-	const chain = [...parentSelectionChain(doc, entry.module), entry.module];
+	const path = basicMenuSelectionPath(doc, entry.module);
+	const chain = path.map((row) => row.detail);
 	const alignment = rootSelectionAlignment(doc, entry);
+	// Only a root's first form renames or aligns a child's datums; a form-less
+	// root leaves every one under the child's own id (HQ's `add_parent_datums`).
 	const parent =
-		alignment.parentEntry === undefined
+		alignment.parentEntry?.kind !== "form"
 			? []
 			: entrySelections(
 					doc,
@@ -454,12 +468,16 @@ export function entrySelections(
 				);
 	const parentKeys = new Set(parent.map((row) => row.key));
 	return selectionModules(doc, entry).map((module) => {
-		const mod = doc.modules[module];
+		const source = path.find((row) => row.detail === module)?.source ?? module;
+		const mod =
+			menuWithInheritedCaseSettings(doc, source) ?? doc.modules[source];
 		const scalar = caseSelectionCardinality(mod) === "single";
 		const match = alignment.matches.find(
 			(pair) => pair.targetModuleUuid === module,
 		);
 		const refs: DatumRef[] = [{ kind: "selected-case", module }];
+		if (source !== module && source !== match?.sourceModuleUuid)
+			refs.push({ kind: "selected-case", module: source });
 		if (match !== undefined && match.sourceModuleUuid !== module)
 			refs.push({ kind: "selected-case", module: match.sourceModuleUuid });
 		const aligned =
@@ -539,7 +557,7 @@ function selectingEntry(
 	doc: BlueprintDoc,
 	moduleUuid: Uuid,
 ): DatumEntry | undefined {
-	const mod = doc.modules[moduleUuid];
+	const mod = menuWithInheritedCaseSettings(doc, moduleUuid);
 	if (mod?.caseType === undefined) return undefined;
 	const form = menuFormUuidsOf(doc, moduleUuid).find((uuid) => {
 		const candidate = doc.forms[uuid];
@@ -597,6 +615,38 @@ function caseListStepSupplies(
 	return differs.length === 0 ? { refs } : { refs, differs };
 }
 
+/** A form slot is shared by its routes. Publish writes it once, so a source
+ * reference must identify a value of the same shape everywhere it can run. */
+export function sharedFormDatumSupplies(
+	doc: BlueprintDoc,
+	point: Extract<EntryDatumPoint, { kind: "form" | "form-menu" }>,
+	prepared?: FormStructure,
+): EntryDatumSupplies {
+	const primary = entryDatumSupplies(doc, point, prepared);
+	const routes = formRouteUuids(doc, point.module, point.form).slice(1);
+	if (!routes.length) return primary;
+	const others = routes.map((module) =>
+		entryDatumSupplies(doc, { ...point, module }, prepared),
+	);
+	const refs = primary.refs.filter(({ ref, scalar }) =>
+		others.every((other) =>
+			other.refs.some(
+				(candidate) =>
+					datumRefKey(candidate.ref) === datumRefKey(ref) &&
+					candidate.scalar === scalar,
+			),
+		),
+	);
+	const results = primary.searchResults;
+	return {
+		refs,
+		...(results &&
+			others.every(
+				(other) => other.searchResults?.module === results.module,
+			) && { searchResults: results }),
+	};
+}
+
 /** Domain identities available at the evaluating slot, without session names. */
 export function entryDatumSupplies(
 	doc: BlueprintDoc,
@@ -635,4 +685,20 @@ export function entryDatumSupplies(
 	}
 	byPoint.set(key, result);
 	return result;
+}
+
+/** A Details screen observes the selection and its inline query. The case
+ * steps preceding it have the same entry alignment as this menu's list. */
+export function detailEntrySupplies(
+	doc: BlueprintDoc,
+	moduleUuid: Uuid,
+): EntryDatumSupplies {
+	const earlier = entryDatumSupplies(doc, {
+		kind: "case-list",
+		module: moduleUuid,
+	});
+	const module = doc.modules[moduleUuid];
+	return module && moduleFormsReadSearch(module)
+		? { ...earlier, searchResults: { module: moduleUuid } }
+		: earlier;
 }

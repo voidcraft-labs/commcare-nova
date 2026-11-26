@@ -1,5 +1,7 @@
 {
+	"app_dependencies": ["advanced_v0", "enterprise_v0"],
 	"cloudcare": ["pro_v0", "advanced_v0", "enterprise_v0"],
+	"custom_icon_badges": ["advanced_v0", "enterprise_v0"],
 	"user_case": [
 		"standard_v0",
 		"standard_v1",
@@ -26,6 +28,15 @@
 		"advanced_v0",
 		"enterprise_v0"
 	],
+	"case_sharing_groups": [
+		"community_v0",
+		"community_v1",
+		"standard_v0",
+		"pro_v0",
+		"pro_v1",
+		"advanced_v0",
+		"enterprise_v0"
+	],
 	"form_link_workflow": [
 		"standard_v1",
 		"standard_v2",
@@ -43,5 +54,6 @@
 		"pro_v1",
 		"advanced_v0",
 		"enterprise_v0"
-	]
+	],
+	"geocoder": ["enterprise_v0"]
 }

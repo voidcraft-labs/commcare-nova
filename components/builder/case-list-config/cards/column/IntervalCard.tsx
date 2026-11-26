@@ -166,8 +166,10 @@ export function IntervalCard({ value, onChange, errors }: IntervalCardProps) {
 		<div className="space-y-4">
 			<ColumnFieldRow
 				via={value.via}
-				onSourceChange={(via, field) =>
-					onChange(columnWithSource(value, via, field))
+				readFrom={value.readFrom}
+				showOwner={value.showOwner}
+				onSourceChange={(via, field, readFrom, showOwner) =>
+					onChange(columnWithSource(value, via, field, readFrom, showOwner))
 				}
 				field={value.field}
 				onFieldChange={setField}
@@ -237,6 +239,8 @@ function slotsFrom(value: Extract<Column, { kind: "interval" }>): {
 	notOnList?: typeof value.notOnList;
 	tile?: typeof value.tile;
 	via?: typeof value.via;
+	readFrom?: typeof value.readFrom;
+	showOwner?: typeof value.showOwner;
 } {
 	return {
 		sort: value.sort,
@@ -245,5 +249,7 @@ function slotsFrom(value: Extract<Column, { kind: "interval" }>): {
 		notOnList: value.notOnList,
 		tile: value.tile,
 		via: value.via,
+		readFrom: value.readFrom,
+		showOwner: value.showOwner,
 	};
 }

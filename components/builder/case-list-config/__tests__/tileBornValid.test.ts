@@ -261,7 +261,7 @@ describe("joining Results while it is a tile", () => {
 		const occupied = tileMembership(
 			doc.modules[moduleUuid]?.caseListConfig ?? emptyCaseListConfig(),
 		).placed.map((entry) => entry.cell);
-		const place = nextFreeTilePlacement(occupied);
+		const place = nextFreeTilePlacement(occupied, 6);
 		expect(place).toEqual(tileCell(0, 1, 12, 1));
 		if (place === null) return;
 		const verdict = accepts(doc, [

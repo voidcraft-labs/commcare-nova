@@ -148,8 +148,9 @@ Four rules hold everywhere here:
   under `schema:Application.profile`, a language's key under `schema:Application.translations`)
   is recorded at that key (`jsonCursor.ts::recordedAt`), as is a whole object read past under
   such a key (`refuseWhole` with `account`: a language the app does not hold) and a media
-  reference with no file, at the app's `multimedia_map` (`lib/deployment/reading/gather.ts`), and
-  so is a part of a value refused
+  reference with no file, at the app's `multimedia_map` (`lib/deployment/reading/gather.ts`),
+  while the menu or form map naming it is read at its own key by the paths it shows
+  (`menus/navMedia.ts::readMap`), and so is a part of a value refused
   beside the key's own claim (`refusePart`, a `logo_refs` slot); a claim on an element that names
   one of its attributes is recorded at the attribute, and one naming an itext form at the
   `<value>`'s `form` (`xmlCursor.ts::recordedNode`, a media form's hand-off too), while the
@@ -198,9 +199,7 @@ Four rules hold everywhere here:
   to Case region's nodes, binds, setvalues and controls are each recorded by place
   (`caseManagement/saveToCase.ts::regionKey`), with the type HQ's question reader gives a node of
   it, and no record names a type HQ's reader never gives (`mug:SaveToCase`, `mug:Connect*`).
-  Every output of a text is claimed with its namespace, and an output of a markdown copy or of
-  another language as its source twin is, under every claim the expression stage made of the
-  twin (`xform/prose.ts::claimTwin`); a text Core parses that no slot holds (the emitter's own
+  Every language's outputs bind in the owning field or choice context. Each output is claimed with its namespace. An output of a markdown copy is claimed under every claim the expression stage made of its twin in that language (`xform/prose.ts::claimTwin`); a text Core parses that no slot holds (the emitter's own
   texts in a Save to Case region, an output of a translation the app does not hold) is
   registered for the uses its syntax makes alone (`pendingExpressions.ts::PendingExpression.usesOnly`).
   So is every attribute Core parses as XPath (the surface's `parsedAs: xpath`) that a claim read
@@ -212,6 +211,36 @@ Four rules hold everywhere here:
   use no other claim at the node names (`xform/attributeUses.ts`, `Accounting.claimEntry`'s
   `unlessClaimed`). Such a text is read in the logic of its form's first field, since a path's
   uses are classed by its form's rules alone.
+  A form reads each local instance ID through the source it declares. HQ fills a missing ID
+  when its factory and its whole-form scanner supply it on the default build and every retained
+  language profile. The concrete basic and advanced form builds also supply the session and the
+  instances their active case actions generate. The reader checks that each generated
+  case or submission expression reads its intended concrete source, including references
+  with no authored XPath. Multi-select's added declaration alone is no generated read.
+  HQ dispatches each scanner-visible ID before checking existing declarations. A fixed
+  preset with a suffix prevents the build even when the form has declared that ID. A grouped path can read these without a scanner match.
+  A named results or Search input factory requires the app to name that results source. Report factories
+  depend on the source project’s Mobile UCR setting. HQ replaces each report configuration’s UUID in
+  every source read, so a slug that needs the original UUID stays unresolved. An implicit places reference
+  uses the source project’s effective location fixture. Where the legacy location setting applies,
+  the reader checks the source app’s working resource and verifies the source again. An unavailable
+  source leaves the path unresolved; explicit declarations retain their stated source. The scanner sees HQ’s rendered XForm: it normalizes itext, rewrites the default
+  language and version, and omits comments, excluded translations and Vellum attributes. A suite
+  expression gets one HTML-unescape pass for the scanner; Core executes its original XPath. A dotted lookup ID, for
+  example, needs an explicit declaration in the XForm. A selected-entities datum, remote
+  search and lookup fixture can have identical suffixes and still supply different data.
+  Binding, lookup row discovery and source accounting follow those source families.
+  Core accepts nested parentheses around an instance’s one literal ID. HQ’s missing-instance scanner needs
+  an ordinary spelling elsewhere when that ID has no declaration. Search itemsets, required tests and
+  validations in one remote request can supply one another’s instances. Its `itemset.instance_id` is checked
+  by HQ’s validator. The scanner reads the request’s actual XPath texts. A different command’s expressions
+  cannot establish that a Search field can load its table.
+  A calculated case column can read a table supplied by another field on the same physical
+  Results or Details screen. A generated search-results copy of either screen also participates. For a source that depends on a different screen or another part of the
+  command, the reader checks the authenticated working suite and each retained build profile.
+  It follows session datums to their named detail and checks the declaration of every entry and
+  remote request that reaches that screen. It verifies the working source again before using the
+  result. The reading of an emitted form or a different historical source establishes its own scope.
   A secondary instance's source is recorded at its `src`, and its id under
   `xform:model/instance@id` (`provisional.ts::claimDeclarations`). A search row's key is
   recorded at its `property`, and the class its Search field's presence test chooses it in at
@@ -221,8 +250,8 @@ Four rules hold everywhere here:
   refuses, is used for its hashtags alone (`expressions/surfaceUses.ts::xpathUses`). The slots
   HQ's build reads through `xpath.py::interpolate_xpath` are a menu's and a form's display
   condition, the case list's filter, a detail tab's filter over a case type's children (a tab
-  with `has_nodeset`, a `nodeset_case_type` and no `nodeset` of its own, registered for its uses
-  alone, `caseList/details.ts::registerTabFilter`) and a Search field's required and validation
+  with `has_nodeset`, a `nodeset_case_type` and no `nodeset` of its own, bound to its child row and registered
+  for its uses on a refused enclosing span by `caseList/details.ts::registerTabFilter`) and a Search field's required and validation
   conditions; in each, every pattern HQ replaces that the text holds, inside a string too
   (`#session/`, `#user`, `#case`, `#parent`, `#host`, and `$fixture_value` in a form's
   condition where its menu's lookup table selection is active), is a use under its own key,
@@ -266,6 +295,13 @@ Four rules hold everywhere here:
 - **No content in a finding or a log line.** A finding names a surface key, and the app's own
   value only in `detail.name`; a defect and its log line name places, codes and shapes, never an
   app's text.
+
+A Details tab is identified by its least external column key among its members.
+Read its offset and title independently. Reordering the fields or renaming the
+group in HQ preserves its identity. An explicit collection can name a separate
+child case type to include in a Search result. HQ's `get_child_case_types`
+reads the stored child type even when `DetailContributor` renders the explicit
+collection instead. Conditions use the enclosing selected case for every tab.
 
 ## The bar and the canonical rows
 
@@ -366,6 +402,11 @@ literal outputs, a Hidden Value's unread default, a blank-named Sort by entry, a
 id is an entry of `lib/deployment/reading/firstPublishChanges.ts::FIRST_PUBLISH_CHANGES` whose
 `applies` reads that record, the two lists together are every such entry, and the lane holds each id
 to a retained base whose `expected.json` lists it (`entryCoverage.test.ts`, rule 3).
+
+The app shell reads both menu layout policies. An ordinary module keeps its
+individual grid choice even while a global policy is active. Its HQ editor
+keeps that choice and can make it effective again. Unsupported layout values
+produce a finding with the menu display settings that can recover the read.
 
 ## What the reader is told
 
@@ -507,6 +548,19 @@ is a clause of the list the case list stage reads, which a row restates. A field
 first field read, in the fields' order, is another advanced field is that field's
 (`search-field-conditions-of-another-field-are-its-own`), where the search's rows come out the
 same, as the reader's kind D tries that field's condition first.
+A conjunct that reads no Search field (`searchConditions.ts::readsSearchField`) is a condition on
+the whole search, never on a field it does not read: the reader places such a row as the search's
+own filter (kind F), joined to the list filter on a menu whose forms read the search where the
+device reads it as HQ's search does (`joinReadsAlike`), and else as the search condition alone,
+the list a device runs keeping its own condition. Nova writes every field's conjunct that reads no
+field with the search condition's rows, ahead of every field's
+(`suite/case-search/xpathQuery.ts::composeXPathQueryClauses`), so the canonical row
+`search-field-conditions-reading-no-field-are-the-search-s` moves such a conjunct of a field's
+condition to the search condition where the rows come out the same, and a source that holds such
+a row after a field's row is written in Nova's order (`search-filter-rows-recut`), which HQ's
+search runs as the same filters (`case_search/utils.py::_apply_filter` applies each row as its own
+filter). A row the search condition's slot does not admit but an excluded field's does is still
+that field's.
 
 `matchingResolver` answers a key the map holds with its UUID and gives any other key a UUID the
 map holds under no key (`identity.ts::freeEntityUuid`): a map holds a renamed entity's UUID, minted
@@ -515,6 +569,11 @@ take it. A canonical row that gives an entity the UUID a re-read gives it asks
 `identityMap.ts::reReadUuidOf` (the same rule over the document's own map, `identity.ts::matchingUuidOf`)
 or claims through a matching resolver over the document's entities of that kind
 (`worldEntities.ts::heldResolver`), and never calls `mintEntityUuid` itself.
+
+A raw choice column and the localized label column over the same property have distinct identities.
+A label projection supplies the property's catalog wording and choice order. When only raw columns
+use the property, its select writers still supply the choices in the catalog. The raw column
+continues to show the saved value after a label edit, an HQ column reorder or a reread.
 
 A document holds a case list column's property and not the word its `field` stores it under,
 where CommCare HQ names the property by two (`name` or `case_name`, `date-opened` or
@@ -536,21 +595,9 @@ recorded in `unheldMedia` when its path resolves, with its question, role, langu
 path. Project data checks whether HQ serves the file. If a question’s label also uses it, the
 draft keeps the asset on that label and the first publish discloses its removal from the other slot.
 
-A stored text or media map is read as each language shows it, never taken literally. A menu's,
-form's, case list item's or Register button's media map is read through
-`menus/navMedia.ts::shownNavMedia` (HQ's `NavMenuItemMediaMixin`: a language with no path of its own
-shows the `default` table's, and `use_default_*_for_all` shows the first language's everywhere), an
-app string's through `hqText.ts::shownText` (but the search title, which HQ's build reads per
-language and not through `clean_trans`, through `search/settings.ts::shownTitles`: a language with
-no title of its own shows the first language's), and a form's itext by its default translation
-(`xform/itext.ts::ItextReading.defaultLanguage`: the first language's where the form holds it, else
-the first it holds): a language whose translation lacks a text, its default value, a media form or
-the whole translation shows the default's, the source language included, and a blank beside the
-default's text is the form builder's to fill from it (`prose.ts::finishText`). Only two such
-absences keep a form out: a text the default translation holds no default value of, and a
-question's or choice's label with no value in the source's first `<translation>` in document
-order, whatever its language, which HQ's build reads every label in
-(`itext.ts::ItextReading.buildRefusesLabel`). A protected validation message's `__nova_` forms
+A menu, form, case list item or Register button keeps the image and spoken label shown in each app language. A missing menu file uses the installed default strings table. The full app and named installations can choose different fallbacks: preserve strict missing and empty entries and any former language whose file changes the complete app. `use_default_*_for_all` always reads the app's first language. A question, help or choice uses its form's default locale. A target language with no media entry inherits. A key present only outside the default raises Core's `NoLocalizedTextException` and needs repair in HQ.
+
+App string text follows `hqText.ts::shownText`. A search title follows `search/settings.ts::shownTitles`. A form's itext follows `ItextReading.defaultLanguage`, the first app language where present, otherwise the first translation in the form. A source label without a plain value or a missing default text can also prevent HQ from building the form (`ItextReading.buildRefusesLabel`). A protected validation message's `__nova_` forms
 are read the same way, form by form, as Core merges the default locale's keys under each
 language's (`xform/afterBinding.ts::shownForms`), and its `jr:constraintMsg` is rebuilt over the
 branches the source holds, in the order it tests them, each the message of the language whose
@@ -572,7 +619,7 @@ writes again, and a form's under `forms-and-settings-rewritten`.
 
 Every app string a reading holds (the app's, a menu's and a form's name, a case list menu item's
 and a Register button's label, a column's header, a mapping's label, an interval's text, a Search
-field's texts, the search screen's title and subtitle, and a text a generated key folds over) is
+field's texts, the search screen's title and subtitle, and a generated output's own wording) is
 held through one function, `heldText.ts::heldText`, by its translation unit's role: what a device
 shows is the bar (`hqDeviceText`: HQ's build writes a blank text as a non-breaking space, a line
 break as `\n` and a `#` no backslash precedes as `\#`, and Core's locale reader ends a line at a
@@ -593,7 +640,10 @@ guard is read on its own, its refusal standing beside the message's where Nova c
 either (`search/index.ts::untoldRuleRefusal`). A
 respelling no worker meets is recorded under the surface's own id (`names-respelled`,
 `list-settings-respelled`), and one a worker meets under `text-spaces-dropped`
-(`heldText.ts::recordTextRewrite`). A text whose rest after a carriage return is a line that
+(`heldText.ts::recordTextRewrite`); a question's or group's appearance whose display settings Nova
+writes in another spelling, or drops where no runtime reads it on that control, is listed per form
+(`ReadFormFacts.respelledAppearances`, `inertAppearances`) and stands under
+`question-display-respelled` at each control's node. A text whose rest after a carriage return is a line that
 defines an app string (`keyDefinedAfterLineEnd`) is refused under
 `app-text-holding-a-carriage-return-whose-rest-defines-an-app-string`: a held text where its
 rewrite is recorded (`heldText.ts::recordTextRewrite`, which every held text with a carriage return
@@ -617,10 +667,25 @@ or Register button's label, a Search field's label) holding a `${` that screen s
 (`localeFile.ts::argumentScreenIssue`, applied by `heldText` per role) under
 `application-and-settings/name-or-label-holding-a-placeholder-a-screen-fills`; and one holding a
 character XML 1.0 cannot carry, which the gate admits in no app text (`APP_TEXT_UNREPRESENTABLE`),
-under `application-and-settings/app-text-holding-a-character-xml-cannot-carry`. A generated key
-folded over one is refused
-(`assemble.ts::decideGeneratedKeys`); every other fold is held as a device shows it, a choice
-label's too. The app's `name` is also the profile's `name`, which Android's list of the apps on a
+under `application-and-settings/app-text-holding-a-character-xml-cannot-carry`.
+No generated key folds into the text its output is based on: a fold would change every other
+place that text feeds. A key one of the document's generated wording units writes
+(`table.wordingUnits`) is always that unit's own wording, whatever its value, even one equal to
+the text its base gives (`generatedTranslationKeys.ts`, marked `own` in the sink,
+`translations.ts::ownWordingEntryFor`), and the emitter writes it back the same, so it
+round-trips; it is held as a device shows it (`assemble.ts::decideGeneratedKeys`), and one a
+device shows as blank for an output whose text must show (a name, a label) is held as none,
+recorded under `text-spaces-dropped`. A language whose own text CommCare HQ holds blank takes the
+text HQ's build shows there, the first build language's, wording included, as that language's
+wording (`assemble.ts::fillShownWordings`). The app name's two strings, `app.display.name` and
+`homescreen.title`, are each a wording unit's too; alike and other than `name` in a language other
+than the source, they are the app name's translation there (`appShell.ts::readTranslations`, and
+the canonical row `app-name-strings-as-read`). A key no unit writes is inert where it is blank,
+names no string of the app or equals the table's string, and is refused otherwise.
+The generated-key reader takes its exact control identity and output role from the string registry.
+Each case and search column registers its own positions while producing its short and long detail.
+A source or target override is held as the word the device reads for that language, including
+escaped line breaks and number signs. The app's `name` is also the profile's `name`, which Android's list of the apps on a
 phone shows (a carriage return or a line break there as a space), and the name Web Apps' list of
 apps shows as stored, so one holding `\n`, `\#` or a carriage return, which the app's own screens
 show otherwise, is refused at the app under
@@ -650,15 +715,19 @@ app's own id, so a test that reads Nova's export whole passes `matchingResolver(
 
 ## The source language
 
-The app's first language is its default. Its source language, whose text the document's own
-slots hold, is the first language, in `langs` order, that a reading with it as the source prints
-back at every place Nova's emitter writes the source's text apart from a translation
-(`languages.ts::readingSourceCode`); where nothing in the app tells the languages apart it is the
-first, and the first too where no language passes. `languages.ts::sourceLanguageAsRead` applies
-the rule to the values Nova's emitter writes for a document (`expander.ts::expandAppShell` and
-`hqJson/caseList.ts::projectCaseListForHq`), so the canonical row `source-language-is-as-read`
-moves a document only to a language whose text at both places is its source's, and the two print
-one export.
+The first language opens by default. A first reading chooses the first
+language that agrees with the app name and generated system sentences, or
+the first language when there is no evidence. On a later read the known
+source keeps its place when it still satisfies that evidence. If HQ's edits
+select a different source, the same conversion used by document replay
+assigns the effective texts to the new source and its overlays. Each
+retained language keeps a value held only in the previous source.
+
+The reader reserves all known wire-code bindings before identifying new
+codes. Among codes naming the same registered language, its preferred wire
+spelling wins, then the lexically first spelling. A remaining code, and a
+code with no registered match, becomes a distinct project language. Its
+selector wording from HQ stays in the deployment overlay.
 
 The places that tell, each held by a pair in `__tests__/readingSource.test.ts`:
 
@@ -683,9 +752,7 @@ The places that look as if they could and do not:
   builder's fill (`lib/domain/translationFill.ts`) mark the default language, `langs[0]`, never
   the source;
 - media is one per slot for every language (`media-is-shared-across-locales`);
-- a translation whose prose references differ from the source's, or a required text left blank,
-  prints the source's text (`translationUnits.ts::translationValueIntegrityIssue`), so no export
-  holds such a difference;
+- an intentional change of references in translated form text survives read-back. A missing or stale translation prints its source;
 - the local `.ccz` writes each language's own name under `app.display.name`, but the reader reads
   HQ JSON.
 
@@ -822,20 +889,14 @@ A change that holds one removes its line.
   rewrite withheld**: `unrecognized` at the form, `schema:FormLink.xpath` or
   `schema:FormDatum.xpath` (`menus/afterSubmit.ts::compareLinks`). The links are compared with
   the expansion's print, which applies every rewrite, and no held level reaches that print.
-- **Nova's own owner clause in a case list filter respelled by hand in CommCare HQ**, beside a
-  search that stores the owner list: refused under
-  `case-search/blacklisted-owner-ids-expression-without-that-clause` at the search
-  (`search/settings.ts::readSearchSettings`, `holdsOwnersWithoutClause`). Only Nova's spelling
-  tells the clause from an authored condition (`isOwnerClause`), and Nova's print would write the
-  clause again beside the respelled one.
-- **A search's own filter row that reads no Search field and that HQ's search and the device's list
-  read apart**, on a menu whose forms read the search, where no excluded field can hold it: refused
-  under `case-search/xpath-query-row-that-is-neither-a-list-filter-clause-nor-a-search-field-s`
-  (`search/joinReadsAlike.ts`). Nova keeps such a row only as a clause of the list filter, which the
-  device runs again over the results. HQ tests a property's text as stored and the device trimmed
-  (Core's `TreeElementParser`, `CaseXmlParser`), so a `!=`, a `not` of `=`, of a blank test or of
-  `starts-with`, a literal with a space at an end, or the session's user data (untrimmed) would
-  drop a case HQ's search returned.
+- **Nova's own owner clause in a case list filter respelled by hand in CommCare HQ, or removed**,
+  beside a search that stores Nova's spelling of the owner list: refused under
+  `case-search/blacklisted-owner-ids-expression-outside-valueexpression` at the search
+  (`search/index.ts::readOwnersWithoutClause`). Only Nova's spelling tells the clause from an
+  authored condition (`isOwnerClause`), so the stored list is read as the search's own owner
+  exclusion, whose value takes no `normalize-space` wrapper. An owner list HQ's editor saved
+  without the wrapper and with no clause is that search-only exclusion
+  (`blacklisted-owner-ids-expression-without-that-clause`).
 - **Two rewrites that print at one node, one inside the other's spelling, each spelled otherwise
   than the source**: refused under the slot's own entry (`expressions/index.ts::siteLevel`). No
   single site's flip moves the first difference on, so the search finds no level.
@@ -870,13 +931,13 @@ A change that holds one removes its line.
   `expressions/findings.ts::checkErrorEntry`), since the gate holds a session read of worker
   information only by identity, while a read of the worker's own case stands by name and the
   reading declares the name the session reads where one of the pair is read there
-  (`worldEntities.ts::heldWorkerSlugs`); and a level whose name a level already placed (parent
-  before child, siblings in HQ's order) spells in other letters only is `place-not-holdable`
-  (`worldEntities.ts::levelsFromHq`), while a level left out for another reason takes no name and
-  refuses none. CommCare HQ's
+  (`worldEntities.ts::heldWorkerSlugs`). CommCare HQ's
   user-data and location-data schemas hold one slug of such a pair as well
   (`CustomDataFieldsForm.verify_no_duplicates`), so neither a worker property nor a location
-  property can take the second name; HQ holds two level names apart, and the gate does not.
+  property can take the second name. Level names are not folded: HQ's `LocationType` holds two
+  names that differ only in letters apart (`unique_together ('domain', 'name')`), and so do the
+  reading (`worldEntities.ts::levelsFromHq`) and the gate (`validator/rules/organization.ts`), each
+  level under its own code.
 - **A Save to Case block that gives a case another type beside a change that may read it as the
   earlier one**: one finding at the form under
   `questions/a-savetocase-change-of-a-case-s-type-another-change-of-the-form-may-read-as-its-earlier-type`
@@ -946,3 +1007,35 @@ A change that holds one removes its line.
   a link name over 255 characters, under `questions/a-savetocase-link-name-longer-than-commcare-hq-stores`;
   and a case type outside the grammar or over 255 characters, under
   `questions/a-savetocase-case-type-outside-the-case-type-grammar-or-longer-than-255-characters`.
+
+The first-publish comparison carries the actual source that a registered change rewrites. A saved-form title uses the same trimmed text Core reads. A dropped default or changed XForm expression uses the reader’s parsed spelling rules. An untranslated slot identifies its field, choice and language. These facts live in the reading and let a second request distinguish another worker-facing change at the same place.
+
+Proof locations describe where an export changes, including the resulting case property. A review binds the source question, case operation and write slot or the earlier date/time row the reader recognized. Native source exports can rekey form attachment IDs on every call. Those IDs and unrelated actions never enter a case consequence. Stored object-valued settings use a fixed-size digest of their recorded operand.
+An ID mapping keeps each original key, including the empty string and keys
+with spaces. A blank key owns a mapping-label translation in each language.
+The device matches the trimmed key between literal spaces in the intact value.
+
+Relative dates retain the selected signed period and overdue markers retain
+their integer day threshold. These are independent of Nova’s authored
+interval wording. The marker’s short header is empty and its long header
+keeps the app’s localized heading.
+
+A version-two menu listing another menu’s forms resolves its source menu through the app’s actual menu ID. The HQ source download can regenerate a form’s ID while the secondary menu’s exclusions and deep links continue to name the ID held on the application resource. Read the aligned owning form’s namespace before binding those references. Missing or ambiguous source forms, and a missing required source submenu, receive a finding on the secondary menu. Never synthesize the absent submenu or a second XForm while reading.
+
+### Menus reached through a selected case on Home
+
+Form links, deep links and Register can carry a case before the first menu command. The reader resolves the finished menu and form structure through the wire frame projector. It accounts the original feature on the physical field that supplied the route. A first menu that would let one datum name different records has a separate, placed refusal. Changing the menu structure or the destination in HQ allows the person to retry the read.
+
+A module's or form's first badge comes from its `custom_icons` list. Its
+nonempty XPath takes precedence over its localized text. A case-list item
+and its registration button inherit the storage field but their suite
+commands never read it. `reader/menus/modules.ts` accounts for each carrier
+at its source pointer. The expression reader binds badge calculations in
+the navigation slot with no HQ hashtag interpolation.
+A generated Search check has a stable wording unit even while no current filter
+would produce it. A hidden case list entry, disabled registration action, registration form taken off its hidden menu, column hidden from a view and disabled Search keep
+their saved wording under the same owner. Only the wire comparison erases
+these unprinted values. Reading HQ over the published reference can replace a local
+worker-visible edit in the reviewed change list. When the original language
+changes, that same review preserves the head's dormant checks and the saved
+review metadata for generated wording that the resulting app still shows.

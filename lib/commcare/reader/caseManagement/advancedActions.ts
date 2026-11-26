@@ -26,7 +26,6 @@ import {
 } from "@/lib/domain";
 import { advancedKindBlockers } from "@/lib/domain/advancedModule";
 import type { BlueprintDoc } from "@/lib/domain/blueprint";
-import { caseParentSelectionVerdict } from "@/lib/domain/caseParentSelection";
 import {
 	actingUser,
 	formField,
@@ -58,15 +57,10 @@ import {
 } from "../../xform/generatedNodes";
 import type { Admitted } from "../accounting";
 import { type Claim, defineClaims, drop, refuse, take } from "../claims";
-import type { DraftApp, DraftForm, DraftModule, ReadContext } from "../context";
+import type { DraftForm, DraftModule, ReadContext } from "../context";
 import { readerDefect } from "../defects";
 import { externalKey } from "../identity";
-import {
-	isJsonObject,
-	type JsonCursor,
-	objectMembers,
-	sameJson,
-} from "../jsonCursor";
+import { isJsonObject, type JsonCursor, sameJson } from "../jsonCursor";
 import { whereText } from "../place";
 import { readProjectionInputs } from "../projectionInputs";
 import { holdsWorkerRecordWrite } from "../worldEntities";
@@ -503,7 +497,7 @@ export const ADVANCED_CLAIMS = defineClaims("caseManagement.advancedActions", {
 		`${F}/an-advanced-open-action-s-index-to-a-load-whose-datum-hq-renames`,
 		"schema:AdvancedOpenCaseAction.case_indices",
 	),
-	openIndexAgainstSelection: refuse(
+	openIndexAgainstSelection: take(
 		`${F}/an-advanced-open-action-s-parent-index-against-a-menu-s-parent-selection`,
 		"schema:AdvancedOpenCaseAction.case_indices",
 	),
@@ -1928,6 +1922,15 @@ export function readAdvancedActions(
 						(value) => value,
 					),
 				);
+				const read = links.at(-1);
+				if (identifier === "parent" && read !== undefined)
+					parentIndicesRead(ctx).push({
+						cursor: I,
+						place: form.place,
+						childType: caseType,
+						parentType: read.targetType,
+						relationship,
+					});
 				for (const key of ["reference_id", "relationship"])
 					if (I.used(key))
 						consume(I.take(key, ADVANCED_CLAIMS.openIndices, (value) => value));
@@ -3191,90 +3194,70 @@ export function settleAdvancedForm(
 		});
 }
 
-/** The menus whose parent selection a refused `parent` index leaves with no parent, by reading. */
-const SELECTIONS_EXPLAINED = new WeakMap<ReadContext, Set<Uuid>>();
-
-/** The menus `refuseParentIndicesAgainstSelections` found the cause of a parent selection the
- *  final catalog no longer gives a parent for. */
-export function parentSelectionsExplained(ctx: ReadContext): ReadonlySet<Uuid> {
-	return SELECTIONS_EXPLAINED.get(ctx) ?? new Set();
+/** One `parent` index an open action's reading took, to the type it reaches. */
+interface ParentIndexRead {
+	readonly cursor: JsonCursor;
+	readonly place: DraftForm["place"];
+	readonly childType: string;
+	readonly parentType: string;
+	readonly relationship: "child" | "extension";
 }
 
-/**
- * The tag of the first index under `parent` of an open action of `childType` in an advanced
- * form's stored actions that reaches a load or an open action of another type than
- * `parentType`, or reaches one as anything but a child, else undefined.
- */
-function parentIndexAgainst(
-	actions: unknown,
-	childType: string,
-	parentType: string,
-): string | undefined {
-	if (!isJsonObject(actions)) return undefined;
-	const loads = objectMembers(actions.load_update_cases) ?? [];
-	const opens = objectMembers(actions.open_cases) ?? [];
-	const typeOfTag = new Map<unknown, unknown>(
-		[...loads, ...opens].map((action) => [action.case_tag, action.case_type]),
-	);
-	for (const open of opens) {
-		if (open.case_type !== childType) continue;
-		for (const index of objectMembers(open.case_indices) ?? []) {
-			const identifier =
-				typeof index.reference_id === "string" && index.reference_id !== ""
-					? index.reference_id
-					: "parent";
-			if (identifier !== "parent" || typeof index.tag !== "string") continue;
-			const relationship =
-				typeof index.relationship === "string" && index.relationship !== ""
-					? index.relationship
-					: "child";
-			if (typeOfTag.get(index.tag) !== parentType || relationship !== "child")
-				return index.tag;
-		}
+const PARENT_INDICES_READ = new WeakMap<ReadContext, ParentIndexRead[]>();
+
+function parentIndicesRead(ctx: ReadContext): ParentIndexRead[] {
+	let read = PARENT_INDICES_READ.get(ctx);
+	if (read === undefined) {
+		read = [];
+		PARENT_INDICES_READ.set(ctx, read);
 	}
-	return undefined;
+	return read;
 }
 
 /**
- * Over the final catalog: a menu's parent selection the catalog gives no parent for, where an
- * advanced form opens a case of the menu's type indexed under `parent` to another type, or as
- * other than a child. The catalog holds one parent and one relationship per type and reads them
- * off every `parent` link (`catalog.ts::noteParents`), so that index is the one cause: one
- * finding at each form that holds one, and the selection stands under it.
+ * Over the final document: each `parent` index an open action's reading took
+ * that reaches another case type than a parent selection of a menu of the
+ * open action's type chooses through, or reaches it as an extension, is
+ * claimed under its own entry beside the ordinary index's. Nova holds the
+ * index as the create's link and the selection as the menu's
+ * (`Module.parentCaseModuleUuid`): neither follows the catalog
+ * (`caseParentSelection.ts::caseParentSelectionVerdict`), and HQ's build
+ * writes each as it stands, the index from the open action's
+ * `case_indices` and the selection's filter from the load's own index
+ * (`entries.py::get_parent_filter_by_ref_id`). The catalog then gives the
+ * type no single parent (`catalog.ts::noteParents`), which only authoring
+ * reads.
  */
-export function refuseParentIndicesAgainstSelections(
+export function claimParentIndicesAgainstSelections(
 	ctx: ReadContext,
-	app: DraftApp,
 	doc: BlueprintDoc,
 ): void {
-	const explained = new Set<Uuid>();
-	for (const module of app.modules) {
-		const own = doc.modules[module.uuid];
-		const parentUuid = own?.parentCaseModuleUuid;
-		if (own === undefined || parentUuid === undefined) continue;
-		if (caseParentSelectionVerdict(doc, module.uuid, parentUuid).ok) continue;
-		const childType = own.caseType;
-		const parentType = doc.modules[parentUuid]?.caseType;
-		if (childType === undefined || parentType === undefined) continue;
-		for (const menu of app.modules)
-			for (const form of menu.forms) {
-				if (form.docType !== "AdvancedForm") continue;
-				const tag = parentIndexAgainst(
-					form.json.peek("actions"),
-					childType,
-					parentType,
-				);
-				if (tag === undefined) continue;
-				explained.add(module.uuid);
-				if (!ctx.accounting.hasFindingAt(form.place))
-					ctx.accounting.finding(
-						ADVANCED_CLAIMS.openIndexAgainstSelection,
-						form.place,
-						{ name: tag },
-					);
-			}
+	const read = PARENT_INDICES_READ.get(ctx) ?? [];
+	if (read.length === 0) return;
+	const selectedParents = new Map<string, Set<string>>();
+	for (const module of Object.values(doc.modules)) {
+		const parentUuid = module.parentCaseModuleUuid;
+		const parentType =
+			parentUuid === undefined ? undefined : doc.modules[parentUuid]?.caseType;
+		if (module.caseType === undefined || parentType === undefined) continue;
+		const types = selectedParents.get(module.caseType) ?? new Set<string>();
+		types.add(parentType);
+		selectedParents.set(module.caseType, types);
 	}
-	SELECTIONS_EXPLAINED.set(ctx, explained);
+	for (const index of read) {
+		const selected = selectedParents.get(index.childType);
+		if (selected === undefined) continue;
+		const against =
+			index.relationship !== "child" ||
+			[...selected].some((type) => type !== index.parentType);
+		if (!against) continue;
+		ctx.accounting.claimEntryClass(
+			{ json: index.cursor, key: "tag" },
+			ADVANCED_CLAIMS.openIndexAgainstSelection.entry,
+			"schema:CaseIndex.tag",
+			index.place,
+		);
+	}
 }
 
 /** A menu read with a held kind that Nova would write basic: one finding at the menu. */

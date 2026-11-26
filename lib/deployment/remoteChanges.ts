@@ -17,6 +17,10 @@ import {
 	driftDate,
 } from "@/lib/publish/driftReference";
 import { hqChangedBringInMessage } from "@/lib/publish/hqChangesCopy";
+import { LOOKUP_DISCARD_NOTE } from "@/lib/publish/managedData";
+
+export { LOOKUP_DISCARD_NOTE } from "@/lib/publish/managedData";
+
 import type { LookupChangePart, PlaceChangePart } from "./hqResourceBaseline";
 import type { AppChangePart } from "./hqSourceBaseline";
 import type {
@@ -91,13 +95,18 @@ export function driftReferenceOf(
 export function hqChangedMessage(
 	changes: readonly Pick<
 		DeploymentRemoteChange,
-		"since" | "kind" | "canBringIn"
+		"since" | "kind" | "canBringIn" | "requiresReview" | "replacesMenuLayouts"
 	>[],
 	options?: DriftDateOptions,
 ): string {
+	if (changes.some((change) => change.requiresReview))
+		return "Nova needs a current review of what publishing would change in CommCare HQ.";
 	const app = changes.find((change) => change.kind === "app");
 	const others = changes.some((change) => change.kind !== "app");
 	if (app === undefined) return HQ_CHANGED_MESSAGE;
+	/* The layouts can be there since before the baseline, so the message
+	 * claims no change since it. */
+	if (app.replacesMenuLayouts && !others) return MENU_LAYOUTS_HELD_MESSAGE;
 	if (app.canBringIn) {
 		return hqChangedBringInMessage(app.since, others, options);
 	}
@@ -120,6 +129,10 @@ export function hqChangedMessage(
 	}
 }
 
+/** The refusal's message where the app's change lists menu layouts this publish would replace. */
+const MENU_LAYOUTS_HELD_MESSAGE =
+	"CommCare HQ holds menu layouts for this app that publishing would replace, so Nova stopped before sending anything. You can match them in Nova first, or publish over what's listed below, which replaces it with this app's version.";
+
 /** The `hq_changed` refusal's message when CommCare HQ's copy moved during the resource push. */
 export const HQ_CHANGED_DURING_PUSH_MESSAGE =
 	"CommCare HQ's copy of this app changed while Nova was publishing its lookup tables and places, so Nova stopped before sending the app's content. Publishing again checks what is there now and lists anything that changed.";
@@ -133,17 +146,6 @@ export {
 	BASELINE_UNKNOWN_SENTENCE,
 	baselineUnknownSentence,
 } from "@/lib/publish/hqChangesCopy";
-
-/**
- * The note on a lookup table change whose discard replaces a table HQ still
- * holds under that tag and id: a change to its definition or rows, or one
- * whose baseline Nova could not read. HQ's table key holds a description
- * and each field's indexed flag (`fixtures/upload/run_upload.py::table_key`),
- * which no API-key read returns and no workbook carries a description of,
- * so the push makes such a table again without them.
- */
-export const LOOKUP_DISCARD_NOTE =
-	"If it has a description or indexed fields in CommCare HQ, publishing removes them: CommCare HQ doesn't show those to Nova, and a lookup upload can't carry a description.";
 
 /**
  * What taking over a lookup table means, said where a person confirms it:
@@ -176,6 +178,10 @@ export const APP_CHANGED_DURING_PUBLISH_WARNING =
 /** The warning when publishing there stopped right after the app landed, before its media went. */
 export const MEDIA_NOT_SENT_AFTER_STOP_WARNING =
 	"Publishing here stopped right after the app landed, so Nova didn't send its pictures and sounds.";
+
+/** The warning when Nova couldn't confirm how one media job ended, so the files after it waited. */
+export const LATER_MEDIA_NOT_SENT_WARNING =
+	"Nova held back the rest of the pictures and sounds until that's confirmed. Publishing again sends them.";
 
 /** A later import was already recorded when HQ answered this publish's import. */
 export const MEDIA_NOT_SENT_AFTER_LATER_PUBLISH_WARNING =
@@ -269,6 +275,7 @@ export function decideRemoteChanges(input: {
 			readonly remoteChanges: readonly DeploymentRemoteChange[];
 	  } {
 	const confirmed = (change: DeploymentRemoteChange): boolean =>
+		!change.requiresReview &&
 		input.discards.some(
 			(discard) =>
 				discard.kind === change.kind &&
@@ -297,6 +304,10 @@ export function describeAppChange(part: AppChangePart): string {
 			return "A setting this app writes";
 		case "text":
 			return "Text this app writes";
+		case "unused-media":
+			return part.count === 1
+				? "A changed file reference that publishing would remove"
+				: `${part.count} changed file references that publishing would remove`;
 		case "media":
 			return part.count === 1
 				? "A picture or sound this app publishes"
@@ -322,6 +333,8 @@ export function describeLookupChange(
 
 export function describePlaceChange(part: PlaceChangePart): string {
 	switch (part.kind) {
+		case "external-id":
+			return "Its ID in another system changed.";
 		case "name":
 			return "Its name changed.";
 		case "site-code":
@@ -337,6 +350,20 @@ export function describePlaceChange(part: PlaceChangePart): string {
 		case "missing":
 			return "CommCare HQ no longer lists this place. It was archived or deleted there. Publishing makes it again if it was deleted. If it was archived, CommCare HQ refuses the publish while the place stays archived there.";
 	}
+}
+
+/** File removals follow priority warnings and precede ordinary differences.
+ * The overflow line itself occupies a slot. */
+export function fileDisclosureTruncated(
+	files: number,
+	trailingLines: number,
+	priorityLines = 0,
+): boolean {
+	return (
+		files > 0 &&
+		priorityLines + files >= MAX_PART_LINES &&
+		priorityLines + files + trailingLines > MAX_PART_LINES
+	);
 }
 
 /** At most 20 lines; past 20 the last line is "and N more". */

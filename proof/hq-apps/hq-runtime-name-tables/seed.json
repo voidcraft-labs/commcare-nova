@@ -1,0 +1,22 @@
+{
+	"catalog": [
+		{
+			"name": "household",
+			"parent_type": null,
+			"relationship": null,
+			"index_identifier": null,
+			"properties": [
+				{
+					"name": "members",
+					"data_type": "int",
+					"options": []
+				}
+			]
+		}
+	],
+	"values": {},
+	"userData": [],
+	"worker": {
+		"location": "north-1"
+	}
+}

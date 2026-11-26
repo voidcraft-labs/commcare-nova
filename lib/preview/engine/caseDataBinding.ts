@@ -36,6 +36,10 @@ import {
 	SEARCH_READING,
 } from "@/lib/case-store";
 import { prepareCaptureSubmissionBytes } from "@/lib/case-store/postgres/submissionAttachments";
+import {
+	type CaseSearchRequest,
+	CaseSearchUnavailableError,
+} from "@/lib/case-store/searchRequest";
 import { adjudicateSubmissionReceipt } from "@/lib/case-store/submission";
 import { requireExpressionContext } from "@/lib/commcare/expressionContext";
 import { AppAccessError } from "@/lib/db/appAccess";
@@ -43,7 +47,10 @@ import {
 	FormAttachmentWriteRejectedError,
 	loadAuthorizedFormSubmissionSnapshot,
 } from "@/lib/db/formAttachments";
-import { previewProjectSpaceFor } from "@/lib/deployment/previewSpace";
+import {
+	previewProjectSpaceFor,
+	previewProjectSpaceForSubmission,
+} from "@/lib/deployment/previewSpace";
 import {
 	hydratePersistedBlueprint,
 	toPersistableDoc,
@@ -54,6 +61,7 @@ import type {
 	CasePropertyDataType,
 	CaseType,
 	PersistableDoc,
+	Uuid,
 } from "@/lib/domain";
 import {
 	caseListConfigSchema,
@@ -65,12 +73,13 @@ import {
 	userPropertySlugsByUuid,
 } from "@/lib/domain";
 import { blueprintDocSchema } from "@/lib/domain/blueprint";
+import { resolveCaseFormContext } from "@/lib/domain/caseFormContext";
+import { CASE_INDEX_NAME_PATTERN } from "@/lib/domain/caseRelations";
 import type { Expression } from "@/lib/domain/expression";
 import { unhandledKindMessage } from "@/lib/domain/expression/errors";
 import { caseQueryReadingFor } from "@/lib/domain/expression/temporalType";
-import { XML_ELEMENT_NAME_PATTERN } from "@/lib/domain/expression/types";
-import { CANONICAL_UUID_PATTERN } from "@/lib/domain/uuid";
-import { MAX_LOCATIONS_PER_APP } from "@/lib/organization/schema";
+import { searchOwnerOverride } from "@/lib/domain/modules";
+import { CANONICAL_UUID_PATTERN, uuidSchema } from "@/lib/domain/uuid";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import {
 	type CaseListSortChoice,
@@ -124,7 +133,11 @@ import type {
 	SubmissionResult,
 	SubmissionWireMutation,
 } from "./caseDataBindingTypes";
-import { previewCaseStoreOrder } from "./caseListOrder";
+import {
+	previewCaseListOrderLocale,
+	previewCaseStoreOrder,
+} from "./caseListOrder";
+import { completedSearchRequest } from "./completedSearchRequest";
 import { SearchInputValuesError } from "./dateRangeInputValidation";
 import type { PreviewSearchSessionValues } from "./identity";
 import {
@@ -144,6 +157,7 @@ import {
 	searchInputValuesFromWire,
 	withSearchInputExpressionValues,
 } from "./runtimeBindings";
+import { matchesSavedSearchRanges } from "./savedSearchRanges";
 import {
 	parseChosenCaseIds,
 	parseSearchCsqlRuntimeWire,
@@ -170,6 +184,7 @@ import type {
 	LoadCaseDatabaseSnapshotResult,
 	LoadSearchResultsSnapshotResult,
 } from "./xpathInstances";
+import { formReadsSearchScore } from "./xpathInstances";
 
 // Errors thrown by the case-store layer are caught and mapped to
 // the `{ kind: "error" }` arm so an unhandled throw never tears
@@ -344,16 +359,23 @@ function environmentReading(
 function runningRead(
 	searched: boolean,
 	restoreScope: RestoreScope,
+	request?: CaseSearchRequest,
 ):
 	| {
 			reading: CaseQueryReading;
-			searchPopulation: { heldBy: RestoreScope };
+			searchPopulation: { heldBy: RestoreScope; request?: CaseSearchRequest };
 	  }
 	| { reading: CaseQueryReading; restoreScope: RestoreScope } {
 	// HQ's search reads the Project's open cases, not the restore
 	// (`case_search/utils.py::CaseSearchQueryBuilder._get_initial_search_es`).
 	return searched
-		? { reading: SEARCH_READING, searchPopulation: { heldBy: restoreScope } }
+		? {
+				reading: SEARCH_READING,
+				searchPopulation: {
+					heldBy: restoreScope,
+					...(request === undefined ? {} : { request }),
+				},
+			}
 		: { reading: CASEDB_READING, restoreScope };
 }
 
@@ -415,6 +437,9 @@ type RunningCaseReadArgs = {
 	 *  of a completed search, or a check of cases chosen from them. Submitted
 	 *  `inputValues` say the same. */
 	search?: boolean;
+	/** The search is the menu's default search, run as the list opened:
+	 *  its prompts' answers are not sent (`CaseSearchRequest.unsentPrompts`). */
+	defaultSearch?: boolean;
 	/** The viewer's latest position, which a calculated column's `here()`
 	 *  reads; `null` or omitted while the browser has shared none. It travels
 	 *  in this request and the query's bound parameters only, and is never
@@ -497,6 +522,20 @@ async function prepareRunningCaseRead(
 						userPropertySlugsByUuid(environment.doc),
 					),
 				};
+	if (
+		!matchesSavedSearchRanges(
+			args,
+			context,
+			args.caseListConfig?.searchInputs ?? [],
+			inputValues,
+		)
+	)
+		return {
+			kind: "invalid-search",
+			repair: "inputs",
+			message:
+				"The starting dates changed. You can reopen Search or choose both dates.",
+		};
 	const csqlRuntime = parseSearchCsqlRuntimeWire(args.csqlRuntime);
 	const searched = readsSearchPopulation(
 		environment?.doc ?? context.blueprint,
@@ -625,12 +664,15 @@ async function prepareRunningCaseRead(
 		collectConfigLookupTableIds(args.caseListConfig),
 	);
 	const lookupTableSchemas = lookupDefinitions?.schemas;
-	const excludedLookupData = await loadExpressionLookupData(
-		scope,
-		args.excludedOwnerIdsExpression,
-	);
+	// A search with its own owner exclusion sends that one instead of the
+	// shared rule (`searchOwnerOverride`); the assigned list keeps the rule.
+	const ownerRule =
+		searched && searchOwnerOverride(args.caseListConfig) !== undefined
+			? undefined
+			: args.excludedOwnerIdsExpression;
+	const excludedLookupData = await loadExpressionLookupData(scope, [ownerRule]);
 	const excludedTypes =
-		args.excludedOwnerIdsExpression === undefined
+		ownerRule === undefined
 			? undefined
 			: requireExpressionContext(
 					requireEnvironment().doc,
@@ -642,11 +684,11 @@ async function prepareRunningCaseRead(
 					excludedLookupData?.naming,
 				);
 	const excludedOwnerIds =
-		args.excludedOwnerIdsExpression === undefined || excludedTypes === undefined
+		ownerRule === undefined || excludedTypes === undefined
 			? undefined
 			: parseExcludedOwnerIds(
 					evaluatePreviewSearchExpression(
-						args.excludedOwnerIdsExpression,
+						ownerRule,
 						excludedTypes,
 						searchSession,
 						expressionInputValues,
@@ -655,11 +697,11 @@ async function prepareRunningCaseRead(
 					),
 				);
 	const authoredExcludedOwnerIds =
-		args.excludedOwnerIdsExpression === undefined || excludedTypes === undefined
+		ownerRule === undefined || excludedTypes === undefined
 			? undefined
 			: parseExcludedOwnerIds(
 					evaluatePreviewSearchExpression(
-						args.excludedOwnerIdsExpression,
+						ownerRule,
 						excludedTypes,
 						searchSession,
 						args.caseListConfig === undefined
@@ -716,7 +758,20 @@ async function prepareRunningCaseRead(
 			// The running Results surface passes a bounded window. The form-selection
 			// caller deliberately omits it because it needs the complete candidate set.
 			page: args.page,
-			...runningRead(searched, context.restoreScope),
+			...runningRead(
+				searched,
+				context.restoreScope,
+				searched && !keyedSearch && environment !== undefined
+					? completedSearchRequest(
+							environment.doc.modules[environment.moduleUuid],
+							inputValues,
+							csqlRuntime?.filterValues,
+							device.searchConfiguration,
+							{ doc: environment.doc, caseType: args.caseType },
+							args.defaultSearch === true,
+						)
+					: undefined,
+			),
 		},
 	};
 }
@@ -737,6 +792,13 @@ export async function loadCasesAction(
 		// Editable date-range drafts are validated in the running form, but the
 		// action repeats the gate for stale/tampered callers. This is a repairable
 		// input error, not an observability fault.
+		if (err instanceof CaseSearchUnavailableError)
+			return {
+				kind: "invalid-search",
+				message: err.message,
+				reason: err.reason,
+				repair: "settings",
+			};
 		if (err instanceof SearchInputValuesError) {
 			return {
 				kind: "invalid-search",
@@ -770,7 +832,9 @@ export async function loadCasesAction(
  * population, so a module with no effective Search has no results to give.
  */
 export async function loadSearchResultsSnapshotAction(
-	args: Omit<RunningCaseReadArgs, "page" | "search" | "viewerLocation">,
+	args: Omit<RunningCaseReadArgs, "page" | "search" | "viewerLocation"> & {
+		readonly formUuid?: Uuid;
+	},
 ): Promise<LoadSearchResultsSnapshotResult> {
 	try {
 		const prepared = await prepareRunningCaseRead({ ...args, search: true });
@@ -797,14 +861,28 @@ export async function loadSearchResultsSnapshotAction(
 			};
 		return {
 			kind: "data",
-			snapshot: await readSearchResultsSnapshot(prepared.store, {
-				...read,
-				searchPopulation,
-			}),
+			snapshot: await readSearchResultsSnapshot(
+				prepared.store,
+				{
+					...read,
+					searchPopulation,
+				},
+				Boolean(
+					args.formUuid &&
+						args.blueprint &&
+						formReadsSearchScore(args.blueprint, args.formUuid),
+				),
+			),
 		};
 	} catch (err) {
 		if (err instanceof AppAccessError)
 			return { kind: "error", message: "App not found." };
+		if (err instanceof CaseSearchUnavailableError)
+			return {
+				kind: "invalid-search",
+				message: err.message,
+				reason: err.reason,
+			};
 		if (err instanceof SearchInputValuesError)
 			return { kind: "invalid-search", message: err.message };
 		const refusal = serverPreviewDataRefusalOf(err);
@@ -893,11 +971,11 @@ export async function loadMissingConnectionCountAction(args: {
 	caseType: string;
 	identifier: string;
 }): Promise<LoadCaseCountResult> {
-	if (!XML_ELEMENT_NAME_PATTERN.test(args.identifier)) {
+	if (!CASE_INDEX_NAME_PATTERN.test(args.identifier)) {
 		return {
 			kind: "error",
 			message:
-				"A connection name must start with a letter or underscore and contain only letters, numbers, and underscores.",
+				"A connection name starts with a letter or underscore and holds only letters, numbers, underscores, hyphens, and periods.",
 		};
 	}
 	try {
@@ -1197,6 +1275,8 @@ export async function loadCaseDataAction(
 	/** The completed search answers of a menu whose forms read the search, plain JSON: what its
 	 *  detail columns read as `#search/<name>`. */
 	searchAnswers?: Readonly<Record<string, string>>,
+	language?: string,
+	selectionMenuUuid?: string,
 ): Promise<LoadCaseDataResult> {
 	try {
 		const context = await resolveAuthorizedPreviewContext({
@@ -1221,6 +1301,28 @@ export async function loadCaseDataAction(
 			if (!candidate.ok) return { kind: "error", message: candidate.message };
 			environment = candidate.environment;
 		}
+		let selectionOwner = environment?.moduleUuid;
+		if (
+			selectionMenuUuid !== undefined &&
+			selectionMenuUuid !== selectionOwner
+		) {
+			const choosing = environment?.doc.modules[selectionMenuUuid];
+			const source =
+				choosing &&
+				environment &&
+				resolveCaseFormContext(environment.doc.modules, choosing.uuid);
+			if (
+				!source ||
+				(environment?.moduleUuid !== source.sourceModuleUuid &&
+					environment?.moduleUuid !== source.inlineModuleUuid)
+			)
+				return {
+					kind: "error",
+					message:
+						"The case context has changed. Open the case again to see its current details.",
+				};
+			selectionOwner = choosing?.uuid;
+		}
 		const lookupTableSchemas = await loadLookupTableSchemas(
 			scope,
 			collectConfigLookupTableIds(caseListConfig),
@@ -1242,6 +1344,16 @@ export async function loadCaseDataAction(
 						new Map(Object.entries(searchAnswers ?? {})),
 					);
 		return await readCaseData(store, {
+			...(environment !== undefined && {
+				locale: previewCaseListOrderLocale(
+					environment.doc,
+					caseType,
+					language ??
+						effectiveAppLocalization(environment.doc.localization)
+							.sourceLanguage,
+				),
+			}),
+			contextModuleUuid: environment?.moduleUuid,
 			appId,
 			caseType,
 			caseId,
@@ -1269,7 +1381,7 @@ export async function loadCaseDataAction(
 				: runningRead(
 						readsSearchPopulation(
 							environment?.doc ?? context.blueprint,
-							moduleUuid,
+							selectionOwner ?? moduleUuid,
 							search === true,
 						),
 						context.restoreScope,
@@ -1315,10 +1427,11 @@ export async function loadCaseDatabaseSnapshotAction(
 			loadBlueprint: true,
 		});
 		if (context.kind !== "ready") return context;
-		const snapshot = await readCaseDatabaseSnapshot(context.store, {
+		const cases = await readCaseDatabaseSnapshot(context.store, {
 			appId,
 			restoreScope: context.restoreScope,
 		});
+		const snapshot = { ...cases, workerGroups: context.restoreScope.groups };
 		if (!includePlaces) return { kind: "data", snapshot };
 		return {
 			kind: "data",
@@ -1707,12 +1820,32 @@ export async function loadFilterPreviewAction(args: {
 		const boundIdentity = previewAsMe(session.user, undefined, projectSpace);
 		if (!boundIdentity) return { kind: "unauthenticated" };
 		const lookupTableSchemas = await loadLookupTableSchemas(
-			scope,
+			{
+				...scope,
+				worker: {
+					scope: {
+						appId: args.appId,
+						projectId,
+						actorUserId: identity.actorUserId,
+					},
+					grant: { kind: "session", sessionId: session.session.id },
+				},
+			},
 			collectConfigLookupTableIds(parsedConfig.data),
 		);
 		const excludedLookupData = await loadExpressionLookupData(
-			scope,
-			args.excludedOwnerIdsExpression,
+			{
+				...scope,
+				worker: {
+					scope: {
+						appId: args.appId,
+						projectId,
+						actorUserId: identity.actorUserId,
+					},
+					grant: { kind: "session", sessionId: session.session.id },
+				},
+			},
+			[args.excludedOwnerIdsExpression],
 		);
 		/* The builder's sample is the author's view of stored data, read with
 		 * the session values of the platform the app previews on by default. */
@@ -1876,13 +2009,11 @@ function normalizeSubmissionWireMutation(
 }
 
 /** The place ids a submission says its entry opened with, checked as the
- * untrusted Server Action JSON they are: absent, or the canonical UUIDs of at
- * most as many places as an app holds. */
+ * untrusted Server Action JSON they are: absent, or the canonical UUIDs carried by the entry. */
 function submittedPlaceIds(value: unknown): readonly string[] | undefined {
 	if (value === undefined) return undefined;
 	if (
 		Array.isArray(value) &&
-		value.length <= MAX_LOCATIONS_PER_APP &&
 		value.every(
 			(id) => typeof id === "string" && CANONICAL_UUID_PATTERN.test(id),
 		)
@@ -1910,6 +2041,7 @@ export async function submitFormAction(
 	/** The device Preview runs on (`previewDevice.ts`), plain JSON: a case
 	 *  operation writing a session context value writes the platform's. */
 	device?: PreviewDevice,
+	entryGroupOwner?: string,
 ): Promise<SubmissionResult> {
 	try {
 		const entryPlaceIds = submittedPlaceIds(workerPlaceIds);
@@ -1994,12 +2126,21 @@ export async function submitFormAction(
 		 * conditions read `commcare_project` exactly as the form engine did
 		 * when it showed them. The receipt digest covers only the actor,
 		 * owner, and persona, so this cannot disturb replay. */
-		const projectSpace = await previewProjectSpaceFor({
-			appId,
-			projectId: authorized.projectId,
-			role: authorized.role,
-			actorUserId: session.user.id,
-		});
+		const projectSpace = await previewProjectSpaceForSubmission(
+			{
+				appId,
+				projectId: authorized.projectId,
+				role: authorized.role,
+				actorUserId: session.user.id,
+			},
+			suppliedDevice?.searchConfiguration,
+		);
+		if (projectSpace === undefined)
+			return {
+				kind: "error",
+				message:
+					"The project space changed while this form was open. Reopen the form and try again.",
+			};
 		let identity: ResolvedPreviewIdentity | null;
 		if (personaUuid === undefined) {
 			identity = previewAsMe(
@@ -2048,11 +2189,23 @@ export async function submitFormAction(
 			blueprintDigest: expectedBlueprintDigest,
 			identity,
 			device: admitted.device,
-			lookupScope: scope,
+			lookupScope: {
+				...scope,
+				worker: {
+					scope: {
+						appId,
+						projectId: scope.projectId,
+						actorUserId: identity.actorUserId,
+					},
+					grant: { kind: "session", sessionId: session.session.id },
+					personaUuid: uuidSchema.optional().parse(identity.personaUuid),
+				},
+			},
 			mutation: normalizedMutation,
 			receiptMutation: wireMutation,
 			projection,
 			viewerTimeZone,
+			entryGroupOwner,
 			...(entryPlaceIds === undefined ? {} : { workerPlaceIds: entryPlaceIds }),
 		});
 		if (built.captureIntent !== undefined) {
@@ -2116,6 +2269,9 @@ function submissionResultFromEnvelope(
 		return {
 			kind: "survey",
 			...(caseDatabasePatch === undefined ? {} : { caseDatabasePatch }),
+			...(result.submissionLocation !== undefined && {
+				submissionLocation: result.submissionLocation,
+			}),
 		};
 	}
 	if (result.primaryCaseIds.length === 0) {
@@ -2142,6 +2298,9 @@ function submissionResultFromEnvelope(
 				? { createdChildren: result.createdChildren }
 				: {}),
 			...(caseDatabasePatch === undefined ? {} : { caseDatabasePatch }),
+			...(result.submissionLocation !== undefined && {
+				submissionLocation: result.submissionLocation,
+			}),
 		};
 	}
 	return {
@@ -2155,6 +2314,9 @@ function submissionResultFromEnvelope(
 			? { createdChildren: result.createdChildren }
 			: {}),
 		...(caseDatabasePatch === undefined ? {} : { caseDatabasePatch }),
+		...(result.submissionLocation !== undefined && {
+			submissionLocation: result.submissionLocation,
+		}),
 	};
 }
 

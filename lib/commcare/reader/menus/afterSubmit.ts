@@ -7,6 +7,7 @@
  * link's structure, so it is taken off the stored condition before the
  * expression stage binds what is left.
  */
+
 import {
 	type BlueprintDoc,
 	defaultPostSubmitOf,
@@ -26,6 +27,7 @@ import {
 	type Uuid,
 } from "@/lib/domain";
 import type { FormLinkDatumName } from "@/lib/domain/expression/types";
+import { routeContainsForm } from "@/lib/domain/listedForms";
 import { NO_ENTRIES, recordFromEntries } from "@/lib/domain/records";
 import { emissionPlan } from "../../emissionPlan";
 import {
@@ -40,6 +42,7 @@ import {
 	sessionDataRef,
 	targetFrameChildren,
 } from "../../formLinkProjection";
+import { formChoosesCase } from "../../hq/entryFacts";
 import { entryPlanContext, runFormRules } from "../../validator/rules/form";
 import { rethrowWorkStop } from "../../workMeter";
 import type { FormSyntax } from "../../xpath/formSyntax";
@@ -68,7 +71,6 @@ import { sameSyntax } from "../syntaxCompare";
 import {
 	draftFormByReadId,
 	draftModuleById,
-	formChoosesCase,
 	rawForms,
 	rawModuleById,
 	rawModules,
@@ -142,7 +144,7 @@ const AFTER_SUBMIT = {
 		"post_form_workflow",
 	),
 	previousOnFirstMenu: perClass(
-		refuse,
+		take,
 		"post-form-workflow-previous-screen-on-a-form-listed-on-the-first-menu",
 		"post_form_workflow",
 	),
@@ -645,15 +647,23 @@ function readLinkTarget(
 		const menuId =
 			folded === undefined ? named.module.uniqueId : folded.menu.uniqueId;
 		const formModuleId = value.form_module_id;
+		let route = named.module;
 		if (
 			typeof formModuleId === "string" &&
 			formModuleId !== "" &&
 			formModuleId !== menuId
 		) {
-			cursor.refuseWhole(AFTER_SUBMIT.linkChecks);
-			return undefined;
+			const candidate = draftModuleById(ctx.draft, formModuleId);
+			if (
+				!candidate?.module.formsFromMenu ||
+				!routeContainsForm(snapshot, candidate.uuid, named.form.uuid)
+			) {
+				cursor.refuseWhole(AFTER_SUBMIT.linkChecks);
+				return undefined;
+			}
+			route = candidate;
 		}
-		const self = named.form === reading.form;
+		const self = named.form === reading.form && route === named.module;
 		cursor.take(
 			"form_id",
 			self ? AFTER_SUBMIT.targetThisForm : AFTER_SUBMIT.targetForm,
@@ -665,10 +675,14 @@ function readLinkTarget(
 			? { type: "this-form" }
 			: {
 					type: "form",
-					moduleUuid: named.module.uuid,
+					moduleUuid: route.uuid,
 					formUuid: named.form.uuid,
 				};
-		key = self ? ["this-form"] : ["form", named.form.xmlns];
+		key = self
+			? ["this-form"]
+			: route === named.module
+				? ["form", named.form.xmlns]
+				: ["form-in-menu", route.uniqueId, named.form.xmlns];
 	} else {
 		const named = draftModuleById(ctx.draft, moduleId);
 		if (named === undefined) {
@@ -1168,6 +1182,18 @@ function readOtherwiseAndLinks(
 	});
 }
 
+/** Each read link's own cursor, by the link's uuid: a later stage that
+ *  refuses a link records its refusal on the link's keys. */
+const LINK_CURSORS = new WeakMap<ReadContext, Map<Uuid, JsonCursor>>();
+
+/** The cursor of the stored link the reading gave `uuid`, if it read one. */
+export function linkCursorOf(
+	ctx: ReadContext,
+	uuid: Uuid,
+): JsonCursor | undefined {
+	return LINK_CURSORS.get(ctx)?.get(uuid);
+}
+
 /** One link's guards taken off, its condition and carried values registered. */
 function registerLink(
 	ctx: ReadContext,
@@ -1177,6 +1203,13 @@ function registerLink(
 	uuid: Uuid,
 	role: "destination" | "otherwise",
 ): ReadLink {
+	ctx.facts.formLinkOwners.push({ pointer: link.cursor.pointer, uuid });
+	let cursors = LINK_CURSORS.get(ctx);
+	if (cursors === undefined) {
+		cursors = new Map();
+		LINK_CURSORS.set(ctx, cursors);
+	}
+	cursors.set(uuid, link.cursor);
 	const xpath = textOf(link.value.xpath);
 	const guards = linkGuards(
 		snapshot,
@@ -1476,14 +1509,6 @@ function settleWord(
 	const facts = postSubmitModuleFacts(doc, reading.module.uuid);
 	// Each refusal is a class of the stored word, so it stands at the word too.
 	const wordAt = `${form.json.pointer}/post_form_workflow`;
-	if (word === "previous_screen" && facts?.formsOnFirstMenu === true) {
-		ctx.accounting.findingAt(
-			AFTER_SUBMIT.previousOnFirstMenu[form.docType],
-			form.place,
-			wordAt,
-		);
-		return;
-	}
 	if (!postSubmitDestinationsOffered(doc, form.uuid).includes(destination)) {
 		ctx.accounting.findingAt(
 			AFTER_SUBMIT.wordNotOffered[form.docType],
@@ -1494,6 +1519,15 @@ function settleWord(
 			},
 		);
 		return;
+	}
+	if (word === "previous_screen" && facts?.formsOnFirstMenu === true) {
+		const claim = AFTER_SUBMIT.previousOnFirstMenu[form.docType];
+		ctx.accounting.claimEntryClass(
+			{ json: form.json, key: "post_form_workflow" },
+			claim.entry,
+			`schema:${form.docType}.post_form_workflow`,
+			form.place,
+		);
 	}
 	if (destination === defaultPostSubmitOf(doc, form.uuid)) return;
 	ctx.doc = withCandidate(doc, (draft) => {

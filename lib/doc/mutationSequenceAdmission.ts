@@ -426,6 +426,9 @@ export function mutationSequenceAdmissionIssue(
 			case "renameModule":
 			case "setModuleMedia":
 			case "setCaseListMenuItem":
+			case "addCalculatedSort":
+			case "updateCalculatedSort":
+			case "removeCalculatedSort":
 			case "setCaseListMeta":
 				break;
 			case "updateModule":
@@ -1067,6 +1070,10 @@ export function mutationSequenceAdmissionIssue(
 			case "relabelSourceLanguage":
 			case "addLanguage":
 			case "removeLanguage":
+			case "rebindLanguageCodes":
+			case "rebaseSourceLanguage":
+			case "setProjectLanguageDirection":
+			case "moveLanguage":
 			case "setDefaultLanguage":
 			case "setTranslation":
 			case "reviewTranslation":
@@ -1093,7 +1100,23 @@ export function mutationSequenceAdmissionIssue(
 				}
 				break;
 			}
-			case "setCaseProperty":
+			case "moveCaseProperty": {
+				const order = state.casePropertyOrder.get(mutation.caseType);
+				if (!order || !place(order, mutation.property, mutation.after, true))
+					return issue(
+						mutation,
+						mutationIndex,
+						`case type ${mutation.caseType} properties`,
+						mutation.after,
+					);
+				break;
+			}
+			case "setCaseProperty": {
+				const order = state.casePropertyOrder.get(mutation.caseType);
+				if (order && !order.includes(mutation.property.name))
+					order.push(mutation.property.name);
+				break;
+			}
 			case "setCaseTypeMeta":
 				break;
 			case "removeCaseProperty":

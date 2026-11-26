@@ -6,6 +6,7 @@
 // from the parsed suite of a local archive, as an export writes it.
 
 import AdmZip from "adm-zip";
+import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f, resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
@@ -30,6 +31,7 @@ import {
 import {
 	ancestorPath,
 	eq,
+	literal,
 	prop,
 	relationStep,
 	tableColumn,
@@ -208,4 +210,83 @@ describe("a calculated column hidden from both screens", () => {
 				.map((data) => data.attributes.ref),
 		).toEqual(["'true'"]);
 	});
+});
+
+it("requires the table read by a tab condition on the route that opens it", () => {
+	const table = wireTable("regions", [
+		{ name: "value", type: "text" },
+		{ name: "label", type: "text" },
+	]);
+	const [value, label] = table.columns;
+	const region = tableLookup(
+		table.id,
+		label.id,
+		eq(tableColumn(table.id, value.id), prop("client", "region")),
+	);
+	const rule = eq(region, literal("Northland"));
+	const base = clientsDoc(
+		plainColumn(testUuid("region-field"), "region", "Region"),
+	);
+	const doc = produce(base, (draft) => {
+		const config = draft.modules[draft.moduleOrder[0]].caseListConfig;
+		if (!config) throw new Error("The fixture needs a case list.");
+		config.searchInputs = [];
+		config.detailTabs = [
+			{
+				uuid: testUuid("region-tab"),
+				title: "Referral",
+				startColumnUuid: config.detailColumnOrder[0],
+				displayCondition: rule,
+			},
+		];
+		config.filter = rule;
+	});
+	const catalog = {
+		kind: "available" as const,
+		projectId: "project-regions",
+		projectRevision: parseLookupRevision("1"),
+		definitions: [table],
+	};
+	const naming = lookupWireNaming([table]);
+	const fixtures = buildLookupFixtures(
+		naming,
+		new Map([
+			[
+				table.id,
+				[wireRow(table, "north", { value: "north", label: "Northland" })],
+			],
+		]),
+	);
+	const suiteOf = (candidate: BlueprintDoc) =>
+		readXmlEvidence(
+			new AdmZip(
+				compileCcz(
+					expandDoc(candidate, { lookupNaming: naming }),
+					candidate.appName,
+					candidate,
+					{ runtimeTarget: TEST_RUNTIME_TARGET, lookup: { naming, fixtures } },
+				),
+			).readAsText("suite.xml"),
+		);
+	expect(runValidation(doc, catalog)).toEqual([]);
+	expect(
+		declared(onlyXml(xmlChildren(suiteOf(doc), "entry")))["item-list:regions"],
+	).toBe("jr://fixture/item-list:regions");
+	const missing = produce(doc, (draft) => {
+		const config = draft.modules[draft.moduleOrder[0]].caseListConfig;
+		if (config) delete config.filter;
+	});
+	expect(runValidation(missing, catalog)).toEqual(
+		expect.arrayContaining([
+			expect.objectContaining({
+				code: "CASE_DETAIL_TAB_CONDITION_INVALID",
+				details: expect.objectContaining({
+					checkReason: "detail-condition-table-unavailable",
+				}),
+			}),
+		]),
+	);
+	expect(() => suiteOf(missing)).toThrow(
+		/does not load 'item-list:regions' for its tab condition/,
+	);
 });

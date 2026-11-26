@@ -14,70 +14,53 @@ import "server-only";
  * the worker setup, where the app runs and its logo.
  */
 
-import { produce } from "immer";
-import { loadCanonicalBlueprintAtSequence } from "@/lib/agent/change-set/baseLoader";
+import { type Kysely, sql, type Transaction } from "kysely";
+import {
+	greatestFoldBaselineSeq,
+	readCanonicalFoldInputs,
+} from "@/lib/agent/change-set/baseLoader";
 import { readAppChangeStreamRowsSince } from "@/lib/db/appChangeStream";
+import type {
+	BoundedCanonicalAppChangeFoldInput,
+	CanonicalAppChangeSuffixRow,
+} from "@/lib/db/canonicalMutationFold";
+import { type AppDatabase, getAppDb } from "@/lib/db/pg";
+import type { BlueprintDoc } from "@/lib/domain";
+import type {
+	AppBaseline,
+	DeploymentFoldBinding,
+	DeploymentResource,
+} from "../types";
+import { foldReferenceEvidence } from "./referenceEvidence";
 import {
-	type AdmittedDurableAppChange,
-	parsePersistedAppChangeEnvelope,
-} from "@/lib/db/persistedJson";
-import { getAppDb } from "@/lib/db/pg";
-import { EDITOR_APP_CHANGE_KINDS } from "@/lib/db/types";
-import {
-	preparedCandidateHasAdmissionIssue,
-	prepareMutationCandidate,
-} from "@/lib/doc/commitVerdicts";
-import {
-	hydratePersistedBlueprint,
-	toPersistableDoc,
-} from "@/lib/doc/fieldParent";
-import { admitMutationBatch } from "@/lib/doc/mutationAdmission";
-import { applyMutations } from "@/lib/doc/mutations";
-import type { Mutation } from "@/lib/doc/types";
-import type { BlueprintDoc, PersistableDoc, Uuid } from "@/lib/domain";
-import { NO_ENTRIES, recordFromEntries } from "@/lib/domain/records";
-import type { CasePropertyRename } from "@/lib/publish/hqChangesKinds";
-import type { AppBaseline, DeploymentResource } from "../types";
+	type FoldedDeploymentReference,
+	foldBaselineInRange,
+	projectDeploymentReference,
+	type ReferenceDocument,
+} from "./referenceFold";
 
-export type ReferenceDocument =
-	| {
-			readonly kind: "ok";
-			/** `D_ref`. */
-			readonly doc: BlueprintDoc;
-			/**
-			 * `doc` less the second of each pair of worker or location properties that
-			 * hold one slug: the property the published document did not hold. The
-			 * document both readings' identity map is made from, so the slug binds to
-			 * the property CommCare HQ's app means by it.
-			 */
-			readonly identityDoc: BlueprintDoc;
-			/** The net of the `renameCaseProperties` commands people made after the reference. */
-			readonly renamesSince: readonly CasePropertyRename[];
-			/** The members who changed the app after the reference, by user id. */
-			readonly actors: readonly string[];
-	  }
-	/** A later `blueprint-migration` row does not apply to the document at the reference. */
-	| { readonly kind: "nova-updated" }
-	/** The app moved to another Project after a person changed it and before a publish. */
-	| { readonly kind: "app-moved" };
-
-const EDITOR_KINDS: ReadonlySet<string> = new Set(EDITOR_APP_CHANGE_KINDS);
+export {
+	type FoldedDeploymentReference,
+	projectDeploymentReference,
+	type ReferenceDocument,
+	withHeadUnsent,
+} from "./referenceFold";
 
 function headAhead(appId: string, novaRevision: number, seq: number): string {
 	return `Nova was asked for the reference document of app ${appId} at revision ${novaRevision}, and the head it was handed is at ${seq}, before it. Pass the head read after the deployment's baseline, which no publish writes ahead of the app.`;
 }
 
-function foldBaselineInRange(appId: string, seq: number): string {
-	return `App ${appId} holds a fold baseline at sequence ${seq}, after the revision its deployment's baseline describes. \`usablePair\` answers false for such a pair, so the caller answers \`unavailable\` before it asks for a reference document.`;
-}
+export class DeploymentFoldBindingChangedError extends Error {}
 
 export async function loadReferenceDocument(input: {
+	readonly db?: Kysely<AppDatabase>;
 	readonly appId: string;
 	readonly novaRevision: number;
 	readonly head: { readonly doc: BlueprintDoc; readonly seq: number };
+	readonly binding?: DeploymentFoldBinding;
 }): Promise<ReferenceDocument> {
-	const { appId, novaRevision, head } = input;
-	if (head.seq === novaRevision)
+	const { appId, novaRevision, head, binding } = input;
+	if (head.seq === novaRevision && !binding)
 		return {
 			kind: "ok",
 			doc: head.doc,
@@ -85,329 +68,198 @@ export async function loadReferenceDocument(input: {
 			renamesSince: [],
 			actors: [],
 		};
-	if (head.seq < novaRevision)
-		throw new Error(headAhead(appId, novaRevision, head.seq));
+	return projectDeploymentReference(
+		await loadFoldedDeploymentReference(input.db ?? (await getAppDb()), {
+			appId,
+			novaRevision,
+			headSeq: head.seq,
+			binding,
+		}),
+		head.doc,
+	);
+}
 
-	/* 1. The published document. */
-	const db = await getAppDb();
-	const published = await loadCanonicalBlueprintAtSequence(db, {
-		appId,
-		seq: novaRevision,
-		expectedDigest: null,
-	});
+/** A released claim can be taken back on restore. Its maintenance-only read
+ * keeps the original comparison available for that later holder. */
+export function loadFoldOperatorReference(
+	db: Transaction<AppDatabase>,
+	input: Parameters<typeof loadFoldedDeploymentReference>[1],
+) {
+	return loadFoldedDeploymentReference(db, input, "preserve-released");
+}
 
-	/* 2. What a server wrote after it, and who changed the app. */
-	const rows = (await readAppChangeStreamRowsSince(db, appId, novaRevision))
-		.map((row) =>
-			parsePersistedAppChangeEnvelope({
-				seq: row.seq,
-				batchId: row.batch_id,
-				runId: row.run_id,
-				actorId: row.actor_id,
-				kind: row.kind,
-				mutationsText: row.mutations_text,
-				fromProjectId: row.from_project_id,
-				toProjectId: row.to_project_id,
-			}),
+async function loadFoldedDeploymentReference(
+	db: Kysely<AppDatabase>,
+	input: {
+		readonly appId: string;
+		readonly novaRevision: number;
+		readonly headSeq: number;
+		readonly binding?: DeploymentFoldBinding;
+	},
+	claim: "held" | "preserve-released" = "held",
+): Promise<FoldedDeploymentReference> {
+	return foldReferenceEvidence(
+		await readDeploymentReferenceEvidence(db, input, claim),
+	);
+}
+
+/** Undecoded storage for exactly one authorized app, target and published comparison. */
+export interface DeploymentReferenceEvidence {
+	readonly appId: string;
+	readonly headSeq: number;
+	readonly startSeq: number;
+	readonly start:
+		| {
+				readonly kind: "certificate";
+				readonly stateText: string;
+				readonly editorSnapshotText: string | null;
+		  }
+		| {
+				readonly kind: "published";
+				readonly canonical: BoundedCanonicalAppChangeFoldInput;
+		  }
+		| {
+				readonly kind: "head";
+				readonly snapshotText: string;
+				readonly projectId: string;
+		  };
+	readonly suffix: readonly CanonicalAppChangeSuffixRow[];
+}
+
+export async function readDeploymentReferenceEvidence(
+	db: Kysely<AppDatabase>,
+	input: {
+		readonly appId: string;
+		readonly novaRevision: number;
+		readonly headSeq: number;
+		readonly binding?: DeploymentFoldBinding;
+	},
+	claim: "held" | "preserve-released",
+): Promise<DeploymentReferenceEvidence> {
+	const { appId, novaRevision, headSeq, binding } = input;
+	if (headSeq < novaRevision)
+		throw new Error(headAhead(appId, novaRevision, headSeq));
+	// A fold may land while the HQ request is in flight. No part of an
+	// obsolete mutation dialect is decoded just to detect that race.
+	const latest = await greatestFoldBaselineSeq(db, appId);
+	if (
+		latest !== null &&
+		(latest > headSeq || (novaRevision < latest && binding?.foldSeq !== latest))
+	)
+		throw new DeploymentFoldBindingChangedError(
+			foldBaselineInRange(appId, latest),
+		);
+	let start = novaRevision;
+	let source: DeploymentReferenceEvidence["start"];
+	if (binding !== undefined) {
+		if (
+			binding.appId !== appId ||
+			binding.novaRevision !== novaRevision ||
+			binding.foldSeq > headSeq
 		)
-		.filter((row) => row.seq <= head.seq);
-	const folded = foldServerRows(appId, published.doc, rows);
-	if (folded.kind !== "ok") return folded;
-
-	/* 3. What a publish never sends, from the head. */
-	const doc = withHeadUnsent(folded.doc, head.doc);
-	return {
-		kind: "ok",
-		doc,
-		identityDoc: withoutSecondOfASlug(doc, folded.doc),
-		renamesSince: netRenames(rows),
-		actors: actorsOf(rows),
-	};
-}
-
-/** `doc` with `mutations` applied by the reducers alone, as a hold is replayed. */
-function reduced(
-	doc: BlueprintDoc,
-	mutations: readonly Mutation[],
-): BlueprintDoc {
-	return produce(doc, (draft) => {
-		applyMutations(draft, mutations);
-	});
-}
-
-/** `doc` with `mutations` applied whole, or null where the batch does not apply to it. */
-function appliedWhole(
-	doc: BlueprintDoc,
-	mutations: readonly Mutation[],
-): BlueprintDoc | null {
-	try {
-		const prepared = prepareMutationCandidate(
-			doc,
-			admitMutationBatch(mutations),
-		);
-		return preparedCandidateHasAdmissionIssue(prepared)
-			? null
-			: prepared.nextDoc;
-	} catch {
-		return null;
+			throw new Error(
+				"The deployment reference does not match the app revision being compared.",
+			);
+		const held = await db
+			.selectFrom("app_deployment_fold_references as f")
+			.innerJoin("app_deployments as d", "d.id", "f.deployment_id")
+			.innerJoin("app_deployment_baselines as b", "b.deployment_id", "d.id")
+			.innerJoin("app_deployment_resources as r", "r.id", "f.mapping_id")
+			.innerJoin("app_change_fold_baselines as start", (join) =>
+				join
+					.onRef("start.app_id", "=", "f.app_id")
+					.onRef("start.seq", "=", "f.fold_seq"),
+			)
+			.select(
+				sql<
+					string | null
+				>`CASE WHEN f.fold_seq < ${headSeq} THEN start.snapshot::text END`.as(
+					"editorSnapshotText",
+				),
+			)
+			.select(sql<string>`f.state::text`.as("state"))
+			.where("d.id", "=", binding.deploymentId)
+			.where("d.app_id", "=", appId)
+			.where("d.project_id", "=", binding.projectId)
+			.where("f.app_id", "=", appId)
+			.where("f.fold_seq", "=", binding.foldSeq)
+			.where("f.published_revision", "=", novaRevision)
+			.where("b.nova_revision", "=", novaRevision)
+			.where("b.reference_fold_seq", "=", binding.foldSeq)
+			.where("b.source_digest", "=", binding.sourceDigest)
+			.where("b.reference_source_digest", "=", binding.sourceDigest)
+			.whereRef("r.deployment_id", "=", "d.id")
+			.where("r.kind", "=", "app")
+			.where("r.nova_resource_id", "=", appId)
+			.where("r.remote_id", "=", binding.remoteAppId)
+			.where("r.push_token", "=", binding.mappingToken)
+			.where("r.superseded_at", "is", null)
+			.$if(claim === "held", (q) => q.where("r.released_at", "is", null))
+			.whereRef("b.remote_app_id", "=", "r.remote_id")
+			.executeTakeFirst();
+		if (!held)
+			throw new DeploymentFoldBindingChangedError(
+				"The deployment comparison changed while its reference was being read.",
+			);
+		source = {
+			kind: "certificate",
+			stateText: held.state,
+			editorSnapshotText: held.editorSnapshotText,
+		};
+		start = binding.foldSeq;
+	} else {
+		source = {
+			kind: "published",
+			canonical: await readCanonicalFoldInputs(db, {
+				appId,
+				seq: novaRevision,
+			}),
+		};
 	}
-}
-
-function foldServerRows(
-	appId: string,
-	published: BlueprintDoc,
-	rows: readonly AdmittedDurableAppChange[],
-):
-	| { readonly kind: "ok"; readonly doc: BlueprintDoc }
-	| Exclude<ReferenceDocument, { kind: "ok" }> {
-	let doc = published;
-	let personBefore = false;
-	for (const row of rows) {
-		switch (row.kind) {
-			case "publish-placement":
-				// The reducer leaves a hold alone where its target is missing, so a
-				// hold on something made after the publish is not carried.
-				doc = reduced(doc, row.mutations);
-				break;
-			case "blueprint-migration": {
-				const next = appliedWhole(doc, row.mutations);
-				if (next === null) return { kind: "nova-updated" };
-				doc = next;
-				break;
-			}
-			case "project-move": {
-				if (personBefore) return { kind: "app-moved" };
-				if (row.mutations.length === 0) break;
-				const next = appliedWhole(doc, row.mutations);
-				if (next === null) return { kind: "app-moved" };
-				doc = next;
-				break;
-			}
-			case "fold-baseline":
-				throw new Error(foldBaselineInRange(appId, row.seq));
-			case "autosave":
-			case "mcp":
-			case "chat":
-			case "hq-changes":
-				personBefore = true;
-				break;
-		}
-	}
-	return { kind: "ok", doc };
-}
-
-/** A record of `doc`'s collection, or an empty one. */
-function recordOf<T>(
-	record: Readonly<Record<string, T>> | undefined,
-): Record<string, T> {
-	return recordFromEntries(Object.entries(record ?? NO_ENTRIES));
-}
-
-/**
- * One collection of the worker setup: the head's entities in the head's
- * order, then those the published document held that the head no longer
- * does, in the published document's order. `keep` takes, from an entity
- * the published document also holds, what of the published one stands.
- */
-function headThenPublished<T extends { readonly uuid: Uuid }>(input: {
-	readonly head: Readonly<Record<string, T>> | undefined;
-	readonly headOrder: readonly Uuid[] | undefined;
-	readonly published: Readonly<Record<string, T>> | undefined;
-	readonly publishedOrder: readonly Uuid[] | undefined;
-	readonly keep?: (head: T, published: T) => T;
-}): { readonly record: Record<string, T>; readonly order: Uuid[] } | null {
-	const head = recordOf(input.head);
-	const published = recordOf(input.published);
-	const record = recordFromEntries<T>([]);
-	const order: Uuid[] = [];
-	for (const uuid of input.headOrder ?? []) {
-		const own = head[uuid];
-		if (own === undefined) continue;
-		const was = published[uuid];
-		record[uuid] =
-			was !== undefined && input.keep !== undefined
-				? input.keep(own, was)
-				: own;
-		order.push(uuid);
-	}
-	for (const uuid of input.publishedOrder ?? []) {
-		if (Object.hasOwn(record, uuid)) continue;
-		const was = published[uuid];
-		if (was === undefined) continue;
-		record[uuid] = was;
-		order.push(uuid);
-	}
-	return order.length === 0 ? null : { record, order };
-}
-
-/**
- * The published document, with every server write after it, given what a
- * publish to this app never sends from the head: every kind no reading holds with its ordering
- * array; the worker properties, location properties and levels as the
- * head holds them, then those the published document held that the head
- * no longer does, each property under the slug the published document
- * gave it where it held it; where the app runs; and its logo.
- */
-export function withHeadUnsent(
-	folded: BlueprintDoc,
-	head: BlueprintDoc,
-): BlueprintDoc {
-	const next: Partial<Record<keyof PersistableDoc, unknown>> = {
-		...toPersistableDoc(folded),
-	};
-	const set = (key: keyof PersistableDoc, value: unknown) => {
-		if (value === undefined) delete next[key];
-		else next[key] = value;
-	};
-	for (const key of [
-		"userTypes",
-		"userTypeOrder",
-		"personas",
-		"personaOrder",
-		"automations",
-		"automationOrder",
-		"logo",
-	] as const)
-		set(key, head[key]);
-
-	const userProperties = headThenPublished({
-		head: head.userProperties,
-		headOrder: head.userPropertyOrder,
-		published: folded.userProperties,
-		publishedOrder: folded.userPropertyOrder,
-		keep: (own, was) => ({ ...own, slug: was.slug }),
-	});
-	set("userProperties", userProperties?.record);
-	set("userPropertyOrder", userProperties?.order);
-	const locationProperties = headThenPublished({
-		head: head.locationProperties,
-		headOrder: head.locationPropertyOrder,
-		published: folded.locationProperties,
-		publishedOrder: folded.locationPropertyOrder,
-		keep: (own, was) => ({ ...own, slug: was.slug }),
-	});
-	set("locationProperties", locationProperties?.record);
-	set("locationPropertyOrder", locationProperties?.order);
-	const levels = headThenPublished({
-		head: head.organizationLevels,
-		headOrder: head.organizationLevelOrder,
-		published: folded.organizationLevels,
-		publishedOrder: folded.organizationLevelOrder,
-	});
-	set("organizationLevels", levels?.record);
-	set("organizationLevelOrder", levels?.order);
-
-	const { runsOnlyOn: _published, ...settings } = folded.appSettings;
-	next.appSettings =
-		head.appSettings.runsOnlyOn === undefined
-			? settings
-			: { ...settings, runsOnlyOn: head.appSettings.runsOnlyOn };
-	return hydratePersistedBlueprint(next as PersistableDoc);
-}
-
-/**
- * `doc` less every worker or location property the published document did
- * not hold whose slug a property it did hold carries in `doc`.
- */
-function withoutSecondOfASlug(
-	doc: BlueprintDoc,
-	published: BlueprintDoc,
-): BlueprintDoc {
-	const second = (
-		record: Readonly<Record<string, { readonly slug: string }>> | undefined,
-		held: Readonly<Record<string, unknown>> | undefined,
-	): Set<string> => {
-		const heldSlugs = new Set(
-			Object.entries(record ?? {})
-				.filter(([uuid]) => held !== undefined && Object.hasOwn(held, uuid))
-				.map(([, property]) => property.slug),
-		);
-		return new Set(
-			Object.entries(record ?? {})
-				.filter(
-					([uuid, property]) =>
-						!(held !== undefined && Object.hasOwn(held, uuid)) &&
-						heldSlugs.has(property.slug),
-				)
-				.map(([uuid]) => uuid),
-		);
-	};
-	const users = second(doc.userProperties, published.userProperties);
-	const places = second(doc.locationProperties, published.locationProperties);
-	if (users.size === 0 && places.size === 0) return doc;
-	const next: Partial<Record<keyof PersistableDoc, unknown>> = {
-		...toPersistableDoc(doc),
-	};
-	const drop = (
-		recordKey: "userProperties" | "locationProperties",
-		orderKey: "userPropertyOrder" | "locationPropertyOrder",
-		out: ReadonlySet<string>,
-	) => {
-		if (out.size === 0) return;
-		next[recordKey] = recordFromEntries(
-			Object.entries(doc[recordKey] ?? NO_ENTRIES).filter(
-				([uuid]) => !out.has(uuid),
-			),
-		);
-		next[orderKey] = (doc[orderKey] ?? []).filter((uuid) => !out.has(uuid));
-	};
-	drop("userProperties", "userPropertyOrder", users);
-	drop("locationProperties", "locationPropertyOrder", places);
-	return hydratePersistedBlueprint(next as PersistableDoc);
-}
-
-/**
- * The `renameCaseProperties` commands of the editor rows folded in order: a
- * rename of a name an earlier rename gave continues that rename, so a rename
- * and its rename back cancel. Only the pairs whose two names differ are kept.
- */
-function netRenames(
-	rows: readonly AdmittedDurableAppChange[],
-): readonly CasePropertyRename[] {
-	const renames: { caseType: string; from: string; to: string }[] = [];
-	for (const row of rows) {
-		if (!EDITOR_KINDS.has(row.kind)) continue;
-		for (const mutation of row.mutations) {
-			if (mutation.kind !== "renameCaseProperties") continue;
-			// One command renames simultaneously: each pair is matched against the
-			// renames before the command, never against another pair of it.
-			const before = renames.map((rename) => ({ ...rename }));
-			for (const { caseType, from, to } of mutation.renames) {
-				const at = before.findIndex(
-					(rename) => rename.caseType === caseType && rename.to === from,
-				);
-				if (at >= 0) (renames[at] as { to: string }).to = to;
-				else renames.push({ caseType, from, to });
-			}
-		}
-	}
-	return renames
-		.filter((rename) => rename.from !== rename.to)
-		.map(({ caseType, from, to }) => ({ caseType, from, to }));
-}
-
-/** Each member who made a person's change in the range, once, in the order of their first. */
-function actorsOf(
-	rows: readonly AdmittedDurableAppChange[],
-): readonly string[] {
-	const actors: string[] = [];
-	for (const row of rows) {
-		if (!EDITOR_KINDS.has(row.kind) && row.kind !== "hq-changes") continue;
-		if (!actors.includes(row.actorId)) actors.push(row.actorId);
-	}
-	return actors;
+	const suffix = (
+		await readAppChangeStreamRowsSince(db, appId, start, headSeq)
+	).map((row) => ({
+		seq: row.seq,
+		batch_id: row.batch_id,
+		run_id: row.run_id,
+		actor_id: row.actor_id,
+		kind: row.kind,
+		mutationsText: row.mutations_text,
+		from_project_id: row.from_project_id,
+		to_project_id: row.to_project_id,
+	}));
+	return { appId, headSeq, startSeq: start, start: source, suffix };
 }
 
 /**
  * Whether a deployment's baseline and revision are a pair a comparison can
  * stand on: the baseline holds a source that still verifies (origin `push`,
  * `read` or `changes`), it names a revision, a `push` baseline's revision is
- * the live app mapping's `pushed_revision`, and the app has a fold baseline
- * at or before that revision (`foldSeq`, `greatestFoldBaselineSeq`'s answer).
+ * the live app mapping's `pushed_revision`. Revisions before the current
+ * horizon need the certified comparison which the verified baseline binds.
  */
+type ReferenceMapping = Pick<
+	DeploymentResource,
+	"pushedRevision" | "deploymentId" | "remoteId"
+>;
+
 export function usablePair(
 	baseline: AppBaseline | null,
-	mapping: Pick<DeploymentResource, "pushedRevision"> | null,
+	mapping: (ReferenceMapping & Pick<DeploymentResource, "releasedAt">) | null,
+	foldSeq: number | null,
+): boolean {
+	return (
+		mapping !== null &&
+		mapping.releasedAt === null &&
+		mapping.remoteId === baseline?.remoteAppId &&
+		hasPublishedComparison(baseline, mapping, foldSeq)
+	);
+}
+
+/** Whether this mapping has a comparison to preserve even while its claim is released. */
+export function hasPublishedComparison(
+	baseline: AppBaseline | null,
+	mapping: ReferenceMapping,
 	foldSeq: number | null,
 ): boolean {
 	if (baseline === null) return false;
@@ -419,10 +271,18 @@ export function usablePair(
 		return false;
 	const revision = baseline.novaRevision;
 	if (revision === null) return false;
-	if (
-		baseline.origin === "push" &&
-		(mapping === null || mapping.pushedRevision !== revision)
-	)
+	if (baseline.origin === "push" && mapping.pushedRevision !== revision)
 		return false;
-	return foldSeq !== null && revision >= foldSeq;
+	if (foldSeq === null) return false;
+	if (revision >= foldSeq) return true;
+	const binding = baseline.foldBinding;
+	return (
+		binding !== undefined &&
+		binding.foldSeq === foldSeq &&
+		binding.novaRevision === revision &&
+		binding.sourceDigest === baseline.sourceDigest &&
+		binding.remoteAppId === baseline.remoteAppId &&
+		binding.deploymentId === mapping.deploymentId &&
+		binding.remoteAppId === mapping.remoteId
+	);
 }

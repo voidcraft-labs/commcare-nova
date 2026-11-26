@@ -46,11 +46,14 @@ import {
 import type { CaseListWorkspaceTab } from "@/components/builder/case-list-config/CaseListWorkspaceProvider";
 import type { DisplayConditionTarget } from "@/components/builder/conditions/useDisplayConditionCarrier";
 import { useBuilderLanguage } from "@/components/builder/localization/BuilderLocalizationProvider";
+import { useAndroidAppName } from "@/components/builder/localization/useAndroidAppName";
 import { Button } from "@/components/shadcn/button";
 import { PortaledContentDirectionProvider } from "@/components/shadcn/portaled-content-direction";
 import { Spinner } from "@/components/shadcn/spinner";
+import { useAppSettings } from "@/lib/doc/hooks/useAppSettings";
 import type { Uuid } from "@/lib/doc/types";
 import type { LookupTableId } from "@/lib/domain/lookupIds";
+import { missingAndroidApps } from "@/lib/domain/requiredAndroidApps";
 import { caseListRegistrationEntryContinues } from "@/lib/preview/caseListRegistrationEntry";
 import { useBuilderFormEngine } from "@/lib/preview/engine/provider";
 import { type PreviewScreen, screenKey } from "@/lib/preview/engine/types";
@@ -59,19 +62,27 @@ import { usePreviewScreenForLocation } from "@/lib/preview/hooks/usePreviewScree
 import { usePreviewSearchArrival } from "@/lib/preview/hooks/usePreviewSearchArrival";
 import { usePreviewSelectionsArrival } from "@/lib/preview/hooks/usePreviewSelectionsArrival";
 import { useSelectedPreviewIdentityState } from "@/lib/preview/hooks/useSelectedPreviewIdentity";
+import { previewPlatformRules } from "@/lib/preview/platform";
 import { continuesPreviewTask } from "@/lib/preview/taskContinuation";
 import { useLocation, useNavigate } from "@/lib/routing/hooks";
 import { previewCaseTargetBindsLocation } from "@/lib/routing/previewBreadcrumbs";
 import type { AppSetupSection } from "@/lib/routing/types";
+import { readCurrentPreviewSelections } from "@/lib/routing/useClientPath";
 import {
 	useClearPreviewNavigation,
 	useEditMode,
+	usePreviewAtDeviceHome,
 	usePreviewCaseListRegistrationEntry,
 	usePreviewCaseTarget,
 	usePreviewDevice,
+	usePreviewInstalledAndroidApps,
 	usePreviewParentCaseRequest,
+	usePreviewPlatform,
+	usePreviewSessionId,
 	usePreviewTaskContinuation,
 	useProjectScopeEpoch,
+	useSetPreviewAndroidAppInstalled,
+	useSetPreviewAtDeviceHome,
 	useSetPreviewCaseListRegistrationEntry,
 	useSetPreviewing,
 	useSetPreviewParentCaseRequest,
@@ -177,6 +188,62 @@ const CaseListScreen = dynamic(
 );
 
 export function PreviewShell() {
+	const mode = useEditMode();
+	const platform = usePreviewPlatform();
+	const appName = useAndroidAppName();
+	const { requiredAndroidApps } = useAppSettings();
+	const atDeviceHome = usePreviewAtDeviceHome();
+	const setAtDeviceHome = useSetPreviewAtDeviceHome();
+	const navigate = useNavigate();
+	const installed = usePreviewInstalledAndroidApps();
+	const setInstalled = useSetPreviewAndroidAppInstalled();
+	const missing = missingAndroidApps(platform, requiredAndroidApps, installed);
+	if (mode === "preview" && !atDeviceHome && missing.length) {
+		return (
+			<section
+				className="mx-auto my-8 max-w-sm space-y-3 px-4"
+				aria-labelledby="required-apps-heading"
+			>
+				<h2 id="required-apps-heading" className="text-sm font-medium">
+					Apps needed on this phone
+				</h2>
+				<p className="text-sm text-nova-text-muted">
+					This worker can open the app once these apps are installed. You can
+					add them to the Preview phone.
+				</p>
+				<ol className="space-y-2">
+					{missing.map((app) => (
+						<li
+							className="flex items-center justify-between gap-3 text-sm"
+							key={app}
+						>
+							{appName(app)}
+							<Button
+								variant="outline"
+								aria-label={`Install ${appName(app)} on the Preview phone`}
+								onClick={() => setInstalled(app, true)}
+							>
+								Install in Preview
+							</Button>
+						</li>
+					))}
+				</ol>
+				<Button
+					variant="ghost"
+					onClick={() => {
+						setAtDeviceHome(true);
+						navigate.replace({ kind: "home" });
+					}}
+				>
+					Back to phone home
+				</Button>
+			</section>
+		);
+	}
+	return <BuilderScreens />;
+}
+
+function BuilderScreens() {
 	useEntryPointLaunchLifecycle();
 	const { direction } = useBuilderLanguage();
 	/* ── Location → PreviewScreen adapter ─────────────────────────────
@@ -252,10 +319,26 @@ export function PreviewShell() {
 		setCaseListRegistrationEntry,
 	]);
 
+	const previewDevice = usePreviewDevice();
+	const previewSessionId = usePreviewSessionId();
 	const clearPreviewNavigation = useClearPreviewNavigation();
 	useLayoutEffect(() => {
-		if (mode === "preview" && loc.kind === "home") clearPreviewNavigation();
-	}, [mode, loc.kind, clearPreviewNavigation]);
+		if (mode !== "preview" || loc.kind !== "home") return;
+		// Android's Home keeps the session as it stands, a case a frame left
+		// before its first command included; Web Apps' Home starts fresh.
+		const held =
+			previewPlatformRules(previewDevice.platform).poppedEntrySelections ===
+			"session"
+				? readCurrentPreviewSelections(previewSessionId)?.menu
+				: undefined;
+		clearPreviewNavigation(held);
+	}, [
+		mode,
+		loc.kind,
+		previewDevice.platform,
+		previewSessionId,
+		clearPreviewNavigation,
+	]);
 	/* Each entry records the cases it was shown with; Back or Forward past
 	 * Home puts them back on Web Apps, as a popped address's selections are
 	 * replayed. Before the search arrival, which reads them. */
@@ -331,7 +414,6 @@ export function PreviewShell() {
 	 * provider's (a child's before its parent's), so a language change
 	 * rebuilds the entry once, with the new device's values, and a platform
 	 * change restarts it (`EngineController.setPreviewDevice`). */
-	const previewDevice = usePreviewDevice();
 	const engineController = useBuilderFormEngine();
 	useLayoutEffect(() => {
 		engineController.setPreviewDevice(previewDevice);

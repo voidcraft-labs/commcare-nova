@@ -204,12 +204,38 @@ function editPatchToFieldPatch(
 	const scalarKeys = [
 		"id",
 		"label",
+		"extended_text",
+		"qr_code",
+		"spoken_text",
 		"hint",
 		"help",
 		"required",
 		"relevant",
 		"calculate",
 		"default_value",
+		"inputWidth",
+		"addressLookup",
+		"sendTopics",
+		"receiveFrom",
+		"hintPlacement",
+		"scanOnOpen",
+		"canEditScan",
+		"calendar",
+		"clock",
+		"locationPicker",
+		"captureSource",
+		"overlaySize",
+		"recorder",
+		"pauseRecording",
+		"selectableText",
+		"banner",
+		"compact",
+		"collapse",
+		"border",
+		"itemsPerRow",
+		"repeatsPerRow",
+		"textAlignment",
+		"webSignature",
 	] as const;
 	for (const key of scalarKeys) {
 		const value = updates[key];
@@ -234,6 +260,8 @@ function editPatchToFieldPatch(
 		patch.plainHelp = updates.plain_help === true ? true : null;
 	// The keypad is stored under its own name; null returns the full keyboard.
 	if (updates.keypad !== undefined) patch.keypad = updates.keypad;
+	if (updates.choiceLayout !== undefined)
+		patch.choiceLayout = updates.choiceLayout;
 	// Nested `validate: { expr, msg? }` config. SA passes:
 	//   - object → replace; flatten back to schema's `validate` +
 	//     `validate_msg` keys (msg unset → `null`, which clears it).

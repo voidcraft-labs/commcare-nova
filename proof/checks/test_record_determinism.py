@@ -622,8 +622,11 @@ def _zip_paths(captured):
 
     from proof.hq import operations
 
-    with zipfile.ZipFile(io.BytesIO(operations.upload_field(captured.upload(), "bulk_upload_file"))) as archive:
-        return {CommCareMultimedia.get_form_path(entry) for entry in archive.namelist()}
+    names = set()
+    for request, _ in captured.media_uploads():
+        with zipfile.ZipFile(io.BytesIO(operations.upload_field(request.upload(), "bulk_upload_file"))) as archive:
+            names.update(CommCareMultimedia.get_form_path(entry) for entry in archive.namelist())
+    return names
 
 
 def test_an_admission_record_is_the_archives_whatever_the_runner_admitted_before(core_runner, tmp_path):
@@ -660,7 +663,7 @@ def _matched(media):
 def test_a_create_that_sends_media_maps_it_into_a_the_same_way_in_every_unit(hq, core_runner):
     from proof.hq import operations
 
-    document, name = _cheapest_where(lambda d, n: d.exports[n].content.media is not None, "content sends media")
+    document, name = _cheapest_where(lambda d, n: d.exports[n].content.media_uploads(), "content sends media")
     made = []
     for _ in range(2):
         with _lane_unit(document, name, core_runner) as state:
@@ -668,7 +671,7 @@ def test_a_create_that_sends_media_maps_it_into_a_the_same_way_in_every_unit(hq,
             record = state.create_a(ops, full=False)
             media = record["create"]["media"]
             assert media["refused"] is None and _matched(media), document.id
-            assert _matched(media) <= _zip_paths(document.exports[name].content.media)
+            assert _matched(media) <= _zip_paths(document.exports[name].content)
             # Each file HQ matched names a medium HQ holds: Nova's import carries no map, and the upload writes it.
             assert set(_hq_media(state)) == _matched(media)
             mapped = operations.held_app(state.unit, state.app_id).multimedia_map
@@ -690,20 +693,16 @@ def _held_app(state):
 
 
 @pytest.mark.under_determinism
-def test_b_and_its_recreation_send_the_media_again_and_a_publish_hq_refuses_sends_none(hq, core_runner, tmp_path):
-    """HQ's update keeps the app's map (``overwrite_app_from_source``), and B's upload maps each file to the
-    medium A's upload made, found by its bytes (``CommCareMultimedia.get_by_data``). B recreated for a
-    ``b_aligned`` the store lacks (``_Unit.recreate_b``) is the same app, the version its media save stamps
-    included. Nova sends no media after HQ refused the import (``lib/deployment/service.ts::publishAppToHq``
-    returns the refusal before ``uploadMediaBytes``), so a republish whose import HQ refuses is followed by no
-    media operation: here one carrying no app file (``_handle_import_app`` answers 400)."""
+def test_b_and_its_recreation_keep_the_verified_files_without_another_media_post(hq, core_runner, tmp_path):
+    """An unchanged republish preserves the actual HQ map and files after the import. The replay makes the same
+    state, including its save counter. A refused import prevents every following media operation."""
     document, name = _cheapest_where(
         lambda d, n: (
-            d.exports[n].content.media is not None
+            d.exports[n].content.media_uploads()
             and d.exports[n].republish is not None
-            and d.exports[n].republish.media is not None
+            and not d.exports[n].republish.media_uploads()
         ),
-        "content and republish send media",
+        "content sends media and the unchanged republish verifies it",
     )
     republish = document.exports[name].republish
     body = tmp_path / "refused.body"
@@ -721,10 +720,9 @@ def test_b_and_its_recreation_send_the_media_again_and_a_publish_hq_refuses_send
         recreated = _held_app(state)
         refused_ops = state.ops("refused")
         refused_publish = state.publish_over_a(refused_ops, refused, "B")
-    assert [entry["label"] for entry in ops.log] == ["publish", "media"], document.id
-    assert published["refused"] is None and published.get("media") is not None, document.id
-    assert published["media"]["refused"] is None
-    assert _matched(published["media"]) == _matched(created["media"]) == set(at_a)
+    assert [entry["label"] for entry in ops.log] == ["publish"], document.id
+    assert published["refused"] is None and "media" not in published, document.id
+    assert _matched(created["media"]) == set(at_a)
     assert at_b == at_a
     assert recreated == held_b
     assert refused_publish["refused"] == {
@@ -740,11 +738,11 @@ def test_b_edit_maps_the_media_its_update_adds_over_an_a_that_had_none(hq, core_
     mapped only by the upload its publish sends after the update."""
     document, name = _cheapest_where(
         lambda d, n: (
-            d.exports[n].content.media is None
+            not d.exports[n].content.media_uploads()
             and d.edit is not None
             and n in d.edit.exports
-            and d.edit.exports[n].update.media is not None
-            and _zip_paths(d.edit.exports[n].update.media) - _logo_paths(d.edit.exports[n].update)
+            and d.edit.exports[n].update.media_uploads()
+            and _zip_paths(d.edit.exports[n].update) - _logo_paths(d.edit.exports[n].update)
         ),
         "D' gains media its forms or modules use",
     )
@@ -760,5 +758,5 @@ def test_b_edit_maps_the_media_its_update_adds_over_an_a_that_had_none(hq, core_
     assert published["refused"] is None and published.get("media") is not None, document.id
     assert published["media"]["refused"] is None
     matched = _matched(published["media"])
-    assert matched and matched <= _zip_paths(update.media)
+    assert matched and matched <= _zip_paths(update)
     assert set(at_b_edit) == matched

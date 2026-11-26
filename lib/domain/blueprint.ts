@@ -9,12 +9,13 @@
 
 import { z } from "zod";
 import { automationNestedUuids, automationSchema } from "./automations";
-import { authoredCasePropertyNameSchema } from "./casePropertyName";
+import { readCasePropertyNameSchema } from "./casePropertyName";
 import {
 	type CasePropertyDataType,
 	casePropertyDataTypeSchema,
 	casePropertyDataTypes,
 } from "./casePropertyTypes";
+import { caseRelationSchema } from "./caseRelations";
 import { fieldSchema, isContainer } from "./fields";
 import { formSchema } from "./forms";
 import { appLocalizationSchema } from "./localization";
@@ -29,6 +30,7 @@ import { PLATFORMS } from "./platforms";
 import { catalogProseTemplateSchema } from "./prose";
 import { ownRecordSchema } from "./records";
 import type { ReferenceIndex } from "./referenceIndex";
+import { requiredAndroidAppsSchema } from "./requiredAndroidApps";
 import { personaSchema, userPropertySchema, userTypeSchema } from "./users";
 import { type Uuid, uuidSchema } from "./uuid";
 
@@ -48,7 +50,7 @@ export {
 // Case type schemas — moved verbatim from lib/schemas/blueprint.ts.
 
 export const casePropertySchema = z.strictObject({
-	name: authoredCasePropertyNameSchema,
+	name: readCasePropertyNameSchema,
 	label: catalogProseTemplateSchema,
 	data_type: casePropertyDataTypeSchema.optional(),
 	hint: catalogProseTemplateSchema.optional(),
@@ -64,6 +66,7 @@ export const caseTypeSchema = z.strictObject({
 	name: z.string(),
 	properties: z.array(casePropertySchema),
 	parent_type: z.string().optional(),
+	relations: z.array(caseRelationSchema).min(1).optional(),
 	relationship: z.enum(["child", "extension"]).optional(),
 });
 export type CaseType = z.infer<typeof caseTypeSchema>;
@@ -98,9 +101,14 @@ export const APP_GENESIS_FALLBACK_NAME = "Untitled";
  * `setAppSettings` patches the object.
  */
 export const appSettingsSchema = z.strictObject({
+	captureLocation: z.literal(true).optional(),
+	caseSharing: z.boolean().optional(),
 	showSavedForms: z.boolean(),
 	showIncompleteForms: z.boolean(),
+	firstMenuLayout: z.literal("grid").optional(),
+	formMenuLayout: z.enum(["grid", "individual"]).optional(),
 	runsOnlyOn: z.enum(PLATFORMS).optional(),
+	requiredAndroidApps: requiredAndroidAppsSchema.min(1).optional(),
 });
 export type AppSettings = z.infer<typeof appSettingsSchema>;
 
@@ -112,9 +120,14 @@ export type AppSettings = z.infer<typeof appSettingsSchema>;
  */
 export const appSettingsPatchSchema = z
 	.strictObject({
+		captureLocation: z.boolean().optional(),
+		caseSharing: z.boolean().nullable().optional(),
 		showSavedForms: z.boolean().optional(),
 		showIncompleteForms: z.boolean().optional(),
+		firstMenuLayout: z.literal("grid").nullable().optional(),
+		formMenuLayout: z.enum(["grid", "individual"]).nullable().optional(),
 		runsOnlyOn: z.enum(PLATFORMS).nullable().optional(),
+		requiredAndroidApps: requiredAndroidAppsSchema.optional(),
 	})
 	.refine(
 		(patch) => Object.values(patch).some((value) => value !== undefined),
@@ -278,7 +291,8 @@ export function blueprintTopologyIssues(
 	for (const [moduleUuid, module] of Object.entries(doc.modules)) {
 		if (
 			isOwnerOnlyCaseSearchConfig(module.caseSearchConfig) &&
-			(module.caseListConfig?.searchInputs.length ?? 0) > 0
+			((module.caseListConfig?.searchInputs.length ?? 0) > 0 ||
+				(module.caseListConfig?.searchFilters?.length ?? 0) > 0)
 		) {
 			topologyIssue(
 				issues,

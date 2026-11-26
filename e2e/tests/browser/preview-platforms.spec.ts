@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import type { Locator, Page } from "@playwright/test";
 import { buildUrl } from "@/lib/routing/location";
@@ -108,8 +109,16 @@ async function openScenario(
 ): Promise<Run> {
 	const mediaRequests: string[] = [];
 	await page.route(`${platformsPeer.origin}/api/media/**`, async (route) => {
-		mediaRequests.push(new URL(route.request().url()).pathname);
-		await route.fulfill({ body: PIXEL, contentType: "image/png" });
+		const path = new URL(route.request().url()).pathname;
+		mediaRequests.push(path);
+		if (path.includes(PLATFORM_IDS.menuSound)) {
+			await route.fulfill({
+				body: readFileSync(resolve("lib/media/__tests__/fixtures/tone.wav")),
+				contentType: "audio/wav",
+			});
+		} else {
+			await route.fulfill({ body: PIXEL, contentType: "image/png" });
+		}
 	});
 	await page.setViewportSize({ width: 390, height: 800 });
 	await page.goto(`${platformsPeer.origin}/?scenario=${id}`);
@@ -259,6 +268,180 @@ async function attachOnly(run: Run, label: string) {
 const PREVIEW_PLATFORM_CHECKS: Readonly<
 	Record<PreviewPlatformScenarioId, (page: Page) => Promise<void>>
 > = {
+	async "visit-display-web-apps"(page) {
+		await openScenario(page, "visit-display-web-apps");
+		const question = (id: string) =>
+			page.locator(`[data-instance-path$="/${id}"]`);
+		await expect(question("pin").getByRole("textbox")).toHaveAttribute(
+			"type",
+			"text",
+		);
+		await question("pin").getByRole("textbox").fill("007");
+		/* Web Apps' address search: with no map provider set up, Preview
+		 * makes up no address, and it names what the project space needs. */
+		const address = question("address").getByRole("textbox");
+		await expect(address).toHaveAttribute("readonly", "");
+		await expect(address).toHaveValue("");
+		await expect(question("address")).toContainText(
+			"no map provider is set up",
+		);
+		await expect(question("address")).toContainText("Geocoder plan feature");
+		/* Web Apps ignores a compact group: the hint shows under its label. */
+		await expect(question("people")).toContainText("Count adults and children");
+		await expect(question("place").getByRole("textbox")).toHaveAttribute(
+			"placeholder",
+			"Building name",
+		);
+		await expect(page.getByText("Ask the driver", { exact: true })).toHaveCount(
+			0,
+		);
+		const route = question("route").getByRole("combobox");
+		await route.fill("val");
+		await expect(
+			page.getByRole("option", { name: "North valley" }),
+		).toHaveCount(0);
+		await route.fill("valley");
+		await page.getByRole("option", { name: "Upper valley" }).click();
+		await expect(route).toHaveValue("Upper valley");
+		const market = question("market").getByRole("combobox");
+		await market.fill("Nortt");
+		await page
+			.getByRole("option", { name: "North valley", exact: true })
+			.click();
+		await expect(market).toHaveValue("North valley");
+		const stage = question("stage").getByRole("button");
+		await expect(stage).toContainText("North valley");
+		await stage.click();
+		await expect(stage).toContainText("Upper valley");
+		await expect(question("rating").getByRole("radio")).toHaveCount(3);
+		await expect(
+			question("rating").getByText("North valley", { exact: true }),
+		).toBeVisible();
+		await expect(
+			question("change_day").getByRole("button", {
+				name: "Clear",
+				exact: true,
+			}),
+		).toHaveCount(0);
+		await expect(question("supplies").getByRole("checkbox")).toHaveCount(3);
+		await expect(question("signature_photo").locator("canvas")).toBeVisible();
+		for (const id of ["photo", "voice", "clip"]) {
+			await expect(question(id).locator("input[type=file]")).toHaveCount(1);
+			await expect(
+				question(id).locator("input[type=file][capture]"),
+			).toHaveCount(0);
+		}
+		await expect(question("ready")).toContainText("Ready");
+		await expect(question("absent")).toContainText("Device note");
+		await expect(page.locator("[data-question-banner]")).toHaveCount(0);
+		await expect(question("address_line")).toHaveCount(0);
+		await page.getByRole("button", { name: /Expand.*Visit details/i }).click();
+		await expect(question("address_line").getByRole("textbox")).toBeVisible();
+	},
+	async "visit-display-android"(page) {
+		await openScenario(page, "visit-display-android");
+		const question = (id: string) =>
+			page.locator(`[data-instance-path$="/${id}"]`);
+		await expect(question("pin").locator("input")).toHaveAttribute(
+			"type",
+			"password",
+		);
+		await expect(question("address").locator("input")).toHaveAttribute(
+			"type",
+			"password",
+		);
+		await expect(question("address")).not.toContainText("Geocoder");
+		/* A number question under a compact group: its label's one line
+		 * beside the answer box, with no hint. */
+		const people = question("people");
+		await expect(people.locator("[data-android-compact]")).toHaveCount(1);
+		await expect(people).not.toContainText("Count adults and children");
+		const label = await people
+			.getByText("People at the visit", { exact: true })
+			.boundingBox();
+		const box = await people.locator("input").boundingBox();
+		if (label === null || box === null)
+			throw new Error("Expected the compact question's label and answer box.");
+		expect(box.x).toBeGreaterThan(label.x);
+		expect(
+			Math.abs(box.y + box.height / 2 - (label.y + label.height / 2)),
+		).toBeLessThan(box.height);
+		await expect(question("place").getByRole("textbox")).not.toHaveAttribute(
+			"placeholder",
+			"Building name",
+		);
+		await expect(question("place")).toContainText("Building name");
+		await expect(question("departure")).toContainText("Ask the driver");
+		const short = question("code").getByRole("textbox");
+		await short.focus();
+		await expect(short).toHaveAttribute("enterkeyhint", "next");
+		await short.press("Enter");
+		await expect(question("address_line").getByRole("textbox")).toBeFocused();
+		const route = question("route").getByRole("combobox");
+		await route.fill("val");
+		await expect(
+			page.getByRole("option", { name: "North valley" }),
+		).toBeVisible();
+		await route.fill("beyond all choices");
+		await expect(route).toHaveValue("val");
+		await page.getByRole("option", { name: "North valley" }).click();
+		await expect(route).toHaveValue("North valley");
+		await question("route")
+			.getByRole("button", { name: "Clear", exact: true })
+			.click();
+		await expect(route).toHaveValue("");
+		await expect(question("stage").getByRole("radio")).toHaveCount(3);
+		await expect(question("rating").getByRole("radio")).toHaveCount(3);
+		const tiles = question("rating").getByRole("radio");
+		await expect(tiles.nth(0)).toHaveAccessibleName("North valley");
+		await expect(
+			question("rating").getByText("North valley", { exact: true }),
+		).toHaveCount(0);
+		const calendar = question("change_day");
+		const clearDay = calendar.getByRole("button", {
+			name: "Clear",
+			exact: true,
+		});
+		const dayPicker = calendar.getByRole("button", {
+			name: /^Question \d+\. Change day$/,
+		});
+		await expect(clearDay).toBeEnabled();
+		expect(await answer(page, PLATFORM_IDS.changeDay)).toBe("");
+		await clearDay.click();
+		await expect(clearDay).toBeDisabled();
+		await expect(dayPicker).toHaveText("Pick a date");
+		await dayPicker.press("Enter");
+		await page
+			.getByRole("button", { pressed: false })
+			.filter({ hasText: /^1$/ })
+			.click();
+		await expect(clearDay).toBeEnabled();
+		await expect
+			.poll(() => answer(page, PLATFORM_IDS.changeDay))
+			.toMatch(/^\d{4}-\d{2}-01$/);
+		await clearDay.click();
+		await expect(clearDay).toBeDisabled();
+		await expect.poll(() => answer(page, PLATFORM_IDS.changeDay)).toBe("");
+		await expect(question("signature_photo").locator("canvas")).toHaveCount(0);
+		await expect(page.locator('[data-question-banner="good"]')).toHaveText(
+			"Ready; Check",
+		);
+		await expect(question("absent")).toHaveCount(0);
+		await expect(question("address_line").getByRole("textbox")).toBeVisible();
+		await expect(
+			page.getByRole("button", { name: /Expand.*Visit details/i }),
+		).toHaveCount(0);
+		expect(await answer(page, PLATFORM_IDS.returnDay)).toBe("");
+		await page.getByRole("button", { name: "Next", exact: true }).click();
+		await expect(page.getByText("Review this visit")).toBeVisible();
+		expect(await answer(page, PLATFORM_IDS.changeDay)).toBe("");
+		await expect
+			.poll(() => answer(page, PLATFORM_IDS.returnDay))
+			.toMatch(/^\d{4}-\d{2}-\d{2}$/);
+		await page.getByRole("button", { name: "Back", exact: true }).click();
+		await expect(clearDay).toBeEnabled();
+		expect(await answer(page, PLATFORM_IDS.changeDay)).toBe("");
+	},
 	async "location-map-web-apps"(page) {
 		await openScenario(page, "location-map-web-apps");
 		await expect(
@@ -393,10 +576,11 @@ const PREVIEW_PLATFORM_CHECKS: Readonly<
 	},
 	async "group-label-web-apps"(page) {
 		await openScenario(page, "group-label-web-apps");
-		await expect(
-			page.getByRole("button", { name: /Details/, expanded: true }),
-		).toBeVisible();
+		await expect(page.getByText("Details", { exact: true })).toBeVisible();
 		await expect(page.getByRole("textbox", { name: /Inside/ })).toBeVisible();
+		/* A group is collapsible in Web Apps only where it asks to be
+		 * (`form_ui.js`, `collapsible`), and this one does not. */
+		await expect(page.getByRole("button", { name: /Details/ })).toHaveCount(0);
 	},
 	async "barcode-search-field-web-apps"(page) {
 		await openSearch(page, "web-apps");
@@ -443,6 +627,54 @@ const PREVIEW_PLATFORM_CHECKS: Readonly<
 			.click();
 		await expect(header).toHaveText("Visits (2) > Details");
 	},
+	async "label-texts-android"(page) {
+		/* The browser's speech, recorded: what it was asked to read and when
+		 * it was told to stop. */
+		await page.addInitScript(() => {
+			const calls: string[] = [];
+			Object.defineProperty(window, "speechCalls", { value: calls });
+			Object.defineProperty(window, "SpeechSynthesisUtterance", {
+				configurable: true,
+				value: class extends EventTarget {
+					constructor(readonly text: string) {
+						super();
+					}
+				},
+			});
+			Object.defineProperty(window, "speechSynthesis", {
+				configurable: true,
+				value: {
+					speak(utterance: SpeechSynthesisUtterance) {
+						calls.push(`speak:${utterance.text}`);
+					},
+					cancel() {
+						calls.push("cancel");
+					},
+				},
+			});
+		});
+		const speech = () =>
+			page.evaluate(
+				() => (window as unknown as { speechCalls: string[] }).speechCalls,
+			);
+		await openScenario(page, "label-texts-android");
+		await expect(
+			page.getByText("Full name of the person", { exact: true }),
+		).toBeVisible();
+		await expect(page.locator("[data-label-qr-code]")).toContainText(
+			"household-12",
+		);
+		await page.getByRole("button", { name: /^Read aloud/ }).click();
+		await expect.poll(speech).toEqual(["cancel", "speak:Say the full name"]);
+		/* Web Apps has no speaker button; the reading it started stops with it. */
+		await page.evaluate(() => window.previewPlatforms.setPlatform("web-apps"));
+		await expect(page.getByRole("button", { name: /^Read aloud/ })).toHaveCount(
+			0,
+		);
+		await expect
+			.poll(speech)
+			.toEqual(["cancel", "speak:Say the full name", "cancel"]);
+	},
 	async "label-markdown-android"(page) {
 		await openScenario(page, "label-markdown-android");
 		/* Markwon joins the single newline with a space, drops the raw tag and
@@ -459,6 +691,63 @@ const PREVIEW_PLATFORM_CHECKS: Readonly<
 		await expect(page.getByText("Find a patient")).toHaveCount(0);
 		await expect(page.getByText("Search by name or barcode")).toHaveCount(0);
 		await expect(page.getByText("First or last name")).toHaveCount(0);
+	},
+	async "menu-grid-web-apps"(page) {
+		const run = await openScenario(page, "menu-grid-web-apps");
+		const grid = page.locator('[data-menu-layout="grid"]');
+		const tile = grid.getByRole("button", { name: /^Visits/ });
+		await tile.focus();
+		await expect(tile).toBeFocused();
+		await expect(grid.locator("audio")).toHaveCount(0);
+		expect(
+			run.mediaRequests.some((path) => path.includes(PLATFORM_IDS.menuSound)),
+		).toBe(false);
+	},
+	async "menu-grid-android"(page) {
+		/* Every element the page plays, kept so the test can read it after the
+		 * screen that started it has gone. */
+		await page.addInitScript(() => {
+			const started: HTMLMediaElement[] = [];
+			Object.assign(window, { __startedMedia: started });
+			const play = HTMLMediaElement.prototype.play;
+			HTMLMediaElement.prototype.play = function (this: HTMLMediaElement) {
+				started.push(this);
+				return play.call(this);
+			};
+		});
+		const run = await openScenario(page, "menu-grid-android");
+		const grid = page.locator('[data-menu-layout="grid"]');
+		const tile = grid.getByRole("button", { name: /^Visits/ });
+		await expect(grid.locator("audio")).toHaveAccessibleName("Visits");
+		const heard = () =>
+			page.evaluate(() =>
+				(
+					(window as unknown as { __startedMedia: HTMLMediaElement[] })
+						.__startedMedia ?? []
+				).some(
+					// A player taken out of the page is paused there; one that
+					// keeps playing is still going or has reached its end.
+					(el) => el.played.length > 0 && (!el.paused || el.ended),
+				),
+			);
+		await tile.hover();
+		await page.mouse.down();
+		try {
+			await expect.poll(heard).toBe(true);
+			// The hold alone opens nothing.
+			expect(page.url()).not.toContain(PLATFORM_IDS.module);
+		} finally {
+			await page.mouse.up();
+		}
+		/* Android delivers the tap when the worker lets go of a tile it held,
+		 * so the menu opens while its label keeps playing. This page mounts
+		 * Home alone, so the opening shows as the builder's location moving
+		 * to the menu. */
+		await expect.poll(() => page.url()).toContain(PLATFORM_IDS.module);
+		expect(await heard()).toBe(true);
+		expect(
+			run.mediaRequests.some((path) => path.includes(PLATFORM_IDS.menuSound)),
+		).toBe(true);
 	},
 	async "logo-android"(page) {
 		const run = await openScenario(page, "logo-android");
@@ -583,6 +872,9 @@ const PREVIEW_PLATFORM_CHECKS: Readonly<
 				"Your browser doesn't support camera scanning. You can type the barcode",
 			),
 		).toBeVisible();
+		/* Where the browser cannot scan, typing stands in for the scan. */
+		await page.getByRole("textbox", { name: /Code/ }).fill("BC-8");
+		await expect.poll(() => answer(page, PLATFORM_IDS.code)).toBe("BC-8");
 		await page.addInitScript(() => {
 			Object.defineProperty(window, "BarcodeDetector", {
 				value: class {
@@ -602,8 +894,11 @@ const PREVIEW_PLATFORM_CHECKS: Readonly<
 			page.locator('[data-preview-engine-ready="true"]'),
 		).toBeVisible({ timeout: 20_000 });
 		await expect(page.getByRole("button", { name: /^Scan/ })).toBeVisible();
-		await page.getByRole("textbox", { name: /Code/ }).fill("BC-8");
-		await expect.poll(() => answer(page, PLATFORM_IDS.code)).toBe("BC-8");
+		/* Android takes the scanned text alone: this question does not let the
+		 * worker edit it (`BarcodeWidget.java`, `editable`). */
+		await expect(
+			page.getByRole("textbox", { name: /Code/ }),
+		).not.toBeEditable();
 	},
 	async "form-screens-android"(page) {
 		await openScenario(page, "form-screens-android");
@@ -1015,7 +1310,10 @@ test("in Web Apps a case chosen from the case list entry beside forms shows the 
 		const entry = main.locator("[data-case-list-menu-entry]");
 		await expect(entry).toBeVisible({ timeout: 20_000 });
 		// The entry comes after the menu's forms.
-		const commands = entry.locator("xpath=..").locator(":scope > button");
+		// Each command sits in its own choice beside its spoken label.
+		const commands = entry
+			.locator("xpath=ancestor::*[@data-menu-layout][1]")
+			.locator("[data-menu-choice] > button");
 		await expect(commands.first()).toContainText("Register");
 		await expect(commands.last()).toHaveAttribute("data-case-list-menu-entry");
 		await entry.click();
@@ -1270,6 +1568,12 @@ test("on Android a case-first menu of one form lists that form once the case is 
 	page,
 }) => {
 	try {
+		await page.route("**/nova-icons/record_vitals.png", (route) =>
+			route.fulfill({
+				path: resolve("public/nova-icons/record_vitals.png"),
+				contentType: "image/png",
+			}),
+		);
 		const main = await openNavigation(page, {
 			fixture: "search-first",
 			platform: "android",
@@ -1283,6 +1587,19 @@ test("on Android a case-first menu of one form lists that form once the case is 
 			"Visit",
 		]);
 		await expect(main.getByRole("button", { name: "Finish" })).toHaveCount(0);
+		const grid = main.locator('[data-menu-layout="grid"]');
+		const icon = grid
+			.getByRole("button", { name: "Visit", exact: true })
+			.locator("img");
+		await expect(icon).toHaveAttribute("src", /record_vitals\.png$/);
+		expect(
+			await icon.evaluate(async (image) => {
+				if (!(image instanceof HTMLImageElement))
+					throw new Error("The form command must show an image.");
+				await image.decode();
+				return image.naturalWidth;
+			}),
+		).toBeGreaterThan(0);
 		await main.getByRole("button", { name: "Visit", exact: true }).click();
 		await expect(main.getByRole("textbox", { name: /Note$/ })).toBeVisible({
 			timeout: 20_000,

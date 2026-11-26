@@ -24,6 +24,8 @@ import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
+import { localizationWireFixture } from "@/lib/commcare/__tests__/localizationWireFixture";
+import { expandDoc } from "@/lib/commcare/expander";
 import { identityLookupWireNaming } from "@/lib/commcare/lookup/naming";
 import { readHqApp } from "@/lib/commcare/reader";
 import {
@@ -40,6 +42,7 @@ import {
 import { externalIdentityMap } from "@/lib/commcare/reader/identityMap";
 import { targetWireIdentity } from "@/lib/commcare/wireIdentity";
 import { assertAdmittedDoc } from "@/lib/doc/__tests__/admittedDoc";
+import { caseListRegistrationMutations } from "@/lib/doc/caseListRegistrationForm";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { documentDifferences } from "@/lib/doc/documentDifferences";
 import { parseFormExpressionForSlot } from "@/lib/doc/expressionText";
@@ -49,14 +52,31 @@ import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { admitMutationBatch } from "@/lib/doc/mutationAdmission";
 import type { Mutation } from "@/lib/doc/types";
 import type { Automation, BlueprintDoc, FieldKind, Uuid } from "@/lib/domain";
+import { advancedSearchInputDef } from "@/lib/domain";
+import {
+	dateAdd,
+	double,
+	eq,
+	input,
+	prop,
+	term,
+	today,
+	whenInput,
+} from "@/lib/domain/expression";
 import { formField, isBlank, not } from "@/lib/domain/expression/builders";
 import { mapExpressionAst } from "@/lib/domain/expression/mapAst";
 import type { Expression } from "@/lib/domain/expression/types";
+import { generatedWordingId } from "@/lib/domain/generatedWording";
 import {
 	makeTranslationUnitId,
 	translationSourceFingerprint,
 } from "@/lib/domain/localization";
+import { plainColumn } from "@/lib/domain/modules";
 import { proseText } from "@/lib/domain/prose";
+import {
+	localizeTranslationUnit,
+	snapshotTranslationUnits,
+} from "@/lib/domain/translationUnits";
 import { normalizeHqAppSource } from "../../hqSourceBaseline";
 import {
 	acceptanceInput,
@@ -437,6 +457,7 @@ describe("planHqChanges", { timeout: 30_000 }, () => {
 		const { ref, read } = await readings();
 		expect(
 			planHqChanges({
+				baseMediaFiles: [],
 				reference: reference(ref),
 				now: ref,
 				readings: read,
@@ -448,6 +469,7 @@ describe("planHqChanges", { timeout: 30_000 }, () => {
 	it("answers the change, and what the next publish changes beside it", async () => {
 		const { ref, read } = await readings(menuNamed("Clients"));
 		const plan = planHqChanges({
+			baseMediaFiles: [],
 			reference: reference(ref),
 			now: ref,
 			readings: read,
@@ -473,6 +495,7 @@ describe("planHqChanges", { timeout: 30_000 }, () => {
 		}));
 		expect(read.now.kind).toBe("account");
 		const plan = planHqChanges({
+			baseMediaFiles: [],
 			reference: reference(ref),
 			now: ref,
 			readings: read,
@@ -502,6 +525,7 @@ describe("planHqChanges", { timeout: 30_000 }, () => {
 		if (failed.ok) return;
 		expect(
 			planHqChanges({
+				baseMediaFiles: [],
 				reference: reference(ref),
 				now: ref,
 				readings: read,
@@ -520,6 +544,7 @@ describe("planHqChanges", { timeout: 30_000 }, () => {
 		const elsewhere = runs === "android" ? "web-apps" : "android";
 		expect(
 			planHqChanges({
+				baseMediaFiles: [],
 				reference: reference(ref),
 				now: ref,
 				readings: read,
@@ -532,6 +557,7 @@ describe("planHqChanges", { timeout: 30_000 }, () => {
 		const { ref, read } = await readings();
 		expect(() =>
 			planHqChanges({
+				baseMediaFiles: [],
 				reference: { kind: "nova-updated" } as unknown as ReturnType<
 					typeof reference
 				>,
@@ -763,29 +789,635 @@ describe("a translation whose own text CommCare HQ changed", () => {
 	});
 });
 
+describe("HQ language renames and saved translations", () => {
+	const name = makeTranslationUnitId("app", "name");
+	const fp = (value: string) => translationSourceFingerprint("text", value);
+	function source() {
+		return produce(visits(), (draft) => {
+			draft.appName = "Community clinic";
+			draft.localization = {
+				sourceLanguage: "eng",
+				defaultLanguage: "eng",
+				languageOrder: ["eng", "fra", "project:qaa"],
+				wireCodes: { eng: "en", fra: "fr", "project:qaa": "qaa" },
+				translations: {
+					fra: {
+						[name]: {
+							value: "Clinique",
+							sourceFingerprint: fp("Community clinic"),
+							origin: "human",
+							review: "reviewed",
+							translatedFrom: "eng",
+						},
+					},
+					"project:qaa": {
+						[name]: {
+							value: "Klinik",
+							sourceFingerprint: fp("Clinic"),
+							origin: "ai",
+							review: "needs-review",
+							translatedFrom: "eng",
+						},
+					},
+				},
+			};
+		});
+	}
+	it.each([
+		["eng", "eng"],
+		["fra", "fra"],
+	])(
+		"brings an HQ change of the %s resource code into the same language",
+		async (tag, to) => {
+			const ref = source();
+			const changed = produce(ref, (draft) => {
+				if (draft.localization) draft.localization.wireCodes[tag] = to;
+			});
+			const B = await readingOf(ref, ref);
+			const T = await readingOf(changed, ref);
+			const plan = changesOf(
+				planFromDocuments({
+					ref,
+					now: ref,
+					base: B,
+					theirs: T,
+					renamesSince: [],
+				}),
+			);
+			expect(plan.target.localization).toEqual(changed.localization);
+			expect(plan.batch).toContainEqual({
+				kind: "rebindLanguageCodes",
+				changes: [
+					{ language: tag, from: ref.localization?.wireCodes[tag], to },
+				],
+			});
+			expect(admitted(ref, plan.batch).ok).toBe(true);
+		},
+	);
+	it.each(["keep", "replace", "clear"] as const)(
+		"opens the stale phrase becoming source for a decision and accepts the new review after %s",
+		async (action) => {
+			const ref = produce(source(), (draft) => {
+				const entry = draft.localization?.translations.fra[name];
+				if (!entry) throw Error("Missing French");
+				entry.sourceFingerprint = fp("Clinic");
+				entry.origin = "ai";
+				entry.review = "needs-review";
+			});
+			const B = await readingOf(ref, ref);
+			const T = await readingOf(ref, ref, undefined, (body) => {
+				body.name = "Clinique";
+				body.langs = ["fr", "en", "qaa"];
+				const strings = body.translations as Record<
+					string,
+					Record<string, string>
+				>;
+				for (const lang of ["en", "qaa", "fr"])
+					strings[lang] = {
+						...strings[lang],
+						"app.display.name": lang === "fr" ? "Clinique" : "Community clinic",
+						"homescreen.title": lang === "fr" ? "Clinique" : "Community clinic",
+					};
+			});
+			const input = { ref, base: B, theirs: T, renamesSince: [] };
+			expect(planFromDocuments({ ...input, now: ref })).toMatchObject({
+				kind: "held",
+				reason: "stale-source-translation",
+				translation: { language: { language: "fra" }, unitId: name },
+			});
+			const now = committed(
+				ref,
+				action === "keep"
+					? [
+							{
+								kind: "reviewTranslation",
+								language: "fra",
+								unitId: name,
+								expectedSourceFingerprint: fp("Clinic"),
+								sourceFingerprint: fp("Community clinic"),
+								value: "Clinique",
+							},
+						]
+					: [
+							{
+								kind: "setTranslation",
+								language: "fra",
+								unitId: name,
+								entry:
+									action === "clear"
+										? null
+										: {
+												value: "Clinique locale",
+												origin: "human",
+												review: "reviewed",
+												translatedFrom: "eng",
+												sourceFingerprint: fp("Community clinic"),
+											},
+							},
+						],
+			);
+			const next = changesOf(planFromDocuments({ ...input, now }));
+			expect(next.target.localization?.sourceLanguage).toBe("fra");
+			expect(admitted(now, next.batch).ok).toBe(true);
+		},
+	);
+	it.each([true, false])(
+		"preserves the stale editable translation and the actual HQ worker fallback (old wording explicitly kept %s)",
+		async (keepOld) => {
+			const ref = source();
+			const B = await readingOf(ref, ref);
+			const T = await readingOf(ref, ref, undefined, (body) => {
+				body.name = "Clinique";
+				body.langs = ["fr", "en", "qaa"];
+				const strings = body.translations as Record<
+					string,
+					Record<string, string>
+				>;
+				for (const lang of ["en", "qaa", "fr"])
+					strings[lang] = {
+						...strings[lang],
+						"app.display.name":
+							lang === "fr" || (lang === "qaa" && !keepOld)
+								? "Clinique"
+								: "Community clinic",
+						"homescreen.title":
+							lang === "fr" || (lang === "qaa" && !keepOld)
+								? "Clinique"
+								: "Community clinic",
+					};
+			});
+			const plan = changesOf(
+				planFromDocuments({
+					ref,
+					now: ref,
+					base: B,
+					theirs: T,
+					renamesSince: [],
+				}),
+			);
+			const unit = snapshotTranslationUnits(plan.target).get(name);
+			if (!unit) throw Error("Missing app name");
+			expect(
+				localizeTranslationUnit(plan.target, "project:qaa", unit),
+			).toMatchObject({
+				status: "out-of-date",
+				explicit: ref.localization?.translations["project:qaa"][name],
+				effective: keepOld ? "Community clinic" : "Clinique",
+			});
+			expect(admitted(ref, plan.batch).ok).toBe(true);
+			const read = await readingOf(plan.target, plan.target);
+			expect(
+				read.localization?.translations["project:qaa"][name]?.value ??
+					read.appName,
+			).toBe(keepOld ? "Community clinic" : "Clinique");
+			const reviewed = committed(plan.target, [
+				{
+					kind: "reviewTranslation",
+					language: "project:qaa",
+					unitId: name,
+					expectedSourceFingerprint: fp("Clinic"),
+					sourceFingerprint: unit.sourceFingerprint,
+					value: "Klinik",
+				},
+			]);
+			const restored = localizeTranslationUnit(reviewed, "project:qaa", unit);
+			expect(restored).toMatchObject({
+				status: "ready",
+				effective: "Klinik",
+				explicit: { origin: "ai", review: "reviewed" },
+			});
+			expect(restored.explicit?.workerFallback).toBeUndefined();
+		},
+	);
+});
+it("keeps one column's source and Spanish row wording while its Results cell is hidden through an HQ re-read", async () => {
+	const initial = localizationWireFixture("bilingual");
+	const moduleUuid = initial.moduleOrder[0];
+	const column = initial.modules[moduleUuid].caseListConfig?.columns[0];
+	if (!column) throw Error("The fixture needs a case column");
+	const id = generatedWordingId(
+		column.uuid,
+		"caseRows",
+		makeTranslationUnitId("column", column.uuid, "header"),
+	);
+	const unit = snapshotTranslationUnits(initial).get(id);
+	if (!unit) throw Error("The column needs an owned row label");
+	const entry = {
+		origin: "human",
+		review: "reviewed",
+		translatedFrom: "eng",
+		sourceFingerprint: unit.sourceFingerprint,
+	} as const;
+	const original = committed(initial, [
+		{
+			kind: "addColumn",
+			moduleUuid,
+			column: plainColumn(
+				testUuid("still-visible-name"),
+				"case_name",
+				"Patient",
+			),
+			afterInList: column.uuid,
+			afterInDetail: column.uuid,
+		},
+		{
+			kind: "setTranslation",
+			language: "eng",
+			unitId: id,
+			entry: { ...entry, value: "Priority patient" },
+		},
+	]);
+	const current = snapshotTranslationUnits(original).get(id);
+	if (!current) throw Error("The original needs its generated wording");
+	const given = committed(original, [
+		{
+			kind: "setTranslation",
+			language: "spa",
+			unitId: id,
+			entry: {
+				...entry,
+				sourceFingerprint: current.sourceFingerprint,
+				value: "Paciente prioritario",
+			},
+		},
+	]);
+	const visibility = (visible: boolean): Mutation => ({
+		kind: "updateColumn",
+		moduleUuid,
+		uuid: column.uuid,
+		visibilityPatch: { surface: "list", visible },
+	});
+	const hidden = committed(given, [visibility(false)]);
+	expect(hidden.localization?.generatedSourceWording?.[id]).toEqual(
+		given.localization?.generatedSourceWording?.[id],
+	);
+	expect(hidden.localization?.translations.spa[id]).toEqual(
+		given.localization?.translations.spa[id],
+	);
+	expect(snapshotTranslationUnits(hidden).get(id)?.generated?.dormant).toBe(
+		true,
+	);
+	expect(Object.values(expandDoc(hidden).translations?.en ?? {})).not.toContain(
+		"Priority patient",
+	);
+	const read = await readingOf(hidden, hidden);
+	const changed = committed(hidden, [
+		{ kind: "setAppName", name: "Field visits" },
+	]);
+	const theirs = await readingOf(changed, hidden);
+	const staged = committed(hidden, [
+		{ kind: "setAppName", name: "Unpublished name" },
+		{
+			kind: "setTranslation",
+			language: "eng",
+			unitId: id,
+			entry: {
+				...entry,
+				sourceFingerprint: current.sourceFingerprint,
+				value: "Staged priority",
+			},
+		},
+	]);
+	const plan = changesOf(
+		planFromDocuments({
+			ref: hidden,
+			now: staged,
+			base: read,
+			theirs,
+			renamesSince: [],
+		}),
+	);
+	expect(plan.appliedTo).toBe("published");
+	const taken = committed(staged, plan.batch);
+	const restored = committed(taken, [visibility(true)]);
+	expect(Object.values(expandDoc(restored).translations?.en ?? {})).toContain(
+		"Staged priority",
+	);
+	expect(Object.values(expandDoc(restored).translations?.es ?? {})).toContain(
+		"Paciente prioritario",
+	);
+	const removed = committed(hidden, [
+		{ kind: "removeColumn", moduleUuid, uuid: column.uuid },
+	]);
+	expect(removed.localization?.generatedSourceWording?.[id]).toBeUndefined();
+	expect(removed.localization?.translations.spa[id]).toBeUndefined();
+});
+
+it("retains a search result column's wording across a search being disabled and enabled", () => {
+	const doc = localizationWireFixture("bilingual");
+	const owner = doc.moduleOrder[0];
+	const column = doc.modules[owner].caseListConfig?.columns[0];
+	if (!column) throw Error("The fixture needs a case column");
+	const edit = (enabled: boolean): Mutation => ({
+		kind: "updateModule",
+		uuid: owner,
+		patch: {},
+		caseSearchConfigOperation: enabled ? "enable" : "disable-if-unused",
+	});
+	const withSearch = committed(doc, [edit(true)]);
+	const id = generatedWordingId(
+		column.uuid,
+		"searchRows",
+		makeTranslationUnitId("column", column.uuid, "header"),
+	);
+	const unit = snapshotTranslationUnits(withSearch).get(id);
+	if (!unit) throw Error("Expected a search result label");
+	const entry = {
+		value: "Search priority",
+		origin: "ai",
+		review: "needs-review",
+		sourceFingerprint: unit.sourceFingerprint,
+		translatedFrom: "eng",
+	} as const;
+	const given = committed(withSearch, [
+		{ kind: "setTranslation", language: "spa", unitId: id, entry },
+	]);
+	const disabled = committed(given, [edit(false)]);
+	expect(disabled.localization?.translations.spa[id]).toEqual(entry);
+	expect(
+		Object.values(expandDoc(disabled).translations?.es ?? {}),
+	).not.toContain(entry.value);
+	expect(
+		Object.values(
+			expandDoc(committed(disabled, [edit(true)])).translations?.es ?? {},
+		),
+	).toContain(entry.value);
+});
+
+it("keeps a stale generated draft recoverable when its language becomes the original", () => {
+	const initial = localizationWireFixture("bilingual");
+	const menu = initial.moduleOrder[0],
+		form = initial.formOrder[menu][0];
+	const id = generatedWordingId(form, "submitButton");
+	const set = (doc: BlueprintDoc, language: string, value: string) => {
+		const unit = snapshotTranslationUnits(doc).get(id);
+		if (!unit) throw Error("Missing submit button");
+		return committed(doc, [
+			{
+				kind: "setTranslation",
+				language,
+				unitId: id,
+				entry: {
+					value,
+					sourceFingerprint: unit.sourceFingerprint,
+					origin: "ai",
+					review: "reviewed",
+					translatedFrom: "eng",
+				},
+			},
+		]);
+	};
+	const first = set(initial, "eng", "Complete the visit");
+	const translated = set(first, "spa", "Guardar visita");
+	const changed = set(translated, "eng", "Send the record");
+	const promoted = committed(changed, [
+		{ kind: "rebaseSourceLanguage", from: "eng", to: "spa" },
+	]);
+	const unit = snapshotTranslationUnits(promoted).get(id);
+	if (!unit) throw Error("Missing promoted submit button");
+	const row = localizeTranslationUnit(promoted, "spa", unit);
+	expect(row).toMatchObject({
+		status: "out-of-date",
+		effective: "Submit",
+		explicit: {
+			value: "Guardar visita",
+			origin: "ai",
+			review: "reviewed",
+			workerFallback: { value: "Submit" },
+		},
+	});
+	expect(expandDoc(promoted).translations?.en["forms.m0f0.submit_label"]).toBe(
+		"Send the record",
+	);
+	const kept = committed(promoted, [
+		{
+			kind: "reviewTranslation",
+			language: "spa",
+			unitId: id,
+			value: "Guardar visita",
+			expectedSourceFingerprint: row.explicit?.sourceFingerprint ?? "",
+			sourceFingerprint: row.sourceFingerprint,
+		},
+	]);
+	expect(expandDoc(kept).translations?.es["forms.m0f0.submit_label"]).toBe(
+		"Guardar visita",
+	);
+});
+
+it("retains the reviewed Spanish wording of an unused search guard when Spanish becomes the HQ source", async () => {
+	const initial = localizationWireFixture("prompts");
+	const id = makeTranslationUnitId(
+		"system",
+		"search-validation",
+		"whole-number",
+	);
+	const guard = snapshotTranslationUnits(initial).get(id);
+	if (!guard) throw Error("Missing whole-number guard");
+	const entry = {
+		value: "Un entero, por favor",
+		sourceFingerprint: guard.sourceFingerprint,
+		origin: "human",
+		review: "reviewed",
+		translatedFrom: "eng",
+	} as const;
+	const combinedId = makeTranslationUnitId(
+		"system",
+		"search-validation",
+		"combined:whole-number+quote",
+	);
+	const combined = snapshotTranslationUnits(initial).get(combinedId);
+	if (!combined) throw Error("Missing whole-number and quotation guard");
+	const combinedText = "Indique un entero sin mezclar comillas.";
+	const form = initial.formOrder[initial.moduleOrder[0]][0];
+	const buttonId = makeTranslationUnitId("generated", form, "submitButton");
+	const button = snapshotTranslationUnits(initial).get(buttonId);
+	if (!button) throw Error("Missing form submit control");
+	const oldButton = {
+		...entry,
+		value: "Finish intake",
+		sourceFingerprint: button.sourceFingerprint,
+		origin: "ai",
+		review: "needs-review",
+	} as const;
+	const ref = committed(initial, [
+		{
+			kind: "setTranslation",
+			language: "eng",
+			unitId: buttonId,
+			entry: oldButton,
+		},
+	]);
+	const now = committed(ref, [
+		// A separate wire-visible edit makes this a take over the published
+		// reference. The review reports its loss, while dormant guards survive.
+		{ kind: "setAppName", name: "Unpublished title" },
+		{ kind: "setTranslation", language: "spa", unitId: id, entry },
+		{
+			kind: "setTranslation",
+			language: "spa",
+			unitId: combinedId,
+			entry: {
+				...entry,
+				sourceFingerprint: combined.sourceFingerprint,
+				value: combinedText,
+			},
+		},
+	]);
+	const B = await readingOf(ref, ref);
+	const T = await readingOf(ref, ref, undefined, (body) => {
+		body.name = "Búsqueda";
+		const strings = body.translations as Record<string, Record<string, string>>;
+		strings.en = {
+			...strings.en,
+			"app.display.name": ref.appName,
+			"homescreen.title": ref.appName,
+		};
+	});
+	expect(T.localization?.sourceLanguage).toBe("spa");
+	const plan = changesOf(
+		planFromDocuments({ ref, now, base: B, theirs: T, renamesSince: [] }),
+	);
+	expect(plan.appliedTo).toBe("published");
+	const saved = committed(now, plan.batch);
+	const requiredId = makeTranslationUnitId(
+		"system",
+		"search-required",
+		"default",
+	);
+	const required = ref.localization?.translations.spa[requiredId];
+	expect(required?.value).toBe("Complete esta respuesta antes de buscar.");
+	expect(saved.localization?.generatedSourceWording?.[requiredId]).toEqual(
+		required,
+	);
+	expect(saved.localization?.translations.eng[buttonId]).toEqual(oldButton);
+	expect(localizeTranslationUnit(saved, "eng", button)).toMatchObject({
+		effective: "Finish intake",
+		status: "needs-review",
+	});
+	expect(expandDoc(saved).translations?.en["forms.m0f0.submit_label"]).toBe(
+		"Finish intake",
+	);
+	expect(
+		expandDoc(saved).translations?.es["forms.m0f0.submit_label"],
+	).toBeUndefined();
+	expect(localizeTranslationUnit(saved, "spa", guard)).toMatchObject({
+		effective: entry.value,
+		explicit: entry,
+	});
+	expect(localizeTranslationUnit(saved, "eng", guard).effective).toBe(
+		guard.source,
+	);
+	const months = testUuid("months-since-visit");
+	const printing = committed(saved, [
+		{
+			kind: "addCaseProperty",
+			caseType: "patient",
+			property: {
+				name: "due_date",
+				label: proseText("Due date"),
+				data_type: "date",
+			},
+		},
+		{
+			kind: "addSearchInput",
+			moduleUuid: saved.moduleOrder[0],
+			searchInput: advancedSearchInputDef(
+				months,
+				"months",
+				"Months",
+				"text",
+				whenInput(
+					input(months),
+					eq(
+						prop("patient", "due_date"),
+						dateAdd(today(), "months", double(term(input(months)))),
+					),
+				),
+			),
+		},
+	]);
+	const body = servedExport(printing).body;
+	expect(body.modules).toEqual(
+		expect.arrayContaining([
+			expect.objectContaining({
+				search_config: expect.objectContaining({
+					properties: expect.arrayContaining([
+						expect.objectContaining({
+							name: "months",
+							validations: [
+								expect.objectContaining({
+									text: { en: combined.source, es: combinedText },
+								}),
+							],
+						}),
+					]),
+				}),
+			}),
+		]),
+	);
+	const read = await readingOf(printing, printing);
+	expect(localizeTranslationUnit(read, "spa", combined).effective).toBe(
+		combinedText,
+	);
+	const customized = committed(printing, [
+		{
+			kind: "setTranslation",
+			language: "eng",
+			unitId: combinedId,
+			entry: {
+				...entry,
+				sourceFingerprint: translationSourceFingerprint("text", combinedText),
+				translatedFrom: "spa",
+				value: "Enter an integer without mixing quotation marks.",
+			},
+		},
+	]);
+	const both = await readingOf(customized, customized);
+	expect(localizeTranslationUnit(both, "spa", combined).effective).toBe(
+		combinedText,
+	);
+	expect(localizeTranslationUnit(both, "eng", combined).effective).toBe(
+		"Enter an integer without mixing quotation marks.",
+	);
+});
+
 describe("a new first language in an app with several", () => {
-	it("is held, since no mutation changes the source language there", async () => {
+	it("keeps the incumbent source through a reorder and rebases a change to the app's original wording", async () => {
 		const ref = produce(visits(), (draft) => {
 			draft.localization = {
 				sourceLanguage: "eng",
 				defaultLanguage: "eng",
 				languageOrder: ["eng", "fra"],
 				wireCodes: { eng: "en", fra: "fr" },
-				translations: {},
-			} as BlueprintDoc["localization"];
+				translations: { fra: {} },
+			};
 		});
 		const B = await readingOf(ref, ref);
-		// CommCare HQ's languages page puts French first, which a reading takes as French
-		// being the language the app's own text is written in.
-		const T = produce(B, (draft) => {
-			const localization = draft.localization;
-			if (localization === undefined)
-				throw new Error("The reading holds no languages.");
-			localization.sourceLanguage = "fra" as never;
-			localization.defaultLanguage = "fra" as never;
-			localization.languageOrder = ["fra", "eng"] as never;
+		const reordered = await readingOf(ref, ref, undefined, (body) => {
+			body.langs = ["fr", "en"];
 		});
-		expect(
+		expect(reordered.localization).toMatchObject({
+			defaultLanguage: "fra",
+			sourceLanguage: "eng",
+		});
+		const T = await readingOf(ref, ref, undefined, (body) => {
+			body.langs = ["fr", "en"];
+			const strings = body.translations as Record<
+				string,
+				Record<string, string>
+			>;
+			strings.en = {
+				...strings.en,
+				"app.display.name": ref.appName,
+				"homescreen.title": ref.appName,
+			};
+			body.name = "Tournées";
+		});
+		expect(T.localization).toMatchObject({
+			defaultLanguage: "fra",
+			sourceLanguage: "fra",
+		});
+		const plan = changesOf(
 			planFromDocuments({
 				ref,
 				now: ref,
@@ -793,7 +1425,13 @@ describe("a new first language in an app with several", () => {
 				theirs: T,
 				renamesSince: [],
 			}),
-		).toEqual({ kind: "held", reason: "languages-reordered" });
+		);
+		expect(plan.target.appName).toBe("Tournées");
+		expect(
+			Object.values(plan.target.localization?.translations.eng ?? {}).map(
+				(entry) => entry.value,
+			),
+		).toContain(ref.appName);
 	});
 });
 
@@ -1164,6 +1802,97 @@ describe("a menu or form whose spelling no longer fits the change", () => {
 			[],
 		);
 	}
+
+	it("retains each hidden list action and registration menu title by its surviving owner", async () => {
+		const module = id(CLIENTS),
+			form = id(SIGN_UP);
+		const entry = generatedWordingId(module, "caseListEntry");
+		const action = generatedWordingId(module, "registerButton");
+		const hiddenTitle = generatedWordingId(form, "registrationMenuTitle");
+		const roles = [
+			[entry, "Patient index"],
+			[action, "Enroll patient"],
+			[hiddenTitle, "Worker registration"],
+		] as const;
+		const show: Mutation = {
+			kind: "setCaseListMenuItem",
+			uuid: module,
+			item: {},
+		};
+		const hide: Mutation = {
+			kind: "setCaseListMenuItem",
+			uuid: module,
+			item: null,
+		};
+		const initial = committed(dormant(), [
+			show,
+			{ kind: "addLanguage", language: { language: "spa" }, wireCode: "es" },
+		]);
+		let current = initial;
+		for (const language of ["eng", "spa"]) {
+			const rows = snapshotTranslationUnits(current);
+			current = committed(
+				current,
+				roles.map(([id, text]) => {
+					const unit = rows.get(id);
+					if (!unit || unit.generated?.dormant)
+						throw Error("Expected a visible owned control");
+					return {
+						kind: "setTranslation",
+						language,
+						unitId: id,
+						entry: {
+							value: `${text} ${language}`,
+							origin: "human",
+							review: "reviewed",
+							translatedFrom: "eng",
+							sourceFingerprint: unit.sourceFingerprint,
+						},
+					};
+				}),
+			);
+		}
+		const hidden = committed(current, [
+			hide,
+			...caseListRegistrationMutations(current, module, form, null),
+		]);
+		const body = expandDoc(hidden);
+		for (const [id, text] of roles) {
+			expect(snapshotTranslationUnits(hidden).get(id)?.generated?.dormant).toBe(
+				true,
+			);
+			expect(hidden.localization?.generatedSourceWording?.[id]?.value).toBe(
+				`${text} eng`,
+			);
+			expect(hidden.localization?.translations.spa[id]?.value).toBe(
+				`${text} spa`,
+			);
+			expect(Object.values(body.translations?.en ?? {})).not.toContain(
+				`${text} eng`,
+			);
+		}
+		const remote = committed(hidden, [
+			{ kind: "setAppName", name: "Updated registry" },
+		]);
+		const take = changesOf(await planOf(hidden, remote));
+		const taken = committed(hidden, take.batch);
+		const restored = committed(taken, [
+			show,
+			...caseListRegistrationMutations(taken, module, form, {}),
+		]);
+		const strings = expandDoc(restored).translations;
+		for (const [, text] of roles) {
+			expect(Object.values(strings?.en ?? {})).toContain(`${text} eng`);
+			expect(Object.values(strings?.es ?? {})).toContain(`${text} spa`);
+		}
+		const removed = committed(hidden, [{ kind: "removeModule", uuid: module }]);
+		for (const [id] of roles) {
+			expect(
+				removed.localization?.generatedSourceWording?.[id],
+			).toBeUndefined();
+			expect(removed.localization?.translations.spa[id]).toBeUndefined();
+		}
+	});
 
 	/** The plan, held to its round trip: the change is taken in the reader's spelling of what it
 	 *  touched, the target reads back as CommCare HQ's app does, and nothing outside what

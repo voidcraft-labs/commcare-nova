@@ -1,5 +1,8 @@
+import { workerLookupSchemas } from "@/lib/case-store/sql/compileLookup";
 import type { AppTestScope } from "@/lib/db/appTests";
 import type { Uuid } from "@/lib/domain";
+import { entryDatumCaseId } from "@/lib/domain/entryCaseIdentity";
+import { capturesDeviceLocation } from "@/lib/domain/locationCapture";
 import { afterSubmitFrameLanding, appHomeLanding } from "../afterSubmitRouting";
 import {
 	afterSubmitPath,
@@ -7,8 +10,7 @@ import {
 	completeAfterSubmitWithOwnFrame,
 } from "../afterSubmitStack";
 import {
-	alwaysOfferedRegistrationReturn,
-	caseListRegistrationPostSubmit,
+	caseListActionReturn,
 	registeredCaseOnDevice,
 	selectionsAfterRegistrationReturn,
 } from "../caseListRegistration";
@@ -24,6 +26,11 @@ import {
 import { evaluateForm, evaluatePostSubmission } from "../engine/evaluateForm";
 import type { FormEvaluationContext } from "../engine/formEvaluationTypes";
 import { submittedEntryPath } from "../engine/formLinkEvaluation";
+import {
+	firstMenuSelections,
+	linkedFirstMenuCases,
+	moduleFirstMenuCases,
+} from "../engine/frameLanding";
 import type { AppTestContext } from "./context";
 import { appTestDataRefusal } from "./dataRefusal";
 import { AppTestActionError, expectedAppTestRefusal } from "./errors";
@@ -61,7 +68,7 @@ export async function submitAppTest(
 			answers: [],
 			searchAnswers: screen.searchAnswers,
 		},
-		formContext,
+		{ ...formContext, submitting: true },
 	);
 	if (!evaluated.valid || !evaluated.submission)
 		return {
@@ -70,7 +77,12 @@ export async function submitAppTest(
 			effects: undefined,
 			validation: evaluated.fields,
 		};
-	const mutation = evaluated.submission;
+	const mutation =
+		state.locationFix !== undefined &&
+		context.rules.automaticLocation &&
+		capturesDeviceLocation(context.doc, context.doc.forms[screen.formUuid])
+			? { ...evaluated.submission, locationFix: state.locationFix }
+			: evaluated.submission;
 	const projection = validateCaptureSubmissionProjection(mutation);
 	if (projection.attachmentRefs.length > 0)
 		throw new AppTestActionError(
@@ -88,12 +100,8 @@ export async function submitAppTest(
 			actorId: scope.actorUserId,
 			role: scope.role,
 		},
-		lookupTableSchemas: new Map(
-			context.lookup.definitions.map((table) => [
-				table.id,
-				new Map(table.columns.map((column) => [column.id, column.dataType])),
-			]),
-		),
+		testWorkerGroups: context.workerGroups,
+		lookupTableSchemas: workerLookupSchemas(scope.projectId, context.lookup),
 		mutation,
 		projection,
 		/* The places of the test's own snapshot, which the form read. An
@@ -140,63 +148,38 @@ export async function submitAppTest(
 				: (state.selections[moduleUuid]?.cases.map((row) => row.caseId) ?? []),
 	});
 	try {
-		const registrationReturn =
-			mutation.kind === "registration"
-				? caseListRegistrationPostSubmit(context.doc, screen.formUuid)
-				: undefined;
-		if (registrationReturn) {
-			/* The return frame is pushed and opens like any other frame, so
-			 * what was pending stays only while the worker is still on its
-			 * path. */
-			const afterSubmitStack = completeAfterSubmitWithOwnFrame(
-				state.afterSubmitStack,
-				submittedPath,
-				registrationReturn === "firstMenu"
-					? []
-					: afterSubmitPath(context.doc, { moduleUuid: screen.moduleUuid }, []),
-				context.rules.afterSubmitFrames,
-			);
-			return {
-				state: {
-					...state,
-					deviceCases,
-					afterSubmitStack,
-					history: [],
-					screen:
-						registrationReturn === "firstMenu"
-							? { kind: "home" as const }
-							: {
-									kind: "records" as const,
-									moduleUuid: screen.moduleUuid,
-									searchAnswers: screen.searchAnswers,
-									registeredCaseId: result.primaryCaseIds[0],
-								},
-				},
-				identity,
-				effects: result,
-				validation: undefined,
-			};
-		}
-		/* A form the record list always offers, opened from its Register
-		 * action, returns where that list's frame lands, as the browser's form
-		 * does (`alwaysOfferedRegistrationReturn`); its own after-submit, or
-		 * an opening any other way, routes as any form does. */
 		const launch = screen.caseListRegistrationLaunch;
 		const hostCaseType =
 			launch === undefined
 				? undefined
 				: context.doc.modules[launch.hostModuleUuid]?.caseType;
+		const slot =
+			launch &&
+			context.doc.modules[launch.hostModuleUuid]?.caseListRegistrationForm;
+		const target = slot?.kind === "always" ? slot.target : undefined;
+		const operation =
+			target?.kind === "created-case"
+				? target.operationUuid
+				: context.doc.forms[screen.formUuid]?.caseOperations?.find(
+						(op) => op.action === "own",
+					)?.uuid;
+		const entryKey =
+			operation === undefined
+				? undefined
+				: built.program?.entryCaseKeys?.get(operation);
+		const registeredCaseId =
+			entryKey === undefined
+				? undefined
+				: entryDatumCaseId(scope.appId, screen.entry.entryKey, entryKey);
 		const createdCase =
-			mutation.kind === "registration" &&
-			launch !== undefined &&
-			result.primaryCaseIds[0] !== undefined
+			registeredCaseId !== undefined && launch !== undefined
 				? registeredCaseOnDevice(
 						result.caseDatabasePatch,
-						result.primaryCaseIds[0],
+						registeredCaseId,
 						hostCaseType,
 					)
 				: undefined;
-		const registrationLanding = alwaysOfferedRegistrationReturn(
+		const registrationLanding = caseListActionReturn(
 			context.doc,
 			screen.formUuid,
 			launch,
@@ -209,6 +192,22 @@ export async function submitAppTest(
 				launch.hostModuleUuid,
 				hostCaseType ?? "",
 				createdCase,
+				context.doc.modules[screen.moduleUuid]?.caseType
+					? {
+							caseType: context.doc.modules[screen.moduleUuid].caseType ?? "",
+							cases: screen.caseIds.map((caseId) => ({ caseId })),
+						}
+					: undefined,
+				(operationUuid, caseType) => {
+					const key = built.program?.entryCaseKeys?.get(operationUuid);
+					return key === undefined || screen.entry === undefined
+						? undefined
+						: registeredCaseOnDevice(
+								result.caseDatabasePatch,
+								entryDatumCaseId(scope.appId, screen.entry.entryKey, key),
+								caseType,
+							);
+				},
 			);
 			const landingScreen = registrationLanding.screen;
 			const afterSubmitStack = completeAfterSubmitWithOwnFrame(
@@ -233,8 +232,6 @@ export async function submitAppTest(
 			 * landing's own list is that read; a menu the frame passes
 			 * through on its way holds it as the screen Back returns to,
 			 * which its forms read what the search found from. */
-			const registeredCaseId =
-				mutation.kind === "registration" ? result.primaryCaseIds[0] : undefined;
 			const keyedRecords = (
 				moduleUuid: Uuid,
 				caseId: string,
@@ -252,6 +249,9 @@ export async function submitAppTest(
 						searchAnswers: searched.searchAnswers,
 					}),
 					registeredCaseId: caseId,
+					...(registrationLanding.endsOnSearchOf === moduleUuid && {
+						listsNoRow: true as const,
+					}),
 				};
 			};
 			const keyed =
@@ -260,9 +260,15 @@ export async function submitAppTest(
 					: registrationLanding.newCaseSearchModuleUuids.map((moduleUuid) =>
 							keyedRecords(moduleUuid, registeredCaseId),
 						);
+			const home = firstMenuSelections(
+				registrationLanding.firstMenuCases,
+				selections,
+				context.rules,
+			);
 			const returned: AppTestSessionState = {
 				...state,
-				selections,
+				selections:
+					landingScreen.kind === "first-menu" ? (home ?? {}) : selections,
 				deviceCases,
 				afterSubmitStack,
 				history: [],
@@ -286,9 +292,14 @@ export async function submitAppTest(
 			return {
 				state: {
 					...returned,
-					history: keyed
-						.filter((records) => records !== keyedLanding)
-						.map((records) => appTestHistoryEntry(records, selections)),
+					history: [
+						...(home && landing.kind !== "home"
+							? [appTestHistoryEntry({ kind: "home" }, home)]
+							: []),
+						...keyed
+							.filter((records) => records !== keyedLanding)
+							.map((records) => appTestHistoryEntry(records, selections)),
+					],
 					screen: landing,
 				},
 				identity,
@@ -313,7 +324,10 @@ export async function submitAppTest(
 					? { ...cases, locations: formContext.cases.locations }
 					: cases,
 				lookup: context.lookup,
-				session: { appId: scope.appId, menuSelections: state.selections },
+				session: {
+					appId: scope.appId,
+					menuSelections: launch?.selections ?? state.selections,
+				},
 				...(formContext.searchResults === undefined
 					? {}
 					: { searchResults: formContext.searchResults }),
@@ -347,6 +361,27 @@ export async function submitAppTest(
 		/* The back stack records destinations; Back opens a fresh entry,
 		 * which takes its own search results. */
 		const { searchResults: _taken, ...retiredScreen } = screen;
+		const home =
+			next.route.kind === "module" || next.route.kind === "form"
+				? firstMenuSelections(
+						linkedFirstMenuCases(next.route.caseSelections),
+						next.selections,
+						context.rules,
+					)
+				: next.route.kind === "post-submit" &&
+						next.route.destination === "module"
+					? firstMenuSelections(
+							moduleFirstMenuCases(context.doc, screen.moduleUuid),
+							next.selections,
+							context.rules,
+						)
+					: undefined;
+		const linkedHistory = home
+			? [appTestHistoryEntry({ kind: "home" }, home)]
+			: [
+					...state.history,
+					appTestHistoryEntry(retiredScreen, state.selections),
+				];
 		let nextState: AppTestSessionState = {
 			...state,
 			selections: next.selections,
@@ -429,6 +464,7 @@ export async function submitAppTest(
 					case "module":
 						nextState = {
 							...nextState,
+							...(home && { history: linkedHistory }),
 							screen: enterAppTestMenu(
 								{ ...context, identity },
 								nextState,
@@ -446,10 +482,7 @@ export async function submitAppTest(
 						nextState,
 						next.route.moduleUuid,
 					),
-					history: [
-						...state.history,
-						appTestHistoryEntry(retiredScreen, state.selections),
-					],
+					history: linkedHistory,
 				};
 				break;
 			case "form": {
@@ -467,10 +500,7 @@ export async function submitAppTest(
 						caseIds: ids,
 						entryCases: cases,
 					},
-					history: [
-						...state.history,
-						appTestHistoryEntry(retiredScreen, state.selections),
-					],
+					history: linkedHistory,
 				};
 				break;
 			}

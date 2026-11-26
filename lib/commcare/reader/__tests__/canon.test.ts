@@ -1,3 +1,5 @@
+import { connectWireFixtures } from "../../__tests__/connectWireFixtures";
+
 /**
  * The canonical form of a document, and the pairs its rows name.
  *
@@ -42,6 +44,7 @@ import {
 	read as readField,
 	U,
 } from "@/lib/commcare/__tests__/advancedPlacementFixture";
+import { caseListActionRolesFixture } from "@/lib/commcare/__tests__/caseListActionRolesFixture";
 import { caseOperationFixture } from "@/lib/commcare/__tests__/caseOperationFixture";
 import { manifestFor } from "@/lib/commcare/__tests__/compilerEvidence";
 import { localizationWireFixture } from "@/lib/commcare/__tests__/localizationWireFixture";
@@ -61,6 +64,7 @@ import {
 	type Column,
 	type Expression,
 	intervalColumn,
+	type LanguageTag,
 	makeTranslationUnitId,
 	plainColumn,
 	proseText,
@@ -90,6 +94,7 @@ import {
 	term,
 	whenInput,
 } from "@/lib/domain/expression/builders";
+import { generatedWordingId } from "@/lib/domain/generatedWording";
 import {
 	type CaseSearchConfig,
 	calculatedColumn,
@@ -269,6 +274,83 @@ function fieldNamed(doc: BlueprintDoc, id: string): Record<string, unknown> {
 /** A one-form survey with French beside English, holding a menu name's
  *  translation from a model that wants review, a form name's translation
  *  equal to its source, and an app name's translation of an older source. */
+/** An app whose French name is held twice over: the app name's translation, and the same words
+ *  as the name's own wording on phones. Its export writes both strings alike. */
+function appNameHeldTwice(): BlueprintDoc {
+	const doc = buildDoc({
+		modules: [
+			{
+				name: "Clients",
+				forms: [
+					{
+						name: "Visit",
+						type: "survey",
+						fields: [f({ kind: "text", id: "a", label: "A" })],
+					},
+				],
+			},
+		],
+	});
+	const entry = {
+		value: "Une clinique",
+		sourceFingerprint: translationSourceFingerprint("text", doc.appName),
+		origin: "human" as const,
+		review: "reviewed" as const,
+		translatedFrom: "eng" as LanguageTag,
+	};
+	return produce(doc, (draft) => {
+		draft.localization = {
+			sourceLanguage: "eng",
+			defaultLanguage: "eng",
+			languageOrder: ["eng", "fra"],
+			wireCodes: { eng: "en", fra: "fr" },
+			translations: {
+				fra: {
+					[makeTranslationUnitId("app", "name")]: entry,
+					[generatedWordingId("app", "appDisplayName")]: entry,
+				},
+			},
+		} as never;
+	});
+}
+
+/** An app whose name's own wording on the home screen, in the source language, is fingerprinted
+ *  against itself rather than against the name it overrides. */
+function sourceWordingAgainstItself(): BlueprintDoc {
+	const doc = buildDoc({
+		modules: [
+			{
+				name: "Clients",
+				forms: [
+					{
+						name: "Visit",
+						type: "survey",
+						fields: [f({ kind: "text", id: "a", label: "A" })],
+					},
+				],
+			},
+		],
+	});
+	return produce(doc, (draft) => {
+		draft.localization = {
+			sourceLanguage: "eng",
+			defaultLanguage: "eng",
+			languageOrder: ["eng"],
+			wireCodes: { eng: "en" },
+			translations: {},
+			generatedSourceWording: {
+				[generatedWordingId("app", "homescreenTitle")]: {
+					value: "Home",
+					sourceFingerprint: translationSourceFingerprint("text", "Home"),
+					origin: "human",
+					review: "reviewed",
+					translatedFrom: "eng",
+				},
+			},
+		} as never;
+	});
+}
+
 function localized(): BlueprintDoc {
 	const doc = buildDoc({
 		modules: [
@@ -679,6 +761,29 @@ function tileCells(tiled: boolean): BlueprintDoc {
 	);
 }
 
+/** A visit menu whose own tile is kept above its forms, beside another visit menu's tile expanded
+ *  there with no fallback line, as `formContextPatch` once kept it; where `sourceShowsNoDetail`,
+ *  the source menu shows no field in Details, so this menu's own Details are the expanded ones. */
+function ownTileBesideExpandedMenuTile(
+	sourceShowsNoDetail: boolean,
+): BlueprintDoc {
+	return produce(tileFixture("persistent-external"), (draft) => {
+		const own = Object.values(draft.modules).find(
+			(module) => module.caseListConfig?.contextAboveForm?.kind === "menu-tile",
+		);
+		const config = own?.caseListConfig;
+		const context = config?.contextAboveForm;
+		if (config?.tile === undefined || context?.kind !== "menu-tile")
+			throw new Error("The fixture shows another menu's tile above forms.");
+		delete context.expression;
+		config.tile.persistOnForms = true;
+		const source = draft.modules[context.moduleUuid]?.caseListConfig;
+		if (sourceShowsNoDetail)
+			for (const column of source?.columns ?? [])
+				column.visibleInDetail = false;
+	});
+}
+
 /** A follow-up of a menu of patients whose own arm changes nothing, beside an update of the
  *  session's case that writes a computed score: both print the block the own arm prints. */
 function updateBesideBareOwn(): BlueprintDoc {
@@ -773,6 +878,20 @@ function profileWithout(files: Map<string, string>, key: string): unknown[] {
 
 const PAIRS: readonly Pair[] = [
 	{
+		id: "connect-requires-app-location",
+		name: "an ordinary app-wide location choice kept while Connect is on",
+		other: () => {
+			const fixture = connectWireFixtures().find(
+				({ name }) => name === "deliver-default",
+			);
+			if (!fixture) throw new Error("Missing delivery app.");
+			return {
+				...fixture.doc,
+				appSettings: { ...fixture.doc.appSettings, captureLocation: true },
+			};
+		},
+	},
+	{
 		id: "root-question-lists-are-sections",
 		name: "a root of one question list with no condition",
 		other: () =>
@@ -795,6 +914,18 @@ const PAIRS: readonly Pair[] = [
 		id: "translation-equal-to-source-is-absent",
 		name: "a form name's translation equal to its source",
 		other: localized,
+	},
+	{
+		id: "generated-wording-fingerprint-as-read",
+		name: "a home screen title's own wording fingerprinted against itself",
+		other: sourceWordingAgainstItself,
+		afterEarlierRows: true,
+	},
+	{
+		id: "app-name-strings-as-read",
+		name: "an app name translated and also worded alike on phones",
+		other: appNameHeldTwice,
+		afterEarlierRows: true,
 	},
 	{
 		id: "plain-flag-on-blank-text-is-absent",
@@ -875,6 +1006,11 @@ const PAIRS: readonly Pair[] = [
 		id: "out-of-date-translation-is-absent",
 		name: "an app name's translation of an older source",
 		other: localized,
+	},
+	{
+		id: "parent-follow-ups-return-to-the-list",
+		name: "a list action opening the selected parent's follow-up, storing the return to the new case",
+		other: () => caseListActionRolesFixture(),
 	},
 	{
 		id: "blank-optional-text-is-absent",
@@ -1233,6 +1369,39 @@ const PAIRS: readonly Pair[] = [
 			}),
 	},
 	{
+		id: "search-field-conditions-reading-no-field-are-the-search-s",
+		name: "two advanced fields' conditions each holding a conjunct that reads no field, after a list filter",
+		other: () =>
+			patients([plainColumn(uuid(1), "case_name", "Name")], {
+				searchInputs: [
+					{
+						uuid: uuid(8),
+						name: "number",
+						label: "Number",
+						kind: "advanced",
+						type: "text",
+						predicate: and(
+							whenInput(
+								input(uuid(8)),
+								eq(prop("patient", "phone"), input(uuid(8))),
+							),
+							eq(prop("patient", "notes"), term(literal("x"))),
+						),
+					},
+					{
+						uuid: uuid(9),
+						name: "note",
+						label: "Note",
+						kind: "advanced",
+						type: "text",
+						predicate: eq(prop("patient", "notes"), term(literal("y"))),
+					},
+				],
+				search: {},
+				list: { filter: eq(prop("patient", "phone"), term(literal("z"))) },
+			}),
+	},
+	{
 		id: "calculated-attribute-columns-are-plain",
 		name: "a calculated column that reads the case's id alone",
 		other: () =>
@@ -1285,6 +1454,18 @@ const PAIRS: readonly Pair[] = [
 		name: "a tile cell on a column hidden from Results in a tile list",
 		other: () => tileCells(true),
 	},
+	{
+		id: "tile-switches-off-are-absent",
+		name: "case detail tile cells whose border is switched off",
+		other: () => tileFixture("detail-layout"),
+	},
+	...[false, true].map((sourceShowsNoDetail) => ({
+		id: "own-tile-persistence-beside-an-expanded-menu-tile-is-absent",
+		name: sourceShowsNoDetail
+			? "an own tile kept above forms beside another menu's expanded tile whose menu shows no field in Details"
+			: "an own tile kept above forms beside another menu's expanded tile",
+		other: () => ownTileBesideExpandedMenuTile(sourceShowsNoDetail),
+	})),
 	{
 		id: "match-all-list-filter-is-absent",
 		name: "a list filter that simplifies to match-all",
@@ -2236,6 +2417,14 @@ describe("a read back of Nova's export", () => {
 		[
 			"a sorted column hidden from Results and from Details under its own header, over a property another column shows",
 			() => hiddenColumnHeadedApart(true),
+		],
+		[
+			"an own tile kept above forms beside another menu's expanded tile",
+			() => ownTileBesideExpandedMenuTile(false),
+		],
+		[
+			"an own tile kept above forms beside another menu's expanded tile whose menu shows no field in Details",
+			() => ownTileBesideExpandedMenuTile(true),
 		],
 		// A declared type no export carries, which the reading is told.
 		...PAIRS.filter((pair) => TOLD_TYPES.includes(pair.name)).map(

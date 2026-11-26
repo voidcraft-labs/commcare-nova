@@ -982,7 +982,7 @@ export class Accounting implements ClaimLedger {
 	}
 
 	/**
-	 * Applies, by entry id, a further class of a key `claimEntry` already claims
+	 * Applies, by entry id, a further class of a key the cursor or `claimEntry` already claims
 	 * at the node under another entry: a value that holds the key in several
 	 * classes (a search row, whose every text HQ's search parses on its own) is
 	 * a use in each, recorded beside the first. The entry is answered as
@@ -998,7 +998,10 @@ export class Accounting implements ClaimLedger {
 		const ledgerSite = this.#site(site);
 		if (ledgerSite === undefined) return;
 		const state = this.#state(ledgerSite);
-		const first = state.entries?.get(key);
+		// A key the node's `take` declared is claimed there as one claimed by entry.
+		const first =
+			state.entries?.get(key) ??
+			(state.declaredKey === key ? state.declared : undefined);
 		const entry = this.#index.entry(entryId);
 		const registered = claimNameForEntry(entryId);
 		if (

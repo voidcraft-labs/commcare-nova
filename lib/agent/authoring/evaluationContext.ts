@@ -1,3 +1,5 @@
+import { uuidSchema as workerUuidSchema } from "@/lib/domain/uuid";
+import { lookupAgentScope } from "../tools/shared/lookupScope";
 import "server-only";
 import { getAuthDb } from "@/lib/auth/db";
 import { roleAllowsApp } from "@/lib/auth/projectRoles";
@@ -10,11 +12,13 @@ import {
 import { resolveAppScope } from "@/lib/db/appAccess";
 import { projectRoleFor } from "@/lib/db/projectMembership";
 import { previewProjectSpaceFor } from "@/lib/deployment/previewSpace";
+import { readWorkerLookupProjection } from "@/lib/deployment/workerLookupProjection";
 import { extractLookupReferenceTargets } from "@/lib/doc/lookupReferences";
 import {
 	type BlueprintDoc,
 	moduleFormsReadSearch,
 	moduleUuidOfForm,
+	type SearchInputDef,
 	type Uuid,
 } from "@/lib/domain";
 import {
@@ -22,15 +26,19 @@ import {
 	resolveAppLanguage,
 } from "@/lib/domain/localization";
 import { declaredPlatforms, type Platform } from "@/lib/domain/platforms";
-import { getLookupFixtureData, getLookupManifest } from "@/lib/lookup/service";
+import { LookupError } from "@/lib/lookup/errors";
 import { viewerTimeZone } from "@/lib/preview/engine/caseDataBindingClient";
 import { previewDataRefusalSubject } from "@/lib/preview/engine/dataRefusal";
+import { dateRangeInputErrors } from "@/lib/preview/engine/dateRangeInputValidation";
 import { FormEvaluationInputError } from "@/lib/preview/engine/evaluateForm";
 import {
 	type EvaluationScenario,
 	evaluationScenarioCases,
 } from "@/lib/preview/engine/evaluationScenario";
-import { appReadsPlaces } from "@/lib/preview/engine/expressionCaseReads";
+import {
+	appReadsPlaces,
+	appReadsWorkerGroups,
+} from "@/lib/preview/engine/expressionCaseReads";
 import type { FormEvaluationContext } from "@/lib/preview/engine/formEvaluationTypes";
 import {
 	previewAsMe,
@@ -42,8 +50,13 @@ import {
 	previewAppLanguage,
 	serverPreviewDevice,
 } from "@/lib/preview/engine/previewDevice";
-import { resolveRestoreScope } from "@/lib/preview/engine/restoreScope";
-import { openSearchRunState } from "@/lib/preview/engine/searchRunState";
+import {
+	openSearchRunState,
+	searchForBlankAnswerRefusal,
+	searchInputAnswerKeys,
+	undrawnSearchAnswerRefusal,
+	withHiddenValues,
+} from "@/lib/preview/engine/searchRunState";
 import { serverPreviewDataRefusalOf } from "@/lib/preview/engine/serverDataRefusal";
 import {
 	serverRecordsRead,
@@ -51,14 +64,16 @@ import {
 } from "@/lib/preview/engine/serverSearchRead";
 import { SurfacedDataRefusal } from "@/lib/preview/engine/surfacedDataRefusal";
 import { workerLocationFixture } from "@/lib/preview/engine/workerLocationFixture";
+import { readPreviewLookup } from "@/lib/preview/engine/workerLookupScope";
 import {
 	type CaseDatabaseSnapshot,
 	formReadsSearchResults,
-	type SearchResultsSnapshot,
+	formReadsSearchScore,
 } from "@/lib/preview/engine/xpathInstances";
 import {
 	effectivePreviewPlatform,
 	platformUnavailableSentence,
+	previewPlatformRules,
 } from "@/lib/preview/platform";
 import { dataRefusalCopy } from "@/lib/preview/runtimeMessages";
 import type { ToolInvocationContext } from "../workspace/types";
@@ -147,19 +162,44 @@ export async function loadFormEvaluationContext(
 		ctx.appId && scenario === undefined
 			? await withProjectContext(ctx.projectId, ctx.userId, identity.ownerId)
 			: undefined;
-	const restoreScope =
-		ctx.appId && store
-			? await resolveRestoreScope({
-					appId: ctx.appId,
-					identity,
-					blueprint: doc,
-				})
-			: undefined;
+	const tableIds = extractLookupReferenceTargets(doc).tableIds;
+	const needsGroups = appReadsWorkerGroups(doc);
+	const scope = { projectId: ctx.projectId, actorId: ctx.userId, role };
+	const { workerData, lookup } = await (async () => {
+		const workerData =
+			ctx.appId && (tableIds.length || store || needsGroups)
+				? await readWorkerLookupProjection(
+						{
+							scope: {
+								appId: ctx.appId,
+								projectId: ctx.projectId,
+								actorUserId: ctx.userId,
+							},
+							grant: ctx.dataGrant ?? {
+								kind: "architect",
+								authority: lookupAgentScope(ctx),
+							},
+							personaUuid: workerUuidSchema.optional().parse(personaUuid),
+						},
+						tableIds,
+						Boolean(store) || needsGroups,
+					)
+				: undefined;
+		const lookup = workerData ?? (await readPreviewLookup(scope, tableIds));
+		return { workerData, lookup };
+	})().catch((error: unknown) => {
+		if (error instanceof LookupError && error.code === "storage_limit")
+			throw new FormEvaluationInputError(error.message);
+		throw error;
+	});
+	const restoreScope = workerData?.groupScope;
 	if (ctx.appId && store && restoreScope)
 		cases = await store.readDeviceCaseDatabase({
 			appId: ctx.appId,
 			restoreScope,
 		});
+	if (restoreScope && needsGroups)
+		cases = { ...cases, workerGroups: restoreScope.groups };
 	// The places are the organization's, real in a scenario as lookup data
 	// is, and loaded for an app whose forms read them, as Preview loads them.
 	if (ctx.appId && appReadsPlaces(doc))
@@ -171,23 +211,12 @@ export async function loadFormEvaluationContext(
 				identity.personaUuid,
 			),
 		};
-	const tableIds = extractLookupReferenceTargets(doc).tableIds;
-	const scope = { projectId: ctx.projectId, actorId: ctx.userId, role };
-	const manifest = await getLookupManifest(scope);
-	const requested = new Set<string>(tableIds);
-	const bytes = manifest.tables
-		.filter((table) => requested.has(table.id))
-		.reduce((sum, table) => sum + table.dataBytes, 0);
-	if (bytes > 32 * 1024 * 1024)
-		throw new FormEvaluationInputError(
-			"The referenced lookup data exceeds the evaluation size limit.",
-		);
-	const lookup = await getLookupFixtureData(scope, tableIds);
-	const searchResults =
+	const search =
 		form === undefined
-			? undefined
-			: await formSearchResults(doc, form, {
+			? {}
+			: await formSearchContext(doc, form, {
 					appId: ctx.appId ?? undefined,
+					projectId: ctx.projectId,
 					identity,
 					device,
 					cases,
@@ -196,38 +225,91 @@ export async function loadFormEvaluationContext(
 					restoreScope,
 					scenario: scenario !== undefined,
 				});
-	const searchAnswers =
-		form === undefined
-			? undefined
-			: formsReadSearchFormAnswers(doc, form, {
-					identity,
-					device,
-					cases,
-					lookup,
-				});
 	await authorize();
 	return {
 		identity,
 		device,
 		cases,
 		lookup,
-		...(searchAnswers === undefined ? {} : { searchAnswers }),
+		...search,
 		// The entry's `uuid()` datums are minted in this app; the check runs
 		// outside any menu, so no case was chosen before the form.
 		...(!ctx.appId
 			? {}
 			: { session: { appId: ctx.appId, menuSelections: {} } }),
-		...(searchResults === undefined ? {} : { searchResults }),
 	};
 }
 
+/** Only a worker's public endpoints belong in an author-supplied range. A
+ * completed query has its own trusted answer representation. */
+function checkSuppliedSearchAnswers(
+	form: EvaluatedForm,
+	fields: readonly SearchInputDef[],
+	device: FormEvaluationContext["device"],
+): void {
+	if (!form.searchAnswers) return;
+	const values = new Map<string, string>();
+	for (const { name, value } of form.searchAnswers) {
+		if (values.has(name))
+			throw new FormEvaluationInputError(
+				`Supply each Search answer once. ${name} appears more than once.`,
+			);
+		values.set(name, value);
+	}
+	const rangeNames = new Set(
+		fields
+			.filter((field) => field.kind !== "hidden" && field.type === "date-range")
+			.map((field) => field.name),
+	);
+	if (
+		[...values.keys()].some(
+			(name) => /:(starting|opening)$/.test(name) || rangeNames.has(name),
+		)
+	)
+		throw new FormEvaluationInputError(
+			"For a date range, supply each endpoint once as name:from and name:to.",
+		);
+	const hiddenNames = new Set(
+		fields.filter((field) => field.kind === "hidden").map(({ name }) => name),
+	);
+	const allowed = searchInputAnswerKeys(fields);
+	const rules = previewPlatformRules(device.platform);
+	for (const [key, value] of values) {
+		const blankRefusal = searchForBlankAnswerRefusal(fields, rules, key, value);
+		if (blankRefusal !== undefined)
+			throw new FormEvaluationInputError(blankRefusal);
+		const undrawn = undrawnSearchAnswerRefusal(fields, rules, key);
+		if (undrawn !== undefined) throw new FormEvaluationInputError(undrawn);
+		if (hiddenNames.has(key))
+			throw new FormEvaluationInputError(
+				`Search answer ${key} is a hidden value: the search works it out when the worker searches, and the form reads that value. Leave it out of searchAnswers.`,
+			);
+		if (!allowed.has(key))
+			throw new FormEvaluationInputError(
+				`Search answer ${key} is unavailable. Use a visible Search field name or its two date endpoints.`,
+			);
+	}
+	for (const name of rangeNames) {
+		if (values.has(`${name}:from`) !== values.has(`${name}:to`))
+			throw new FormEvaluationInputError(
+				`For ${name}, supply both ${name}:from and ${name}:to, or leave both out.`,
+			);
+	}
+	const [error] = dateRangeInputErrors(fields, values).values();
+	if (error)
+		throw new FormEvaluationInputError(
+			`${error}. Supply both dates as YYYY-MM-DD, with the start on or before the end.`,
+		);
+}
+
 /**
- * The Search answers a form of a menu whose forms read the search reads when
- * the check supplies none: each Search field's starting value, as the Search
- * screen fills its prompts and as Web Apps rebuilds a form opened with no
- * search behind it (`RemoteQuerySessionManager.initUserAnswers`). Supplied
- * answers are the evaluated form's own (`FormEvaluationInput.searchAnswers`),
- * and a form of any other module reads none.
+ * The Search answers a form of a menu whose forms read the search reads: the
+ * answers the check supplies (`FormEvaluationInput.searchAnswers`), or, where
+ * it supplies none, each Search field's starting value, as the Search screen
+ * fills its prompts and as Web Apps rebuilds a form opened with no search
+ * behind it (`RemoteQuerySessionManager.initUserAnswers`). Either way each
+ * hidden value is the one the search works out, which no worker answers. A
+ * form of any other module reads none.
  */
 export function formsReadSearchFormAnswers(
 	doc: BlueprintDoc,
@@ -239,6 +321,11 @@ export function formsReadSearchFormAnswers(
 ): readonly { name: string; value: string }[] | undefined {
 	const moduleUuid = moduleUuidOfForm(doc, form.formUuid);
 	const module = moduleUuid === undefined ? undefined : doc.modules[moduleUuid];
+	checkSuppliedSearchAnswers(
+		form,
+		module?.caseListConfig?.searchInputs ?? [],
+		world.device,
+	);
 	if (
 		moduleUuid === undefined ||
 		module === undefined ||
@@ -255,8 +342,9 @@ export function formsReadSearchFormAnswers(
 	 * only to the case list filter and an advanced field's condition), so
 	 * the screen opens over no case list step's datums. */
 	let defaults: ReturnType<typeof openSearchRunState>["defaults"];
+	let hidden: ReturnType<typeof openSearchRunState>["defaults"];
 	try {
-		defaults = openSearchRunState(
+		const opened = openSearchRunState(
 			moduleUuid,
 			module.caseListConfig?.searchInputs ?? [],
 			previewSessionValues(world.identity, world.device),
@@ -266,7 +354,12 @@ export function formsReadSearchFormAnswers(
 				lookup: previewLookupData(world.lookup),
 				caseDatabase: world.cases,
 			},
-		).defaults;
+		);
+		defaults = opened.defaults;
+		/* The device seeds each hidden prompt's value as it builds the Search
+		 * screen (`RemoteQuerySessionManager.initUserAnswers`), so the form
+		 * reads it whatever the worker answered. */
+		hidden = opened.resolveHidden();
 	} catch (error) {
 		throw searchRefusalInputError(
 			error,
@@ -277,8 +370,14 @@ export function formsReadSearchFormAnswers(
 			world.lookup,
 		);
 	}
-	if (form.searchAnswers !== undefined) return undefined;
-	return [...defaults].map(([name, value]) => ({ name, value }));
+	const answered =
+		form.searchAnswers === undefined
+			? defaults
+			: new Map(form.searchAnswers.map(({ name, value }) => [name, value]));
+	return [...withHiddenValues(answered, hidden)].map(([name, value]) => ({
+		name,
+		value,
+	}));
 }
 
 /**
@@ -313,11 +412,12 @@ function searchRefusalInputError(
  * capped as Preview's read is (`serverSearchRead.ts`). A device reaches such a
  * form only through that search, so a form that does not read it needs none.
  */
-export async function formSearchResults(
+export async function formSearchContext(
 	doc: BlueprintDoc,
 	form: EvaluatedForm,
 	world: {
 		readonly appId: string | undefined;
+		readonly projectId: string;
 		readonly identity: FormEvaluationContext["identity"];
 		readonly device: FormEvaluationContext["device"];
 		readonly cases: CaseDatabaseSnapshot;
@@ -326,16 +426,23 @@ export async function formSearchResults(
 		readonly restoreScope: RestoreScope | undefined;
 		readonly scenario: boolean;
 	},
-): Promise<SearchResultsSnapshot | undefined> {
+): Promise<Pick<FormEvaluationContext, "searchAnswers" | "searchResults">> {
 	const moduleUuid = moduleUuidOfForm(doc, form.formUuid);
 	const module = moduleUuid === undefined ? undefined : doc.modules[moduleUuid];
 	if (
 		moduleUuid === undefined ||
-		module === undefined ||
+		!module ||
 		!moduleFormsReadSearch(module) ||
 		!formReadsSearchResults(doc, form.formUuid)
-	)
-		return undefined;
+	) {
+		const searchAnswers = formsReadSearchFormAnswers(doc, form, world);
+		return searchAnswers === undefined ? {} : { searchAnswers };
+	}
+	checkSuppliedSearchAnswers(
+		form,
+		module.caseListConfig?.searchInputs ?? [],
+		world.device,
+	);
 	if (world.scenario)
 		throw new FormEvaluationInputError(
 			"This form reads what its module's search found, and test records give the search nothing to run over. Leave out the scenario to search the app's records, or start an app test that runs the search before opening the form.",
@@ -344,6 +451,7 @@ export async function formSearchResults(
 		doc: { ...doc, caseTypes: doc.caseTypes ?? [] },
 		language: resolveAppLanguage(doc.localization, form.language),
 		appId: world.appId ?? doc.appId,
+		projectId: world.projectId,
 		identity: world.identity,
 		device: world.device,
 		deviceCases: world.cases,
@@ -373,44 +481,47 @@ export async function formSearchResults(
 			);
 		}
 	};
-	/* The search screen first, as the worker reaches it: a Search action its
-	 * display condition hides is one the worker never runs, so there is no
-	 * search for the form to read, whatever answers are supplied. */
-	const opened = await refusing(() =>
+	// A single query manager supplies both its submitted answers and its
+	// Results. An automatic search keeps Core's initial answers; a visible
+	// screen sends what its worker can see and change.
+	const { search, read, refusal } = await refusing(() =>
 		serverRecordsRead(
 			searchWorld,
 			{
 				moduleUuid,
-				...(form.searchAnswers === undefined
-					? {}
-					: { submitted: form.searchAnswers }),
+				completeForForm: true,
+				answers: form.searchAnswers,
 			},
 			refuse,
 		),
 	);
-	if (!opened.search.relevant)
+	if (!search.relevant)
 		throw new FormEvaluationInputError(
-			"This form reads what its module's search found, but the module's Search action is hidden for this worker: its display condition is false here, so the worker never runs the search and the form cannot open. Check the form as a worker the Search action shows for (personaUuid), or change the Search action's display condition so this worker sees it.",
+			"This form reads what its module's search found, but the module's Search action is hidden for this worker. You can choose a worker who sees Search or change its display condition.",
 		);
-	const { search, read, refusal } =
-		form.searchAnswers === undefined
-			? await refusing(() =>
-					serverRecordsRead(searchWorld, { moduleUuid, answers: [] }, refuse),
-				)
-			: opened;
 	const [firstError] = Object.values(search.errors);
 	if (firstError !== undefined)
 		throw new FormEvaluationInputError(
 			`The search before this form did not pass its checks: ${firstError} Supply searchAnswers the search accepts.`,
 		);
 	if (refusal !== undefined) throw new FormEvaluationInputError(refusal);
+	if (!search.hasSubmitted || search.submitted === undefined)
+		throw new FormEvaluationInputError(
+			"The search before this form did not complete. Supply answers for each of its required inputs.",
+		);
 	/* An unpublished workspace has no records, so its search finds none. */
-	if (world.store === undefined) return { rows: [], totalMatches: 0 };
+	if (world.store === undefined)
+		return {
+			searchAnswers: search.submitted,
+			searchResults: { rows: [], totalMatches: 0 },
+		};
 	const { store } = world;
-	const found = await refusing(() => serverSearchResults(store, read));
+	const found = await refusing(() =>
+		serverSearchResults(store, read, formReadsSearchScore(doc, form.formUuid)),
+	);
 	if (found === undefined)
 		throw new FormEvaluationInputError(
 			"The search before this form did not complete. Supply searchAnswers for each of its required inputs.",
 		);
-	return found;
+	return { searchAnswers: search.submitted, searchResults: found };
 }

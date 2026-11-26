@@ -157,6 +157,27 @@ describe("previewSearchState", () => {
 		expect(noMatchesActionAvailable(registered)).toBe(false);
 	});
 
+	it("lists no row where the return frame ends on the search, the door still closed", () => {
+		const searched: PreviewSearchState = {
+			kind: "completed",
+			attempt: 1,
+			submission: "s1",
+			answers,
+			matchCount: 0,
+		};
+		const registered = recordRegisteredCase(searched, "case-new", true, false);
+		expect(registered).toEqual({
+			kind: "completed",
+			attempt: 1,
+			submission: "s1",
+			answers,
+			matchCount: 1,
+			registeredCaseId: "case-new",
+			listsNoRow: true,
+		});
+		expect(noMatchesActionAvailable(registered)).toBe(false);
+	});
+
 	it("records a registration with no search context as a fresh completed attempt", () => {
 		expect(recordRegisteredCase(undefined, "case-new")).toEqual({
 			kind: "completed",

@@ -44,8 +44,11 @@ import {
 	type ExpressionReading,
 	readExpressionsSteps,
 } from "./expressions";
-import { EXPRESSION_CLAIMS } from "./expressions/findings";
-import { slotForm } from "./expressions/readExpression";
+import {
+	classifiedInstanceId,
+	EXPRESSION_CLAIMS,
+} from "./expressions/findings";
+import { slotForm, suiteReadSources } from "./expressions/readExpression";
 import {
 	instanceIdsRead,
 	unreadDeclarationUse,
@@ -59,6 +62,7 @@ import {
 import { appPlace, whereText } from "./place";
 import { searchRowUserFields } from "./search";
 import { refusedInstanceNameOf } from "./search/settings";
+import { sourceFormExpression } from "./syntaxCompare";
 import { worldEntitiesFromReads } from "./worldEntities";
 import { type DraftField, expressionEnvOf, type ReadXForm } from "./xform";
 import { registerAttributeUses } from "./xform/attributeUses";
@@ -218,6 +222,7 @@ function documentFromDrafts(ctx: ReadContext): BlueprintDoc {
 	const present = new Map(menus.map((module) => [module.uuid, module]));
 	for (const module of menus) {
 		const { parentModuleUuid, ...own } = module.module;
+		if (own.formsFromMenu) delete own.caseType;
 		/* A parent the document does not hold, or one that has a parent of its
 		 * own, stands under its own finding; the child is a root here. */
 		const parent =
@@ -266,6 +271,7 @@ function documentFromDrafts(ctx: ReadContext): BlueprintDoc {
 			? {}
 			: { localization: draft.localization }),
 		appSettings: {
+			...draft.appSettings,
 			showSavedForms:
 				draft.appSettings.showSavedForms ?? NEW_APP_SETTINGS.showSavedForms,
 			showIncompleteForms:
@@ -476,6 +482,7 @@ function claimDeclarations(ctx: ReadContext, reading: ExpressionReading): void {
 	const heldByForm = new Map<string, number[]>();
 	const refusedByForm = new Map<string, number[]>();
 	pending.forEach((registration, at) => {
+		if (registration.mode.target !== "xform") return;
 		const owner = slotForm(reading.doc, registration.ref);
 		if (owner === undefined) return;
 		const byForm = reading.bound[at] === undefined ? refusedByForm : heldByForm;
@@ -512,16 +519,16 @@ function claimDeclarations(ctx: ReadContext, reading: ExpressionReading): void {
 		for (const form of module.forms) {
 			const xform = form.xform;
 			if (xform === null) continue;
-			const ids = new Set<string>();
-			const held = heldByForm.get(form.uuid) ?? [];
-			for (const at of held)
-				for (const id of instanceIdsRead(pending[at]?.text ?? "")) ids.add(id);
-			const readClaims = held
-				.flatMap((at) => claimsBySource.get(at) ?? [])
-				.sort((a, b) => a - b)
-				.map((position) => reading.claims[position] as ExpressionClaim);
+			const readsById = new Map<string, number[]>();
+			for (const at of heldByForm.get(form.uuid) ?? []) {
+				for (const id of new Set(instanceIdsRead(pending[at]?.text ?? ""))) {
+					const registrations = readsById.get(id) ?? [];
+					registrations.push(at);
+					readsById.set(id, registrations);
+				}
+			}
 			const where = whereText(form.place);
-			let droppedFixture = false;
+			const droppedFixtures: [string, string][] = [];
 			for (const [id, src] of xform.instanceSources) {
 				const declaration = xform.parsed.instances.find(
 					(instance) => instance.id === id,
@@ -530,7 +537,7 @@ function claimDeclarations(ctx: ReadContext, reading: ExpressionReading): void {
 				const unread = unreadDeclarationUse(src);
 				const key = unread.key;
 				// A table only a choice list's itemset reads is that carrier's read.
-				if (!ids.has(id) && xform.carrierInstances.has(id)) {
+				if (!readsById.has(id) && xform.carrierInstances.has(id)) {
 					for (const one of declarationSites(declaration.element, key))
 						claimExpressionEntry(
 							ctx,
@@ -541,7 +548,7 @@ function claimDeclarations(ctx: ReadContext, reading: ExpressionReading): void {
 						);
 					continue;
 				}
-				if (!ids.has(id)) {
+				if (!readsById.has(id)) {
 					const claim = unreadAt
 						.get(JSON.stringify([key, where, unread.entryId]))
 						?.shift();
@@ -563,13 +570,21 @@ function claimDeclarations(ctx: ReadContext, reading: ExpressionReading): void {
 							form.place,
 							claim.detail,
 						);
-					if (claim.entryId === UNSERVED_MAYBE) droppedFixture = true;
+					if (claim.entryId === UNSERVED_MAYBE) droppedFixtures.push([id, src]);
 					continue;
 				}
-				const read = readClaims.find(
-					(claim) =>
-						index.entry(claim.entryId)?.surfaceKeys.includes(key) === true,
-				);
+				const scheme = classifiedInstanceId(id, src)?.split(":")[0];
+				// Several fixtures can appear in one expression. Each declaration takes
+				// the claim of its own read, including which kind of fixture supplied it.
+				const relevant = (readsById.get(id) ?? [])
+					.flatMap((at) => claimsBySource.get(at) ?? [])
+					.map((at) => reading.claims[at] as ExpressionClaim)
+					.filter((claim) =>
+						index.entry(claim.entryId)?.surfaceKeys.includes(key),
+					);
+				const read =
+					relevant.find((claim) => claim.key === `instance-scheme:${scheme}`) ??
+					relevant[0];
 				if (read === undefined) continue;
 				const standing = index.entry(read.entryId)?.standing;
 				if (
@@ -598,7 +613,8 @@ function claimDeclarations(ctx: ReadContext, reading: ExpressionReading): void {
 				for (const one of declarationSites(declaration.element, key))
 					ctx.accounting.cover(one.site, finding);
 			}
-			if (droppedFixture) recordDroppedFixtures(ctx, form);
+			if (droppedFixtures.length)
+				recordDroppedFixtures(ctx, form, droppedFixtures);
 		}
 }
 
@@ -618,6 +634,7 @@ const UNSERVED_MAYBE =
 function recordDroppedFixtures(
 	ctx: ReadContext,
 	form: ReadContext["draft"]["modules"][number]["forms"][number],
+	removedInputs: readonly (readonly [string, string])[],
 ): void {
 	const readId =
 		ctx.input.source.modules[form.menu]?.forms[form.index]?.readUniqueId;
@@ -625,6 +642,7 @@ function recordDroppedFixtures(
 		entry: UNSERVED_MAYBE,
 		path: `/_attachments/${pointerToken(`${readId ?? form.xmlns}.xml`)}`,
 		register: "unread-fixture-declarations-dropped",
+		removedInputs,
 	});
 }
 
@@ -674,6 +692,11 @@ export function settleDeferredRefusal(
 	DEFERRED.get(ctx)?.delete(index);
 	if (instead === undefined) for (const step of steps) step();
 	else ctx.accounting.cover(ctx.pending.site(index).at, instead);
+}
+
+/** Its registrar accepted a different, fully projected interpretation of the same source site. */
+export function replaceDeferredRefusal(ctx: ReadContext, index: number): void {
+	DEFERRED.get(ctx)?.delete(index);
 }
 
 /** Applies every refusal still waiting for its registrar, as the expression stage made it. */
@@ -887,7 +910,11 @@ function readsOfRefusedInlineInstances(
 	const under = new Map<number, Finding>();
 	if (refusedByForm.size === 0) return under;
 	ctx.pending.list().forEach((registration, index) => {
-		if (reading.bound[index] !== undefined) return;
+		if (
+			registration.mode.target !== "xform" ||
+			reading.bound[index] !== undefined
+		)
+			return;
 		const owner = slotForm(reading.doc, registration.ref);
 		const refused = owner === undefined ? undefined : refusedByForm.get(owner);
 		if (refused === undefined) return;
@@ -934,6 +961,13 @@ export function applyExpressionReading(
 	};
 	for (const claim of reading.claims) {
 		if (claim.source < 0) continue;
+		// A tree a registrar's own read claims (`PendingExpression.readerClaimed`) takes no claim
+		// of the stage at its node; where the stage held no tree, its claims are why, and stand.
+		if (
+			pending[claim.source]?.readerClaimed === true &&
+			reading.bound[claim.source] !== undefined
+		)
+			continue;
 		apply(claim.source, () =>
 			applyExpressionClaim(ctx, claim, ctx.pending.site(claim.source).at),
 		);
@@ -949,6 +983,34 @@ export function applyExpressionReading(
 		);
 	for (const [source, finding] of underInline)
 		ctx.accounting.cover(ctx.pending.site(source).at, finding);
+	// A tree a registrar's own read claims holds its slot only once the stage binds it: one the
+	// stage held no tree for and named no reason for is the reader's own gap, never a slot kept
+	// at its placeholder with nothing said (a bring-in would propose content it lost).
+	pending.forEach((registration, index) => {
+		if (
+			registration.readerClaimed !== true ||
+			reading.bound[index] !== undefined ||
+			underInline.has(index) ||
+			reading.claims.some(
+				(claim) =>
+					claim.source === index &&
+					(claim.handOff ?? claim.refusal?.handOff) !== undefined,
+			) ||
+			findingAtOrAbove(ctx.accounting.findings(), registration.place) !==
+				undefined
+		)
+			return;
+		applyExpressionCircumstance(
+			ctx,
+			{
+				source: index,
+				code: "unrecognized",
+				place: registration.place,
+				detail: { name: registration.key, reason: "unknown-reason" },
+			},
+			ctx.pending.site(index).at,
+		);
+	});
 	DEFERRED.set(ctx, deferred);
 	for (const at of reading.ownerless) {
 		const registration = pending[at];
@@ -982,10 +1044,16 @@ export function applyExpressionReading(
 			});
 	for (const { source, ...rewrite } of reading.rewrites) {
 		const at = ctx.pending.site(source).at;
+		const registration = ctx.pending.list()[source];
 		ctx.facts.rewrites.push(
 			"json" in at
 				? { ...rewrite, pointer: `${at.json.pointer}/${pointerToken(at.key)}` }
-				: rewrite,
+				: registration.mode.target === "xform"
+					? {
+							...rewrite,
+							formExpression: sourceFormExpression(registration.text),
+						}
+					: rewrite,
 		);
 	}
 	ctx.facts.expressionRounds = reading.rounds;
@@ -1031,6 +1099,16 @@ export function* bindExpressionsSteps(
 	const env = expressionEnvOf(ctx);
 	const pending = ctx.pending.list();
 	const firstDoc = provisionalDocument(ctx);
+	// Validate the source suite slot once. Reprinted candidate expressions
+	// below do not run in the working HQ app.
+	for (const slot of pending) {
+		if (slot.usesOnly || slot.mode.target !== "hq-json") continue;
+		suiteReadSources(firstDoc, slot, env, (name) =>
+			ctx.accounting.circumstance("unbuildable-data-source-name", slot.place, {
+				name,
+			}),
+		);
+	}
 	yield;
 	const first = yield* readExpressionsSteps(firstDoc, pending, env);
 	yield;

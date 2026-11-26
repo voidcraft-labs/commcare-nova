@@ -85,6 +85,8 @@ export const SHARED_TOOL_PRESENTATION = {
 	createLookupTable: change("Creating data table", "Created data table"),
 	updateLookupTable: change("Updating data table", "Updated data table"),
 	editLookupColumns: change("Updating table columns", "Updated table columns"),
+	getWorkerGroups: read("Reading worker groups", "Read worker groups"),
+	editWorkerGroup: change("Updating worker group", "Updated worker group"),
 	editLookupRows: change("Updating table rows", "Updated table rows"),
 	replaceLookupRows: change("Replacing table rows", "Replaced table rows"),
 	removeLookupTable: change("Removing data table", "Removed data table"),
@@ -117,6 +119,14 @@ export const SHARED_TOOL_PRESENTATION = {
 		"Checked answers and proposed record values. No records were submitted; navigation and additional record operations were not checked.",
 	),
 	getForm: read("Inspecting a form", "Inspected a form"),
+	getPreviewSearchSettings: read(
+		"Reading Preview search and map settings",
+		"Read Preview search and map settings",
+	),
+	setPreviewSearchSettings: change(
+		"Recording Preview search and map settings",
+		"Recorded Preview search and map settings",
+	),
 	startAppTest: {
 		kind: "activity",
 		doing: "Starting a test journey",
@@ -217,10 +227,12 @@ export const SHARED_TOOL_PRESENTATION = {
 		"Reordering search fields",
 		"Reordered search fields",
 	),
+	editSearchFilter: change("Updating search filter", "Updated search filter"),
 	setCaseListFilter: change(
 		"Updating available cases",
 		"Updated available cases",
 	),
+	setCaseDetailTabs: change("Updating Details tabs", "Updated Details tabs"),
 	setCaseListTile: change("Updating record tiles", "Updated record tiles"),
 	updateCaseListColumn: change("Updating column", "Updated column"),
 	updateSearchInput: change("Updating search field", "Updated search field"),

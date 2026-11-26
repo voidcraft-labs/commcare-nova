@@ -350,7 +350,7 @@ describe("preview case-search expression evaluation", () => {
 		).toBe("owner-");
 	});
 
-	it("resolves scalar defaults while date-range inputs have no default slot", () => {
+	it("reads scalar and paired defaults together in the worker session", () => {
 		const defaults = resolveSearchInputDefaults(
 			[
 				simpleSearchInputDef(
@@ -367,6 +367,12 @@ describe("preview case-search expression evaluation", () => {
 					"Visit date",
 					"date-range",
 					"visit_date",
+					{
+						default: concat(
+							term(literal("__range__2024-03-10__")),
+							term(literal("2024-03-11")),
+						),
+					},
 				),
 			],
 			SESSION,
@@ -374,6 +380,8 @@ describe("preview case-search expression evaluation", () => {
 
 		expect(Object.fromEntries(defaults)).toEqual({
 			worker: "worker-42",
+			"visit_date:from": "2024-03-10",
+			"visit_date:to": "2024-03-11",
 		});
 	});
 

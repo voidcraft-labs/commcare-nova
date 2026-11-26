@@ -23,7 +23,12 @@ export function calculatedAttributeField(
 	column: Column,
 	caseType: string | undefined,
 ): string | undefined {
-	if (column.kind !== "calculated" || column.expression.kind !== "term")
+	if (
+		column.kind !== "calculated" ||
+		column.showAs !== undefined ||
+		column.texts !== undefined ||
+		column.expression.kind !== "term"
+	)
 		return undefined;
 	const read = column.expression.term;
 	return read.kind === "prop" &&

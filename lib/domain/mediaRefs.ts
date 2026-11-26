@@ -35,15 +35,17 @@
 
 import { produce } from "immer";
 import type { BlueprintDoc, PersistableDoc } from "./blueprint";
-import {
-	type FormIconRef,
-	type IconRef,
-	isBuiltinIconRef,
-	type ModuleIconRef,
-} from "./builtinIcons";
+import { type IconRef, isBuiltinIconRef } from "./builtinIcons";
 import { type Field, isContainer } from "./fields";
 import { caseListColumnTextShows } from "./modules";
-import type { Media, MediaAssetId } from "./multimedia";
+import {
+	MEDIA_ROLE_KIND,
+	MEDIA_ROLES,
+	type Media,
+	type MediaAssetId,
+	type MediaRole,
+} from "./multimedia";
+import type { NavigationMedia } from "./navigationMedia";
 import type { Uuid } from "./uuid";
 
 /**
@@ -58,14 +60,11 @@ import type { Uuid } from "./uuid";
 export type MediaSlotKind = "image" | "audio" | "video";
 
 /**
- * The Media bundle's three slot keys; their order is also the order
- * the walker emits per-bundle references.
+ * The Media bundle's role keys (`MEDIA_ROLES`); their order is also the
+ * order the walker emits per-bundle references. A role's slot expects the
+ * kind `MEDIA_ROLE_KIND` names: an inline video is a video.
  */
-const MEDIA_BUNDLE_KEYS: ReadonlyArray<MediaSlotKind> = [
-	"image",
-	"audio",
-	"video",
-];
+const MEDIA_BUNDLE_KEYS: ReadonlyArray<MediaRole> = MEDIA_ROLES;
 
 /**
  * Which field-level Media bundle a reference came from. Mirrors the
@@ -85,7 +84,10 @@ export type FieldMediaBundleKey = "label_media" | "help_media";
  * the slot mechanic is the same across them and the bundleKey
  * already encodes the message-slot identity.
  */
-export type MediaRefLocation =
+export type MediaRefLocation = {
+	readonly language?: string;
+	readonly formerLanguage?: true;
+} & (
 	| { readonly kind: "app_logo" }
 	| {
 			readonly kind: "module_icon";
@@ -160,7 +162,8 @@ export type MediaRefLocation =
 			readonly columnHeader: string;
 			readonly rowIndex: number;
 			readonly rowValue: string;
-	  };
+	  }
+);
 
 /**
  * One media reference site: the asset it points at, the slot kind
@@ -176,7 +179,46 @@ export type MediaRefLocation =
 export interface AssetRef {
 	readonly assetId: IconRef;
 	readonly slotKind: MediaSlotKind;
+	/** The role a field's or a choice's `Media` bundle holds it in, where it
+	 *  sits in one: the slot's key, which `slotKind` alone does not name
+	 *  (an inline video and a video are both videos). */
+	readonly role?: MediaRole;
 	readonly location: MediaRefLocation;
+}
+
+function* menuFiles(
+	carrier: NavigationMedia | undefined,
+	icon: MediaRefLocation,
+	audio: MediaRefLocation,
+): Generator<AssetRef> {
+	if (!carrier) return;
+	if (carrier.icon)
+		yield { assetId: carrier.icon, slotKind: "image", location: icon };
+	if (carrier.audioLabel)
+		yield { assetId: carrier.audioLabel, slotKind: "audio", location: audio };
+	for (const [rows, formerLanguage] of [
+		[carrier.mediaByLanguage, false],
+		[carrier.mediaByFormerCode, true],
+	] as const) {
+		for (const [language, slots] of Object.entries(rows ?? {})) {
+			const place = {
+				language,
+				...(formerLanguage && { formerLanguage: true as const }),
+			};
+			if (slots.icon && slots.icon !== "blank")
+				yield {
+					assetId: slots.icon,
+					slotKind: "image",
+					location: { ...icon, ...place },
+				};
+			if (slots.audioLabel && slots.audioLabel !== "blank")
+				yield {
+					assetId: slots.audioLabel,
+					slotKind: "audio",
+					location: { ...audio, ...place },
+				};
+		}
+	}
 }
 
 /**
@@ -205,70 +247,23 @@ export function* walkAssetRefs(doc: BlueprintDoc): Generator<AssetRef> {
 		if (!mod) continue;
 		const moduleName = mod.name;
 
-		if (mod.icon) {
-			yield {
-				assetId: mod.icon,
-				slotKind: "image",
-				location: { kind: "module_icon", moduleUuid, moduleName },
-			};
-		}
-		if (mod.audioLabel) {
-			yield {
-				assetId: mod.audioLabel,
-				slotKind: "audio",
-				location: { kind: "module_audio_label", moduleUuid, moduleName },
-			};
-		}
-
-		// The case list menu entry's media: the icon / audio on the "open
-		// case list" command, which CCHQ emits for the entry
-		// (`case_list.show`).
-		const item = mod.caseListMenuItem;
-		if (item?.icon) {
-			yield {
-				assetId: item.icon,
-				slotKind: "image",
-				location: { kind: "case_list_icon", moduleUuid, moduleName },
-			};
-		}
-		if (item?.audioLabel) {
-			yield {
-				assetId: item.audioLabel,
-				slotKind: "audio",
-				location: {
-					kind: "case_list_audio_label",
-					moduleUuid,
-					moduleName,
-				},
-			};
-		}
-		// The Register button's media, on a list that always offers another
-		// menu's registration form (`case_list_form.media_image` /
-		// `media_audio`).
-		const registration = mod.caseListRegistrationForm;
-		if (registration?.kind === "always") {
-			if (registration.icon) {
-				yield {
-					assetId: registration.icon,
-					slotKind: "image",
-					location: {
-						kind: "case_list_registration_icon",
-						moduleUuid,
-						moduleName,
-					},
-				};
-			}
-			if (registration.audioLabel) {
-				yield {
-					assetId: registration.audioLabel,
-					slotKind: "audio",
-					location: {
-						kind: "case_list_registration_audio_label",
-						moduleUuid,
-						moduleName,
-					},
-				};
-			}
+		const menu = { moduleUuid, moduleName };
+		yield* menuFiles(
+			mod,
+			{ kind: "module_icon", ...menu },
+			{ kind: "module_audio_label", ...menu },
+		);
+		yield* menuFiles(
+			mod.caseListMenuItem,
+			{ kind: "case_list_icon", ...menu },
+			{ kind: "case_list_audio_label", ...menu },
+		);
+		if (mod.caseListRegistrationForm?.kind === "always") {
+			yield* menuFiles(
+				mod.caseListRegistrationForm,
+				{ kind: "case_list_registration_icon", ...menu },
+				{ kind: "case_list_registration_audio_label", ...menu },
+			);
 		}
 		const columns = mod.caseListConfig?.columns ?? [];
 		for (const column of columns) {
@@ -276,6 +271,7 @@ export function* walkAssetRefs(doc: BlueprintDoc): Generator<AssetRef> {
 			if (column.kind !== "image-map") continue;
 			for (let rowIndex = 0; rowIndex < column.mapping.length; rowIndex++) {
 				const row = column.mapping[rowIndex];
+				if (row.assetId === undefined) continue;
 				yield {
 					assetId: row.assetId,
 					slotKind: "image",
@@ -286,7 +282,7 @@ export function* walkAssetRefs(doc: BlueprintDoc): Generator<AssetRef> {
 						columnUuid: column.uuid,
 						columnHeader: column.header,
 						rowIndex,
-						rowValue: row.value,
+						rowValue: row.value ?? `Rule ${rowIndex + 1}`,
 					},
 				};
 			}
@@ -297,32 +293,12 @@ export function* walkAssetRefs(doc: BlueprintDoc): Generator<AssetRef> {
 			if (!form) continue;
 			const formName = form.name;
 
-			if (form.icon) {
-				yield {
-					assetId: form.icon,
-					slotKind: "image",
-					location: {
-						kind: "form_icon",
-						moduleUuid,
-						moduleName,
-						formUuid,
-						formName,
-					},
-				};
-			}
-			if (form.audioLabel) {
-				yield {
-					assetId: form.audioLabel,
-					slotKind: "audio",
-					location: {
-						kind: "form_audio_label",
-						moduleUuid,
-						moduleName,
-						formUuid,
-						formName,
-					},
-				};
-			}
+			const formSite = { ...menu, formUuid, formName };
+			yield* menuFiles(
+				form,
+				{ kind: "form_icon", ...formSite },
+				{ kind: "form_audio_label", ...formSite },
+			);
 
 			// Field walk: traverse `fieldOrder` recursively through
 			// containers. Visiting the doc through the order arrays
@@ -432,23 +408,44 @@ function* yieldBundleSlots(
 	ctx: FormWalkContext,
 ): Generator<AssetRef> {
 	if (!bundle) return;
-	for (const slotKind of MEDIA_BUNDLE_KEYS) {
-		const assetId = bundle[slotKind];
-		if (!assetId) continue;
+	for (const ref of bundleFiles(bundle)) {
 		yield {
-			assetId,
-			slotKind,
+			slotKind: ref.slotKind,
+			role: ref.role,
+			assetId: ref.assetId,
 			location: {
 				kind: "field_media_bundle",
 				bundleKey,
-				moduleUuid: ctx.moduleUuid,
-				moduleName: ctx.moduleName,
-				formUuid: ctx.formUuid,
-				formName: ctx.formName,
+				...ctx,
 				fieldUuid,
 				fieldId,
+				...(ref.language && { language: ref.language }),
 			},
 		};
+	}
+}
+
+/** The stored role is walked even when another language supplies the same file.
+ * Manifest collection deduplicates by asset; editing and deletion keep each site. */
+function* bundleFiles(bundle: Media) {
+	for (const role of MEDIA_BUNDLE_KEYS) {
+		const assetId = bundle[role];
+		if (assetId)
+			yield {
+				role,
+				slotKind: MEDIA_ROLE_KIND[role],
+				assetId,
+				language: undefined,
+			};
+	}
+	for (const [language, values] of Object.entries(
+		bundle.mediaByLanguage ?? {},
+	)) {
+		for (const role of MEDIA_BUNDLE_KEYS) {
+			const assetId = values[role];
+			if (assetId)
+				yield { role, slotKind: MEDIA_ROLE_KIND[role], assetId, language };
+		}
 	}
 }
 
@@ -467,26 +464,31 @@ function* walkFieldOptionMedia(
 	for (const option of field.optionsSource.options) {
 		const media = option.media;
 		if (!media) continue;
-		for (const slotKind of MEDIA_BUNDLE_KEYS) {
-			const assetId = media[slotKind];
-			if (!assetId) continue;
+		for (const ref of bundleFiles(media)) {
 			yield {
-				assetId,
-				slotKind,
+				slotKind: ref.slotKind,
+				role: ref.role,
+				assetId: ref.assetId,
 				location: {
 					kind: "option_media",
-					moduleUuid: ctx.moduleUuid,
-					moduleName: ctx.moduleName,
-					formUuid: ctx.formUuid,
-					formName: ctx.formName,
+					...ctx,
 					fieldUuid,
 					fieldId: field.id,
 					optionUuid: option.uuid,
 					optionValue: option.value,
+					...(ref.language && { language: ref.language }),
 				},
 			};
 		}
 	}
+}
+
+/** The files HQ's content import references, including a logo used in a form or menu. */
+export function bulkUploadAssetIds(doc: BlueprintDoc): Set<IconRef> {
+	const carried = new Set<IconRef>();
+	for (const ref of walkAssetRefs(doc))
+		if (carriesViaBulkUpload(ref.location)) carried.add(ref.assetId);
+	return carried;
 }
 
 /**
@@ -522,7 +524,8 @@ export function collectAuthoredAssetRefs(doc: BlueprintDoc): Set<IconRef> {
 	for (const mod of Object.values(doc.modules)) {
 		for (const column of mod.caseListConfig?.columns ?? []) {
 			if (column.kind !== "image-map") continue;
-			for (const row of column.mapping) ids.add(row.assetId);
+			for (const row of column.mapping)
+				if (row.assetId !== undefined) ids.add(row.assetId);
 		}
 	}
 	return ids;
@@ -562,6 +565,7 @@ export function* walkAuthoredAssetRefs(doc: BlueprintDoc): Generator<AssetRef> {
 			}
 			for (let rowIndex = 0; rowIndex < column.mapping.length; rowIndex++) {
 				const row = column.mapping[rowIndex];
+				if (row.assetId === undefined) continue;
 				yield {
 					assetId: row.assetId,
 					slotKind: "image",
@@ -572,7 +576,7 @@ export function* walkAuthoredAssetRefs(doc: BlueprintDoc): Generator<AssetRef> {
 						columnUuid: column.uuid,
 						columnHeader: column.header,
 						rowIndex,
-						rowValue: row.value,
+						rowValue: row.value ?? `Rule ${rowIndex + 1}`,
 					},
 				};
 			}
@@ -609,39 +613,44 @@ export function remapAssetRefs(
 	const remapUploaded = (id: MediaAssetId): MediaAssetId => idMap.get(id) ?? id;
 	const remapIcon = (id: IconRef): IconRef =>
 		isBuiltinIconRef(id) ? id : remapUploaded(id);
-	const remapModuleIcon = (id: ModuleIconRef): ModuleIconRef =>
-		remapIcon(id) as ModuleIconRef;
-	const remapFormIcon = (id: FormIconRef): FormIconRef =>
-		remapIcon(id) as FormIconRef;
+	const remapNavigation = <Icon extends IconRef>(
+		carrier: NavigationMedia<Icon> | undefined,
+	) => {
+		if (!carrier) return;
+		if (carrier.icon) carrier.icon = remapIcon(carrier.icon) as Icon;
+		if (carrier.audioLabel)
+			carrier.audioLabel = remapUploaded(carrier.audioLabel);
+		for (const slots of [
+			...Object.values(carrier.mediaByLanguage ?? {}),
+			...Object.values(carrier.mediaByFormerCode ?? {}),
+		]) {
+			if (slots.icon && slots.icon !== "blank")
+				slots.icon = remapIcon(slots.icon) as Icon;
+			if (slots.audioLabel && slots.audioLabel !== "blank")
+				slots.audioLabel = remapUploaded(slots.audioLabel);
+		}
+	};
 	return produce(doc, (draft) => {
 		if (draft.logo) draft.logo = remapUploaded(draft.logo);
 
 		for (const moduleUuid of draft.moduleOrder) {
 			const mod = draft.modules[moduleUuid];
 			if (!mod) continue;
-			if (mod.icon) mod.icon = remapModuleIcon(mod.icon);
-			if (mod.audioLabel) mod.audioLabel = remapUploaded(mod.audioLabel);
-			const item = mod.caseListMenuItem;
-			if (item?.icon) item.icon = remapModuleIcon(item.icon);
-			if (item?.audioLabel) item.audioLabel = remapUploaded(item.audioLabel);
-			const registration = mod.caseListRegistrationForm;
-			if (registration?.kind === "always") {
-				if (registration.icon)
-					registration.icon = remapFormIcon(registration.icon);
-				if (registration.audioLabel)
-					registration.audioLabel = remapUploaded(registration.audioLabel);
-			}
+			remapNavigation(mod);
+			remapNavigation(mod.caseListMenuItem);
+			if (mod.caseListRegistrationForm?.kind === "always")
+				remapNavigation(mod.caseListRegistrationForm);
 			for (const column of mod.caseListConfig?.columns ?? []) {
 				if (column.kind !== "image-map") continue;
 				for (const row of column.mapping) {
-					row.assetId = remapUploaded(row.assetId);
+					if (row.assetId !== undefined)
+						row.assetId = remapUploaded(row.assetId);
 				}
 			}
 		}
 
 		for (const form of Object.values(draft.forms)) {
-			if (form.icon) form.icon = remapFormIcon(form.icon);
-			if (form.audioLabel) form.audioLabel = remapUploaded(form.audioLabel);
+			remapNavigation(form);
 		}
 
 		for (const field of Object.values(draft.fields)) {
@@ -667,15 +676,20 @@ function remapFieldMedia(
 	}
 }
 
-/** Rewrite the image/audio/video slots on one `Media` bundle in place. */
+/** Rewrite every role's slot on one `Media` bundle in place. */
 function remapMediaBundle(
 	bundle: Media | undefined,
 	remap: (id: MediaAssetId) => MediaAssetId,
 ): void {
 	if (!bundle) return;
-	for (const slotKind of MEDIA_BUNDLE_KEYS) {
-		const assetId = bundle[slotKind];
-		if (assetId) bundle[slotKind] = remap(assetId);
+	for (const values of [
+		bundle,
+		...Object.values(bundle.mediaByLanguage ?? {}),
+	]) {
+		for (const role of MEDIA_BUNDLE_KEYS) {
+			const assetId = values[role];
+			if (assetId) values[role] = remap(assetId);
+		}
 	}
 }
 
@@ -714,6 +728,13 @@ export function carriesViaBulkUpload(location: MediaRefLocation): boolean {
  * variant fails to compile here until it's described.
  */
 export function describeCarrier(ref: AssetRef): string {
+	const description = carrierName(ref);
+	return ref.location.language
+		? `${description} (${ref.location.language})`
+		: description;
+}
+
+function carrierName(ref: AssetRef): string {
 	const loc = ref.location;
 	switch (loc.kind) {
 		case "app_logo":
@@ -734,7 +755,7 @@ export function describeCarrier(ref: AssetRef): string {
 		case "form_audio_label":
 			return `the audio label on form "${loc.formName}" (module "${loc.moduleName}")`;
 		case "field_media_bundle":
-			return `the ${ref.slotKind} on field "${loc.fieldId}"'s ${bundleSlotLabel(loc.bundleKey)} (form "${loc.formName}")`;
+			return `the ${ref.role === "videoInline" ? "inline video" : ref.slotKind} on field "${loc.fieldId}"'s ${bundleSlotLabel(loc.bundleKey)} (form "${loc.formName}")`;
 		case "option_media":
 			return `the ${ref.slotKind} on option "${loc.optionValue}" of field "${loc.fieldId}" (form "${loc.formName}")`;
 		case "image_map_mapping":

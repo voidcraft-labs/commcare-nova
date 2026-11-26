@@ -305,11 +305,14 @@ export function detailPair(
 
 export function applicationShell(
 	appName: string,
-	modules: (HqModuleTree | HqAdvancedModuleTree)[],
+	modules: HqApplicationTree["modules"],
 	attachments: Record<string, string>,
 	options: {
 		/** Where the app runs, on the wire: `declaresWebApps(doc)`. */
 		cloudcareEnabled: boolean;
+		caseSharing?: boolean;
+		firstMenuGrid?: boolean;
+		formMenuStyle?: "none" | "all" | "some";
 		autoGpsCapture?: boolean;
 		langs?: string[];
 		translations?: Record<string, Record<string, string>>;
@@ -320,6 +323,7 @@ export function applicationShell(
 			readonly key: string;
 			readonly value: string;
 		}[];
+		androidPackages?: readonly string[];
 		profileCustomProperties?: Readonly<Record<string, string>>;
 	},
 ): HqApplicationTree {
@@ -327,15 +331,14 @@ export function applicationShell(
 	 * overlay merge on the update path (`models/applications.py::
 	 * _merge_source_into_app`): every field present in the source
 	 * overwrites the HQ app's value, and a field absent from the source is
-	 * retained. So app content Nova does not author yet (`case_sharing`)
-	 * and target-owned settings and state
+	 * retained. So target-owned settings and state
 	 * (`secure_submissions`, the build/release metadata, and the rest of HQ's
 	 * app Settings page attributes) are deliberately NOT emitted. Three keys carry Nova's values beside the
 	 * target's own, `translations`, `add_ons` and `profile`; the update path
 	 * projects each onto the target's current value before import
-	 * (`targetOverlay.ts`). `auto_gps_capture` is written only `true`, for a
-	 * Connect app: an absent key keeps the Auto Capture Location a person
-	 * turned on in HQ. Every other omitted field was previously sent at
+	 * (`targetOverlay.ts`). `auto_gps_capture` is always written, false
+	 * included, so clearing the switch reaches HQ (an absent key on update keeps
+	 * HQ's earlier value). Every other omitted field was previously sent at
 	 * exactly HQ's own schema default, so create behaves identically (couch
 	 * `wrap` supplies the same default, and `_create_app_from_doc` sets
 	 * `cloudcare_enabled` itself from the domain's Web Apps privilege, which a
@@ -358,6 +361,9 @@ export function applicationShell(
 	const properties = options.profileProperties ?? [];
 	const customProperties = options.profileCustomProperties ?? {};
 	const profile = {
+		...(options.androidPackages?.length && {
+			features: { dependencies: options.androidPackages },
+		}),
 		...(properties.length > 0 && {
 			properties: Object.fromEntries(
 				properties.map(({ key, value }) => [key, value]),
@@ -371,13 +377,16 @@ export function applicationShell(
 	return {
 		doc_type: "Application",
 		application_version: "2.0",
+		...(options.caseSharing === undefined
+			? {}
+			: { case_sharing: options.caseSharing }),
 		name: appName,
 		langs: options.langs ?? ["en"],
 		translations: options.translations ?? {},
 		// Over an app brought in from CommCare HQ whose Connect app leaves
 		// location capture off, the first publish turns it on, a change the
 		// first-publish register declares (`connect-app-captures-location`).
-		...(options.autoGpsCapture === true && { auto_gps_capture: true }),
+		auto_gps_capture: options.autoGpsCapture === true,
 		// An app brought in that sends both location lists, or the flat one
 		// only, goes back to the project space's own setting, which the
 		// register declares (`location-list-setting-reset`); one that sends
@@ -387,6 +396,8 @@ export function applicationShell(
 		// held, the first publish turns Web Apps off or on, which the register
 		// declares (`web-apps-turned-off`, `web-apps-turned-on`).
 		cloudcare_enabled: options.cloudcareEnabled,
+		use_grid_menus: options.firstMenuGrid ?? false,
+		grid_form_menus: options.formMenuStyle ?? "none",
 		...(Object.keys(profile).length > 0 && { profile }),
 		...(addOns.length > 0 && {
 			add_ons: Object.fromEntries(addOns.map((slug) => [slug, true])),

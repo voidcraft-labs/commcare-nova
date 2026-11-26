@@ -29,6 +29,7 @@ import {
 	previewAppLanguage,
 	serverPreviewDevice,
 } from "../engine/previewDevice";
+import { workerPlaceGroup } from "../engine/restoreScope";
 import {
 	effectivePreviewPlatform,
 	platformUnavailableSentence,
@@ -36,6 +37,7 @@ import {
 } from "../platform";
 import { XPathDate } from "../xpath/types";
 import { AppTestActionError } from "./errors";
+import { lookupRowsForTestWorker } from "./lookupAccess";
 import type { AppTestSessionState, AppTestSnapshot } from "./types";
 
 export function appTestLanguage(
@@ -109,7 +111,7 @@ export async function withAppTestContext<T>(
 	const identity = appTestIdentity(snapshot, state.personaUuid);
 	return withAppTestNamespace(
 		tx,
-		{ ...scope, ownerId: identity.ownerId },
+		{ ...scope, ownerId: identity.ownerId, searchFacts: snapshot.searchFacts },
 		async (store) => body(await contextFor(store, scope, snapshot, state)),
 	);
 }
@@ -124,6 +126,55 @@ async function contextFor(
 	const persona =
 		state.personaUuid === null ? undefined : doc.personas?.[state.personaUuid];
 	const identity = appTestIdentity(snapshot, state.personaUuid);
+	const groupScope = snapshot.lookup.workers?.find(
+		(w) => w.personaUuid === state.personaUuid,
+	)?.groupScope;
+	const simulatePlaces =
+		!!persona &&
+		(snapshot.testPlaceIds.length > 0 ||
+			snapshot.testAssignmentPersonaIds.includes(persona.uuid));
+	let groupRows = groupScope?.groups ?? [];
+	let ownerIds =
+		groupScope?.ownerIds ??
+		(persona
+			? personaOwnerIds(doc, persona, snapshot.locations)
+			: memberOwnerIds(scope.actorUserId));
+	if (persona && simulatePlaces) {
+		const reachable = personaOwnerIds(doc, persona, snapshot.locations).slice(
+			1,
+		);
+		const places = new Map(snapshot.locations.map((p) => [p.id, p]));
+		const placesInGroups = reachable.map((id) => {
+			const place = places.get(id as Uuid);
+			if (!place)
+				throw new AppTestActionError(
+					"A test place changed. You can restart this journey.",
+				);
+			const path = [place.name];
+			let ancestor = place.parentId;
+			const seen = new Set([place.id]);
+			while (ancestor) {
+				const parent = places.get(ancestor);
+				if (!parent || seen.has(ancestor))
+					throw new AppTestActionError(
+						"A test place needs a complete parent path. You can check its parents and start this journey again.",
+					);
+				path.unshift(parent.name);
+				seen.add(ancestor);
+				ancestor = parent.parentId;
+			}
+			return workerPlaceGroup(doc, place, path);
+		});
+		if (groupScope && groupScope.placeGroupCount === undefined)
+			throw new AppTestActionError(
+				"This journey uses the groups delivered by a connected project space. You can start a separate journey for test place assignments.",
+			);
+		groupRows = [
+			...placesInGroups,
+			...groupRows.slice(groupScope?.placeGroupCount ?? 0),
+		];
+		ownerIds = [...new Set([persona.uuid, ...groupRows.map((g) => g.id)])];
+	}
 	const memberName = identity.session.context.username ?? identity.ownerId;
 	const { stored } = await syncUsercaseRow(store, {
 		appId: scope.appId,
@@ -144,6 +195,7 @@ async function contextFor(
 	const language = resolveAppLanguage(doc.localization, state.language);
 	return {
 		language,
+		androidAppLabels: snapshot.androidAppLabels,
 		/* A journey has no browser window: its device is the session's own
 		 * install on Android and a 1280-wide window on Web Apps. */
 		device: serverPreviewDevice({
@@ -170,14 +222,11 @@ async function contextFor(
 		caseTypeSchemas: buildCaseTypeMap(doc),
 		/* The worker's claims are claim rows in the journey's namespace that
 		 * the worker owns, so the owned seed reaches them and their hosts. */
-		restoreScope: {
-			ownerIds: persona
-				? personaOwnerIds(doc, persona, snapshot.locations)
-				: memberOwnerIds(scope.actorUserId),
-		},
+		workerGroups: groupRows,
+		restoreScope: { ownerIds },
 		lookup: previewLookupData({
 			...snapshot.lookup,
-			rowsByTable: new Map(snapshot.lookup.rows),
+			rowsByTable: lookupRowsForTestWorker(snapshot.lookup, state.personaUuid),
 		}),
 	};
 }

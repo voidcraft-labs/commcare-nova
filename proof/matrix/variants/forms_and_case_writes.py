@@ -281,6 +281,7 @@ def preload_in_a_multi_select_menu(authoring, app_id):
 def child_case_in_a_shared_multi_select_menu(authoring, app_id):
     """``hq-plain``'s households list choosing several cases, and its follow-up form opening a child case that writes
     no owner."""
+    ops.set_json(authoring, app_id, "/case_sharing", True)
     ops.set_json(authoring, app_id, "/modules/0/case_details/short/multi_select", True)
     ops.set_json(
         authoring,
@@ -734,3 +735,19 @@ def head_prefixes_naming_the_worker(authoring, app_id):
         menu=0,
         form=1,
     )
+
+
+def link_through_a_first_menu_with_different_case_types(authoring, app_id):
+    from proof.matrix.variants.menus_and_case_lists import _second_case_type_on_another_command
+
+    ops.set_json(authoring, app_id, "/modules/2/put_in_root", True)
+    _second_case_type_on_another_command(authoring, app_id)
+
+
+def previous_on_a_first_menu_with_no_shared_case(authoring, app_id):
+    """Both menus show their forms on the first menu, and the Members follow-up returns with Previous. The first
+    menu's forms share no case (the household registration's entry selects none), so Previous carries no case of
+    one type into a form that reads another (``workflow.py::WorkflowHelper._root_module_datums``)."""
+    ops.set_json(authoring, app_id, "/modules/0/put_in_root", True)
+    ops.set_json(authoring, app_id, "/modules/1/put_in_root", True)
+    ops.set_json(authoring, app_id, "/modules/1/forms/0/post_form_workflow", "previous_screen")

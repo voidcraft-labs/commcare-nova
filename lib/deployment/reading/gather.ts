@@ -4,8 +4,8 @@ import "server-only";
  * The one function both bring-in requests call: read one app of CommCare HQ
  * under the bracketed read, read the Project's data it may read, run the
  * reader, judge every file it references and accept what it read. A create
- * passes one argument a read does not, `keepMedia`, which keeps the bytes of
- * each held file for the publish that follows. So an equal digest at the
+ * passes one argument a read does not, `stageMedia`, which stages the bytes of
+ * each held content under the receiving Project for the publish that follows. So an equal digest at the
  * create means every check that passed at the review passed again, on the
  * same content.
  *
@@ -13,14 +13,14 @@ import "server-only";
  * is never answered before every file is judged: where the app can run
  * depends on where its files play.
  *
- * Nothing here writes. What one request reads stays in memory until the
+ * Nothing here writes but a create's staging, which no surface lists until the
+ * create publishes it. What one request reads stays in memory until the
  * request answers. No log line holds a word of the app: a finding's name, a
  * difference's detail and CommCare HQ's own text reach no line.
  */
 
-import { setImmediate as nextTurn } from "node:timers/promises";
 import { recordDialectRoundTrip } from "@/lib/agent/authoring/recordRoundTrip";
-import { readHqSaveOnlyEditedAnswers } from "@/lib/commcare/client";
+import { createHqSourceFlagReader } from "@/lib/commcare/client";
 import {
 	type HqAlignedModule,
 	readHqAppForReading,
@@ -28,13 +28,17 @@ import {
 import type { HqAppSource, HqMediaMapItem } from "@/lib/commcare/hq/appSource";
 import type { HqAppsSeen } from "@/lib/commcare/hq/apps";
 import { HQ_BRING_IN_READING_MAX_XML_NODES } from "@/lib/commcare/hq/bounds";
+import { sourceUsesCaseListActionSetting } from "@/lib/commcare/hq/caseListActionSetting";
 import { type HqFailure, hqReadCircumstance } from "@/lib/commcare/hq/failure";
 import type { CommCareCredentials } from "@/lib/commcare/hq/http";
 import {
 	publishedCaseBlocks,
 	sourceHoldsEditMode,
 } from "@/lib/commcare/hq/publishedCaseBlocks";
+import { lookupTagCollidesWithInstanceName } from "@/lib/commcare/lookup/naming";
+import { TYPES_SHEET } from "@/lib/commcare/lookup/workbook";
 import { emittedModuleKind } from "@/lib/commcare/moduleKind";
+import { addressSearchFormReasons } from "@/lib/commcare/planPrivileges";
 import {
 	type ReadDraft,
 	type ReaderInput,
@@ -46,7 +50,7 @@ import {
 	type ClaimRecord,
 	serializeClaimLog,
 } from "@/lib/commcare/reader/accounting";
-import { HeldExpansions } from "@/lib/commcare/reader/heldExpansions";
+
 import { mintingResolver } from "@/lib/commcare/reader/identity";
 import { placeOrder } from "@/lib/commcare/reader/place";
 import { COMMCARE_SERVERS } from "@/lib/commcare/servers";
@@ -60,12 +64,7 @@ import {
 	targetWireIdentity,
 	type WireIdentity,
 } from "@/lib/commcare/wireIdentity";
-import {
-	rethrowWorkStop,
-	underMeter,
-	WorkCancelled,
-	WorkMeter,
-} from "@/lib/commcare/workMeter";
+import { rethrowWorkStop, WorkCancelled } from "@/lib/commcare/workMeter";
 import { fieldKindBindType } from "@/lib/commcare/xform/bindType";
 import { heldXmlParse } from "@/lib/commcare/xmlParse";
 import { getHqCredentials } from "@/lib/db/settings";
@@ -81,10 +80,12 @@ import {
 	PLATFORMS,
 	type Platform,
 	type PlatformFeatureId,
+	targetConditionUses,
 } from "@/lib/domain";
 import { remapAssetRefs } from "@/lib/domain/mediaRefs";
 import { moduleFormsReadSearch } from "@/lib/domain/modules";
 import {
+	ASSET_SIZE_CAPS_BYTES,
 	type MediaAssetId,
 	type MediaFormatKey,
 	mediaFormatOf,
@@ -111,8 +112,10 @@ import {
 	type AdoptedMediaFile,
 	adoptedBaselineOwnershipSteps,
 	adoptedSourceTree,
+	adoptionFileRemovals,
 	adoptionPlanFeatureConfirmations,
 } from "../adoption";
+import { removedHqFileLine } from "../hqSourceBaseline";
 import { readHqAppClaims } from "../store";
 import { keptListFor } from "../targetFacts";
 import {
@@ -124,8 +127,13 @@ import {
 } from "../targetIdentity";
 import { type AcceptedReading, acceptReadingSteps } from "./acceptance";
 import { adoptionExportBoundary } from "./adoptionBoundary";
+import { Pieces } from "./pieces";
+
+export { Pieces } from "./pieces";
+
 import { readingAppStrings } from "./appStrings";
 import { reviewDigestOf } from "./digest";
+import { birthPublishSubjects } from "./firstPublishChanges";
 import { reviewMediaId } from "./mediaIds";
 import { claimDetail } from "./picker";
 import {
@@ -133,10 +141,14 @@ import {
 	type ReaderProjectDataReads,
 	type ReadingProjectData,
 	readingLookupSnapshot,
+	readingOwnerRules,
 	readingProjectDataFindingsFor,
 	unreadPlacesFailure,
 } from "./projectData";
-import { boundAsItStands } from "./projectData/lookupTables";
+import {
+	boundAsItStands,
+	type HqLookupTableRead,
+} from "./projectData/lookupTables";
 import {
 	adoptedMediaFiles,
 	type HqMediaClaim,
@@ -150,7 +162,11 @@ import {
 	readingMediaIndex,
 	readingMediaRows,
 } from "./projectData/media";
-import { judgeReadingMedia } from "./projectData/mediaStore";
+import {
+	judgeReadingMedia,
+	type MediaStaging,
+	projectMediaStaging,
+} from "./projectData/mediaStore";
 import {
 	postgresProjectSide,
 	type ReadingProjectSide,
@@ -179,8 +195,10 @@ export interface GatherInput {
 	readonly readingId: string;
 	/** `broughtInAppId(actor.userId, key, readingId)`. */
 	readonly appId: string;
-	/** False in a read. True in a create: the plan keeps the bytes of each held file. */
-	readonly keepMedia: boolean;
+	/** Null in a read. In a create: where the bytes of each held content are staged until the
+	 *  create publishes them (`mediaStore.ts::projectMediaStaging`), which the create discards
+	 *  when it ends. */
+	readonly stageMedia: MediaStaging | null;
 	/** Stage and file-count events. `gatherReading` never emits `done` or `failed`. */
 	readonly onEvent: (event: ReadingEvent) => void;
 	readonly cancel?: AbortSignal;
@@ -201,6 +219,7 @@ export interface Fetched {
 	/** The flag answer where the source holds a write saved only if changed; absent where it
 	 *  holds none. */
 	readonly saveOnlyEditedApplied?: boolean;
+	readonly caseListActionsApplied?: boolean;
 }
 
 /** A clean read, held in memory for the length of one request and never stored. */
@@ -214,8 +233,8 @@ export interface Gathered {
 	/** The tables the document reads, as the birth will hold them. Acceptance's `lookup`, and
 	 *  what the adoption's export boundary names its tables from. */
 	readonly lookup: LookupFixtureDataSnapshot;
-	/** Every referenced file with its verdict; in a create, the kept bytes of each held file and
-	 *  then its published asset. */
+	/** Every referenced file with its verdict; in a create, the staged object of each held
+	 *  content and then its published asset. */
 	readonly media: ReadingMediaPlan;
 	/** One entry per referenced path of every held file. */
 	readonly mediaFiles: readonly AdoptedMediaFile[];
@@ -336,99 +355,6 @@ export function unrecognizedLogKey(name: string): string {
 	if (dot > 0 && dot < name.length - 1 && isClassName(name.slice(0, dot)))
 		return "undeclared-json-key";
 	return "other";
-}
-
-// ---------------------------------------------------------------------------
-// Timing the synchronous pieces
-// ---------------------------------------------------------------------------
-
-/**
- * Times and meters each synchronous piece of a request, and lets the event
- * loop turn before each one, so no two pieces run in one turn. A review of
- * changes made in CommCare HQ times its own pieces with it.
- *
- * Every piece runs under the request's work meter (`workMeter.ts`), which a
- * reading's own meter charges as its parent, so `units` is the work of every
- * piece and `longestUnits` the most one piece did between two turns: the
- * deterministic twin of `longest`. The meter counts and never stops a piece by
- * itself; a run of steps given an allowance (`steps`, the change planner's)
- * runs under a meter of its own whose parent it is.
- * Where the request's `cancel` has aborted, the next piece does not run: it
- * throws `WorkCancelled`, as a charge inside a running piece does, so a
- * request whose caller went away stops working at its next step.
- */
-export class Pieces {
-	total = 0;
-	longest = 0;
-	/** What the longest piece was part of, as `at` named it. */
-	longestAt = "";
-	/** The most units one piece did, and what it was part of. */
-	longestUnits = 0;
-	longestUnitsAt = "";
-	/** What the pieces now running are part of. */
-	private part = "";
-	/** The emissions this request's readings share (`heldExpansions.ts`). */
-	readonly expansions = new HeldExpansions();
-	/** The request's work meter. */
-	readonly meter: WorkMeter;
-
-	constructor(cancel?: AbortSignal) {
-		this.meter = new WorkMeter({
-			limit: Number.POSITIVE_INFINITY,
-			...(cancel !== undefined && { signal: cancel }),
-		});
-	}
-
-	/** Every unit the request's pieces did. */
-	get units(): number {
-		return this.meter.units;
-	}
-
-	/** Names what the pieces that follow are part of, for the facts that
-	 *  name the longest. */
-	at(part: string): this {
-		this.part = part;
-		return this;
-	}
-
-	async run<T>(piece: () => T, meter: WorkMeter = this.meter): Promise<T> {
-		await nextTurn();
-		meter.check();
-		const started = performance.now();
-		const before = this.meter.units;
-		try {
-			return underMeter(meter, piece);
-		} finally {
-			const took = performance.now() - started;
-			this.total += took;
-			if (took > this.longest) {
-				this.longest = took;
-				this.longestAt = this.part;
-			}
-			const units = this.meter.units - before;
-			if (units > this.longestUnits) {
-				this.longestUnits = units;
-				this.longestUnitsAt = this.part;
-			}
-		}
-	}
-
-	/** Runs `steps` to their end, each step its own piece. Given `allowance`, the steps together
-	 *  do at most that many units, and one that would pass it throws `WorkLimitReached` there:
-	 *  for a step a request makes only within a limit of its own (the change planner's). */
-	async steps<T>(
-		steps: Generator<void, T, void>,
-		allowance?: number,
-	): Promise<T> {
-		const meter =
-			allowance === undefined
-				? this.meter
-				: new WorkMeter({ limit: allowance, parent: this.meter });
-		for (;;) {
-			const step = await this.run(() => steps.next(), meter);
-			if (step.done) return step.value;
-		}
-	}
 }
 
 interface Tally {
@@ -552,7 +478,7 @@ function failedRead(failure: HqFailure): GatherResult {
  */
 export function readerLookupContext(
 	data: ReadingProjectData,
-): LookupValidationContext {
+): Extract<LookupValidationContext, { kind: "available" }> {
 	const definitions: LookupTableDefinition[] = [];
 	for (const table of data.gathered.tables) {
 		const { standing, binding } = table;
@@ -569,7 +495,11 @@ export function readerLookupContext(
 			tag: definition.tag,
 			definitionRevision: (table.projectTable?.definitionRevision ??
 				"0") as LookupTableDefinition["definitionRevision"],
+			...(definition.attributes?.length
+				? { attributes: definition.attributes }
+				: {}),
 			columns: definition.columns.map((column) => ({
+				...column,
 				id: column.id,
 				wireName: column.wireName,
 				label: column.label,
@@ -592,7 +522,11 @@ function readerInputFor(
 	key: ReadingKey,
 	fetched: Pick<
 		Fetched,
-		"source" | "modules" | "data" | "saveOnlyEditedApplied"
+		| "source"
+		| "modules"
+		| "data"
+		| "saveOnlyEditedApplied"
+		| "caseListActionsApplied"
 	>,
 	plan: ReadingMediaPlan | null,
 ): ReaderInput {
@@ -607,11 +541,16 @@ function readerInputFor(
 		resolver: mintingResolver(appId),
 		lookup: fetched.data.lookups,
 		organization: fetched.data.organization,
+		sourceProjectFactories: fetched.data.sourceProjectFactories,
+		suiteDetails: fetched.data.suiteDetails,
 		media: readingMediaIndex({ source: fetched.source, appId, plan }),
 		appStrings: readingAppStrings(readerLookupContext(fetched.data)),
 		recordDialect: recordDialectRoundTrip,
 		...(fetched.saveOnlyEditedApplied !== undefined && {
 			saveOnlyEditedApplied: fetched.saveOnlyEditedApplied,
+		}),
+		...(fetched.caseListActionsApplied !== undefined && {
+			caseListActionsApplied: fetched.caseListActionsApplied,
 		}),
 	};
 }
@@ -819,9 +758,30 @@ const SETTLED = {
 		"application-and-settings/target-derived-profile-properties-posturl-posttesturl-ota",
 	/** A table's tag in Nova's grammar, for each table the document reads. */
 	tableTag: "expressions-and-data/table-tag-in-nova-s-grammar",
+	dottedName: "expressions-and-data/tag-or-field-name-holding-a-period",
+	unicodeName: "expressions-and-data/tag-or-field-name-with-non-ascii-letters",
+	aliasedTableTag:
+		"expressions-and-data/tag-equal-to-an-instance-name-commcare-owns",
+	/** A table under the tag `types` in any case, the one name CommCare HQ's workbook spends on its
+	 *  own list of tables, which a direct publish carries through the JSON resources. */
+	typesTableTag: "expressions-and-data/tag-types",
+	/** A field's properties and the several values a row holds of one field (`<name lang="en">`). */
+	fieldValues:
+		"expressions-and-data/fields-properties-and-multi-valued-cells-name-lang-en-name-name",
+	/** The row attributes a table names and each row's value of them (`<row code="…">`). */
+	rowAttributes:
+		"expressions-and-data/item-attributes-and-per-row-attribute-values",
+	/** A field a row does not hold, or holds no value of, which a device tells apart from an empty value. */
+	cellAbsence:
+		"expressions-and-data/absent-field-vs-zero-values-vs-empty-string",
 	/** CommCare HQ's ids of a table and its rows, for each table the document reads. */
 	tableIds:
 		"expressions-and-data/hq-table-and-row-ids-uuid4-a-workbook-upload-re-mints-a-table",
+	/** A held file larger than Nova's upload cap for its kind: it came in streamed, and CommCare
+	 *  HQ, which caps no file it stores (`hqmedia/tasks.py::process_bulk_upload_zip`), takes it
+	 *  back as it took it. */
+	largeMedia:
+		"expressions-and-data/an-imported-asset-larger-than-nova-s-per-kind-cap-or-an-app",
 	/** A held file's path under `jr://file/`, the path the project space keeps it at. */
 	mediaPath: "expressions-and-data/media-path-jr-file",
 	/** A Connect app, which the document holds as its `connectType`. */
@@ -921,13 +881,87 @@ export interface SettledReads {
 	readonly media: ReadingMediaPlan | null;
 }
 
+function lookupNameClass(name: string): string | undefined {
+	// The two name classes are disjoint. A Unicode spelling may also contain a period.
+	if (Array.from(name).some((unit) => unit.charCodeAt(0) > 127))
+		return SETTLED.unicodeName;
+	return name.includes(".") ? SETTLED.dottedName : undefined;
+}
+
+/**
+ * The content claims of one global table whose rows the reading holds, each at
+ * the place in CommCare HQ's definition it stands for: a field's properties
+ * where the definition names some or a row holds several values of the field
+ * (`/fields/<i>/properties`), the definition's row attributes
+ * (`/item_attributes`), and a field some row does not hold or holds no value
+ * of (`/fields/<i>`). A table the reading holds no rows of (one CommCare HQ
+ * keeps per owner, or one whose rows it could not read whole) settles none:
+ * its rows stay CommCare HQ's, so nothing the reading kept stands for them.
+ */
+function lookupContentRecords(
+	read: HqLookupTableRead,
+	at: string,
+): ClaimRecord[] {
+	if (
+		read.kind !== "read" ||
+		!read.table.isGlobal ||
+		read.canonical.source?.inventory === "unavailable"
+	)
+		return [];
+	const { table, rows } = read;
+	const records: ClaimRecord[] = [];
+	for (const [index, field] of table.fields.entries()) {
+		const values = rows.map((row) =>
+			Object.hasOwn(row.fields, field) ? row.fields[field] : undefined,
+		);
+		const properties = Object.hasOwn(table.fieldProperties, field)
+			? table.fieldProperties[field]
+			: [];
+		if (
+			properties.length > 0 ||
+			values.some((value) => typeof value === "object" && value.length > 1)
+		)
+			records.push(
+				settledRecord(
+					LOOKUP_TABLES_ARTIFACT,
+					`${at}/fields/${index}/properties`,
+					SETTLED.fieldValues,
+				),
+			);
+		if (
+			values.some(
+				(value) =>
+					value === undefined ||
+					(typeof value === "object" && value.length === 0),
+			)
+		)
+			records.push(
+				settledRecord(
+					LOOKUP_TABLES_ARTIFACT,
+					`${at}/fields/${index}`,
+					SETTLED.cellAbsence,
+				),
+			);
+	}
+	if (table.itemAttributes.length > 0)
+		records.push(
+			settledRecord(
+				LOOKUP_TABLES_ARTIFACT,
+				`${at}/item_attributes`,
+				SETTLED.rowAttributes,
+			),
+		);
+	return records;
+}
+
 /**
  * The claims a reading settles that no key of the source holds, each recorded
  * where the reading met what its entry states, with no surface key but a held
  * file's class: the app's id and save counter (the application resource), the
  * project space HQ's build writes the target's profile properties from, for
- * each table the document reads with nothing Nova cannot hold of it its tag and
- * CommCare HQ's ids, for each held file the entry of its format, the media
+ * each table the document reads with nothing Nova cannot hold of it its tag,
+ * the content classes its definition and rows hold (`lookupContentRecords`)
+ * and CommCare HQ's ids, for each held file the entry of its format, the media
  * suite's resource HQ's build writes for it, each of its paths under
  * `jr://file/`, and the class each of its map items files it under, at that
  * item's `media_type` under its key (`mediaClassRecord`), a Connect app the
@@ -955,8 +989,47 @@ export function settledClaims(settled: SettledReads): readonly ClaimRecord[] {
 		)
 			continue;
 		const at = `/${pointerToken(tag)}`;
+		const nameClass = lookupNameClass(tag);
+		// A tag a form declares under its fixture id only because HQ's form
+		// builder cannot read it as a name is its name class, not this alias.
+		const alias = lookupTagCollidesWithInstanceName(tag);
+		if (alias)
+			records.push(
+				settledRecord(
+					LOOKUP_TABLES_ARTIFACT,
+					`${at}/tag`,
+					SETTLED.aliasedTableTag,
+				),
+			);
+		if (nameClass || !alias)
+			records.push(
+				settledRecord(
+					LOOKUP_TABLES_ARTIFACT,
+					`${at}/tag`,
+					nameClass ?? SETTLED.tableTag,
+				),
+			);
+		if (tag.toLowerCase() === TYPES_SHEET)
+			records.push(
+				settledRecord(
+					LOOKUP_TABLES_ARTIFACT,
+					`${at}/tag`,
+					SETTLED.typesTableTag,
+				),
+			);
+		for (const [index, field] of table.read.table.fields.entries()) {
+			const fieldClass = lookupNameClass(field);
+			if (fieldClass)
+				records.push(
+					settledRecord(
+						LOOKUP_TABLES_ARTIFACT,
+						`${at}/fields/${index}/field_name`,
+						fieldClass,
+					),
+				);
+		}
+		records.push(...lookupContentRecords(table.read, at));
 		records.push(
-			settledRecord(LOOKUP_TABLES_ARTIFACT, `${at}/tag`, SETTLED.tableTag),
 			settledRecord(LOOKUP_TABLES_ARTIFACT, `${at}/id`, SETTLED.tableIds),
 		);
 	}
@@ -975,6 +1048,8 @@ export function settledClaims(settled: SettledReads): readonly ClaimRecord[] {
 				settledRecord("app.json", at(first), format.id),
 				settledRecord(BUILD_ARTIFACT, at(first), SETTLED.mediaSuite),
 			);
+			if (verdict.file.sizeBytes > ASSET_SIZE_CAPS_BYTES[verdict.file.kind])
+				records.push(settledRecord("app.json", at(first), SETTLED.largeMedia));
 			for (const path of file.paths) {
 				if (path.startsWith("jr://file/"))
 					records.push(settledRecord("app.json", at(path), SETTLED.mediaPath));
@@ -1180,7 +1255,7 @@ export async function gatherReading(
 		key,
 		readingId: input.readingId,
 		appId: input.appId,
-		keepMedia: input.keepMedia,
+		stageMedia: input.stageMedia,
 		onEvent,
 		...(input.cancel !== undefined && { cancel: input.cancel }),
 		creds: credentials.creds,
@@ -1191,6 +1266,7 @@ export async function gatherReading(
 			origin: { server: key.server, domain: key.domain },
 		}),
 		claimOf: (seen) => claimOfSeen(actor.userId, seen),
+		actorRole: actor.role,
 		actorUserId: actor.userId,
 	});
 	return { result, facts };
@@ -1231,7 +1307,12 @@ type GatherFromHqInput = Omit<GatherInput, "actor"> &
 	GatherSources & {
 		/** Counts alone by default, as every request keeps them. The proof lane asks `full`. */
 		readonly claims?: "counts" | "full";
+		/** In a read: where a file past its kind's cap streams while it is judged. The
+		 *  Project's own staging when absent; the proof lane, which has no bucket, passes one
+		 *  in memory. */
+		readonly spillMedia?: MediaStaging;
 		readonly actorUserId?: string;
+		readonly actorRole?: string;
 	};
 
 async function gatherFromHqWith(
@@ -1248,7 +1329,7 @@ async function gatherFromHqWith(
 		appId,
 		projectId: key.projectId,
 		userId: input.actorUserId ?? null,
-		operation: input.keepMedia ? "create" : "read",
+		operation: input.stageMedia === null ? "read" : "create",
 	};
 	const tally: Tally = {
 		sourceBytes: null,
@@ -1316,6 +1397,15 @@ async function gatherFromHqWith(
 	if (!(await formsWithinReading(pieces, source)))
 		return answer(accountOf([atApp("too-large")], appName, false));
 
+	const readFlag = createHqSourceFlagReader(creds, key.domain, { cancel });
+	let caseListActionsApplied: boolean | undefined;
+	if (sourceUsesCaseListActionSetting(source.raw)) {
+		const flag = await readFlag("no-matches-registration");
+		if (flag.kind === "not-a-member")
+			return answer(stopOf(atApp("not-a-member")));
+		if (flag.kind === "failed") return answer(failedRead(flag.failure));
+		caseListActionsApplied = flag.kind === "applied";
+	}
 	let saveOnlyEditedApplied: boolean | undefined;
 	const holdsEditMode = await editModeTest(pieces, [source]);
 	if (holdsEditMode === "fault")
@@ -1325,9 +1415,7 @@ async function gatherFromHqWith(
 			}),
 		);
 	if (holdsEditMode) {
-		const flag = await readHqSaveOnlyEditedAnswers(creds, key.domain, {
-			cancel,
-		});
+		const flag = await readFlag("save-only-edited-answers");
 		if (flag.kind === "not-a-member")
 			return answer(stopOf(atApp("not-a-member")));
 		if (flag.kind === "failed") return answer(failedRead(flag.failure));
@@ -1341,17 +1429,24 @@ async function gatherFromHqWith(
 
 	/* 5. The Project data. */
 	onEvent({ type: "stage", stage: "reading-project-data" });
-	const projectData = await readReadingProjectData({
-		creds,
-		server: key.server,
-		domain: key.domain,
-		appId,
-		readingId: input.readingId,
-		source,
-		project: input.project,
-		places: "when-source-reads",
-		...(cancel !== undefined && { cancel }),
-	});
+	const readData = (places: "when-source-reads" | "always") =>
+		readReadingProjectData({
+			creds,
+			server: key.server,
+			domain: key.domain,
+			working: reading,
+			appId,
+			readingId: input.readingId,
+			source,
+			project: input.project,
+			pieces,
+			modules,
+			places,
+			...(cancel !== undefined && { cancel }),
+		});
+	const projectData = await readData("when-source-reads");
+	if (projectData.kind === "too-intricate")
+		return answer(accountOf([atApp("too-intricate")], appName, false));
 	if (projectData.kind === "failed")
 		return answer(failedRead(projectData.failure));
 	let data = projectData.data;
@@ -1366,6 +1461,7 @@ async function gatherFromHqWith(
 		readAt,
 		data: current,
 		...(saveOnlyEditedApplied !== undefined && { saveOnlyEditedApplied }),
+		...(caseListActionsApplied !== undefined && { caseListActionsApplied }),
 	});
 	let run = await runReader(
 		pieces,
@@ -1383,17 +1479,9 @@ async function gatherFromHqWith(
 		 * the read failed, nothing was missed: the failure below answers. */
 		log.error("[reading] places read missed", undefined, scopeContext(scope));
 		onEvent({ type: "stage", stage: "reading-project-data" });
-		const again = await readReadingProjectData({
-			creds,
-			server: key.server,
-			domain: key.domain,
-			appId,
-			readingId: input.readingId,
-			source,
-			project: input.project,
-			places: "always",
-			...(cancel !== undefined && { cancel }),
-		});
+		const again = await readData("always");
+		if (again.kind === "too-intricate")
+			return answer(accountOf([atApp("too-intricate")], appName, false));
 		if (again.kind === "failed") return answer(failedRead(again.failure));
 		data = again.data;
 		onEvent({ type: "stage", stage: "checking" });
@@ -1495,13 +1583,20 @@ async function gatherFromHqWith(
 	if (plan.files.length > 0) {
 		onEvent({ type: "stage", stage: "checking-media" });
 		onEvent({ type: "files", done: 0, total: plan.files.length });
+		/* A read streams a file past its kind's cap into objects of its own, deleted once
+		 * judged and again, whatever it left, before it answers. */
+		const spill =
+			input.stageMedia === null
+				? (input.spillMedia ?? projectMediaStaging(key.projectId))
+				: null;
 		const judged = await judgeReadingMedia({
 			creds,
 			plan,
-			keep: input.keepMedia,
+			...(input.stageMedia !== null && { stage: input.stageMedia }),
+			...(spill !== null && { spill }),
 			onProgress: (done, total) => onEvent({ type: "files", done, total }),
 			...(cancel !== undefined && { cancel }),
-		});
+		}).finally(() => spill?.discard());
 		if (judged.kind === "failed") return answer(failedRead(judged.failure));
 		plan = judged.plan;
 		onEvent({ type: "stage", stage: "checking" });
@@ -1516,6 +1611,7 @@ async function gatherFromHqWith(
 			media: plan,
 			first,
 			claims: claimsMode,
+			actorRole: input.actorRole,
 		},
 		pieces,
 		tally,
@@ -1616,6 +1712,7 @@ export async function checkFetched(input: {
 	readonly media: ReadingMediaPlan;
 	readonly first?: ReadOutcome;
 	readonly actorUserId?: string;
+	readonly actorRole?: string;
 }): Promise<{
 	readonly result: Exclude<GatherResult, { kind: "stop" }>;
 	readonly facts: GatherFacts;
@@ -1651,6 +1748,7 @@ async function checkWith(
 		readonly first?: ReadOutcome;
 		/** How the reader, where it runs once more, keeps its claim log. */
 		readonly claims?: "counts" | "full";
+		readonly actorRole?: string;
 	},
 	pieces: Pieces,
 	tally: Tally,
@@ -1815,17 +1913,7 @@ async function checkWith(
 			source,
 			modules: fetched.modules,
 			outcome,
-			reader: {
-				target: reader.target,
-				lookup: reader.lookup,
-				organization: reader.organization,
-				media: reader.media,
-				appStrings: reader.appStrings,
-				recordDialect: reader.recordDialect,
-				...(reader.saveOnlyEditedApplied !== undefined && {
-					saveOnlyEditedApplied: reader.saveOnlyEditedApplied,
-				}),
-			},
+			reader,
 			choices,
 			settlements: handOffSettlements(outcome.claims.handOffs, judgedPlan, [
 				...projectFindings,
@@ -1911,8 +1999,30 @@ async function checkWith(
 			throw new Error(
 				`The reading ${appId} observed its menus and forms once and then found a form with no real CommCare HQ id. The two observations read one draft, so look at targetIdentity.ts::observedTargetIdentity.`,
 			);
+		const inputs = accepted.declarations.map((choice) =>
+			birthPublishSubjects(choice.firstPublishFacts, choice.firstPublish),
+		);
 		return reviewDigestOf({
-			v: 2,
+			v: 3,
+			authority: {
+				appId,
+				...key,
+				user: scope.userId,
+				role: input.actorRole ?? null,
+			},
+			...(review.runsOn.some((choice) => choice.removesFiles?.length)
+				? {
+						source: {
+							digest: canonicalJsonDigest(
+								adoptedSourceTree(key.remoteAppId, source),
+							),
+							revision: fetched.hqVersion,
+						},
+					}
+				: {}),
+			...(inputs.some((items) => items.length > 0) && {
+				publishInputs: canonicalJsonDigest(inputs),
+			}),
 			review,
 			document: canonicalJsonDigest(
 				remapAssetRefs(toPersistableDoc(draft.doc), contentId),
@@ -1983,7 +2093,22 @@ function* reviewOf(input: {
 	const runsOn: ReadingReview["runsOn"][number][] = [];
 	for (const declaration of accepted.declarations) {
 		yield;
+		const removesFiles = source.multimediaMap?.length
+			? adoptionFileRemovals(
+					source,
+					adoptionExportBoundary(
+						declaration.doc,
+						input.lookup.definitions,
+						input.mediaFiles,
+						{
+							origin: COMMCARE_SERVERS[key.server].baseUrl,
+							domain: key.domain,
+						},
+					),
+				).map((file) => removedHqFileLine(file))
+			: [];
 		runsOn.push({
+			...(removesFiles.length > 0 && { removesFiles }),
 			runsOnlyOn: declaration.runsOnlyOn,
 			splitDatetime: declaration.splitDatetime,
 			preselected: declaration.preselected,
@@ -1993,6 +2118,7 @@ function* reviewOf(input: {
 				sourceWebAppsOn: source.cloudcareEnabled,
 				sourceHoldsSaveToCase: accepted.sourceHoldsSaveToCase,
 			}),
+			...addressSearchOf(declaration.doc),
 			firstPublish: declaration.firstPublish,
 		});
 	}
@@ -2100,7 +2226,29 @@ function* reviewOf(input: {
 		kept: facts === null ? [] : keptListFor(facts),
 		tables: projectReview.tables,
 		places: projectReview.places,
+		ownerRules: readingOwnerRules(
+			fetched.data,
+			input.reads,
+			doc,
+			mintingResolver(appId),
+		),
 		mediaLeftOut: mediaLeftOutOf(input.judgedPlan.claims).undrawn,
 		firstPublish: accepted.firstPublish,
 	};
+}
+
+/**
+ * The forms whose questions search for an address in Web Apps under one
+ * declaration (`targetConditionUses`), as the review's choice holds them:
+ * absent where none does, so a review with none digests as before.
+ */
+function addressSearchOf(doc: BlueprintDoc): {
+	readonly addressSearch?: readonly string[];
+} {
+	const reasons = targetConditionUses(doc).flatMap((met) =>
+		met.condition.capability === "address-search"
+			? addressSearchFormReasons(doc, met.uses)
+			: [],
+	);
+	return reasons.length === 0 ? {} : { addressSearch: reasons };
 }

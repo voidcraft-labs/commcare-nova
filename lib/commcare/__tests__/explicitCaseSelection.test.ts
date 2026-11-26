@@ -6,6 +6,7 @@ import {
 	mutationCommitVerdictWithPrevalidation,
 } from "@/lib/doc/commitVerdicts";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
+import type { Mutation } from "@/lib/doc/types";
 import { previewMenuCaseContext } from "@/lib/preview/menuProjection";
 import { expandDoc } from "../expander";
 import {
@@ -232,6 +233,20 @@ describe("explicit parent record selection", () => {
 		doc.modules[CHILD].parentCaseModuleUuid = SECOND;
 		for (const mutations of [
 			[{ kind: "removeModule", uuid: SECOND }],
+			[{ kind: "updateModule", uuid: SECOND, patch: { caseType: "plot" } }],
+		] satisfies Mutation[][])
+			expect(
+				mutationCommitVerdict(doc, mutations, LOOKUP_CONTEXT_UNAVAILABLE).ok,
+			).toBe(false);
+	});
+
+	it("keeps a selection when the catalog stops naming its menu's type as the parent", () => {
+		// The selection follows indices already on saved records; the catalog
+		// only marks likely parents. An extension-only edge matches no rows at
+		// runtime, which is the list's business, not the selection's.
+		const doc = fixture();
+		doc.modules[CHILD].parentCaseModuleUuid = SECOND;
+		for (const mutations of [
 			[{ kind: "setCaseTypeMeta", caseType: "plot", parent_type: null }],
 			[
 				{
@@ -240,10 +255,9 @@ describe("explicit parent record selection", () => {
 					relationship: "extension",
 				},
 			],
-			[{ kind: "updateModule", uuid: SECOND, patch: { caseType: "plot" } }],
-		])
+		] satisfies Mutation[][])
 			expect(
 				mutationCommitVerdict(doc, mutations, LOOKUP_CONTEXT_UNAVAILABLE).ok,
-			).toBe(false);
+			).toBe(true);
 	});
 });

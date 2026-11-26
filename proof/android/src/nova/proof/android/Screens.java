@@ -134,6 +134,7 @@ final class Screens {
         Forms.views = request.optBoolean("views");
         Forms.typeRefused = request.optBoolean("typeRefused");
         Forms.keys = request.optBoolean("keys");
+        Forms.controls = request.optBoolean("controls");
         JSONObject walks = new JSONObject();
         JSONArray commands = request.optJSONArray("commands");
         if (commands != null) {
@@ -496,6 +497,9 @@ final class Screens {
         CommCareSession session = wrapper.getSession();
         JSONObject found = new JSONObject();
         found.put("command", orNull(session.getCommand()));
+        if (session.getData().containsKey("case_id")) {
+            found.put("selectedCase", session.getData().get("case_id"));
+        }
         String needed;
         try {
             needed = session.getNeededData(wrapper.getEvaluationContext());

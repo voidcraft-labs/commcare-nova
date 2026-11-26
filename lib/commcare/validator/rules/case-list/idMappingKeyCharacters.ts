@@ -41,10 +41,12 @@ export function idMappingKeyCharacters(
 	const errors: ValidationError[] = [];
 	for (let columnIndex = 0; columnIndex < columns.length; columnIndex++) {
 		const column = columns[columnIndex];
-		if (column.kind !== "id-mapping") continue;
+		if (column.kind !== "id-mapping" || column.behavior === "first-match")
+			continue;
 		for (let rowIndex = 0; rowIndex < column.mapping.length; rowIndex++) {
 			const { value } = column.mapping[rowIndex];
-			if (!idMappingValueHoldsForbiddenCharacter(value)) continue;
+			if (value === undefined || !idMappingValueHoldsForbiddenCharacter(value))
+				continue;
 			errors.push(
 				validationError(
 					"CASE_LIST_ID_MAPPING_KEY_CHARACTERS",

@@ -22,9 +22,11 @@
  * doc's `fields`/`fieldOrder` maps). Internally it walks the fields as a
  * `FieldTreeNode` rose tree built at construction / schema refresh.
  */
+
 import { v4 as uuidv4 } from "uuid";
 import { createStore, type StoreApi } from "zustand/vanilla";
 import { caseOptionsNodeset } from "@/lib/commcare/caseOptions";
+import { formSharingPlan } from "@/lib/commcare/casePlacementPlan";
 import { emitCasePropertyWirePath } from "@/lib/commcare/casePropertyWire";
 import { lookupOptionsNodeset } from "@/lib/commcare/lookupOptions";
 import { fieldBindType } from "@/lib/commcare/xform/bindType";
@@ -45,8 +47,10 @@ import type {
 	CaseSelectionCardinality,
 	CaseType,
 	Field,
+	FieldProseSlot,
 	Form,
 	FormType,
+	LabelTextSlot,
 	LanguageTag,
 	LookupOptionsSource,
 	ProseAtomPart,
@@ -62,6 +66,7 @@ import {
 	isCaptureFieldKind,
 	isContainer,
 	isReadableTemporalValue,
+	LABEL_TEXT_SLOTS,
 	orderedCaseOperations,
 	prepareCaseScalarTextValue,
 	proseSource,
@@ -81,10 +86,21 @@ import {
 	effectiveQueryRepeatPlacement,
 	type QueryRepeatPlacement,
 } from "@/lib/domain/queryRepeatPlacement";
+import { usesNumberKeypad } from "@/lib/domain/questionDisplay";
 import { directRepeatCountReference } from "@/lib/domain/repeatCount";
 import { normalizeJavaIntegerLexical } from "@/lib/preview/xpath/javaInteger";
+import {
+	type QuestionMessage,
+	questionChannelScope,
+	receivedAnswer,
+} from "../displayMessages";
 import { type PreviewPlatformRules, previewPlatformRules } from "../platform";
 import { runtimeMessage } from "../runtimeMessages";
+import {
+	androidCalendarCanBeEmpty,
+	isoOfCalendarDay,
+	localToday,
+} from "../workerCalendar";
 import { toBoolean, xpathToString } from "../xpath/coerce";
 import { evaluate, evaluateRuntime } from "../xpath/evaluator";
 import { invokeGeneratedJavaRosaFunction } from "../xpath/generatedJavaRosaFunctions";
@@ -204,11 +220,20 @@ import {
 
 /** The prose slot a field's own text sits in, which its references print
  * under. */
-function fieldProseSlot(
-	field: Field,
-	slot: "label" | "hint" | "help" | "validate_msg",
-): ProseSlotRef {
+function fieldProseSlot(field: Field, slot: FieldProseSlot): ProseSlotRef {
 	return { entity: "field", uuid: field.uuid, slot };
+}
+
+/** The label's other texts with their refs evaluated, by slot; undefined
+ *  where none holds a ref. */
+function resolvedLabelTextsOf(
+	resolve: (slot: LabelTextSlot) => string | undefined,
+): Readonly<Partial<Record<LabelTextSlot, string>>> | undefined {
+	const entries = LABEL_TEXT_SLOTS.flatMap((slot) => {
+		const value = resolve(slot);
+		return value === undefined ? [] : [[slot, value] as const];
+	});
+	return entries.length === 0 ? undefined : Object.fromEntries(entries);
 }
 
 function optionProseSlot(field: Field, optionUuid: Uuid): ProseSlotRef {
@@ -551,7 +576,11 @@ function pageUuid(page: FormScreenPage): string {
 /** Whether a group draws as a field-list on Android: Nova writes
  *  `appearance="field-list"` on exactly the groups holding `fieldList`
  *  (`lib/commcare/xform/builder.ts::buildContainer`), labelled or not. Any
- *  other group is transparent, its questions paged one per screen. */
+ *  other group is transparent, its questions paged one per screen. A
+ *  `compact` group is one of those: Core opens a group screen only for the
+ *  whole appearance `field-list` (`FormEntryController.isHostWithAppearance`),
+ *  and Android reads `compact` only as each widget's layout
+ *  (`FormController.indexIsInCompact`). */
 function groupDrawsAsFieldList(field: Field & { kind: "group" }): boolean {
 	return field.fieldList === true;
 }
@@ -698,6 +727,7 @@ export class FormEngine {
 	 *  keyed by tree identity so every tree rebuild refreshes it lazily. */
 	private fieldPathsCache: ReadonlyMap<Uuid, string> = new Map();
 	private fieldPathsCacheTree: FieldTreeNode[] | undefined;
+	private datePathTemplates: string[] = [];
 	/** Live repeat-instance counts for the DAG's generic→concrete
 	 *  materialization. Arrow property so it can pass as a bare callback. */
 	private repeatCounts = (repeatPath: string): number =>
@@ -766,6 +796,11 @@ export class FormEngine {
 		runtimeOptions: FormEngineRuntimeOptions = {},
 	) {
 		this.store = createStore<EngineStoreState>(() => ({}));
+		if (
+			formSharingPlan(input.doc, input.formUuid) &&
+			caseDatabase?.workerGroups?.length !== 1
+		)
+			throw new PreviewDataRefusal({ kind: "group-count" });
 		this.hasCaseSnapshot = caseDatabase != null;
 		this.lookupData = lookupData ?? null;
 		this.previewIdentity = previewIdentity ?? null;
@@ -1019,6 +1054,7 @@ export class FormEngine {
 			),
 		);
 		this.store.setState(state, true);
+		this.drawAndroidDates(this.activeScreenPath);
 	}
 
 	/** Local required/type errors have no validation DAG node. Constraint
@@ -1122,6 +1158,7 @@ export class FormEngine {
 		}
 		if (Object.keys(updates).length > 0) this.store.setState(updates);
 		await this.settleLiveRepeatsAsync(evaluateAsync, beforeInsertion);
+		this.drawAndroidDates(this.activeScreenPath);
 	}
 
 	async touchAsync(
@@ -1250,10 +1287,26 @@ export class FormEngine {
 		const current = this.store.getState()[path];
 		if (
 			current &&
-			(current.value !== value || (current.keypadRefused === true) !== !stores)
+			(current.value !== value ||
+				(current.keypadRefused === true) !== !stores ||
+				(current.androidPickerDay !== undefined &&
+					current.androidPickerDay !== value))
 		) {
+			const cleared =
+				value === "" && this.rules.datePicker === "shows-a-day"
+					? this.findField(path)
+					: undefined;
 			updates[path] = withKeypadRefused(
-				{ ...current, value, edited: true },
+				{
+					...current,
+					value,
+					edited: true,
+					...(cleared?.kind === "date" && {
+						androidPickerDay: androidCalendarCanBeEmpty(cleared.calendar)
+							? ""
+							: isoOfCalendarDay(localToday()),
+					}),
+				},
 				!stores,
 			);
 		}
@@ -1292,7 +1345,10 @@ export class FormEngine {
 		}
 		if (!stores) return false;
 		this.settleLiveRepeats();
-		if (!this.asyncRuntime) this.reenterActiveScreen();
+		if (!this.asyncRuntime) {
+			this.reenterActiveScreen();
+			this.drawAndroidDates(this.activeScreenPath);
+		}
 		return true;
 	}
 
@@ -1305,7 +1361,7 @@ export class FormEngine {
 		typed: string,
 	): { readonly shown: string; readonly stores: boolean } {
 		const field = this.findField(path);
-		if (field?.kind !== "text" || field.keypad === undefined)
+		if (!field || !usesNumberKeypad(field, this.device.platform))
 			return { shown: typed, stores: true };
 		const shown = numberKeypadTyped(this.rules.numberKeypad, typed);
 		return {
@@ -2255,6 +2311,81 @@ export class FormEngine {
 		return { screens, prompts };
 	}
 
+	/** A native date control is constructed with an answer, or with the
+	 * device's current civil day. Only when the worker leaves does Android
+	 * ask the widget for that day. A fresh control after a return or a
+	 * relevance change is constructed again from the instance. */
+	private drawAndroidDates(screenPath: string | undefined): void {
+		if (this.rules.datePicker !== "shows-a-day") return;
+		this.fieldPathsByUuid();
+		if (this.datePathTemplates.length === 0) return;
+		const onScreen =
+			screenPath === undefined ? undefined : screenIncludes(screenPath);
+		const visible = this.effectivelyVisiblePaths();
+		const states = this.store.getState();
+		const updates: EngineStoreState = {};
+		let today: string | undefined;
+		for (const template of this.datePathTemplates) {
+			for (const path of this.materializePaths(template)) {
+				const state = states[path];
+				if (!state) continue;
+				if (onScreen?.(path) && visible.has(path) && !state.value) {
+					if (state.androidPickerDay === undefined) {
+						today ??= isoOfCalendarDay(localToday());
+						updates[path] = { ...state, androidPickerDay: today };
+					}
+				} else if (state.androidPickerDay !== undefined) {
+					const { androidPickerDay: _shown, ...answer } = state;
+					updates[path] = answer;
+				}
+			}
+		}
+		if (Object.keys(updates).length > 0) this.store.setState(updates);
+	}
+
+	/** Day suggestions are owned by the live screen. Materializing the
+	 * blueprint's date paths excludes removed fields and removed repeat rows. */
+	pendingScreenDays(): { path: string; day: string }[] {
+		if (this.rules.datePicker !== "shows-a-day" || !this.activeScreenPath)
+			return [];
+		this.fieldPathsByUuid();
+		this.drawAndroidDates(this.activeScreenPath);
+		const onScreen = screenIncludes(this.activeScreenPath);
+		return this.datePathTemplates.flatMap((template) =>
+			this.materializePaths(template).flatMap((path) => {
+				const state = this.store.getState()[path];
+				return onScreen(path) && state?.androidPickerDay && !state.value
+					? [{ path, day: state.androidPickerDay }]
+					: [];
+			}),
+		);
+	}
+
+	/** Save the displayed answers from this actual visit through the same
+	 * value/cascade boundary as an explicit worker edit. Validation of a
+	 * different screen is only an inspection and never calls this. */
+	saveScreenDates(): string[] {
+		const saved: string[] = [];
+		for (const { path, day } of this.pendingScreenDays()) {
+			if (
+				this.getState(path).androidPickerDay === day &&
+				this.setValue(path, day)
+			)
+				saved.push(path);
+		}
+		return saved;
+	}
+
+	async saveScreenDatesAsync(
+		evaluate: FormEngineAsyncEvaluator,
+	): Promise<void> {
+		const paths = this.saveScreenDates();
+		if (paths.length) {
+			await this.settleValueChangesAsync(paths, evaluate);
+			await this.reenterActiveScreenAsync(evaluate);
+		}
+	}
+
 	/** The screen the entry is on, by path. */
 	currentScreenPath(): string | undefined {
 		return this.activeScreenPath;
@@ -2282,6 +2413,7 @@ export class FormEngine {
 		if (path === "/data") {
 			this.enterAllSections();
 			this.activeScreenPath = path;
+			this.drawAndroidDates(path);
 			return;
 		}
 		const section = this.sectionAtScreenPath(path);
@@ -2290,6 +2422,7 @@ export class FormEngine {
 			return;
 		}
 		this.activeScreenPath = path;
+		this.drawAndroidDates(path);
 	}
 
 	async enterScreenAsync(
@@ -2299,6 +2432,7 @@ export class FormEngine {
 		if (path === "/data") {
 			await this.enterAllSectionsAsync(evaluateAsync);
 			this.activeScreenPath = path;
+			this.drawAndroidDates(path);
 			return;
 		}
 		const section = this.sectionAtScreenPath(path);
@@ -2307,6 +2441,7 @@ export class FormEngine {
 			return;
 		}
 		this.activeScreenPath = path;
+		this.drawAndroidDates(path);
 	}
 
 	private sectionAtScreenPath(path: string): Uuid | undefined {
@@ -2910,6 +3045,10 @@ export class FormEngine {
 		if (node === undefined || !isCaptureFieldKind(node.field.kind)) {
 			return "removed";
 		}
+		return this.answerPathDisposition(path);
+	}
+
+	answerPathDisposition(path: string): AttachmentPathDisposition {
 		const states = this.store.getState();
 		const state = states[path];
 		if (state === undefined || state === DEFAULT_ENGINE_STATE) {
@@ -3018,6 +3157,38 @@ export class FormEngine {
 	 *  use `useStore(engine.store, s => s[path])` in components. */
 	getState(path: string): FieldState {
 		return this.store.getState()[path] ?? DEFAULT_ENGINE_STATE;
+	}
+
+	/** Determine concrete receiver answers in sender topic order using this
+	 * entry's published fields, active-language labels and filtered choices. */
+	displayMessageAnswers(
+		senderPath: string,
+		message: QuestionMessage,
+	): { path: string; value: string }[] {
+		if (!this.rules.questionChannels) return [];
+		const sender = this.findField(senderPath);
+		if (!sender || !("sendTopics" in sender) || !sender.sendTopics) return [];
+		const scope = questionChannelScope(senderPath);
+		const targets = Object.entries(this.store.getState()).flatMap(
+			([path, state]) => {
+				if (questionChannelScope(path) !== scope || !state.visible) return [];
+				const receiver = this.findField(path);
+				if (!receiver || !("receiveFrom" in receiver) || !receiver.receiveFrom)
+					return [];
+				const value = receivedAnswer(
+					receiver,
+					state,
+					message,
+					this.device.platform,
+				);
+				return value === undefined
+					? []
+					: [{ path, value, channel: receiver.receiveFrom.channel }];
+			},
+		);
+		return sender.sendTopics.flatMap((channel) =>
+			targets.filter((target) => target.channel === channel),
+		);
 	}
 
 	/** Get the engine's active field tree — used by the controller when it
@@ -3849,6 +4020,7 @@ export class FormEngine {
 		let resolvedLabel = current.resolvedLabel;
 		let resolvedHint = current.resolvedHint;
 		let resolvedHelp = current.resolvedHelp;
+		let resolvedLabelTexts = current.resolvedLabelTexts;
 		let resolvedOptionLabels = current.resolvedOptionLabels;
 		let choices = current.choices;
 		let rowConditions = current.rowConditions;
@@ -3925,6 +4097,17 @@ export class FormEngine {
 						fieldProseTemplate(field, "help"),
 						resolve(fieldProseSlot(field, "help")),
 					);
+					const labelTexts = new Map<LabelTextSlot, string>();
+					for (const slot of LABEL_TEXT_SLOTS) {
+						const text = await resolveLabelAsync(
+							fieldProseTemplate(field, slot),
+							resolve(fieldProseSlot(field, slot)),
+						);
+						if (text !== undefined) labelTexts.set(slot, text);
+					}
+					const nextLabelTexts = resolvedLabelTextsOf((slot) =>
+						labelTexts.get(slot),
+					);
 					let nextOptions: Record<string, string> | undefined;
 					if (
 						(field.kind === "single_select" || field.kind === "multi_select") &&
@@ -3944,11 +4127,13 @@ export class FormEngine {
 						nextLabel !== resolvedLabel ||
 						nextHint !== resolvedHint ||
 						nextHelp !== resolvedHelp ||
+						!stringRecordsEqual(nextLabelTexts, resolvedLabelTexts) ||
 						!stringRecordsEqual(nextOptions, resolvedOptionLabels)
 					) {
 						resolvedLabel = nextLabel;
 						resolvedHint = nextHint;
 						resolvedHelp = nextHelp;
+						resolvedLabelTexts = nextLabelTexts;
 						resolvedOptionLabels = nextOptions;
 						changed = true;
 					}
@@ -3997,6 +4182,7 @@ export class FormEngine {
 					resolvedLabel,
 					resolvedHint,
 					resolvedHelp,
+					resolvedLabelTexts,
 					resolvedOptionLabels,
 					choices,
 					rowConditions,
@@ -4013,6 +4199,7 @@ export class FormEngine {
 				resolvedLabel,
 				resolvedHint,
 				resolvedHelp,
+				resolvedLabelTexts,
 				resolvedOptionLabels,
 				choices,
 				rowConditions,
@@ -4120,6 +4307,7 @@ export class FormEngine {
 		let resolvedLabel = current.resolvedLabel;
 		let resolvedHint = current.resolvedHint;
 		let resolvedHelp = current.resolvedHelp;
+		let resolvedLabelTexts = current.resolvedLabelTexts;
 		let resolvedOptionLabels = current.resolvedOptionLabels;
 		let choices = current.choices;
 		let rowConditions = current.rowConditions;
@@ -4197,6 +4385,12 @@ export class FormEngine {
 							fieldProseTemplate(f, "help"),
 							resolve(fieldProseSlot(f, "help")),
 						);
+						const rtexts = resolvedLabelTextsOf((slot) =>
+							resolveLabel(
+								fieldProseTemplate(f, slot),
+								resolve(fieldProseSlot(f, slot)),
+							),
+						);
 						const roptions =
 							(f.kind === "single_select" || f.kind === "multi_select") &&
 							f.optionsSource.kind === "inline"
@@ -4220,11 +4414,13 @@ export class FormEngine {
 							rl !== resolvedLabel ||
 							rh !== resolvedHint ||
 							rhelp !== resolvedHelp ||
+							!stringRecordsEqual(rtexts, resolvedLabelTexts) ||
 							!stringRecordsEqual(normalizedOptions, resolvedOptionLabels)
 						) {
 							resolvedLabel = rl;
 							resolvedHint = rh;
 							resolvedHelp = rhelp;
+							resolvedLabelTexts = rtexts;
 							resolvedOptionLabels = normalizedOptions;
 							changed = true;
 						}
@@ -4276,6 +4472,7 @@ export class FormEngine {
 					resolvedLabel,
 					resolvedHint,
 					resolvedHelp,
+					resolvedLabelTexts,
 					resolvedOptionLabels,
 					choices,
 					rowConditions,
@@ -4292,6 +4489,7 @@ export class FormEngine {
 				resolvedLabel,
 				resolvedHint,
 				resolvedHelp,
+				resolvedLabelTexts,
 				resolvedOptionLabels,
 				choices,
 				rowConditions,
@@ -5452,6 +5650,7 @@ export class FormEngine {
 		if (!resolved) this.activeSectionUuid = undefined;
 		else if (resolved.uuid !== sectionUuid) this.enterSection(resolved.uuid);
 		else this.activeScreenPath = resolved.path;
+		this.drawAndroidDates(resolved?.path);
 	}
 
 	async enterSectionAsync(
@@ -5476,6 +5675,7 @@ export class FormEngine {
 		else if (resolved.uuid !== sectionUuid)
 			await this.enterSectionAsync(resolved.uuid, evaluateAsync);
 		else this.activeScreenPath = resolved.path;
+		this.drawAndroidDates(resolved?.path);
 	}
 
 	/** Nova context recovery re-evaluates untouched defaults with retained row
@@ -5955,10 +6155,12 @@ export class FormEngine {
 	private fieldPathsByUuid(): ReadonlyMap<Uuid, string> {
 		if (this.fieldPathsCacheTree !== this.tree) {
 			const paths = new Map<Uuid, string>();
+			this.datePathTemplates = [];
 			const walk = (nodes: FieldTreeNode[], prefix: string): void => {
 				for (const node of nodes) {
 					const nodePath = `${prefix}/${node.field.id}`;
 					paths.set(node.field.uuid, nodePath);
+					if (node.field.kind === "date") this.datePathTemplates.push(nodePath);
 					if (node.children) walk(node.children, nodePath);
 				}
 			};

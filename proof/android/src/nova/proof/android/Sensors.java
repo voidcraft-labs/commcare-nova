@@ -44,6 +44,7 @@ final class Sensors {
     static final float ACCURACY = 5.0f;
     /** Where the GPS puts the device: latitude, longitude, altitude, accuracy; null where it finds no fix. */
     private static double[] position = {LATITUDE, LONGITUDE, ALTITUDE, ACCURACY};
+    private static boolean alreadyGranted;
     private static final List<String> LOCATION =
             Arrays.asList(Manifest.permission.ACCESS_COARSE_LOCATION, Manifest.permission.ACCESS_FINE_LOCATION);
 
@@ -75,7 +76,9 @@ final class Sensors {
      * null for a GPS that finds no fix); the lane's place where the request names none.
      */
     static void place(JSONObject request) throws Exception {
+        alreadyGranted = request.optBoolean("locationGranted", false);
         if (!request.has("position")) {
+            position = new double[]{LATITUDE, LONGITUDE, ALTITUDE, ACCURACY};
             return;
         }
         if (request.isNull("position")) {
@@ -100,7 +103,14 @@ final class Sensors {
      */
     static void forget() {
         ShadowApplication application = Shadows.shadowOf((Application)ApplicationProvider.getApplicationContext());
-        application.denyPermissions(LOCATION.toArray(new String[0]));
+        if (alreadyGranted) {
+            application.grantPermissions(LOCATION.toArray(new String[0]));
+            if (position != null) {
+                Shadows.shadowOf(locationManager()).simulateLocation(deviceFix());
+            }
+        } else {
+            application.denyPermissions(LOCATION.toArray(new String[0]));
+        }
         application.denyPermissions(Manifest.permission.RECORD_AUDIO);
     }
 
@@ -122,18 +132,23 @@ final class Sensors {
             // The GPS finds no fix: the app is given none.
             gave.put("location", JSONObject.NULL);
         } else {
-            Location fix = new Location(LocationManager.GPS_PROVIDER);
-            fix.setLatitude(position[0]);
-            fix.setLongitude(position[1]);
-            fix.setAltitude(position[2]);
-            fix.setAccuracy((float)position[3]);
-            fix.setTime(ProofClock.instant());
-            fix.setElapsedRealtimeNanos(android.os.SystemClock.elapsedRealtimeNanos());
-            Shadows.shadowOf(locationManager()).simulateLocation(fix);
+            Shadows.shadowOf(locationManager()).simulateLocation(deviceFix());
             settle(activity);
             gave.put("location", position[0] + " " + position[1] + " " + position[2] + " " + (float)position[3]);
         }
         holder.put("deviceGave", gave);
+    }
+
+    /** A GPS report from the selected device, with its monotonic and wall-clock readings. */
+    private static Location deviceFix() {
+        Location fix = new Location(LocationManager.GPS_PROVIDER);
+        fix.setLatitude(position[0]);
+        fix.setLongitude(position[1]);
+        fix.setAltitude(position[2]);
+        fix.setAccuracy((float)position[3]);
+        fix.setTime(ProofClock.instant());
+        fix.setElapsedRealtimeNanos(android.os.SystemClock.elapsedRealtimeNanos());
+        return fix;
     }
 
     private static boolean asksLocation(JSONArray asked) throws Exception {

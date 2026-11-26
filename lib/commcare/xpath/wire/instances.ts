@@ -5,7 +5,7 @@
  * domain walk or implication between instance ids adds dependencies.
  *
  * Sources: HQ's suite_xml/post_process/instances.py factories and Core's
- * CommCareInstanceInitializer.generateRoot. Lookup forms use the bare tag;
+ * CommCareInstanceInitializer.generateRoot. Lookup forms use their allocated id,
  * suites use the fixture id, and both resolve the same delivered fixture.
  */
 
@@ -70,6 +70,14 @@ export function locationsInstance(): InstanceDecl {
 		src: "jr://fixture/locations",
 		rows: LOCATION_ROWS,
 	};
+}
+
+/** The worker's case-sharing groups, which HQ serves every worker
+ * (`suite_xml/post_process/instances.py`'s `groups` entry). An owner-name
+ * column reads a group's name through it
+ * (`detail_screen.py::PropertyXpathGenerator.owner_name`). */
+export function groupsInstance(): InstanceDecl {
+	return { id: "groups", src: "jr://fixture/user-groups" };
 }
 
 export function resultsInstance(

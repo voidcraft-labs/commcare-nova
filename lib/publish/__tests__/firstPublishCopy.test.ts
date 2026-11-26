@@ -47,7 +47,7 @@ const SENTENCE_IDS = FIRST_PUBLISH_CHANGE_IDS.filter(
 
 describe("FIRST_PUBLISH_SENTENCES", () => {
 	it("holds exactly one sentence for each id that has a line of its own", () => {
-		expect(SENTENCE_IDS).toHaveLength(38);
+		expect(SENTENCE_IDS).toHaveLength(39);
 		expect(Object.keys(FIRST_PUBLISH_SENTENCES).sort()).toEqual(
 			[...SENTENCE_IDS].sort(),
 		);
@@ -170,6 +170,26 @@ describe("firstPublishLines", () => {
 		expect(publish.lead).toBe(FIRST_PUBLISH_LEAD_PUBLISH);
 		expect(review.note).toBe(FIRST_PUBLISH_FORM_BUILDER_NOTE);
 		expect(publish.note).toBe(FIRST_PUBLISH_FORM_BUILDER_NOTE);
+	});
+
+	it("invites a review where the list needs one, and offers no reassurance before it", () => {
+		for (const [of, lead] of [
+			[
+				"first-publish",
+				"You can review changes from CommCare HQ to see what this first publish would change.",
+			],
+			[
+				"next-publish",
+				"You can review changes from CommCare HQ to see what the next publish would change.",
+			],
+		] as const) {
+			const lines = firstPublishLines(
+				{ ...view(["forms-and-settings-rewritten"], of), needsReview: true },
+				"publish",
+			);
+			expect(lines.lead).toBe(lead);
+			expect(lines.reassurance).toBeNull();
+		}
 	});
 
 	it("heads a next publish with its own heading and lead, and builds the rest as for any list", () => {

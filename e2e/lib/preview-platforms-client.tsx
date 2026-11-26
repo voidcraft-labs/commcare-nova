@@ -67,6 +67,171 @@ function inSection(label: string, children: FieldSpec[]): FieldSpec {
 
 function fieldsOf(fixture: PreviewPlatformFixture): FieldSpec[] {
 	switch (fixture) {
+		case "question-display": {
+			const options = [
+				{ value: "north", label: "North valley" },
+				{ value: "upper", label: "Upper valley" },
+				{ value: "south", label: "South ridge" },
+			];
+			const single = (
+				id: string,
+				label: string,
+				choiceLayout: unknown,
+			): FieldSpec => ({
+				id,
+				label,
+				kind: "single_select",
+				options,
+				choiceLayout,
+			});
+			return [
+				inSection("Visit", [
+					{ kind: "secret", id: "pin", label: "Visit code", keypad: "numbers" },
+					{
+						kind: "secret",
+						id: "address",
+						label: "Private meeting place",
+						addressLookup: true,
+					},
+					{
+						kind: "text",
+						id: "place",
+						label: "Visit place",
+						hint: "Building name",
+						hintPlacement: "placeholder",
+						inputWidth: "medium",
+					},
+					{ kind: "text", id: "code", label: "Stop code", inputWidth: "short" },
+					single("route", "Route", { kind: "search", matchWords: "multiword" }),
+					single("market", "Market", { kind: "search", matchWords: "fuzzy" }),
+					single("stage", "Stage", { kind: "buttons" }),
+					single("rating", "Rating", {
+						kind: "grid",
+						columns: 2,
+						advanceOnChoice: true,
+					}),
+					single("show_only", "Headings", { kind: "headings" }),
+					{
+						kind: "multi_select",
+						id: "supplies",
+						label: "Supplies",
+						choiceLayout: { kind: "row-without-label" },
+						options,
+					},
+					{
+						kind: "date",
+						id: "change_day",
+						uuid: IDS.changeDay,
+						label: "Change day",
+						calendar: "gregorian-with-clear",
+					},
+
+					{
+						kind: "date",
+						id: "arrival",
+						label: "Arrival day",
+						calendar: "ethiopian",
+						itemsPerRow: "2",
+					},
+					{
+						kind: "date",
+						id: "return_day",
+						uuid: IDS.returnDay,
+						label: "Return day",
+						calendar: "nepali",
+					},
+					{
+						kind: "date",
+						id: "departure",
+						label: "Departure day",
+						hint: "Ask the driver",
+						hintPlacement: "hidden-on-web",
+					},
+					{
+						kind: "time",
+						id: "clock",
+						label: "Arrival time",
+						clock: "twelve-hour",
+					},
+					{
+						kind: "image",
+						id: "signature_photo",
+						label: "Witness image",
+						webSignature: true,
+						itemsPerRow: "2",
+					},
+					{
+						kind: "image",
+						id: "photo",
+						label: "Door photo",
+						captureSource: "camera",
+					},
+					{
+						kind: "audio",
+						id: "voice",
+						label: "Visit recording",
+						pauseRecording: true,
+					},
+					{
+						kind: "video",
+						id: "clip",
+						label: "Arrival clip",
+						captureSource: "camera",
+					},
+					{
+						kind: "label",
+						id: "ready",
+						label: "[Ready](https://example.org)",
+						banner: "good",
+					},
+					{ kind: "label", id: "check", label: "Check", banner: "caution" },
+					{
+						kind: "label",
+						id: "absent",
+						label: "Device note",
+						banner: "hidden",
+					},
+					{
+						kind: "group",
+						id: "details",
+						label: "Visit details",
+						collapse: "closed",
+						border: true,
+						children: [
+							{
+								kind: "text",
+								id: "address_line",
+								label: "House number",
+								textAlignment: "right",
+								itemsPerRow: "2",
+							},
+						],
+					},
+					{
+						kind: "group",
+						id: "tally",
+						label: "Tally",
+						compact: true,
+						children: [
+							{
+								kind: "int",
+								id: "people",
+								label: "People at the visit",
+								hint: "Count adults and children",
+							},
+						],
+					},
+				]),
+				{
+					kind: "section",
+					id: "review",
+					label: "Review",
+					children: [
+						{ kind: "label", id: "review_visit", label: "Review this visit" },
+					],
+				},
+			];
+		}
 		case "questions":
 			return [
 				inSection("Questions", [
@@ -263,6 +428,20 @@ function fieldsOf(fixture: PreviewPlatformFixture): FieldSpec[] {
 					},
 				]),
 			];
+		case "label-texts":
+			return [
+				inSection("Visit", [
+					{
+						kind: "text",
+						id: "full_name",
+						label: "Name",
+						plainLabel: true,
+						extended_text: "Full name of the person",
+						qr_code: "household-12",
+						spoken_text: "Say the full name",
+					},
+				]),
+			];
 		case "home":
 			return [{ kind: "text", id: "note", label: "Note" }];
 		case "search":
@@ -291,6 +470,10 @@ const built = buildDoc({
 	],
 });
 if (scenario.fixture === "home") built.logo = IDS.logo;
+if (scenarioId === "menu-grid-android" || scenarioId === "menu-grid-web-apps") {
+	built.appSettings.firstMenuLayout = "grid";
+	built.modules[IDS.module].audioLabel = IDS.menuSound;
+}
 /* A group's label is optional and the fixture builder gives every group one;
  * the screens fixture's `rest` and `extras` are unlabeled. */
 if (scenario.fixture === "screens")
@@ -375,6 +558,9 @@ toastRoot.render(<ToastContainer />);
 
 window.previewPlatforms = {
 	answer: (uuid) => controller?.store.getState()[uuid]?.value,
+	setPlatform(next) {
+		session.getState().setPreviewPlatform(next);
+	},
 	async settled() {
 		await controller?.awaitSettled();
 	},
@@ -390,6 +576,8 @@ declare global {
 	interface Window {
 		previewPlatforms: {
 			answer(uuid: string): string | undefined;
+			/** Plays `next` as the builder's platform switch does. */
+			setPlatform(next: Platform): void;
 			settled(): Promise<void>;
 			dispose(): Promise<void>;
 		};

@@ -35,6 +35,11 @@ import {
 } from "@/lib/domain";
 import { formStructure } from "@/lib/domain/expression/formStructure";
 import {
+	MEDIA_ROLES,
+	type Media,
+	type MediaRole,
+} from "@/lib/domain/multimedia";
+import {
 	type QueryRepeatNeed,
 	queryRepeatPlacementNeeds,
 } from "@/lib/domain/queryRepeatPlacement";
@@ -44,6 +49,7 @@ import {
 	questionIdProblemSentence,
 } from "@/lib/domain/questionId";
 import { buildFieldTree } from "@/lib/preview/engine/fieldTree";
+import { fieldDisplayProblem } from "../../xform/readDisplaySettings";
 import { type ValidationError, validationError } from "../errors";
 
 /** Presence is structural; a parsed expression cannot be an empty source string. */
@@ -607,7 +613,109 @@ function queryRepeatModelIterationShape(
 	];
 }
 
+function displayCombination(
+	field: Field,
+	ctx: FieldContext,
+): ValidationError[] {
+	const problem =
+		field.kind === "group" &&
+		field.repeatsPerRow !== undefined &&
+		!(ctx.doc.fieldOrder[field.uuid] ?? []).some(
+			(child) => ctx.doc.fields[child]?.kind === "repeat",
+		)
+			? "This group needs a repeat to lay out its entries. You can add a repeat or clear Repeat items per row."
+			: fieldDisplayProblem(field);
+	if (!problem) return [];
+	return [
+		validationError(
+			"QUESTION_DISPLAY_COMBINATION_INVALID",
+			"field",
+			problem,
+			{
+				fieldUuid: field.uuid,
+				fieldId: field.id,
+				formName: ctx.formName,
+				formUuid: ctx.formUuid,
+				moduleName: ctx.moduleName,
+				moduleUuid: ctx.moduleUuid,
+			},
+			// The display checker's sentence is written for the author.
+			{ displayProblem: problem },
+		),
+	];
+}
+
+const ROLE_NOUNS: Readonly<Record<MediaRole, string>> = {
+	image: "image",
+	audio: "audio",
+	video: "video",
+	videoInline: "inline video",
+};
+
+function localizedMedia(field: Field, ctx: FieldContext): ValidationError[] {
+	const bundles: (Media | undefined)[] = [];
+	if ("label_media" in field) bundles.push(field.label_media);
+	if ("help_media" in field) bundles.push(field.help_media);
+	if ("optionsSource" in field && field.optionsSource.kind === "inline")
+		for (const choice of field.optionsSource.options)
+			bundles.push(choice.media);
+	const languages = effectiveAppLocalization(
+		ctx.doc.localization,
+	).languageOrder;
+	for (const media of bundles) {
+		if (!media?.mediaByLanguage) continue;
+		let problem: { kind: string; role?: string; message: string } | undefined;
+		if (
+			media.formDefaultLanguage &&
+			!languages.includes(media.formDefaultLanguage)
+		)
+			problem = {
+				kind: "default-outside-app",
+				message:
+					"The language this media inherits from is no longer in the app. Choose a shared file.",
+			};
+		for (const [language, values] of Object.entries(media.mediaByLanguage)) {
+			if (!languages.includes(language))
+				problem = {
+					kind: "language-outside-app",
+					message:
+						"This media names a language outside the app. Choose an app language for the file.",
+				};
+			for (const role of MEDIA_ROLES)
+				if (values[role] !== undefined && !media[role])
+					problem = {
+						kind: "needs-shared",
+						role,
+						message: `A translated ${ROLE_NOUNS[role]} needs a shared file. Choose the shared ${ROLE_NOUNS[role]} for this question or choice first, or remove its translated files.`,
+					};
+		}
+		if (problem)
+			return [
+				validationError(
+					"FORM_MEDIA_LANGUAGE",
+					"field",
+					problem.message,
+					{
+						moduleUuid: ctx.moduleUuid,
+						moduleName: ctx.moduleName,
+						formUuid: ctx.formUuid,
+						formName: ctx.formName,
+						fieldUuid: field.uuid,
+						fieldId: field.id,
+					},
+					{
+						mediaProblem: problem.kind,
+						...(problem.role && { mediaRole: problem.role }),
+					},
+				),
+			];
+	}
+	return [];
+}
+
 const FIELD_RULES = [
+	displayCombination,
+	localizedMedia,
 	selectNoOptions,
 	selectOptionValueInvalid,
 	selectOptionValueDuplicate,

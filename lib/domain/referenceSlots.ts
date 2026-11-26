@@ -49,9 +49,18 @@ import {
 	type ProseSlotRef,
 	type SlotContextRef,
 } from "./expression/types";
+import type { Field } from "./fields";
 import { captureFieldKinds, type FieldKind, type RepeatMode } from "./fields";
 import { FORM_TYPES, type FormType } from "./forms";
+import { LABEL_TEXT_SLOTS } from "./labelForms";
+import {
+	makeTranslationUnitId,
+	type TranslationEntry,
+	translationSourceFingerprint,
+	translationSourceFingerprintsEqual,
+} from "./localization";
 import type { ColumnKind, SearchInputDef } from "./modules";
+import type { ProseTemplate } from "./prose";
 import { ownRecordValue } from "./records";
 import { isDeeplySettled } from "./settled";
 import type { Uuid } from "./uuid";
@@ -87,6 +96,7 @@ const REFERENCE_SURFACE_KINDS = [
 	"datum-ref",
 	"options-source",
 	"entity-uuid",
+	"worker-property-ref",
 	"case-property-ref",
 	"case-type-ref",
 ] as const;
@@ -138,11 +148,9 @@ type SearchInputArmKind = SearchInputDef["kind"];
 /**
  * The search-input union's second axis. `searchInputDefSchema` is seven arms over
  * TWO independent dimensions — `kind` (simple | advanced | hidden) and widget
- * shape (scalar | date-range | select; the hidden arm has no widget) — because a
- * range default, a scalar range mode, and a choice widget without its table all
- * have to be unrepresentable. Applicability has to name both: `default` lives on
- * the scalar and select arms regardless of kind, so no set of `kind` values alone
- * can describe it.
+ * shape (scalar | date-range | select; the hidden arm has no widget).
+ * Options live only on choice widgets. Starting values live on every
+ * visible widget, including both date-range arms.
  */
 type SearchInputWidget = "scalar" | "date-range" | "select";
 
@@ -269,6 +277,14 @@ const LABELED_KINDS = [
 	"section",
 ] as const satisfies readonly FieldKind[];
 
+/** Kinds whose label carries media and the label's other texts
+ *  (`labelForms.ts`): every visible question, a display label included. */
+const LABEL_TEXT_KINDS = [
+	...INPUT_KINDS,
+	...CAPTURE_KINDS,
+	"label",
+] as const satisfies readonly FieldKind[];
+
 // ── Field slots ───────────────────────────────────────────────────
 
 export const FIELD_REFERENCE_SLOTS = [
@@ -338,6 +354,16 @@ export const FIELD_REFERENCE_SLOTS = [
 		kind: "prose",
 		appliesTo: LABELED_KINDS,
 	},
+	...LABEL_TEXT_SLOTS.map(
+		(slot) =>
+			({
+				entity: "field",
+				slot,
+				path: slot,
+				kind: "prose",
+				appliesTo: LABEL_TEXT_KINDS,
+			}) as const,
+	),
 	{
 		entity: "field",
 		slot: "hint",
@@ -378,6 +404,13 @@ export const FIELD_REFERENCE_SLOTS = [
 // ── Form slots ────────────────────────────────────────────────────
 
 export const FORM_REFERENCE_SLOTS = [
+	{
+		entity: "form",
+		slot: "form_badge",
+		path: "badge.expression",
+		kind: "expression",
+		formTypes: FORM_TYPES,
+	},
 	{
 		entity: "form",
 		slot: "form_display_condition",
@@ -626,6 +659,36 @@ export const FORM_REFERENCE_SLOTS = [
 export const MODULE_REFERENCE_SLOTS = [
 	{
 		entity: "module",
+		slot: "listed_forms_source",
+		path: "formsFromMenu.menuUuid",
+		kind: "entity-uuid",
+	},
+	{
+		entity: "module",
+		slot: "unlisted_source_form",
+		path: "formsFromMenu.excludedFormUuids[]",
+		kind: "entity-uuid",
+	},
+	{
+		entity: "module",
+		slot: "listed_form_link",
+		path: "formsFromMenu.entryPoints[].formUuid",
+		kind: "entity-uuid",
+	},
+	{
+		entity: "module",
+		slot: "case_form_context_menu",
+		path: "caseListConfig.contextAboveForm.moduleUuid",
+		kind: "entity-uuid",
+	},
+	{
+		entity: "module",
+		slot: "case_form_context_line",
+		path: "caseListConfig.contextAboveForm.expression",
+		kind: "expression",
+	},
+	{
+		entity: "module",
 		slot: "module_case_parent",
 		path: "parentCaseModuleUuid",
 		kind: "entity-uuid",
@@ -644,6 +707,30 @@ export const MODULE_REFERENCE_SLOTS = [
 	},
 	{
 		entity: "module",
+		slot: "case_list_action_condition",
+		path: "caseListRegistrationForm.showWhen.condition",
+		kind: "expression",
+	},
+	{
+		entity: "module",
+		slot: "module_badge",
+		path: "badge.expression",
+		kind: "expression",
+	},
+	{
+		entity: "module",
+		slot: "case_list_action_created_case",
+		path: "caseListRegistrationForm.target.operationUuid",
+		kind: "entity-uuid",
+	},
+	{
+		entity: "module",
+		slot: "case_list_action_chosen_parent",
+		path: "caseListRegistrationForm.target.moduleUuid",
+		kind: "entity-uuid",
+	},
+	{
+		entity: "module",
 		slot: "module_display_condition",
 		path: "displayCondition",
 		kind: "expression",
@@ -656,6 +743,13 @@ export const MODULE_REFERENCE_SLOTS = [
 	},
 	{
 		entity: "module",
+		slot: "case_list_icon_action",
+		path: "caseListConfig.columns[].entryPointUuid",
+		kind: "entity-uuid",
+		columnKinds: ["image-map"],
+	},
+	{
+		entity: "module",
 		slot: "case_list_column_field",
 		path: "caseListConfig.columns[].field",
 		kind: "case-property-ref",
@@ -663,6 +757,33 @@ export const MODULE_REFERENCE_SLOTS = [
 		// its expression is the source.
 		columnKinds: [
 			"plain",
+			"date-count",
+			"overdue-marker",
+			"map-location",
+			"map-layer",
+			"worker-distance",
+			"formatted-text",
+			"date",
+			"phone",
+			"id-mapping",
+			"image-map",
+			"interval",
+			"link",
+		],
+	},
+	{
+		entity: "module",
+		slot: "case_list_column_worker_information",
+		path: "caseListConfig.columns[].workerPropertyUuid",
+		kind: "worker-property-ref",
+		columnKinds: [
+			"plain",
+			"date-count",
+			"overdue-marker",
+			"map-location",
+			"map-layer",
+			"worker-distance",
+			"formatted-text",
 			"date",
 			"phone",
 			"id-mapping",
@@ -682,6 +803,12 @@ export const MODULE_REFERENCE_SLOTS = [
 		kind: "relation-path",
 		columnKinds: [
 			"plain",
+			"date-count",
+			"overdue-marker",
+			"map-location",
+			"map-layer",
+			"worker-distance",
+			"formatted-text",
 			"date",
 			"phone",
 			"id-mapping",
@@ -692,6 +819,36 @@ export const MODULE_REFERENCE_SLOTS = [
 	},
 	{
 		entity: "module",
+		slot: "case_detail_tab_child_type",
+		path: "caseListConfig.detailTabs[].rowSource.caseType",
+		kind: "case-type-ref",
+	},
+	{
+		entity: "module",
+		slot: "case_detail_tab_search_child_type",
+		path: "caseListConfig.detailTabs[].rowSource.includeChildrenOfType",
+		kind: "case-type-ref",
+	},
+	{
+		entity: "module",
+		slot: "case_detail_tab_filter",
+		path: "caseListConfig.detailTabs[].rowSource.condition",
+		kind: "expression",
+	},
+	{
+		entity: "module",
+		slot: "case_detail_tab_rows",
+		path: "caseListConfig.detailTabs[].rowSource.rows",
+		kind: "expression",
+	},
+	{
+		entity: "module",
+		slot: "case_detail_tab_condition",
+		path: "caseListConfig.detailTabs[].displayCondition",
+		kind: "expression",
+	},
+	{
+		entity: "module",
 		slot: "case_list_column_expression",
 		path: "caseListConfig.columns[].expression",
 		kind: "expression",
@@ -699,9 +856,58 @@ export const MODULE_REFERENCE_SLOTS = [
 	},
 	{
 		entity: "module",
+		slot: "case_list_mapping_condition",
+		path: "caseListConfig.columns[].mapping[].when",
+		kind: "expression",
+		columnKinds: ["id-mapping", "image-map"],
+	},
+	{
+		entity: "module",
+		slot: "case_list_sort_expression",
+		path: "caseListConfig.calculatedSorts[].expression",
+		kind: "expression",
+	},
+	{
+		entity: "module",
 		slot: "case_list_filter",
 		path: "caseListConfig.filter",
 		kind: "expression",
+	},
+	{
+		entity: "module",
+		slot: "search_filter_value",
+		path: "caseListConfig.searchFilters[].value",
+		kind: "expression",
+	},
+	{
+		entity: "module",
+		slot: "case_search_filter",
+		path: "caseListConfig.searchCondition",
+		kind: "expression",
+	},
+	{
+		entity: "module",
+		slot: "search_order_property",
+		path: "caseSearchConfig.requestOrder[].property",
+		kind: "case-property-ref",
+	},
+	{
+		entity: "module",
+		slot: "search_filter_order_property",
+		path: "caseListConfig.searchFilters[].order[].property",
+		kind: "case-property-ref",
+	},
+	{
+		entity: "module",
+		slot: "search_filter_property",
+		path: "caseListConfig.searchFilters[].target.property",
+		kind: "case-property-ref",
+	},
+	{
+		entity: "module",
+		slot: "search_filter_ancestor_type",
+		path: "caseListConfig.searchFilters[].target.ancestors[].throughCaseType",
+		kind: "case-type-ref",
 	},
 	{
 		entity: "module",
@@ -726,9 +932,6 @@ export const MODULE_REFERENCE_SLOTS = [
 		path: "caseListConfig.searchInputs[].default",
 		kind: "expression",
 		searchInputKinds: ["simple", "advanced"],
-		// Scalar and choice widgets. A date-range input owns its range mode and
-		// never carries a scalar default, so the two date-range arms declare no key.
-		searchInputWidgets: ["scalar", "select"],
 	},
 	{
 		entity: "module",
@@ -861,7 +1064,7 @@ export function fieldReferenceSlotsFor(
 /** The stored entities needed to resolve an expression address. */
 export type ExpressionReadableDoc = Pick<
 	BlueprintDoc,
-	"fields" | "forms" | "modules"
+	"fields" | "forms" | "modules" | "localization"
 >;
 
 export interface ExpressionCarrierRef {
@@ -924,9 +1127,15 @@ export function expressionSlotKey(ref: SlotContextRef): string {
 	if ("operationUuid" in member) {
 		return JSON.stringify([...base, member.operationUuid]);
 	}
+	if ("rowUuid" in member)
+		return JSON.stringify([...base, member.columnUuid, member.rowUuid]);
+	if ("tabUuid" in member) return JSON.stringify([...base, member.tabUuid]);
 	if ("columnUuid" in member) {
 		return JSON.stringify([...base, member.columnUuid]);
 	}
+	if ("sortUuid" in member) return JSON.stringify([...base, member.sortUuid]);
+	if ("filterUuid" in member)
+		return JSON.stringify([...base, member.filterUuid]);
 	return JSON.stringify([...base, member.searchInputUuid]);
 }
 
@@ -948,11 +1157,64 @@ function expressionRefForEntry(
 		const mod = ownRecordValue(doc.modules, uuid);
 		if (mod === undefined) return undefined;
 		switch (entry.slot) {
+			case "module_badge":
 			case "module_display_condition":
+			case "case_list_action_condition":
 			case "case_list_filter":
+			case "case_form_context_line":
+			case "case_search_filter":
 			case "search_button_display_condition":
 			case "excluded_owner_ids":
 				return { entity: "module", uuid, slot: entry.slot };
+			case "case_list_mapping_condition": {
+				const column = mod.caseListConfig?.columns[indices[0] ?? -1];
+				if (column?.kind !== "id-mapping" && column?.kind !== "image-map")
+					return undefined;
+				const row = column.mapping[indices[1] ?? -1];
+				return row?.uuid === undefined
+					? undefined
+					: {
+							entity: "module",
+							uuid,
+							slot: entry.slot,
+							member: { columnUuid: column.uuid, rowUuid: row.uuid },
+						};
+			}
+			case "case_list_sort_expression": {
+				const sort = mod.caseListConfig?.calculatedSorts?.[indices[0] ?? -1];
+				return sort === undefined
+					? undefined
+					: {
+							entity: "module",
+							uuid,
+							slot: entry.slot,
+							member: { sortUuid: sort.uuid },
+						};
+			}
+			case "case_detail_tab_filter":
+			case "case_detail_tab_rows":
+			case "case_detail_tab_condition": {
+				const tab = mod.caseListConfig?.detailTabs?.[indices[0] ?? -1];
+				return (
+					tab && {
+						entity: "module",
+						uuid,
+						slot: entry.slot,
+						member: { tabUuid: tab.uuid },
+					}
+				);
+			}
+			case "search_filter_value": {
+				const filter = mod.caseListConfig?.searchFilters?.[indices[0] ?? -1];
+				return filter === undefined
+					? undefined
+					: {
+							entity: "module",
+							uuid,
+							slot: entry.slot,
+							member: { filterUuid: filter.uuid },
+						};
+			}
 			case "case_list_column_expression": {
 				const column = mod.caseListConfig?.columns[indices[0] ?? -1];
 				return column === undefined
@@ -989,6 +1251,7 @@ function expressionRefForEntry(
 	const form = ownRecordValue(doc.forms, uuid);
 	if (form === undefined) return undefined;
 	switch (entry.slot) {
+		case "form_badge":
 		case "form_display_condition":
 		case "form_open_condition":
 		case "form_close_condition":
@@ -1232,9 +1495,137 @@ function concreteSlotPath(
 	return path;
 }
 
+interface TranslatedFieldProse {
+	ref: ProseSlotRef;
+	template: ProseTemplate;
+	language: string;
+	unitId: string;
+	indices: number[];
+}
+
+type Translations = NonNullable<BlueprintDoc["localization"]>["translations"];
+type IndependentEntries = Map<
+	string,
+	{ language: string; entry: TranslationEntry }[]
+>;
+const independentByOverlay = new WeakMap<Translations, IndependentEntries>();
+
+function independentEntries(translations: Translations): IndependentEntries {
+	const cached = independentByOverlay.get(translations);
+	if (cached !== undefined) return cached;
+	const byUnit: IndependentEntries = new Map();
+	for (const [language, entries] of Object.entries(translations)) {
+		for (const [unitId, entry] of Object.entries(entries)) {
+			if (entry.valueMode !== "independent-values") continue;
+			const held = byUnit.get(unitId);
+			if (held === undefined) byUnit.set(unitId, [{ language, entry }]);
+			else held.push({ language, entry });
+		}
+	}
+	if (isDeeplySettled(translations))
+		independentByOverlay.set(translations, byUnit);
+	return byUnit;
+}
+
+/** Translations with their own live references. The field supplies the
+ * expression site even though the target text lives in the app overlay. */
+export function translatedFieldProse(
+	localization: BlueprintDoc["localization"],
+	field: Field,
+): TranslatedFieldProse[] {
+	const result: TranslatedFieldProse[] = [];
+	if (localization === undefined) return result;
+	const byUnit = independentEntries(localization.translations);
+	if (!byUnit.size) return result;
+	for (const entry of FIELD_REFERENCE_SLOTS) {
+		if (entry.kind !== "prose") continue;
+		if (
+			!fieldSlotApplies(
+				entry,
+				field.kind,
+				field.kind === "repeat" ? field.repeat_mode : undefined,
+			)
+		)
+			continue;
+		for (const { value: source, indices } of readSlotValues(
+			field,
+			entry.path,
+		)) {
+			const ref = proseRefForEntry(field, field.uuid, entry.slot, indices);
+			if (source === undefined || ref === undefined) continue;
+			const unitId =
+				ref.slot === "option_label"
+					? makeTranslationUnitId(
+							"field",
+							field.uuid,
+							"option",
+							ref.member.optionUuid,
+						)
+					: makeTranslationUnitId("field", field.uuid, ref.slot);
+			const targets = byUnit.get(unitId);
+			if (targets === undefined) continue;
+			const fingerprint = translationSourceFingerprint(
+				"prose",
+				source as ProseTemplate,
+			);
+			for (const { language, entry: translated } of targets) {
+				if (typeof translated.value === "string") continue;
+				if (
+					translationSourceFingerprintsEqual(
+						fingerprint,
+						translated.sourceFingerprint,
+					)
+				)
+					result.push({
+						ref,
+						template: translated.value,
+						language,
+						unitId,
+						indices: [...indices],
+					});
+			}
+		}
+	}
+	return result;
+}
+
 /** Present expressions on one owner, in registry and collection order, then a
  *  field's calculated values in prose under their prose slots. */
 export function expressionSlotValues(
+	doc: ExpressionReadableDoc,
+	owner: ExpressionCarrierRef,
+): readonly ExpressionSlotValue[] {
+	const source = ownerExpressionSlotValues(doc, owner);
+	if (owner.entity !== "field" || doc.localization === undefined) return source;
+	const field = ownRecordValue(doc.fields, owner.uuid);
+	if (field === undefined) return source;
+	const additional: ExpressionSlotValue[] = [];
+	for (const { ref, template, language, unitId } of translatedFieldProse(
+		doc.localization,
+		field,
+	)) {
+		template.parts.forEach((part, index) => {
+			if (part.kind === "value")
+				additional.push({
+					ref,
+					expression: part.expression,
+					path: [
+						"localization",
+						"translations",
+						language,
+						unitId,
+						"value",
+						"parts",
+						index,
+						"expression",
+					],
+				});
+		});
+	}
+	return additional.length === 0 ? source : [...source, ...additional];
+}
+
+function ownerExpressionSlotValues(
 	doc: ExpressionReadableDoc,
 	owner: ExpressionCarrierRef,
 ): readonly ExpressionSlotValue[] {
@@ -1472,7 +1863,14 @@ function walkSlotValues(
 	if (fanOut) {
 		if (!Array.isArray(value)) return;
 		value.forEach((element, index) => {
-			walkSlotValues(element, rest, [...indices, index], visit);
+			if (rest.length === 0)
+				visit(
+					value as unknown as Record<string, unknown>,
+					String(index),
+					element,
+					[...indices, index],
+				);
+			else walkSlotValues(element, rest, [...indices, index], visit);
 		});
 		return;
 	}
@@ -1532,6 +1930,30 @@ export const NON_REFERENCE_FIELD_PATHS: Readonly<
 	plainLabel: "config",
 	plainHelp: "config",
 	keypad: "config",
+	choiceLayout: "config",
+	inputWidth: "config",
+	addressLookup: "config",
+	sendTopics: "config",
+	receiveFrom: "config",
+	hintPlacement: "config",
+	scanOnOpen: "config",
+	canEditScan: "config",
+	calendar: "config",
+	clock: "config",
+	locationPicker: "config",
+	captureSource: "config",
+	overlaySize: "config",
+	recorder: "config",
+	pauseRecording: "config",
+	selectableText: "config",
+	banner: "config",
+	compact: "config",
+	collapse: "config",
+	border: "config",
+	itemsPerRow: "config",
+	repeatsPerRow: "config",
+	textAlignment: "config",
+	webSignature: "config",
 	"optionsSource.options[].plainLabel": "config",
 	label_media: "media",
 	help_media: "media",
@@ -1549,6 +1971,11 @@ export const NON_REFERENCE_FORM_PATHS: Readonly<
 	"entryPoint.uuid": "identity",
 	"entryPoint.id": "declaration",
 	"entryPoint.ignoreDisplayConditions": "config",
+	// The form's own case creations whose IDs a deep link supplies: UUIDs of
+	// this form's case operations, like a column order's column UUIDs. No
+	// rename follows them; the commit gate places a finding on one that no
+	// longer names a creation on the form's frame.
+	"entryCaseCreations[]": "identity",
 	id: "declaration",
 	name: "display-text",
 	type: "discriminator",
@@ -1557,6 +1984,8 @@ export const NON_REFERENCE_FORM_PATHS: Readonly<
 	hiddenFromMenu: "config",
 	// The form's text formatting switch: a literal, naming nothing.
 	plainText: "config",
+	// The form's own location request switch: a literal, naming nothing.
+	captureLocation: "config",
 	"formLinks[].uuid": "identity",
 	"otherwise.kind": "discriminator",
 	"otherwise.destination": "config",
@@ -1594,11 +2023,19 @@ export const NON_REFERENCE_FORM_PATHS: Readonly<
 	"connect.task.description": "display-text",
 	icon: "media",
 	audioLabel: "media",
+	mediaByLanguage: "media",
+	mediaByFormerCode: "media",
+	// A badge's kind selects text or a calculation; its text is display text
+	// with its own translation unit. The calculation is the `form_badge` slot.
+	"badge.kind": "discriminator",
+	"badge.text": "display-text",
 };
 
 export const NON_REFERENCE_MODULE_PATHS: Readonly<
 	Record<string, NonReferenceReason>
 > = {
+	"formsFromMenu.entryPoints[].entryPoint.uuid": "identity",
+	"formsFromMenu.entryPoints[].entryPoint.id": "declaration",
 	uuid: "identity",
 	"entryPoint.uuid": "identity",
 	"entryPoint.id": "declaration",
@@ -1608,24 +2045,37 @@ export const NON_REFERENCE_MODULE_PATHS: Readonly<
 	name: "display-text",
 	hiddenFromMenu: "config",
 	formsInMenuAbove: "config",
+	menuLayout: "config",
 	// The kind a publish recorded: one literal, written only by holds.
 	heldKind: "config",
 	purpose: "display-text",
 	icon: "media",
 	audioLabel: "media",
+	mediaByLanguage: "media",
+	mediaByFormerCode: "media",
+	// A badge's kind selects text or a calculation; its text is display text
+	// with its own translation unit. The calculation is the `module_badge` slot.
+	"badge.kind": "discriminator",
+	"badge.text": "display-text",
 	// The case list menu entry: its label is plain display text (the
 	// module's name when absent), its icon and spoken label media.
 	"caseListMenuItem.label": "display-text",
 	"caseListMenuItem.icon": "media",
 	"caseListMenuItem.audioLabel": "media",
+	"caseListMenuItem.mediaByLanguage": "media",
+	"caseListMenuItem.mediaByFormerCode": "media",
 	// The case list registration form: `kind` selects when the list offers
 	// it, `label` is the Register action's text, its icon and spoken label
 	// are media, `afterSubmit` is where a worker goes after registering, and
 	// `formUuid` is the `module_case_list_registration_form` reference slot.
 	"caseListRegistrationForm.kind": "discriminator",
+	"caseListRegistrationForm.target.kind": "discriminator",
+	"caseListRegistrationForm.showWhen.kind": "discriminator",
 	"caseListRegistrationForm.label": "display-text",
 	"caseListRegistrationForm.icon": "media",
 	"caseListRegistrationForm.audioLabel": "media",
+	"caseListRegistrationForm.mediaByLanguage": "media",
+	"caseListRegistrationForm.mediaByFormerCode": "media",
 	"caseListRegistrationForm.afterSubmit": "config",
 	// The two Results/Details sequences are lists of column uuids — identity,
 	// not a reference a rename or a case-type retirement would follow.
@@ -1633,8 +2083,14 @@ export const NON_REFERENCE_MODULE_PATHS: Readonly<
 	"caseListConfig.detailColumnOrder[]": "identity",
 	"caseListConfig.selection.kind": "discriminator",
 	"caseListConfig.selection.maximum": "config",
+	"caseListConfig.emptyText": "display-text",
+	"caseListConfig.selectButtonText": "display-text",
+	"caseListConfig.optimizations": "config",
+	"caseListConfig.columns[].loadBehavior": "config",
 	"caseListConfig.columns[].uuid": "identity",
 	"caseListConfig.columns[].kind": "discriminator",
+	"caseListConfig.columns[].readFrom": "discriminator",
+	"caseListConfig.columns[].showOwner": "config",
 	"caseListConfig.columns[].header": "display-text",
 	// Display text, but NOT a translation unit: a link cell is emitted as
 	// `<template form="markdown">`, and CommCare HQ builds locale variables
@@ -1645,8 +2101,41 @@ export const NON_REFERENCE_MODULE_PATHS: Readonly<
 	"caseListConfig.columns[].sort.direction": "config",
 	"caseListConfig.columns[].sort.priority": "config",
 	"caseListConfig.columns[].sort.blanks": "config",
+	"caseListConfig.columns[].sort.comparator": "config",
+	"caseListConfig.columns[].sort.menuPosition": "config",
 	// The name a hidden column's sort rule gives it in Sort by.
 	"caseListConfig.columns[].sort.label": "display-text",
+	// An independent default-order calculation: its expression is the
+	// `case_list_sort_expression` reference slot; the rest is its identity,
+	// its place and comparison in the order, and its Sort by name.
+	"caseListConfig.calculatedSorts[].uuid": "identity",
+	"caseListConfig.calculatedSorts[].priority": "config",
+	"caseListConfig.calculatedSorts[].direction": "config",
+	"caseListConfig.calculatedSorts[].blanks": "config",
+	"caseListConfig.calculatedSorts[].comparator": "config",
+	"caseListConfig.calculatedSorts[].label": "display-text",
+	// A Details tab: its identity, its title (a translation unit of its own),
+	// and the column uuids it starts at and orders by, which are identity
+	// like the two display sequences. Its condition, row source and child
+	// types are reference slots.
+	"caseListConfig.detailTabs[].uuid": "identity",
+	"caseListConfig.detailTabs[].title": "display-text",
+	"caseListConfig.detailTabs[].startColumnUuid": "identity",
+	"caseListConfig.detailTabs[].orderFields[]": "identity",
+	"caseListConfig.detailTabs[].rowSource.kind": "discriminator",
+	// The Details tile's cells and the named Results positions, each keyed
+	// by a column uuid or naming one; their geometry is closed config.
+	"caseListConfig.detailTile.cells": "config",
+	"caseListConfig.tile.namedSlots": "identity",
+	"caseListConfig.tile.rawSlots[]": "config",
+	// Which source shows the selected case above a form and whether it
+	// expands; its menu and its line are reference slots.
+	"caseListConfig.contextAboveForm.kind": "discriminator",
+	"caseListConfig.contextAboveForm.expandDetails": "config",
+	// A table or place field shown as HQ's direct property field, and a
+	// placed cell only Android draws.
+	"caseListConfig.columns[].rowField": "config",
+	"caseListConfig.columns[].tile.androidOnly": "config",
 	"caseListConfig.columns[].visibleInList": "config",
 	"caseListConfig.columns[].visibleInDetail": "config",
 	"caseListConfig.columns[].notOnList": "config",
@@ -1673,6 +2162,17 @@ export const NON_REFERENCE_MODULE_PATHS: Readonly<
 	"caseListConfig.columns[].tile.fontSize": "config",
 	"caseListConfig.columns[].tile.showBorder": "config",
 	"caseListConfig.columns[].tile.showShading": "config",
+	"caseListConfig.columns[].showAs": "config",
+	"caseListConfig.columns[].showChoice": "config",
+	"caseListConfig.columns[].behavior": "config",
+	"caseListConfig.columns[].afterDays": "config",
+	"caseListConfig.columns[].period": "config",
+	"caseListConfig.columns[].layer": "config",
+	"caseListConfig.columns[].texts[].uuid": "identity",
+	"caseListConfig.columns[].texts[].label": "display-text",
+	"caseListConfig.columns[].mapping[].uuid": "identity",
+	"caseListConfig.columns[].mapping[].match": "config",
+	"caseListConfig.columns[].mapping[].altText": "display-text",
 	"caseListConfig.columns[].mapping[].value": "data-literal",
 	"caseListConfig.columns[].mapping[].label": "display-text",
 	"caseListConfig.columns[].mapping[].assetId": "media",
@@ -1682,16 +2182,38 @@ export const NON_REFERENCE_MODULE_PATHS: Readonly<
 	"caseListConfig.columns[].text": "display-text",
 	"caseListConfig.searchInputs[].uuid": "identity",
 	"caseListConfig.searchInputs[].kind": "discriminator",
+	"caseListConfig.searchInputs[].matching": "config",
+	"caseListConfig.searchInputs[].allowBlank": "config",
+	"caseListConfig.searchInputs[].hidden": "config",
+	"caseListConfig.searchFilters[].uuid": "identity",
+	"caseListConfig.searchFilters[].target.kind": "discriminator",
+	"caseListConfig.searchFilters[].target.attribute": "config",
+	"caseListConfig.searchFilters[].target.identifier": "config",
+	"caseListConfig.searchFilters[].target.ancestors[].identifier": "config",
 	"caseListConfig.searchInputs[].name": "declaration",
 	"caseListConfig.searchInputs[].label": "display-text",
 	"caseListConfig.searchInputs[].type": "config",
 	"caseListConfig.searchInputs[].mode.kind": "discriminator",
 	"caseListConfig.searchInputs[].hint": "display-text",
 	"caseListConfig.searchInputs[].required.message": "display-text",
+	"caseListConfig.searchInputs[].required.noMessage": "config",
 	"caseListConfig.searchInputs[].validation.message": "display-text",
 	"caseSearchConfig.searchActionEnabled": "config",
+	"caseListConfig.searchFilters[].target.placement": "config",
+	"caseSearchConfig.requestOrder[].comparison": "config",
+	"caseSearchConfig.requestOrder[].recordName": "config",
+	"caseSearchConfig.requestOrder[].implicitComparison": "config",
+	"caseSearchConfig.requestOrder[].implicitDirection": "config",
+	"caseSearchConfig.requestOrder[].direction": "config",
+	"caseListConfig.searchFilters[].kind": "discriminator",
+	"caseListConfig.searchFilters[].order[].comparison": "config",
+	"caseListConfig.searchFilters[].order[].recordName": "config",
+	"caseListConfig.searchFilters[].order[].implicitComparison": "config",
+	"caseListConfig.searchFilters[].order[].implicitDirection": "config",
+	"caseListConfig.searchFilters[].order[].direction": "config",
 	"caseSearchConfig.workflow": "config",
 	"caseSearchConfig.formsReadSearch": "config",
+	"caseSearchConfig.searchOnClear": "config",
 	"caseSearchConfig.searchScreenTitle": "display-text",
 	"caseSearchConfig.searchScreenSubtitle": "display-text",
 };

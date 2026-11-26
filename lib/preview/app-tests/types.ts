@@ -5,14 +5,26 @@ import {
 	appLanguageIdentitySchema,
 	type LanguageTag,
 } from "@/lib/domain/localization";
+import {
+	type DeviceLocation,
+	deviceLocationSchema,
+} from "@/lib/domain/locationCapture";
 import type { LookupTableId } from "@/lib/domain/lookupIds";
 import { PLATFORMS, type Platform } from "@/lib/domain/platforms";
+import {
+	type RequiredAndroidApp,
+	requiredAndroidAppsSchema,
+} from "@/lib/domain/requiredAndroidApps";
 import type {
 	LookupFixtureRow,
 	LookupTableDefinition,
 } from "@/lib/lookup/types";
 import type { StoredLocation } from "@/lib/organization/types";
 import { evaluationScenarioSchema } from "@/lib/preview/engine/evaluationScenario";
+import {
+	type PreviewSearchFacts,
+	previewSearchTargetSchema,
+} from "@/lib/preview/searchSettings";
 import type {
 	PreviewCaseListRegistrationLaunch,
 	PreviewMenuCaseSelection,
@@ -44,11 +56,35 @@ export const appTestSessionIdSchema = z
 		"A test-local session label, one to forty letters, digits, underscores or hyphens, starting with a letter or digit. This is not an app entity address.",
 	);
 
+const sensorFixInput = deviceLocationSchema
+	.optional()
+	.describe(
+		"Simulated Android location fix for automatic capture in this Android session. Omit to simulate location permission denied or a device without a fix. A location question still uses its own answer.",
+	);
+
+const defaultSensorFixInput = deviceLocationSchema
+	.optional()
+	.describe(
+		"Simulated Android location fix every Android session takes for automatic capture unless it names its own. Web Apps sessions send no location. Omit to simulate location permission denied or a device without a fix.",
+	);
+
 export const appTestStartSchema = z.strictObject({
+	installedAndroidApps: requiredAndroidAppsSchema
+		.optional()
+		.describe(
+			"Apps already installed on the Preview phone for this test. An Android app with missing requirements stops before opening. Web Apps ignores this selection.",
+		),
+	locationFix: defaultSensorFixInput,
 	sessions: z
 		.array(
 			z.strictObject({
 				id: appTestSessionIdSchema,
+				installedAndroidApps: requiredAndroidAppsSchema
+					.optional()
+					.describe(
+						"Apps already installed on this session’s Preview phone. Omit to use the test’s device setup.",
+					),
+				locationFix: sensorFixInput,
 				personaUuid: z
 					.string()
 					.min(1)
@@ -83,6 +119,11 @@ export const appTestStartSchema = z.strictObject({
 		.optional()
 		.describe(
 			"Where sessions that leave out platform run: web-apps or android, a platform the saved app runs on. Omit to use Web Apps when the app runs on both, or its only platform.",
+		),
+	searchTarget: previewSearchTargetSchema
+		.optional()
+		.describe(
+			"The Preview search settings to use for this test, either local or a destination this app uses.",
 		),
 	purpose: z
 		.string()
@@ -153,6 +194,21 @@ function actionSchema<R extends z.ZodType<string>>(reference: R) {
 				"A section offered by the current form. Forward navigation validates earlier pages.",
 			),
 		}),
+		z.strictObject({
+			kind: z.literal("detailTab"),
+			tabUuid: reference.describe(
+				"A visible tab UUID or title on the current case Details screen.",
+			),
+		}),
+		z.strictObject({
+			kind: z.literal("caseContext"),
+			expanded: z.boolean(),
+			tabUuid: reference
+				.optional()
+				.describe(
+					"Choose an available detail tab while expanding the form context.",
+				),
+		}),
 		z.strictObject({ kind: z.literal("observe") }),
 		z.strictObject({ kind: z.literal("continue") }),
 		z.strictObject({ kind: z.literal("back") }),
@@ -186,6 +242,7 @@ function actionSchema<R extends z.ZodType<string>>(reference: R) {
 			kind: z.literal("select"),
 			caseIds: z.array(z.string().min(1).max(255)).min(1).max(100),
 		}),
+		z.strictObject({ kind: z.literal("clearSearch") }),
 		z.strictObject({
 			kind: z.literal("search"),
 			answers: z
@@ -279,13 +336,30 @@ export const appTestActionsSchema = z
 	);
 export type AppTestExpectation = z.infer<typeof appTestExpectationSchema>;
 
+export interface AppTestLookupProof {
+	groups?: true;
+	tableIds: LookupTableId[];
+	workers: { personaUuid: Uuid | null; digest: string }[];
+}
 export interface AppTestSnapshot {
 	purpose: string;
 	blueprint: PersistableDoc;
 	user: PreviewSessionUser;
 	projectSpace: string | null;
+	androidAppLabels?: import("@/lib/domain/requiredAndroidApps").AndroidAppLabels;
+	/** A pinned test keeps the original team-confirmed configuration, even when the destination later changes. */
+	searchFacts?: PreviewSearchFacts;
 	lookup: {
 		projectRevision: string;
+		proof?: AppTestLookupProof;
+		workers?: readonly {
+			groupScope?: Pick<
+				import("../engine/restoreScope").WorkerRestoreScope,
+				"groups" | "ownerIds" | "placeGroupCount"
+			>;
+			personaUuid: Uuid | null;
+			rows: readonly (readonly [LookupTableId, readonly LookupFixtureRow[]])[];
+		}[];
 		definitions: readonly LookupTableDefinition[];
 		rows: readonly (readonly [LookupTableId, readonly LookupFixtureRow[]])[];
 	};
@@ -310,6 +384,7 @@ export type AppTestScreen =
 	  }
 	| {
 			kind: "details";
+			tabUuid?: Uuid;
 			moduleUuid: Uuid;
 			caseId: string;
 			source: Extract<AppTestScreen, { kind: "records" }>;
@@ -338,11 +413,16 @@ export type AppTestScreen =
 			taskCases?: CaseDatabaseSnapshot;
 			searchEntry?: SearchEvaluationInput["entry"];
 			registeredCaseId?: string;
+			/** The return frame ended on this search: its list shows no row
+			 *  (`PreviewSearchState`'s `listsNoRow`). */
+			listsNoRow?: true;
 			searchAnswers?: readonly { name: string; value: string }[];
 			offset?: number;
 	  }
 	| {
 			kind: "form";
+			contextExpanded?: true;
+			contextTabUuid?: Uuid;
 			moduleUuid: Uuid;
 			formUuid: Uuid;
 			caseIds: readonly string[];
@@ -374,9 +454,13 @@ export interface AppTestSessionState {
 	language: LanguageTag;
 	/** The platform this session runs on, one the saved app declares. */
 	platform: Platform;
+	installedAndroidApps?: RequiredAndroidApp[];
+	/** Start showed the phone’s missing-app dialog and left the worker on device home. */
+	awaitingAndroidApps?: boolean;
 	/** The UUID part of the session's Android `deviceid`, minted when the
 	 *  session starts: one session is one install. */
 	androidDeviceId: string;
+	locationFix?: DeviceLocation;
 	personaUuid: Uuid | null;
 	screen: AppTestScreen;
 	history: readonly AppTestHistoryEntry[];

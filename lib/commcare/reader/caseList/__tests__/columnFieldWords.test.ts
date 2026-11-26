@@ -7,8 +7,8 @@
  * (`ReadMenuAndFormIdentities.columnFieldWords`); Nova's emission under that word writes the
  * column's field as stored and a read back of it gives the same document and the same words;
  * and a translation stored under the app string id HQ's build names the column by
- * (`m0.case_long.case_case_name_1.header`) is judged against that id, so it folds into the
- * column's header rather than reading as a string the app does not make.
+ * (`m0.case_long.case_case_name_1.header`) is judged against that id, so it reads as that
+ * screen's own wording of the column rather than as a string the app does not make.
  *
  * A sort element joins its field by the field's stored text, so a sorted column hidden from the
  * list writes the word in its `invisible` field and its sort element alike.
@@ -33,7 +33,7 @@ import { readHqApp } from "../../index";
 import type { ReaderInput } from "../../types";
 import { patients, uuid } from "./fixtures";
 
-const GENERATED = "translations-generated-key";
+const GENERATED = "translations-generated-";
 
 /** The reading's app strings, each column named by the word its source keeps. */
 const appStrings: ReaderInput["appStrings"] = (doc, words) =>
@@ -98,6 +98,15 @@ function emittedFields(
 }
 
 describe("a case list column stored under HQ's other word", () => {
+	it("publishes both worker screens using their own HQ words", async () => {
+		const { doc, words } = await read(stored("case_name", "user/parent/name"));
+		expect(columnsOf(doc)[0]).toMatchObject({
+			field: "case_name",
+			readFrom: "worker-record",
+		});
+		expect(emittedFields(doc, words)).toEqual(["user/name", "user/name"]);
+	});
+
 	for (const [property, word] of [
 		["case_name", "case_name"],
 		["date_opened", "date_opened"],
@@ -187,11 +196,18 @@ describe("a case list column stored under HQ's other word", () => {
 			"m0.case_long.case_case_name_1.header": "Name of the patient",
 		};
 		const kept = await read(stored("case_name", "case_name", overrides));
+		// Each id is the wording of its own screen's output: the column's header, which every
+		// other place reads, stays the header.
 		expect(kept.generated).toEqual([
-			"translations-generated-key-over-one-text",
-			"translations-generated-key-over-one-text",
+			"translations-generated-wording",
+			"translations-generated-wording",
 		]);
-		expect(columnsOf(kept.doc)[0]?.header).toBe("Name of the patient");
+		expect(columnsOf(kept.doc)[0]?.header).toBe("Patient name");
+		expect(
+			Object.values(kept.doc.localization?.generatedSourceWording ?? {}).map(
+				(entry) => entry.value,
+			),
+		).toEqual(["Name of the patient", "Name of the patient"]);
 		/* The same ids beside a column stored under `name` name no string the app makes. */
 		const elsewhere = await read(stored("case_name", "name", overrides));
 		expect(elsewhere.generated).toEqual([

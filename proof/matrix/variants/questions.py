@@ -948,6 +948,40 @@ def label_tts(authoring, app_id):
     _label_form(authoring, app_id, "label-tts", '<value form="tts">Say the full name</value>')
 
 
+FULL_NAME_HELP_VALUE = "<value>The name the household is known by</value>"
+MEMBERS_LABEL_VALUE = '<text id="members-label">\n\t\t\t\t\t\t<value>Members</value>'
+
+
+def long_form_on_help(authoring, app_id):
+    """A ``long`` form of ``full_name``'s help text, which both runtimes show in place of the help text."""
+    _change(
+        authoring,
+        app_id,
+        "long-form-on-help",
+        (FULL_NAME_HELP_VALUE, FULL_NAME_HELP_VALUE + '<value form="long">Ask who heads the household</value>', 1),
+    )
+
+
+def qrcode_on_help(authoring, app_id):
+    """A ``qrcode`` form of ``full_name``'s help text, which no runtime asks a help text for."""
+    _change(
+        authoring,
+        app_id,
+        "qrcode-on-help",
+        (FULL_NAME_HELP_VALUE, FULL_NAME_HELP_VALUE + '<value form="qrcode">household</value>', 1),
+    )
+
+
+def long_form_on_group_label(authoring, app_id):
+    """A ``long`` form of the ``members`` repeat's label, which both runtimes show as its header."""
+    _change(
+        authoring,
+        app_id,
+        "long-form-on-group-label",
+        (MEMBERS_LABEL_VALUE, MEMBERS_LABEL_VALUE + '<value form="long">Every member of the household</value>', 1),
+    )
+
+
 def xhtml_inside_value(authoring, app_id):
     """An XHTML ``b`` element inside the default text of ``full_name``'s label."""
     _change(authoring, app_id, "xhtml-inside-value", (FULL_NAME_LABEL_VALUE, "<value>Full <h:b>name</h:b></value>", 1))
@@ -1091,6 +1125,34 @@ def media_one_language(authoring, app_id):
         app_id,
         "media-one-language",
         (NOTE_FRA, NOTE_FRA + '<value form="image">jr://file/commcare/logo/data/hq_logo_android_home.png</value>', 1),
+    )
+
+
+def label_text_one_language(authoring, app_id):
+    """A ``long`` form of ``note``'s label in French alone, a key the English default lacks."""
+    _change(
+        authoring,
+        app_id,
+        "label-text-one-language",
+        (NOTE_FRA, NOTE_FRA + '<value form="long">Remarque de la tournée, en détail</value>', 1),
+    )
+
+
+def media_empty_translation(authoring, app_id):
+    """Core keeps this blank value; Vellum fills it with the English image on save."""
+    _change(
+        authoring, app_id, "media-empty-translation",
+        (NOTE_EN, NOTE_EN + '<value form="image">jr://file/commcare/logo/data/hq_logo_android_home.png</value>', 1),
+        (NOTE_FRA, NOTE_FRA + '<value form="image"/>', 1),
+    )
+
+
+def localized_label_images(authoring, app_id):
+    """The same question shows a different existing Project image in each language."""
+    _change(
+        authoring, app_id, "localized-label-images",
+        (NOTE_EN, NOTE_EN + '<value form="image">jr://file/commcare/logo/data/hq_logo_android_home.png</value>', 1),
+        (NOTE_FRA, NOTE_FRA + '<value form="image">jr://file/commcare/logo/data/hq_logo_android_login.png</value>', 1),
     )
 
 
@@ -1788,13 +1850,28 @@ DISTRICT_LABEL = '<label ref="name" />\n\t\t\t\t<value ref="id" />'
 VILLAGE_FILTER = 'villages[district = /data/district]"'
 
 
+from proof.matrix.bases.lookups import changes_lookup_data, qualify_districts
+
+
+@changes_lookup_data
 def itemset_attribute_ref(authoring, app_id):
-    """The district select's choices valued by the attribute ``@id`` of each row."""
+    """The district select saves a row attribute and labels the filtered French occurrence."""
+    qualify_districts(authoring)
     _change(
         authoring,
         app_id,
         "itemset-attribute-ref",
-        (DISTRICTS + "\n\t\t\t\t" + DISTRICT_LABEL, DISTRICTS + '\n<label ref="name" />\n<value ref="@id" />', 1),
+        (DISTRICTS + "\n\t\t\t\t" + DISTRICT_LABEL, DISTRICTS + '\n<label ref="name[@lang=&quot;fr&quot;][1]" />\n<value ref="@row_code" />', 1),
+    )
+
+
+@changes_lookup_data
+def itemset_property_as_label(authoring, app_id):
+    """A field property's value as a question label, outside Vellum's fixture choices."""
+    qualify_districts(authoring)
+    _change(
+        authoring, app_id, "itemset-property-as-label",
+        (DISTRICTS + "\n\t\t\t\t" + DISTRICT_LABEL, DISTRICTS + '\n<label ref="name[1]/@lang" />\n<value ref="id" />', 1),
     )
 
 
@@ -3162,6 +3239,19 @@ def help_media(authoring, app_id):
     )
 
 
+def video_inline_on_help(authoring, app_id):
+    """A help text on ``animal_name`` with an inline video, at the path its label's video form names: a form no
+    runtime reads of a help text."""
+    _animal_name_text(
+        authoring,
+        app_id,
+        "video-inline-on-help",
+        "help",
+        '<value>Say what the animal is called</value><value form="video-inline">'
+        "jr://file/commcare/video/data/animal_name.mp4</value>",
+    )
+
+
 def hint_media(authoring, app_id):
     """A hint on ``animal_name`` with an image, at the path its label's image names."""
     _animal_name_text(authoring, app_id, "hint-media", "hint", "<value>Its own name</value>" + ANIMAL_NAME_IMAGE)
@@ -3244,3 +3334,38 @@ def case_choices(authoring, app_id):
             1,
         ),
     )
+
+
+def display_remove_date_row(authoring, app_id):
+    """Removing a date's row width restores Android's Ethiopian calendar."""
+    _change(authoring, app_id, "remove-date-row",
+            ('ref="/data/follow_up" appearance="ethiopian 2-per-row"',
+             'ref="/data/follow_up" appearance="ethiopian"', 1))
+
+
+def display_restore_dropdown(authoring, app_id):
+    """The bare dropdown also selects Android's spinner."""
+    _change(authoring, app_id, "restore-dropdown",
+            ('ref="/data/place" appearance="minimal hint-as-placeholder"',
+             'ref="/data/place" appearance="minimal"', 1))
+
+
+def display_restore_signature(authoring, app_id):
+    """The sole signature appearance restores signing on Android and Vellum's signature mug."""
+    _change(authoring, app_id, "restore-signature",
+            ('ref="/data/web_agreement" appearance="signature 2-per-row"',
+             'ref="/data/web_agreement" appearance="signature"', 1))
+
+
+def display_fix_grid_columns(authoring, app_id):
+    """A final column count restores the fixed grid without changing quick selection."""
+    _change(authoring, app_id, "fix-grid-columns",
+            ('ref="/data/auto_weather" appearance="compact-2 quick"',
+             'ref="/data/auto_weather" appearance="quick compact-2"', 1))
+
+
+def display_search_android_only(authoring, app_id):
+    """Changing the word order changes the matching rule on Web Apps only."""
+    _change(authoring, app_id, "search-android-only",
+            ('ref="/data/ranked_route" appearance="combobox fuzzy"',
+             'ref="/data/ranked_route" appearance="fuzzy combobox"', 1))

@@ -8,6 +8,7 @@ import {
 } from "@/lib/domain";
 import { caseListRegistrationAdmission } from "../caseListRegistration";
 import { readCases } from "../engine/caseDataBindingHelpers";
+import { searchOutcomeFromLoad } from "../engine/searchPhase";
 import {
 	type ServerSearchWorld,
 	serverRecordsRead,
@@ -27,6 +28,7 @@ export function appTestSearchWorld(
 		doc: context.doc,
 		language: context.language,
 		appId: scope.appId,
+		projectId: scope.projectId,
 		identity: context.identity,
 		device: context.device,
 		deviceCases: state.deviceCases,
@@ -54,6 +56,10 @@ export async function prepareAppTestRecords(
 		throw new AppTestActionError("Open a record list first.");
 	const registeredCaseId =
 		answers === undefined ? screen.registeredCaseId : undefined;
+	const listsNoRow =
+		registeredCaseId !== undefined && screen.listsNoRow === true
+			? (true as const)
+			: undefined;
 	/* The Search evaluation names its own reads' surfaces (the Search
 	 * action's condition the list's, the Search screen's the search's); what
 	 * is left is the Results read, the list's, as Preview shows it. */
@@ -66,6 +72,7 @@ export async function prepareAppTestRecords(
 				entry: screen.searchEntry,
 				answers,
 				registeredCaseId,
+				...(listsNoRow !== undefined && { listsNoRow }),
 			},
 			(reason) =>
 				new AppTestActionError(
@@ -80,8 +87,15 @@ export async function prepareAppTestRecords(
 		screen: {
 			...screen,
 			searchAnswers: search.submitted,
-			searchEntry: { draft: search.draft, errors: search.errors },
+			searchEntry: {
+				draft: search.draft,
+				errors: search.errors,
+				...(search.defaultSearch && { defaultSearch: true as const }),
+				...(screen.searchEntry?.cleared &&
+					!search.hasSubmitted && { cleared: true as const }),
+			},
 			registeredCaseId,
+			listsNoRow,
 			offset: answers === undefined ? screen.offset : 0,
 		},
 	};
@@ -120,6 +134,12 @@ export async function appTestRecords(
 		candidateUuid === undefined ? undefined : context.doc.forms[candidateUuid];
 	// Each action serializes a completed read, so its launch and search share
 	// this one attempt. No caller can provide a stale or privileged launch.
+	const outcome = result && searchOutcomeFromLoad(result);
+	const emptySearch =
+		search.hasSubmitted &&
+		outcome?.kind === "completed" &&
+		outcome.matchCount === 0 &&
+		screen.registeredCaseId === undefined;
 	const admission = caseListRegistrationAdmission({
 		doc: context.doc,
 		formUuid: candidateUuid,
@@ -128,8 +148,7 @@ export async function appTestRecords(
 			? { moduleUuid: screen.moduleUuid, attempt: 0 }
 			: undefined,
 		searchState:
-			search.hasSubmitted &&
-			(result?.kind === "empty" || result?.kind === "rows")
+			search.hasSubmitted && outcome?.kind === "completed"
 				? {
 						kind: "completed",
 						attempt: 0,
@@ -137,10 +156,20 @@ export async function appTestRecords(
 						answers: Object.fromEntries(
 							(search.submitted ?? []).map(({ name, value }) => [name, value]),
 						),
-						matchCount: result.kind === "empty" ? 0 : result.rows.length,
+						matchCount: outcome.matchCount,
+						// A search a registration's return keyed to its case is no
+						// search that found nothing, whatever its list shows.
+						...(screen.registeredCaseId !== undefined && {
+							registeredCaseId: screen.registeredCaseId,
+						}),
 					}
 				: undefined,
 	});
+	const regular = alwaysOfferedRegistrationOf(context.doc, screen.moduleUuid);
+	const offerVisible =
+		regular?.showWhen?.kind === "empty-search"
+			? emptySearch
+			: search.formActionRelevant;
 	return {
 		state: next,
 		search,
@@ -153,7 +182,9 @@ export async function appTestRecords(
 						moduleUuid: screen.moduleUuid,
 						arm: "after-empty-search",
 					}
-				: alwaysOfferedRegistrationForm(context, screen.moduleUuid),
+				: offerVisible
+					? alwaysOfferedRegistrationForm(context, screen.moduleUuid)
+					: undefined,
 	};
 }
 

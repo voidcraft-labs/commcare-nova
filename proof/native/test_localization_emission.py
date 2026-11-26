@@ -1,6 +1,6 @@
 """HQ's language-code rule accepts every code Nova's localization exports carry.
 
-Contract: each language code of the six localization scenarios satisfies
+Contract: each language code of the seven localization scenarios satisfies
 HQ's own grammar for a language code
 (``app_manager/models/applications.py::validate_lang``, which the localization
 step runs on every code HQ's import keeps), the binding fact Nova's language
@@ -24,7 +24,7 @@ FAMILIES = ("localization",)
 
 def test_hq_accepts_every_language_code_nova_emits(native):
     records = native.step("localization")
-    assert len(records) == 6, len(records)
+    assert len(records) == 7, len(records)
     write_evidence(
         native.family("localization"),
         "localization-emission",

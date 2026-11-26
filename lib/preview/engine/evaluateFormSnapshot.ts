@@ -253,7 +253,7 @@ export async function evaluateFormSnapshot(
 				searchAnswers: searchInputInstanceValues(
 					module.caseListConfig?.searchInputs ?? [],
 					new Map(
-						(input.searchAnswers ?? context.searchAnswers ?? []).map(
+						(context.searchAnswers ?? input.searchAnswers ?? []).map(
 							({ name, value }) => [name, value],
 						),
 					),
@@ -327,7 +327,12 @@ export async function evaluateFormSnapshot(
 		const oneScreen = engine
 			.formScreens()
 			.every((screen) => screen.kind === "form");
+		const leaveFor = async (target: string) => {
+			if (target !== engine.currentScreenPath())
+				await engine.saveScreenDatesAsync(evaluate);
+		};
 		const moveForwardTo = async (target: string): Promise<boolean> => {
+			await leaveFor(target);
 			for (const screen of pagesToValidate(
 				availablePages(engine.formScreens()),
 				engine.currentScreenPath() ?? "",
@@ -433,7 +438,10 @@ export async function evaluateFormSnapshot(
 						throw new FormEvaluationInputError(
 							"A question before this one needs an answer first. You can answer it, then try again.",
 						);
-				} else await engine.enterScreenAsync(screen.path, evaluate);
+				} else {
+					await leaveFor(screen.path);
+					await engine.enterScreenAsync(screen.path, evaluate);
+				}
 			}
 			const field = fieldAt(path);
 			if (
@@ -459,6 +467,7 @@ export async function evaluateFormSnapshot(
 		// Retained journeys advance only through explicit page turns.
 		if (!context.captureEntry)
 			for (const screen of availablePages(engine.formScreens())) {
+				await leaveFor(screen.path);
 				await engine.enterScreenAsync(screen.path, evaluate);
 			}
 		const currentScreenPath = engine.currentScreenPath();
@@ -487,6 +496,8 @@ export async function evaluateFormSnapshot(
 			visibleScreens.length === 0 ||
 			visibleScreens.at(-1)?.current === true;
 		/* Formplayer rebuilds the session before it validates a submission. */
+		if (canSubmit && (!context.captureEntry || context.submitting))
+			await engine.saveScreenDatesAsync(evaluate);
 		await engine.prepareSubmitAsync(evaluate);
 		checkChoiceAnswers();
 		const valid = await engine.validateAllAsync(evaluate);
@@ -563,6 +574,9 @@ export async function evaluateFormSnapshot(
 					// non-relevant questions, still participate in the form.
 					participates: relevant,
 					...observedAnswer,
+					...(relevant && state.androidPickerDay
+						? { displayedDay: state.androidPickerDay }
+						: {}),
 					visible: relevant && visible,
 					required: relevant && required,
 					valid: !relevant || valid,

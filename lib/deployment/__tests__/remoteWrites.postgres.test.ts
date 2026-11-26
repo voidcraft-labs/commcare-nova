@@ -13,6 +13,8 @@ import { Client } from "pg";
 import { v7 } from "uuid";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
+import type { ProjectDataGrant } from "@/lib/auth/dataGrant";
+import { inlineWorkbookReceipts } from "@/lib/commcare/lookup/workbookReceipt";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
 import { holdAppRow, waitForBlockedLocks } from "@/lib/db/__tests__/heldAppRow";
 import {
@@ -29,12 +31,16 @@ import {
 } from "@/lib/db/hqAppClaims";
 import { openRemoteWrite } from "@/lib/db/openRemoteWrite";
 import { withAppTx } from "@/lib/db/pg";
+import { hqConnectionDigest } from "@/lib/db/settings";
 import {
 	type LookupTableId,
 	lookupColumnIdSchema,
 	lookupTableIdSchema,
 } from "@/lib/domain/lookupIds";
+import { authorizeAssignmentExport } from "@/lib/export/privateAssignments";
+import { applyLookupAuthoringBatchInTransaction } from "@/lib/lookup/authoringBatch";
 import { LookupError } from "@/lib/lookup/errors";
+import { readLookupFixtureDataInTransaction } from "@/lib/lookup/fixtureSnapshot";
 import {
 	createManagedLookupTablesInTransaction,
 	type ManagedLookupContent,
@@ -42,8 +48,10 @@ import {
 	readManagedTableReview,
 	refreshManagedLookupTableInTransaction,
 } from "@/lib/lookup/managed";
+import { createLookupTable, getLookupTable } from "@/lib/lookup/service";
 import { authorizeLookupWriteInTransaction } from "@/lib/lookup/writerTransaction";
 import { handBackWhilePublishing } from "@/lib/publish/managedData";
+import { destinationOwnerDigestInTransaction } from "../destinationRowOwners";
 import { DeploymentEndedError } from "../errors";
 import {
 	activeRemoteApp,
@@ -56,14 +64,15 @@ import {
 	admitAppWrite,
 	admitPlacesWrite,
 	admitWorkbookWrite,
-	beginDeploymentContentWrite,
 	type DeploymentScope,
 	endDeployment,
 	finishDeploymentContentWrite,
 	markResourceBaselinesUnread,
 	type RecordAnswer,
 	type RecordRemoteResourceInput,
+	readAppBaseline,
 	readDeployment,
+	readEntryPointEvidence,
 	recordCreatedRemoteApp,
 	recordDeploymentMediaFiles,
 	recordOrphanedRemoteApp,
@@ -74,7 +83,13 @@ import {
 	settleRemoteWrites,
 } from "../store";
 import type { AppBaselineWrite } from "../types";
-import { type AdoptedBirth, birthAdoptedApp } from "./adoptedBirth";
+import { plannedWorkbookTables } from "../workbookAuthority";
+import {
+	type AdoptedBirth,
+	appMappingToken,
+	birthAdoptedApp,
+} from "./adoptedBirth";
+import { publishSession } from "./publishWithGrant";
 import { readable } from "./readableRecord";
 
 const h = setupAppStateTestDb("remote_writes_", {
@@ -162,9 +177,12 @@ describe("an admitted write and an ending", () => {
 			await gate(client, 9_301_001, "hq_remote_writes", "INSERT");
 			admission = outcome(
 				admitAppWrite(birth.scope, TARGET, {
+					compiledIdentity: birth.targetIdentity,
+					observedPushToken: appMappingToken(birth.deployment),
 					...fence,
 					remoteAppId: HQ_APP,
 					writeKind: "import",
+					compiledAtSeq: 1,
 				}),
 			);
 			// The admission holds the deployment row and waits at its insert.
@@ -208,9 +226,12 @@ describe("an admitted write and an ending", () => {
 			await waitForBlockedLocks(client, 1);
 			admission = outcome(
 				admitAppWrite(birth.scope, TARGET, {
+					compiledIdentity: birth.targetIdentity,
+					observedPushToken: appMappingToken(birth.deployment),
 					...fence,
 					remoteAppId: HQ_APP,
 					writeKind: "import",
+					compiledAtSeq: 1,
 				}),
 			);
 			// The admission waits for the deployment row the ending holds.
@@ -236,6 +257,8 @@ describe("an admitted write and an ending", () => {
 			await gate(client, 9_301_003, "hq_remote_writes", "INSERT");
 			admission = outcome(
 				admitAppWrite(birth.scope, TARGET, {
+					compiledIdentity: birth.targetIdentity,
+					observedPushToken: appMappingToken(birth.deployment),
 					...fence,
 					remoteAppId: HQ_APP,
 					writeKind: "media",
@@ -259,9 +282,12 @@ describe("an admitted write and a claim taken from an app in recently deleted", 
 	it("leaves a deleted holder's mapping to it while its write is open, and releases it once the write settles", async () => {
 		const birth = await born();
 		const admitted = await admitAppWrite(birth.scope, TARGET, {
+			compiledIdentity: birth.targetIdentity,
+			observedPushToken: appMappingToken(birth.deployment),
 			...fence,
 			remoteAppId: HQ_APP,
 			writeKind: "import",
+			compiledAtSeq: 1,
 		});
 		if (admitted.kind !== "admitted") throw new Error("Expected an admission");
 		await softDeleteApp(APP, OWNER);
@@ -287,9 +313,12 @@ describe("an admitted write and a claim taken from an app in recently deleted", 
 		await claim();
 		await expect(
 			admitAppWrite(birth.scope, TARGET, {
+				compiledIdentity: birth.targetIdentity,
+				observedPushToken: appMappingToken(birth.deployment),
 				...fence,
 				remoteAppId: HQ_APP,
 				writeKind: "import",
+				compiledAtSeq: 1,
 			}),
 		).rejects.toMatchObject({ name: "DeploymentError", code: "not_found" });
 		expect(await openWrites()).toBe(0);
@@ -306,6 +335,8 @@ describe("an admitted write and a claim taken from an app in recently deleted", 
 			remoteAppId: HQ_APP,
 		});
 		const takerWrite = await admitAppWrite(taker.scope, TARGET, {
+			compiledIdentity: taker.targetIdentity,
+			observedPushToken: appMappingToken(taker.deployment),
 			...fence,
 			remoteAppId: HQ_APP,
 			writeKind: "media",
@@ -328,9 +359,12 @@ describe("an admitted write and a claim taken from an app in recently deleted", 
 		/* A write of the restored app to the HQ app it gave up is no write. */
 		expect(
 			await admitAppWrite(birth.scope, TARGET, {
+				compiledIdentity: birth.targetIdentity,
+				observedPushToken: appMappingToken(birth.deployment),
 				...fence,
 				remoteAppId: HQ_APP,
 				writeKind: "import",
+				compiledAtSeq: 1,
 			}),
 		).toEqual({ kind: "mapping-moved" });
 
@@ -351,8 +385,11 @@ describe("how a write settles", () => {
 		const ids: string[] = [];
 		for (const writeKind of ["import", "media", "import"] as const) {
 			const admitted = await admitAppWrite(birth.scope, TARGET, {
+				compiledIdentity: birth.targetIdentity,
+				observedPushToken: appMappingToken(birth.deployment),
 				...fence,
 				remoteAppId: HQ_APP,
+				compiledAtSeq: 1,
 				writeKind,
 			});
 			if (admitted.kind !== "admitted")
@@ -399,9 +436,12 @@ describe("a Project move during a publish", () => {
 	it("waits while the app has a write open, and goes on once it settles", async () => {
 		const birth = await born();
 		const admitted = await admitAppWrite(birth.scope, TARGET, {
+			compiledIdentity: birth.targetIdentity,
+			observedPushToken: appMappingToken(birth.deployment),
 			...fence,
 			remoteAppId: HQ_APP,
 			writeKind: "import",
+			compiledAtSeq: 1,
 		});
 		if (admitted.kind !== "admitted") throw new Error("Expected an admission");
 		const move = {
@@ -426,9 +466,12 @@ describe("a Project move during a publish", () => {
 	it("goes on once the write settled, though its transaction began before the settle", async () => {
 		const birth = await born();
 		const admitted = await admitAppWrite(birth.scope, TARGET, {
+			compiledIdentity: birth.targetIdentity,
+			observedPushToken: appMappingToken(birth.deployment),
 			...fence,
 			remoteAppId: HQ_APP,
 			writeKind: "import",
+			compiledAtSeq: 1,
 		});
 		if (admitted.kind !== "admitted") throw new Error("Expected an admission");
 		const held = await holdAppRow(h.uri(), APP);
@@ -498,28 +541,149 @@ describe("two publishes of one HQ app", () => {
 		scope: DeploymentScope,
 		pushedRevision: number,
 		remoteRevision: number | null,
+		writeId: string,
 	) {
-		return recordRemoteResource(scope, TARGET, {
-			...fence,
-			kind: "app",
-			novaResourceId: scope.appId,
-			remoteId: HQ_APP,
-			ownership: "adopted",
-			adoptedBy: OWNER,
-			pushedRevision,
-			remoteRevision,
-			uploadedAt: "2026-11-12T00:00:00.000Z",
-			baseline: unread(HQ_APP),
-		}).then(readable);
+		return recordRemoteResource(
+			scope,
+			TARGET,
+			{
+				...fence,
+				kind: "app",
+				novaResourceId: scope.appId,
+				remoteId: HQ_APP,
+				ownership: "adopted",
+				adoptedBy: OWNER,
+				pushedRevision,
+				remoteRevision,
+				uploadedAt: "2026-11-12T00:00:00.000Z",
+				baseline: unread(HQ_APP),
+			},
+			{
+				writeIds: [writeId],
+				settle: [{ writeIds: [writeId], how: { kind: "settled" } }],
+			},
+		).then(readable);
 	}
 
+	it("retires completed links and refuses a resumed manifest or direct record across a reclaim", async () => {
+		const birth = await born();
+		const generation = crypto.randomUUID();
+		const write = await admitAppWrite(birth.scope, TARGET, {
+			compiledIdentity: birth.targetIdentity,
+			...fence,
+			firstContentGeneration: generation,
+			remoteAppId: HQ_APP,
+			observedPushToken: appMappingToken(birth.deployment),
+			writeKind: "import",
+			compiledAtSeq: 3,
+		});
+		if (write.kind !== "admitted")
+			throw new Error("Expected a live import admission.");
+		await pushed(birth.scope, 3, 43, write.writeId);
+		const manifest = {
+			generation,
+			remoteAppId: HQ_APP,
+			sourceSequence: 3,
+			entries: [],
+			dependencies: [],
+		};
+		const admitted = { writeIds: [write.writeId], settle: [] };
+		expect(
+			await finishDeploymentContentWrite(
+				birth.scope,
+				TARGET,
+				generation,
+				manifest,
+				fence,
+				admitted,
+			),
+		).toBe(true);
+		await softDeleteApp(APP, OWNER);
+		await born(OTHER);
+		await softDeleteApp(OTHER, OWNER);
+		await restoreApp(APP, OWNER);
+		const evidence = await readEntryPointEvidence(birth.scope, TARGET);
+		expect(evidence.manifest).toBeNull();
+		expect(evidence.generation).not.toBe(generation);
+		expect(
+			await finishDeploymentContentWrite(
+				birth.scope,
+				TARGET,
+				generation,
+				manifest,
+				fence,
+				admitted,
+			),
+		).toBe(false);
+		// Even the current content generation is insufficient evidence for
+		// the previous claim's admission or a direct writer without one.
+		for (const record of [admitted, undefined]) {
+			const current = await readEntryPointEvidence(birth.scope, TARGET);
+			if (!current.generation)
+				throw new Error(
+					"The claim transition must retain a content generation.",
+				);
+			expect(
+				await finishDeploymentContentWrite(
+					birth.scope,
+					TARGET,
+					current.generation,
+					{ ...manifest, generation: current.generation },
+					fence,
+					record,
+				),
+			).toBe(false);
+			expect(
+				(await readEntryPointEvidence(birth.scope, TARGET)).manifest,
+			).toBeNull();
+			const result = await recordRemoteResource(
+				birth.scope,
+				TARGET,
+				{
+					...fence,
+					kind: "app",
+					novaResourceId: APP,
+					remoteId: HQ_APP,
+					ownership: "adopted",
+					adoptedBy: OWNER,
+					pushedRevision: 5,
+					remoteRevision: 45,
+					uploadedAt: new Date().toISOString(),
+					baseline: unread(HQ_APP),
+				},
+				record,
+			);
+			expect(result).toMatchObject({ obsoleteClaim: true, pushToken: null });
+		}
+		expect(
+			activeRemoteApp((await readDeployment(birth.scope, TARGET)) ?? fail())
+				?.remoteRevision,
+		).toBe(43);
+	});
 	it("records them in CommCare HQ's save order, whichever commits last", async () => {
 		const birth = await born();
+		const observed = appMappingToken(await readDeployment(birth.scope, TARGET));
+		const admit = async () => {
+			const admission = await admitAppWrite(birth.scope, TARGET, {
+				compiledIdentity: birth.targetIdentity,
+				...fence,
+				remoteAppId: HQ_APP,
+				observedPushToken: observed,
+				writeKind: "import",
+				compiledAtSeq: 3,
+			});
+			if (admission.kind !== "admitted")
+				throw new Error("Expected both imports to hold this claim.");
+			return admission.writeId;
+		};
+		const first = await admit(),
+			second = await admit(),
+			third = await admit();
 		/* The second publish's import acknowledged 43 and recorded first; the
 		 * first's acknowledged 42 and records after it. */
-		await pushed(birth.scope, 3, 43);
+		await pushed(birth.scope, 3, 43, second);
 		const afterLater = await readDeployment(birth.scope, TARGET);
-		const recorded = await pushed(birth.scope, 2, 42);
+		const recorded = await pushed(birth.scope, 2, 42, first);
 		expect(recorded).toEqual(afterLater);
 		expect(activeRemoteApp(recorded)).toMatchObject({
 			pushedRevision: 3,
@@ -535,7 +699,7 @@ describe("two publishes of one HQ app", () => {
 		expect(row).toEqual({ pushed_revision: "3", pushed_remote_revision: "43" });
 
 		/* A later save of HQ's records over it. */
-		await pushed(birth.scope, 4, 44);
+		await pushed(birth.scope, 4, 44, third);
 		expect(
 			activeRemoteApp((await readDeployment(birth.scope, TARGET)) ?? fail()),
 		).toMatchObject({
@@ -658,14 +822,126 @@ async function handBack(tableId: LookupTableId) {
 	);
 }
 
+async function planned(
+	birth: AdoptedBirth,
+	tableId: LookupTableId,
+	issued?: ProjectDataGrant,
+	assigned = false,
+) {
+	const grant = issued ?? (await publishSession(OWNER));
+	await h
+		.db()
+		.insertInto("user_settings")
+		.values({
+			user_id: OWNER,
+			commcare_server: TARGET.server,
+			commcare_username: "publisher",
+			commcare_api_key: "fixture-ciphertext",
+			approved_domains: JSON.stringify([
+				{ name: TARGET.domain, displayName: "Clinic" },
+			]),
+			updated_at: new Date(),
+		})
+		.onConflict((c) => c.column("user_id").doNothing())
+		.execute();
+	const { connection_epoch: epoch } = await h
+		.db()
+		.selectFrom("user_settings")
+		.select("connection_epoch")
+		.where("user_id", "=", OWNER)
+		.executeTakeFirstOrThrow();
+	const connectionDigest = hqConnectionDigest(
+		"publisher",
+		epoch,
+		TARGET.server,
+		TARGET.domain,
+	);
+	const authority = await withAppTx(async (tx) => {
+		const grantBinding = await authorizeAssignmentExport(
+			tx,
+			birth.scope,
+			grant,
+			TARGET,
+			"publish",
+			connectionDigest,
+		);
+		const snapshot = await readLookupFixtureDataInTransaction(
+			tx,
+			PROJECT,
+			[tableId],
+			assigned ? "project-editor" : "archive",
+		);
+		const receipts = inlineWorkbookReceipts(snapshot, new Set([tableId]));
+		const witness = assigned
+			? {
+					target: TARGET,
+					tables: [
+						{
+							tableId,
+							digest: "remote-principals-checked-before-admission",
+							localDigest: await destinationOwnerDigestInTransaction(
+								tx,
+								{
+									scope: birth.scope,
+									grant,
+									target: TARGET,
+									purpose: "publish",
+								},
+								tableId,
+							),
+						},
+					],
+				}
+			: undefined;
+		return {
+			grant,
+			connectionDigest,
+			grantBinding,
+			tables: plannedWorkbookTables(snapshot, receipts, witness),
+		};
+	});
+	return { ...fence, tableIds: [tableId], authority };
+}
+
+async function restrictTable(tableId: LookupTableId) {
+	const table = await getLookupTable({ ...writer, role: "editor" }, tableId);
+	return withAppTx(async (tx) =>
+		applyLookupAuthoringBatchInTransaction(
+			tx,
+			await authorizeLookupWriteInTransaction(tx, writer, "edit"),
+			{
+				operationId: v7(),
+				updateTables: [
+					{
+						tableId,
+						expectedTableRevision: table.tableRevision,
+						workerAccess: "assigned",
+					},
+				],
+			},
+		),
+	);
+}
+async function localTable(tag: string) {
+	return createLookupTable(
+		{ ...writer, role: "editor" },
+		{
+			name: tag,
+			tag,
+			columns: [{ label: "Name", wireName: "name", dataType: "text" }],
+		},
+	);
+}
+
 describe("a workbook and the hand-back of a table it carries", () => {
 	it("refuses a hand-back while an admitted workbook carrying the table is open, leaving the table as it was", async () => {
 		const birth = await born();
 		const tableId = await managedInNova();
-		const admitted = await admitWorkbookWrite(birth.scope, TARGET, {
-			...fence,
-			tableIds: [tableId],
-		});
+		const admitted = await admitWorkbookWrite(
+			birth.scope,
+			TARGET,
+			await planned(birth, tableId),
+		);
 		if (admitted.kind !== "admitted") throw new Error("Expected an admission");
 
 		const refused = await outcome(handBack(tableId));
@@ -691,11 +967,124 @@ describe("a workbook and the hand-back of a table it carries", () => {
 		const tableId = await managedInNova();
 		await handBack(tableId);
 		expect(
-			await admitWorkbookWrite(birth.scope, TARGET, {
-				...fence,
-				tableIds: [tableId],
-			}),
+			await admitWorkbookWrite(
+				birth.scope,
+				TARGET,
+				await planned(birth, tableId),
+			),
 		).toEqual({ kind: "handed-back", tags: ["districts"] });
+		expect(await openWrites()).toBe(0);
+	});
+});
+
+describe("outbound lookup authority", () => {
+	it.each([false, true])(
+		"holds stale global bytes and prior receipts when the chosen table now has assigned workers (observed %s)",
+		async (observedOnly) => {
+			const birth = await born(),
+				table = await localTable("districts");
+			const captured = await planned(birth, table.id);
+			await restrictTable(table.id);
+			expect(
+				await admitWorkbookWrite(birth.scope, TARGET, {
+					...captured,
+					observedOnly,
+				}),
+			).toEqual({ kind: "changed" });
+			expect(await openWrites()).toBe(0);
+		},
+	);
+	it("allows an unrelated audience edit during upload, waits on the actual table, and permits that edit after settlement", async () => {
+		const birth = await born(),
+			table = await localTable("districts"),
+			other = await localTable("other");
+		const captured = await planned(birth, table.id);
+		await restrictTable(other.id);
+		const saved = await admitWorkbookWrite(birth.scope, TARGET, {
+			...captured,
+			observedOnly: true,
+		});
+		expect(saved).toEqual({ kind: "admitted", writeIds: [] });
+		const open = await admitWorkbookWrite(birth.scope, TARGET, captured);
+		if (open.kind !== "admitted") throw Error("Expected an admission");
+		await expect(restrictTable(table.id)).rejects.toMatchObject({
+			code: "conflict",
+		});
+		await settleRemoteWrites(open.writeIds, { kind: "settled" });
+		await restrictTable(table.id);
+		expect(await openWrites()).toBe(0);
+	});
+	it("requires the same destination group even when a group reconnection leaves both table revisions unchanged", async () => {
+		const birth = await born(),
+			tableId = await managedInNova(),
+			groupId = v7();
+		await restrictTable(tableId);
+		await sql`INSERT INTO worker_groups(project_id,id,name) VALUES (${PROJECT},${groupId},'Team')`.execute(
+			h.db(),
+		);
+		await sql`INSERT INTO worker_group_targets(project_id,group_id,server,domain,remote_id,confirmed_name) VALUES (${PROJECT},${groupId},${TARGET.server},${TARGET.domain},'original-group','Team')`.execute(
+			h.db(),
+		);
+		await sql`INSERT INTO lookup_row_assignments(project_id,table_id,row_id,kind,principal_id)
+    SELECT project_id,table_id,id,'group',${groupId} FROM lookup_rows WHERE project_id=${PROJECT} AND table_id=${tableId}`.execute(
+			h.db(),
+		);
+		const captured = await planned(birth, tableId, undefined, true);
+		expect(
+			await admitWorkbookWrite(birth.scope, TARGET, {
+				...captured,
+				observedOnly: true,
+			}),
+		).toEqual({ kind: "admitted", writeIds: [] });
+		await sql`UPDATE worker_group_targets SET remote_id='replacement-group' WHERE project_id=${PROJECT} AND group_id=${groupId}`.execute(
+			h.db(),
+		);
+		expect(await admitWorkbookWrite(birth.scope, TARGET, captured)).toEqual({
+			kind: "changed",
+		});
+		expect(await openWrites()).toBe(0);
+	});
+	it("requires a fresh plan after Project publishing access is removed and granted again", async () => {
+		const birth = await born(),
+			table = await localTable("districts"),
+			captured = await planned(birth, table.id);
+		await sql`UPDATE auth_member SET role='viewer' WHERE "organizationId"=${PROJECT} AND "userId"=${OWNER}`.execute(
+			h.db(),
+		);
+		await h.seedProjectMember(OWNER, PROJECT, "owner");
+		await expect(
+			admitWorkbookWrite(birth.scope, TARGET, captured),
+		).rejects.toMatchObject({ code: "not_found" });
+		expect(await openWrites()).toBe(0);
+	});
+	it("requires the issued session, including for a previously verified file", async () => {
+		const birth = await born(),
+			table = await localTable("districts"),
+			captured = await planned(birth, table.id);
+		await sql`DELETE FROM auth_session WHERE "userId"=${OWNER}`.execute(h.db());
+		for (const observedOnly of [false, true])
+			await expect(
+				admitWorkbookWrite(birth.scope, TARGET, { ...captured, observedOnly }),
+			).rejects.toMatchObject({ code: "not_found" });
+		expect(await openWrites()).toBe(0);
+	});
+	it("rejects an earlier publish grant when the same API key is revoked and re-enabled", async () => {
+		const birth = await born(),
+			table = await localTable("districts"),
+			keyId = "pub-key";
+		await sql`INSERT INTO auth_apikey(id,key,"referenceId","configId","createdAt","updatedAt",enabled,permissions) VALUES (${keyId},'synthetic-key',${OWNER},'default',now(),now(),true,${JSON.stringify({ scope: ["nova.read", "nova.write", "nova.hq.write"] })})`.execute(
+			h.db(),
+		);
+		const captured = await planned(birth, table.id, { kind: "api-key", keyId });
+		await sql`UPDATE auth_apikey SET enabled=false WHERE id=${keyId}`.execute(
+			h.db(),
+		);
+		await sql`UPDATE auth_apikey SET enabled=true WHERE id=${keyId}`.execute(
+			h.db(),
+		);
+		await expect(
+			admitWorkbookWrite(birth.scope, TARGET, captured),
+		).rejects.toMatchObject({ code: "not_found" });
 		expect(await openWrites()).toBe(0);
 	});
 });
@@ -839,8 +1228,8 @@ describe("what a publish's admitted writes made, recorded on their admissions", 
 			"a pushed table": async (birth) => {
 				const tableId = await managedInNova();
 				const admitted = await admitWorkbookWrite(birth.scope, TARGET, {
-					...fence,
-					tableIds: [tableId],
+					...(await planned(birth, tableId)),
+					firstContentGeneration: crypto.randomUUID(),
 				});
 				if (admitted.kind !== "admitted")
 					throw new Error("Expected an admission");
@@ -899,9 +1288,12 @@ describe("what a publish's admitted writes made, recorded on their admissions", 
 			},
 			"the import": async (birth) => {
 				const admitted = await admitAppWrite(birth.scope, TARGET, {
+					compiledIdentity: birth.targetIdentity,
+					observedPushToken: appMappingToken(birth.deployment),
 					...fence,
 					remoteAppId: HQ_APP,
 					writeKind: "import",
+					compiledAtSeq: 1,
 				});
 				if (admitted.kind !== "admitted")
 					throw new Error("Expected an admission");
@@ -1047,7 +1439,14 @@ describe("what a publish's admitted writes made, recorded on their admissions", 
 		const theirs = await admitAppWrite(
 			{ ...birth.scope, actorUserId: "writes-editor", role: "editor" },
 			TARGET,
-			{ ...fence, remoteAppId: HQ_APP, writeKind: "import" },
+			{
+				...fence,
+				compiledIdentity: birth.targetIdentity,
+				observedPushToken: appMappingToken(birth.deployment),
+				remoteAppId: HQ_APP,
+				writeKind: "import",
+				compiledAtSeq: 1,
+			},
 		);
 		if (theirs.kind !== "admitted") throw new Error("Expected an admission");
 		await softDeleteApp(APP, OWNER);
@@ -1202,14 +1601,15 @@ describe("what a publish's admitted writes made, recorded on their admissions", 
 
 	it("marks a push's tables unread, records the files an import left and closes its entry-point evidence on their admissions once the app was deleted", async () => {
 		const birth = await born();
-		const generation = await beginDeploymentContentWrite(
-			birth.scope,
-			TARGET,
-			fence,
-		);
 		const table = await (WRITES["a pushed table"] ?? fail())(birth);
+		const generation = (await readEntryPointEvidence(birth.scope, TARGET))
+			.generation;
+		if (!generation)
+			throw new Error("Expected the workbook admission’s generation.");
 		const imported = await (WRITES["the import"] ?? fail())(birth);
 		await recordOf(imported);
+		const observed = await readAppBaseline(birth.scope, TARGET);
+		if (!observed) throw new Error("Missing imported app baseline.");
 		await softDeleteApp(APP, OWNER);
 
 		await markResourceBaselinesUnread(
@@ -1226,7 +1626,8 @@ describe("what a publish's admitted writes made, recorded on their admissions", 
 			remoteAppId: HQ_APP,
 			pushToken: (await liveMapping("app", APP))?.push_token ?? fail(),
 			sourceDigest: null,
-			files,
+			novaRevision: observed.novaRevision,
+			files: { read: observed.mediaFiles, next: files },
 			admitted: asTheImport,
 		});
 		await expect(

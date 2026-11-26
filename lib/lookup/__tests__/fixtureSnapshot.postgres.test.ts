@@ -8,6 +8,8 @@ import { Client } from "pg";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
 import { lookupTableIdSchema } from "@/lib/domain/lookupIds";
+import { DEVICE_FIXTURE_MAX_TABLES } from "../constants";
+import { readLookupFixtureDataInTransaction } from "../fixtureSnapshot";
 import {
 	createLookupRow,
 	createLookupTable,
@@ -139,6 +141,50 @@ describe("getLookupFixtureData", () => {
 		expect([...snapshot.rowsByTable.keys()]).toEqual([local.id]);
 		expect(snapshot.rowsByTable.get(foreign.id)).toBeUndefined();
 		expect(snapshot.rowsByTable.get(MISSING_TABLE_ID)).toBeUndefined();
+	});
+
+	it("charges only admitted rows against the device fixture budget", async () => {
+		const table = await createLookupTable(OWNER_A, {
+			name: "Visits",
+			tag: "device_visits",
+			columns: [{ wireName: "date", label: "Date", dataType: "text" }],
+		});
+		await createLookupRow(OWNER_A, {
+			tableId: table.id,
+			expectedTableRevision: table.tableRevision,
+			toIndex: 0,
+			values: { [table.columns[0].id]: "today" },
+		});
+		const read = (projectId: string, bytes: number) =>
+			h
+				.db()
+				.transaction()
+				.setAccessMode("read only")
+				.execute((tx) =>
+					readLookupFixtureDataInTransaction(
+						tx,
+						projectId,
+						[table.id],
+						"device",
+						{ bytes },
+					),
+				);
+		await expect(read(OWNER_A.projectId, 1024)).resolves.toMatchObject({
+			definitions: [{ id: table.id }],
+		});
+		await expect(read(OWNER_A.projectId, 1)).rejects.toThrow(
+			"exceeds this device",
+		);
+		await expect(read(OWNER_B.projectId, 1)).resolves.toMatchObject({
+			definitions: [],
+		});
+		await expect(
+			getLookupFixtureData(
+				OWNER_A,
+				Array(DEVICE_FIXTURE_MAX_TABLES + 1).fill(MISSING_TABLE_ID),
+				"worker",
+			),
+		).rejects.toThrow("more lookup tables");
 	});
 
 	it("reads the Project clock even for the empty request", async () => {

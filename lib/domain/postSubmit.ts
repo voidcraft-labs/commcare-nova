@@ -22,14 +22,19 @@ import {
 	type PostSubmitMenuShape,
 } from "./forms";
 import { moduleIsBareCaseList } from "./menuForms";
-import { firstMenuOpensOneCase } from "./menuScreens";
+import {
+	firstMenuCaseOpensAnotherType,
+	firstMenuOpensOneCase,
+	formSuppliesFirstMenuCase,
+} from "./menuScreens";
 import { caseSelectionCardinality, moduleFormsReadSearch } from "./modules";
 import type { Uuid } from "./uuid";
 
 type PostSubmitDoc = Pick<
 	BlueprintDoc,
 	"forms" | "modules" | "formOrder" | "moduleOrder"
->;
+> &
+	Partial<Pick<BlueprintDoc, "appSettings">>;
 
 /** The module that owns `formUuid`, or `undefined` for an unknown form. */
 export function moduleUuidOfForm(
@@ -54,8 +59,8 @@ export const POST_SUBMIT_NOT_OFFERED_REASONS = [
 	"parent-off-the-menu",
 	"menu-forms-in-menu-above",
 	"parent-forms-in-menu-above",
-	"menu-forms-on-first-menu",
 	"menu-opens-with-first-menu-case",
+	"previous-carries-other-case-type",
 ] as const;
 export type PostSubmitNotOfferedReason =
 	(typeof POST_SUBMIT_NOT_OFFERED_REASONS)[number];
@@ -73,8 +78,8 @@ const WITHHELD_BY: Readonly<
 	"parent-off-the-menu": ["parentMenu"],
 	"menu-forms-in-menu-above": ["module"],
 	"parent-forms-in-menu-above": ["parentMenu"],
-	"menu-forms-on-first-menu": ["previous"],
 	"menu-opens-with-first-menu-case": ["module"],
+	"previous-carries-other-case-type": ["previous"],
 };
 
 /** The facts of a form's module the offered set reads. */
@@ -83,6 +88,7 @@ export interface PostSubmitModuleFacts extends PostSubmitMenuShape {
 	readonly parentUuid: Uuid | undefined;
 	/** A case list menu entry and no menu forms (`moduleIsBareCaseList`). */
 	readonly bareCaseList: boolean;
+	readonly sharedCaseCanChangeType: boolean;
 	readonly parentOffTheMenu: boolean;
 	/** The parent shows its forms in the menu above, so it has no screen of
 	 *  its own to land on. */
@@ -97,14 +103,16 @@ export interface PostSubmitModuleFacts extends PostSubmitMenuShape {
  * a reducer's own pass writes only after-submit slots. Nothing keeps it past
  * the pass, so it never outlives a reducer's write to the same draft.
  */
-export type FirstMenuCaseRead = () => boolean;
+export type FirstMenuCaseRead = (() => boolean) & {
+	opensAnotherType(): boolean;
+};
 
 export function firstMenuCaseRead(doc: PostSubmitDoc): FirstMenuCaseRead {
 	let value: boolean | undefined;
-	return () => {
-		value ??= firstMenuOpensOneCase(doc);
-		return value;
-	};
+	let mixed: boolean | undefined;
+	return Object.assign(() => (value ??= firstMenuOpensOneCase(doc)), {
+		opensAnotherType: () => (mixed ??= firstMenuCaseOpensAnotherType(doc)),
+	});
 }
 
 /** The menu shape of `moduleUuid`, as the after-submit rules read it.
@@ -114,11 +122,15 @@ export function postSubmitModuleFacts(
 	doc: PostSubmitDoc,
 	moduleUuid: Uuid,
 	firstMenuCase: FirstMenuCaseRead = firstMenuCaseRead(doc),
+	formUuid?: Uuid,
 ): PostSubmitModuleFacts | undefined {
 	const mod = doc.modules[moduleUuid];
 	if (mod === undefined) return undefined;
 	const parentUuid = mod.parentModuleUuid;
 	const parent = parentUuid === undefined ? undefined : doc.modules[parentUuid];
+	const formsOnFirstMenu =
+		mod.formsInMenuAbove === true &&
+		(parent === undefined || parent.formsInMenuAbove === true);
 	return {
 		moduleUuid,
 		parentUuid: parent === undefined ? undefined : parentUuid,
@@ -133,9 +145,12 @@ export function postSubmitModuleFacts(
 		// `menuScreens.ts::menuScreenOf` is the first menu exactly here: above
 		// and top-level (or under a parent that does not exist), or above under
 		// a parent that is above too.
-		formsOnFirstMenu:
-			mod.formsInMenuAbove === true &&
-			(parent === undefined || parent.formsInMenuAbove === true),
+		formsOnFirstMenu,
+		sharedCaseCanChangeType:
+			formsOnFirstMenu &&
+			doc.appSettings?.runsOnlyOn !== "web-apps" &&
+			firstMenuCase() &&
+			firstMenuCase.opensAnotherType(),
 		parentFormsInMenuAbove: parent?.formsInMenuAbove === true,
 		// HQ builds the frame to the screen of a menu that keeps it under a
 		// top-level menu above as the root lists' common prefix then the
@@ -144,7 +159,11 @@ export function postSubmitModuleFacts(
 		opensWithFirstMenuCase:
 			mod.formsInMenuAbove !== true &&
 			parent?.formsInMenuAbove === true &&
-			firstMenuCase(),
+			firstMenuCase() &&
+			((doc.appSettings?.runsOnlyOn !== "web-apps" &&
+				firstMenuCase.opensAnotherType()) ||
+				!formUuid ||
+				!formSuppliesFirstMenuCase(doc, moduleUuid, formUuid)),
 	};
 }
 
@@ -162,8 +181,8 @@ function reasonsThatHold(
 		"parent-off-the-menu": facts.parentOffTheMenu,
 		"menu-forms-in-menu-above": facts.formsInMenuAbove === true,
 		"parent-forms-in-menu-above": facts.parentFormsInMenuAbove,
-		"menu-forms-on-first-menu": facts.formsOnFirstMenu === true,
 		"menu-opens-with-first-menu-case": facts.opensWithFirstMenuCase === true,
+		"previous-carries-other-case-type": facts.sharedCaseCanChangeType,
 	};
 	return POST_SUBMIT_NOT_OFFERED_REASONS.filter((reason) => holds[reason]);
 }
@@ -262,9 +281,12 @@ export function defaultPostSubmitOf(
 ): PostSubmitDestination | undefined {
 	const form = doc.forms[formUuid];
 	if (form === undefined) return undefined;
+	// An absent slot keeps the destination earlier saved apps opened. A form
+	// that supplies the shared root case may explicitly choose its module.
+	const owner = moduleUuidOfForm(doc, formUuid);
 	return defaultPostSubmit(
 		form.type,
-		factsOfForm(doc, formUuid, firstMenuCase) ?? {},
+		(owner && postSubmitModuleFacts(doc, owner, firstMenuCase)) ?? {},
 	);
 }
 
@@ -292,5 +314,5 @@ function factsOfForm(
 	const moduleUuid = moduleUuidOfForm(doc, formUuid);
 	return moduleUuid === undefined
 		? undefined
-		: postSubmitModuleFacts(doc, moduleUuid, firstMenuCase);
+		: postSubmitModuleFacts(doc, moduleUuid, firstMenuCase, formUuid);
 }

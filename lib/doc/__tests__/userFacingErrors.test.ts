@@ -481,15 +481,6 @@ describe("userFacingError — delete-aware phrasing", () => {
 		expect(line).toMatch(/removing its last one/i);
 	});
 
-	it("offers every valid repair for a cross-type submenu under bare Results", () => {
-		const line = userFacingError(
-			richFinding("NESTED_MENU_CROSS_TYPE_ROOT_REQUIRES_FORM"),
-		);
-		expect(line).toMatch(/add a form to the parent/i);
-		expect(line).toMatch(/use the same case type/i);
-		expect(line).toMatch(/make this module top-level/i);
-	});
-
 	it("MISSING_CASE_LIST_COLUMNS explains how to replace the last result", () => {
 		const line = userFacingError(richFinding("MISSING_CASE_LIST_COLUMNS"));
 		expect(line).toMatch(/needs at least one result field/i);
@@ -1434,5 +1425,32 @@ describe("text CommCare HQ reads as a data source", () => {
 		).toBe(
 			`A name or description in "Lesson" holds instance('a'), which CommCare HQ reads as a data source and not as text. A space before the bracket keeps it as text.`,
 		);
+	});
+});
+
+describe("a code outside the table", () => {
+	// A finding reaches the renderer from the gate in the same process, but
+	// the table is a plain object: a code naming a member every object
+	// inherits must read the generic line, not call that member.
+	const generic = userFacingError({
+		...richFinding("NO_MODULES"),
+		code: "A_CODE_RETIRED_LONG_AGO" as ValidationErrorCode,
+	});
+	it.each([
+		"constructor",
+		"toString",
+		"hasOwnProperty",
+		"valueOf",
+		"__proto__",
+	])("renders %s as the generic line", (code) => {
+		expect(
+			userFacingError({
+				...richFinding("NO_MODULES"),
+				code: code as ValidationErrorCode,
+			}),
+		).toBe(generic);
+	});
+	it("renders a retired code as the generic line", () => {
+		expect(generic).toMatch(/^Something went wrong/);
 	});
 });

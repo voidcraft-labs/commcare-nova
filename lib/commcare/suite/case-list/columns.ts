@@ -1,3 +1,11 @@
+import { translatedDistanceProperty } from "@/lib/domain/modules";
+import {
+	bindCaseTextVariables,
+	caseTextKeyVariants,
+	caseTextWireKey,
+} from "./calculationText";
+import { columnLoadBehavior, withFieldLoadBehavior } from "./optimizations";
+
 // lib/commcare/suite/case-list/columns.ts
 //
 // Per-`Column` `<field>` block emission for the suite-XML case-list
@@ -114,6 +122,7 @@ import {
 	type WireElementContext,
 	xel,
 } from "@/lib/commcare/elementBuilders";
+import { hqLocaleFileValue } from "@/lib/commcare/localeFile";
 import { serializeXml } from "@/lib/commcare/serializeXml";
 import { w } from "@/lib/commcare/xpath/wire/builders";
 import {
@@ -122,6 +131,7 @@ import {
 } from "@/lib/commcare/xpath/wire/fromExpression";
 import { serializeWire } from "@/lib/commcare/xpath/wire/serialize";
 import type { WireExpr } from "@/lib/commcare/xpath/wire/tree";
+import type { Uuid } from "@/lib/domain";
 import {
 	type CaseListSortLabel,
 	type CaseProperty,
@@ -129,9 +139,10 @@ import {
 	type ColumnVia,
 	casePropertyOptionOccurrence,
 	casePropertyOptionTranslationUnitId,
-	casePropertyShowsOptionLabels,
 	columnFieldText,
 	columnPropertyCaseType,
+	DATE_COUNT_DAYS,
+	hqStoresColumnAsExpression,
 	imageMapShowsImages,
 	makeTranslationUnitId,
 	printProseTemplate,
@@ -139,22 +150,35 @@ import {
 	type TranslationUnitId,
 	tileCellFor,
 } from "@/lib/domain";
-import type { MediaAssetId } from "@/lib/domain/multimedia";
+import type { CaseListOrderPlan } from "@/lib/domain/caseListOrder";
+import type { CaseMappingRow } from "@/lib/domain/caseMappingRows";
+import { caseMappingTextUnit } from "@/lib/domain/caseMappingRows";
+import {
+	columnWordingRole,
+	imageDescriptionWordingId,
+} from "@/lib/domain/generatedWording";
 import {
 	type AssetManifest,
 	requireAssetRef,
 } from "../../multimedia/assetWirePath";
 import { escapeRegex } from "../../xml";
-import { INLINE_SEARCH_INPUT_INSTANCE_ID } from "../case-search/noMatches";
 import { columnPropertyPath, hqColumnFieldText, normalizeSpace } from "../wire";
-import { keyAsVariable } from "./keyVariable";
+import { fixtureRowFieldName } from "./fixtureRowField";
+import { hqMappingKeyIsExpression, keyAsVariable } from "./keyVariable";
+import { CASE_MAP_FORMATS } from "./mapLayers";
+import {
+	mappingCondition,
+	mappingKeyText,
+	nativeMappingKeys,
+} from "./mappingCondition";
 import { columnStoredAsExpression } from "./orderPlanOptions";
 import {
 	buildSortBlock,
 	calculatedPropertyText,
+	distanceSortXpath,
 	type ResolvedSortDirective,
 } from "./sortKeys";
-import { buildTileStyleBlock } from "./tileStyle";
+import { buildTileStyleBlock, storedTileCell } from "./tileStyle";
 import type {
 	CaseListEmission,
 	CaseListEmitContext,
@@ -217,7 +241,7 @@ const DETAIL_LOCALE_TYPE: Readonly<
  * a no-op for them — same as the calc-column emission when the
  * expression contains no relation walk.
  */
-function instanceRootFor(
+export function instanceRootFor(
 	ctx: Pick<CaseListEmitContext, "target" | "caseSource">,
 ): "casedb" | "results" | "results:inline" {
 	if (ctx.target === "search") return "results";
@@ -233,11 +257,7 @@ function lookupTermContext(
 	ctx: CaseListEmitContext,
 ): NonNullable<WireBuildContext["bindings"]> {
 	return {
-		// The list of a menu whose forms read the search is the inline query's results, which
-		// keep the Search answers beside them.
-		...(ctx.caseSource === "results:inline"
-			? { searchInputInstanceId: INLINE_SEARCH_INPUT_INSTANCE_ID }
-			: {}),
+		...ctx.detailBindings,
 		...(ctx.lookupNaming === undefined
 			? {}
 			: {
@@ -332,7 +352,11 @@ function detailColumnLocaleBase(
 	word?: string,
 ): string {
 	const localeType = DETAIL_LOCALE_TYPE[target][detailKind];
-	return `m${moduleIndex}.${localeType}.case_${hqColumnFieldText(field, word)}_${position}`;
+	// HQ drops `#` and `=` from the field, which an app strings file cannot
+	// hold in a key (`id_strings.py::_clean_field_for_mobile`): `#owner_name`
+	// is `owner_name` here.
+	const cleaned = hqColumnFieldText(field, word).replace(/[#=]/g, "");
+	return `m${moduleIndex}.${localeType}.case_${cleaned}_${position}`;
 }
 
 /** The word the export's target keeps `column`'s property under on the context's screen. */
@@ -374,6 +398,31 @@ function buildHeaderBlock(localeId: string, width?: string): Element {
 	]);
 }
 
+/** The named Results template always prints its assigned column's locale,
+ * including positions that display the stored value. A stored-value field
+ * uses HQ's raw property or calculated field spelling. */
+export function rawColumnHeaderLocale(
+	column: Column,
+	position: number,
+	ctx: CaseListEmitContext,
+) {
+	return column.kind === "calculated" || columnStoredAsExpression(column)
+		? detailCalculatedHeaderLocaleId(
+				ctx.target,
+				ctx.detailKind,
+				ctx.moduleIndex,
+				position,
+			)
+		: detailHeaderLocaleId(
+				ctx.target,
+				ctx.detailKind,
+				ctx.moduleIndex,
+				columnFieldText(column),
+				position,
+				heldWord(column, ctx),
+			);
+}
+
 /**
  * The header of a field hidden from Results: width 0 over an empty text,
  * with no locale id, which is the header HQ's build writes for an
@@ -382,8 +431,8 @@ function buildHeaderBlock(localeId: string, width?: string): Element {
  * SortElement.has_display_values`). With it Android's Sort menu lists the
  * shown columns alone, and the field's header is no app string.
  */
-function buildHiddenHeaderBlock(): Element {
-	return el("header", { width: "0" }, [el("text", {}, [])]);
+function buildHiddenHeaderBlock(width = "0"): Element {
+	return el("header", { width }, [el("text", {}, [])]);
 }
 
 /**
@@ -501,21 +550,29 @@ function buildCalculatedTemplateBlock(
 	calcXpath: WireExpr,
 	context: WireElementContext,
 	width?: string,
+	form?: string,
 ): Element {
-	return el("template", width === undefined ? {} : { width }, [
-		el("text", {}, [
-			xel(
-				"xpath",
-				{ xpath: { function: w.calculatedPropertyVar() } },
-				context,
-				[
-					el("variable", { name: "calculated_property" }, [
-						xel("xpath", { xpath: { function: calcXpath } }, context),
-					]),
-				],
-			),
-		]),
-	]);
+	return el(
+		"template",
+		{
+			...(width !== undefined && { width }),
+			...(form !== undefined && { form }),
+		},
+		[
+			el("text", {}, [
+				xel(
+					"xpath",
+					{ xpath: { function: w.calculatedPropertyVar() } },
+					context,
+					[
+						el("variable", { name: "calculated_property" }, [
+							xel("xpath", { xpath: { function: calcXpath } }, context),
+						]),
+					],
+				),
+			]),
+		],
+	);
 }
 
 // ============================================================
@@ -804,7 +861,9 @@ function phoneDisplayXpath(field: WireExpr): WireExpr {
  * membership test — true for either a single-value property
  * equal to `<v>` or a multi-select property whose token list
  * contains `<v>`. The `replace(join(...), '\s+', ' ')` collapse
- * trims double-space artifacts from the empty-arm fall-throughs.
+ * collapses consecutive separators from the empty arms. It keeps a
+ * leading or trailing space when unmatched mappings precede or follow
+ * the match, as HQ's enum template does.
  *
  * Each value and label is a string literal quoted by the serializer.
  * An empty mapping array short-circuits
@@ -866,27 +925,31 @@ export function idMappingDisplayXpath(
  * manifest, or a missing manifest entry, is a compiler bug.
  */
 function imageMapDisplayXpath(
+	column: Extract<Column, { kind: "image-map" }>,
 	field: WireExpr,
-	mapping: ReadonlyArray<{
-		readonly value: string;
-		readonly assetId: MediaAssetId;
-	}>,
-	assets: AssetManifest | undefined,
+	ctx: CaseListEmitContext,
 ): WireExpr {
 	// Fold right so the first entry is the outermost `if`, matching the
 	// runtime's first-match-wins walk: the empty-string base is the final
 	// else (no value matched => no image).
-	return mapping.reduceRight<WireExpr>((elseArm, entry) => {
-		if (assets === undefined) {
+	const assets = ctx.assets;
+	return column.mapping.reduceRight<WireExpr>((elseArm, entry) => {
+		if (entry.assetId !== undefined && assets === undefined) {
 			throw new Error(
 				"imageMapDisplayXpath: an image map with entries was written as images with no media manifest. `imageMapShowsImages` holds a map with entries to its image column only where the export carries one.",
 			);
 		}
 		const path = w.str(
-			requireAssetRef(entry.assetId, assets, "imageMapDisplayXpath"),
+			entry.assetId === undefined
+				? hqLocaleFileValue("")
+				: requireAssetRef(
+						entry.assetId,
+						assets ?? new Map(),
+						"imageMapDisplayXpath",
+					),
 		);
 		return w.call("if", [
-			w.call("selected", [field, w.str(entry.value)]),
+			suiteMappingCondition(column.uuid, entry, field, ctx),
 			path,
 			elseArm,
 		]);
@@ -901,15 +964,86 @@ function imageMapDisplayXpath(
  * `enum` and the local suite's alt-text variable names both read it, so
  * the two paths name each key alike.
  */
-export function imageMapEnumExpression(value: string): WireExpr {
+export function suiteMappingCondition(
+	columnUuid: Uuid,
+	row: CaseMappingRow,
+	field: WireExpr,
+	ctx: CaseListEmitContext,
+): WireExpr {
+	return mappingCondition(
+		columnUuid,
+		row,
+		field,
+		{
+			expressions: ctx.expressions,
+			lookupNaming: ctx.lookupNaming,
+			inline: ctx.caseSource === "results:inline",
+		},
+		"suite",
+		instanceRootFor(ctx),
+	);
+}
+function suiteMappingKeys(
+	columnUuid: Uuid,
+	rows: readonly CaseMappingRow[],
+	ctx: CaseListEmitContext,
+): string[] {
+	return nativeMappingKeys(columnUuid, rows, {
+		expressions: ctx.expressions,
+		lookupNaming: ctx.lookupNaming,
+		inline: ctx.caseSource === "results:inline",
+	}).map(mappingKeyText);
+}
+export function imageMapEnumExpression(
+	value: string,
+	match?: "exact",
+): WireExpr {
+	if (match === "exact") return w.eq(w.context([w.self()]), w.str(value));
 	return w.call("selected", [w.context([w.self()]), w.str(value)]);
 }
 
-export function imageMapEnumKey(value: string): string {
-	return serializeWire(imageMapEnumExpression(value), {
+export function imageMapEnumKey(value: string, match?: "exact"): string {
+	if (match === "exact" && !hqMappingKeyIsExpression(value)) return value;
+	return serializeWire(imageMapEnumExpression(value, match), {
 		target: "hq-json",
 		interpolation: "enum-key",
 	}).text;
+}
+
+/** The exact locale id for each image rule is independent of whether this
+ * particular compilation carries the media bytes. The importer uses these
+ * identities even when its table omits media. Each rule's `id` is this view's
+ * own description override (`imageDescriptionWordingId`). */
+export function imageDescriptions(
+	column: Column,
+	position: number,
+	ctx: CaseListEmitContext,
+) {
+	if (column.kind !== "image-map") return [];
+	const idBase = detailColumnLocaleBase(
+		ctx.target,
+		ctx.detailKind,
+		ctx.moduleIndex,
+		columnFieldText(column),
+		position,
+		heldWord(column, ctx),
+	);
+	const role = columnWordingRole(
+		ctx.target === "search",
+		ctx.detailKind === "long",
+	);
+	const wireKeys = suiteMappingKeys(column.uuid, column.mapping, ctx);
+	return column.mapping.map((entry, index) => {
+		const key = wireKeys[index];
+		const name = keyAsVariable(key);
+		return {
+			entry,
+			key,
+			id: imageDescriptionWordingId(column.uuid, role, entry),
+			name,
+			localeId: `${idBase}.alt_text.${name}`,
+		};
+	});
 }
 
 /**
@@ -933,7 +1067,11 @@ function imageMapAltText(
 	position: number,
 	ctx: CaseListEmitContext,
 ):
-	| { readonly element: Element; readonly strings: Record<string, string> }
+	| {
+			readonly element: Element;
+			readonly strings: Record<string, string>;
+			readonly translationUnits: Record<string, TranslationUnitId>;
+	  }
 	| undefined {
 	if (
 		column.kind !== "image-map" ||
@@ -941,24 +1079,12 @@ function imageMapAltText(
 	) {
 		return undefined;
 	}
-	const field = columnPropertyPath(column);
-	const idBase = detailColumnLocaleBase(
-		ctx.target,
-		ctx.detailKind,
-		ctx.moduleIndex,
-		columnFieldText(column),
-		position,
-		heldWord(column, ctx),
-	);
-	const keys = column.mapping.map((entry) => {
-		const name = keyAsVariable(imageMapEnumKey(entry.value));
-		return {
-			condition: w.call("selected", [field, w.str(entry.value)]),
-			variable: w.imageAltVar(entry.value),
-			name,
-			localeId: `${idBase}.alt_text.${name}`,
-		};
-	});
+	const field = columnPropertyPath(column, instanceRootFor(ctx));
+	const keys = imageDescriptions(column, position, ctx).map((key) => ({
+		...key,
+		condition: suiteMappingCondition(column.uuid, key.entry, field, ctx),
+		variable: w.imageMappingVariable(key.key),
+	}));
 	const xpath = keys.reduceRight<WireExpr>(
 		(elseArm, key) => w.call("if", [key.condition, key.variable, elseArm]),
 		w.str(""),
@@ -978,7 +1104,17 @@ function imageMapAltText(
 				),
 			]),
 		]),
-		strings: Object.fromEntries(keys.map((key) => [key.localeId, ""])),
+		strings: Object.fromEntries(
+			keys.map((key) => [key.localeId, key.entry.altText ?? ""]),
+		),
+		translationUnits: Object.fromEntries(
+			keys
+				.filter((key) => key.entry.altText !== undefined)
+				.map((key) => [
+					key.localeId,
+					caseMappingTextUnit(column.uuid, key.entry, "image-description"),
+				]),
+		),
 	};
 }
 
@@ -998,28 +1134,18 @@ function hqStoresAsExpression(
 	column: Exclude<Column, { kind: "calculated" }>,
 	ctx: CaseListEmitContext,
 ): boolean {
-	switch (column.kind) {
-		case "link":
-		case "interval":
-			return true;
-		case "plain": {
-			const caseType = columnPropertyCaseType(
-				column,
-				ctx.caseType,
-				ctx.caseTypes,
-			);
-			const properties =
-				column.via === undefined
-					? ctx.caseProperties
-					: (ctx.caseTypes.find((type) => type.name === caseType)?.properties ??
-						[]);
-			return casePropertyShowsOptionLabels(
-				properties.find((candidate) => candidate.name === column.field),
-			);
-		}
-		default:
-			return false;
-	}
+	if (column.kind !== "plain")
+		return hqStoresColumnAsExpression(column, undefined);
+	const caseType = columnPropertyCaseType(column, ctx.caseType, ctx.caseTypes);
+	const properties =
+		column.via === undefined && column.readFrom === undefined
+			? ctx.caseProperties
+			: (ctx.caseTypes.find((type) => type.name === caseType)?.properties ??
+				[]);
+	return hqStoresColumnAsExpression(
+		column,
+		properties.find((candidate) => candidate.name === column.field),
+	);
 }
 
 /**
@@ -1057,7 +1183,10 @@ function propertyDisplayProjection(
 	ctx: CaseListEmitContext,
 	position: number,
 ): LocalizedDisplayProjection {
-	const field = columnPropertyPath(column);
+	const field = columnPropertyPath(
+		column,
+		hqStoresAsExpression(column, ctx) ? "casedb" : instanceRootFor(ctx),
+	);
 	const plain = (xpath: WireExpr): LocalizedDisplayProjection => ({
 		xpath,
 		variables: [],
@@ -1098,18 +1227,22 @@ function propertyDisplayProjection(
 		case "plain": {
 			// The property's catalog entry and options are those of the case
 			// the column's walk reaches.
-			const caseType =
-				columnPropertyCaseType(column, ctx.caseType, ctx.caseTypes) ??
-				ctx.caseType;
+			const caseType = columnPropertyCaseType(
+				column,
+				ctx.caseType,
+				ctx.caseTypes,
+			);
+			if (caseType === undefined) return plain(plainDisplayXpath(field));
 			const property = (
-				column.via === undefined
+				column.via === undefined && column.readFrom === undefined
 					? ctx.caseProperties
 					: (ctx.caseTypes.find((type) => type.name === caseType)?.properties ??
 						[])
 			).find((candidate) => candidate.name === column.field);
 			if (
-				property?.data_type !== "single_select" &&
-				property?.data_type !== "multi_select"
+				column.showChoice === "saved-value" ||
+				(property?.data_type !== "single_select" &&
+					property?.data_type !== "multi_select")
 			) {
 				return plain(plainDisplayXpath(field));
 			}
@@ -1136,16 +1269,106 @@ function propertyDisplayProjection(
 				),
 			);
 		}
+		case "map-location":
+		case "map-layer":
+		case "formatted-text":
+			return plain(field);
+		case "worker-distance": {
+			const here = w.call("here", []);
+			const metres = w.call("distance", [field, here]);
+			const kilometres = w.div(
+				w.call("round", [w.div(metres, w.num(100))]),
+				w.num(10),
+			);
+			return plain(
+				w.call("if", [
+					w.or(w.eq(here, w.str("")), w.eq(field, w.str(""))),
+					w.str(""),
+					w.call("concat", [kilometres, w.str(" km")]),
+				]),
+			);
+		}
+		case "overdue-marker":
+			return plain(
+				intervalFlagXpath({
+					field,
+					unit: "days",
+					threshold: column.afterDays,
+					text: "*",
+				}),
+			);
+		case "date-count": {
+			const elapsed = w.sub(w.call("today", []), w.call("date", [field]));
+			const units = w.call("int", [
+				w.div(elapsed, w.num(DATE_COUNT_DAYS[column.period])),
+			]);
+			return plain(
+				w.call("if", [
+					w.eq(field, w.str("")),
+					w.str(""),
+					w.call("string", [units]),
+				]),
+			);
+		}
 		case "date":
 			return plain(dateDisplayXpath(field, column.pattern));
 		case "phone":
 			return plain(phoneDisplayXpath(field));
 		case "id-mapping": {
+			if (column.behavior === "first-match") {
+				const stem = detailColumnLocaleBase(
+					ctx.target,
+					ctx.detailKind,
+					ctx.moduleIndex,
+					columnFieldText(column),
+					position,
+					heldWord(column, ctx),
+				);
+				const wireKeys = suiteMappingKeys(
+					column.uuid,
+					column.mapping.map((entry) => ({ ...entry, match: "exact" })),
+					ctx,
+				);
+				const entries = column.mapping.map((entry, index) => {
+					const key = wireKeys[index];
+					const name = keyAsVariable(key);
+					const id = `${stem}.enum.${name}`;
+					return { entry, key, name, id };
+				});
+				return {
+					xpath: entries.reduceRight<WireExpr>(
+						(rest, { entry, key }) =>
+							w.call("if", [
+								suiteMappingCondition(
+									column.uuid,
+									{ ...entry, match: "exact" },
+									field,
+									ctx,
+								),
+								w.imageMappingVariable(key),
+								rest,
+							]),
+						w.str(""),
+					),
+					variables: entries.map(({ name, id }) =>
+						el("variable", { name }, [el("locale", { id })]),
+					),
+					strings: Object.fromEntries(
+						entries.map(({ entry, id }) => [id, entry.label]),
+					),
+					translationUnits: Object.fromEntries(
+						entries.map(({ entry, id }) => [
+							id,
+							caseMappingTextUnit(column.uuid, entry, "mapping"),
+						]),
+					),
+				};
+			}
 			const projections = column.mapping.map((entry, index) =>
 				variable(
 					index,
 					entry.label,
-					makeTranslationUnitId("column", column.uuid, "mapping", entry.value),
+					caseMappingTextUnit(column.uuid, entry, "mapping"),
 				),
 			);
 			return combineVariables(
@@ -1154,6 +1377,7 @@ function propertyDisplayProjection(
 					field,
 					column.mapping.map((entry, index) => ({
 						...entry,
+						value: entry.value ?? "",
 						labelExpression: projections[index]?.xpath,
 					})),
 				),
@@ -1167,7 +1391,7 @@ function propertyDisplayProjection(
 			// disagree.
 			return plain(
 				imageMapShowsImages(column, ctx.assets !== undefined)
-					? imageMapDisplayXpath(field, column.mapping, ctx.assets)
+					? imageMapDisplayXpath(column, field, ctx)
 					: plainDisplayXpath(field),
 			);
 		case "link":
@@ -1227,10 +1451,44 @@ function templateFormFor(
 		column.kind === "image-map" &&
 		imageMapShowsImages(column, assets !== undefined)
 	) {
-		return "image";
+		// Only the case list runs an icon's action; the case detail keeps the
+		// image (`detail_screen.py::ClickableIcon`).
+		return detailKind === "short" && column.entryPointUuid !== undefined
+			? "clickable-icon"
+			: "image";
 	}
-	if (column.kind === "link") return "markdown";
+	if (column.kind === "map-location") return "address";
+	if (column.kind === "map-layer") return CASE_MAP_FORMATS[column.layer].suite;
+	if (column.kind === "link" || column.kind === "formatted-text")
+		return "markdown";
 	return undefined;
+}
+
+/**
+ * The `<endpoint_action>` of a case list icon that submits a form, in the
+ * field after the template as HQ orders it (`xml_models.py::Field.ORDER`).
+ * Web Apps runs it in the background, the form submitting for the tapped case
+ * without the worker leaving the list (`detail_screen.py::EnumImage.action`).
+ */
+function listIconActionElement(
+	column: Column,
+	ctx: CaseListEmitContext,
+): Element | undefined {
+	if (
+		ctx.detailKind !== "short" ||
+		column.kind !== "image-map" ||
+		column.entryPointUuid === undefined ||
+		!imageMapShowsImages(column, ctx.assets !== undefined)
+	)
+		return undefined;
+	if (ctx.listIconEndpointId === undefined)
+		throw new Error(
+			"A case list icon reached a case list emitted without its deep link ids. This is a bug in Nova.",
+		);
+	return el("endpoint_action", {
+		endpoint_id: ctx.listIconEndpointId(column.entryPointUuid),
+		background: "true",
+	});
 }
 
 /**
@@ -1254,7 +1512,6 @@ function resolveSortElement(
 		readonly variables: readonly Element[];
 	},
 ): Element | undefined {
-	if (ctx.detailKind === "long") return undefined;
 	const directive = ctx.sortByUuid.get(column.uuid);
 	if (directive === undefined) return undefined;
 	return buildSortBlock(
@@ -1277,6 +1534,10 @@ function sortText(
 			return { xpath: directive.xpath, variables: [] };
 		case "calculated":
 			return calculatedPropertyText(fieldText().xpath, context);
+		case "distance-calculated": {
+			const text = calculatedPropertyText(fieldText().xpath, context);
+			return { ...text, xpath: distanceSortXpath(text.xpath) };
+		}
 		case "variables":
 			return fieldText();
 	}
@@ -1302,24 +1563,12 @@ function tileStyleChildren(
 	column: Column,
 	ctx: CaseListEmitContext,
 ): readonly Element[] {
-	// Which detail surface this is stays here — tiles apply to the short
-	// detail, and the case-detail screen is a plain field list whatever the
-	// case list does. WHETHER the column contributes a cell at all is
-	// `tileCellFor`'s single decision, shared with the HQ JSON writer and the
-	// preview renderer so the three cannot disagree.
-	//
-	// Long-detail tiles are out of scope by contract — see
-	// `docs/architecture/contracts.md`, deliberate target gaps:
-	// "Tiles apply to the short and search details; the case-detail view emits
-	// a plain field list." CommCare would accept a `custom` tile there, so
-	// nothing upstream forbids it; this branch is what makes the excluded case
-	// unrepresentable rather than merely unreached. `longDetail.ts` also never
-	// puts a `tileLayout` on its context, but that is the same rule applied a
-	// second time, not the reason for this one.
-	if (ctx.detailKind !== "short") return [];
-	const cell = tileCellFor(column, ctx.tileLayout);
+	const cell =
+		ctx.detailKind === "long"
+			? ctx.detailTile?.cells[column.uuid]
+			: tileCellFor(column, ctx.tileLayout);
 	if (cell === undefined) return [];
-	return [buildTileStyleBlock(cell)];
+	return [buildTileStyleBlock(storedTileCell(cell))];
 }
 
 /**
@@ -1350,6 +1599,28 @@ export function buildColumnField(args: {
 	/** The name the hidden field's rule gives it in Sort by. */
 	readonly sortLabel?: CaseListSortLabel;
 }): CaseListFieldEmission {
+	const emission = buildColumnFieldBody(args);
+	// A hidden field is HQ's `invisible` format, which keeps no load behavior.
+	if (args.hidden === true) return emission;
+	return {
+		...emission,
+		element: withFieldLoadBehavior(
+			emission.element,
+			columnLoadBehavior(
+				args.ctx.optimizations === true ? { optimizations: true } : undefined,
+				args.column,
+			),
+		),
+	};
+}
+
+function buildColumnFieldBody(args: {
+	readonly column: Column;
+	readonly position: number;
+	readonly ctx: CaseListEmitContext;
+	readonly hidden?: boolean;
+	readonly sortLabel?: CaseListSortLabel;
+}): CaseListFieldEmission {
 	const { column, position, ctx, hidden = false, sortLabel } = args;
 
 	if (column.kind === "calculated") {
@@ -1370,7 +1641,10 @@ export function buildColumnField(args: {
 		});
 
 	if (hidden) {
-		const raw = columnPropertyPath(column);
+		const raw = columnPropertyPath(
+			column,
+			columnStoredAsExpression(column) ? "casedb" : instanceRootFor(ctx),
+		);
 		const header =
 			sortLabel === undefined
 				? undefined
@@ -1386,6 +1660,7 @@ export function buildColumnField(args: {
 						sortLabel,
 					);
 		const fieldChildren: Element[] = [
+			...tileStyleChildren(column, ctx),
 			header?.element ?? buildHiddenHeaderBlock(),
 			buildTemplateBlock(raw, ctx.wire, undefined, "0"),
 		];
@@ -1426,17 +1701,26 @@ export function buildColumnField(args: {
 		imageMapShowsImages(column, ctx.assets !== undefined)
 			? IMAGE_MAP_WIDTH
 			: undefined;
+	const hiddenMapValue =
+		(column.kind === "map-location" || column.kind === "map-layer") &&
+		ctx.detailKind === "short";
 	const fieldChildren: Element[] = [
 		...tileStyleChildren(column, ctx),
-		buildHeaderBlock(headerLocaleId, width),
+		hiddenMapValue
+			? buildHiddenHeaderBlock()
+			: column.kind === "overdue-marker" && ctx.detailKind === "short"
+				? buildHiddenHeaderBlock("11%")
+				: buildHeaderBlock(headerLocaleId, width),
 		buildTemplateBlock(
 			display.xpath,
 			ctx.wire,
 			templateFormFor(column, ctx.detailKind, ctx.assets),
-			width,
+			hiddenMapValue ? "0" : column.kind === "overdue-marker" ? "11%" : width,
 			display.variables,
 		),
 	];
+	const action = listIconActionElement(column, ctx);
+	if (action !== undefined) fieldChildren.push(action);
 	const sortEl = resolveSortElement(column, ctx, () => {
 		// A fresh projection: the sort's variables are elements of their own,
 		// never the template's.
@@ -1457,6 +1741,7 @@ export function buildColumnField(args: {
 		translationUnits: {
 			[headerLocaleId]: makeTranslationUnitId("column", column.uuid, "header"),
 			...display.translationUnits,
+			...altText?.translationUnits,
 		},
 	};
 }
@@ -1502,6 +1787,109 @@ function buildCalculatedField(args: {
 		}),
 		bindings: lookupTermContext(ctx),
 	});
+	if (column.texts !== undefined && !hidden) {
+		const source = translatedDistanceProperty(column);
+		const headerId = source
+			? `${detailColumnLocaleBase(
+					ctx.target,
+					ctx.detailKind,
+					ctx.moduleIndex,
+					columnFieldText(source),
+					position,
+					heldWord(column, ctx),
+				)}.header`
+			: detailCalculatedHeaderLocaleId(
+					ctx.target,
+					ctx.detailKind,
+					ctx.moduleIndex,
+					position,
+				);
+		const strings: Record<string, string> = { [headerId]: column.header };
+		const translationUnits: Record<string, TranslationUnitId> = {
+			[headerId]: makeTranslationUnitId("column", column.uuid, "header"),
+		};
+		const variants = caseTextKeyVariants(calcXpath, column.texts);
+		const localizedXpath = bindCaseTextVariables(calcXpath, variants);
+		const names = column.texts.map((piece) => {
+			const name = keyAsVariable(
+				caseTextWireKey(piece.uuid, variants.get(piece.uuid)),
+			);
+			const id = `${headerId.replace(/\.header$/, "")}.enum.${name}`;
+			strings[id] = piece.label;
+			translationUnits[id] = makeTranslationUnitId(
+				"column",
+				column.uuid,
+				"calculation-text",
+				piece.uuid,
+			);
+			return { name, id };
+		});
+		const variables = () =>
+			names.map(({ name, id }) =>
+				el("variable", { name }, [el("locale", { id })]),
+			);
+		const sort = resolveSortElement(column, ctx, () => ({
+			xpath: localizedXpath,
+			variables: variables(),
+		}));
+		return {
+			element: el("field", {}, [
+				...tileStyleChildren(column, ctx),
+				buildHeaderBlock(headerId),
+				buildTemplateBlock(
+					localizedXpath,
+					ctx.wire,
+					undefined,
+					undefined,
+					variables(),
+				),
+				...(sort ? [sort] : []),
+			]),
+			strings,
+			translationUnits,
+		};
+	}
+	const direct =
+		ctx.detailKind === "long" &&
+		fixtureRowFieldName(column, calcXpath, heldWord(column, ctx));
+	if (direct) {
+		const headerId = detailHeaderLocaleId(
+			ctx.target,
+			ctx.detailKind,
+			ctx.moduleIndex,
+			direct,
+			position,
+			direct,
+		);
+		const sort = ctx.sortByUuid.get(column.uuid);
+		return {
+			element: el("field", {}, [
+				...tileStyleChildren(column, ctx),
+				hidden ? buildHiddenHeaderBlock() : buildHeaderBlock(headerId),
+				buildTemplateBlock(
+					calcXpath,
+					ctx.wire,
+					undefined,
+					hidden ? "0" : undefined,
+				),
+				...(sort
+					? [
+							buildSortBlock(
+								sort,
+								{ xpath: calcXpath, variables: [] },
+								ctx.wire,
+							),
+						]
+					: []),
+			]),
+			strings: hidden ? {} : { [headerId]: column.header },
+			translationUnits: hidden
+				? {}
+				: {
+						[headerId]: makeTranslationUnitId("column", column.uuid, "header"),
+					},
+		};
+	}
 	return buildExpressionField({
 		column,
 		position,
@@ -1546,6 +1934,7 @@ function buildExpressionField(args: {
 						sortLabel,
 					);
 		const fieldChildren: Element[] = [
+			...tileStyleChildren(column, ctx),
 			header?.element ?? buildHiddenHeaderBlock(),
 			buildCalculatedTemplateBlock(calcXpath, ctx.wire, "0"),
 		];
@@ -1565,7 +1954,14 @@ function buildExpressionField(args: {
 	const fieldChildren: Element[] = [
 		...tileStyleChildren(column, ctx),
 		buildHeaderBlock(headerLocaleId),
-		buildCalculatedTemplateBlock(calcXpath, ctx.wire),
+		buildCalculatedTemplateBlock(
+			calcXpath,
+			ctx.wire,
+			undefined,
+			column.kind === "calculated" && column.showAs === "formatted-text"
+				? "markdown"
+				: undefined,
+		),
 	];
 	if (sortEl !== undefined) fieldChildren.push(sortEl);
 
@@ -1575,6 +1971,51 @@ function buildExpressionField(args: {
 		translationUnits: {
 			[headerLocaleId]: makeTranslationUnitId("column", column.uuid, "header"),
 		},
+	};
+}
+
+/** The temporary invisible field HQ appends for a calculation with no
+ * property. The empty field leaves the template blank. Its order expression
+ * and optional Sort by name exist only on the temporary field. */
+export function buildCalculatedSortField(
+	calculation: CaseListOrderPlan["calculations"][number],
+	ctx: CaseListEmitContext,
+): CaseListFieldEmission {
+	const { sort, order, comparator, blanks } = calculation;
+	const xpath = toWire(sort.expression, {
+		target: "suite",
+		root: instanceRootFor(ctx),
+		types: ctx.expressions({
+			slot: "case_list_sort_expression",
+			member: { sortUuid: sort.uuid },
+		}),
+		bindings: lookupTermContext(ctx),
+	});
+	const localeId = detailHeaderLocaleId(
+		ctx.target,
+		"short",
+		ctx.moduleIndex,
+		"",
+		order + 1,
+	);
+	const header =
+		sort.label === undefined
+			? undefined
+			: labelledHiddenHeader(localeId, { column: sort.uuid, text: sort.label });
+	return {
+		element: el("field", {}, [
+			header?.element ?? buildHiddenHeaderBlock(),
+			el("template", { width: "0" }, [el("text", {})]),
+			buildSortBlock(
+				{ type: comparator, order, direction: sort.direction, blanks },
+				{ xpath, variables: [] },
+				ctx.wire,
+			),
+		]),
+		strings: header?.strings ?? {},
+		translationUnits: header
+			? { [localeId]: makeTranslationUnitId("case-sort", sort.uuid, "label") }
+			: {},
 	};
 }
 
@@ -1601,10 +2042,11 @@ export function buildCarrierField(
 	locale: {
 		readonly target: DetailTarget;
 		readonly moduleIndex: number;
+		readonly caseSource?: CaseListEmitContext["caseSource"];
 	},
 	context: WireElementContext,
 ): CaseListFieldEmission {
-	const raw = columnPropertyPath(carrier);
+	const raw = columnPropertyPath(carrier, instanceRootFor(locale));
 	const header =
 		carrier.label === undefined || directive.order === undefined
 			? undefined

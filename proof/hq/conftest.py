@@ -38,7 +38,9 @@ from proof.conftest import timed  # noqa: F401  (HQ's tests time their operation
 # the eight migration witnesses whose A the migration groups of ``test_retained_reads.py`` publish
 # (``MIGRATION_WITNESSES``).
 DOCUMENTS = (
+    "targeted-calculation-text-names",
     "lookup-app",
+    "hq-lookup-data",
     "media-rich",
     "location-multirung",
     "search-parent",
@@ -50,6 +52,7 @@ DOCUMENTS = (
     "case-list-inline",
     "case-list-local",
     "targeted-hq-side-lookup",
+    "targeted-hq-side-owned",
     "search-registration-link",
     "targeted-hq-side-state",
     "case-operation-query",

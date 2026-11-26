@@ -95,8 +95,10 @@ export async function readHqAppSourceAtVersion(
 /**
  * The counter a publish reads just before its last read of the source ahead
  * of an import. A single increment proves the import was the only save.
- * HQ can also save a second time inside the import to remove unused media
- * mappings. That increment cannot be distinguished from a concurrent save.
+ * HQ also saves a second time inside the import when it removes media
+ * mappings the new content no longer uses. The counter alone cannot tell
+ * that save from a concurrent one; the publish decides from the read back
+ * (`lib/deployment/hqSourceBaseline.ts::importPruneSave`).
  */
 export async function readHqAppSaveCounter(
 	creds: CommCareCredentials,

@@ -2,6 +2,10 @@ import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc } from "@/lib/__tests__/docHelpers";
 import {
+	ENDPOINT_FORM,
+	endpointWireFixture,
+} from "@/lib/commcare/__tests__/endpointWireFixture";
+import {
 	authoredBlueprintIdentities,
 	entryPointInventory,
 	suggestEntryPointId,
@@ -9,9 +13,12 @@ import {
 import { mutationCommitVerdict } from "../commitVerdicts";
 import { diffDocsToMutations } from "../diffDocsToMutations";
 import {
+	holdsEntryCaseCreations,
 	planEntryPointAdd,
 	planEntryPointUpdate,
+	planFormEntryCaseCreations,
 } from "../entryPointMutations";
+import { entryPointRequirements } from "../entryPointProjection";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "../lookupReferences";
 import { mutationTargetsInvalid } from "../mutationTargetAdmission";
 import { type Mutation, mutationSchema } from "../types";
@@ -202,5 +209,41 @@ describe("owned entry-point mutations", () => {
 				ignoreDisplayConditions: null,
 			}),
 		).toMatchObject({ ok: true });
+	});
+});
+
+describe("a form's chosen creation IDs, as an editor read them", () => {
+	it("holds a brought-in list in HQ's typed order and repeats as the choice an editor read, and its edit writes frame order", () => {
+		const doc = endpointWireFixture("registration-supplied");
+		const target = {
+			kind: "form" as const,
+			moduleUuid: doc.moduleOrder[0],
+			formUuid: ENDPOINT_FORM,
+		};
+		const own = doc.forms[ENDPOINT_FORM].entryCaseCreations?.[0];
+		if (own === undefined) throw new Error("Missing supplied creation");
+		// HQ saves `function_datum_endpoints` as typed (`views/forms.py`
+		// splits the comma list), so a repeat comes in as stored.
+		doc.forms[ENDPOINT_FORM].entryCaseCreations = [own, own];
+		assertAdmittedDoc(doc);
+		const projection = entryPointRequirements(doc, target);
+		if (!projection.available) throw new Error(projection.message);
+		const read = projection.requiredCreations.map(
+			(creation) => creation.operationUuid,
+		);
+		expect(read).toEqual([own]);
+		expect(holdsEntryCaseCreations(doc, target, read)).toBe(true);
+		expect(holdsEntryCaseCreations(doc, target, [])).toBe(false);
+		const plan = planFormEntryCaseCreations(doc, target, []);
+		expect(plan).toMatchObject({
+			ok: true,
+			mutations: [
+				{
+					kind: "updateForm",
+					uuid: ENDPOINT_FORM,
+					patch: { entryCaseCreations: null },
+				},
+			],
+		});
 	});
 });

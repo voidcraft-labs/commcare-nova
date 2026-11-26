@@ -1,14 +1,9 @@
 /**
  * Nova's own sentences a search prints in every language: the runtime guard of
- * a Search field's values, joined after the field's own validation message
- * (`system/search-validation/<key>`), and the message of a required field with
- * none of its own (`system/search-required/default`). A system unit's source
- * text is Nova's sentence, and a document holds no other text for it in its
- * source language, so the language a reading takes as its source is one whose
- * text for every such unit the app prints is Nova's sentence: one of the two
- * places `languages.ts::readingSourceCode` reads the source at. Recognition
- * here is a proposal: the menu's projection, compared with the stored search
- * when the menu settles, holds every text read.
+ * a Search field's values and the message of a required field with no own message.
+ * An unchanged catalog sentence in a language supplies evidence about the original source.
+ * Customized wording is retained for every language, including the chosen source. The
+ * menu's projection over the stored search checks the proposed ownership and wording.
  */
 import type {
 	BlueprintDoc,
@@ -17,7 +12,10 @@ import type {
 	TranslationUnitId,
 	Uuid,
 } from "@/lib/domain";
-import { makeTranslationUnitId } from "@/lib/domain/localization";
+import {
+	editableLanguageEntries,
+	makeTranslationUnitId,
+} from "@/lib/domain/localization";
 import {
 	effectiveCaseSearchConfig,
 	SEARCH_INPUT_REQUIRED_DEFAULT_MESSAGE,
@@ -48,8 +46,7 @@ export type ValidationReading =
  * Nova's emitter writes a prompt's one validation as the authored rule and
  * message, then the runtime guard of the search's own values and its message
  * (`searchPrompts.ts::buildValidation`), each language joining its own two
- * texts. The guard's message is Nova's own sentence in the source language and
- * any text in a translation, so the messages are read in the order given and
+ * texts. A guard may still carry its catalog sentence in one of the languages. The messages are read in order and
  * the first that tells decides: one that is one of the guard's messages is the
  * guard alone; one that ends with a guard message after a space is an authored
  * rule followed by the guard, the guard being the last conjunct of the stored
@@ -174,18 +171,10 @@ function requiredMessageUnit(uuid: Uuid): TranslationUnitId {
 	return makeTranslationUnitId("search-input", uuid, "required-message");
 }
 
-/**
- * The reader's canonical choice `required-messages-as-read`: where a Search field's own required
- * message is Nova's sentence in the source language, a field holding no message of its own and a
- * field whose own message is that sentence print the same text in every language that holds the
- * same words, so the document's required messages are put where the reading puts them
- * (`prompts.ts::requiredDefaultTexts`). Nova's message is the texts of the first required field,
- * in menu and field order, whose source text is Nova's sentence; a required field whose text is
- * those texts in every language holds no message, and every other required field holds its texts
- * as its own message. A document where no field's own message is Nova's sentence in the source
- * language is returned as it is. It reads the source language the row `source-language-is-as-read`
- * settles.
- */
+/** The wire contains one message per field and language. Prefer the first complete set
+ * whose source retains the catalog sentence, then one whose other language retains it.
+ * Other fields with those same texts share the default. When no carrier identifies the
+ * default, the reading assigns each field its own message. */
 export function requiredMessagesAsRead(doc: BlueprintDoc): BlueprintDoc {
 	const fields: { moduleUuid: Uuid; input: SearchInputDef }[] = [];
 	for (const moduleUuid of doc.moduleOrder) {
@@ -193,15 +182,14 @@ export function requiredMessagesAsRead(doc: BlueprintDoc): BlueprintDoc {
 		if (mod === undefined || effectiveCaseSearchConfig(mod) === undefined)
 			continue;
 		for (const input of mod.caseListConfig?.searchInputs ?? [])
-			if (input.kind !== "hidden" && input.required !== undefined)
+			if (
+				input.kind !== "hidden" &&
+				input.required !== undefined &&
+				input.required.noMessage !== true
+			)
 				fields.push({ moduleUuid, input });
 	}
-	const ownSentence = fields.some(
-		({ input }) =>
-			input.kind !== "hidden" &&
-			input.required?.message === SEARCH_INPUT_REQUIRED_DEFAULT_MESSAGE,
-	);
-	if (!ownSentence) return doc;
+	if (fields.length === 0) return doc;
 	const localization = doc.localization;
 	const source = (localization?.sourceLanguage ?? "eng") as LanguageTag;
 	const languages = Object.entries(localization?.wireCodes ?? { eng: "en" });
@@ -219,26 +207,35 @@ export function requiredMessagesAsRead(doc: BlueprintDoc): BlueprintDoc {
 		);
 	};
 	const texts = fields.map(({ input }) => textsOf(input));
-	const nova = texts.find(
-		(one) => one.get(source) === SEARCH_INPUT_REQUIRED_DEFAULT_MESSAGE,
-	);
-	if (nova === undefined) return doc;
+	const nova =
+		texts.find(
+			(one) => one.get(source) === SEARCH_INPUT_REQUIRED_DEFAULT_MESSAGE,
+		) ??
+		texts.find((one) =>
+			[...one.values()].includes(SEARCH_INPUT_REQUIRED_DEFAULT_MESSAGE),
+		);
 	const holdsNova = (one: ReadonlyMap<LanguageTag, string>) =>
+		nova !== undefined &&
 		[...nova].every(([language, text]) => one.get(language) === text);
 	return withCandidate(doc, (draft) => {
-		const translations = draft.localization?.translations;
+		const loc = draft.localization;
 		const write = (
 			language: LanguageTag,
 			unit: TranslationUnitId,
 			sourceText: string,
 			text: string | undefined,
 		) => {
-			const targets = translations?.[language];
-			if (targets === undefined) return;
+			if (!loc) return;
 			const entry =
 				text === undefined
 					? undefined
 					: translationEntryFor("text", sourceText, text, source);
+			const targets = editableLanguageEntries(
+				loc,
+				language,
+				entry !== undefined,
+			);
+			if (!targets) return;
 			if (entry === undefined) delete targets[unit];
 			else targets[unit] = entry;
 		};
@@ -263,13 +260,14 @@ export function requiredMessagesAsRead(doc: BlueprintDoc): BlueprintDoc {
 			for (const [language, text] of held)
 				if (language !== source) write(language, unit, message, text);
 		});
-		for (const [language, text] of nova)
-			if (language !== source)
-				write(
-					language,
-					REQUIRED_DEFAULT,
-					SEARCH_INPUT_REQUIRED_DEFAULT_MESSAGE,
-					text,
-				);
+		for (const [language] of languages)
+			write(
+				language,
+				REQUIRED_DEFAULT,
+				SEARCH_INPUT_REQUIRED_DEFAULT_MESSAGE,
+				nova?.get(language),
+			);
+		if (loc && !Object.keys(loc.generatedSourceWording ?? {}).length)
+			delete loc.generatedSourceWording;
 	});
 }
