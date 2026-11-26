@@ -10,13 +10,23 @@
  * position to find a `HashtagRef`, so a parsed state is required).
  */
 
-import { CompletionContext } from "@codemirror/autocomplete";
+import {
+	CompletionContext,
+	insertCompletionText,
+} from "@codemirror/autocomplete";
 import { ensureSyntaxTree, syntaxTree } from "@codemirror/language";
-import { EditorState } from "@codemirror/state";
+import { EditorState, type TransactionSpec } from "@codemirror/state";
+import type { EditorView } from "@codemirror/view";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
+import { referenceContextChanged } from "@/components/builder/referenceContextChanged";
+import { buildFieldEntries } from "@/components/ui/FieldPicker";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { parseFormExpression } from "@/lib/commcare/xpath/expressionAst";
+import {
+	parseFormExpressionForSlot,
+	projectFormExpression,
+} from "@/lib/doc/expressionText";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import {
 	type AppSettings,
@@ -25,12 +35,16 @@ import {
 	type ReachableCaseTypeIndex,
 } from "@/lib/domain";
 import type { ExpressionSlotRef } from "@/lib/domain/expression/types";
+import type { Uuid } from "@/lib/domain/uuid";
+import { ReferenceProvider } from "@/lib/references/provider";
 import {
 	buildExpressionEditorContext,
 	type ExpressionEditorContext,
 } from "../expressionEditorContext";
 import type { FormReferenceContext } from "../formReferenceContext";
+import { buildFormReferenceContext } from "../formReferenceContext";
 import {
+	dataPathSource,
 	hashtagSource,
 	instanceSource,
 	relativeSource,
@@ -239,8 +253,16 @@ const BEE = testUuid("ac-bee");
 const CALC = testUuid("ac-calc");
 const REGION = testUuid("ac-region");
 
+type InlineOption = { uuid: Uuid; value: string; label: string };
+
+const YES_NO: InlineOption[] = [
+	{ uuid: YES, value: "yes", label: "Yes" },
+	{ uuid: NO, value: "no", label: "No" },
+];
+
 const readsSpec = (
 	appSettings?: AppSettings,
+	options: InlineOption[] = YES_NO,
 ): Parameters<typeof buildDoc>[0] => ({
 	...(appSettings !== undefined && { appSettings }),
 	caseTypes: [
@@ -270,10 +292,7 @@ const readsSpec = (
 							id: "a",
 							kind: "single_select",
 							label: "Attending",
-							options: [
-								{ uuid: YES, value: "yes", label: "Yes" },
-								{ uuid: NO, value: "no", label: "No" },
-							],
+							options,
 						}),
 						f({
 							uuid: GROUP,
@@ -501,4 +520,194 @@ describe("a static select's choices", () => {
 		expect(labels(DEFAULT, "'")).toEqual(["yes", "no"]);
 		lintsClean(DEFAULT, "'yes'");
 	});
+});
+
+// A choice's value may hold either quote mark or both. Accepting its
+// completion has to leave text that reads back as that choice, which the
+// raw value between the open quotes does not when it holds that quote mark.
+describe("a choice holding a quote mark", () => {
+	const BOTH = testUuid("ac-both");
+	const APOSTROPHE = testUuid("ac-apostrophe");
+	const PLAIN = testUuid("ac-plain");
+	const BOTH_VALUE = `it's_"here"`;
+	const BOTH_LITERAL = `concat('it', "'", 's_"here"')`;
+	const quotedDoc = buildDoc(
+		readsSpec(undefined, [
+			{ uuid: BOTH, value: BOTH_VALUE, label: "Both" },
+			{ uuid: APOSTROPHE, value: "it's", label: "Apostrophe" },
+			{ uuid: PLAIN, value: "plain", label: "Plain" },
+		]),
+	);
+
+	/** The text after accepting `value`'s completion with the cursor at
+	 *  `pos` in `written`, through the completion's own apply over a real
+	 *  editor transaction, the way CodeMirror applies a picked option. */
+	function accept(
+		slot: ExpressionSlotRef,
+		written: string,
+		value: string,
+		pos = written.length,
+	): string {
+		const ctx = editorContext(slot, quotedDoc);
+		let state = parsedState(written).update({
+			selection: { anchor: pos },
+		}).state;
+		const result = instanceSource(() => ctx.reads)(
+			new CompletionContext(state, pos, false),
+		);
+		const option = result?.options.find((o) => o.label === value);
+		if (result === null || option === undefined)
+			throw new Error(`${value} is not offered in ${written} at ${pos}`);
+		const to = result.to ?? pos;
+		const view = {
+			get state() {
+				return state;
+			},
+			dispatch(spec: TransactionSpec) {
+				state = state.update(spec).state;
+			},
+		} as unknown as EditorView;
+		const apply = option.apply ?? option.label;
+		if (typeof apply === "string")
+			view.dispatch(insertCompletionText(state, apply, result.from, to));
+		else apply(view, option, result.from, to);
+		return state.doc.toString();
+	}
+
+	function bindsChoice(text: string, option: Uuid) {
+		const parsed = parseFormExpression(
+			text,
+			editorContext(RELEVANT, quotedDoc).scope,
+		);
+		expect(parsed.ok, text).toBe(true);
+		if (!parsed.ok) return;
+		expect(JSON.stringify(parsed.expression), text).toContain(
+			JSON.stringify({ kind: "choice", field: ATTENDING, options: [option] }),
+		);
+	}
+
+	it("writes a value holding both quote marks as a concat that binds the choice", () => {
+		for (const written of ["#form/a = '", '#form/a = "', "#form/a = 'it"]) {
+			const text = accept(RELEVANT, written, BOTH_VALUE);
+			expect(text, written).toBe(`#form/a = ${BOTH_LITERAL}`);
+			bindsChoice(text, BOTH);
+		}
+		// Inside a closed literal, the closing quote goes too.
+		const closed = "#form/a = 'it' and true()";
+		const text = accept(RELEVANT, closed, BOTH_VALUE, closed.indexOf("t'") + 1);
+		expect(text).toBe(`#form/a = ${BOTH_LITERAL} and true()`);
+		bindsChoice(text, BOTH);
+	});
+
+	it("writes a value holding the open quote mark inside the other one, and any other value as typed", () => {
+		const text = accept(RELEVANT, "#form/a = '", "it's");
+		expect(text).toBe(`#form/a = "it's"`);
+		bindsChoice(text, APOSTROPHE);
+		expect(accept(RELEVANT, '#form/a = "', "it's")).toBe(`#form/a = "it's`);
+		expect(accept(RELEVANT, "#form/a = 'p", "plain")).toBe("#form/a = 'plain");
+	});
+
+	it("writes a starting value holding both quote marks the same way", () => {
+		const text = accept(DEFAULT, "'", BOTH_VALUE);
+		expect(text).toBe(BOTH_LITERAL);
+		expect(xpathDiagnostics(text, editorContext(DEFAULT, quotedDoc))).toEqual(
+			[],
+		);
+	});
+});
+
+it("offers and reparses the picked answer after its submitted address changes", () => {
+	const left = testUuid("catalog-left"),
+		right = testUuid("catalog-right");
+	const chosen = testUuid("catalog-chosen"),
+		other = testUuid("catalog-other"),
+		result = testUuid("catalog-result");
+	const slot = { entity: "field", uuid: result, slot: "calculate" } as const;
+	const doc = buildDoc({
+		modules: [
+			{
+				name: "Visits",
+				forms: [
+					{
+						name: "Screening",
+						type: "survey",
+						fields: [
+							f({
+								uuid: left,
+								kind: "group",
+								id: "left",
+								children: [
+									f({
+										uuid: chosen,
+										kind: "text",
+										id: "name",
+										label: "Person named on the first screen",
+									}),
+								],
+							}),
+							f({
+								uuid: right,
+								kind: "group",
+								id: "right",
+								children: [
+									f({
+										uuid: other,
+										kind: "text",
+										id: "name",
+										label: "Person named on the second screen",
+									}),
+								],
+							}),
+							f({ uuid: result, kind: "hidden", id: "result" }),
+						],
+					},
+				],
+			},
+		],
+	});
+	const form = Object.values(doc.forms)[0];
+	const original = parseFormExpressionForSlot(
+		doc,
+		slot,
+		"/data/left/name",
+		"unavailable",
+	);
+	if (!original.ok || !original.expression)
+		throw new Error("The original selected answer did not bind.");
+	const changed = structuredClone(doc);
+	changed.forms[form.uuid].dataRootName = "screening";
+	changed.fields[chosen].submissionPlacement = { parent: right };
+	changed.fields[other].submissionPlacement = { parent: left };
+	expect(referenceContextChanged(changed, doc)).toBe(true);
+	const reference = buildFormReferenceContext(changed, form.uuid);
+	const paths = dataPathSource(() => reference)(ctxFor("/screening/right"));
+	expect(paths?.options.map((item) => item.label)).toContain(
+		"/screening/right/name",
+	);
+	const hashtags = hashtagSource(() => reference)(ctxFor("#form/"));
+	expect(hashtags?.options).toEqual(
+		expect.arrayContaining([
+			expect.objectContaining({
+				label: "#form/right/name",
+				detail: "Person named on the first screen",
+			}),
+		]),
+	);
+	const provider = new ReferenceProvider(() => reference);
+	expect(provider.resolve("#form/right/name", form.uuid)?.part).toMatchObject({
+		uuid: chosen,
+	});
+	expect(
+		buildFieldEntries(changed, form.uuid).find((item) => item.uuid === chosen)
+			?.path,
+	).toBe("right/name");
+	const text = projectFormExpression(
+		changed,
+		slot,
+		original.expression,
+		"unavailable",
+	).text;
+	expect(text).toBe("/screening/right/name");
+	const read = parseFormExpressionForSlot(changed, slot, text, "unavailable");
+	expect(read.ok && read.expression).toEqual(original.expression);
 });

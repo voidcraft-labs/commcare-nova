@@ -289,6 +289,8 @@ export function assembleFieldMutations(
 			doc,
 			parentUuid,
 			proposedId: field.id,
+			activityKind:
+				field.kind === "connect_activity" ? field.activity.kind : undefined,
 			pendingSiblingIds: pending,
 		});
 		if (!verdict.ok) {

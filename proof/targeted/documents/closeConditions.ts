@@ -40,17 +40,13 @@
 
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { plainColumn, proseText } from "@/lib/domain";
+import { quoteXPathLiteral as literal } from "@/lib/domain/expression/stringLiteral";
 import { caseListOf, targetedDocument, targetedUuid } from "../build";
 import type { Expectation } from "../expected";
 import { restoreXml } from "../restore";
 
 /** The visit each close form is opened on, in the restore its expectations read. */
 const VISIT = "targeted-visit";
-
-/** An XPath string literal holding `text`, in the quote it does not hold. */
-function literal(text: string): string {
-	return text.includes("'") ? `"${text}"` : `'${text}'`;
-}
 
 interface CloseForm {
 	readonly name: string;
@@ -208,6 +204,12 @@ export function closeConditions() {
 			on: "select",
 			options: ["a", "b"],
 			holds: "a",
+		},
+		{
+			name: "Close on a quoted outcome",
+			answer: `it's_"done"`,
+			on: "select",
+			options: ["open", `it's_"done"`],
 		},
 	];
 	return targetedDocument({

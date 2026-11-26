@@ -110,7 +110,7 @@ export interface ModuleStats {
 /** Top-level blueprint analysis result. */
 export interface BlueprintStats {
 	appName: string;
-	connectType: string | undefined;
+	connectRoles: readonly string[];
 	modules: ModuleStats[];
 	totals: {
 		modules: number;
@@ -320,7 +320,7 @@ function analyzeForm(doc: BlueprintDoc, form: Form): FormAnalysis {
 		postSubmitValue: form.postSubmit,
 		hasCloseCase: form.type === "close",
 		hasFormLinks: (form.formLinks?.length ?? 0) > 0,
-		hasConnect: form.connect != null,
+		hasConnect: fields.some((field) => field.kind === "connect_activity"),
 		casePropertyCount: countCasePropertiesFromList(doc, form, fields),
 		caseOperationCount: form.caseOperations?.length ?? 0,
 	};
@@ -461,7 +461,7 @@ export function analyzeBlueprint(doc: BlueprintDoc): BlueprintStats {
 
 	return {
 		appName: doc.appName,
-		connectType: doc.connectType ?? undefined,
+		connectRoles: doc.connectRoles,
 		modules,
 		totals: {
 			modules: modules.length,

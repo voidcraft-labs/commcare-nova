@@ -108,6 +108,9 @@ class DevicePeer:
     delivered: bool = False
     # The kind of device (``Reader.device``): a phone or a tablet.
     device: str = "phone"
+    # Where given, what HQ stored of each form a walk sent it, read before the walk's fork is put back
+    # (``_stored``): a witness that holds HQ's own record of a device's submission reads it here.
+    stored: list | None = None
     exchanges: list = field(default_factory=list)
     _views: object = None
     _walk: object = None
@@ -115,6 +118,8 @@ class DevicePeer:
     _device: object = None
     _bases: int = 0
     _walks: int = 0
+    # How many submissions HQ's views held when the walk in hand began.
+    _sent_before: int = 0
 
     def __post_init__(self):
         from proof.formplayer.hq import HqViews
@@ -155,6 +160,7 @@ class DevicePeer:
             stack.enter_context(self.served.unit.fork())
             hq_redis.flush()
             self._views.begin(f"android|{self.label}|walk|{name}".encode(), None)
+            self._sent_before = len(self._views.submissions)
             forwarding = getattr(self.served, "forwarding", None)
             if forwarding is not None:
                 # What HQ's receiver takes from the device in the walk is forwarded to Connect as the device's.
@@ -175,7 +181,49 @@ class DevicePeer:
     def _leave(self) -> None:
         stack, self._stack = self._stack, None
         if stack is not None:
-            stack.close()
+            with stack:
+                if self.stored is not None:
+                    self.stored.extend(self._stored(self._views.submissions[self._sent_before :]))
+
+    def _stored(self, submissions) -> list[dict]:
+        """What HQ's receiver stored of each form the walk sent (its log reports are not forms): the form as HQ
+        keeps it (``XFormInstance``), and each case its case blocks name with the forms HQ applied to it
+        (``CaseTransaction``), or what HQ raised looking either up."""
+        from corehq.form_processor.models import CaseTransaction, CommCareCase, XFormInstance
+        from lxml import etree
+
+        from proof.formplayer.hq import DEVICE_REPORT
+
+        domain = self.served.domain
+        found = []
+        for submission in submissions:
+            if DEVICE_REPORT in submission.instance:
+                continue
+            sent = etree.fromstring(submission.instance)
+            instance_id = sent.findtext("{*}meta/{*}instanceID")
+            record = {"instanceID": instance_id}
+            try:
+                form = XFormInstance.objects.get_form(instance_id, domain)
+                xml = form.get_xml()
+                record["form"] = {
+                    "normal": form.is_normal,
+                    "xmlns": form.xmlns,
+                    "xml": xml.decode() if isinstance(xml, bytes) else xml,
+                }
+                cases = {}
+                for block in sent.iter("{http://commcarehq.org/case/transaction/v2}case"):
+                    case_id = block.get("case_id")
+                    case = CommCareCase.objects.get_case(case_id, domain)
+                    cases[case_id] = {
+                        "name": case.name,
+                        "type": case.type,
+                        "forms": [t.form_id for t in CaseTransaction.objects.get_transactions(case_id)],
+                    }
+                record["cases"] = cases
+            except Exception as raised:  # noqa: BLE001 - what HQ raised is the record
+                record["raised"] = f"{type(raised).__name__}: {raised}"
+            found.append(record)
+        return found
 
     def http(self, request):
         """HQ's answer to one request of the device's (``proof.android.peer.DeviceRequest``)."""

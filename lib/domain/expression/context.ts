@@ -788,6 +788,30 @@ export function slotContext(
 			return undefined;
 		// A query repeat's `relevant` evaluates at its row, in both placements.
 		sourceNode = { kind: "field", uuid: slot.uuid };
+		if (slot.slot === "assessment_user_score") {
+			if (field.activityKind !== "assessment") return undefined;
+			sourceNode = {
+				kind: "connect-assessment",
+				activity: slot.uuid,
+				role: "score",
+			};
+		} else if (
+			slot.slot === "deliver_entity_id" ||
+			slot.slot === "deliver_entity_name" ||
+			slot.slot === "deliver_work_area_id"
+		) {
+			if (field.activityKind !== "delivery") return undefined;
+			const role = {
+				deliver_entity_id: "entity-id",
+				deliver_entity_name: "entity-name",
+				deliver_work_area_id: "work-area-id",
+			} as const;
+			sourceNode = {
+				kind: "connect-delivery",
+				activity: slot.uuid,
+				role: role[slot.slot],
+			};
+		}
 		if (slot.slot === "repeat_count")
 			sourceNode = { kind: "repeat", repeat: slot.uuid, role: "count-result" };
 		if (slot.slot === "ids_query")
@@ -1095,27 +1119,7 @@ export function slotContext(
 				form.fields.get(operation.forEach.repeat)?.kind === "repeat"
 			)
 				sourceNode = { kind: "field", uuid: operation.forEach.repeat };
-		} else {
-			const block =
-				slot.slot === "assessment_user_score" ? "assessment" : "deliver_unit";
-			if (form.connect[block] === undefined) return undefined;
-			sourceNode =
-				slot.slot === "assessment_user_score"
-					? { kind: "connect-assessment", form: slot.uuid, role: "score" }
-					: {
-							kind: "connect-delivery",
-							form: slot.uuid,
-							role:
-								slot.slot === "deliver_entity_id" ? "entity-id" : "entity-name",
-						};
-			profile = slotProfile(
-				"form",
-				"form",
-				["XF"],
-				{ kind: "value" },
-				{ searchInputs: form.searchInputs },
-			);
-		}
+		} else return undefined;
 	} else {
 		const searchInputUuid =
 			"member" in slot && "searchInputUuid" in slot.member

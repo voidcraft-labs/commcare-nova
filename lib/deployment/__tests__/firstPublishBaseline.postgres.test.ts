@@ -152,7 +152,7 @@ describe("the stored first-publish list", () => {
 				birth.deployment,
 				states.get(birth.deployment.deployment.id),
 				{
-					connectType: null,
+					connectRoles: [],
 					appSettings: { runsOnlyOn: "android", showIncompleteForms: false },
 				},
 			),
@@ -264,7 +264,7 @@ describe("the stored first-publish list", () => {
 		expect(state).toEqual({ remoteAppId: OTHER_HQ_APP, stored: next });
 		expect(
 			firstPublishOf(deployment, state, {
-				connectType: null,
+				connectRoles: [],
 				appSettings: {
 					runsOnlyOn: undefined,
 					showIncompleteForms: false,

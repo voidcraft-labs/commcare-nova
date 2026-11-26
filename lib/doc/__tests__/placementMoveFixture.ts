@@ -58,14 +58,13 @@ export const OPEN_PATIENTS: Expression = {
 	value: prop("patient", "case_id"),
 };
 
-/** Patients named by the form's `remark` answer, which model iteration
- *  cannot run. */
-export const PATIENTS_NAMED: Expression = {
+/** Cases whose ID must be entered in extra_note before any can match. */
+export const PATIENTS_BY_ENTERED_ID: Expression = {
 	kind: "project",
 	of: {
 		kind: "cases",
 		source: "casedb",
-		where: [eq(prop("patient", "case_name"), term(formField(U("remark"))))],
+		where: [eq(prop("patient", "case_id"), term(formField(U("extra_note"))))],
 	},
 	value: prop("patient", "case_id"),
 };

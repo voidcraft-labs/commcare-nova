@@ -127,6 +127,7 @@ export default async function BuilderPage({
 			canEdit: snapshot.canEdit,
 			baseSeq: snapshot.baseSeq,
 			recordedHolds: snapshot.recordedHolds,
+			publishedQuestions: snapshot.publishedQuestions,
 		};
 	} catch (err) {
 		if (err instanceof AppAccessError) notFound();

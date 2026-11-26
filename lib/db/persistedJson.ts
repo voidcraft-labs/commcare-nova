@@ -21,7 +21,7 @@ import {
 import type {
 	AppLocalization,
 	AppSettings,
-	ConnectType,
+	ConnectRole,
 	MediaAssetId,
 	PersistableDoc,
 	Uuid,
@@ -43,12 +43,12 @@ import {
 	type EntityRow,
 	type EntityRowKind,
 } from "./blueprintRows";
+import { convert as convertReleasedConnect } from "./releasedConnectShape.mjs";
 
 type JsonRecord = Record<string, unknown>;
 
-export interface PersistedBlueprintRootText {
+interface PersistedBlueprintRootCarriers {
 	readonly app_name: string;
-	readonly connect_type: ConnectType | null;
 	readonly case_types_text: string | null;
 	readonly localization_text?: string | null;
 	/** `apps.app_settings` as text. A NULL leaves the required root out, so
@@ -56,6 +56,19 @@ export interface PersistedBlueprintRootText {
 	readonly app_settings_text: string | null;
 	readonly logo: MediaAssetId | null;
 }
+
+/** An `apps` row's root carriers. The current row stores its Connect roles; a
+ *  row of the released shape stores one Connect type instead, with each
+ *  form's blocks in its form row, and is decoded through the released-shape
+ *  converter (`releasedConnectShape.mjs`). Only a reader of a released row
+ *  hands in that shape: a migration replaying over the data it was written
+ *  for. A live row whose roles are NULL is neither, and the strict parse
+ *  refuses it. */
+export type PersistedBlueprintRootText = PersistedBlueprintRootCarriers &
+	(
+		| { readonly connect_roles: ConnectRole[] | null }
+		| { readonly connect_type: "learn" | "deliver" | null }
+	);
 
 export interface PersistedEntityRowText {
 	readonly uuid: Uuid;
@@ -508,11 +521,12 @@ export function assemblePersistedBlueprintJsonText(
 	root: PersistedBlueprintRootText,
 	rows: readonly PersistedEntityRowText[],
 ): PersistableDoc {
+	const released = "connect_type" in root ? root.connect_type : undefined;
 	return assembleBlueprint(
 		appId,
 		{
 			app_name: root.app_name,
-			connect_type: root.connect_type,
+			connect_roles: "connect_roles" in root ? root.connect_roles : null,
 			case_types:
 				root.case_types_text === null
 					? null
@@ -537,5 +551,13 @@ export function assemblePersistedBlueprintJsonText(
 			logo: root.logo,
 		},
 		rows.map((row) => parseEntityRow(row, appId)),
+		"connect_type" in root
+			? ({ connectRoles: _current, ...snapshot }) =>
+					convertReleasedConnect(
+						{ ...snapshot, connectType: released ?? null },
+						{},
+						{ appId },
+					)
+			: undefined,
 	);
 }

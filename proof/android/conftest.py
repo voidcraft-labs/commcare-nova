@@ -25,6 +25,9 @@ DOCUMENTS = (
     "prompt-periods",
     "prompt-period-spellings",
     "prompt-period-fallback",
+    "targeted-receiving-answers",
+    "targeted-receiving-answers-android",
+
     "case-operation-conditional",
     "case-operation-key",
     "case-operation-query",
@@ -37,6 +40,9 @@ DOCUMENTS = (
     "navigation-base",
     "targeted-menu-badges",
     "prompt-checkboxes",
+    "targeted-worker-messages",
+    "targeted-repeat-invitations",
+    "targeted-capture-widgets",
     "targeted-form-link-hidden-target",
     "targeted-forms-in-menu-above-one-case",
     "targeted-case-choice-values",
@@ -55,11 +61,13 @@ DOCUMENTS = (
     "targeted-question-calendar",
     "targeted-plain-help",
     "targeted-plain-labels",
+    "targeted-named-answer-root",
     "targeted-preview-android-renders",
     "targeted-search-workflow",
     "targeted-search-workflow-android",
     "targeted-shared-visit-entries",
     "targeted-styled-value",
+    "targeted-submitted-groups",
     "targeted-tile-hidden-order",
     "tile-detail-layout",
     "tile-detail-tabs",
@@ -67,6 +75,9 @@ DOCUMENTS = (
     "tile-persistent-external",
     "tile-persistent-inline",
     "tile-persistent-line",
+    "targeted-connect-recipient-repeat",
+    "targeted-connect-section-order",
+    "targeted-validated-barcode-secret",
 )
 
 
