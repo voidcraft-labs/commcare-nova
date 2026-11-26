@@ -499,6 +499,7 @@ function readSearchGroups(
 	place: HqPlace,
 ) {
 	const groups: SearchInputGroup[] = [];
+	const hasFields = prompts.some((row) => row.peek("is_group") !== true);
 	const memberships = new Map<JsonCursor, Uuid>();
 	const keys = new Set<string>();
 	let refused = false;
@@ -508,6 +509,7 @@ function readSearchGroups(
 		if (
 			typeof key !== "string" ||
 			!key ||
+			!hasFields ||
 			keys.has(key) ||
 			row.peek("name") !== key
 		) {

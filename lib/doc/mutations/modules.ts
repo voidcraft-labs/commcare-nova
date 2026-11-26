@@ -681,7 +681,10 @@ export function applyModuleMutation(
 			const config = draft.modules[mut.moduleUuid]?.caseListConfig;
 			if (!config) return;
 			const idx = config.searchInputs.findIndex((s) => s.uuid === mut.uuid);
-			if (idx !== -1) config.searchInputs.splice(idx, 1);
+			if (idx !== -1) {
+				config.searchInputs.splice(idx, 1);
+				if (!config.searchInputs.length) delete config.searchInputGroups;
+			}
 			return;
 		}
 		case "moveSearchInput": {

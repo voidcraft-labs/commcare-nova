@@ -14,6 +14,8 @@ export function planSearchInputGroups(
 	sections: readonly SearchGroupLayout[],
 ): { mutations: Mutation[] } | { error: string } {
 	const before = config.searchInputs.map((input) => input.uuid);
+	if (sections.length && !before.length)
+		return { error: "Add a Search field before adding headings." };
 	const sectionsByField = new Map(
 		sections.flatMap((section) =>
 			section.inputs.map((input) => [input, section.uuid] as const),

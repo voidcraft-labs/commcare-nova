@@ -3557,6 +3557,12 @@ export const caseListConfigSchema = z
 		tile: caseTileLayoutSchema.optional(),
 	})
 	.superRefine((config, ctx) => {
+		if (config.searchInputGroups && !config.searchInputs.length)
+			ctx.addIssue({
+				code: "custom",
+				path: ["searchInputGroups"],
+				message: "Add a Search field before adding headings.",
+			});
 		const groupOrder = new Map<Uuid, number>();
 		for (const [index, group] of (config.searchInputGroups ?? []).entries()) {
 			if (groupOrder.has(group.uuid)) {
