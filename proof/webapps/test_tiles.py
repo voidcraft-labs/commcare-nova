@@ -47,6 +47,8 @@ from __future__ import annotations
 
 from dataclasses import replace
 
+import pytest
+
 from proof.editors import pages
 from proof.observe import casedata
 from proof.webapps import hq as webapps_hq
@@ -181,8 +183,9 @@ def test_web_apps_lays_out_a_tiles_placed_cells_alone_and_orders_and_searches_by
 GROUP_FILTER = "targeted-tile-group-filter"
 
 
-def test_web_apps_draws_zero_width_text_only_in_a_grouped_tile_body(
-    hq, core_runner, formplayer_runner, editor_driver, webapps_documents, evidence
+@pytest.mark.parametrize("column_format", ("invisible", "address"))
+def test_web_apps_draws_zero_width_values_only_in_a_grouped_tile_body(
+    hq, core_runner, formplayer_runner, editor_driver, webapps_documents, evidence, column_format
 ):
     from proof.hq import operations
     from proof.matrix.authoring import Authoring
@@ -190,9 +193,10 @@ def test_web_apps_draws_zero_width_text_only_in_a_grouped_tile_body(
 
     document = webapps_documents[GROUP_FILTER]
     base = casedata.database_of_restore((document.root / "restore.xml").read_bytes())
+    visits = [case for case in base.cases if case.case_type == "visit"]
     raw_values = {
-        case.case_id: f"Raw visit value {case.name}"
-        for case in base.cases if case.case_type == "visit"
+        case.case_id: f"Raw visit value {case.name}" if column_format == "invisible" else f"-1.9 35.{index + 10}"
+        for index, case in enumerate(visits)
     }
     database = replace(base, cases=tuple(
         replace(case, properties=tuple(
@@ -211,7 +215,7 @@ def test_web_apps_draws_zero_width_text_only_in_a_grouped_tile_body(
                 columns = {column.field: column.to_json() for column in held.columns}
                 # The raw field is the only cell in its row of an otherwise unremarkable tile.
                 visible = {**columns["seen_by"], "grid_x": 0, "grid_y": 1 - raw_row, "width": 12}
-                raw = {**columns["outcome"], "format": "invisible", "grid_x": 0, "grid_y": raw_row, "width": 12}
+                raw = {**columns["outcome"], "format": column_format, "grid_x": 0, "grid_y": raw_row, "width": 12}
                 set_json(authoring, project.app_id, "/modules/0/case_details/short/columns", [visible, raw])
                 if not grouped:
                     set_json(authoring, project.app_id, "/modules/0/case_details/short/case_tile_group", {
@@ -228,6 +232,9 @@ def test_web_apps_draws_zero_width_text_only_in_a_grouped_tile_body(
                     observed[stage] = {
                         "groupHeaderRows": answered["groupHeaderRows"],
                         "widthHint": answered["styles"][1]["widthHint"],
+                        "displayFormat": answered["styles"][1]["displayFormat"],
+                        "storedColumnFormat": _tile_columns(release)[1]["format"],
+                        "storedGridY": _tile_columns(release)[1]["grid_y"],
                         "gridY": answered["tiles"][1]["gridY"],
                         "rawData": {entity["id"]: entity["data"][1] for entity in answered["entities"]},
                         "rowIds": [row["id"] for row in shown["rows"]],
@@ -240,10 +247,14 @@ def test_web_apps_draws_zero_width_text_only_in_a_grouped_tile_body(
                         "pageErrors": run.page_errors,
                     }
 
-    evidence("tile-width-zero", observed)
+    evidence(f"tile-width-zero-{column_format}", observed)
     for stage, actual in observed.items():
         assert actual["pageErrors"] == [] and actual["webAppCss"], actual
         assert actual["widthHint"] == 0, actual
+        assert actual["storedColumnFormat"] == column_format, actual
+        assert actual["storedGridY"] == actual["gridY"], actual
+        if column_format == "address":
+            assert actual["displayFormat"] == "Address", actual
         assert actual["rawData"] == raw_values, actual
         assert actual["groupHeaderRows"] == (-1 if stage == "ordinary" else 1), actual
         assert actual["gridY"] == (0 if stage == "header" else 1), actual
