@@ -46,6 +46,7 @@ import { makeTranslationUnitId } from "@/lib/domain/localization";
 import {
 	CASE_LIST_LOOKUP_WORKER_FIELDS,
 	caseListColumnTextShows,
+	caseListLookupResultPropertySchema,
 	columnSortLabelShows,
 	type DeviceLookupExtra,
 } from "@/lib/domain/modules";
@@ -534,10 +535,28 @@ const LOOKUP_CONFIDENCE_KEYS = defineClaims(
 		),
 	},
 );
+const LOOKUP_PROPERTY_CONFIDENCE_KEYS = defineClaims(
+	"caseList.details.lookupPropertyConfidence",
+	{
+		lookup_display_results: take(
+			`${A}lookup-case-property-confidence`,
+			"schema:Detail.lookup_display_results",
+		),
+		lookup_field_header: take(
+			`${A}lookup-case-property-confidence`,
+			"schema:Detail.lookup_field_header",
+		),
+		lookup_field_template: take(
+			`${A}lookup-case-property-confidence`,
+			"schema:Detail.lookup_field_template",
+		),
+	},
+);
 const lookupCaseKey = hqXPathText(hqXPath(lookupCaseKeyWire()));
 
 function textDeviceLookup(
 	ctx: ReadContext,
+	module: DraftModule,
 	detail: JsonCursor,
 ): { lookup: CaseListDeviceLookup; heading?: HeldTexts } | undefined {
 	const image = detail.peek("lookup_image");
@@ -602,14 +621,32 @@ function textDeviceLookup(
 		responses.push(entry.key);
 	}
 	let heading: HeldTexts | undefined;
+	let resultProperty: string | undefined;
 	if (results === true) {
 		const template = detail.peek("lookup_field_template");
-		if (
-			detail.peek("case_tile_template") ||
-			typeof template !== "string" ||
-			!sameXPathText(template, lookupCaseKey)
-		)
+		if (detail.peek("case_tile_template") || typeof template !== "string")
 			return undefined;
+		if (!sameXPathText(template, lookupCaseKey)) {
+			const parsed = sharedFormSyntax(template);
+			let node = parsed.ok ? parsed.node : undefined;
+			while (node?.kind === "group") node = node.value;
+			if (node?.kind === "axis" && node.axis === "child") node = node.value;
+			const property = caseListLookupResultPropertySchema.safeParse(
+				node?.kind === "name" && !node.wildcard ? node.name : undefined,
+			);
+			const search = module.json.peek("search_config");
+			const additional = isJsonObject(search)
+				? search.additional_case_types
+				: undefined;
+			if (
+				!property.success ||
+				module.module.caseType === undefined ||
+				(Array.isArray(additional) &&
+					additional.some((type) => type !== module.module.caseType))
+			)
+				return undefined;
+			resultProperty = property.data;
+		}
 		heading = heldTextsIn(
 			detail.peek("lookup_field_header"),
 			appCodes(ctx),
@@ -627,6 +664,7 @@ function textDeviceLookup(
 		...(heading !== undefined && {
 			resultHeading: sourceText(ctx, heading.texts),
 		}),
+		...(resultProperty !== undefined && { resultProperty }),
 	});
 	return value.success ? { lookup: value.data, heading } : undefined;
 }
@@ -1506,7 +1544,9 @@ function readDetailKeys(
 	}
 	if (detail.peek("lookup_enabled") === true) {
 		const parsedLookup =
-			screen === "short" && wording ? textDeviceLookup(ctx, detail) : undefined;
+			screen === "short" && wording
+				? textDeviceLookup(ctx, module, detail)
+				: undefined;
 		if (
 			screen === "short" &&
 			detail.peek("case_tile_template") === "icon_text_grid"
@@ -1524,9 +1564,13 @@ function readDetailKeys(
 		} else if (wording && parsedLookup !== undefined) {
 			const { lookup, heading } = parsedLookup;
 			wording.lookup = heading;
+			const confidenceKeys =
+				lookup.resultProperty === undefined
+					? LOOKUP_CONFIDENCE_KEYS
+					: LOOKUP_PROPERTY_CONFIDENCE_KEYS;
 			noteRespelled(
 				ctx,
-				LOOKUP_CONFIDENCE_KEYS.lookup_field_header.entry,
+				confidenceKeys.lookup_field_header.entry,
 				`${detail.pointer}/lookup_field_header`,
 				detail.peek("lookup_field_header"),
 				heading,
@@ -1554,7 +1598,7 @@ function readDetailKeys(
 					(key === "lookup_display_results" ||
 						key === "lookup_field_header" ||
 						key === "lookup_field_template")
-						? LOOKUP_CONFIDENCE_KEYS[key]
+						? confidenceKeys[key]
 						: undefined;
 				const claim =
 					resultClaim ??
@@ -2045,6 +2089,11 @@ export function readCaseDetails(
 						.types.map((owner) => [owner, body.field] as const),
 		);
 	});
+	if (
+		caseType !== undefined &&
+		wording.deviceLookup?.resultProperty !== undefined
+	)
+		properties.push([caseType, wording.deviceLookup.resultProperty]);
 	if (
 		caseType !== undefined &&
 		properties.length > 0 &&

@@ -16,13 +16,16 @@ export function lookupConfidenceLocaleId(moduleIndex: number): string {
 	return `case_lists.m${moduleIndex}.callout.header`;
 }
 
-export function lookupCaseKeyWire(): WireExpr {
-	return w.context([w.attr("case_id")]);
+export function lookupCaseKeyWire(property?: string): WireExpr {
+	return w.context([
+		property === undefined ? w.attr("case_id") : w.step(property),
+	]);
 }
 
 export function lookupConfidenceColumn(
 	moduleIndex: number,
 	wire: WireElementContext,
+	resultProperty?: string,
 ): Element {
 	return el("field", {}, [
 		el("header", {}, [
@@ -32,7 +35,11 @@ export function lookupConfidenceColumn(
 		]),
 		el("template", {}, [
 			el("text", {}, [
-				xel("xpath", { xpath: { function: lookupCaseKeyWire() } }, wire),
+				xel(
+					"xpath",
+					{ xpath: { function: lookupCaseKeyWire(resultProperty) } },
+					wire,
+				),
 			]),
 		]),
 	]);

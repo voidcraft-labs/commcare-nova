@@ -403,6 +403,12 @@ def fixed_text_callout_with_confidence(authoring, app_id):
     )
 
 
+def fixed_text_callout_with_property_confidence(authoring, app_id):
+    """Patients' lookup matches the companion's key to each row's custom property."""
+    fixed_text_callout_with_confidence(authoring, app_id)
+    ops.set_json(authoring, app_id, "/modules/0/case_details/short/lookup_field_template", "scan_id")
+
+
 def case_id_callout_without_result_heading(authoring, app_id):
     """A row lookup with the heading map HQ would hold before a language has a saved heading."""
     fixed_text_callout_with_confidence(authoring, app_id)

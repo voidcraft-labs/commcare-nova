@@ -705,7 +705,13 @@ function buildDetailShell(
 					...deviceLookup.responses.map((key) => el("response", { key })),
 					...(deviceLookup.resultHeading === undefined
 						? []
-						: [lookupConfidenceColumn(moduleIndex, wire)]),
+						: [
+								lookupConfidenceColumn(
+									moduleIndex,
+									wire,
+									deviceLookup.resultProperty,
+								),
+							]),
 				],
 			),
 		);

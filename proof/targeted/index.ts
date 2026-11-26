@@ -28,6 +28,7 @@ import { attributeColumns, caseIdColumn } from "./documents/caseIdColumn";
 import {
 	caseListDeviceLookup,
 	caseListDeviceLookupCount,
+	caseListDeviceLookupProperty,
 } from "./documents/caseListDeviceLookup";
 import { caseListIconAction } from "./documents/caseListIconAction";
 import { caseListMenuItem } from "./documents/caseListMenuItems";
@@ -238,6 +239,7 @@ export const TARGETED_DOCUMENTS: readonly (() => CorpusDocument)[] = [
 	customTile,
 	caseListDeviceLookup,
 	caseListDeviceLookupCount,
+	caseListDeviceLookupProperty,
 	caseListIconAction,
 	closeConditions,
 	closeConditionUnparsable,

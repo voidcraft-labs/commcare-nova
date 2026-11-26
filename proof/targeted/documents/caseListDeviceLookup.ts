@@ -10,13 +10,22 @@ import { restoreXml } from "../restore";
 import { answerHeld } from "./echo";
 
 export function caseListDeviceLookupCount() {
-	return caseListDeviceLookup(true);
+	return caseListDeviceLookup("count");
 }
 
-export function caseListDeviceLookup(count = false) {
-	const id = count
-		? "targeted-case-list-device-lookup-count"
-		: "targeted-case-list-device-lookup";
+export function caseListDeviceLookupProperty() {
+	return caseListDeviceLookup("property");
+}
+
+export function caseListDeviceLookup(
+	mode: "count" | "property" | "ordinary" = "ordinary",
+) {
+	const count = mode === "count";
+	const property = mode === "property";
+	const id =
+		mode === "ordinary"
+			? "targeted-case-list-device-lookup"
+			: `targeted-case-list-device-lookup-${mode}`;
 	const uuid = (name: string) => targetedUuid(id, name);
 	const module = uuid("list");
 	const visit = uuid("visit");
@@ -35,7 +44,20 @@ export function caseListDeviceLookup(count = false) {
 				appSettings: { ...NEW_APP_SETTINGS, runsOnlyOn: "android" },
 			}),
 			appName: "Case list lookup",
-			caseTypes: [{ name: "visit", properties: [] }],
+			caseTypes: [
+				{
+					name: "visit",
+					properties: property
+						? [
+								{
+									name: "scan_id",
+									label: proseText("Scan ID"),
+									data_type: "text",
+								},
+							]
+						: [],
+				},
+			],
 			modules: [
 				{
 					uuid: module,
@@ -47,6 +69,7 @@ export function caseListDeviceLookup(count = false) {
 							action: "org.nova.proof.CASE_LOOKUP",
 							label: "Find a visit",
 							resultHeading: "Confidence",
+							...(property && { resultProperty: "scan_id" }),
 							icon: mediaIds.icon,
 							...(!count && { automatic: true }),
 							extras: [

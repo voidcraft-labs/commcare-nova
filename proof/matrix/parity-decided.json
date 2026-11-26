@@ -101,6 +101,7 @@
 		"hq-case-lists/fixed-text-callout-extras",
 		"hq-case-lists/fixed-text-callout-icon",
 		"hq-case-lists/fixed-text-callout-name",
+		"hq-case-lists/fixed-text-callout-property-confidence",
 		"hq-case-lists/fixed-text-callout-responses",
 		"hq-case-lists/follow-ups-shown-above-offering-registration",
 		"hq-case-lists/form-context-menu-without-a-tile",

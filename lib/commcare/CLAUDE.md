@@ -2811,8 +2811,10 @@ existing case ID. Android displays those scores for matching cases in the
 device's eligible list. HQ generates a result header without its required text
 element if the saved heading map is empty, so the reader asks for a heading
 before bringing in that lookup. A stored blank translation carries a locale
-element. Alternate result expressions can decide which cases match the
-companion's reply. The browser Preview has no companion return channel.
+element. A row list over one case type can also key confidence by a direct custom text
+property of that type. Android evaluates it once per eligible row and puts the
+same score on all rows that share a returned key. The browser Preview has no
+companion return channel.
 
 ## Case-backed question choices
 

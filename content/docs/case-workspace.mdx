@@ -62,8 +62,10 @@ current list. If it declares a text response without a primary value,
 CommCare uses the first returned value in your response-name order.
 
 In a list with rows, **Show match confidence** adds a confidence column. Use this for a
-companion that returns case IDs with confidence levels. Android shows the
-matches it finds in the worker’s cases, with the confidence beside each one.
+companion that returns keys with confidence levels. Android matches record IDs
+by default. When the list uses one record type, you can also choose a custom
+text property that holds the companion’s keys. Each available case with a matching
+value appears with the same confidence, even when several cases share that value.
 
 In an Android-only form that opens directly from one case list, a calculation
 can read **Companion lookup count**. It counts distinct keys the companion

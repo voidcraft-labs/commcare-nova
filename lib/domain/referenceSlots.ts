@@ -1043,6 +1043,12 @@ export const MODULE_REFERENCE_SLOTS = [
 	},
 	{
 		entity: "module",
+		slot: "case_list_lookup_result_property",
+		path: "caseListConfig.deviceLookup.resultProperty",
+		kind: "case-property-ref",
+	},
+	{
+		entity: "module",
 		slot: "search_related_property",
 		path: "caseSearchConfig.relatedRecordIdProperty",
 		kind: "case-property-ref",

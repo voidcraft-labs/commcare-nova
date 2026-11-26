@@ -926,6 +926,7 @@ function collectModuleConfigReferences(
 						concise: `the record list uses "${caseType}"`,
 					});
 				break;
+			case "case_list_lookup_result_property":
 			case "search_request_related_property":
 			case "search_related_property":
 				break;

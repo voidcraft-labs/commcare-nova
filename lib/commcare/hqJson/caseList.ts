@@ -1713,7 +1713,9 @@ export function projectCaseListForHq(
 			pair.short.lookup_field_header = localization.textMap(
 				caseListWordingUnitId(mod.uuid, "lookup"),
 			);
-			pair.short.lookup_field_template = hqXPath(lookupCaseKeyWire());
+			pair.short.lookup_field_template = hqXPath(
+				lookupCaseKeyWire(deviceLookup.resultProperty),
+			);
 		}
 		pair.short.lookup_autolaunch = deviceLookup.automatic === true;
 		pair.short.lookup_extras = deviceLookup.extras.map((extra) => ({

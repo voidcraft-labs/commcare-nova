@@ -316,6 +316,53 @@ def test_nova_archive_and_hq_release_send_extras_and_search_text(hq, android_doc
             write_evidence(f"nova-case-list-lookup-{label}", results)
 
 
+def test_nova_lookup_result_filters_both_archives_by_the_same_case_property(hq, android_documents):
+    from proof.android.test_form_reads import _served
+    from proof.observe.served import local_archive
+
+    document = android_documents["targeted-case-list-device-lookup-property"]
+    database = casedata.CaseDatabase(
+        user_id=casedata.USER_ID,
+        username=casedata.USERNAME,
+        user_data=(),
+        cases=(
+            _case("lookup-cedar", "Cedar"),
+            replace(_case("lookup-juniper", "Juniper"), properties=(("scan_id", "card-41"),)),
+            replace(_case("lookup-oak", "Oak"), properties=(("scan_id", "card-41"),)),
+            replace(_case("lookup-elm", "Elm"), case_type="other", properties=(("scan_id", "card-41"),)),
+        ),
+    )
+    with _served(document, database=database) as (served, released):
+        assert document.local_ccz is not None
+        local = local_archive(document.local_ccz, served.app_id)
+        for carrier, archive in (("hq", released), ("local", local)):
+            blobs = Blobs()
+            record = observe.app(
+                served,
+                blobs,
+                label=carrier,
+                archive=archive,
+                case_lookup_returns=[
+                    {"automatic": True, "identifyKeys": ["card-41"], "inspectScores": True},
+                    {"identifyKeys": ["lookup-juniper"]},
+                ],
+            )
+            installed = blobs.get_json(record["answer"])
+            assert installed["install"] == "Installed", installed
+            (observations,) = [
+                step["list"]["lookupReturns"]
+                for walk in installed["walks"].values()
+                for step in walk.get("steps", [])
+                if "lookupReturns" in (step.get("list") or {})
+            ]
+            write_evidence(f"nova-case-property-lookup-{carrier}", observations)
+            property_reply, id_reply = observations
+            assert sorted(property_reply["after"]) == ["Juniper", "Oak"]
+            assert "Confidence" in _view_texts(property_reply["scoreHeader"])
+            assert sorted(_view_texts(property_reply["scoreRows"])) == ["Juniper", "Oak", "★★★★★", "★★★★★"]
+            assert id_reply["after"] == []
+
+
 def test_lookup_count_comes_from_the_selected_native_frame(hq, android_documents):
     """A completed form receives the selection step's unique response keys, including keys absent from restore."""
     from lxml import etree

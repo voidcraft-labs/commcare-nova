@@ -9366,6 +9366,33 @@
 		"gates": []
 	},
 	{
+		"id": "menus-and-case-lists/lookup-case-property-confidence",
+		"area": "menus-and-case-lists",
+		"section": "Case list and case detail",
+		"subsection": "Case list callout",
+		"item": "Case property keyed lookup confidence in a row layout",
+		"surfaceKeys": [
+			"schema:Detail.lookup_display_results",
+			"schema:Detail.lookup_field_header",
+			"schema:Detail.lookup_field_template"
+		],
+		"valueClass": "named-result-column-keyed-by-a-custom-case-text-property-on-a-plain-list",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: Android shows the returned confidence on each eligible row with the matching case property value.",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "IGNORED / RUNS",
+			"webApps": { "reading": "ignored" },
+			"android": { "reading": "runs" }
+		},
+		"emission": {
+			"cell": "`deviceLookup.resultProperty` writes one direct case property as the key.",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
 		"id": "menus-and-case-lists/lookup-case-id-result-without-a-header-map",
 		"area": "menus-and-case-lists",
 		"section": "Case list and case detail",

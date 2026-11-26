@@ -1012,7 +1012,11 @@ function extractModuleEdges(
 					sink.edge(userPropertyTargetKey(value.text), slot.slot);
 				break;
 			case "case-property-ref":
-				if (slot.slot === "search_filter_property") {
+				if (slot.slot === "case_list_lookup_result_property") {
+					const property = mod.caseListConfig?.deviceLookup?.resultProperty;
+					if (mod.caseType && property !== undefined)
+						sink.edge(casePropertyTargetKey(mod.caseType, property), slot.slot);
+				} else if (slot.slot === "search_filter_property") {
 					for (const filter of mod.caseListConfig?.searchFilters ?? []) {
 						if (!("target" in filter) || filter.target.kind !== "property")
 							continue;

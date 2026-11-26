@@ -6532,12 +6532,41 @@ def lookup_missing_case_id_result_header(use, manifest):
     )
 
 
+def lookup_with_case_property_result(use, manifest):
+    """A visible named result column keyed by one direct property on the list's own records."""
+    detail = _short_lookup(use)
+    if (detail is None or detail.get("lookup_display_results") is not True
+            or detail.get("case_tile_template") or _missing_lookup_arguments(detail)
+            or _bare_relative_lookup_extra(detail)):
+        return False
+    _, _, _, module = _detail_of(use)
+    search = module.get("search_config")
+    additional = search.get("additional_case_types") if isinstance(search, dict) else []
+    if isinstance(additional, list) and any(name != module.get("case_type") for name in additional):
+        return False
+    headings = detail.get("lookup_field_header")
+    if not isinstance(headings, dict) or not any(isinstance(text, str) and text.strip() for text in headings.values()):
+        return False
+    template = detail.get("lookup_field_template")
+    parsed = expression_tree(template) if isinstance(template, str) else None
+    if not parsed or parsed[:2] != ["path", "relative"] or parsed[3] != [] or len(parsed[4]) != 1:
+        return False
+    axis, name, predicates = parsed[4][0]
+    return (
+        axis == "child" and not predicates and re.fullmatch(r"[A-Za-z][A-Za-z0-9_-]*", name) is not None
+        and name not in {
+            "name", "date-opened", "external-id", "case_id", "case_name", "date_opened", "last_modified",
+            "owner_id", "external_id", "status", "case_type", "category", "state", "index", "attachment",
+        }
+    )
+
+
 def lookup_with_result_column(use, manifest):
     """The active result columns outside the plain-list case-ID carrier."""
     detail = _short_lookup(use)
     if detail is None or detail.get("lookup_display_results") is not True:
         return False
-    if lookup_missing_case_id_result_header(use, manifest):
+    if lookup_missing_case_id_result_header(use, manifest) or lookup_with_case_property_result(use, manifest):
         return False
     template, headings = detail.get("lookup_field_template"), detail.get("lookup_field_header")
     return bool(

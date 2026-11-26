@@ -12,11 +12,15 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/components/shadcn/select";
+import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
 import {
 	type CaseListDeviceLookup,
 	type CaseListLookupWorkerField,
+	type CaseProperty,
 	type CommitOutcome,
 	caseListDeviceLookupSchema,
+	caseListLookupResultPropertySchema,
+	effectiveDataType,
 	type Uuid,
 } from "@/lib/domain";
 
@@ -31,6 +35,7 @@ function edit(value?: CaseListDeviceLookup) {
 		label: value?.label ?? "",
 		icon: value?.icon,
 		resultHeading: value?.resultHeading,
+		resultProperty: value?.resultProperty,
 		automatic: value?.automatic,
 		extras: value?.extras.map((extra) =>
 			"value" in extra
@@ -45,6 +50,7 @@ interface Props {
 	readonly moduleUuid: Uuid;
 	readonly disabled: boolean;
 	readonly allowConfidence: boolean;
+	readonly caseProperties: readonly CaseProperty[];
 	readonly value: CaseListDeviceLookup | undefined;
 	readonly canEdit: boolean;
 	readonly onChange: (lookup: CaseListDeviceLookup | null) => CommitOutcome;
@@ -54,14 +60,21 @@ export function CaseListDeviceLookupSetting({
 	moduleUuid,
 	disabled,
 	allowConfidence,
+	caseProperties,
 	value,
 	canEdit,
 	onChange,
 }: Props) {
 	const heading = useId();
+	const projectProse = useProseProjection();
 	const [draft, setDraft] = useState<ReturnType<typeof edit>>();
 	const [base, setBase] = useState<CaseListDeviceLookup | undefined>();
 	const [error, setError] = useState<string>();
+	const resultProperties = caseProperties.filter(
+		(property) =>
+			effectiveDataType(property) === "text" &&
+			caseListLookupResultPropertySchema.safeParse(property.name).success,
+	);
 
 	const commit = (next: CaseListDeviceLookup | null) => {
 		if (base !== value) {
@@ -118,6 +131,9 @@ export function CaseListDeviceLookupSetting({
 							...(draft.icon !== undefined && { icon: draft.icon }),
 							...(draft.resultHeading !== undefined && {
 								resultHeading: draft.resultHeading,
+								...(draft.resultProperty !== undefined && {
+									resultProperty: draft.resultProperty,
+								}),
 							}),
 							...(draft.automatic !== undefined && {
 								automatic: draft.automatic,
@@ -197,19 +213,59 @@ export function CaseListDeviceLookupSetting({
 											resultHeading: event.currentTarget.checked
 												? ""
 												: undefined,
+											resultProperty: event.currentTarget.checked
+												? draft.resultProperty
+												: undefined,
 										})
 									}
 								/>
 								Show match confidence
 							</label>
 							{draft.resultHeading !== undefined && (
-								<LookupInput
-									label="Confidence column heading"
-									value={draft.resultHeading}
-									onChange={(resultHeading) =>
-										setDraft({ ...draft, resultHeading })
-									}
-								/>
+								<>
+									<LookupInput
+										label="Confidence column heading"
+										value={draft.resultHeading}
+										onChange={(resultHeading) =>
+											setDraft({ ...draft, resultHeading })
+										}
+									/>
+									{(resultProperties.length > 0 ||
+										draft.resultProperty !== undefined) && (
+										<div className="space-y-1">
+											<p className="text-sm text-nova-text">
+												Match returned keys by
+											</p>
+											<Select
+												value={draft.resultProperty ?? "case_id"}
+												onValueChange={(property) =>
+													setDraft({
+														...draft,
+														resultProperty:
+															property === "case_id"
+																? undefined
+																: (property ?? undefined),
+													})
+												}
+											>
+												<SelectTrigger aria-label="Match returned keys by">
+													<SelectValue />
+												</SelectTrigger>
+												<SelectContent>
+													<SelectItem value="case_id">Record ID</SelectItem>
+													{resultProperties.map((property) => (
+														<SelectItem
+															key={property.name}
+															value={property.name}
+														>
+															{projectProse(property.label) || property.name}
+														</SelectItem>
+													))}
+												</SelectContent>
+											</Select>
+										</div>
+									)}
+								</>
 							)}
 						</>
 					)}

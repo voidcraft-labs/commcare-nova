@@ -304,9 +304,9 @@ describe("a callout on the case list", () => {
 			"lookup-enabled-lookup-action",
 		],
 		[
-			"alternate result key",
+			"result formula",
 			{ en: "Scanned" },
-			"scan_id",
+			"concat(scan_id, 'x')",
 			"lookup-enabled-lookup-action",
 		],
 	])(

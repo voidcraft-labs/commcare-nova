@@ -3643,17 +3643,33 @@ const deviceLookupExtraSchema = z.union([
 	}),
 ]);
 export type DeviceLookupExtra = z.infer<typeof deviceLookupExtraSchema>;
+export const caseListLookupResultPropertySchema =
+	readCasePropertyNameSchema.refine(
+		(name) =>
+			!Object.hasOwn(STANDARD_CASE_LIST_PROPERTY_DATA_TYPES, name) &&
+			!["case_type", "category", "state", "index", "attachment"].includes(name),
+		"Choose a custom case property or the record ID.",
+	);
+
 export const caseListDeviceLookupSchema = z
 	.strictObject({
 		action: deviceLookupName,
 		label: deviceLookupName,
 		icon: mediaAssetIdSchema.optional(),
 		resultHeading: caseListWordingSchema.optional(),
+		resultProperty: caseListLookupResultPropertySchema.optional(),
 		automatic: z.literal(true).optional(),
 		extras: z.array(deviceLookupExtraSchema).min(1),
 		responses: z.array(deviceLookupName).min(1),
 	})
-	.superRefine(({ extras, responses }, ctx) => {
+	.superRefine(({ extras, responses, resultHeading, resultProperty }, ctx) => {
+		if (resultProperty !== undefined && resultHeading === undefined)
+			ctx.addIssue({
+				code: "custom",
+				path: ["resultProperty"],
+				message:
+					"Show match confidence to choose a property for the returned key.",
+			});
 		const names = extras.map(({ name }) => name);
 		if (new Set(names).size !== names.length)
 			ctx.addIssue({

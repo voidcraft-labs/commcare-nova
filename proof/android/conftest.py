@@ -57,6 +57,7 @@ DOCUMENTS = (
     "targeted-case-list-icon-action",
     "targeted-case-list-device-lookup",
     "targeted-case-list-device-lookup-count",
+    "targeted-case-list-device-lookup-property",
     "targeted-reached-choice-columns",
     "targeted-relative-case-dates",
     "targeted-hidden-column",

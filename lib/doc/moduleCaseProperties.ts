@@ -14,6 +14,7 @@ import { resolveRelationDestination } from "@/lib/domain/expression/relationDest
 interface MenuProperty {
 	readonly slot:
 		| "case_list_column_field"
+		| "case_list_lookup_result_property"
 		| "search_filter_property"
 		| "search_input_property"
 		| "search_related_property"
@@ -41,6 +42,18 @@ export function* moduleCaseProperties(
 		return relations;
 	};
 	const list = mod.caseListConfig;
+	const lookup = list?.deviceLookup;
+	if (lookup?.resultProperty !== undefined) {
+		yield {
+			slot: "case_list_lookup_result_property",
+			name: lookup.resultProperty,
+			types: [mod.caseType],
+			throughRelation: false,
+			rename(name) {
+				lookup.resultProperty = name;
+			},
+		};
+	}
 	const requested = requestedRecordTypes(mod.caseType, list);
 	const relatedTypes = (via?: RelationPath) => [
 		...new Set(
