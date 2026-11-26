@@ -3327,6 +3327,28 @@
 		"gates": []
 	},
 	{
+		"id": "questions/savetocase-case-id-expression-on-a-create",
+		"area": "questions",
+		"section": "Question types",
+		"item": "Typed case ID expression on a SaveToCase create",
+		"surfaceKeys": ["xform:setvalue@value", "xform:model/bind@calculate"],
+		"valueClass": "typed-create-case-id",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: `target.expr` provides the exact case ID without a derived prefix.",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": { "reading": "runs" },
+			"android": { "reading": "runs" }
+		},
+		"emission": {
+			"cell": "`xforms-ready` setvalue at the root or an `@case_id` calculate in a repeat",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
 		"id": "questions/savetocase-create-with-an-authored-non-uuid-case-id-xpath-inside",
 		"area": "questions",
 		"section": "Question types",

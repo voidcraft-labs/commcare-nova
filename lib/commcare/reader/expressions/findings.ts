@@ -1458,6 +1458,10 @@ export const EXPRESSION_CLAIMS = defineClaims("expressions", {
 		"questions/savetocase-create-case-type-literal-case-name-owner-id-uuid-case",
 		"mug:SaveToCase",
 	),
+	"savetocase-case-id-expression-on-a-create": take(
+		"questions/savetocase-case-id-expression-on-a-create",
+		"xform:setvalue@value",
+	),
 	"savetocase-update-case-id-xpath": take(
 		"questions/savetocase-update-case-id-xpath",
 		"mug:SaveToCase",
@@ -1891,10 +1895,20 @@ export const SLOT_ENTRIES: Readonly<Record<RegisteredSlotName, SlotRow>> = {
 		},
 		refused: () => SAVE_TO_CASE_REFUSED,
 	},
-	case_operation_target_expression: fixed(
-		C["savetocase-update-case-id-xpath"].entry,
-		SAVE_TO_CASE_REFUSED,
-	),
+	case_operation_target_expression: {
+		held(doc, ref) {
+			const operation =
+				ref.entity === "form" && ref.slot === "case_operation_target_expression"
+					? doc.forms[ref.uuid]?.caseOperations?.find(
+							({ uuid }) => uuid === ref.member.operationUuid,
+						)
+					: undefined;
+			return operation?.action === "create"
+				? C["savetocase-case-id-expression-on-a-create"].entry
+				: C["savetocase-update-case-id-xpath"].entry;
+		},
+		refused: () => SAVE_TO_CASE_REFUSED,
+	},
 	case_operation_link_target_expression: fixed(
 		C["savetocase-link-index-name-child-extension-and-unlink-empty"].entry,
 		SAVE_TO_CASE_REFUSED,

@@ -666,6 +666,7 @@ type ProposedTarget =
 	| {
 			readonly kind: "new";
 			readonly idFrom?: DraftField;
+			readonly authoredId?: { readonly text: string; readonly site: ClaimSite };
 			/** The prefix a keyed create's id stands under in the source. */
 			readonly idPrefix?: string;
 	  }
@@ -1583,16 +1584,28 @@ function readBlock(
 			!standsInRepeat(xform, block)
 		)
 			return fail(SAVE_TO_CASE_CLAIMS.liveCreateId);
-		else if (rootSetvalue !== undefined) {
-			if (!isCall(rootSetvalue.value, "uuid"))
-				return fail(
-					blankOnOpening(xform, rootSetvalue, idPath)
-						? SAVE_TO_CASE_CLAIMS.blankCreateId
-						: SAVE_TO_CASE_CLAIMS.authoredCreateId,
-				);
-			target = { kind: "new" };
-		} else if (idCalculate !== undefined && isCall(idCalculate, "uuid"))
-			target = { kind: "new" };
+		else if (rootSetvalue !== undefined && rootSetvalue.value !== undefined) {
+			if (blankOnOpening(xform, rootSetvalue, idPath))
+				return fail(SAVE_TO_CASE_CLAIMS.blankCreateId);
+			target = isCall(rootSetvalue.value, "uuid")
+				? { kind: "new" }
+				: {
+						kind: "new",
+						authoredId: {
+							text: rootSetvalue.value,
+							site: { element: rootSetvalue.element, attribute: "value" },
+						},
+					};
+		} else if (idCalculate !== undefined)
+			target = isCall(idCalculate, "uuid")
+				? { kind: "new" }
+				: {
+						kind: "new",
+						authoredId: {
+							text: idCalculate,
+							site: site("case/@case_id", "calculate"),
+						},
+					};
 		else return fail(SAVE_TO_CASE_CLAIMS.authoredCreateId);
 	} else {
 		const idText = calc("case/@case_id");
@@ -1670,7 +1683,11 @@ function readBlock(
 		};
 		const ownerBind = bindAt("case/create/owner_id");
 		if (ownerBind?.attribs.relevant !== undefined) {
-			if (target.kind !== "new" || target.idFrom !== undefined)
+			if (
+				target.kind !== "new" ||
+				target.idFrom !== undefined ||
+				target.authoredId !== undefined
+			)
 				return fail(SAVE_TO_CASE_CLAIMS.aliasedOwnerCondition);
 			ownerCondition = {
 				text: ownerBind.attribs.relevant,
@@ -2631,6 +2648,7 @@ export function readSaveToCaseBlocks(
 		firstBlock.caseType === menuType &&
 		firstBlock.target.kind === "new" &&
 		firstBlock.target.idFrom === undefined &&
+		firstBlock.target.authoredId === undefined &&
 		firstBlock.ownerCondition === undefined &&
 		firstBlock.block.repeat === null &&
 		firstBlock.segments.join("/") === "operations/block" &&
@@ -2958,6 +2976,7 @@ function claimAccepted(
 		note(one.closeCondition?.site);
 		note(one.ownerCondition?.site);
 		if (one.target.kind === "expression") note(one.target.site);
+		if (one.target.kind === "new") note(one.target.authoredId?.site);
 		for (const write of one.writes) {
 			if (write.value.kind === "text") note(write.value.site);
 			note(write.condition?.site);
@@ -3032,8 +3051,9 @@ function claimAccepted(
 		fallback: Claim<"derived">,
 	) => {
 		claimRegionNode(xform, { element }, claims, fallback);
+		const held = registeredAttributes.get(element);
 		for (const attribute of ["event", "ref", "value"])
-			if (Object.hasOwn(element.attribs, attribute))
+			if (Object.hasOwn(element.attribs, attribute) && !held?.has(attribute))
 				claimRegionNode(xform, { element, attribute }, claims, fallback);
 		registerUses(element);
 	};
@@ -3461,6 +3481,19 @@ function registerTexts(
 				one.place,
 				CALC,
 			);
+		if (one.target.kind === "new" && one.target.authoredId !== undefined) {
+			const { text, site } = one.target.authoredId;
+			register(
+				`${op} target`,
+				caseSlot(form.uuid, "case_operation_target_expression", op),
+				text,
+				site,
+				one.place,
+				"attribute" in site && site.attribute === "value"
+					? "xform:setvalue@value"
+					: CALC,
+			);
+		}
 		if (one.closeCondition !== undefined)
 			register(
 				`${op} close`,
@@ -3716,7 +3749,14 @@ function operationOf(
 				ownerCondition: placeholder("condition"),
 			}),
 			caseType: one.caseType,
-			target: { kind: "new", ...(idFrom !== undefined && { idFrom }) },
+			target: {
+				kind: "new",
+				...(idFrom !== undefined && { idFrom }),
+				...(one.target.kind === "new" &&
+					one.target.authoredId !== undefined && {
+						expr: placeholder("value"),
+					}),
+			},
 			name,
 			...(owner !== undefined && { owner }),
 			...(links.length > 0 && { links }),
