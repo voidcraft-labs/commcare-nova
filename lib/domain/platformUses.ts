@@ -60,6 +60,7 @@ import {
 	moduleFormsReadSearch,
 	moduleHasCaseListMenuItem,
 	moduleSearchWorkflow,
+	rawTileTextShowsInGroupedWebBody,
 	type SearchInputDef,
 	searchOpensOnList,
 	searchScreenTitleText,
@@ -780,7 +781,21 @@ function moduleUses(
 				slotUse("case-list-icon-actions", target, slot("entryPointUuid")),
 			);
 		const cell = tileCellFor(column, list?.tile);
-		if (tileCellOnlyOnAndroid(column, cell) && wanted("raw-custom-tile-field"))
+		if (
+			rawTileTextShowsInGroupedWebBody(cell, list?.tile?.grouping?.headerRows)
+		) {
+			if (wanted("raw-grouped-tile-body-field"))
+				uses.push(
+					slotUse(
+						"raw-grouped-tile-body-field",
+						target,
+						slot("tile.androidOnly"),
+					),
+				);
+		} else if (
+			tileCellOnlyOnAndroid(column, cell) &&
+			wanted("raw-custom-tile-field")
+		)
 			uses.push(
 				slotUse(
 					"raw-custom-tile-field",

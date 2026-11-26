@@ -251,6 +251,9 @@ export const PLATFORM_FEATURE_ENTRIES = {
 	"raw-custom-tile-field": [
 		"menus-and-case-lists/invisible-or-address-column-in-a-custom-tile",
 	],
+	"raw-grouped-tile-body-field": [
+		"menus-and-case-lists/android-only-text-in-a-grouped-tile-body",
+	],
 	"tile-grouping": [
 		"menus-and-case-lists/detail-case-tile-group-index-identifier-header-rows",
 	],

@@ -244,6 +244,10 @@ export const COLUMN_CLAIMS = defineClaims("caseList.columns", {
 		`${A}raw-value-in-a-named-case-tile`,
 		"schema:DetailColumn.format",
 	),
+	invisibleGroupedBody: refuse(
+		`${A}invisible-text-in-a-web-apps-grouped-tile-body`,
+		"schema:DetailColumn.format",
+	),
 	invisibleInTile: take(
 		`${A}invisible-or-address-column-in-a-custom-tile`,
 		"schema:DetailColumn.format",
@@ -1375,6 +1379,7 @@ export interface ColumnOptions {
 	/** Whether the short detail is a custom tile. */
 	readonly inTile: boolean;
 	readonly namedTile?: boolean;
+	readonly invisibleTextShowsInWebApps?: boolean;
 	/** Whether the menu's faster loading is on, without which HQ's build writes no column's
 	 *  load behavior (`detail_screen.py::FormattedDetailColumn.fields`). */
 	readonly optimizationsOn?: boolean;
@@ -1807,6 +1812,13 @@ function readColumn(
 		typeof column.peek("format") === "string"
 			? (column.peek("format") as string)
 			: "plain";
+	if (options.invisibleTextShowsInWebApps) {
+		column.refuse("format", C.invisibleGroupedBody, {
+			reason:
+				"Web Apps displays this Search Only value below the group heading.",
+		});
+		return undefined;
+	}
 	const others =
 		claimOtherKeys(
 			column,

@@ -1429,6 +1429,27 @@ export const PLATFORM_FEATURE_FIXTURES = {
 			"caseListConfig.columns[0].tile.androidOnly",
 		),
 	},
+	"raw-grouped-tile-body-field": {
+		with: () =>
+			caseApp({
+				columns: [
+					plainColumn(testUuid("platform-tile-heading"), "status", "Status", {
+						tile: tileCell(0, 0, 12, 1),
+					}),
+				],
+				list: (config) => {
+					tiled({ androidOnly: true })(config);
+					config.tile = { grouping: { identifier: "parent", headerRows: 1 } };
+					config.columns[0].tile = tileCell(0, 1, 12, 1, { androidOnly: true });
+				},
+			}),
+		without: () => caseApp({ list: tiled({ androidOnly: true }) }),
+		use: slotUse(
+			"raw-grouped-tile-body-field",
+			COLUMN_OWNER,
+			"caseListConfig.columns[0].tile.androidOnly",
+		),
+	},
 	"tile-grouping": {
 		with: () =>
 			caseApp({

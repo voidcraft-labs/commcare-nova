@@ -122,6 +122,7 @@
 		"hq-case-lists/id-mapping-key-twice",
 		"hq-case-lists/id-mapping-key-with-ampersand",
 		"hq-case-lists/inactive-collection-on-a-tab",
+		"hq-case-lists/invisible-text-in-a-web-apps-grouped-tile-body",
 		"hq-case-lists/late-flag",
 		"hq-case-lists/late-flag-zero",
 		"hq-case-lists/ledger-column",

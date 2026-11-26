@@ -14,6 +14,7 @@ import { columnSnapshotMutations } from "@/lib/doc/caseListColumnMutations";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { type Mutation, mutationSchema } from "@/lib/doc/types";
+import { platformBuilderSentence } from "@/lib/doc/userFacingErrors";
 import {
 	type BlueprintDoc,
 	type Column,
@@ -378,6 +379,51 @@ describe("grouping the tile", () => {
 		expect(
 			verdict.nextDoc.modules[moduleUuid]?.caseListConfig?.tile?.grouping,
 		).toEqual({ identifier: "parent", headerRows: 1 });
+	});
+
+	it("offers an Android-only body cut only for an Android app", () => {
+		const { doc, moduleUuid } = bandedDoc();
+		const config = doc.modules[moduleUuid].caseListConfig;
+		if (!config) throw new Error("Missing the banded tile");
+		const [, body] = config.columns;
+		const rawBody = {
+			...body,
+			tile: tileCell(0, 1, 12, 1, { androidOnly: true }),
+		};
+		const placed = accepts(
+			doc,
+			columnSnapshotMutations(moduleUuid, body, rawBody),
+		);
+		if (!placed.ok)
+			throw new Error("An ordinary tile can hide a field in Web Apps");
+		const cells = [tileCell(0, 0, 12, 1), rawBody.tile];
+		expect(tileGroupHeaderRowChoices(cells, true)).toEqual([]);
+		expect(tileGroupHeaderRowChoices(cells)).toEqual([1]);
+		const grouping = planTileGrouping(
+			moduleUuid,
+			{ identifier: "parent", headerRows: 1 },
+			config.tile,
+		);
+		const web = accepts(placed.nextDoc, grouping);
+		if (web.ok)
+			throw new Error("A Web Apps tile cannot hide that grouped body field");
+		expect(web.findings).toMatchObject([
+			{
+				code: "PLATFORM_FEATURE_UNAVAILABLE",
+				details: {
+					feature: "raw-grouped-tile-body-field",
+					columnUuid: body.uuid,
+				},
+			},
+		]);
+		expect(platformBuilderSentence(web.findings[0])).toContain(
+			'Column "Village" is visible below the group heading in Web Apps',
+		);
+		const android = accepts(placed.nextDoc, [
+			{ kind: "setAppSettings", settings: { runsOnlyOn: "android" } },
+			...grouping,
+		]);
+		expect(android.ok).toBe(true);
 	});
 
 	it("is refused at a depth the builder withholds", () => {

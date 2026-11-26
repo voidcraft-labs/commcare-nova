@@ -43,6 +43,10 @@
 		"reason": "not-in-app-source",
 		"note": "Its key is a project space setting, which no app's source holds and no reading reads; lib/commcare/__tests__/planPrivileges.test.ts holds the forms a publish asks a person to confirm it for."
 	},
+	"menus-and-case-lists/android-only-text-in-a-grouped-tile-body": {
+		"reason": "no-surface-key",
+		"note": "This is the declaration and placement an author can keep together. The Web Apps source refusal has a keyed retained variant."
+	},
 	"case-search/list-first-where-web-apps-is-declared": {
 		"reason": "no-surface-key",
 		"note": "The entry names no surface key, and it allows what it describes."

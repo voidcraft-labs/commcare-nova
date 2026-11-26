@@ -150,6 +150,13 @@ function expectAdmitted(
 }
 
 describe("planDeclarationChoices over production documents", () => {
+	it("offers only Android for a grouped body field marked to show only on Android", () => {
+		const doc = fixture("raw-grouped-tile-body-field");
+		const choices = plan(doc, false);
+		expect(choices.names).toEqual(["android"]);
+		expect(choices.proposal).toBe("android");
+		expectAdmitted(doc, choices.choices);
+	});
 	it("offers every declaration for content that runs everywhere, proposing both where HQ serves Web Apps", () => {
 		const doc = fixture("search");
 		const on = plan(doc, true);

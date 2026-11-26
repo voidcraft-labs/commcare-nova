@@ -340,6 +340,58 @@ describe("tiles", () => {
 		expect(closedCodes(reading)).toEqual(["menus-and-case-lists/17-picture"]);
 	});
 
+	it("refuses only the format of a raw grouped body field when HQ serves Web Apps", async () => {
+		const format =
+			"menus-and-case-lists/invisible-text-in-a-web-apps-grouped-tile-body";
+		const doc = patients(
+			[
+				plainColumn(uuid(1), "case_name", "Name", {
+					tile: tileCell(0, 0, 6, 1),
+				}),
+				plainColumn(uuid(2), "notes", "Notes", { tile: tileCell(6, 1, 6, 1) }),
+				plainColumn(uuid(3), "status", "Status", {
+					tile: tileCell(0, 1, 6, 1),
+				}),
+			],
+			{ list: { tile: { grouping: { identifier: "parent", headerRows: 1 } } } },
+		);
+		for (const [webApps, grouped, row] of [
+			[true, true, 1],
+			[false, true, 1],
+			[true, false, 1],
+			[true, true, 0],
+		] as const) {
+			const reading = await readLists(doc, {
+				edit(app) {
+					app.cloudcare_enabled = webApps;
+					const short = app.modules[0].case_details.short;
+					Object.assign(short.columns[1], { format: "invisible", grid_y: row });
+					if (!grouped) delete short.case_tile_group;
+				},
+			});
+			const findings = closedCodes(reading);
+			if (webApps && grouped && row === 1) {
+				expect(findings).toEqual([format]);
+				expect(
+					[...reading.ctx.close().claims.records()].filter(
+						(one) => one.entry === format && one.key !== null,
+					),
+				).toMatchObject([
+					{
+						where: "/modules/0/case_details/short/columns/1/format",
+						key: "schema:DetailColumn.format",
+						standing: "fix-in-hq",
+					},
+				]);
+			} else {
+				expect(findings).toEqual([]);
+				expect(
+					listOf(reading).columns.some((column) => column.tile?.androidOnly),
+				).toBe(true);
+			}
+		}
+	});
+
 	it("drops the cells of a list that is no tile", async () => {
 		const name = plainColumn(uuid(1), "case_name", "Name", {
 			tile: tileCell(0, 0, 6, 1),

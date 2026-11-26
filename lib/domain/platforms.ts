@@ -276,6 +276,7 @@ export const PLATFORM_FEATURE_IDS = [
 	"named-case-tile",
 	"details-tile",
 	"raw-custom-tile-field",
+	"raw-grouped-tile-body-field",
 	"tile-grouping",
 	"case-list-empty-text",
 	"case-list-continue-label",
@@ -332,6 +333,7 @@ export const REFUSABLE_PLATFORM_FEATURE_IDS = [
 	"case-list-lookup-count",
 	"window-width",
 	"android-app-question",
+	"raw-grouped-tile-body-field",
 ] as const satisfies readonly PlatformFeatureId[];
 export type RefusablePlatformFeatureId =
 	(typeof REFUSABLE_PLATFORM_FEATURE_IDS)[number];
@@ -1046,6 +1048,21 @@ export const PLATFORM_FEATURES: Readonly<
 		android: {
 			reading: "different",
 			note: "the cell displays the stored value",
+		},
+	},
+	"raw-grouped-tile-body-field": {
+		label: "Search Only text below a group heading",
+		channel: "structure",
+		webApps: {
+			reading: "unavailable",
+			note: "the value is visible below the group heading",
+		},
+		android: { reading: "runs" },
+		refusal: {
+			what: "places Search Only text below a group heading",
+			why: "Web Apps displays the value there even when it is marked to show only on Android.",
+			alternative:
+				"move the field into the heading, remove it from the tile, or turn off grouping",
 		},
 	},
 	"case-list-empty-text": {

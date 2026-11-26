@@ -20,6 +20,8 @@ import { effectiveCaseTypes } from "@/lib/domain/effectiveCaseTypes";
 import {
 	type CaseListConfig,
 	caseTileGroupingIdentifierSchema,
+	caseTileGroupingSchema,
+	rawTileTextShowsInGroupedWebBody,
 	TILE_FONT_SIZES,
 	TILE_GRID_COLUMNS,
 	TILE_HORIZONTAL_ALIGNS,
@@ -392,6 +394,37 @@ function storedBox(column: JsonCursor): TileCell | undefined {
 	)
 		return undefined;
 	return { x, y, width, height } as TileCell;
+}
+
+/** Body placement of an ordinary invisible field in a custom Web Apps tile. */
+export function invisibleTileTextShowsInWebApps(
+	short: JsonCursor,
+	column: JsonCursor,
+): boolean {
+	const group = short.peek("case_tile_group");
+	if (
+		short.peek("case_tile_template") !== "custom" ||
+		column.peek("format") !== "invisible" ||
+		!isJsonObject(group)
+	)
+		return false;
+	// An omitted header is the two rows HQ's CaseTileGroupConfig supplies.
+	const grouping = caseTileGroupingSchema.safeParse({
+		identifier: group.index_identifier,
+		headerRows: group.header_rows === undefined ? 2 : group.header_rows,
+	});
+	if (!grouping.success) return false;
+	const cell = storedBox(column);
+	if (cell === undefined || !Object.values(cell).every(Number.isSafeInteger))
+		return false;
+	const fit = gridFit(column, screenTileRows(short, false));
+	return (
+		(fit === "fits" || fit === "below-the-twelfth-row") &&
+		rawTileTextShowsInGroupedWebBody(
+			{ y: cell.y, androidOnly: true },
+			grouping.data.headerRows,
+		)
+	);
 }
 
 /**

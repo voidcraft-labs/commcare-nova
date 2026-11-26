@@ -181,6 +181,84 @@ def test_web_apps_lays_out_a_tiles_placed_cells_alone_and_orders_and_searches_by
 GROUP_FILTER = "targeted-tile-group-filter"
 
 
+def test_web_apps_draws_zero_width_text_only_in_a_grouped_tile_body(
+    hq, core_runner, formplayer_runner, editor_driver, webapps_documents, evidence
+):
+    from proof.hq import operations
+    from proof.matrix.authoring import Authoring
+    from proof.matrix.ops import set_json
+
+    document = webapps_documents[GROUP_FILTER]
+    base = casedata.database_of_restore((document.root / "restore.xml").read_bytes())
+    raw_values = {
+        case.case_id: f"Raw visit value {case.name}"
+        for case in base.cases if case.case_type == "visit"
+    }
+    database = replace(base, cases=tuple(
+        replace(case, properties=tuple(
+            (name, raw_values[case.case_id] if name == "outcome" else value)
+            for name, value in case.properties
+        )) if case.case_id in raw_values else case
+        for case in base.cases
+    ))
+    observed = {}
+    with webapps_hq.project(document, "maximum") as project:
+        unit = project.unit
+        for stage, grouped, raw_row in (("ordinary", False, 1), ("header", True, 0), ("body", True, 1)):
+            with unit.fork():
+                authoring = Authoring(unit, {}, f"grouped-width-zero-{stage}", operation=unit.operation)
+                held = operations.held_app(unit, project.app_id).modules[0].case_details.short
+                columns = {column.field: column.to_json() for column in held.columns}
+                # The raw field is the only cell in its row of an otherwise unremarkable tile.
+                visible = {**columns["seen_by"], "grid_x": 0, "grid_y": 1 - raw_row, "width": 12}
+                raw = {**columns["outcome"], "format": "invisible", "grid_x": 0, "grid_y": raw_row, "width": 12}
+                set_json(authoring, project.app_id, "/modules/0/case_details/short/columns", [visible, raw])
+                if not grouped:
+                    set_json(authoring, project.app_id, "/modules/0/case_details/short/case_tile_group", {
+                        "doc_type": "CaseTileGroupConfig", "index_identifier": None, "header_rows": 2,
+                    })
+                with project.released(formplayer_runner, database=database, label=stage) as release:
+                    run = Session(release, editor_driver).run([
+                        *steps.open_app("Grouped visits"),
+                        *steps.choose("Visits"),
+                        steps.SCREEN,
+                    ])
+                    answered = run.answered("navigate_menu")[-1].json()
+                    shown = run.screens[0]["list"]
+                    observed[stage] = {
+                        "groupHeaderRows": answered["groupHeaderRows"],
+                        "widthHint": answered["styles"][1]["widthHint"],
+                        "gridY": answered["tiles"][1]["gridY"],
+                        "rawData": {entity["id"]: entity["data"][1] for entity in answered["entities"]},
+                        "rowIds": [row["id"] for row in shown["rows"]],
+                        "rawCells": [
+                            cell for row in shown["rows"] for cell in row["cells"]
+                            if cell["text"] in raw_values.values()
+                        ],
+                        "webAppCss": any("formplayer-webapp" in static.unhashed(path)
+                                         for path, _ in run.statics if path.endswith(".css")),
+                        "pageErrors": run.page_errors,
+                    }
+
+    evidence("tile-width-zero", observed)
+    for stage, actual in observed.items():
+        assert actual["pageErrors"] == [] and actual["webAppCss"], actual
+        assert actual["widthHint"] == 0, actual
+        assert actual["rawData"] == raw_values, actual
+        assert actual["groupHeaderRows"] == (-1 if stage == "ordinary" else 1), actual
+        assert actual["gridY"] == (0 if stage == "header" else 1), actual
+    assert len(observed["ordinary"]["rowIds"]) == len(raw_values)
+    assert len(observed["header"]["rowIds"]) == len(observed["body"]["rowIds"]) == 3
+    assert {cell["text"] for cell in observed["ordinary"]["rawCells"]} == set(raw_values.values())
+    assert {cell["text"] for cell in observed["header"]["rawCells"]} == {
+        raw_values[f"targeted-{name}-visit"] for name in ("ada", "ben", "eve")
+    }
+    assert all(cell["hidden"] for cell in observed["ordinary"]["rawCells"] + observed["header"]["rawCells"])
+    assert {cell["text"] for cell in observed["body"]["rawCells"]} == set(raw_values.values())
+    assert all(not cell["hidden"] for cell in observed["body"]["rawCells"])
+
+
+
 def _card(row):
     """A grouped card's id and its cells' texts, the heading's first (``tile_grouped_item.html``)."""
     return row["id"], [cell["text"] for cell in row["cells"] if not cell["hidden"]]
