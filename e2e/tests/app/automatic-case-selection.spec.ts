@@ -10,7 +10,9 @@ test("automatically selects the whole case datum and submits one atomic close", 
 	} = seedFor(scenario, "automatic-case-selection");
 	await openBuilder(page, `/build/${appId}`);
 	await page.getByRole("button", { name: "Preview", exact: true }).click();
-	const openMenu = (name: string) => page.getByRole("button", { name }).click();
+	const menu = (name: string) =>
+		page.getByRole("button", { name: `${name} 2 forms`, exact: true });
+	const openMenu = (name: string) => menu(name).click();
 	await openMenu("No batch cases");
 	await expect(
 		page.getByRole("heading", { name: "No cases yet" }),
@@ -29,9 +31,7 @@ test("automatically selects the whole case datum and submits one atomic close", 
 		page.getByRole("heading", { name: "51 cases selected" }),
 	).toBeVisible();
 	await page.getByRole("button", { name: "Back", exact: true }).click();
-	await expect(
-		page.getByRole("button", { name: "All batch cases" }),
-	).toBeVisible();
+	await expect(menu("All batch cases")).toBeVisible();
 	await openMenu("All batch cases");
 
 	await page.getByRole("button", { name: "Close group" }).click();
