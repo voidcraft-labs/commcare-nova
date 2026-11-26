@@ -3,9 +3,12 @@ import { CaptureSubmissionRejectedError } from "@/lib/case-store/errors";
 import { uuidSchema } from "@/lib/domain";
 import { MAX_SUBMITTED_CAPTURE_COUNT } from "@/lib/domain/captureFormats";
 
+import { formOpeningBindingSchema } from "./formOpeningSnapshot";
+
 const captureSubmissionProjectionSchema = z.object({
 	entryKey: z.uuid(),
 	formUuid: uuidSchema,
+	formOpening: formOpeningBindingSchema.optional(),
 	attachmentRefs: z
 		.array(
 			z.strictObject({

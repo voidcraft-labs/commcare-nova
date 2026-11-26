@@ -26,7 +26,10 @@ import {
 	resolveFormLinkTarget,
 	type Uuid,
 } from "@/lib/domain";
-import type { FormLinkDatumName } from "@/lib/domain/expression/types";
+import {
+	type FormLinkDatumName,
+	formLinkSelectionName,
+} from "@/lib/domain/expression/types";
 import { routeContainsForm } from "@/lib/domain/listedForms";
 import { NO_ENTRIES, recordFromEntries } from "@/lib/domain/records";
 import { emissionPlan } from "../../emissionPlan";
@@ -36,6 +39,7 @@ import {
 	type FormLinkProjectionContext,
 	formLinkActionsBuildable,
 	formLinkProjectionContext,
+	formLinkTargetDatumIds,
 	matchFrameToSource,
 	owningModuleOf,
 	projectAfterSubmit,
@@ -80,8 +84,12 @@ import {
 
 const F = "forms-and-case-writes";
 
-type FormClass = "Form" | "AdvancedForm";
-const FORM_CLASSES: readonly FormClass[] = ["Form", "AdvancedForm"];
+type FormClass = DraftForm["docType"];
+const FORM_CLASSES: readonly FormClass[] = [
+	"Form",
+	"AdvancedForm",
+	"ShadowForm",
+];
 
 function perClass<U extends Claim["use"]>(
 	make: (entry: string, key: string) => Claim<U>,
@@ -531,10 +539,15 @@ function expectedGuards(
 		const value = text === undefined ? undefined : syntaxOf(text, undefined);
 		if (value === undefined || !value.ok) return undefined;
 		const name = datum.name;
+		const target = resolveFormLinkTarget(doc, formUuid, link.target);
 		const caseType =
 			name.kind === "selected-case"
 				? doc.modules[name.module]?.caseType
-				: undefined;
+				: target?.type === "form"
+					? doc.forms[target.formUuid]?.caseSelections?.find(
+							(row) => row.uuid === name.selection,
+						)?.caseType
+					: undefined;
 		const guard = expectedGuard(value.syntax, caseType);
 		if (guard === undefined) return undefined;
 		guards.push(guard);
@@ -681,8 +694,12 @@ function readLinkTarget(
 		key = self
 			? ["this-form"]
 			: route === named.module
-				? ["form", named.form.xmlns]
-				: ["form-in-menu", route.uniqueId, named.form.xmlns];
+				? ["form", named.form.entryKey ?? named.form.xmlns]
+				: [
+						"form-in-menu",
+						route.uniqueId,
+						named.form.entryKey ?? named.form.xmlns,
+					];
 	} else {
 		const named = draftModuleById(ctx.draft, moduleId);
 		if (named === undefined) {
@@ -718,7 +735,7 @@ function readLinkTarget(
 	for (const datum of stored) {
 		const name = textOf(datum.name);
 		const row = rows.find((one) => one.id === name || one.chainId === name);
-		const ref = row?.refs.find((one) => one.kind === "selected-case");
+		const ref = row && formLinkSelectionName(row.refs);
 		if (ref === undefined) {
 			cursor.refuseWhole(AFTER_SUBMIT.datumsOther);
 			return undefined;
@@ -773,16 +790,11 @@ function automaticSearchSelections(
 	);
 	if (automatic.unmatched.length > 0 || automatic.matched.length === 0)
 		return undefined;
-	const rows = entryDatumIds(
-		planned,
-		projection,
-		owningModuleOf(projection, resolved.formUuid) ?? resolved.moduleUuid,
-		resolved.formUuid,
-	);
+	const rows = formLinkTargetDatumIds(planned, projection, resolved);
 	const out: { name: FormLinkDatumName; sourceId: string }[] = [];
 	for (const { id, sourceId } of automatic.matched) {
 		const row = rows.find((one) => one.id === id || one.chainId === id);
-		const name = row?.refs.find((one) => one.kind === "selected-case");
+		const name = row && formLinkSelectionName(row.refs);
 		if (name === undefined) return undefined;
 		out.push({ name, sourceId });
 	}
@@ -954,12 +966,11 @@ export function registerLinkExpressions(ctx: ReadContext, app: DraftApp): void {
 		lookupNaming: inputs.lookupNaming,
 	});
 	const datumIds = (moduleUuid: Uuid, formUuid: Uuid) =>
-		entryDatumIds(
-			plan.doc,
-			projection,
-			owningModuleOf(projection, formUuid) ?? moduleUuid,
+		formLinkTargetDatumIds(plan.doc, projection, {
+			type: "form",
+			moduleUuid: owningModuleOf(projection, formUuid) ?? moduleUuid,
 			formUuid,
-		);
+		});
 	for (const reading of readings) {
 		const { form } = reading;
 		const cls = form.docType;
@@ -1115,7 +1126,7 @@ function readOtherwiseAndLinks(
 		counts.set(target, n + 1);
 		return ctx.accounting.identity(
 			ctx.identities.claim(
-				externalKey.formLink(form.xmlns, link.key, n),
+				externalKey.formLink(form.entryKey ?? form.xmlns, link.key, n),
 				whereText(form.place),
 			),
 			form.place,

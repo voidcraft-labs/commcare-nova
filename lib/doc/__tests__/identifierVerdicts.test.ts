@@ -580,14 +580,16 @@ describe("case-operation identifier vocabulary", () => {
 					"Start with a letter; use only letters, digits, underscores, or hyphens.",
 			});
 		}
-		for (const candidate of ["source-id", "state", "category"])
+		for (const candidate of [
+			"source-id",
+			"state",
+			"category",
+			"location_id",
+			"hq_user_id",
+		])
 			expect(caseOperationWritePropertyVerdict(candidate, new Set())).toEqual({
 				ok: true,
 			});
-		for (const candidate of ["location_id", "hq_user_id"])
-			expect(
-				caseOperationWritePropertyVerdict(candidate, new Set()),
-			).toMatchObject({ ok: false, code: "reserved" });
 		for (const candidate of ["parent-link", "parent.link", " parent_link"]) {
 			expect(
 				caseOperationLinkIdentifierVerdict(candidate, new Set()),

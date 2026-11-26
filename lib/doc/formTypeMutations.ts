@@ -53,7 +53,7 @@ export const CHOOSE_NAME_QUESTION_MESSAGE =
 /** The refusal for a registration whose own case keeps a write a new case
  *  cannot hold. */
 export const NEW_CASE_WRITE_FACETS_MESSAGE =
-	"A new case has no earlier value or case above it. Remove Save only if changed and any save to a case above it first.";
+	"A new case has no earlier name or case above it. Turn off Save only if changed under the new name, and remove any save to a case above it, first.";
 
 const FORM_GONE_MESSAGE = "This form is no longer part of the app.";
 
@@ -125,12 +125,19 @@ export function planFormTypeChange(
 	if (form === undefined || moduleUuid === undefined) {
 		return { ok: false, message: FORM_GONE_MESSAGE };
 	}
+	if (form.shadowOf)
+		return {
+			ok: false,
+			message: `This entry opens “${doc.forms[form.shadowOf.form]?.name ?? "Shared form"}”. You can change the form type there for every entry.`,
+		};
 	const from = form.type;
 	if (from === type) return { ok: true, mutations: [] };
 	const caseType = doc.modules[moduleUuid]?.caseType;
 	const own = ownOperationOf(form);
 	const patch: Extract<Mutation, { kind: "updateForm" }>["patch"] = { type };
-	const mutations: Mutation[] = [];
+	const mutations = Object.values(doc.forms)
+		.filter((entry) => entry.shadowOf?.form === form.uuid)
+		.map((entry) => updateFormPatch(entry.uuid, { type }));
 
 	if (type === "survey") {
 		if (form.openCondition !== undefined) patch.openCondition = null;
@@ -213,11 +220,14 @@ export function planFormTypeChange(
 	return { ok: true, mutations };
 }
 
-/** Whether one of the own case's writes reads the case as the form loaded
- *  it: a save through the indices above it, or a save only if changed. */
+/** Whether the own case reads the case as the form loaded it in a way a
+ *  new case can't: a save through the indices above it, or a rename saved
+ *  only when it differs from the case's name. A write or an owner saved only
+ *  when changed stays: on a new case it saves only a given answer. */
 function ownWritesNeedLoadedCase(own: OwnCaseOperation): boolean {
-	return (own.writes ?? []).some(
-		(write) => write.via !== undefined || write.onlyIfChanged !== undefined,
+	return (
+		own.nameOnlyIfChanged === true ||
+		(own.writes ?? []).some((write) => write.via !== undefined)
 	);
 }
 

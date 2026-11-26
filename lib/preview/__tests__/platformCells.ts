@@ -199,6 +199,10 @@ export const PLATFORM_CELLS: Readonly<
 	"expressions-and-data/selected-cases-search-selected-cases-parent-selected-cases-jr@android":
 		structural("several-cases"),
 	"case-search/input-date@android": structural("search-field-single-date"),
+	/* Web Apps can't go on from a list that chose its one record before a
+	 * confirmation screen, so the gate keeps that list off Web Apps. */
+	"menus-and-case-lists/auto-select-case-on-an-advanced-module@web-apps":
+		structural("auto-select-confirm"),
 	"case-search/input-select-multi-lookup-itemset@android": structural(
 		"search-field-multiple-choice",
 	),
@@ -444,6 +448,9 @@ export const PLATFORM_CELLS: Readonly<
 
 	// ── Stated ─────────────────────────────────────────────────────────
 	"questions/plain-label-containing-html-text@web-apps": stated("plain-text"),
+	"forms-and-case-writes/submit-label-non-default@android": stated(
+		"form-submit-wording",
+	),
 	"expressions-and-data/json-property@web-apps": stated("json-property"),
 	"menus-and-case-lists/8-address@web-apps": stated("case-map-location"),
 	// A named tile's icon positions, a Details tile and a raw field on a

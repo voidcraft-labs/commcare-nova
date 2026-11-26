@@ -81,8 +81,7 @@ export interface ConditionalCaseUpdate {
 
 /**
  * HQ's `CaseIndex`. `relationship` is a `choices=` slot (`child`,
- * `extension`, `question`); Nova writes the first two, and no
- * `relationship_question`, so that slot is its default `""`.
+ * `extension`, `question`); a question supplies its connection kind at runtime.
  */
 export interface CaseIndex {
 	doc_type: "CaseIndex";
@@ -90,16 +89,16 @@ export interface CaseIndex {
 	tag: string;
 	/** The index's name; HQ's default `"parent"` where `tag` is `""`. */
 	reference_id: string;
-	relationship: "child" | "extension";
-	relationship_question: "";
+	relationship: "child" | "extension" | "question";
+	relationship_question: string;
 }
 
 /** HQ's `AutoSelectCase`, in the one mode Nova writes: the worker's own record. */
 export interface AutoSelectCase {
 	doc_type: "AutoSelectCase";
-	mode: "usercase";
-	value_source: "";
-	value_key: "";
+	mode: "usercase" | "user" | "fixture" | "case" | "raw";
+	value_source: string;
+	value_key: string;
 }
 
 /** HQ's `LoadUpdateAction`: a case the form loads, and what it writes to it. */
@@ -111,7 +110,7 @@ export interface LoadUpdateAction {
 	details_module: string | null;
 	case_properties: Record<string, ConditionalCaseUpdate>;
 	/** Always empty: a preload is a question's default in Nova. */
-	preload: Record<string, never>;
+	preload: Record<string, string>;
 	close_condition: FormActionCondition;
 	case_index: CaseIndex;
 	auto_select: AutoSelectCase | null;
@@ -633,6 +632,7 @@ export type HqFormLink<XPath = string> =
 
 /** The keys a basic and an advanced form share (HQ's `FormBase` and its mixins). */
 interface HqFormBase<XPath, LinkXPath> {
+	submit_label?: LocalizedString;
 	session_endpoint_id?: string;
 	auto_gps_capture?: boolean;
 	respect_relevancy?: boolean;
@@ -679,7 +679,25 @@ export interface HqAdvancedForm<XPath = string, LinkXPath = XPath>
 	doc_type: "AdvancedForm";
 	form_type: "advanced_form";
 	actions: AdvancedFormActions;
-	arbitrary_datums: [];
+	arbitrary_datums: {
+		doc_type: "ArbitraryDatum";
+		datum_id: string;
+		datum_function: string;
+	}[];
+}
+
+/** A second entry of one advanced form. HQ computes its namespace and
+ * actions from its parent. Only extra_actions belongs in the upload. */
+export interface HqShadowForm<XPath = string, LinkXPath = XPath>
+	extends Omit<
+		HqAdvancedForm<XPath, LinkXPath>,
+		"actions" | "doc_type" | "form_type" | "xmlns"
+	> {
+	doc_type: "ShadowForm";
+	form_type: "shadow_form";
+	shadow_parent_form_id: string;
+	extra_actions: AdvancedFormActions;
+	xmlns: null;
 }
 
 /** The keys a basic and an advanced module share (HQ's `ModuleBase` and its mixins). */
@@ -752,7 +770,7 @@ export interface HqAdvancedModule<XPath = string, LinkXPath = XPath>
 	extends HqModuleBase<XPath> {
 	doc_type: "AdvancedModule";
 	module_type: "advanced";
-	forms: HqAdvancedForm<XPath, LinkXPath>[];
+	forms: (HqAdvancedForm<XPath, LinkXPath> | HqShadowForm<XPath, LinkXPath>)[];
 	product_details: DetailPair<XPath>;
 }
 
@@ -783,7 +801,8 @@ export type HqAnyModule<XPath = string, LinkXPath = XPath> =
 /** Either kind of form Nova writes. */
 export type HqAnyForm<XPath = string, LinkXPath = XPath> =
 	| HqForm<XPath, LinkXPath>
-	| HqAdvancedForm<XPath, LinkXPath>;
+	| HqAdvancedForm<XPath, LinkXPath>
+	| HqShadowForm<XPath, LinkXPath>;
 
 /**
  * CommCare HQ's complete profile bag on an existing app source.

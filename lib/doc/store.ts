@@ -478,6 +478,7 @@ function affectsCaseWriteProjection(
 				Object.hasOwn(mutation.patch, "type") ||
 				Object.hasOwn(mutation.patch, "openCondition") ||
 				Object.hasOwn(mutation.patch, "closeCondition") ||
+				mutation.entryChange !== undefined ||
 				mutation.caseOperationChange !== undefined ||
 				mutation.caseOperationPatch !== undefined
 			);

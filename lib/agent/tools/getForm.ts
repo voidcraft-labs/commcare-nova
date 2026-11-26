@@ -16,6 +16,7 @@
 import type { z } from "zod";
 import { formRecordName } from "@/lib/doc/formRecordName";
 import { caseListsOffering, type Uuid } from "@/lib/domain";
+import { formContentUuid } from "@/lib/domain/formEntryCases";
 import { formNavigation } from "@/lib/preview/engine/navigationProjection";
 import {
 	type OperationSemantics,
@@ -72,7 +73,8 @@ export const getFormTool = {
 				data: { error: `Form UUID "${formUuid}" is not readable.` },
 			};
 		}
-		const recordName = formRecordName(doc, formUuid);
+		const content = formContentUuid(doc, formUuid);
+		const recordName = formRecordName(doc, content);
 		return {
 			kind: "read",
 			data: {

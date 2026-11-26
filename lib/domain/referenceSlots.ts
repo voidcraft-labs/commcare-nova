@@ -413,6 +413,28 @@ export const FORM_REFERENCE_SLOTS = [
 	},
 	{
 		entity: "form",
+		slot: "form_selection_source",
+		path: "caseSelections[].source.value",
+		kind: "expression",
+		formTypes: FORM_TYPES,
+	},
+	{
+		entity: "form",
+		slot: "form_selection_source",
+		path: "shadowOf.selections[].source.value",
+		kind: "expression",
+		formTypes: FORM_TYPES,
+	},
+	{
+		entity: "form",
+		slot: "form_entry_value",
+		path: "computedDatums[].value",
+		kind: "expression",
+		formTypes: FORM_TYPES,
+	},
+
+	{
+		entity: "form",
 		slot: "form_display_condition",
 		path: "displayCondition",
 		kind: "expression",
@@ -1104,6 +1126,8 @@ export function expressionSlotKey(ref: SlotContextRef): string {
 		]);
 	}
 	if ("linkUuid" in member) return JSON.stringify([...base, member.linkUuid]);
+	if ("supplyUuid" in member)
+		return JSON.stringify([...base, member.supplyUuid]);
 	if ("property" in member) {
 		// A write's key is its property through its `via`: two writes of one
 		// property, one through `via`, are two slots.
@@ -1252,6 +1276,26 @@ function expressionRefForEntry(
 	if (form === undefined) return undefined;
 	switch (entry.slot) {
 		case "form_badge":
+		case "form_entry_value":
+		case "form_selection_source": {
+			const row = (
+				entry.slot === "form_entry_value"
+					? form.computedDatums
+					: entry.path === "shadowOf.selections[].source.value"
+						? form.shadowOf?.selections
+						: form.caseSelections
+			)?.[indices[0] ?? -1];
+			return row
+				? {
+						entity: "form",
+						uuid,
+						slot: entry.slot,
+						member: {
+							supplyUuid: "selection" in row ? row.selection : row.uuid,
+						},
+					}
+				: undefined;
+		}
 		case "form_display_condition":
 		case "form_open_condition":
 		case "form_close_condition":
@@ -1912,7 +1956,24 @@ export type NonReferenceReason =
 	| "media"
 	/** CommCare wire-vocabulary token (a session-datum name the target
 	 *  form's entry expects), not a blueprint-entity reference. */
-	| "wire-token";
+	| "wire-token"
+	/** An identity a form's case choice reads (its list menu, an earlier
+	 *  choice, a question, a worker property, a lookup table or column, its
+	 *  case type). The choice's one slot, `form_selection_source`, owns
+	 *  them: `referenceIndex.extractFormEdges` and the lookup reference walk
+	 *  follow each under that slot, so no second slot names them. */
+	| "selection-source"
+	/** An identity a form's opening assignment reads (its destination
+	 *  question, its supplying choice, the case types its connections pass
+	 *  through and the property it copies). `referenceIndex.extractFormEdges`
+	 *  follows each under the `opening_assignment` slot, and a property
+	 *  rename rewrites it (`casePropertyRenames.ts`). */
+	| "opening-assignment"
+	/** The ordinary form a second entry opens (`Form.shadowOf.form`).
+	 *  `referenceIndex.extractFormEdges` follows it under the `shared_form`
+	 *  slot, so removing that form names every entry that opens it
+	 *  (`lib/doc/sharedFormDependents.ts`). */
+	| "shared-form";
 
 export const NON_REFERENCE_FIELD_PATHS: Readonly<
 	Record<string, NonReferenceReason>
@@ -1967,6 +2028,64 @@ export const NON_REFERENCE_FORM_PATHS: Readonly<
 	Record<string, NonReferenceReason>
 > = {
 	uuid: "identity",
+	// The records a form opens with: a choice's identity, its name and tag,
+	// and the identities its source reads, which `form_selection_source`
+	// owns. A computed value's key and a held tag are the session and block
+	// names HQ keeps; the submit label is the finish button's text.
+	"caseSelections[].uuid": "identity",
+	"caseSelections[].name": "display-text",
+	"caseSelections[].tag": "wire-token",
+	"caseSelections[].caseType": "selection-source",
+	"caseSelections[].source.kind": "discriminator",
+	"caseSelections[].source.module": "selection-source",
+	"caseSelections[].source.selection": "selection-source",
+	"caseSelections[].source.identifier": "wire-token",
+	"caseSelections[].source.under.selection": "selection-source",
+	"caseSelections[].source.under.identifier": "wire-token",
+	"caseSelections[].source.under.relationship": "config",
+	"caseSelections[].source.under.relationship.question": "selection-source",
+	"caseSelections[].source.property.kind": "discriminator",
+	"caseSelections[].source.property.field": "selection-source",
+	"caseSelections[].source.property.userPropertyUuid": "selection-source",
+	"caseSelections[].source.table": "selection-source",
+	"caseSelections[].source.column": "selection-source",
+	// A second entry: the form it opens, and its ordered choices, each a
+	// replacement naming one of that form's choices or an extra choice of
+	// its own, classified as a form's own choices are.
+	"shadowOf.form": "shared-form",
+	"shadowOf.selections[].kind": "discriminator",
+	"shadowOf.selections[].selection": "selection-source",
+	"shadowOf.selections[].uuid": "identity",
+	"shadowOf.selections[].name": "display-text",
+	"shadowOf.selections[].tag": "wire-token",
+	"shadowOf.selections[].caseType": "selection-source",
+	"shadowOf.selections[].source.kind": "discriminator",
+	"shadowOf.selections[].source.module": "selection-source",
+	"shadowOf.selections[].source.selection": "selection-source",
+	"shadowOf.selections[].source.identifier": "wire-token",
+	"shadowOf.selections[].source.under.selection": "selection-source",
+	"shadowOf.selections[].source.under.identifier": "wire-token",
+	"shadowOf.selections[].source.under.relationship": "config",
+	"shadowOf.selections[].source.under.relationship.question":
+		"selection-source",
+	"shadowOf.selections[].source.property.kind": "discriminator",
+	"shadowOf.selections[].source.property.field": "selection-source",
+	"shadowOf.selections[].source.property.userPropertyUuid": "selection-source",
+	"shadowOf.selections[].source.table": "selection-source",
+	"shadowOf.selections[].source.column": "selection-source",
+	"computedDatums[].uuid": "identity",
+	"computedDatums[].key": "wire-token",
+	heldSelectionTags: "wire-token",
+	// A value a record supplies to a question when the form opens, and the
+	// marker that an adopted basic form keeps its saved load map.
+	"openingAssignments[].uuid": "identity",
+	"openingAssignments[].field": "opening-assignment",
+	"openingAssignments[].source.kind": "discriminator",
+	"openingAssignments[].source.selection": "opening-assignment",
+	"openingAssignments[].via": "opening-assignment",
+	"openingAssignments[].property": "opening-assignment",
+	heldBasicOpening: "config",
+	"submitLabel.text": "display-text",
 	// An owned entry point declares identity and an external name; it has no expression or foreign reference.
 	"entryPoint.uuid": "identity",
 	"entryPoint.id": "declaration",
@@ -1998,6 +2117,9 @@ export const NON_REFERENCE_FORM_PATHS: Readonly<
 	"caseOperations[].links[].target.kind": "discriminator",
 	"caseOperations[].links[].relationship": "config",
 	"caseOperations[].writes[].onlyIfChanged": "config",
+	"caseOperations[].nameOnlyIfChanged": "config",
+	"caseOperations[].renameOnlyIfChanged": "config",
+	"caseOperations[].ownerOnlyIfChanged": "config",
 	// A held placement names the slot or the block CommCare HQ keeps the
 	// change in: closed enums, an index, and the element names of a Save to
 	// Case block's path in the form's source.
@@ -2048,6 +2170,8 @@ export const NON_REFERENCE_MODULE_PATHS: Readonly<
 	menuLayout: "config",
 	// The kind a publish recorded: one literal, written only by holds.
 	heldKind: "config",
+	// A list that goes on by itself when it holds one row: a flag.
+	autoSelectSingle: "config",
 	purpose: "display-text",
 	icon: "media",
 	audioLabel: "media",

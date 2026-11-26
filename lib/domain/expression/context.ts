@@ -1,3 +1,4 @@
+import { formCaseSelections } from "../advancedEntryDatums";
 import { ancestorWalk } from "../advancedModule";
 import { registrationMintsOwnCaseId } from "../basicCaseSlots";
 import type { BlueprintDoc, CaseType } from "../blueprint";
@@ -59,6 +60,7 @@ import {
 	type FormReferenceSlot,
 } from "../referenceSlots";
 import {
+	isFacetWriteThroughIndex,
 	STANDARD_CASE_LIST_PROPERTY_DATA_TYPES,
 	standardCasePropertyDisplayLabel,
 } from "../standardCaseProperties";
@@ -860,7 +862,50 @@ export function slotContext(
 			},
 			options.form,
 		);
-		if (slot.slot === "form_display_condition" || slot.slot === "form_badge") {
+		if (
+			slot.slot === "form_selection_source" ||
+			slot.slot === "form_entry_value"
+		) {
+			if (!saved) return undefined;
+			const choices = formCaseSelections(doc, slot.uuid);
+			const values = saved.computedDatums ?? [];
+			const rows = slot.slot === "form_selection_source" ? choices : values;
+			const index = rows.findIndex(
+				(row) => row.uuid === slot.member.supplyUuid,
+			);
+			if (index < 0) return undefined;
+			const prefix =
+				slot.slot === "form_selection_source"
+					? choices.slice(0, index)
+					: choices;
+			const earlierValues =
+				slot.slot === "form_entry_value" ? values.slice(0, index) : [];
+			supplies = {
+				refs: supplies.refs.filter(({ ref }) => {
+					if (ref.kind === "form-selection")
+						return prefix.some((row) => row.uuid === ref.selection);
+					if (ref.kind === "entry-value")
+						return earlierValues.some((row) => row.uuid === ref.datum);
+					if (ref.kind === "worker-record")
+						return prefix.some((row) => row.source.kind === "worker-record");
+					if (ref.kind === "selected-case")
+						return (
+							prefix.filter(
+								(row) =>
+									row.source.kind === "choose" &&
+									row.source.module === ref.module,
+							).length === 1
+						);
+					return false;
+				}),
+			};
+			profile = slotProfile("form", "session", ["SU", "HQ", "PV"], {
+				kind: "value",
+			});
+		} else if (
+			slot.slot === "form_display_condition" ||
+			slot.slot === "form_badge"
+		) {
 			if (saved === undefined) return undefined;
 			const caseFirst =
 				formRouteBeforeCase(doc, moduleUuid, slot.uuid, options.form) ===
@@ -991,7 +1036,12 @@ export function slotContext(
 					: viaDestination.ok
 						? viaDestination.caseType
 						: undefined;
-			const destinations: CasePropertyDataType[] = !("property" in member)
+			// A facet, and the name or owner of a case above saved through
+			// `via`, take an identifier's text.
+			const facetText =
+				!("property" in member) ||
+				(write !== undefined && isFacetWriteThroughIndex(write));
+			const destinations: CasePropertyDataType[] = facetText
 				? ["text"]
 				: destinationType === undefined
 					? []
@@ -1019,7 +1069,7 @@ export function slotContext(
 					: {
 							kind: "assignment",
 							destinations,
-							...(!("property" in member) && {
+							...(facetText && {
 								identifierText: true as const,
 							}),
 						},

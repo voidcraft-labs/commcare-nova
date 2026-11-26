@@ -156,15 +156,8 @@ it("reads a SaveToCase block's reserved update keys as the commit gate reserves 
 		"manifest_value_classes.py",
 		"SAVE_TO_CASE_RESERVED_UPDATE_KEYS",
 	);
-	// The block's own rows (a retype, a rename, the owner) and the two keys
-	// `update-keys-location-id-hq-user-id` holds are read apart.
-	const apart = new Set([
-		"case_type",
-		"case_name",
-		"owner_id",
-		"location_id",
-		"hq_user_id",
-	]);
+	// The block's own rows (a retype, a rename, the owner) are read apart.
+	const apart = new Set(["case_type", "case_name", "owner_id"]);
 	expect([...lane].sort()).toEqual(
 		[...FORBIDDEN_CASE_OPERATION_WRITE_PROPERTIES]
 			.filter((name) => !apart.has(name))

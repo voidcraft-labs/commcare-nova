@@ -31,6 +31,7 @@ import tablerCheck from "@iconify-icons/tabler/check";
 import tablerCheckbox from "@iconify-icons/tabler/checkbox";
 import tablerChecks from "@iconify-icons/tabler/checks";
 import tablerChevronDown from "@iconify-icons/tabler/chevron-down";
+import tablerCircleCheck from "@iconify-icons/tabler/circle-check";
 import tablerCircleOff from "@iconify-icons/tabler/circle-off";
 import tablerEar from "@iconify-icons/tabler/ear";
 import tablerEqual from "@iconify-icons/tabler/equal";
@@ -86,6 +87,12 @@ import {
 	term,
 	toExpression,
 } from "@/lib/domain/expression";
+import {
+	isAnswered,
+	isAnsweredCall,
+	isAnsweredDefault,
+	isFormAnswer,
+} from "../answeredCondition";
 import {
 	predicateEditContextFrom,
 	usePredicateEditContext,
@@ -164,6 +171,13 @@ export interface VerbEntry {
 	/** Reason shown when the runtime gate disables the verb. */
 	readonly contextDisabledReason?: string;
 	/**
+	 * Whether the menu lists the verb only where its schema applies, rather
+	 * than disabled with a reason: a verb only one kind of slot ever takes
+	 * (a case change's answered condition) would otherwise sit disabled in
+	 * every other condition menu.
+	 */
+	readonly offeredOnlyWhereApplicable?: true;
+	/**
 	 * Carry gate: whether the CURRENT condition holds something this
 	 * verb can build a complete value from. A `match` whose value is the
 	 * empty string matches nothing on every mode, so the commit gate
@@ -202,6 +216,8 @@ export function subjectOf(value: Expression): Expression | undefined {
 		case "multi-select-contains":
 		case "within-distance":
 			return toExpression(value.property);
+		case "call":
+			return isAnsweredCall(value) ? value.args[0] : undefined;
 		default:
 			return undefined;
 	}
@@ -847,6 +863,23 @@ function buildVerbEntries(): readonly VerbEntry[] {
 				"Choose case information or another value that can change while the app runs",
 		},
 		{
+			id: "is-answered",
+			label: "is answered",
+			icon: tablerCircleCheck,
+			description: "The worker answered it; a number answered 0 counts as not",
+			schemaKind: "call",
+			isCurrent: (p) => isAnsweredCall(p),
+			build: (p, ctx) => {
+				const subject = subjectOf(p);
+				return subject !== undefined && isFormAnswer(subject)
+					? isAnswered(subject)
+					: isAnsweredDefault(ctx);
+			},
+			subjectGate: (_t, subject) => isFormAnswer(subject),
+			disabledReason: "Choose a question of this form",
+			offeredOnlyWhereApplicable: true,
+		},
+		{
 			id: "matches-pattern",
 			label: "matches a pattern",
 			icon: tablerRegex,
@@ -1259,7 +1292,12 @@ export function PredicateVerbMenu({
 						style={{ minWidth: "17rem", maxHeight: 380 }}
 					>
 						<DropdownMenuPopup className="max-h-[min(23.75rem,var(--available-height))] min-w-0">
-							{VERB_ENTRIES.map(renderEntry)}
+							{VERB_ENTRIES.filter(
+								(entry) =>
+									entry.offeredOnlyWhereApplicable !== true ||
+									entry.isCurrent(value) ||
+									predicateCardSchemas[entry.schemaKind].applicable(editCtx),
+							).map(renderEntry)}
 							{additionalEntries.length > 0 && (
 								<>
 									<div

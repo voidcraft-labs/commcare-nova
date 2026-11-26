@@ -15,9 +15,9 @@
  * open action `open_<case type>_<n>`. The page uses the module's case type
  * for every new action; Nova uses the action's own, which names what the tag
  * holds and passes the same check. Nova spells a case type's `-` as `_`
- * (the worker's load is `autoload_commcare_user<n>`), since the tag names
- * the element `case_<tag>` and Nova's XForm element names hold no `-`; the
- * page's check accepts either. `n` starts at the action's position among
+ * (the worker's load is `autoload_commcare_user<n>`) to keep the historical
+ * spelling of derived tags. A held tag keeps the page's spelling, including
+ * hyphens. `n` starts at the action's position among
  * the form's loads or open actions and steps up past any tag already taken,
  * and past any tag whose `case_<tag>` element an existing name holds where
  * HQ's build appends it (the data root, or an open action's repeat row), so
@@ -88,11 +88,9 @@ export function allocateAdvancedTags(input: {
 			throw new Error(
 				`Nova was asked for the case tag of an advanced action on the case type "${caseType}", which is not a case type CommCare accepts: a case type holds only letters, digits, "-" and "_". The app's case types are checked before it is emitted, so this one should not have reached the tags.`,
 			);
-		// The tag names the data-root element `case_<tag>`, and a tag is held
-		// to `advancedTagSchema`, which holds no `-`, so the case type's `-`
-		// is spelled `_` (`commcare-user` gives `autoload_commcare_user0`). Two
-		// types that differ only there step `n` apart below, so tags stay
-		// distinct.
+		// Keep the historical derived spelling: two types that differ only by
+		// a hyphen or underscore step `n` apart. Imported tag identities enter
+		// through `held` and retain their exact spelling.
 		const spelledType = caseType.replaceAll("-", "_");
 		let n = position;
 		while (!free(spell(spelledType, n), rowNames)) n++;
