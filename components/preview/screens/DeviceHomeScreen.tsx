@@ -138,9 +138,16 @@ function DeviceFormList({
 				</h2>
 			</div>
 			{access !== "authorized" ? (
-				<p role="status">Checking app access</p>
+				<p role="status">
+					{runtimeMessage(language, "deviceHomeArchiveAccess")}
+				</p>
 			) : visible.length === 0 ? (
-				<p>{incomplete ? "No incomplete forms" : "No saved forms"}</p>
+				<p>
+					{runtimeMessage(
+						language,
+						incomplete ? "deviceHomeNoIncomplete" : "deviceHomeNoSaved",
+					)}
+				</p>
 			) : (
 				<ul className="grid gap-3">
 					{visible.map((record) => {
@@ -168,18 +175,14 @@ function DeviceFormList({
 						const resume = () => {
 							if (record.kind !== "incomplete") return;
 							if (doc.getState() !== record.opened.documentState) {
-								setNotice(
-									"This app changed since the form was saved. You can start another form from the app's home screen.",
-								);
+								setNotice(runtimeMessage(language, "deviceHomeDraftChanged"));
 								return;
 							}
 							if (
 								record.target.opening &&
 								record.device.appLanguage !== device.appLanguage
 							) {
-								setNotice(
-									"This form was opened in another language. You can switch back to that language or start another form.",
-								);
+								setNotice(runtimeMessage(language, "deviceHomeDraftLanguage"));
 								return;
 							}
 							const opened = session
@@ -205,13 +208,20 @@ function DeviceFormList({
 										<button
 											type="button"
 											className="nova-focusable text-sm text-nova-text-muted"
+											aria-label={runtimeMessage(
+												language,
+												"deviceHomeRemoveNamedDraft",
+												{
+													name: record.descriptor || record.name,
+												},
+											)}
 											onClick={() =>
 												session
 													.getState()
 													.removePreviewFormRecord(record.entryKey)
 											}
 										>
-											Remove
+											{runtimeMessage(language, "deviceHomeRemoveDraft")}
 										</button>
 									</div>
 								) : (
