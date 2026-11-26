@@ -122,6 +122,8 @@
 		"hq-case-management/child-close-is-true-on-a-choice",
 		"hq-case-management/child-close-on-a-text-answer",
 		"hq-case-management/close-on-a-text-answer",
+		"hq-case-management/edit-mode-on-a-registration",
+		"hq-case-management/edit-mode-on-the-own-owner",
 		"hq-case-management/extension-child-case",
 		"hq-case-management/external-id-on-a-follow-up",
 		"hq-case-management/form-condition-fixture-value",
