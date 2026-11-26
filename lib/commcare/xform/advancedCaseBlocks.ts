@@ -72,7 +72,7 @@ import {
 	serializeXForm,
 } from "@/lib/commcare/xform/domSplice";
 import { FormPath } from "@/lib/commcare/xform/formPath";
-import { ADVANCED_OPEN_LINK_IDENTIFIER_REGEX } from "@/lib/domain";
+import { ADVANCED_CASE_INDEX_IDENTIFIER_REGEX } from "@/lib/domain";
 import { advancedAutosetsOwner, appendDefaultOwner } from "../workerGroupsWire";
 import { w } from "../xpath/wire/builders";
 import { InstanceSink, sessionInstance } from "../xpath/wire/instances";
@@ -501,7 +501,7 @@ function addOpenBlock(
 		append(caseEl, indexEl);
 		for (const caseIndex of action.case_indices) {
 			const referenceId = caseIndex.reference_id || "parent";
-			if (!ADVANCED_OPEN_LINK_IDENTIFIER_REGEX.test(referenceId))
+			if (!ADVANCED_CASE_INDEX_IDENTIFIER_REGEX.test(referenceId))
 				throw new Error(`Invalid Advanced open index name: "${referenceId}"`);
 			const target = actionByTag(actions, caseIndex.tag);
 			append(

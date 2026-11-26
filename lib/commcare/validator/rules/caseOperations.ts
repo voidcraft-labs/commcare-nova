@@ -31,7 +31,7 @@ import {
 	sameCaseOperationTargetIdentity,
 } from "@/lib/doc/caseOperationOrder";
 import {
-	ADVANCED_OPEN_LINK_IDENTIFIER_REGEX,
+	ADVANCED_CASE_INDEX_IDENTIFIER_REGEX,
 	type BlueprintDoc,
 	CASE_FACET_OF_ONLY_IF_CHANGED,
 	CASE_LOADING_FORM_TYPES,
@@ -915,7 +915,7 @@ function validateLinks(
 		const standardName = isCaseOperationLinkIdentifier(link.identifier);
 		const advancedName =
 			!standardName &&
-			ADVANCED_OPEN_LINK_IDENTIFIER_REGEX.test(link.identifier);
+			ADVANCED_CASE_INDEX_IDENTIFIER_REGEX.test(link.identifier);
 		if (advancedName)
 			advancedOpen ??=
 				placementsOfForm().advanced?.opens.some(

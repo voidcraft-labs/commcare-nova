@@ -42,6 +42,7 @@ import {
 	VISITS,
 } from "../../../__tests__/advancedPlacementFixture";
 import { planFormCaseWire } from "../../../casePlacementPlan";
+import { expandDoc } from "../../../expander";
 import { namingFromHqPages } from "../../__tests__/hqPageNames";
 import {
 	codesOf,
@@ -246,6 +247,98 @@ describe("an advanced form's tags", () => {
 });
 
 describe("an advanced form's loads and open actions", () => {
+	it.each(["my-parent", "my.parent"])(
+		"keeps the exact %s connection on an explicit case list and its automatic lookup",
+		async (identifier) => {
+			const { doc } = advancedFixture({
+				formType: "registration",
+				heldKind: true,
+				operations: () => [
+					{
+						uuid: OP("own"),
+						id: "household",
+						action: "own",
+						name: read("name"),
+					},
+					{
+						...kid,
+						links: [{ ...(kid.links ?? [])[0], identifier }],
+					},
+				],
+				configure: (built) => {
+					built.modules[MEMBERS] = {
+						...built.modules[MEMBERS],
+						heldKind: "advanced",
+					};
+				},
+			});
+			const reading = await readMenusOf(doc, (app) => {
+				const memberForm = app.modules[1].forms[0];
+				const actions = memberForm.actions as {
+					load_update_cases: Record<string, unknown>[];
+				};
+				const [household, member] = actions.load_update_cases;
+				member.case_index = {
+					...(member.case_index as object),
+					reference_id: identifier,
+					relationship: "extension",
+				};
+				actions.load_update_cases.push({
+					...household,
+					case_tag: "related_household",
+					details_module: "",
+					preload: {},
+					case_properties: {},
+					auto_select: {
+						doc_type: "AutoSelectCase",
+						mode: "case",
+						value_source: member.case_tag,
+						value_key: identifier,
+					},
+				});
+			});
+			expect(codesOf(reading)).toEqual([]);
+			if (reading.doc === undefined)
+				throw new Error("Expected the retained app");
+			const entries = Object.values(reading.doc.forms).flatMap((form) =>
+				(form.caseSelections ?? []).map((row) => row.source),
+			);
+			expect(entries).toContainEqual(
+				expect.objectContaining({
+					kind: "choose",
+					under: expect.objectContaining({
+						identifier,
+						relationship: "extension",
+					}),
+				}),
+			);
+			expect(entries).toContainEqual(
+				expect.objectContaining({ kind: "index", identifier }),
+			);
+			const built = expandDoc(reading.doc);
+			const actions = built.modules
+				.flatMap((menu) => menu.forms)
+				.flatMap((form) =>
+					form.doc_type === "AdvancedForm"
+						? form.actions.load_update_cases
+						: [],
+				);
+			expect(actions).toContainEqual(
+				expect.objectContaining({
+					case_index: expect.objectContaining({ reference_id: identifier }),
+				}),
+			);
+			expect(actions).toContainEqual(
+				expect.objectContaining({
+					auto_select: expect.objectContaining({
+						mode: "case",
+						value_key: identifier,
+					}),
+				}),
+			);
+		},
+	);
+
 	it.each(["my-parent", "my.parent"])(
 		"retains the %s open index through import and advanced Case Management emission",
 		async (identifier) => {

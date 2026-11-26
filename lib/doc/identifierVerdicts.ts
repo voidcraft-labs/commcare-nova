@@ -36,8 +36,8 @@ import {
 	MAX_CASE_TYPE_LENGTH,
 } from "@/lib/commcare/constants";
 import {
-	ADVANCED_OPEN_LINK_IDENTIFIER_FORMAT_MESSAGE,
-	ADVANCED_OPEN_LINK_IDENTIFIER_REGEX,
+	ADVANCED_CASE_INDEX_IDENTIFIER_FORMAT_MESSAGE,
+	ADVANCED_CASE_INDEX_IDENTIFIER_REGEX,
 	authoredCasePropertyNameSchema,
 	type BlueprintDoc,
 	CASE_OPERATION_IDENTIFIER_FORMAT_MESSAGE,
@@ -610,14 +610,14 @@ export function caseOperationLinkIdentifierVerdict(
 		return { ok: false, code: "empty", userMessage: "Name this connection." };
 	}
 	const valid = allowAdvancedCandidate
-		? ADVANCED_OPEN_LINK_IDENTIFIER_REGEX.test(trimmed)
+		? ADVANCED_CASE_INDEX_IDENTIFIER_REGEX.test(trimmed)
 		: isCaseOperationLinkIdentifier(trimmed);
 	if (identifier !== trimmed || !valid) {
 		return {
 			ok: false,
 			code: "illegal_format",
 			userMessage: allowAdvancedCandidate
-				? ADVANCED_OPEN_LINK_IDENTIFIER_FORMAT_MESSAGE
+				? ADVANCED_CASE_INDEX_IDENTIFIER_FORMAT_MESSAGE
 				: CASE_OPERATION_LINK_IDENTIFIER_FORMAT_MESSAGE,
 		};
 	}

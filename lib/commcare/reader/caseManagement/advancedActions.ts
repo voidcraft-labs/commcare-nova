@@ -13,7 +13,7 @@
  */
 
 import {
-	ADVANCED_OPEN_LINK_IDENTIFIER_REGEX,
+	ADVANCED_CASE_INDEX_IDENTIFIER_REGEX,
 	type CaseOperation,
 	type CaseOperationLink,
 	type CaseOperationWrite,
@@ -2416,7 +2416,7 @@ function readOrdinaryAdvancedActions(
 				const namesOpen = openIndex !== undefined && loadIndex === undefined;
 				const earlierOpenIndex = afterOpenIndex;
 				if (namesOpen) afterOpenIndex = true;
-				if (!ADVANCED_OPEN_LINK_IDENTIFIER_REGEX.test(identifier)) {
+				if (!ADVANCED_CASE_INDEX_IDENTIFIER_REGEX.test(identifier)) {
 					I.refuseWhole(ADVANCED_CLAIMS.openIndexName, { name: identifier });
 					r.ok = false;
 					return;
