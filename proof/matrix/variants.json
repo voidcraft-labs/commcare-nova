@@ -1942,15 +1942,61 @@
 						"$xmlns": [1, 0]
 					}
 				],
-				"pointer": "/caseOperations/2/links/0",
-				"value": {
-					"identifier": "parent",
-					"targetType": "member",
-					"relationship": "child",
-					"target": {
-						"kind": "session"
+				"pointer": "/caseOperations/0/action",
+				"value": "own"
+			},
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [1, 0]
 					}
+				],
+				"pointer": "/caseOperations/0/placement",
+				"value": {
+					"kind": "advanced",
+					"tag": "open_member_0"
 				}
+			},
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [1, 0]
+					}
+				],
+				"pointer": "/caseOperations/0/links/0/identifier",
+				"value": "parent"
+			},
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [1, 0]
+					}
+				],
+				"pointer": "/caseOperations/0/links/0/targetType",
+				"value": "member"
+			},
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [1, 0]
+					}
+				],
+				"pointer": "/caseOperations/0/links/0/relationship",
+				"value": "child"
+			},
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [1, 0]
+					}
+				],
+				"pointer": "/caseOperations/0/links/0/target/expr/term/datum/kind",
+				"value": "form-selection"
 			}
 		]
 	},
