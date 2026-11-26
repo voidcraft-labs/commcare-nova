@@ -3563,8 +3563,8 @@
 		"subject": "search-fields",
 		"reasons": [
 			{
-				"kind": "untypeable",
-				"named": "a single-choice receiver may substitute a different lookup value"
+				"kind": "broken-at-runtime",
+				"named": "Web Apps can clear the choice or fill a different lookup value by assigning an option's position instead of its key."
 			}
 		],
 		"platforms": {
