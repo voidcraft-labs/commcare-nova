@@ -186,6 +186,8 @@ export const PLATFORM_CELLS: Readonly<
 		structural("forms-read-search"),
 	"case-search/inline-search-default-search-on-a-module-with-visible-inputs@android":
 		structural("forms-read-search"),
+	"menus-and-case-lists/android-only-text-in-a-grouped-tile-body@web-apps":
+		structural("raw-grouped-tile-body-field"),
 	"case-search/list-first-where-web-apps-is-declared@web-apps":
 		structural("list-first"),
 	"menus-and-case-lists/detail-multi-select@android":

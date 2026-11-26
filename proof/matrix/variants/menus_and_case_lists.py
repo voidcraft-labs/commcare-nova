@@ -1250,6 +1250,22 @@ def tile_cell_bordered_and_shaded(authoring, app_id):
     )
 
 
+def invisible_text_in_a_web_apps_grouped_tile_body(authoring, app_id):
+    """Place Follow-ups' existing Search Only village below the grouping heading."""
+    _set_each(
+        authoring,
+        app_id,
+        ("/cloudcare_enabled", True),
+        ("/modules/1/case_details/short/case_tile_template", "custom"),
+        *_tile_cells(1, 1, 0),
+        *_tile_cells(1, 0, 1),
+        (
+            "/modules/1/case_details/short/case_tile_group",
+            {"doc_type": "CaseTileGroupConfig", "index_identifier": "parent", "header_rows": 1},
+        ),
+    )
+
+
 def tile_grouped_by_parent(authoring, app_id):
     """Households' list laid out as a tile of two rows, a household's name above its village, the cases grouped by
     their parent with the first row as each group's header."""

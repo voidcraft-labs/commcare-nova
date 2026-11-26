@@ -43,10 +43,12 @@ import {
 	DropdownMenuTrigger,
 } from "@/components/shadcn/dropdown-menu";
 import { Input } from "@/components/shadcn/input";
+import { useDeclaredPlatforms } from "@/lib/doc/hooks/useDeclaredPlatforms";
 import { useOwnerPlatformFeatures } from "@/lib/doc/hooks/usePlatformNotes";
 import {
 	type CaseListConfig,
 	type Column,
+	rawTileTextShowsInGroupedWebBody,
 	TILE_GRID_COLUMNS,
 	type TileCell,
 	type TileFontSize,
@@ -101,6 +103,7 @@ export function TileCellInspector({
 }: TileCellInspectorProps) {
 	const onTile = tileShowsColumn(column);
 	const cell = column.tile;
+	const webApps = useDeclaredPlatforms().includes("web-apps");
 	/* Placing a field replaces this whole branch with the editor below, so
 	 * the button that did it unmounts. The first exact-place input is the
 	 * successor; without this, focus lands on the page. */
@@ -243,6 +246,16 @@ export function TileCellInspector({
 							<ToggleRow
 								label="Show this tile value only on Android"
 								checked={cell.androidOnly === true}
+								disabledReason={
+									webApps &&
+									cell.androidOnly !== true &&
+									rawTileTextShowsInGroupedWebBody(
+										{ y: cell.y, androidOnly: true },
+										config.tile?.grouping?.headerRows,
+									)
+										? "Web Apps shows this value below the group heading. You can move the field into the heading first."
+										: undefined
+								}
 								onChange={(value) => {
 									const { androidOnly: old, ...rest } = cell;
 									onPlace(value ? { ...rest, androidOnly: true } : rest);

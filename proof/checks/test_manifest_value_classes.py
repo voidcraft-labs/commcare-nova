@@ -6647,6 +6647,20 @@ def _held_new():
     def columns(*listed, **short_fields):
         return _app([_detail_module(listed, short=short_fields)])
 
+    def invisible_tile(y=1, web_apps=True, grouped=True, fmt="invisible"):
+        short = {"case_tile_template": "custom"}
+        if grouped:
+            short["case_tile_group"] = {
+                "doc_type": "CaseTileGroupConfig", "index_identifier": "parent", "header_rows": 1,
+            }
+        return _app([_detail_module(
+            columns=[
+                _column(grid_x=6, grid_y=0, width=6, height=1),
+                _column("notes", fmt, grid_x=0, grid_y=y, width=6, height=1),
+            ],
+            short=short,
+        )], cloudcare_enabled=web_apps)
+
     def tile(identifier, template="custom"):
         group = {"doc_type": "CaseTileGroupConfig", "index_identifier": identifier, "header_rows": 2}
         return columns(_column(), case_tile_template=template, case_tile_group=group)
@@ -6880,6 +6894,13 @@ def _held_new():
             # A plain value is no condition, and an ID mapping's key is compared as a value.
             accepted("app", keyed("conditional-enum", "urgent"), "schema:MappingItem.key", f"{short}/columns/0/enum/0/key"),
             accepted("app", keyed("enum", ". > ("), "schema:MappingItem.key", f"{short}/columns/0/enum/0/key"),
+        ),
+        "menus-and-case-lists/invisible-text-in-a-web-apps-grouped-tile-body": (
+            refused("app", invisible_tile(), "schema:DetailColumn.format", f"{short}/columns/1/format"),
+            accepted("app", invisible_tile(y=0), "schema:DetailColumn.format", f"{short}/columns/1/format"),
+            accepted("app", invisible_tile(web_apps=False), "schema:DetailColumn.format", f"{short}/columns/1/format"),
+            accepted("app", invisible_tile(grouped=False), "schema:DetailColumn.format", f"{short}/columns/1/format"),
+            accepted("app", invisible_tile(fmt="address"), "schema:DetailColumn.format", f"{short}/columns/1/format"),
         ),
         "menus-and-case-lists/case-tile-group-identifier-outside-an-xml-element-name": (
             refused(

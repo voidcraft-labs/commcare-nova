@@ -5163,6 +5163,27 @@ def _grid_fit(box, rows):
     return "past" if y + height > rows else "fits"
 
 
+def invisible_in_web_apps_grouped_tile_body(use, manifest):
+    """A short custom tile's invisible text field drawn as ordinary text below a Web Apps group heading."""
+    at, column, detail, kind, module = _column(use)
+    if at is None or at.key != "format" or column is None:
+        return None
+    if detail is None or module is None or not module.get("case_type") or not _case_list_tile(detail, kind):
+        return False
+    if not at.app.doc.get("cloudcare_enabled") or _format(column) != "invisible":
+        return False
+    group = detail.get("case_tile_group")
+    if not isinstance(group, dict):
+        return False
+    identifier, header_rows = group.get("index_identifier"), group.get("header_rows", 2)
+    if not isinstance(identifier, str) or XML_ELEMENT_NAME.fullmatch(identifier) is None:
+        return False
+    if type(header_rows) is not int or header_rows < 1:
+        return False
+    box = _tile_box(column)
+    return box is not None and _grid_fit(box, _offered_rows(detail, kind)) == "fits" and box[1] >= header_rows
+
+
 def _tile_cell_fit(fit):
     def reader(use, manifest):
         at, column, detail, kind, module = _column(use)
@@ -11356,6 +11377,7 @@ VALUE_CLASSES = {
     "questions/choice-value-holding-both-an-apostrophe-and-a-double-quote": choice_value_with_both_quote_marks,
     "questions/data-root-element-named-other-than-data": data_root_named_other_than_data,
     "menus-and-case-lists/detail-max-select-value-above-100": max_select_value_above_100,
+    "menus-and-case-lists/invisible-text-in-a-web-apps-grouped-tile-body": invisible_in_web_apps_grouped_tile_body,
     "menus-and-case-lists/case-tile-group-identifier-outside-an-xml-element-name": (
         tile_group_identifier_outside_an_xml_name
     ),

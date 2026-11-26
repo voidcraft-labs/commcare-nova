@@ -13302,6 +13302,21 @@
 		}
 	},
 	{
+		"id": "hq-case-lists/invisible-text-in-a-web-apps-grouped-tile-body",
+		"base": "hq-case-lists",
+		"entry": "menus-and-case-lists/invisible-text-in-a-web-apps-grouped-tile-body",
+		"standing": "fix-in-hq",
+		"place": {
+			"kind": "case-list",
+			"menu": 1,
+			"name": "Follow-ups"
+		},
+		"change": {
+			"op": "named",
+			"name": "invisible_text_in_a_web_apps_grouped_tile_body"
+		}
+	},
+	{
 		"id": "hq-case-lists/tile-grouped-by-a-hyphenated-index",
 		"base": "hq-case-lists",
 		"entry": "menus-and-case-lists/case-tile-group-identifier-outside-an-xml-element-name",

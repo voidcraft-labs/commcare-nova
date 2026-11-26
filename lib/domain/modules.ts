@@ -2830,6 +2830,19 @@ export function tileCellIsGroupHeader(
 	return cell.y < headerRows;
 }
 
+/** Web Apps ignores width zero in grouped body rows. This flag is the
+ * authored invisible text carrier; map addresses use their own wire format. */
+export function rawTileTextShowsInGroupedWebBody(
+	cell: Pick<TileCell, "y" | "androidOnly"> | undefined,
+	headerRows: number | undefined,
+): boolean {
+	return (
+		cell?.androidOnly === true &&
+		headerRows !== undefined &&
+		cell.y >= headerRows
+	);
+}
+
 /**
  * Every header depth that cuts THIS tile cleanly, ascending.
  *
@@ -2851,6 +2864,7 @@ export function tileCellIsGroupHeader(
  */
 export function tileGroupHeaderRowChoices(
 	cells: readonly TileCell[],
+	webApps = false,
 ): readonly number[] {
 	if (cells.length === 0) return [];
 	const occupiedRows = Math.max(...cells.map(tileCellBottomEdge));
@@ -2862,6 +2876,11 @@ export function tileGroupHeaderRowChoices(
 				tileCellBottomEdge(cell) > headerRows,
 		);
 		if (straddles) continue;
+		if (
+			webApps &&
+			cells.some((cell) => rawTileTextShowsInGroupedWebBody(cell, headerRows))
+		)
+			continue;
 		if (!cells.some((cell) => tileCellIsGroupHeader(cell, headerRows)))
 			continue;
 		choices.push(headerRows);

@@ -106,7 +106,11 @@ import {
 } from "./columns";
 import { CALCULATED_FIELD, readSortElements, type SortReading } from "./order";
 import { claimRestUnderFinding } from "./refusedWhole";
-import { readTile, type TileReading } from "./tile";
+import {
+	invisibleTileTextShowsInWebApps,
+	readTile,
+	type TileReading,
+} from "./tile";
 
 const A = "menus-and-case-lists/";
 
@@ -1621,6 +1625,9 @@ export function readCaseDetails(
 	const shortReadings = shortCursors.map((column, index) =>
 		readDetailColumn(ctx, module, column, "short", {
 			...shortOptions,
+			invisibleTextShowsInWebApps:
+				ctx.facts.webAppsOnInHq &&
+				invisibleTileTextShowsInWebApps(short, column),
 			filterChangesBuild: filterChangesBuild(short, index),
 		}),
 	);

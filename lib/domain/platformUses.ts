@@ -48,6 +48,7 @@ import {
 	moduleFormsReadSearch,
 	moduleHasCaseListMenuItem,
 	moduleSearchWorkflow,
+	rawTileTextShowsInGroupedWebBody,
 	type SearchInputDef,
 	tileCellFor,
 	tileCellOnlyOnAndroid,
@@ -652,7 +653,21 @@ function moduleUses(
 			uses.push(slotUse("sort-by-distance", target, slot("sort.comparator")));
 		}
 		const cell = tileCellFor(column, list?.tile);
-		if (tileCellOnlyOnAndroid(column, cell) && wanted("raw-custom-tile-field"))
+		if (
+			rawTileTextShowsInGroupedWebBody(cell, list?.tile?.grouping?.headerRows)
+		) {
+			if (wanted("raw-grouped-tile-body-field"))
+				uses.push(
+					slotUse(
+						"raw-grouped-tile-body-field",
+						target,
+						slot("tile.androidOnly"),
+					),
+				);
+		} else if (
+			tileCellOnlyOnAndroid(column, cell) &&
+			wanted("raw-custom-tile-field")
+		)
 			uses.push(
 				slotUse(
 					"raw-custom-tile-field",

@@ -96,15 +96,18 @@ export function TileGroupingSection({
 		const cell = tileCellFor(column, tile);
 		return cell === undefined ? [] : [cell];
 	});
-	const choices = tileGroupHeaderRowChoices(cells);
+	const choices = tileGroupHeaderRowChoices(
+		cells,
+		platforms.includes("web-apps"),
+	);
 	const reopenNotice = groupingReopenNotice(grouping, platforms);
 
 	if (choices.length === 0 && grouping === undefined) {
 		return (
 			<p className="text-[13px] leading-relaxed text-nova-text-muted">
-				To group cases, the tile needs a line across it that no field crosses,
-				with something above the line and something below it. Move or resize a
-				field to open one up.
+				{tileGroupHeaderRowChoices(cells).length > 0
+					? "To group these cases, move fields that show only on Android into the heading, with another field below it."
+					: "To group cases, the tile needs a line across it that no field crosses, with something above the line and something below it. Move or resize a field to open one up."}
 			</p>
 		);
 	}

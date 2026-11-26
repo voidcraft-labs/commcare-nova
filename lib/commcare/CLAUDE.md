@@ -1802,6 +1802,13 @@ Six facts the shape depends on:
 - **`function` is validated only by `XPathParseTool.parseXPath`** (`DetailGroupParser::parse`), so the identifier's schema — `XML_ELEMENT_NAME_PATTERN` on `CaseTileGrouping.identifier` — is what makes the interpolation total. There is no escaping anywhere, by construction.
 - **The grouping is Web-Apps-only at the RENDERER.** `commcare-core` parses `<group>`, stores it on `Detail`, and evaluates the key in `cases/entity/AsyncEntity::getGroupKey` — but the only consumers of that key are `util/screen/EntityScreenHelper::groupEntities` (the `src/cli` session engine formplayer builds on) and formplayer's `EntityListResponse`. Nothing in `commcare-android` reads it, so on Android a grouped list is an ordinary tile list. Say that in author-facing copy rather than implying parity.
 
+Web Apps hides a zero-width Search Only text field on an ordinary tile and in
+a group heading. `tile_grouped_item.html` renders each body row's raw value
+without checking the width hint. The import reader refuses the stored
+`DetailColumn.format` where HQ already serves Web Apps and the invisible field
+is placed in that body. The shared platform gate admits the Android-only
+placement and excludes it from Web Apps heading choices.
+
 The three refusals live in `validator/rules/case-list/caseTileGrouping.ts`, all walking only the cells `tileCellFor` admits. `lib/domain/modules.ts::tileGroupHeaderRowChoices` is their constructive twin — the depths that cut a tile cleanly — and the builder offers exactly that list, with a test pinning the two against each other in both directions. The fourth state the unit worried about is unrepresentable: `grouping` lives INSIDE `caseTileLayoutSchema`, so a `<group>` on a detail with no tile cannot be constructed.
 
 ### Multi-select case-list emission
