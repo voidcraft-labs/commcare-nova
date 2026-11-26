@@ -298,9 +298,11 @@ def test_hyphenated_tile_connection_survives_editor_grouping_and_selection(
                 *steps.click("#menu-region [id='row-targeted-ada-visit']"),
                 *steps.click("#select-case", visible=True, within=steps.WITHIN_MS),
                 steps.SCREEN,
+                *steps.choose("Follow up"),
+                steps.SCREEN,
             ])
-    listed, selected = run.screens
-    evidence("hyphenated-tile-grouping", {"listed": listed, "selected": selected})
+    listed, selected, opened = run.screens
+    evidence("hyphenated-tile-grouping", {"listed": listed, "selected": selected, "opened": opened})
     assert run.page_errors == []
     assert listed["list"]["tiles"] is True
     assert [_card(row) for row in listed["list"]["rows"]] == [
@@ -308,8 +310,9 @@ def test_hyphenated_tile_connection_survives_editor_grouping_and_selection(
         ("row-targeted-ben-visit", ["Nurse Chiku", "Ben", "Referred", "Dot", "Referred"]),
         ("row-targeted-eve-visit", ["Nurse Imani", "Eve", "Seen"]),
     ]
-    assert selected["form"]["title"] == "Follow up"
-    assert f"Grouping target {riverside}" in str(selected["form"])
+    assert selected["breadcrumbs"][-1] == "Ada"
+    assert opened["form"]["title"] == "Follow up"
+    assert [question["label"] for question in opened["form"]["questions"]] == [f"Grouping target {riverside}"]
 
 
 def _to_visits(scenario):
