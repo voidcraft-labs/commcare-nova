@@ -5127,6 +5127,25 @@ def _prompt_reader(test):
     return reader
 
 
+def additional_record_type_without_menu(use, manifest):
+    """HQ's Module Settings only offers types in the app's menus (views/modules.py)."""
+    at = _json(use)
+    if at is None:
+        return None
+    app = at.nearest("Application", "LinkedApplication")
+    menu = at.nearest(*MODULES)
+    requested = at.value
+    if app is None or menu is None or not isinstance(requested, list):
+        return None
+    if any(not isinstance(name, str) or re.fullmatch(r"[A-Za-z0-9_-]+", name) is None for name in requested):
+        return None
+    available = {
+        row["case_type"] for row in app.get("modules") or []
+        if isinstance(row, dict) and isinstance(row.get("case_type"), str) and row["case_type"]
+    }
+    return any(name != menu.get("case_type") and name not in available for name in requested)
+
+
 def search_group_layout_unreadable(use, manifest):
     """A group's header and member runs must let the Case List editor name an ordered section."""
     at = _json(use)
@@ -12773,6 +12792,7 @@ VALUE_CLASSES = {
     "case-search/a-default-filter-and-a-search-property-sharing-one-name": shared_by_filter_and_prompt,
     "case-search/appearance-address-with-required-or-validations": address_with_required_or_validations,
     "case-search/hidden-together-with-required-or-validations": hidden_with_required_or_validations,
+    "case-search/additional-record-type-without-menu": additional_record_type_without_menu,
     "case-search/search-group-layout-unreadable": search_group_layout_unreadable,
     "case-search/search-group-heading-unreadable": search_group_heading_unreadable,
     "case-search/allow-blank-value-on-a-hidden-prompt": allow_blank_on_a_hidden_prompt,

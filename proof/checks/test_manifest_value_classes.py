@@ -3826,6 +3826,29 @@ def _search_and_menus():
                 f"{prompts}/hidden",
             ),
         ),
+        "case-search/additional-record-type-without-menu": (
+            refused(
+                "app",
+                search(_search_module(additional_case_types=["patient", "household"])),
+                "schema:CaseSearch.additional_case_types",
+                f"{config}/additional_case_types",
+            ),
+            accepted(
+                "app",
+                search(
+                    _search_module(additional_case_types=["patient", "household"]),
+                    _module(case_type="household"),
+                ),
+                "schema:CaseSearch.additional_case_types",
+                f"{config}/additional_case_types",
+            ),
+            accepted(
+                "app",
+                search(_search_module(additional_case_types=["patient"])),
+                "schema:CaseSearch.additional_case_types",
+                f"{config}/additional_case_types",
+            ),
+        ),
         "case-search/search-group-layout-unreadable": (
             refused(
                 "app",
