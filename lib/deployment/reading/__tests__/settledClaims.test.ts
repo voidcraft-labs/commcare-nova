@@ -116,7 +116,6 @@ function projectData(reads: readonly HqLookupTableRead[]) {
 			definitions: [],
 			rowsByTable: {},
 			apps: {},
-			keptColumns: {},
 			siblings: [],
 			mayAdminister: true,
 		},

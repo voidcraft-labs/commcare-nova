@@ -33,11 +33,7 @@ import {
 } from "@/lib/doc/lookupReferences";
 import { type BlueprintDoc, orderedLocationProperties } from "@/lib/domain";
 import type { LookupTableId } from "@/lib/domain/lookupIds";
-import {
-	NO_ENTRIES,
-	ownRecordValue,
-	recordFromEntries,
-} from "@/lib/domain/records";
+import { NO_ENTRIES, recordFromEntries } from "@/lib/domain/records";
 import {
 	type LookupRowsMeasure,
 	lookupInlineCopyExcess,
@@ -68,7 +64,6 @@ import {
 	type LookupTableBinding,
 	type LookupTableStanding,
 	lookupBindingNames,
-	lookupFixtureBudgetFinding,
 	lookupSourceFieldDetails,
 	lookupTableFindings,
 	lookupTableStanding,
@@ -78,7 +73,6 @@ import {
 	readerLookupCatalog,
 	readingLookupSnapshot,
 	resolveLookupBindings,
-	sameManagedColumnCapFinding,
 } from "./lookupTables";
 import { managedPlacesOwnerRules } from "./ownerRules";
 import { documentReadsPlaces, planManagedPlaces } from "./places";
@@ -156,8 +150,6 @@ export interface ReadingProjectData {
 			readonly apps: Readonly<
 				Record<string, readonly LookupReferencingAppSummary[]>
 			>;
-			/** The columns of each of those tables CommCare HQ's content keeps, by the table's id. */
-			readonly keptColumns: Readonly<Record<string, readonly string[]>>;
 			readonly siblings: readonly SiblingLookupMapping[];
 			readonly mayAdminister: boolean;
 		};
@@ -185,12 +177,6 @@ export interface ReadingProjectAnswers {
 	readonly apps: Readonly<
 		Record<string, readonly LookupReferencingAppSummary[]>
 	>;
-	/**
-	 * By table id, the ids of the columns an app's reference edge names or an
-	 * accepted design protects, which CommCare HQ's content keeps where its
-	 * fields lack them (`readKeptLookupColumnIds`); a table absent keeps none.
-	 */
-	readonly keptColumns: Readonly<Record<string, readonly string[]>>;
 	readonly siblings: readonly SiblingLookupMapping[];
 	readonly mayAdminister: boolean;
 }
@@ -351,8 +337,6 @@ export function assembleReadingProjectData(input: {
 				...rowsUnreadable,
 			};
 		}
-		const keptColumnIds =
-			existing === null ? [] : keptColumnsOf(project.keptColumns, existing);
 		const standing = lookupTableStanding({
 			read,
 			origin,
@@ -374,23 +358,7 @@ export function assembleReadingProjectData(input: {
 						),
 			appReads: [],
 			mayAdminister: project.mayAdminister,
-			keptColumnIds,
 		});
-		const capFinding = sameManagedColumnCapFinding(
-			read,
-			standing,
-			keptColumnIds,
-		);
-		if (capFinding !== null) {
-			return {
-				read,
-				findings: [capFinding],
-				standing: null,
-				binding: null,
-				choice: null,
-				projectTable,
-			};
-		}
 		const [binding] = resolveLookupBindings(
 			[read],
 			recordFromEntries([[tag, standing]]),
@@ -427,7 +395,6 @@ export function assembleReadingProjectData(input: {
 				projectRevision: project.projectRevision,
 				rowsByTable: project.rowsByTable,
 				apps: project.apps,
-				keptColumns: project.keptColumns,
 				siblings: project.siblings,
 				mayAdminister: project.mayAdminister,
 			},
@@ -437,14 +404,6 @@ export function assembleReadingProjectData(input: {
 			...(places?.inconsistent ? { inconsistent: true } : {}),
 		},
 	};
-}
-
-/** The kept columns of a Project table, none where the read named none. */
-export function keptColumnsOf(
-	keptColumns: Readonly<Record<string, readonly string[]>>,
-	table: LookupTableDefinition,
-): readonly string[] {
-	return ownRecordValue(keptColumns, table.id) ?? [];
 }
 
 function rowsOf(
@@ -719,11 +678,6 @@ export function readingProjectDataFindingsFor(
 	const snapshot = readingLookupSnapshot(data, reads);
 	const unrepresentable = unrepresentableCellFindings(snapshot);
 	findings.push(...unrepresentable);
-	// No fixture holds a cell XML cannot carry, so the tables are measured
-	// together only once every cell can be written, as the export does.
-	const budget =
-		unrepresentable.length === 0 ? lookupFixtureBudgetFinding(snapshot) : null;
-	if (budget !== null) findings.push(budget);
 	if (doc !== null)
 		findings.push(
 			...tableChoicesUnusable(

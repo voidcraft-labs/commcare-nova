@@ -30,7 +30,6 @@ import {
 	createManagedLookupTablesInTransaction,
 	type ManagedOriginWrite,
 	type ManagedTableReviewed,
-	readKeptLookupColumnIds,
 	refreshManagedLookupTableInTransaction,
 } from "@/lib/lookup/managed";
 import type { ManagedLookupContent } from "@/lib/lookup/managedRules";
@@ -47,7 +46,6 @@ import {
 	type HqLookupTableRead,
 	lookupTableStanding,
 	managedLookupContentOf,
-	sameManagedColumnCapFinding,
 } from "./lookupTables";
 
 // ---------------------------------------------------------------------------
@@ -321,11 +319,6 @@ export async function writeBroughtInLookupTablesInTransaction(
 		tableIds,
 		tx,
 	);
-	const keptColumns = await readKeptLookupColumnIds(
-		tx,
-		scope.projectId,
-		tableIds,
-	);
 
 	const created: Parameters<
 		typeof createManagedLookupTablesInTransaction
@@ -360,10 +353,6 @@ export async function writeBroughtInLookupTablesInTransaction(
 		if (row !== undefined && definition === undefined) {
 			throw new BroughtInTableChangedError(tag);
 		}
-		const keptColumnIds =
-			definition === undefined || !Object.hasOwn(keptColumns, definition.id)
-				? []
-				: keptColumns[definition.id];
 		const standing = lookupTableStanding({
 			read: table.read,
 			origin,
@@ -380,12 +369,8 @@ export async function writeBroughtInLookupTablesInTransaction(
 			),
 			appReads: [],
 			mayAdminister,
-			keptColumnIds,
 		});
-		if (
-			standing.kind !== table.standing.kind ||
-			sameManagedColumnCapFinding(table.read, standing, keptColumnIds) !== null
-		) {
+		if (standing.kind !== table.standing.kind) {
 			throw new BroughtInTableChangedError(tag);
 		}
 		const content = managedLookupContentOf(table.read.table, table.read.rows);

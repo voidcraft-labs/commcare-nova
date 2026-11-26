@@ -31,10 +31,7 @@ import { normalizedHqAppSource } from "@/lib/deployment/hqSourceBaseline";
 import { lookupTableIdSchema } from "@/lib/domain/lookupIds";
 import { recordFromEntries } from "@/lib/domain/records";
 import { readLookupFixtureDataInTransaction } from "@/lib/lookup/fixtureSnapshot";
-import {
-	measureLookupRows,
-	readKeptLookupColumnIds,
-} from "@/lib/lookup/managed";
+import { measureLookupRows } from "@/lib/lookup/managed";
 import type { LookupRowsMeasure } from "@/lib/lookup/managedRules";
 import { readAllLookupDefinitionsInTransaction } from "@/lib/lookup/service";
 import type {
@@ -64,16 +61,14 @@ import { sourceMayReadPlaces } from "./places";
 /** The Project's side of the read, and Postgres's measure of candidate rows. */
 export interface ReadingProjectSide {
 	/**
-	 * The Project's tables whose tag is one of `tags`, each with its rows and
-	 * the columns CommCare HQ's content would keep (`ReadingProjectAnswers.keptColumns`),
-	 * in one snapshot.
+	 * The Project's tables whose tag is one of `tags`, each with its rows, in
+	 * one snapshot.
 	 */
 	readonly tables: (tags: readonly string[]) => Promise<{
 		readonly projectId: string;
 		readonly projectRevision: LookupRevision;
 		readonly definitions: readonly LookupTableDefinition[];
 		readonly rowsByTable: Readonly<Record<string, readonly LookupFixtureRow[]>>;
-		readonly keptColumns: Readonly<Record<string, readonly string[]>>;
 	}>;
 	/** The apps that reference each table, by table id. */
 	readonly referencingApps: (
@@ -156,7 +151,6 @@ export function postgresProjectSide(input: {
 						projectRevision: all.projectRevision,
 						definitions,
 						rowsByTable: recordFromEntries(fixture.rowsByTable),
-						keptColumns: await readKeptLookupColumnIds(tx, projectId, tableIds),
 					};
 				});
 		},
@@ -531,7 +525,6 @@ export async function readReadingProjectData(input: {
 					definitions: projectTables.definitions,
 					rowsByTable: projectTables.rowsByTable,
 					apps,
-					keptColumns: projectTables.keptColumns,
 					siblings,
 					mayAdminister,
 				},

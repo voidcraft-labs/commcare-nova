@@ -232,10 +232,11 @@ export type PrepareExportBoundaryResult =
  * prepared export still come from this module.
  */
 export interface ExportBoundaryReads {
-	/** The requested tables' definitions and complete ordered rows. */
+	/** The requested tables' definitions and complete ordered rows, for the export mode. */
 	readonly lookupFixtureData: (
 		scope: LookupScope,
 		tableIds: readonly LookupTableId[],
+		mode: ExportMode,
 	) => Promise<LookupFixtureDataSnapshot>;
 	/** The Project's rows for the requested uploaded media ids. */
 	readonly mediaRows: (
@@ -255,8 +256,12 @@ export interface ExportBoundaryReads {
 }
 
 const PRODUCTION_READS: ExportBoundaryReads = {
-	lookupFixtureData: (scope, tableIds) =>
-		getLookupFixtureData(scope, tableIds, "export"),
+	lookupFixtureData: (scope, tableIds, mode) =>
+		getLookupFixtureData(
+			scope,
+			tableIds,
+			mode === "ccz" ? "download-export" : "export",
+		),
 	mediaRows: (ids, projectId) => loadAssetsByIds(ids, projectId),
 	mediaManifest: (doc, projectId, heldPaths, streamMedia) =>
 		resolveMediaManifest(doc, projectId, {
@@ -388,6 +393,7 @@ async function prepareWithRegistry(
 	const genericData = await reads.lookupFixtureData(
 		scope,
 		lookupTargets.tableIds,
+		input.mode,
 	);
 	const restoreIds =
 		input.mode === "ccz" && input.installTarget

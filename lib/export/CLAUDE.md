@@ -73,9 +73,15 @@ shared registry.
 
 Every mode carries lookup data, so every mode reads rows; what is mode-split is
 the CARRIER and therefore the size verdict. `ccz` builds the embedded fixture
-blocks up front (`lookupWire` carries the naming and the exact serialized
-elements the budget measured) and takes the aggregate 10,000-row /
-100,000-cell / 16 MiB budget (`LOOKUP_FIXTURE_EXPORT_TOO_LARGE`). `hq-json` and
+blocks up front for the tables its snapshot holds inline (`lookupWire` carries
+the naming and the exact serialized elements the budget measured) and walks
+every other complete global table a page at a time into `suite.xml`
+(`streamedTables`, Nova's own and a complete copy of a table CommCare HQ
+manages alike: `lib/lookup/fixtureSnapshot.ts`'s `download-archive`). The
+aggregate 10,000-row / 100,000-cell / 16 MiB budget
+(`LOOKUP_FIXTURE_EXPORT_TOO_LARGE`) bounds only the inline part, which the
+snapshot keeps far below it. The HQ modes stream only Nova's own tables: a
+copy of a table CommCare HQ manages is written by its own rule below. `hq-json` and
 `hq-upload` build the fixapi workbook (`lookupWorkbook`) and take CommCare HQ's
 whole-workbook row ceiling (`LOOKUP_HQ_PUSH_TOO_LARGE`), their one size
 verdict. A 32-character tag pushes, so the workbook builder is total over every

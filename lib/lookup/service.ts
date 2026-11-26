@@ -622,7 +622,8 @@ export async function getAllLookupDefinitions(
 export async function getLookupFixtureData(
 	scope: LookupScope,
 	tableIds: readonly LookupTableId[],
-	purpose: "worker" | "export" = "worker",
+	/** `download-export` is a downloadable app's: it walks every complete global copy. */
+	purpose: "worker" | "export" | "download-export" = "worker",
 ): Promise<LookupFixtureDataSnapshot> {
 	assertScope(scope);
 	const db = await getAppDb();
@@ -635,7 +636,11 @@ export async function getLookupFixtureData(
 				tx,
 				scope.projectId,
 				tableIds,
-				purpose === "export" ? "archive" : "device",
+				purpose === "export"
+					? "archive"
+					: purpose === "download-export"
+						? "download-archive"
+						: "device",
 			);
 			const unavailable = snapshot.definitions.find(
 				(table) =>

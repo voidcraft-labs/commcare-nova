@@ -816,12 +816,13 @@ A reading's inline lookup rows are bounded per table
 request (`HQ_LOOKUP_ROWS_REQUEST_MAX_BYTES`: each table is read at most as far as
 what remains). Neither is a limit on what Nova holds: a table past either comes
 in as its confirmed definition with no row snapshot, and a Project data refresh
-reads it in pages (`managedInventory.ts`). Two lookup stops remain until
-managed generations stream into the archive: the tables read inline together
-are held to what one `.ccz` carries (`lookupFixtureBudgetFinding`, over
-`MAX_LOOKUP_FIXTURE_ROWS` / `_CELLS` / `_BYTES`, the same budget the export
-boundary applies), and a `same-managed` table that would keep more than
-`LOOKUP_MAX_COLUMNS` columns stops (`sameManagedColumnCapFinding`). No count or
+reads it in pages (`managedInventory.ts`). No total of the tables read inline
+stops a reading: a downloadable app walks every complete global copy a page at a
+time past what its snapshot holds inline (`lib/lookup/fixtureSnapshot.ts`,
+`download-archive`), so the in-memory fixture budget never meets them. Nor does a
+column count: CommCare HQ caps no table's field count, the copy holds CommCare HQ's
+fields and every column an app still reads however many that makes, and only what
+one inline copy writes (CommCare HQ's fields) is held to `LOOKUP_MAX_COLUMNS`. No count or
 total of media files stops a reading: the only media bound is the per-kind cap
 on one file. A create (and a bring-in of HQ changes) stages
 each distinct held content once, as it judges it, in a create-only object under

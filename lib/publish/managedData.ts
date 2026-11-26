@@ -1118,8 +1118,7 @@ export type LookupChoiceRefusal =
 	| "needs-admin"
 	| "managed-elsewhere"
 	| "app-reads-a-missing-column"
-	| "fails-a-project-space-rule"
-	| "too-many-columns";
+	| "fails-a-project-space-rule";
 
 /** An answer's offer, as a review table's choice carries it. */
 export type ReviewChoiceOffer =
@@ -1127,8 +1126,7 @@ export type ReviewChoiceOffer =
 	| {
 			readonly offered: false;
 			readonly why: LookupChoiceRefusal;
-			/** The other project space, the first missing column, or the count of columns the
-			 *  table would hold; null for the other two. */
+			/** The other project space or the first missing column; null for the others. */
 			readonly name: string | null;
 	  };
 
@@ -1259,8 +1257,6 @@ export function choiceNotOffered(
 			return `This app reads the column ${offerName(offer)}, which ${project}'s table doesn't have.`;
 		case "fails-a-project-space-rule":
 			return `${project}'s table, as it stands, holds something this app couldn't be published or exported with, so this app can't use it.`;
-		case "too-many-columns":
-			return `${project}'s table would have ${offerName(offer)} columns with the ones its apps still read, and Nova takes 250.`;
 	}
 }
 

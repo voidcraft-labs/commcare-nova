@@ -44,7 +44,6 @@ import type {
 import { circumstanceFinding, type Finding } from "@/lib/publish/hqFindings";
 import { canonicalLookupTable } from "../../../hqResourceBaseline";
 import type { SiblingLookupMapping } from "../../../store";
-import { manifestFinding } from "../findings";
 import {
 	assembleReadingProjectData,
 	projectDataReadsOf,
@@ -58,7 +57,6 @@ import {
 	type HqLookupTableRead,
 	type LookupTableBinding,
 	type LookupTableStanding,
-	lookupFixtureBudgetFinding,
 	lookupTableFindings,
 	lookupTableStanding,
 	readerLookupCatalog,
@@ -326,7 +324,6 @@ function standingOf(
 		appReads?: readonly string[];
 		mayAdminister?: boolean;
 		apps?: typeof APPS;
-		keptColumnIds?: readonly string[];
 	} = {},
 ): LookupTableStanding {
 	return lookupTableStanding({
@@ -337,7 +334,6 @@ function standingOf(
 		siblings: options.siblings ?? [],
 		appReads: options.appReads ?? ["code", "name"],
 		mayAdminister: options.mayAdminister ?? true,
-		keptColumnIds: options.keptColumnIds ?? [],
 	});
 }
 
@@ -738,46 +734,30 @@ describe("lookupTableStanding", () => {
 		).toEqual({ offered: true, goneColumns: [], retypedColumns: [] });
 	});
 
-	it("does not offer CommCare HQ's table where the columns apps still read would take it past 250, and offers it at 250", () => {
-		/* CommCare HQ's two fields, and columns of the Project's no field names. */
-		const wide = (extra: number) =>
-			projectTable(
-				"plain",
-				[
-					column("code"),
-					column("name"),
-					...Array.from({ length: extra }, (_, at) => column(`kept_${at}`)),
-				],
-				[],
-			);
-		const keptOf = (table: ProjectTable) =>
-			table.table.columns.map((each) => each.id);
-		const over = wide(249);
+	it("offers CommCare HQ's table however many columns apps still read beside its fields", () => {
+		/* CommCare HQ's two fields, and 249 columns of the Project's no field
+		 * names: 251 once CommCare HQ's content fills the table. CommCare HQ
+		 * caps no table's field count, and what the adoption writes is its two
+		 * fields, so no column count stops it. */
+		const over = projectTable(
+			"plain",
+			[
+				column("code"),
+				column("name"),
+				...Array.from({ length: 249 }, (_, at) => column(`kept_${at}`)),
+			],
+			[],
+		);
 		expect(
-			choiceOf(standingOf(plain(), over, { keptColumnIds: keptOf(over) }))
-				.options["use-commcare-hq"],
-		).toEqual({ offered: false, why: "too-many-columns", name: "251" });
-		// A field's own column is CommCare HQ's, counted once.
-		const at = wide(248);
-		expect(
-			choiceOf(standingOf(plain(), at, { keptColumnIds: keptOf(at) })).options[
+			choiceOf(standingOf(plain(), over, { apps: [] })).options[
 				"use-commcare-hq"
-			].offered,
-		).toBe(true);
-		// A column no app reads and no design protects is removed, not kept.
+			],
+		).toEqual({ offered: true, goneColumns: [], retypedColumns: [] });
+		// Whoever may not administer is told that.
 		expect(
-			choiceOf(standingOf(plain(), over, { keptColumnIds: [] })).options[
+			choiceOf(standingOf(plain(), over, { mayAdminister: false })).options[
 				"use-commcare-hq"
-			].offered,
-		).toBe(true);
-		// Whoever may not administer is told that first.
-		expect(
-			choiceOf(
-				standingOf(plain(), over, {
-					keptColumnIds: keptOf(over),
-					mayAdminister: false,
-				}),
-			).options["use-commcare-hq"],
+			],
 		).toEqual({ offered: false, why: "needs-admin", name: null });
 	});
 
@@ -1131,8 +1111,6 @@ describe("resolveTableChoices", () => {
 
 const PROJECT_ID = "project-1";
 const PROJECT_REVISION = "7" as LookupRevision;
-const CAPS_ENTRY =
-	"expressions-and-data/table-or-row-count-beyond-nova-s-caps-5-000-rows-250-columns-64";
 
 /** What a read gathers over `reads` and the Project's `tables`, through the production assembly. */
 function gather(
@@ -1141,7 +1119,6 @@ function gather(
 		readonly tables?: readonly ProjectTable[];
 		readonly siblings?: readonly SiblingLookupMapping[];
 		readonly mayAdminister?: boolean;
-		readonly keptColumns?: Readonly<Record<string, readonly string[]>>;
 	} = {},
 ): ReadingProjectData {
 	const tables = project.tables ?? [];
@@ -1159,7 +1136,6 @@ function gather(
 				tables.map((each) => [each.table.id, each.rows]),
 			),
 			apps: Object.fromEntries(tables.map((each) => [each.table.id, APPS])),
-			keptColumns: project.keptColumns ?? {},
 			siblings: project.siblings ?? [],
 			mayAdminister: project.mayAdminister ?? true,
 		},
@@ -1321,74 +1297,22 @@ describe("readingLookupSnapshot", () => {
 	});
 });
 
-/** A table of `rows` rows and `columns` text columns, as a snapshot holds one. */
-function bigTable(
-	tag: string,
-	rows: number,
-	columns: number,
-): {
-	readonly table: LookupTableDefinition;
-	readonly rows: LookupFixtureRow[];
-} {
-	const ids = Array.from({ length: columns }, () => columnId());
-	return {
-		table: {
-			id: tableId(),
-			name: tag,
-			tag,
-			definitionRevision: "1" as LookupRevision,
-			columns: ids.map((id, index) => ({
-				id,
-				wireName: `c${index}`,
-				label: `c${index}`,
-				dataType: "text" as const,
-			})),
-		},
-		rows: Array.from({ length: rows }, (_, row) => ({
-			id: `row-${row}` as LookupRowId,
-			values: Object.fromEntries(ids.map((id) => [id, `v${row}`])),
-		})),
-	};
-}
-
-function snapshotOf(tables: readonly ReturnType<typeof bigTable>[]) {
-	return {
-		projectId: PROJECT_ID,
-		projectRevision: PROJECT_REVISION,
-		definitions: tables.map((each) => each.table),
-		rowsByTable: new Map(tables.map((each) => [each.table.id, each.rows])),
-	};
-}
-
-describe("lookupFixtureBudgetFinding", () => {
-	it("gives the caps entry at the app for tables over one app's rows together, each within a table's cap", () => {
-		const tables = ["a", "b", "c"].map((tag) => bigTable(tag, 4_000, 1));
-		expect(lookupFixtureBudgetFinding(snapshotOf(tables))).toEqual(
-			manifestFinding(
-				CAPS_ENTRY,
-				{ kind: "app" },
-				"12,000 lookup table rows (Nova takes 10,000 in one app)",
-			),
-		);
-	});
-
-	it("gives it for two tables of 5,000 rows over one app's values, and nothing for two within it", () => {
-		expect(
-			lookupFixtureBudgetFinding(
-				snapshotOf(["a", "b"].map((tag) => bigTable(tag, 5_000, 11))),
-			),
-		).toEqual(
-			manifestFinding(
-				CAPS_ENTRY,
-				{ kind: "app" },
-				"110,000 lookup table values (Nova takes 100,000 in one app)",
-			),
+describe("readingProjectDataFindingsFor, tables together", () => {
+	it("finds nothing for tables together past what one app's lookup data held in memory", () => {
+		/* 12,000 rows over three tables: a downloadable app walks each table it
+		 * embeds a page at a time, so no total of the tables stops a reading. */
+		const rows = Array.from({ length: 4_000 }, () => plainRows[0]);
+		const tags = ["a", "b", "c"];
+		const data = gather(
+			tags.map((tag) => plain({ table: { tag, id: `${tag}-remote` }, rows })),
 		);
 		expect(
-			lookupFixtureBudgetFinding(
-				snapshotOf(["a", "b"].map((tag) => bigTable(tag, 5_000, 2))),
+			findingsFor(
+				data,
+				readsOf(Object.fromEntries(tags.map((tag) => [tag, ["code"]]))),
+				null,
 			),
-		).toBeNull();
+		).toEqual([]);
 	});
 });
 
@@ -1492,7 +1416,10 @@ describe("readingProjectDataFindingsFor, a table's rows as a question's choices"
 		expect(findings[0]?.standing).toBe("fix-in-hq");
 	});
 
-	it("finds a table managed from this project space whose refresh would keep it past 250 columns, and binds nothing", () => {
+	it("binds a table managed from this project space whose refresh keeps it past 250 columns, and finds nothing", () => {
+		/* CommCare HQ's two fields, and 249 columns of the Project's that apps
+		 * still read: 251 once the refresh fills the table, which holds any
+		 * number of columns. */
 		const managed = projectTable(
 			"plain",
 			[
@@ -1503,27 +1430,11 @@ describe("readingProjectDataFindingsFor, a table's rows as a question's choices"
 			[],
 			origin("clinic", "commcare-hq"),
 		);
-		const kept = managed.table.columns.slice(2).map((each) => each.id);
-		const over = gather([plain()], {
-			tables: [managed],
-			keptColumns: { [managed.table.id]: kept },
-		});
-		const [table] = over.gathered.tables;
-		expect(names(table.findings)).toEqual([
-			[
-				CAPS_ENTRY,
-				"plain: 251 columns with the ones apps still read (Nova takes 250)",
-			],
-		]);
-		expect(table.standing).toBeNull();
-		expect(table.binding).toBeNull();
-		expect(over.lookups.table("plain")).toBeUndefined();
-		const within = gather([plain()], {
-			tables: [managed],
-			keptColumns: { [managed.table.id]: kept.slice(1) },
-		});
-		expect(within.gathered.tables[0].standing?.kind).toBe("same-managed");
-		expect(within.gathered.tables[0].findings).toEqual([]);
+		const data = gather([plain()], { tables: [managed] });
+		const [table] = data.gathered.tables;
+		expect(table.findings).toEqual([]);
+		expect(table.standing?.kind).toBe("same-managed");
+		expect(data.lookups.table("plain")).toBeDefined();
 	});
 });
 

@@ -13,12 +13,7 @@ import type {
 	HqLookupTable,
 } from "@/lib/commcare/hq/lookupTables";
 import { lookupFixtureCellText } from "@/lib/commcare/lookup/cellText";
-import {
-	buildLookupFixtures,
-	lookupFixtureBudgetExcess,
-} from "@/lib/commcare/lookup/fixtures";
 import { lookupHqCellTextFindings } from "@/lib/commcare/lookup/hqCellText";
-import { lookupWireNaming } from "@/lib/commcare/lookup/naming";
 import {
 	MAX_HQ_FIXTURE_WORKBOOK_ROWS,
 	TYPES_SHEET,
@@ -39,10 +34,8 @@ import {
 } from "@/lib/domain/records";
 import {
 	isReservedInstanceTag,
-	LOOKUP_MAX_COLUMNS,
 	LOOKUP_MAX_TAG_LENGTH,
 } from "@/lib/lookup/constants";
-import { formatLookupBytes } from "@/lib/lookup/format";
 import {
 	columnLabelFor,
 	type ManagedLookupContent,
@@ -228,8 +221,6 @@ export function managedLookupContentOf(
 // What Nova cannot hold
 // ---------------------------------------------------------------------------
 
-const CAPS_ENTRY =
-	"expressions-and-data/table-or-row-count-beyond-nova-s-caps-5-000-rows-250-columns-64";
 const RESERVED_WORD_ENTRY =
 	"expressions-and-data/tag-containing-casedb-or-ledgerdb";
 /** Project data preserves the HQ spelling even when a worker's XPath cannot
@@ -251,10 +242,6 @@ function nameFinding(
 	)
 		return null;
 	return circumstanceFinding("unrecognized", place, { name });
-}
-
-function count(value: number): string {
-	return value.toLocaleString("en-US");
 }
 
 /**
@@ -700,54 +687,6 @@ function holdsUnrepresentableCell(
 }
 
 /**
- * The columns the Project's table holds once CommCare HQ's content fills it,
- * as `lib/lookup/managed.ts::refreshManagedLookupTableInTransaction` counts
- * them in both its modes: CommCare HQ's fields, and each column no field names
- * that an app's reference edge names or an accepted design protects.
- */
-export function columnsAfterHqFills(
-	read: Extract<HqLookupTableRead, { kind: "read" }>,
-	table: LookupTableDefinition,
-	keptColumnIds: readonly string[],
-): number {
-	const fields = new Set(read.table.fields);
-	const kept = new Set(keptColumnIds);
-	return (
-		read.table.fields.length +
-		table.columns.filter(
-			(column) => !fields.has(column.wireName) && kept.has(column.id),
-		).length
-	);
-}
-
-/** The cap's phrase for a table CommCare HQ's content would fill past `LOOKUP_MAX_COLUMNS`. */
-function keptColumnsPhrase(columnCount: number): string {
-	return `${count(columnCount)} columns with the ones apps still read (Nova takes ${count(LOOKUP_MAX_COLUMNS)})`;
-}
-
-/**
- * The caps finding of a `same-managed` tag whose refresh would hold more than
- * `LOOKUP_MAX_COLUMNS` columns once the columns apps still read are kept; null
- * for any other standing, or within the cap. Pure.
- */
-export function sameManagedColumnCapFinding(
-	read: Extract<HqLookupTableRead, { kind: "read" }>,
-	standing: LookupTableStanding,
-	keptColumnIds: readonly string[],
-): Finding | null {
-	if (read.canonical.source?.inventory === "unavailable") return null;
-	if (standing.kind !== "same-managed") return null;
-	const columns = columnsAfterHqFills(read, standing.table, keptColumnIds);
-	if (columns <= LOOKUP_MAX_COLUMNS) return null;
-	const tag = read.table.tag;
-	return manifestFinding(
-		CAPS_ENTRY,
-		{ kind: "lookup-table", tag },
-		`${tag}: ${keptColumnsPhrase(columns)}`,
-	);
-}
-
-/**
  * Where a candidate tag stands against the Project's table of that tag. A
  * standing's kind does not depend on which fields the app reads; the
  * `use-project` offer does (`appReads`).
@@ -771,9 +710,6 @@ export function lookupTableStanding(input: {
 	readonly appReads: readonly string[];
 	/** The Project's `delete` capability. */
 	readonly mayAdminister: boolean;
-	/** The ids of the Project table's columns an app's reference edge names or an accepted
-	 *  design protects (`readKeptLookupColumnIds`), which CommCare HQ's content keeps. */
-	readonly keptColumnIds: readonly string[];
 }): LookupTableStanding {
 	const { read, origin, existing } = input;
 	if (existing === null) return { kind: "new" };
@@ -818,7 +754,6 @@ export function lookupTableStanding(input: {
 	}
 
 	const fields = new Set(read.table.fields);
-	const columnsHeld = columnsAfterHqFills(read, table, input.keptColumnIds);
 	const useCommCareHq: LookupChoiceOffer =
 		restricted || privateProject
 			? { offered: false, why: "needs-source-evidence", name: null }
@@ -830,24 +765,18 @@ export function lookupTableStanding(input: {
 					}
 				: !input.mayAdminister
 					? { offered: false, why: "needs-admin", name: null }
-					: columnsHeld > LOOKUP_MAX_COLUMNS
-						? {
-								offered: false,
-								why: "too-many-columns",
-								name: count(columnsHeld),
-							}
-						: {
-								offered: true,
-								goneColumns:
-									input.apps.length === 0
-										? []
-										: table.columns
-												.filter((column) => !fields.has(column.wireName))
-												.map((column) => column.label),
-								retypedColumns: table.columns
-									.filter((column) => column.dataType !== "text")
-									.map((column) => column.label),
-							};
+					: {
+							offered: true,
+							goneColumns:
+								input.apps.length === 0
+									? []
+									: table.columns
+											.filter((column) => !fields.has(column.wireName))
+											.map((column) => column.label),
+							retypedColumns: table.columns
+								.filter((column) => column.dataType !== "text")
+								.map((column) => column.label),
+						};
 
 	const wireNames = new Set(table.columns.map((column) => column.wireName));
 	for (const attr of table.attributes ?? []) wireNames.add(`@${attr.wireName}`);
@@ -1319,34 +1248,6 @@ export function readingLookupSnapshot(
 		definitions,
 		rowsByTable,
 	};
-}
-
-/**
- * The tables of `snapshot` together over what one `.ccz` carries, as one
- * finding at the app under the caps entry, each axis named and joined with
- * " and "; null where they fit. The fixtures are built as the compiler
- * builds them (`buildLookupFixtures` over the snapshot's own naming). Pure.
- */
-export function lookupFixtureBudgetFinding(
-	snapshot: LookupFixtureDataSnapshot,
-): Finding | null {
-	const excess = lookupFixtureBudgetExcess(
-		buildLookupFixtures(
-			lookupWireNaming(
-				snapshot.definitions.filter((table) => !needsWorkerRows(table)),
-			),
-			snapshot.rowsByTable,
-		),
-	);
-	if (excess === null) return null;
-	const phrases = excess.map((axis) =>
-		axis.axis === "rows"
-			? `${count(axis.actual)} lookup table rows (Nova takes ${count(axis.allowed)} in one app)`
-			: axis.axis === "cells"
-				? `${count(axis.actual)} lookup table values (Nova takes ${count(axis.allowed)} in one app)`
-				: `${formatLookupBytes(axis.actual)} of lookup table data (Nova takes ${formatLookupBytes(axis.allowed)} in one app)`,
-	);
-	return manifestFinding(CAPS_ENTRY, { kind: "app" }, phrases.join(" and "));
 }
 
 /** What the birth writes for one tag. */
