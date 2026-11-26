@@ -75,7 +75,9 @@ export function DeviceHomeScreen() {
 		canonicalAppName;
 	const { language } = useBuilderLanguage();
 	const appSettings = useAppSettings();
-	const buttons = deviceHomeButtons(appSettings, language);
+	const buttons = deviceHomeButtons(appSettings, language, {
+		archiveAvailable: true,
+	});
 	const [list, setList] = useState<FormList>();
 
 	return (

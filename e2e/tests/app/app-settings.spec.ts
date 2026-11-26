@@ -521,3 +521,56 @@ test(
 		});
 	},
 );
+
+test("Android Preview reopens an incomplete form under its saved label", {
+	tag: "@seed:open",
+}, async ({ scenario, page }) => {
+	const { openAppId } = seedFor(scenario, "open");
+	await openBuilder(page, `/build/${openAppId}`);
+	await openAppSettings(page);
+	const android = savedWith(page, openAppId, ['"runsOnlyOn":"android"']);
+	await choosePlatforms(page, "android");
+	expect((await android).ok()).toBe(true);
+	const incomplete = savedWith(page, openAppId, ['"showIncompleteForms":true']);
+	await page.getByRole("switch", { name: /^Show incomplete forms/ }).click();
+	expect((await incomplete).ok()).toBe(true);
+	await page.keyboard.press("Escape");
+
+	await openStarterForm(page);
+	await openInsertionSubmenu(page, "Input");
+	const added = savedWith(page, openAppId, [
+		'"kind":"addField"',
+		'"kind":"text"',
+	]);
+	await page.getByRole("menuitem", { name: "Text", exact: true }).click();
+	expect((await added).ok()).toBe(true);
+
+	await page
+		.getByRole("button", { name: "Form settings", exact: true })
+		.click();
+	await page.getByLabel("Add a form behavior", { exact: true }).click();
+	await page
+		.getByRole("option", { name: "Saved form label", exact: true })
+		.click();
+	await page.getByLabel("Text for saved form label", { exact: true }).click();
+	const label = savedWith(page, openAppId, ['"savedFormDescriptorText"']);
+	await page.getByRole("option", { name: /^New Text/ }).click();
+	expect((await label).ok()).toBe(true);
+	await page
+		.getByRole("button", { name: "Close form settings", exact: true })
+		.click();
+
+	await page.getByRole("button", { name: "Preview", exact: true }).click();
+	const main = page.locator("main");
+	const answer = main.getByRole("textbox", { name: /New Text/ });
+	await answer.fill("Before leaving");
+	await main
+		.getByRole("button", { name: "Save for later", exact: true })
+		.click();
+	await main.getByRole("button", { name: "Incomplete", exact: true }).click();
+	await main.getByRole("button", { name: /^New Text/ }).click();
+	await expect(answer).toHaveValue("Before leaving");
+	await expect(
+		main.getByRole("button", { name: "Finish", exact: true }),
+	).toBeEnabled();
+});

@@ -375,7 +375,10 @@ export const PLATFORM_FEATURES: Readonly<
 	"saved-form-descriptor": {
 		label: "Saved form label",
 		channel: "structure",
-		webApps: { reading: "ignored" },
+		webApps: {
+			reading: "ignored",
+			note: "Web Apps does not use the saved form label.",
+		},
 		android: { reading: "runs" },
 	},
 	"case-list-here": {

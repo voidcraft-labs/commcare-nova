@@ -1597,12 +1597,7 @@ export function FormScreen({
 					? state.previewCaseTarget
 					: undefined;
 			const descriptor =
-				opened.descriptor ||
-				effectiveCases
-					?.map((one) => one.caseName)
-					.filter(Boolean)
-					.join(", ") ||
-				undefined;
+				opened.descriptor || effectiveCases?.at(-1)?.caseName || undefined;
 			if (
 				session.getState().savePreviewFormRecord(
 					{
@@ -3169,10 +3164,7 @@ export function FormScreen({
 							name: localizedFormName ?? form?.name ?? "",
 							descriptor:
 								savedDescriptor ||
-								submitted.cases
-									?.map((one) => one.caseName)
-									.filter(Boolean)
-									.join(", ") ||
+								submitted.cases?.at(-1)?.caseName ||
 								undefined,
 							savedAt: Date.now(),
 						},

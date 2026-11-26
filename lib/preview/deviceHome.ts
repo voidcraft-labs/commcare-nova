@@ -42,6 +42,7 @@ export const DEVICE_HOME_REASONS = {
 export function deviceHomeButtons(
 	appSettings: Pick<AppSettings, "showSavedForms" | "showIncompleteForms">,
 	language: LanguageTag | null | undefined,
+	options: { archiveAvailable?: boolean } = {},
 ): readonly DeviceHomeButton[] {
 	const button = (
 		key: DeviceHomeButtonKey,
@@ -52,11 +53,16 @@ export function deviceHomeButtons(
 		available: reason === undefined,
 		...(reason === undefined ? {} : { reason }),
 	});
+	const archiveReason = options.archiveAvailable
+		? undefined
+		: "You can open these form lists in Android Preview.";
 	return [
 		button("deviceHomeStart"),
-		...(appSettings.showSavedForms ? [button("deviceHomeSaved")] : []),
+		...(appSettings.showSavedForms
+			? [button("deviceHomeSaved", archiveReason)]
+			: []),
 		...(appSettings.showIncompleteForms
-			? [button("deviceHomeIncomplete")]
+			? [button("deviceHomeIncomplete", archiveReason)]
 			: []),
 		button("deviceHomeSync"),
 		button("deviceHomeLogOut", DEVICE_HOME_REASONS.deviceHomeLogOut),
