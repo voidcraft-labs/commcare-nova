@@ -424,3 +424,50 @@ def test_a_case_list_search_matches_as_cores_list_does(core_runner, basic_app):
     )["caseList"]
     assert len(everything["rows"]) > 1
     assert [row["fields"][0] for row in searched["rows"]] == ["zebra crossing"]
+
+
+@pytest.mark.parametrize("seed_first,expected", [(True, "prior-abc"), (False, "prior-")])
+def test_an_exact_create_id_reads_the_seed_available_when_its_ready_action_runs(
+    core_runner, seed_first, expected
+):
+    form = etree.fromstring(
+        b'<h:html xmlns="http://www.w3.org/2002/xforms" xmlns:h="http://www.w3.org/1999/xhtml">'
+        b'<h:head><h:title>Visit</h:title><model>'
+        b'<instance><data xmlns="http://example.org/visit"><key/><save>'
+        b'<case xmlns="http://commcarehq.org/case/transaction/v2" case_id=""/>'
+        b'</save></data></instance></model></h:head><h:body/></h:html>'
+    )
+    xforms = "http://www.w3.org/2002/xforms"
+    model = form.find(f".//{{{xforms}}}model")
+    seed = ("/data/key", "'abc'")
+    set_id = ("/data/save/case/@case_id", "concat('prior-', /data/key)")
+    order = [seed, set_id] if seed_first else [set_id, seed]
+    for ref, value in order:
+        etree.SubElement(model, f"{{{xforms}}}setvalue", event="xforms-ready", ref=ref, value=value)
+    result = core_runner.evaluate(
+        restoreBase64=restore64(),
+        formBase64=base64.b64encode(etree.tostring(form)).decode(),
+        expressions=["/data/key", "/data/save/case/@case_id"],
+    )
+    assert [value["value"] for value in result["values"]] == ["abc", expected]
+
+
+def test_an_exact_repeat_create_id_calculates_in_each_concrete_row(core_runner):
+    form = (
+        '<h:html xmlns="http://www.w3.org/2002/xforms" xmlns:h="http://www.w3.org/1999/xhtml">'
+        '<h:head><h:title>Visits</h:title><model><instance>'
+        '<data xmlns="http://example.org/visits">'
+        + "".join(
+            f'<visits><key>{key}</key><save><case xmlns="{CASE_XMLNS}" case_id=""/></save></visits>'
+            for key in ("one", "two")
+        )
+        + '</data></instance><bind nodeset="/data/visits/save/case/@case_id" '
+        'calculate="concat(\'visit-\', ../../../key)"/>'
+        '</model></h:head><h:body><repeat nodeset="/data/visits"/></h:body></h:html>'
+    ).encode()
+    result = core_runner.evaluate(
+        restoreBase64=restore64(),
+        formBase64=base64.b64encode(form).decode(),
+        expressions=["/data/visits[1]/save/case/@case_id", "/data/visits[2]/save/case/@case_id"],
+    )
+    assert [value["value"] for value in result["values"]] == ["visit-one", "visit-two"]

@@ -34768,20 +34768,23 @@
 	{
 		"id": "hq-questions/save-to-case-authored-id",
 		"base": "hq-questions",
-		"entry": "questions/savetocase-create-with-an-authored-non-uuid-case-id-xpath-inside",
-		"standing": "not-yet",
-		"place": {
-			"kind": "question",
-			"menu": 0,
-			"form": 0,
-			"menuName": "Questions",
-			"formName": "Survey",
-			"path": "nova_operations/make_household"
-		},
+		"entry": "questions/savetocase-case-id-expression-on-a-create",
 		"change": {
 			"op": "named",
 			"name": "save_to_case_authored_id"
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [0, 0]
+					}
+				],
+				"pointer": "/caseOperations/0/target/expr/kind",
+				"value": "concat"
+			}
+		]
 	},
 	{
 		"id": "hq-questions/save-to-case-bare-name",
