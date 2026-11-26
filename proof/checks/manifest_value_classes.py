@@ -490,7 +490,7 @@ class Form:
         return tuple((value, kind) for value, kind in found if value is not None)
 
     @cached_property
-    def long_text_owners(self):
+    def question_text_owners(self):
         """The text IDs named by the form's question references, retaining the kind of each owner.
 
         The same XPath grammar as the observer reads the owning references directly from the form.
@@ -1493,19 +1493,6 @@ def label_text_missing_in_default(use, manifest):
     return form.default_translation is not None and form.default_translation not in values
 
 
-def inline_video_off_question_label(use, manifest):
-    """An inline video referenced by a text Android does not read as a question label."""
-    form, value = _itext_value(use)
-    if form is None:
-        return None
-    if value is None or value.get("form") != "video-inline":
-        return False
-    owners = form.long_text_owners.get(value.getparent().get("id"), ())
-    if inline_video_on_empty_help(use, manifest) and owners == {"help"}:
-        return False
-    return not {"hint", "help", "alert", "message", "choice", "container-label", "caption"}.isdisjoint(owners)
-
-
 def inline_video_on_empty_help(use, manifest):
     """An otherwise empty help element keeps Android's help affordance."""
     form, value = _itext_value(use)
@@ -1514,7 +1501,7 @@ def inline_video_on_empty_help(use, manifest):
     if value is None or value.get("form") != "video-inline":
         return False
     text_id = value.getparent().get("id")
-    if "help" not in form.long_text_owners.get(text_id, ()):
+    if "help" not in form.question_text_owners.get(text_id, ()):
         return False
     for translation in form.translations:
         for text in _children(translation):
@@ -1530,20 +1517,6 @@ def inline_video_on_empty_help(use, manifest):
                 ):
                     return False
     return True
-
-
-def _long_form_on(owners):
-    """A ``long`` value whose itext entry is referenced by one of these question text owners."""
-
-    def reader(use, manifest):
-        form, value = _itext_value(use)
-        if form is None:
-            return None
-        if value is None or value.get("form") != "long":
-            return False
-        return not owners.isdisjoint(form.long_text_owners.get(value.getparent().get("id"), ()))
-
-    return reader
 
 
 def media_blank_beside_file(use, manifest):
@@ -12417,13 +12390,7 @@ VALUE_CLASSES = {
     "questions/long-xsd-long": long_input,
     "questions/media-form-missing-in-default-language": media_missing_in_default,
     "questions/long-qrcode-or-tts-form-missing-in-default-language": label_text_missing_in_default,
-    "questions/video-inline-form-on-a-text-other-than-a-question-label": inline_video_off_question_label,
     "questions/video-inline-as-the-only-content-of-a-help-text": inline_video_on_empty_help,
-    "questions/long-form-on-a-hint-help-text-validation-message-or-choice": _long_form_on(
-        {"hint", "help", "alert", "message", "choice"}
-    ),
-    "questions/long-form-on-a-repeat-action-caption": _long_form_on({"caption"}),
-    "questions/long-form-on-a-group-or-repeat-label": _long_form_on({"container-label"}),
     "questions/empty-media-form-beside-a-translated-file": media_blank_beside_file,
     "questions/intent-id-naming-an-odkx-intent-that-no-callout-question-writes": orphan_android_action,
     "questions/intent-id-on-any-input-naming-no-odkx-intent-in-the-form": missing_android_action,

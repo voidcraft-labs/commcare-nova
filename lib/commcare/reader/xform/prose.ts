@@ -2238,7 +2238,7 @@ const TEXT_ENTRY = "questions/label-default-text-itext-value";
 function recordTextOutputs(
 	ctx: ReadContext,
 	form: DraftForm,
-	slots: readonly SlotText[],
+	slots: readonly Pick<SlotText, "values">[],
 ): void {
 	const spelled = slots.some((slot) =>
 		[...slot.values.values()].some((value) =>
@@ -2362,7 +2362,7 @@ export function finishText(ctx: ReadContext): void {
 			if (xform === null) continue;
 			const text = formText(xform);
 			if (text === undefined) continue;
-			recordTextOutputs(ctx, form, text.slots);
+			recordTextOutputs(ctx, form, [...text.slots, ...text.labelTexts]);
 			const firstOf = new Map<string, { slot: SlotText; unit: ItextUnit }>();
 			for (const slot of text.slots) {
 				if (slot.first) claimCopyOutputs(ctx, text.cursor, slot, indexOf);
