@@ -2,7 +2,8 @@
 
 Each base holds ``proof/matrix/hand/<base>/expectations.json`` and the
 ``restore.xml`` its expectations run over, written by hand from what the
-base's builder authors and never from a reading. An expectation is
+base's builder authors and never from a reading. A focused expectation can
+use a second restore file named restore-*.xml in the same directory. An expectation is
 ``proof/targeted/expected.ts::Expectation`` less ``export``, with ``form`` as
 HQ's ``{menu, form}``, and ``entry`` and ``exports`` beside it. The rules,
 each failing by base with what is missing:
@@ -348,27 +349,43 @@ def _problems(base, claim_log, held, proof3):
         return problems
     expectations = json.loads((hand / "expectations.json").read_text(encoding="utf-8"))
 
-    # 1. The restore against the expectations and the seed.
-    try:
-        cases = _restore_cases((hand / "restore.xml").read_bytes())
-    except Exception as error:  # noqa: BLE001 (any parse failure is the rule's)
-        return [f"restore.xml does not parse ({error})"]
+    # 1. Each restore against the expectations that use it and the shared seed.
     catalog = {entry["name"]: {prop["name"] for prop in entry["properties"]} for entry in seed["catalog"]}
     for case_type, loaded in _loaded_properties(app).items():
         if case_type in catalog:
             catalog[case_type] |= loaded
-    for case_id, (case_type, written) in sorted(cases.items()):
-        if case_type is not None and case_type not in catalog and case_type != "commcare-user":
-            problems.append(f"restore.xml's case {case_id} is of the type {case_type}, which seed.json's catalog lacks")
-        elif case_type in catalog and written - catalog[case_type]:
-            problems.append(
-                f"restore.xml's case {case_id} writes {sorted(written - catalog[case_type])}, which seed.json gives"
-                f" {case_type} no property of"
-            )
+    restores = {"restore.xml": None}
     for expectation in expectations:
         restore = expectation.get("restore")
-        if restore != "restore.xml":
-            problems.append(f"{expectation.get('id')} names the restore {restore!r}, and a base's is restore.xml")
+        if restore != "restore.xml" and not (
+            isinstance(restore, str)
+            and Path(restore).name == restore
+            and restore.startswith("restore-")
+            and restore.endswith(".xml")
+        ):
+            problems.append(f"{expectation.get('id')} names the restore {restore!r}; use restore.xml or restore-*.xml")
+            continue
+        restores.setdefault(restore, None)
+    for restore in restores:
+        try:
+            restored_cases = _restore_cases((hand / restore).read_bytes())
+        except Exception as error:  # noqa: BLE001 (any parse failure is the rule's)
+            problems.append(f"{restore} does not parse ({error})")
+            continue
+        restores[restore] = restored_cases
+        for case_id, (case_type, written) in sorted(restored_cases.items()):
+            if case_type is not None and case_type not in catalog and case_type != "commcare-user":
+                problems.append(f"{restore}'s case {case_id} is of the type {case_type}, which seed.json's catalog lacks")
+            elif case_type in catalog and written - catalog[case_type]:
+                problems.append(
+                    f"{restore}'s case {case_id} writes {sorted(written - catalog[case_type])}, which seed.json gives"
+                    f" {case_type} no property of"
+                )
+    for expectation in expectations:
+        restore = expectation.get("restore")
+        cases = restores.get(restore) if isinstance(restore, str) else None
+        if cases is None:
+            continue
         request = expectation.get("request") or {}
         data = (request.get("session") or {}).get("data") or {}
         form = expectation.get("form") or {}
