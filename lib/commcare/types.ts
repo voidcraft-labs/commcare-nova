@@ -338,13 +338,13 @@ export interface DetailBase<XPath = string> {
 	lookup_enabled: boolean;
 	lookup_autolaunch: boolean;
 	lookup_display_results: boolean;
-	lookup_name: null;
+	lookup_name: string | null;
 	lookup_image: null;
-	lookup_action: null;
+	lookup_action: string | null;
 	lookup_field_template: null;
 	lookup_field_header: Record<string, never>;
-	lookup_extras: unknown[];
-	lookup_responses: unknown[];
+	lookup_extras: { key: string; value: XPath }[];
+	lookup_responses: { key: string }[];
 	persist_case_context: true | null;
 	persistent_case_context_xml: XPath;
 	/**
@@ -559,6 +559,8 @@ export interface CaseSearchConfig<XPath = string> {
 	search_on_clear?: true;
 	inline_search: boolean;
 	include_all_related_cases: boolean;
+	additional_case_types?: string[];
+	custom_related_case_property?: string;
 	search_button_display_condition?: XPath;
 	default_properties: DefaultCaseSearchProperty<XPath>[];
 	blacklisted_owner_ids_expression?: XPath;

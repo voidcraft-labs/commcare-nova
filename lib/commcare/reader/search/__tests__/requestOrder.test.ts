@@ -1,5 +1,7 @@
 import { expect, it } from "vitest";
+import { effectiveCaseTypes } from "@/lib/domain";
 import { literal, term } from "@/lib/domain/expression/builders";
+import { proseText } from "@/lib/domain/prose";
 import { patients, uuid } from "../../caseList/__tests__/fixtures";
 import {
 	closedCodes,
@@ -267,3 +269,38 @@ it.each([null, ""])(
 		});
 	},
 );
+
+it("keeps an order bound to the requested record type that declares its property", async () => {
+	const order = [
+		{ property: "priority", comparison: "number", direction: "descending" },
+	] as const;
+	const input = patients([], {
+		search: { requestOrder: [...order] },
+		list: {
+			searchFilters: [
+				{ uuid: uuid(33), kind: "request-record-type", caseType: "visit" },
+			],
+		},
+	});
+	input.caseTypes = [
+		...effectiveCaseTypes(input),
+		{
+			name: "visit",
+			properties: [
+				{ name: "priority", label: proseText("Priority"), data_type: "int" },
+			],
+		},
+	];
+	const reading = await readLists(input);
+	expect(closedCodes(reading), JSON.stringify(reading.findings)).toEqual([]);
+	expect(searchOf(reading)).toMatchObject({ requestOrder: order });
+	const catalog = reading.ctx.doc?.caseTypes;
+	expect(
+		catalog
+			?.find((type) => type.name === "patient")
+			?.properties.map((property) => property.name),
+	).not.toContain("priority");
+	expect(
+		catalog?.find((type) => type.name === "visit")?.properties,
+	).toMatchObject([{ name: "priority", data_type: "int" }]);
+});

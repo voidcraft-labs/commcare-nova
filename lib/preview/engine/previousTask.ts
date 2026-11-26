@@ -7,6 +7,7 @@ import {
 } from "@/lib/commcare";
 import type { BlueprintDoc, Uuid } from "@/lib/domain";
 import { moduleUuidOfForm } from "@/lib/domain";
+import { menuOffersRecordType } from "@/lib/domain/modules";
 import type {
 	PreviewEntryChoice,
 	PreviewMenuCaseSelection,
@@ -183,12 +184,19 @@ export function resolvePreviousTask(args: {
 			caseType: retained.caseType,
 			cases: current.cases.map((choice) => {
 				const row = rowById.get(choice.caseId);
-				if (!row || row.case_type !== retained.caseType)
+				if (
+					!row ||
+					!menuOffersRecordType(
+						args.doc.modules[retained.moduleUuid],
+						row.case_type,
+					)
+				)
 					throw new Error(
 						"The preceding task requires a record absent from the saved device state.",
 					);
 				return {
 					caseId: choice.caseId,
+					caseType: row.case_type,
 					caseName: row.case_name || "Case",
 					caseProperties: Object.fromEntries(caseRowToFormPreload(row)),
 				};

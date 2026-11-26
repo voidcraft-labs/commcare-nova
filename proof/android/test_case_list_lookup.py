@@ -87,3 +87,39 @@ def test_case_list_lookup_reads_the_companions_native_result(hq, editor_driver):
     assert all(not reply["isIdentification"] for reply in observed[:7])
     assert identity["isIdentification"] and identity["after"] == ["Juniper"]
     assert unknown_identity["isIdentification"] and unknown_identity["after"] == []
+
+
+
+def test_nova_archive_and_hq_release_send_fixed_extras_and_search_text(hq, android_documents):
+    from proof.android.test_form_reads import _served
+
+    document = android_documents["targeted-case-list-device-lookup"]
+    database = casedata.CaseDatabase(
+        user_id=casedata.USER_ID,
+        username=casedata.USERNAME,
+        user_data=(),
+        cases=(_case("lookup-cedar", "Cedar"), _case("lookup-juniper", "Juniper")),
+    )
+    commands = [
+        {"primary": " Cedar "},
+        {"primary": None, "named": {"first": "Juniper", "second": "Cedar"}},
+        {"primary": "none-matches"},
+    ]
+    with _served(document, database=database) as (served, released):
+        blobs = Blobs()
+        assert document.local_ccz is not None
+        for label, archive in (("hq", released), ("local", document.local_ccz.read_bytes())):
+            answer = observe.app(served, blobs, label=label, archive=archive, case_lookup_returns=commands)
+            installed = blobs.get_json(answer["answer"])
+            assert installed["install"] == "Installed", installed
+            (results,) = [
+                step["list"]["lookupReturns"]
+                for walk in installed["walks"].values()
+                for step in walk.get("steps", [])
+                if isinstance(step.get("list"), dict) and "lookupReturns" in step["list"]
+            ]
+            assert [result["after"] for result in results] == [["Cedar"], ["Juniper"], []]
+            assert [result["searchText"] for result in results] == ["Cedar", "Juniper", "none-matches"]
+            assert all(result["action"] == ACTION for result in results)
+            assert all(result["sent"] == {"visit_mode": "followup", "visit_limit": "3"} for result in results)
+            write_evidence(f"nova-case-list-lookup-{label}", results)

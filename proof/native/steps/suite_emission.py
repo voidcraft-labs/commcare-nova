@@ -124,6 +124,7 @@ def searches(family):
                 if family == "search" and source.stem == "named-parent":
                     form = app.get_module(0).get_form(0)
                     source.with_suffix(".hq-form.xml").write_bytes(regenerate_form(form, SEARCH_DOMAIN))
+                    source.with_suffix(".hq.strings.txt").write_text(known_app_strings(app, "en"))
                 (exports / f"{source.stem}.hq-suite.xml").write_bytes(suite)
                 records.append(
                     {

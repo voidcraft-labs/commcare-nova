@@ -2042,7 +2042,7 @@ type Json = Record<string, unknown>;
 type StoredMenu = Json & {
 	forms: Json[];
 	case_list_form: Json;
-	case_details: { short: Json & { sort_elements: Json[] } };
+	case_details: { short: Json & { columns: Json[]; sort_elements: Json[] } };
 	search_config: Json & { default_properties: Json[] };
 };
 
@@ -2806,6 +2806,24 @@ const PAIRS: Readonly<
 					sort_calculation: "",
 				},
 			];
+		}),
+	),
+	"legacy-related-case-text-rekeyed": editedPair(
+		() => patients([plainColumn(uuid(1), "case_name", "Name")]),
+		onMenu((menu) => {
+			Object.assign(menu.case_details.short.columns[0], {
+				field: "parent/case_name",
+				format: "translatable-enum",
+				useXpathExpression: false,
+				enum: [
+					{
+						doc_type: "MappingItem",
+						key: "guide",
+						value: { en: "Guide" },
+						alt_text: {},
+					},
+				],
+			});
 		}),
 	),
 	// A several-case list's limit of -1, which CommCare HQ reads as its own default.

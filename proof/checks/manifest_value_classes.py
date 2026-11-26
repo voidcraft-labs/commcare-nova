@@ -1771,8 +1771,7 @@ def _default_value(form, setvalue, target):
 
 def default_other_than_blank_on_a_capture_question(use, manifest):
     """``questions/default-other-than-blank-on-a-capture-question``: an attachment question's Default Value
-    (``_default_value``: a setvalue Vellum reads as the Default Value of a question an ``<upload>`` binds, which is
-    every image, audio, video, signature and file question) whose value is anything but the blank string literal.
+    anything but the blank string literal, or nonempty text on its data node.
     Web Apps clears a starting file as the form opens and submits nothing for it, and Android's ``MediaWidget``
     looks for the named file in the form's own folder and stops the form. A value Core's lexer refuses, or this
     port does not read, is not settled here: None."""
@@ -1780,14 +1779,14 @@ def default_other_than_blank_on_a_capture_question(use, manifest):
     if form is None:
         return None
     if setvalue is None:
-        return False  # an event on another element of the form, no setvalue
+        _, data = _data_node(use)
+        return _instance_text_value(form, data) and _attachment_answer(form, data)
     target = _target(form, setvalue)
     if target is None:
         return _unplaced_target(form, setvalue)
     if not _default_value(form, setvalue, target) or isinstance(target, tuple):
         return False
-    path = form.paths.get(target)
-    if not any(_local(control) == "upload" for control in form.question_controls(path)):
+    if not _attachment_answer(form, target):
         return False
     found = xpath_tokens(setvalue.get("value") or "")
     if found is None:
@@ -7801,9 +7800,22 @@ def default_data_value(use, manifest):
     form, element = _data_node(use)
     if form is None:
         return None
-    if element is None or element not in form.vellum_nodes or _children(element):
-        return False
-    return bool("".join(element.itertext()))
+    return _instance_text_value(form, element) and not _attachment_answer(form, element)
+
+
+def _instance_text_value(form, element):
+    # Core's XFormParser.getXMLDocument drops text Java String.trim() makes empty. A no-break space survives.
+    return (
+        element is not None and element in form.vellum_nodes and not _children(element)
+        and any(ord(char) > 0x20 for text in element.itertext() for char in text)
+    )
+
+
+def _attachment_answer(form, element):
+    return any(
+        _local(control) == "upload" and control.get("mediatype") in UPLOAD_MEDIATYPES
+        for control in form.question_controls(_path_of(form, element))
+    )
 
 
 def hand_written_case_block(use, manifest):
@@ -10498,6 +10510,21 @@ def live_create_id(use, manifest):
     return _creates(holder) and not form.in_repeat(form.paths[holder])
 
 
+def write_and_close(use, manifest):
+    """A Close Condition on a SaveToCase block that also changes the case."""
+    form, bind, close = _bind(use)
+    if form is None:
+        return None
+    if bind is None or close is None or isinstance(close, tuple) or close.tag != f"{{{CASE}}}close":
+        return False
+    case = close.getparent()
+    holder = case.getparent()
+    return (
+        holder.get(f"{{{VELLUM}}}role") == "SaveToCase"
+        and any(case.find(f"{{{CASE}}}{facet}") is not None for facet in ("create", "update", "index"))
+    )
+
+
 def exact_create_id(use, manifest):
     """The create's authored ready action or repeat-row bind supplies a case ID."""
     form, setvalue = _setvalue(use)
@@ -12367,6 +12394,7 @@ VALUE_CLASSES = {
     "questions/setvalue-event-xforms-value-changed-authored-xforms-revalidate": form_level_setvalue,
 
     "questions/savetocase-case-id-expression-on-a-create": exact_create_id,
+    "questions/a-savetocase-block-that-creates-or-updates-and-also-closes-under": write_and_close,
     "questions/savetocase-owner-id-condition": conditioned_create_owner,
     "questions/savetocase-link-name-changes-actions-on-save": index_name_adds_action,
     "questions/savetocase-link-bind-lost-on-save": index_period_loses_bind,

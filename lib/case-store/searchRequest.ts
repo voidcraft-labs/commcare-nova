@@ -27,6 +27,11 @@ export interface CaseSearchRequest {
 	readonly unsentPrompts?: readonly string[];
 	/** The relationship paths the requested types' Search details ask HQ to deliver. */
 	readonly relatedPaths?: readonly (readonly string[])[];
+	/** Additional types searched by the server, including request-only records. */
+	readonly additionalRequestTypes?: readonly string[];
+	readonly relatedRecordProperty?: string;
+	readonly relatedChildTypes?: readonly string[];
+	readonly includeRelatedHierarchy?: boolean;
 	readonly configuration?: SearchConfigurationSelection;
 	/** Independent of the detail's sort. Exact indexed strings use binary
 	 * ordering, with missing first ascending and last descending. Each key is
@@ -49,7 +54,10 @@ export interface CaseSearchRequest {
 /** Values sent under the same request key are matched together, in source order. */
 export interface CaseSearchParameter {
 	readonly field: string;
-	readonly target: SearchFilterTarget;
+	readonly target: Exclude<
+		SearchFilterTarget,
+		{ kind: "include-related-records" }
+	>;
 	readonly key: string;
 	readonly readsAnswers?: boolean;
 	readonly values: readonly string[];

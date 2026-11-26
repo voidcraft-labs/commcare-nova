@@ -27,6 +27,7 @@ import { expandDoc } from "@/lib/commcare/expander";
 import { runValidation } from "@/lib/commcare/validator/runner";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import type { BlueprintDoc } from "@/lib/domain";
+import { formCaseSelections } from "@/lib/domain/advancedEntryDatums";
 import { readForLane } from "@/proof/reader/laneReading";
 import { claimedEntries } from "../../__tests__/retainedBaseControl";
 
@@ -104,7 +105,8 @@ describe("an advanced open action's parent index against a menu's parent selecti
 		const visits = moduleNamed(doc, "Member visits");
 		const [formUuid] = doc.formOrder[visits.uuid] ?? [];
 		const readForm = doc.forms[formUuid];
-		const [household, member] = readForm?.caseSelections ?? [];
+		expect(readForm.type).toBe("followup");
+		const [household, member] = formCaseSelections(doc, formUuid);
 		if (!household || !member)
 			throw new Error("Expected the two form selections");
 		expect(household).toMatchObject({
@@ -121,24 +123,19 @@ describe("an advanced open action's parent index against a menu's parent selecti
 				under: { selection: household.uuid, identifier: "parent" },
 			},
 		});
-		expect(readForm.caseOperations?.[0]).toMatchObject({
-			action: "own",
+		expect(
+			readForm.caseOperations?.find(
+				(operation) => operation.action === "create",
+			),
+		).toMatchObject({
+			action: "create",
 			placement: { kind: "advanced", tag: "open_member_0" },
 			links: [
 				{
 					identifier: "parent",
 					targetType: "member",
 					relationship: "child",
-					target: {
-						kind: "expression",
-						expr: {
-							kind: "term",
-							term: {
-								kind: "session-datum",
-								datum: { kind: "form-selection", selection: member.uuid },
-							},
-						},
-					},
+					target: { kind: "session" },
 				},
 			],
 		});

@@ -1526,6 +1526,15 @@ def _questions():
         body="""<upload ref="/data/photo" mediatype="image/*"/>
           <upload ref="/data/report" mediatype="application/*,text/*"/><input ref="/data/note"/>""",
     )
+    data_defaults = form(
+        data="<photo> \t </photo><report>carry-forward.pdf</report><note>x</note><group><audio>later.mp3</audio></group>",
+        model="""<bind nodeset="/data/photo" type="binary"/><bind nodeset="/data/report" type="binary"/>
+          <bind nodeset="/data/group/audio" type="binary"/>""",
+        body="""<upload ref="/data/photo" mediatype="image/*"/><upload ref="/data/report" mediatype="application/*,text/*"/>
+          <input ref="/data/note"/><group ref="/data/group"><upload ref="/data/group/audio" mediatype="audio/*"/></group>""",
+    )
+    data_path = "data[1]/{http://example.org/t}"
+    root_child = "xform:model/instance/*/*"
     leaves = form(
         data=f'<q/><op vellum:role="SaveToCase">{case}<update><when/></update></case></op>',
         model="""<bind nodeset="/data/q" type="xsd:dateTime"/>
@@ -1690,6 +1699,10 @@ def _questions():
             refused("form", capture_defaults, "xform:setvalue@value", "model[1]/setvalue[2]/@value"),
             accepted("form", capture_defaults, "xform:setvalue@value", "model[1]/setvalue[1]/@value"),
             accepted("form", capture_defaults, "xform:setvalue@value", "model[1]/setvalue[3]/@value"),
+            refused("form", data_defaults, root_child, f"{data_path}report[1]"),
+            refused("form", data_defaults, "xform:model/instance//*", f"{data_path}group[1]/{{http://example.org/t}}audio[1]"),
+            accepted("form", data_defaults, root_child, f"{data_path}photo[1]"),
+            accepted("form", data_defaults, root_child, f"{data_path}note[1]"),
         ),
         "questions/savetocase-create-at-the-form-root-whose-authored-case-id-xpath": (
             refused("form", created, setvalue, "model[1]/setvalue[1]", readings=True),

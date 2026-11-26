@@ -68,6 +68,7 @@ export type {
  */
 export interface ParentCaseSelection {
 	readonly caseType: string;
+	readonly additionalCaseTypes?: readonly string[];
 	readonly caseIds: readonly string[];
 	/** The index name a menu emitted advanced follows to the parent
 	 *  (`caseSelectionNavigation.ts::parentCaseIndex`); absent, any direct

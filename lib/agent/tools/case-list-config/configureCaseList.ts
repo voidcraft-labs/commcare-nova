@@ -18,12 +18,14 @@ import {
 	CASE_LIST_SELECT_TEXT_DEFAULT,
 	type CaseSearchConfig,
 	calculatedSortSchema,
+	caseListDeviceLookupSchema,
 	caseListWordingSchema,
 	caseListWordingUnitId,
 	defaultSortBlanks,
 	findAuthoredBlueprintIdentity,
 	isOwnerOnlyCaseSearchConfig,
 	type Module,
+	otherRecordTypesSchema,
 	searchOpensOnList,
 	type TranslationUnitId,
 	type Uuid,
@@ -79,6 +81,12 @@ const configureSearchDisplaySchema = setCaseSearchDisplayBodySchema.partial();
 export const configureCaseListInputSchema = z
 	.strictObject({
 		...moduleAddressSchema.shape,
+		additionalCaseTypes: otherRecordTypesSchema
+			.nullable()
+			.optional()
+			.describe(
+				"Other record types workers can choose on this menu. Each needs a menu in this app. Clear with null.",
+			),
 		columns: z
 			.array(columnInputSchema)
 			.min(1)
@@ -124,6 +132,12 @@ export const configureCaseListInputSchema = z
 			.optional()
 			.describe(
 				"Replacement always-on case-list filter. null clears it; omission leaves it unchanged. Ordinary case lists already omit closed cases.",
+			),
+		deviceLookup: caseListDeviceLookupSchema
+			.nullable()
+			.optional()
+			.describe(
+				"Open a companion Android app to search the case list. Give its action and label, fixed text extras, and ordered fallback response names. null removes it; omission leaves it unchanged.",
 			),
 		emptyText: caseListWordingSchema
 			.nullable()
@@ -185,6 +199,7 @@ export const configureCaseListInputSchema = z
 			});
 		}
 		if (
+			input.additionalCaseTypes === undefined &&
 			input.columns === undefined &&
 			input.calculatedSorts === undefined &&
 			input.removeCalculatedSorts === undefined &&
@@ -192,6 +207,7 @@ export const configureCaseListInputSchema = z
 			input.searchWorkflow === undefined &&
 			input.formsReadSearch === undefined &&
 			!("filter" in input) &&
+			input.deviceLookup === undefined &&
 			input.emptyText === undefined &&
 			input.selectButtonText === undefined &&
 			input.optimizations === undefined &&
@@ -461,6 +477,27 @@ export const configureCaseListTool = {
 					).mutations,
 				);
 			}
+			if (
+				input.additionalCaseTypes !== undefined &&
+				(workingModule.caseListConfig || input.additionalCaseTypes !== null)
+			) {
+				if (!workingModule.caseListConfig)
+					append([
+						{
+							kind: "updateModule",
+							uuid: moduleUuid,
+							patch: {},
+							ensureCaseListConfig: true,
+						},
+					]);
+				append([
+					{
+						kind: "setCaseListMeta",
+						uuid: moduleUuid,
+						patch: { additionalCaseTypes: input.additionalCaseTypes },
+					},
+				]);
+			}
 			if ("filter" in input) {
 				append([
 					{
@@ -470,6 +507,14 @@ export const configureCaseListTool = {
 					},
 				]);
 			}
+			if (input.deviceLookup !== undefined)
+				append([
+					{
+						kind: "setCaseListMeta",
+						uuid: moduleUuid,
+						patch: { deviceLookup: input.deviceLookup },
+					},
+				]);
 			const wording: {
 				emptyText?: string | null;
 				selectButtonText?: string | null;

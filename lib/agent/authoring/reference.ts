@@ -144,6 +144,8 @@ A select is created with its complete choice source. Include the intended inline
 
 Use a cases choice source to choose existing records: {kind: 'cases', caseType: 'member', labelProperty: 'case_name', filter: ...}. The label defaults to case_name; every answer value is the exact record ID. An optional sortProperty orders the choices by the text of a property on the chosen record type. Equal values keep device order. Omitted filter offers every worker-available record of the type, including closed records still on the device. Add #row/status = 'open' when only open records belong. In this filter #row/property reads the candidate record; #case/property reads the form's scalar selected record, and #<record-type>/property reads an available selected ancestor. For children of the selected clinic, use exists(ancestor('parent'), #row/case_id = #case/case_id). Earlier #form answers and worker/session values are available too. Use the record's existing relationship instead of a copied parent-ID property. Case labels are saved data, not translated app wording.
 
+In a form question's case or table choice filter, position() reads the candidate's one-based position in its source. For example, position() < 3 keeps the first two candidates. Filtering happens before the choice order is applied.
+
 Filters narrow the worker's restored cases; they do not fetch more or expand access. An all-clinics selector still offers only clinics present for that worker. Test with a representative worker and location assignment. For a checklist that updates existing members, use explicit update operations. Iterate a stable roster captured at entry, retain each row ID in a hidden answer, leave that automatic repeat unlabeled when it has no worker-facing content, and condition each operation on that ID's membership in the FINAL checklist. A repeat driven by the changing selection retains rows after deselection and is not a safe attendance program.
 
 Tables store reference data; cases store the records collected by the workflow. Preview reads real case data, and sample-data actions write real rows. Use disposable data only when the task calls for it and its lifecycle is clear.`,
@@ -167,7 +169,8 @@ export function expressionFunctionReference(name: string): string | undefined {
 	return [
 		`${name}().`,
 		forms && `Forms: ${functionArgumentCount(forms)}.`,
-		records && `Record expressions: ${functionArgumentCount(records)}.`,
+		records &&
+			`${name === "position" ? "Form choice filters" : "Record expressions"}: ${functionArgumentCount(records)}.`,
 	]
 		.filter(Boolean)
 		.join(" ");

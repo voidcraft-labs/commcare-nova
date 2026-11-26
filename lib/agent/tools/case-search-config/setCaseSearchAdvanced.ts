@@ -44,6 +44,7 @@ import {
 	ADVANCED_SLOT_NAMES,
 	type AdvancedSlotName,
 	collapseUnauthoredCaseSearchConfig,
+	pickAdvancedCluster,
 	pickDisplayCluster,
 	setCaseSearchAdvancedBodySchema,
 	snapshotCaseSearchConfig,
@@ -123,6 +124,15 @@ export const setCaseSearchAdvancedTool = {
 					? isOrdinaryCaseSearchConfig(existing) &&
 						existing.searchOnClear === true
 					: input.searchOnClear === true;
+			const previous = pickAdvancedCluster(existing);
+			const relatedRecords =
+				input.relatedRecords === undefined
+					? previous.relatedRecords
+					: input.relatedRecords;
+			const relatedRecordIdProperty =
+				input.relatedRecordIdProperty === undefined
+					? previous.relatedRecordIdProperty
+					: input.relatedRecordIdProperty;
 			const clearingOwnerOnly =
 				existing !== undefined &&
 				"searchActionEnabled" in existing &&
@@ -145,7 +155,9 @@ export const setCaseSearchAdvancedTool = {
 				(workflow !== undefined ||
 					formsReadSearch ||
 					searchOnClear ||
-					requestOrder !== undefined)
+					requestOrder !== undefined ||
+					relatedRecords ||
+					relatedRecordIdProperty)
 			) {
 				return {
 					kind: "mutate" as const,
@@ -170,6 +182,8 @@ export const setCaseSearchAdvancedTool = {
 							...(workflow !== undefined && { workflow }),
 							...(formsReadSearch && { formsReadSearch: true as const }),
 							...(searchOnClear && { searchOnClear: true as const }),
+							...(relatedRecords && { relatedRecords }),
+							...(relatedRecordIdProperty && { relatedRecordIdProperty }),
 						};
 			const nextConfig = clearingOwnerOnly
 				? undefined

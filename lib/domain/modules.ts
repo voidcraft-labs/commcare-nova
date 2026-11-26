@@ -50,6 +50,7 @@ import type {
 	RelationStep,
 } from "./expression/types";
 import {
+	caseTypeNameSchema,
 	conditionSchema,
 	relationPathSchema,
 	relationStepSchema,
@@ -3320,6 +3321,7 @@ export const searchFilterTargetSchema = z.discriminatedUnion("kind", [
 		ancestors: z.tuple([relationStepSchema], relationStepSchema).optional(),
 	}),
 	z.strictObject({ kind: z.literal("record-id") }),
+	z.strictObject({ kind: z.literal("include-related-records") }),
 	z.strictObject({
 		kind: z.literal("record-name"),
 		ancestors: z.tuple([relationStepSchema], relationStepSchema).optional(),
@@ -3402,9 +3404,22 @@ export const searchOrderFilterSchema = z.strictObject({
 	kind: z.literal("order"),
 	order: searchRequestOrderSchema,
 });
+export const searchRecordTypeRowSchema = z.strictObject({
+	uuid: uuidSchema,
+	kind: z.literal("request-record-type"),
+	caseType: caseTypeNameSchema,
+});
+export const searchRelatedIdRowSchema = z.strictObject({
+	uuid: uuidSchema,
+	kind: z.literal("related-record-id"),
+	property: authoredCasePropertyNameSchema,
+});
+
 export const searchFilterSchema = z.union([
 	searchValueFilterSchema,
 	searchOrderFilterSchema,
+	searchRecordTypeRowSchema,
+	searchRelatedIdRowSchema,
 ]);
 export type SearchFilter = z.infer<typeof searchFilterSchema>;
 export type SearchValueFilter = z.infer<typeof searchValueFilterSchema>;
@@ -3413,6 +3428,95 @@ export function searchFilterUsesValue(
 ): filter is SearchValueFilter {
 	return "target" in filter;
 }
+
+/** Case type names are identities in the app catalog. HQ reads the menu
+ * roster as a set. Retain request-only types separately: their primary hits
+ * consume the search limit and can be read by a form without being choices. */
+export const otherRecordTypesSchema = z
+	.array(caseTypeNameSchema)
+	.min(1)
+	.refine(
+		(types) => new Set(types).size === types.length,
+		"Choose each record type once.",
+	);
+
+export function menuRecordTypes(
+	primary: string,
+	config?: Pick<CaseListConfig, "additionalCaseTypes">,
+): string[] {
+	return [
+		primary,
+		...[...new Set(config?.additionalCaseTypes)]
+			.filter((type) => type !== primary)
+			.sort(),
+	];
+}
+
+/** Primary hits sent by search, including those a form can read even when the
+ * menu offers no choice of that type. */
+export function requestedRecordTypes(
+	primary: string,
+	config?: CaseListConfig,
+): string[] {
+	return [
+		...new Set([
+			...menuRecordTypes(primary, config),
+			...(config?.searchFilters ?? []).flatMap((filter) =>
+				"kind" in filter && filter.kind === "request-record-type"
+					? [filter.caseType]
+					: [],
+			),
+		]),
+	];
+}
+
+/** Whether the selected physical record can supply an ordinary menu datum. */
+export function menuOffersRecordType(
+	module: Pick<Module, "caseType" | "caseListConfig"> | undefined,
+	type: string,
+): boolean {
+	return (
+		!!module?.caseType &&
+		(module.caseType === type ||
+			!!module.caseListConfig?.additionalCaseTypes?.includes(type))
+	);
+}
+
+/** A case list can open a companion on Android and use its returned text to search. */
+const deviceLookupName = z.string().trim().min(1);
+export const caseListDeviceLookupSchema = z
+	.strictObject({
+		action: deviceLookupName,
+		label: deviceLookupName,
+		automatic: z.literal(true).optional(),
+		extras: z
+			.array(
+				z.strictObject({
+					name: deviceLookupName.refine(
+						(name) => name !== "force_xpath_parsing",
+					),
+					value: z.string(),
+				}),
+			)
+			.min(1),
+		responses: z.array(deviceLookupName).min(1),
+	})
+	.superRefine(({ extras, responses }, ctx) => {
+		const names = extras.map(({ name }) => name);
+		if (new Set(names).size !== names.length)
+			ctx.addIssue({
+				code: "custom",
+				path: ["extras"],
+				message: "Give each value sent to the app a different name.",
+			});
+		if (new Set(responses).size !== responses.length)
+			ctx.addIssue({
+				code: "custom",
+				path: ["responses"],
+				message: "Use each response name once.",
+			});
+	});
+export type CaseListDeviceLookup = z.infer<typeof caseListDeviceLookupSchema>;
 
 export const caseListConfigSchema = z
 	.strictObject({
@@ -3439,6 +3543,7 @@ export const caseListConfigSchema = z
 		contextAboveForm: caseFormContextSchema.optional(),
 		filter: conditionSchema.optional(),
 		searchCondition: conditionSchema.optional(),
+		additionalCaseTypes: otherRecordTypesSchema.optional(),
 		searchFilters: z.array(searchFilterSchema).min(1).optional(),
 		searchInputs: z.array(searchInputDefSchema),
 		/**
@@ -3469,6 +3574,7 @@ export const caseListConfigSchema = z
 		 * space's `CASE_LIST_OPTIMIZATIONS` gates.
 		 */
 		optimizations: z.literal(true).optional(),
+		deviceLookup: caseListDeviceLookupSchema.optional(),
 		/**
 		 * Tile layout for the Results surface. Absent ≡ the ordinary row
 		 * layout. See `caseTileLayoutSchema`.
@@ -3476,6 +3582,13 @@ export const caseListConfigSchema = z
 		tile: caseTileLayoutSchema.optional(),
 	})
 	.superRefine((config, ctx) => {
+		if (config.deviceLookup && config.tile?.namedSlots)
+			ctx.addIssue({
+				code: "custom",
+				path: ["deviceLookup"],
+				message:
+					"Use a list or a custom case tile to look up cases with an Android app.",
+			});
 		if (
 			config.tile?.rawSlots &&
 			(!config.tile.namedSlots ||
@@ -3708,7 +3821,10 @@ export function caseSelectionCanFlowBetweenModules(
 ): boolean {
 	if (
 		sourceModule.caseType === undefined ||
-		sourceModule.caseType !== targetModule.caseType
+		sourceModule.caseType !== targetModule.caseType ||
+		!menuRecordTypes(sourceModule.caseType, sourceModule.caseListConfig).every(
+			(type) => menuOffersRecordType(targetModule, type),
+		)
 	) {
 		return false;
 	}
@@ -3852,6 +3968,11 @@ export const ordinaryCaseSearchConfigSchema = z
 				),
 			})
 			.optional(),
+		/** One additional record whose ID each match carries. */
+		relatedRecordIdProperty: authoredCasePropertyNameSchema.optional(),
+		/** Absent follows the information displayed by the list. */
+		relatedRecords: z.enum(["hierarchy", "details"]).optional(),
+
 		// Owner-availability slot.
 		// `excludedOwnerIds` evaluates ONCE, before a case is selected, to a
 		// space-separated list of owner ids whose cases are excluded from every
@@ -3959,6 +4080,8 @@ export function caseSearchConfigHasAuthoredSettings(
 	return (
 		config.excludedOwnerIds !== undefined ||
 		config.requestOrder !== undefined ||
+		config.relatedRecordIdProperty !== undefined ||
+		config.relatedRecords !== undefined ||
 		config.searchScreenTitle !== undefined ||
 		config.searchScreenSubtitle !== undefined ||
 		config.searchButtonDisplayCondition !== undefined ||

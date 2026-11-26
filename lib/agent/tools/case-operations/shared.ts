@@ -120,6 +120,7 @@ const linkIdInputSchema = z
 	)
 	.max(255)
 	.superRefine((value, ctx) => {
+		// Action names depend on the committed operation's wire placement.
 		const verdict = caseOperationLinkIdentifierVerdict(
 			value,
 			new Set(),

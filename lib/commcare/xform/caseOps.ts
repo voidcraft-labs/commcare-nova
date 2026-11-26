@@ -48,6 +48,7 @@ import {
 	captureUrlNodePath,
 } from "@/lib/commcare/xform/captureUrlNode";
 import { descendFormPathIntoField } from "@/lib/commcare/xform/formPath";
+import { saveToCaseActions } from "@/lib/commcare/xform/saveToCaseActions";
 import {
 	caseOperationConditionalGuardUuids,
 	caseOperationExpressionSnapshotTypes,
@@ -1114,7 +1115,12 @@ export function buildCaseOperations(
 			? registrationCaseType(moduleCaseType)
 			: operation.caseType;
 		const target = operationTarget(operation, form.type);
-		const create = operation.action === "create" || (own && registration);
+		const { create, close: closesHere } = saveToCaseActions(
+			operation,
+			form.type,
+			ownClose?.sharesWith === operation.uuid &&
+				placements.get(operation.uuid)?.placement.kind === "save-to-case",
+		);
 		const repeat = operation.forEach?.repeat;
 		const site = siteOf(block);
 		const { group } = site;
@@ -1276,12 +1282,6 @@ export function buildCaseOperations(
 				? undefined
 				: operation.name
 			: operation.rename;
-		const closesHere =
-			operation.action === "close" ||
-			operation.closeAfter === true ||
-			(own &&
-				ownClose?.sharesWith === operation.uuid &&
-				placements.get(operation.uuid)?.placement.kind === "save-to-case");
 		const writes = (operation.writes ?? []).filter((write) => {
 			if (write.via !== undefined)
 				throw new Error(

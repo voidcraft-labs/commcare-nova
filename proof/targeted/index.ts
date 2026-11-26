@@ -24,6 +24,7 @@ import { attributeDisplayCondition } from "./documents/attributeDisplayCondition
 import { blankLabels } from "./documents/blankLabels";
 import { captureWidgets } from "./documents/captureWidgets";
 import { attributeColumns, caseIdColumn } from "./documents/caseIdColumn";
+import { caseListDeviceLookup } from "./documents/caseListDeviceLookup";
 import { caseListIconAction } from "./documents/caseListIconAction";
 import { caseListMenuItem } from "./documents/caseListMenuItems";
 import { caseListSearchTextDocument } from "./documents/caseListSearchText";
@@ -97,7 +98,10 @@ import {
 	hqChangesQuestions,
 	hqChangesResave,
 } from "./documents/hqChanges";
-import { hqChangesCaseFormats } from "./documents/hqChangesCaseFormats";
+import {
+	hqChangesCaseFormats,
+	legacyRelatedCaseText,
+} from "./documents/hqChangesCaseFormats";
 import { hqChangesCaseImage } from "./documents/hqChangesCaseImage";
 import { hqChangesCaseTabs } from "./documents/hqChangesCaseTabs";
 import { hqSideLookup } from "./documents/hqSideLookup";
@@ -186,7 +190,10 @@ import { sessionReads } from "./documents/sessionReads";
 import { severalCaseClose } from "./documents/severalCaseClose";
 import { sharedVisitEntries } from "./documents/sharedVisitEntries";
 import { sortBlanks } from "./documents/sortBlanks";
-import { sortedCaseChoices } from "./documents/sortedCaseChoices";
+import {
+	caseChoiceReopen,
+	sortedCaseChoices,
+} from "./documents/sortedCaseChoices";
 import { independentCaseOrder, sharedPropertySort } from "./documents/sortKeys";
 import { sortLabels } from "./documents/sortLabels";
 import {
@@ -222,6 +229,7 @@ export const TARGETED_DOCUMENTS: readonly (() => CorpusDocument)[] = [
 	webFormActivity,
 	labelSort,
 	customTile,
+	caseListDeviceLookup,
 	caseListIconAction,
 	closeConditions,
 	closeConditionUnparsable,
@@ -346,6 +354,7 @@ export const TARGETED_DOCUMENTS: readonly (() => CorpusDocument)[] = [
 	connectLearnHyphenIds,
 	androidAppAnswers,
 	sortedCaseChoices,
+	caseChoiceReopen,
 	numberKeypad,
 	questionCalendar,
 	savedFormDescriptor,
@@ -378,6 +387,7 @@ export const TARGETED_DOCUMENTS: readonly (() => CorpusDocument)[] = [
 	hqChangesFormSetting,
 	hqChangesCaseManagement,
 	hqChangesCaseFormats,
+	legacyRelatedCaseText,
 	hqChangesCaseImage,
 	hqChangesCaseTabs,
 	hqChangesMenu,

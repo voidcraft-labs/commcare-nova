@@ -306,11 +306,6 @@ describe("a root create's authored id", () => {
 			"/data/note",
 			"questions/savetocase-create-at-the-form-root-whose-authored-case-id-xpath",
 		],
-		[
-			"any other expression",
-			"concat('visit-', uuid())",
-			"questions/savetocase-create-with-an-authored-non-uuid-case-id-xpath-inside",
-		],
 	] as const)
 		it(`is its entry once where it is ${what}, and no operation`, async () => {
 			const reading = await readCases(app(), {
@@ -325,6 +320,52 @@ describe("a root create's authored id", () => {
 					.filter((one) => one.action === "create"),
 			).toEqual([]);
 		});
+
+	it("gives an opening expression outside the typed dialect its own finding", async () => {
+		const reading = readHqApp(
+			await inputFor(
+				exportedBody(app(), {
+					xml: createIdSetTo("concat('visit-', uuid())"),
+				}),
+			),
+		);
+		expect(reading.kind).toBe("account");
+		expect(reading.kind === "account" ? reading.findings : []).toContainEqual(
+			expect.objectContaining({
+				code: "questions/savetocase-expressions-outside-nova-s-typed-vocabularies-case-id",
+				detail: expect.objectContaining({ reason: "call:uuid" }),
+			}),
+		);
+	});
+
+	it("keeps the complete typed opening expression without an extra ID prefix", async () => {
+		const doc = app();
+		const value = "concat('visit-', today())";
+		const outcome = readHqApp(
+			await inputFor(exportedBody(doc, { xml: createIdSetTo(value) })),
+		);
+		if (outcome.kind !== "read")
+			throw new Error(JSON.stringify(outcome.findings));
+		const held = outcome.draft.doc;
+		const form = Object.values(held.forms)[0];
+		expect(
+			form.caseOperations?.find((operation) => operation.action === "create"),
+		).toMatchObject({
+			target: { kind: "new", expr: { kind: "concat" } },
+		});
+		const emitted = Object.values(expandDoc(held)._attachments).find(
+			(xml): xml is string =>
+				typeof xml === "string" && xml.includes("SaveToCase"),
+		);
+		if (emitted === undefined)
+			throw new Error("The raw form source is absent.");
+		const opening = elements(parseXml(emitted) as unknown as Node).find(
+			(node) =>
+				node.name === "setvalue" &&
+				node.attribs?.ref?.endsWith("/photo/case/@case_id"),
+		);
+		expect(opening?.attribs).toMatchObject({ event: "xforms-ready", value });
+	});
 });
 
 /** The source with the root create's id setvalue edited by `edit`, and the bind of `note` given

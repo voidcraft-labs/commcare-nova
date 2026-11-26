@@ -132,6 +132,10 @@ export function expressionFocusTitle(value: Expression): string {
 			return "Formatted date";
 		case "table-lookup":
 			return "Table value";
+		case "call":
+			return value.fn === "position" && value.args.length === 0
+				? "Source row position"
+				: "Saved expression";
 		case "negate":
 			return "Negative value";
 		case "here":
@@ -187,6 +191,10 @@ export function expressionFocusDescription(value: Expression): string {
 			return "Writes a date in the chosen style";
 		case "table-lookup":
 			return "Uses a value from a Project data table";
+		case "call":
+			return value.fn === "position" && value.args.length === 0
+				? "The candidate’s place in the source before sorting"
+				: "This saved expression is preserved";
 		case "negate":
 			return "Reverses the sign of a number";
 		case "here":

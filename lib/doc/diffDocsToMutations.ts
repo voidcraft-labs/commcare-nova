@@ -3194,6 +3194,7 @@ function diffCaseListMeta(
 ): Mutation[] {
 	const patch: {
 		filter?: CaseListConfig["filter"] | null;
+		additionalCaseTypes?: CaseListConfig["additionalCaseTypes"] | null;
 		listCondition?: CaseListConfig["filter"] | null;
 		searchCondition?: CaseListConfig["filter"] | null;
 		selection?: CaseListConfig["selection"] | null;
@@ -3204,7 +3205,10 @@ function diffCaseListMeta(
 		emptyText?: string | null;
 		selectButtonText?: string | null;
 		optimizations?: true | null;
+		deviceLookup?: CaseListConfig["deviceLookup"] | null;
 	} = {};
+	if (!deepEqual(prev.deviceLookup, next.deviceLookup))
+		patch.deviceLookup = next.deviceLookup ?? null;
 	if (prev.optimizations !== next.optimizations)
 		patch.optimizations = next.optimizations ?? null;
 	for (const key of ["emptyText", "selectButtonText"] as const)
@@ -3239,24 +3243,13 @@ function diffCaseListMeta(
 			});
 			continue;
 		}
-		// An order row has no target or value: its terms change in place, and a
-		// row that changes between an order and a value filter is a new row.
-		if (!("target" in row) || !("target" in old)) {
-			if (!("target" in row) && !("target" in old)) {
-				if (!deepEqual(old.order, row.order))
-					addFilterEdit({
-						operation: "edit",
-						uuid: row.uuid,
-						patch: { order: cloneEntity(row.order) },
-					});
-			} else {
-				addFilterEdit({ operation: "remove", uuid: old.uuid });
+		if (!("target" in old) || !("target" in row)) {
+			if (!deepEqual(old, row))
 				addFilterEdit({
-					operation: "add",
+					operation: "replace",
+					uuid: row.uuid,
 					filter: cloneEntity(row),
-					after: predecessorIn(afterIds, row.uuid),
 				});
-			}
 			continue;
 		}
 		const changedTarget = !deepEqual(old.target, row.target);
@@ -3279,6 +3272,8 @@ function diffCaseListMeta(
 	for (const id of beforeIds)
 		if (!afterIds.includes(id))
 			addFilterEdit({ operation: "remove", uuid: id });
+	if (!deepEqual(prev.additionalCaseTypes, next.additionalCaseTypes))
+		patch.additionalCaseTypes = cloneEntity(next.additionalCaseTypes ?? null);
 	const listChanged = !deepEqual(prev.filter, next.filter);
 	const searchChanged = !deepEqual(
 		searchConditionOf(prev),

@@ -994,6 +994,30 @@ export const MODULE_REFERENCE_SLOTS = [
 	},
 	{
 		entity: "module",
+		slot: "case_list_additional_type",
+		path: "caseListConfig.additionalCaseTypes[]",
+		kind: "case-type-ref",
+	},
+	{
+		entity: "module",
+		slot: "search_request_type",
+		path: "caseListConfig.searchFilters[].caseType",
+		kind: "case-type-ref",
+	},
+	{
+		entity: "module",
+		slot: "search_request_related_property",
+		path: "caseListConfig.searchFilters[].property",
+		kind: "case-property-ref",
+	},
+	{
+		entity: "module",
+		slot: "search_related_property",
+		path: "caseSearchConfig.relatedRecordIdProperty",
+		kind: "case-property-ref",
+	},
+	{
+		entity: "module",
 		slot: "search_order_property",
 		path: "caseSearchConfig.requestOrder[].property",
 		kind: "case-property-ref",
@@ -2327,6 +2351,7 @@ export const NON_REFERENCE_MODULE_PATHS: Readonly<
 	heldKind: "config",
 	// A list that goes on by itself when it holds one row: a flag.
 	autoSelectSingle: "config",
+	searchResultsName: "declaration",
 	purpose: "display-text",
 	icon: "media",
 	audioLabel: "media",
@@ -2466,6 +2491,7 @@ export const NON_REFERENCE_MODULE_PATHS: Readonly<
 	"caseListConfig.searchInputs[].sendAnswer": "config",
 	"caseListConfig.searchInputs[].hidden": "config",
 	"caseListConfig.searchFilters[].uuid": "identity",
+	"caseSearchConfig.relatedRecords": "config",
 	"caseListConfig.searchFilters[].target.kind": "discriminator",
 	"caseListConfig.searchFilters[].target.attribute": "config",
 	"caseListConfig.searchFilters[].target.identifier": "config",

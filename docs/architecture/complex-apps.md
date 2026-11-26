@@ -994,12 +994,14 @@ reducer no-op to report success. No tool-side slug/path/id projection or
 rewrite layer exists. The operation id, write property, and link identifier
 vocabularies share one domain-owned grammar
 (`lib/domain/caseOperationIdentifiers.ts`) with the builder, validator, and
-tool schemas — an operation id or link identifier holds ASCII letters,
-digits, and underscores and starts with a letter or underscore; a write
-property takes the catalog's grammar, a letter first, then letters, digits,
-underscores, and hyphens — so action-illegal facet combinations, platform-owned case
-types, and reserved write properties are unconstructible at the shared tool
-boundary.
+tool schemas. An operation id or link identifier starts with an ASCII letter
+or underscore and can contain letters, digits, and underscores. A link
+identifier can also contain hyphens. A write property takes the catalog's
+grammar, a letter first followed by letters, digits, underscores, or hyphens.
+The shared authoring gate checks whether a link named `create` or `close`
+has the matching direct action in the source block where the case change is
+planned to run. The shared tool boundary also enforces legal combinations of
+action facets, platform-owned case types, and reserved write properties.
 
 Lookup-backed expressions use that same stored tree on the builder, SA, and MCP surfaces: reads return the lookup UUID leaves and
 all three editors may update them without hiding or partially projecting the
@@ -1567,6 +1569,12 @@ the day becomes the worker's (the rewrite `search-today-device-day`).
 Equality on a date-and-time property is sent as a closed instant range, which
 HQ answers by instant for every spelling its parser reads
 (`lib/commcare/csql/emitter.ts::readsInstantByRange`).
+
+#### Search request types and selectable records
+
+A case list's additional types are selectable and require a menu in the app. A request-only type contributes to the server's primary population and the results instance a form reads. The server orders all requested types and applies its result limit before the device selects the visible rows. A result carries its actual case type through details, selection and submission.
+
+Search includes an explicitly referenced related record before expanding the hierarchy or the paths required by the requested types' searchable details. Supporting cases retain their status and stay apart from selectable matches, including when reached through a supporting record. Claim admission repeats the current search under the worker's scope and checks prior selections in the same transaction.
 
 #### The search workflow
 

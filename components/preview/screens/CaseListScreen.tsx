@@ -367,7 +367,10 @@ const NO_CLAIMED_CASES: readonly string[] = [];
 type FormMenuCase = Pick<
 	CaseRowWithCalculated,
 	"case_id" | "case_name" | "heldOnDevice"
->;
+> &
+	Partial<Pick<CaseRowWithCalculated, "case_type">> & {
+		readonly searchSource?: PreviewCaseChoice["searchSource"];
+	};
 /** The Results while the device's cases a search reads have failed to load:
  * a cases-load failure, retried by reading the device's cases again. */
 const CASES_LOAD_FAILED: ReturnType<typeof useCases>["state"] = {
@@ -1637,12 +1640,32 @@ export function CaseListScreen({
 	 * nothing. Resolves false when the claim did not land, with the reason
 	 * shown, so the caller stays where it is, or when the worker has left
 	 * the step the choice was made on (`step`) meanwhile. */
+	const choiceOf = (row: FormMenuCase): PreviewCaseChoice => ({
+		...previewCaseChoiceOf(row),
+		...(row.searchSource
+			? { searchSource: row.searchSource }
+			: moduleUuid &&
+				row.heldOnDevice !== undefined &&
+				activeSearchInputValues !== undefined && {
+					searchSource: {
+						moduleUuid,
+						...(submittedSearchOf(searchState)?.automatic === true && {
+							defaultSearch: true,
+						}),
+						answers: [...activeSearchInputValues].map(([name, value]) => ({
+							name,
+							value,
+						})),
+					},
+				}),
+	});
 	const postClaim = async (
 		caseIds: readonly string[],
 		step: PreviewChoiceStep = choiceStep(),
+		choices: readonly PreviewCaseChoice[] = [],
 	): Promise<boolean> => {
 		if (caseIds.length === 0) return choiceStands(step);
-		const outcome = await claimSearchedCases(caseIds);
+		const outcome = await claimSearchedCases(caseIds, choices);
 		/* A claim whose screen is gone (another app, scope or worker), or
 		 * whose choice the worker has left, answers no one: nothing to say. */
 		if (outcome.kind === "superseded" || !choiceStands(step)) return false;
@@ -1658,13 +1681,11 @@ export function CaseListScreen({
 	const claimChoices = (
 		choices: readonly PreviewCaseChoice[],
 		step?: PreviewChoiceStep,
-	) => postClaim(claimableCaseIds(choices), step);
+	) => postClaim(claimableCaseIds(choices), step, choices);
 	/* The cases choosing this row claims at the result: none in a module
 	 * whose claim waits for the form. */
 	const claimedAtResult = (row: CaseRowWithCalculated) =>
-		claimsAtResult
-			? claimableCaseIds([previewCaseChoiceOf(row)])
-			: NO_CLAIMED_CASES;
+		claimsAtResult ? claimableCaseIds([choiceOf(row)]) : NO_CLAIMED_CASES;
 	/* What the device works out for the submitted search's `_xpath_query`
 	 * before HQ reads it, once, as it sends the search; the server folds the
 	 * rows with it. A search-first module's search has it worked out and
@@ -2165,6 +2186,8 @@ export function CaseListScreen({
 		return {
 			case_id: held.caseId,
 			case_name: held.caseName ?? "",
+			case_type: held.caseType,
+			searchSource: held.searchSource,
 			...(held.claimable === true && { heldOnDevice: false }),
 		};
 	}, [heldChoices, multipleSelection]);
@@ -2771,7 +2794,7 @@ export function CaseListScreen({
 		formUuid: Uuid,
 		row: FormMenuCase,
 		chosenAfterCase = false,
-	) => openFormWithCases(formUuid, [previewCaseChoiceOf(row)], chosenAfterCase);
+	) => openFormWithCases(formUuid, [choiceOf(row)], chosenAfterCase);
 
 	const continueAfterMenuSelection = (
 		cases: readonly (PreviewCaseChoice & {
@@ -2881,7 +2904,7 @@ export function CaseListScreen({
 		/* The claim posts as the result is chosen, and the choice goes on once
 		 * it has landed; one that did not land keeps the worker on the list
 		 * with the reason shown. */
-		void postClaim(claimed).then((landed) => {
+		void postClaim(claimed, choiceStep(), [choiceOf(row)]).then((landed) => {
 			if (landed) continueWithChosenCase(row, claimed, automatic);
 		});
 	};
@@ -2892,7 +2915,7 @@ export function CaseListScreen({
 		automatic = false,
 	) => {
 		if (entryStep) {
-			entryStep.onChoose(previewCaseChoiceOf(row), automatic);
+			entryStep.onChoose(choiceOf(row), automatic);
 			return;
 		}
 		if (openedFromCaseListMenuItem) {
@@ -2903,7 +2926,7 @@ export function CaseListScreen({
 		if (selectsForMenu && moduleUuid && mod.caseType) {
 			continueAfterMenuSelection([
 				{
-					...previewCaseChoiceOf(row),
+					...choiceOf(row),
 					caseProperties: Object.fromEntries(caseRowToFormPreload(row)),
 				},
 			]);
@@ -2924,7 +2947,7 @@ export function CaseListScreen({
 		 * device does not hold yet shows as loading until it does. */
 		const read = readPreviewScreen(() => decideCaseLoadingForms(row, claimed));
 		if (read.kind === "refused" || read.value.length > 0)
-			holdFormMenu([previewCaseChoiceOf(row)]);
+			holdFormMenu([choiceOf(row)]);
 	};
 
 	/* Where a choice made from the case list menu entry lands: Web Apps
@@ -2948,7 +2971,7 @@ export function CaseListScreen({
 	);
 	const toggleMultipleCase = (row: CaseRowWithCalculated) => {
 		if (validatingSelection) return;
-		const choice = previewCaseChoiceOf(row);
+		const choice = choiceOf(row);
 		const alreadySelected = selectedChoices.some(
 			(selected) => selected.caseId === choice.caseId,
 		);
@@ -2972,7 +2995,7 @@ export function CaseListScreen({
 			tileCards === undefined
 				? filteredRows
 				: tileCards.map((card) => card.rows[0]);
-		const visibleChoices = selectableRows.map(previewCaseChoiceOf);
+		const visibleChoices = selectableRows.map(choiceOf);
 		const result = addVisiblePreviewCaseChoices(
 			selectedChoices,
 			visibleChoices,
@@ -3085,10 +3108,7 @@ export function CaseListScreen({
 					return;
 				}
 				/* The check is the latest word on which choices the device holds. */
-				await finishSelectedCaseNavigation(
-					reconciled.rows.map(previewCaseChoiceOf),
-					step,
-				);
+				await finishSelectedCaseNavigation(reconciled.rows.map(choiceOf), step);
 				return;
 			}
 			if (result.kind === "empty") {
@@ -3667,6 +3687,20 @@ export function CaseListScreen({
 					</>
 				)}
 			</div>
+			{platform === "android" &&
+				step === "results" &&
+				accessPhase === "authorized" &&
+				config?.deviceLookup && (
+					<div className="mb-4 space-y-1">
+						<Button type="button" variant="outline" disabled>
+							{config.deviceLookup.label}
+						</Button>
+						<p className="text-sm text-nova-text-muted">
+							Open this case list on an Android device with its companion app to
+							use this lookup.
+						</p>
+					</div>
+				)}
 			{step === "results" && hasSearchInputs && (
 				<Button
 					type="button"

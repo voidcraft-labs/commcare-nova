@@ -655,6 +655,14 @@ Geocoder as confirmed, since HQ's form builder offers the appearance on
 every plan. Missing or
 unverified required capabilities block before writes.
 
+Android case-list lookup's fixed text arguments and ordered response names emit
+as the short detail's callout in HQ JSON and local suite XML. The writer accepts
+an action only with a label and nonempty argument and response lists. The
+publish probe accepts either project-space lookup toggle and reports missing
+only when both are confirmed off. The reader holds the corresponding literal
+XPath shape. A browser Preview without a verified result channel leaves the
+list unfiltered by the companion and points the worker to the Android app.
+
 `planPrivileges.ts::requiredPlanPrivileges` derives, from the document, what
 the publish pushes, and the attachment target the emitter is handed (a capture
 saved as a link is a case write only where there is a link to write), the plan
@@ -958,9 +966,13 @@ and a link identifier (`questionId.ts::stopsFormBuilder`), and as a property
 name a block in a form's source writes
 (`CASE_PROPERTY_NAME_FORM_BUILDER_CANNOT_KEEP`). It reads a Save to Case
 block's `close` and `create` as the block's own action at any depth inside
-`<case>`, so a link identifier may be neither and a written property may not
-be `close`. A property a basic action alone writes is not refused: HQ's build
-adds that block and the source never holds it.
+`<case>`. A link can use either name when the same source block already has
+the matching direct action. The reader checks the raw block's direct children.
+The validator uses the planned Save to Case placement and the same action
+shape as the emitter, including whether the form's own close shares the
+block. The basic and advanced Case Management name rules are unchanged.
+A Save to Case write may not use the property name `close`. HQ's build
+adds the basic Case Management block outside the form's authored source.
 
 `xform/captureUpload.ts` owns the `<upload mediatype>` vocabulary. It is a table rather than a conditional because an unmatched `mediatype` does not fail: `XFormParser::parseUpload` matches with literal `String.equals` against exactly four strings (`image/*`, `audio/*`, `video/*`, `application/*,text/*` — comma, NO space), anything else leaves the control at `CONTROL_UPLOAD`, `entries.js::getEntry` falls through to `UnsupportedEntry`, and that constructor SETS the answer to the literal string `Not Supported by Web Entry`, which submits. Silent bad data, not a visible error — so `UploadMediatype` admits only the four literals and `UPLOAD_MEDIATYPE_BY_CAPTURE_KIND` is total over `captureFieldKinds`, making the bad state unrepresentable. Signature shares `image/*` and is split out by `appearance="signature"`, which `xform/appearance.ts::fieldAppearance` writes from `UPLOAD_APPEARANCE_BY_CAPTURE_KIND`; an Image field can also hold a positive `maxDimension`. The upload writes it as `jr:imageDimensionScaledMax="<pixels>px"`. Android scales JPEG and PNG files before enforcing its upload limit. Web Apps sends the original file.
 

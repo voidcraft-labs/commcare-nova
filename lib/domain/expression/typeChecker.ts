@@ -1136,6 +1136,16 @@ function admission(
 		);
 
 	if (ctx.ruleSet === "record") {
+		// A question's itemset filter runs against the current source row.
+		// Only its zero-argument position reads that context. A nested query
+		// introduces a separate row scope and keeps its own admission rules.
+		if (
+			expression.kind === "call" &&
+			expression.fn === "position" &&
+			expression.args.length === 0 &&
+			choiceCandidatePositionAvailable(ctx)
+		)
+			return undefined;
 		// The case chosen in an earlier menu, read through its id: the one query a record slot evaluated after that
 		// choice admits.
 		if (
@@ -1350,6 +1360,17 @@ function caseListSearchTextAdmission(
  */
 export function caseListSearchTextReachable(ctx: ExpressionContext): boolean {
 	return caseListSearchTextAdmission(ctx) === undefined;
+}
+
+/** Whether the rule is evaluating the current choice candidate of a form question. */
+export function choiceCandidatePositionAvailable(
+	ctx: ExpressionContext,
+): boolean {
+	return (
+		ctx.slot.entity === "field" &&
+		ctx.slot.slot === "lookup_options_source" &&
+		ctx.rows.length === 1
+	);
 }
 
 /**

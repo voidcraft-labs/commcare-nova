@@ -45,6 +45,10 @@ import { caseRowToFormPreload } from "../engine/caseDataBindingClient";
 import { evaluateForm } from "../engine/evaluateForm";
 import { appReadsPlaces } from "../engine/expressionCaseReads";
 import { searchInputInstanceValues } from "../engine/runtimeBindings";
+import {
+	SearchChoiceUnavailable,
+	searchClaimMemberships,
+} from "../engine/searchClaimSelection";
 import { drawnSearchInputs } from "../engine/searchRunState";
 import { availablePages } from "../engine/sectionPaging";
 import {
@@ -97,7 +101,11 @@ import {
 	isCaseListMenuItemList,
 	selectAppTestRecords,
 } from "./navigation";
-import { appTestRecords, prepareAppTestRecords } from "./records";
+import {
+	appTestRecords,
+	appTestSearchWorld,
+	prepareAppTestRecords,
+} from "./records";
 import { submitAppTest } from "./submission";
 import type {
 	AppTestAction,
@@ -868,9 +876,84 @@ async function postAppTestClaims(
 			: [];
 	const posted = claimableCaseIds([...atResult, ...atForm]);
 	if (posted.length === 0) return { context, state: next };
+	const visited = [...before.history, ...next.history].reverse();
+	const sourceFrame = (moduleUuid: Uuid) =>
+		resultSource?.moduleUuid === moduleUuid
+			? resultSource
+			: visited.find(
+					(frame): frame is Extract<typeof frame, { kind: "records" }> =>
+						frame.kind === "records" &&
+						frame.moduleUuid === moduleUuid &&
+						frame.searchAnswers !== undefined,
+				);
+	const bySource = new Map<
+		Uuid,
+		{ caseIds: string[]; answers: { name: string; value: string }[] }
+	>();
+	for (const choice of [...atResult, ...atForm]) {
+		if (!choice.claimable) continue;
+		// Earlier retained sessions may still carry a choice made before
+		// selections held their search. Its original records screen is durable.
+		const menu =
+			choice.searchSource?.moduleUuid ??
+			(atResult.includes(choice) ? resultSource?.moduleUuid : undefined) ??
+			Object.values(context.doc.modules).find((mod) =>
+				next.selections[mod.uuid]?.cases.some(
+					(row) => row.caseId === choice.caseId,
+				),
+			)?.uuid ??
+			(screen.kind === "form" ? screen.moduleUuid : undefined);
+		const answers =
+			menu &&
+			(choice.searchSource?.answers ?? sourceFrame(menu)?.searchAnswers);
+		if (!menu || !answers)
+			throw new AppTestActionError(new SearchChoiceUnavailable().message);
+		const group = bySource.get(menu) ?? { caseIds: [], answers: [...answers] };
+		if (!group.caseIds.includes(choice.caseId))
+			group.caseIds.push(choice.caseId);
+		bySource.set(menu, group);
+	}
+	const memberships = [];
+	for (const [moduleUuid, source] of bySource) {
+		const frame = sourceFrame(moduleUuid);
+		const selections =
+			frame && "shownWith" in frame
+				? (frame.shownWith as AppTestSessionState["selections"])
+				: before.selections;
+		const prior = Object.entries(selections).flatMap(([id, selection]) => {
+			const menu = context.doc.modules[id];
+			if (!menu || !selection.cases.length) return [];
+			const answers =
+				selection.cases[0].searchSource?.answers ??
+				(selection.cases.some((choice) => choice.claimable)
+					? sourceFrame(menu.uuid)?.searchAnswers
+					: undefined);
+			return [
+				{
+					moduleUuid: menu.uuid,
+					caseIds: selection.cases.map((row) => row.caseId),
+					...(answers && { answers: [...answers] }),
+				},
+			];
+		});
+		try {
+			memberships.push(
+				...(await searchClaimMemberships(
+					appTestSearchWorld(context, scope, before),
+					[{ moduleUuid, ...source }],
+					prior,
+				)),
+			);
+		} catch (error) {
+			if (error instanceof SearchChoiceUnavailable)
+				throw new AppTestActionError(error.message);
+			throw error;
+		}
+	}
 	const { created } = await context.store.claimCases({
 		appId: scope.appId,
 		caseIds: posted,
+		fromSearches: memberships,
 	});
 	/* Android follows every claim with a sync, so a claim of a case the
 	 * worker already claimed still reads its device again there. */

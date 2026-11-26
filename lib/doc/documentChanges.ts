@@ -179,6 +179,7 @@ export const MENU_KEY_PARTS = {
  * `columnParts`).
  */
 export const CASE_LIST_KEY_PARTS = {
+	additionalCaseTypes: "case-list",
 	calculatedSorts: "case-list",
 	columns: "case-list",
 	listColumnOrder: "case-list",
@@ -194,6 +195,7 @@ export const CASE_LIST_KEY_PARTS = {
 	emptyText: "case-list",
 	selectButtonText: "case-list",
 	optimizations: "case-list",
+	deviceLookup: "case-list",
 	tile: "case-list",
 } as const satisfies Record<keyof CaseListConfig, MenuPart>;
 

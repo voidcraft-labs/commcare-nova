@@ -1988,12 +1988,13 @@ def save_to_case_update_owner_condition(authoring, app_id):
 
 
 def save_to_case_create_and_close(authoring, app_id):
-    """The create's block also closing the case it creates."""
+    """A create that closes its new case only when the close condition holds."""
     _save_to_case(
         authoring,
         app_id,
         "save-to-case-create-and-close",
         (STC_UPDATE + "</case></make_household>", STC_UPDATE + "<close/></case></make_household>", 1),
+        (STC_HEAD_BIND, STC_HEAD_BIND + f'<bind nodeset="{MAKE}/close" relevant="/data/age &gt; 5"/>', 1),
     )
 
 
@@ -2124,16 +2125,26 @@ def itemset_copy(authoring, app_id):
     )
 
 
-def itemset_filter_outside_predicate(authoring, app_id):
-    """The village select's filter made ``position() &lt; 3``, which no typed filter of Nova's holds."""
+def itemset_filter_by_row_position(authoring, app_id):
+    """The village select reads the first two fixture rows in source order."""
     _change(
         authoring,
         app_id,
-        "itemset-filter-outside-predicate",
+        "itemset-filter-by-row-position",
         ('villages[district = #form/district]"', 'villages[position() &lt; 3]"', 1),
         (VILLAGE_FILTER, 'villages[position() &lt; 3]"', 1),
     )
 
+
+def itemset_filter_outside_predicate(authoring, app_id):
+    """A position of an explicitly supplied reference is not the choice candidate's position."""
+    _change(
+        authoring,
+        app_id,
+        "itemset-filter-outside-predicate",
+        ('villages[district = #form/district]"', 'villages[position(/data/district) &lt; 3]"', 1),
+        (VILLAGE_FILTER, 'villages[position(/data/district) &lt; 3]"', 1),
+    )
 
 def itemset_over_cases(authoring, app_id):
     """The district select's choices read from every case the worker holds (``instance('casedb')``), declared in
@@ -2536,7 +2547,7 @@ FOLLOWUP_DATA = "<default_label />"
 FOLLOWUP_BIND = '<bind vellum:nodeset="#form/default_label" nodeset="/data/default_label" />'
 
 
-def _followup(authoring, app_id, what, *blocks):
+def _followup(authoring, app_id, what, *blocks, instances=(SESSION_INSTANCE,)):
     """hq-new-app's follow-up form with ``blocks`` put in."""
     _edit(
         authoring,
@@ -2548,6 +2559,7 @@ def _followup(authoring, app_id, what, *blocks):
             data_before=FOLLOWUP_DATA,
             binds_before="<itext>",
             group_after="<h:body>",
+            instances=instances,
         ),
         form=1,
     )
@@ -2561,6 +2573,18 @@ def save_to_case_close_only_condition(authoring, app_id):
         app_id,
         "save-to-case-close-only-condition",
         _block("shut", "case", "<close/>", MENU_CASE, [("close", "relevant=\"today() &gt; date('2020-01-01')\"")]),
+    )
+
+
+def save_to_case_another_case_close_condition(authoring, app_id):
+    """A separate case whose block remains present when its close condition is false."""
+    case_id = "instance('casedb')/casedb/case[@case_id = 'another-case' and @case_type = 'case']/@case_id"
+    _followup(
+        authoring,
+        app_id,
+        "save-to-case-another-case-close-condition",
+        _block("shut", "case", "<close/>", case_id, [("close", "relevant=\"today() &gt; date('2020-01-01')\"")]),
+        instances=(SESSION_INSTANCE, '<instance src="jr://instance/casedb" id="casedb" />'),
     )
 
 

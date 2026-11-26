@@ -41,7 +41,9 @@ def _save_with_link(editor_driver, name, *, action_present=None):
             for node in (*reversed(list(link.iterancestors())), link)[4:]
         )
         assert path.endswith(f"/case/index/{name}") and path.startswith("/data/"), path
-        if action_present:
+        if action_present and name == "close":
+            transaction.insert(0, etree.Element(f"{{{CASE}}}close"))
+        if action_present and name == "create":
             case_path = path.removesuffix(f"/index/{name}")
             create = etree.Element(f"{{{CASE}}}create")
             transaction.insert(0, create)
@@ -128,10 +130,11 @@ def test_an_index_named_for_an_absent_action_cannot_keep_the_action_set(
     assert transaction.find(f"{{{CASE}}}{name}") is not None
 
 
-def test_an_index_named_create_keeps_its_bind_on_a_block_that_already_creates(
-    hq, core_runner, editor_driver
+@pytest.mark.parametrize("name", ["create", "close"])
+def test_an_index_named_for_an_existing_action_keeps_its_bind(
+    hq, core_runner, editor_driver, name
 ):
-    run, path = _save_with_link(editor_driver, "create", action_present=True)
+    run, path = _save_with_link(editor_driver, name, action_present=True)
     assert run.saved, run.save_refusal
     root = etree.fromstring(run.stored_source.encode())
     assert any(
@@ -141,7 +144,7 @@ def test_an_index_named_create_keeps_its_bind_on_a_block_that_already_creates(
     blocks = [
         node
         for node in root.iter(f"{{{CASE}}}case")
-        if node.find(f"{{{CASE}}}index/{{{CASE}}}create") is not None
+        if node.find(f"{{{CASE}}}index/{{{CASE}}}{name}") is not None
     ]
     assert len(blocks) == 1
-    assert [etree.QName(node).localname for node in blocks[0]].count("create") == 1
+    assert [etree.QName(node).localname for node in blocks[0]].count(name) == 1

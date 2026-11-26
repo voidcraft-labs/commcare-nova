@@ -4,15 +4,17 @@ import {
 	type CaseSearchRequest,
 	CaseSearchUnavailableError,
 } from "@/lib/case-store/searchRequest";
+import { moduleExpressionContexts } from "@/lib/commcare/expressionContext";
 import {
 	SEARCH_RESULTS_CAP,
-	searchDetailRelatedPaths,
+	searchDetailSupportingRecords,
 	searchResultsReadScore,
 } from "@/lib/commcare/session";
 import {
 	readSearchFilterTarget,
 	searchFilterKey,
 } from "@/lib/commcare/suite/case-search/nativeFilters";
+import { includeSearchHierarchy } from "@/lib/commcare/suite/case-search/relatedCaseProjection";
 import { requestOrderKey } from "@/lib/commcare/suite/case-search/requestOrder";
 import { searchInputSuppressesAutoMatch } from "@/lib/commcare/suite/case-search/searchPrompts";
 import {
@@ -31,6 +33,7 @@ import {
 	expressionReferencesAnySearchInput,
 	walkPropertyRefs,
 } from "@/lib/domain/expression/walk";
+import type { Uuid } from "@/lib/domain/uuid";
 import { searchesForBlank } from "./runtimeBindings";
 
 /** A completed request has its own source order and cap. A search action's
@@ -41,11 +44,25 @@ export function completedSearchRequest(
 	answers?: ReadonlyMap<string, string>,
 	filterValues?: Readonly<Record<string, string>>,
 	configuration: SearchConfigurationSelection = {},
-	world?: { doc: BlueprintDoc; caseType: string },
+	world?: { doc: BlueprintDoc; caseType: string; moduleUuid: Uuid },
 	/** The menu's default search ran it, as the list opened: no prompt's
 	 *  answer is sent (`CaseSearchRequest.unsentPrompts`). */
 	defaultSearch = false,
 ): CaseSearchRequest {
+	const list = module.caseListConfig;
+	const search = effectiveCaseSearchConfig(module);
+	const additionalRequestTypes = new Set(list?.additionalCaseTypes);
+	let relatedRecordProperty = search?.relatedRecordIdProperty;
+	const dedicatedHierarchy = !!(
+		world &&
+		list &&
+		includeSearchHierarchy(
+			list,
+			moduleExpressionContexts(world.doc, world.moduleUuid),
+			search?.relatedRecords,
+		)
+	);
+	const hierarchyValues: string[] = dedicatedHierarchy ? ["true"] : [];
 	// The default filters' orders reach HQ first, then the dedicated order
 	// (`remote_requests.py::_remote_request_query_datums`), and HQ sorts by
 	// every `commcare_sort` value in turn (`_parse_commcare_sort_properties`).
@@ -60,7 +77,13 @@ export function completedSearchRequest(
 		CaseSearchParameter & { values: string[] }
 	>();
 	for (const filter of module.caseListConfig?.searchFilters ?? []) {
-		if (!("target" in filter)) continue;
+		if (!("target" in filter)) {
+			if (filter.kind === "request-record-type")
+				additionalRequestTypes.add(filter.caseType);
+			else if (filter.kind === "related-record-id")
+				relatedRecordProperty = filter.property;
+			continue;
+		}
 		const key = searchFilterKey(filter.target);
 		const value = filterValues?.[filter.uuid];
 		if (typeof value !== "string")
@@ -68,6 +91,11 @@ export function completedSearchRequest(
 				kind: "indexed-value-unavailable",
 				field: key,
 			});
+		if (filter.target.kind === "include-related-records") {
+			// HQ tests the request text for truth, including the non-empty string "false".
+			hierarchyValues.push(value);
+			continue;
+		}
 		const existing = parameters.get(key);
 		parameters.set(key, {
 			key,
@@ -100,7 +128,7 @@ export function completedSearchRequest(
 			answers !== undefined && searchesForBlank(input, answers) ? [""] : [];
 		if ((answer === undefined || answer === "") && blank.length === 0) continue;
 		const target = readSearchFilterTarget(input.name);
-		if (target === undefined)
+		if (target === undefined || target.kind === "include-related-records")
 			throw new CaseSearchUnavailableError({
 				kind: "indexed-value-unavailable",
 				field: input.label,
@@ -146,9 +174,17 @@ export function completedSearchRequest(
 						: ("desc" as const),
 			})),
 		}),
-		...(world && {
-			relatedPaths: searchDetailRelatedPaths(world.doc, [world.caseType]),
-		}),
+		additionalRequestTypes: [...additionalRequestTypes],
+		// HQ unwraps exactly one value. Two values remain a truthy list,
+		// including two empty strings.
+		includeRelatedHierarchy:
+			hierarchyValues.length > 1 || Boolean(hierarchyValues[0]),
+		relatedRecordProperty,
+		...(world &&
+			searchDetailSupportingRecords(world.doc, [
+				world.caseType,
+				...additionalRequestTypes,
+			])),
 		configuration,
 		maximum: SEARCH_RESULTS_CAP,
 		resultCondition,

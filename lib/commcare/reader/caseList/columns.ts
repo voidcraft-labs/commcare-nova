@@ -88,6 +88,7 @@ import {
 	ATTRIBUTE_PROPERTIES,
 	calculatedAttributeField,
 } from "./attributeColumns";
+import { literalText } from "./literalText";
 import { claimRestOfRefusedColumn } from "./refusedWhole";
 
 const A = "menus-and-case-lists/";
@@ -1612,16 +1613,31 @@ function readRelationTranslatableEnum(
 	column.take("format", C.translatableEnumRelationDoes, String).value;
 	claimPropertySource(ctx, column, field, relation, false);
 	if (!calculationKeysAreEditable(column)) return undefined;
-	return readGeneralCalculation(
+	const expression = imageMapPropertyText(
+		relation.name,
+		relation.via,
+		relation,
+	);
+	const proposed = readGeneralCalculation(
 		ctx,
 		column,
-		imageMapPropertyText(relation.name, relation.via, relation),
+		expression,
 		header,
 		base,
 		others,
 		C.translatableEnumRelationDoes,
 		false,
 	);
+	// HQ substitutes each enum variable key throughout the original XPath.
+	// Only a field whose calculation uses none of those keys is a spelling change.
+	if (proposed?.textKeys?.every((key) => !expression.includes(key))) {
+		ctx.facts.sameStateRewrites.push({
+			entry: C.translatableEnumRelationDoes.entry,
+			path: column.pointer,
+			register: "legacy-related-case-text-rekeyed",
+		});
+	}
+	return proposed;
 }
 
 function calculationKeysAreEditable(column: JsonCursor): boolean {
@@ -2483,20 +2499,6 @@ function selectedValue(key: string, property: string): string | undefined {
 	)
 		? value
 		: undefined;
-}
-
-/** The text a string literal spells, or a `concat` of string literals, which is how a literal
- *  holding both quote marks is printed. */
-function literalText(node: FormSyntax | undefined): string | undefined {
-	if (node?.kind === "string") return node.value;
-	if (node?.kind !== "call" || node.name !== "concat") return undefined;
-	let out = "";
-	for (const arg of node.args) {
-		const part = literalText(arg);
-		if (part === undefined) return undefined;
-		out += part;
-	}
-	return out;
 }
 
 function readImageMap(

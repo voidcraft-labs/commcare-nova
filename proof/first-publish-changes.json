@@ -915,6 +915,68 @@
 		]
 	},
 	{
+		"change": "legacy-related-case-text-rekeyed",
+		"placeKinds": [
+			"menu"
+		],
+		"rows": [
+			{
+				"check": "proof2",
+				"artifact": "*app_strings:*",
+				"path": "/m*.*.*_*_*.header",
+				"kind": "added"
+			},
+			{
+				"check": "proof2",
+				"artifact": "*app_strings:*",
+				"path": "/m*.*.*_*_*.header",
+				"kind": "removed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "*app_strings:*",
+				"path": "/m*.*.*_*_*.enum.*",
+				"kind": "added"
+			},
+			{
+				"check": "proof2",
+				"artifact": "*app_strings:*",
+				"path": "/m*.*.*_*_*.enum.*",
+				"kind": "removed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "*suite.xml",
+				"path": "/suite/detail[@id=*]/field[*]/header[*]/text[*]/locale[*]/@id",
+				"kind": "changed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "*suite.xml",
+				"path": "/suite/detail[@id=*]/field[*]/template[*]/text[*]/xpath[*]/variable[*]/@name",
+				"kind": "changed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "*suite.xml",
+				"path": "/suite/detail[@id=*]/field[*]/template[*]/text[*]/xpath[*]/variable[*]/locale[*]/@id",
+				"kind": "changed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "*suite.xml",
+				"path": "/suite/detail[@id=*]/field[*]/sort[*]/text[*]/xpath[*]/variable[*]/@name",
+				"kind": "changed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "*suite.xml",
+				"path": "/suite/detail[@id=*]/field[*]/sort[*]/text[*]/xpath[*]/variable[*]/locale[*]/@id",
+				"kind": "changed"
+			}
+		]
+	},
+	{
 		"change": "sort-rule-kept-as-hidden-column",
 		"placeKinds": ["menu"],
 		"rows": [

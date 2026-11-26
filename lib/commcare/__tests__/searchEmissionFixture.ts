@@ -273,12 +273,67 @@ export function namedParentSearchDoc() {
 	return doc;
 }
 
+/** The search returns referrals to its form and offers only patients and households for selection. */
+function mixedRecordSearchDoc() {
+	const config = caseListConfig([{ field: "case_name", header: "Name" }]);
+	config.additionalCaseTypes = ["household"];
+	config.searchFilters = [
+		{
+			uuid: testUuid("mixed-record-type"),
+			kind: "request-record-type",
+			caseType: "referral",
+		},
+		{
+			uuid: testUuid("mixed-include-related"),
+			target: { kind: "include-related-records" },
+			value: term(literal("false")),
+		},
+	];
+	config.searchInputs = [nameInput()];
+	return buildDoc({
+		appName: "Outreach",
+		appSettings: WEB_APPS_ONLY,
+		caseTypes: [
+			{
+				name: "patient",
+				properties: [
+					{ name: "first_name", label: proseText("First name") },
+					{ name: "care_record", label: proseText("Care record") },
+				],
+			},
+			{ name: "household", properties: [] },
+			{ name: "referral", properties: [] },
+		],
+		modules: [
+			{
+				name: "Outreach visits",
+				caseType: "patient",
+				caseListConfig: config,
+				caseSearchConfig: {
+					formsReadSearch: true,
+					relatedRecordIdProperty: "care_record",
+				},
+				forms: [{ name: "Visit", type: "followup", fields: [question1()] }],
+			},
+			{
+				name: "Households",
+				caseType: "household",
+				caseListMenuItem: {},
+				caseListConfig: caseListConfig([
+					{ field: "case_name", header: "Name" },
+				]),
+			},
+		],
+	});
+}
+
 export const searchEmissionScenarios = [
 	"inline",
 	"browse",
 	"multiple",
 	"parent",
 	"named-parent",
+	"mixed-records",
 	"registration-link",
 	"hidden-link",
 	"automatic",
@@ -294,6 +349,7 @@ export function searchEmissionFixture(
 ): BlueprintDoc {
 	if (scenario === "parent") return parentSelectDoc();
 	if (scenario === "named-parent") return namedParentSearchDoc();
+	if (scenario === "mixed-records") return mixedRecordSearchDoc();
 	if (scenario === "registration-link") return registrationLinkDoc();
 	if (scenario === "hidden-link")
 		return registrationLinkDoc({

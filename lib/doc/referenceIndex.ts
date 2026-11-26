@@ -1,4 +1,5 @@
 import { columnCaseScopes } from "@/lib/domain/expression/detailRowScope";
+import { moduleCaseProperties } from "./moduleCaseProperties";
 /**
  * Reference-index construction, per-mutation maintenance, and queries —
  * the machinery behind `BlueprintDoc.refIndex`
@@ -1058,18 +1059,7 @@ function extractModuleEdges(
 								sink.edge(caseTypeTargetKey(caseType), slot.slot);
 						}
 					}
-				} else if (
-					slot.slot === "search_order_property" ||
-					slot.slot === "search_filter_order_property"
-				) {
-					// An order names a property of the menu's own record type.
-					if (mod.caseType !== undefined)
-						for (const entry of readSlotStrings(mod, slot.path))
-							sink.edge(
-								casePropertyTargetKey(mod.caseType, entry.text),
-								slot.slot,
-							);
-				} else {
+				} else if (slot.slot === "search_input_property") {
 					for (const input of mod.caseListConfig?.searchInputs ?? []) {
 						if (input.kind !== "simple") continue;
 						const destination = resolveRelationDestination(
@@ -1106,6 +1096,13 @@ function extractModuleEdges(
 				const _exhaustive: never = slot;
 				break;
 			}
+		}
+	}
+	for (const property of moduleCaseProperties(doc, mod)) {
+		for (const type of property.types) {
+			sink.edge(casePropertyTargetKey(type, property.name), property.slot);
+			if (property.throughRelation)
+				sink.edge(caseTypeTargetKey(type), property.slot);
 		}
 	}
 }

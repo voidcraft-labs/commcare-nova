@@ -18,6 +18,7 @@ import {
 	type OnDeviceDateAddIssue,
 } from "@/lib/commcare/validator/onDeviceCompatibility";
 import { collectFieldLocations } from "@/lib/commcare/xform/caseOps";
+import { saveToCaseActions } from "@/lib/commcare/xform/saveToCaseActions";
 import { formNodeProjection } from "@/lib/commcare/xpath/formNodeProjection";
 import { w } from "@/lib/commcare/xpath/wire/builders";
 import { toWire } from "@/lib/commcare/xpath/wire/fromExpression";
@@ -400,24 +401,45 @@ export function validateCaseOperations(
 		const operation = byUuid.get(field.operationUuid);
 		const invalid =
 			operation === undefined
-				? "Choose a case change from this form."
+				? {
+						reason: "missing-operation",
+						message: "Choose a case change from this form.",
+					}
 				: positions.has(field.operationUuid)
-					? "Keep just one position for this case change."
+					? {
+							reason: "duplicate-position",
+							message: "Keep just one position for this case change.",
+						}
 					: operation.forEach?.repeat !== location.repeat
-						? "Place this case change in the section it repeats over."
+						? {
+								reason: "repeat-scope",
+								message:
+									"Place this case change in the section it repeats over.",
+							}
 						: operation.action === "own" ||
 								operation.action === "create" ||
 								operation.condition !== undefined ||
 								isWorkerRecordUpdate(operation) ||
 								operationSavesOnlyChanged(operation) ||
 								operation.writes?.some((write) => write.via !== undefined)
-							? "Choose a direct update or close for this position."
+							? {
+									reason: "direct-change",
+									message: "Choose a direct update or close for this position.",
+								}
 							: caseOperationRunsPerSelectedCase(operation) &&
 									caseSelectionCardinality(module) === "multiple"
-								? "Keep the case change that runs for each selected case in the form's case settings."
+								? {
+										reason: "selected-cases",
+										message:
+											"Keep the case change that runs for each selected case in the form's case settings.",
+									}
 								: operation.retype !== undefined &&
 										positionedChangeHasConditionalContainer(doc, uuid)
-									? "Place a change of case type outside sections that can be skipped."
+									? {
+											reason: "conditional-type-change",
+											message:
+												"Place a change of case type outside sections that can be skipped.",
+										}
 									: undefined;
 		const orderDependency =
 			invalid === undefined &&
@@ -438,7 +460,7 @@ export function validateCaseOperations(
 				validationError(
 					"CASE_CHANGE_POSITION_INVALID",
 					"field",
-					invalid ??
+					invalid?.message ??
 						"Keep these case changes together in the form's case settings so they run in order.",
 					{
 						moduleUuid,
@@ -450,8 +472,8 @@ export function validateCaseOperations(
 					},
 					{
 						operationUuid: field.operationUuid,
+						reason: invalid?.reason ?? "managed-order",
 						...(orderDependency && {
-							reason: "managed-order",
 							otherOperationUuid: orderDependency.uuid,
 						}),
 					},
@@ -845,7 +867,16 @@ function validateLinks(
 		}
 		const linkNameProblem = invalidLinkFormat
 			? undefined
-			: caseOperationLinkNameProblem(link.identifier);
+			: caseOperationLinkNameProblem(link.identifier, (action) => {
+					const { placements } = planPlacements(ctx.doc, ctx.formUuid);
+					if (placements.get(operation.uuid)?.placement.kind !== "save-to-case")
+						return false;
+					return saveToCaseActions(
+						operation,
+						ctx.form.type,
+						placements.get("own-close")?.sharesWith === operation.uuid,
+					)[action];
+				});
 		if (linkNameProblem !== undefined) {
 			// The free name avoids every link identifier of the operation.
 			const suggestedId = freeCaseOperationName(link.identifier, allLinkIds);

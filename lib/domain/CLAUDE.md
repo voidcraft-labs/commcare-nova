@@ -678,7 +678,8 @@ no selected record. Do not require custom definitions to read built-in metadata.
 ## Choices from available cases
 
 `SelectOptionsSource` has three arms: inline, lookup and cases. A cases source
-names a declared `caseType`, a `labelProperty`, and an optional condition Expression.
+names a declared `caseType`, a `labelProperty`, an optional condition Expression,
+and an optional `sortProperty`.
 Its values are always exact case IDs; no value-property setting exists. Omitted
 filter means every available case of that type, including locally retained closed
 cases. Builder creation adds an explicit status=open predicate; tool preparation
@@ -690,6 +691,9 @@ one of its ancestors. `formRecordScope` supplies the exact admitted types;
 registration, survey and multiple-selection forms have no scalar selected record.
 Case labels, filters and selected-record leaves participate in reference indexing,
 property renames, retirement checks and source replacement like other carriers.
+Form case and table filters also admit the zero-argument `position()` call for
+the candidate's one-based source position, evaluated before sorting. A case
+candidate's position is counted within the declared type.
 
 ## Forms listed in another menu
 

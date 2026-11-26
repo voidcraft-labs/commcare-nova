@@ -134,6 +134,7 @@ import {
 import { formContextPatch } from "@/lib/domain/caseFormContext";
 import type { Expression } from "@/lib/domain/expression";
 import { resolveAppLanguage } from "@/lib/domain/localization";
+import { requestedRecordTypes } from "@/lib/domain/modules";
 import { propertyDisplayLabelForName } from "@/lib/domain/propertyDisplay";
 import { searchContentWithoutInputs } from "@/lib/domain/searchConditions";
 import { useCaseListOrderPlan } from "@/lib/preview/hooks/useCaseListOrderPlan";
@@ -2730,6 +2731,15 @@ export function CaseListWorkspaceCanvas() {
 							onApplyTilePreset={applyTilePreset}
 							onTilePersistOnFormsChange={setTilePersistOnForms}
 							onCaseSelectionChange={setCaseSelection}
+							onDeviceLookupChange={(next) =>
+								commitLayout([
+									{
+										kind: "setCaseListMeta",
+										uuid: requireRetainedModuleUuid(moduleUuid),
+										patch: { deviceLookup: next },
+									},
+								])
+							}
 							onWordingChange={(slot, next) =>
 								commitLayout([
 									{
@@ -3040,6 +3050,7 @@ function resolveInspector(args: ResolveInspectorArgs): {
 					: "Search action",
 				body: (
 					<SearchPanelInspectorBody
+						requestedTypes={requestedRecordTypes(args.caseType, config)}
 						moduleUuid={args.moduleUuid}
 						value={effectiveSearch}
 						onChange={args.onSearchConfigChange}

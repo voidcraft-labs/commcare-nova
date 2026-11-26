@@ -553,6 +553,10 @@ function compiler(bindings: QueryBindings) {
 				right,
 			};
 		}
+		if (name === "position") {
+			arity(name, args);
+			return { kind: "call", fn: name, args: [] };
+		}
 		if (name === "project-today") {
 			arity(name, args);
 			return { kind: "today", clock: "project-space" };
