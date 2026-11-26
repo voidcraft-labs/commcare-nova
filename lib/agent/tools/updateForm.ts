@@ -127,7 +127,7 @@ export const updateFormInputSchema = formAddressSchema
 			.nullable()
 			.optional()
 			.describe(
-				"Skip automatic sync after this form submits in Web Apps. Name a text of this form as automaticSubmissionText does. Null removes the setting.",
+				"Mark this form so Web Apps skips a sync after it submits. Web Apps syncs after a form only in an app set to sync after each form, which Nova apps never are, so this changes nothing for workers; it keeps a setting an app brought in holds. Name a text of this form as automaticSubmissionText does. Null removes the setting.",
 			),
 		validateChangedAnswersText: behaviorTextSchema
 			.nullable()

@@ -310,7 +310,7 @@ and external IDs CommCare HQ stores are trimmed of surrounding spaces.
 In **Form settings**, **Form behavior** lets you choose a question or choice text that already appears in the form to hold a Web Apps setting. The setting follows that text when you rename or move its question, and its translations travel with it.
 
 - **Automatic submission** sends the form as soon as it opens in Web Apps, once its answers are valid. If an answer needs attention, the form stays open so the worker can fix it.
-- **Skip automatic sync** leaves the next sync to the worker or the app's regular schedule.
+- **Skip automatic sync** tells Web Apps to skip a sync after the form is sent. Web Apps syncs after a form only in an app set to sync after each form, which Nova apps aren't, so workers see no change. The setting is kept so an app brought in from CommCare HQ keeps it.
 - **Check changed answers** lets Web Apps accept previously accepted answers again without rechecking them. For example, a date already accepted can stay accepted after a worker changes the date it was compared with. A blank required answer still needs an answer.
 
 Android opens and submits these forms as it does any other form.

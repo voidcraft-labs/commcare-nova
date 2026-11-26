@@ -27,7 +27,7 @@ const descriptions: Record<FormBehaviorRole, string> = {
 	automaticSubmissionText:
 		"Web Apps sends the form as soon as it opens, once its answers are valid.",
 	skipAutomaticSyncText:
-		"Web Apps skips the usual sync after this form is sent.",
+		"Web Apps would skip a sync after this form is sent. Nova apps don't sync after each form, so workers see no change.",
 	validateChangedAnswersText:
 		"Web Apps checks new answers and blanks. A previously accepted answer can stay accepted after another answer changes.",
 };
