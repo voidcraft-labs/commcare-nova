@@ -48,6 +48,7 @@ import {
 	caseListColumnTextShows,
 	columnSortLabelShows,
 } from "@/lib/domain/modules";
+import { mediaAssetIdSchema } from "@/lib/domain/multimedia";
 import { proseText } from "@/lib/domain/prose";
 import { recordFromEntries } from "@/lib/domain/records";
 import { isStandardCaseListProperty } from "@/lib/domain/standardCaseProperties";
@@ -1409,7 +1410,7 @@ function readDetailKeys(
 			if (typeof image === "string" && image !== "") {
 				const ref = readMediaMap(
 					ctx,
-					recordFromEntries([[sourceCode(ctx), image]]),
+					recordFromEntries(appCodes(ctx).map((language) => [language, image])),
 					{
 						site: { json: detail, key: "lookup_image" },
 						place: detail.place,
@@ -1417,7 +1418,10 @@ function readDetailKeys(
 						mediaKind: "image",
 					},
 				);
-				if (ref.kind === "asset") lookup.icon = ref.assetId;
+				if (ref.kind === "asset") {
+					const assetId = mediaAssetIdSchema.safeParse(ref.assetId);
+					if (assetId.success) lookup.icon = assetId.data;
+				}
 			}
 			for (const key of CALLOUT_KEYS) {
 				const claim = TEXT_LOOKUP_KEYS[key];
