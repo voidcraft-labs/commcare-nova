@@ -3,6 +3,7 @@ import {
 	wordingSourceUnit,
 } from "@/lib/doc/localizationWorkspace";
 import { translationSourceFingerprintsEqual } from "@/lib/domain/localization";
+import { installationAuthoringPage } from "./shared/installationAuthoringPage";
 /** Shared Solutions Architect / MCP language and translation tools. */
 
 import { createHash } from "node:crypto";
@@ -82,7 +83,7 @@ interface RegisteredLanguageInput {
 	readonly region?: string | null;
 }
 
-function cleanLanguageIdentity(
+export function cleanLanguageIdentity(
 	input:
 		| RegisteredLanguageInput
 		| z.infer<typeof projectLanguageIdentitySchema>,
@@ -149,7 +150,15 @@ export const languageIdentityInputSchema = z.union([
 	),
 ]);
 
-export const getLanguagesInputSchema = z.strictObject({});
+export const getLanguagesInputSchema = z.strictObject({
+	installations: z
+		.strictObject({ cursor: z.string().max(160).nullable().optional() })
+		.nullable()
+		.optional()
+		.describe(
+			"Read named installation profiles instead of the language overview. Pass {} for the first page, then its nextCursor. Large entries use consecutive JSON text parts for the same profile UUID.",
+		),
+});
 
 export const getTranslatableContentInputSchema = z.strictObject({
 	language: languageIdentityInputSchema.describe(
@@ -334,6 +343,7 @@ function ownerModuleUuid(owner: TranslationUnitOwner): string | undefined {
 		case "field":
 		case "select-option":
 		case "case-list-column":
+		case "search-input-group":
 		case "search-input":
 			return owner.moduleUuid;
 		case "app":
@@ -351,6 +361,7 @@ function ownerFormUuid(owner: TranslationUnitOwner): string | undefined {
 		case "app":
 		case "module":
 		case "case-list-column":
+		case "search-input-group":
 		case "search-input":
 		case "case-property-option":
 			return undefined;
@@ -528,13 +539,26 @@ async function commitLanguageMutations(
 
 export const getLanguagesTool = {
 	description:
-		"Read the source, default and target languages, translation coverage and automatic-translation availability.",
+		"Read the source, default and target languages, translation coverage and automatic-translation availability, or page through named installation profiles and their ordered language identities.",
 	inputSchema: getLanguagesInputSchema,
 	async execute(
-		_input: z.infer<typeof getLanguagesInputSchema>,
+		input: z.infer<typeof getLanguagesInputSchema>,
 		ctx: ToolInvocationContext,
 	): Promise<ReadToolResult<unknown>> {
 		const doc = ctx.snapshot.doc;
+		if (input.installations) {
+			try {
+				return {
+					kind: "read",
+					data: installationAuthoringPage(
+						doc,
+						input.installations.cursor ?? undefined,
+					),
+				};
+			} catch (error) {
+				return readError(error);
+			}
+		}
 		const localization = effectiveAppLocalization(doc.localization);
 		const sourceIdentity = parseLanguageTag(localization.sourceLanguage);
 		const units = collectTranslationUnits(doc)

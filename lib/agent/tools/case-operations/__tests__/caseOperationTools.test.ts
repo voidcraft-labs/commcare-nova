@@ -309,13 +309,16 @@ describe("case-operation canonical author boundary", () => {
 				writes: [{ property: "source-id", value: fieldValue }],
 			}).success,
 		).toBe(true);
-		for (const identifier of ["parent-link", "parent.link"]) {
+		for (const [identifier, valid] of [
+			["parent-link", true],
+			["parent.link", false],
+		] as const) {
 			expect(
 				caseOperationInputSchema.safeParse({
 					...accepted,
 					links: [{ ...accepted.links[0], identifier }],
 				}).success,
-			).toBe(false);
+			).toBe(valid);
 		}
 	});
 
@@ -362,12 +365,9 @@ describe("case-operation canonical author boundary", () => {
 		]);
 		const link = (identifier: string) =>
 			messages({ ...accepted, links: [{ ...accepted.links[0], identifier }] });
-		expect(link("close")).toEqual([
-			'"close" is a name CommCare HQ\'s form builder reads as closing the case. You could call it "q_close" instead.',
-		]);
-		expect(link("create")).toEqual([
-			'"create" is a name CommCare HQ\'s form builder reads as starting a new case. You could call it "q_create" instead.',
-		]);
+		// These names require committed placement, which the input schema lacks.
+		expect(link("close")).toEqual([]);
+		expect(link("create")).toEqual([]);
 		expect(link("bind")).toEqual([
 			'"bind" is a name CommCare HQ\'s form builder can\'t open a form with. You could call it "q_bind" instead.',
 		]);
@@ -525,6 +525,69 @@ describe("shared case-operation tools", () => {
 		expect(formOperations).toEqual(
 			h.currentDoc().forms[formUuid].caseOperations,
 		);
+	});
+
+	it("commits create as a connection name only where the emitted block creates the case", async () => {
+		const { doc, moduleUuid, formUuid } = fixture();
+		const h = makeToolWorkspaceHarness(doc);
+		const link = {
+			identifier: "create",
+			targetType: "patient",
+			target: { kind: "session" },
+			relationship: "child",
+		} as const;
+		const caseAddress = { moduleUuid, formUuid };
+		await h.runTool(addCaseOperationsTool, {
+			...caseAddress,
+			operations: [item({ ...createVisit, links: [link] }, CREATE_UUID)],
+		});
+		expect(h.currentDoc().forms[formUuid].caseOperations?.at(-1)).toMatchObject(
+			{
+				uuid: CREATE_UUID,
+				links: [link],
+			},
+		);
+
+		const result = await h.runTool(addCaseOperationsTool, {
+			...caseAddress,
+			operations: [item({ ...updateVisit, links: [link] }, UPDATE_UUID)],
+		});
+		expect(result.mutations).toEqual([]);
+		expect(result.result).toMatchObject({
+			error: expect.stringContaining("starting a new case"),
+		});
+	});
+
+	it("refuses to remove the close while its connection still uses that name", async () => {
+		const { doc, moduleUuid, formUuid } = fixture();
+		const h = makeToolWorkspaceHarness(doc);
+		const link = {
+			identifier: "close",
+			targetType: "patient",
+			target: { kind: "session" },
+			relationship: "child",
+		} as const;
+		const caseAddress = { moduleUuid, formUuid };
+		const creation = { ...createVisit, links: [link] };
+		await h.runTool(addCaseOperationsTool, {
+			...caseAddress,
+			operations: [item({ ...creation, closeAfter: true }, CREATE_UUID)],
+		});
+		const saved = h.currentDoc();
+		expect(saved.forms[formUuid].caseOperations?.at(-1)).toMatchObject({
+			uuid: CREATE_UUID,
+			closeAfter: true,
+			links: [link],
+		});
+		const result = await h.runTool(updateCaseOperationTool, {
+			...caseAddress,
+			operationUuid: CREATE_UUID,
+			operation: creation,
+		});
+		expect(result.result).toMatchObject({
+			error: expect.stringContaining("closing the case"),
+		});
+		expect(h.currentDoc()).toEqual(saved);
 	});
 
 	it("updates through granular patches with no whole-operation fallback", async () => {

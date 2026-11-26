@@ -9,6 +9,7 @@ import {
 	menuTileScreenOf,
 } from "@/lib/domain";
 import { routeContainsForm } from "@/lib/domain/listedForms";
+import { menuOffersRecordType } from "@/lib/domain/modules";
 import type {
 	PreviewCaseChoice,
 	PreviewEntryChoice,
@@ -807,7 +808,10 @@ export function automaticLinkedCaseCollection(args: {
 	);
 	const cases = args.resultCaseIds.map((caseId) => {
 		const row = rowById.get(caseId);
-		if (row === undefined || row.case_type !== sourceModule.caseType) {
+		if (
+			row === undefined ||
+			!menuOffersRecordType(sourceModule, row.case_type)
+		) {
 			throw new Error(
 				"A selected case was missing from the carried post-submit device snapshot.",
 			);
@@ -815,6 +819,7 @@ export function automaticLinkedCaseCollection(args: {
 		const previous = submittedById.get(caseId);
 		return {
 			caseId,
+			caseType: row.case_type,
 			caseName: row.case_name || previous?.caseName || "Case",
 			caseProperties: Object.fromEntries(caseRowToFormPreload(row)),
 		};

@@ -218,6 +218,8 @@ describe("computeOperationAnswers", () => {
 		);
 		expect(visits?.iterations).toHaveLength(2);
 		expect(meds?.iterations).toHaveLength(2);
+		expect(meds?.parentIterations).toEqual([0, 1]);
+		expect(visits?.parentIterations).toBeUndefined();
 
 		const regionUuid = testUuid("form.region") as string;
 		const noteUuid = testUuid("form.visits.visit_note") as string;

@@ -597,7 +597,8 @@ export function openActionClause(
 	if (
 		operation.action === "create" &&
 		operation.target.kind === "new" &&
-		operation.target.idFrom !== undefined
+		(operation.target.idFrom !== undefined ||
+			operation.target.expr !== undefined)
 	)
 		return "keyed";
 	const writes = operation.writes ?? [];
@@ -704,7 +705,8 @@ function candidateNewCases(
 			op.action === "create" &&
 			op.forEach === undefined &&
 			op.target.kind === "new" &&
-			op.target.idFrom === undefined
+			op.target.idFrom === undefined &&
+			op.target.expr === undefined
 		)
 			candidates.push({
 				operationUuid: op.uuid,

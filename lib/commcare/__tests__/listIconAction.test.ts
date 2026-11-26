@@ -1,12 +1,10 @@
 /**
  * A case list icon that submits a form, from the destinations it may name to
- * both export boundaries. Nova has no automatic submission yet
- * (`lib/domain/automaticSubmission.ts`), so no form qualifies and every icon
- * action is refused; each test that needs a form which submits on open says
- * so through `submitsOnOpen`, the one seam that answer comes from.
+ * both export boundaries. A form's real automatic-submission label is the
+ * same witness the HQ Case List editor uses.
  */
 import AdmZip from "adm-zip";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { makeAuthoringHarness } from "@/lib/agent/__tests__/authoringHarness";
@@ -17,6 +15,7 @@ import {
 	type BlueprintDoc,
 	type Column,
 	entryPointByUuid,
+	entryPointInventory,
 	imageMapColumn,
 	imageMapEntry,
 	NEW_APP_SETTINGS,
@@ -34,21 +33,19 @@ import {
 	listIconDestinations,
 } from "../listIconAction";
 import { projectSpaceCompatibilityProbePlan } from "../projectSpaceCompatibility";
+import {
+	closedCodes,
+	listOf,
+	readLists,
+} from "../reader/caseList/__tests__/listReading";
 import { runValidation } from "../validator/runner";
 import { mediaIds, mediaManifest, mediaRecords } from "./mediaWireFixtures";
 import { TEST_RUNTIME_TARGET } from "./runtimeTargetFixture";
 import { readXmlEvidence, type XmlEvidence } from "./xmlEvidence";
 
-const submitsOnOpen = vi.hoisted(() => ({ value: true }));
-vi.mock("@/lib/domain/automaticSubmission", () => ({
-	formSubmitsOnOpenFromAQuestionLabel: () => submitsOnOpen.value,
-}));
-afterEach(() => {
-	submitsOnOpen.value = true;
-});
-
 const VISITS = testUuid("icon-visits");
 const RECORD = testUuid("icon-record-visit");
+const LABEL = testUuid("icon-visit-state");
 const REGISTER = testUuid("icon-register-visit");
 const HOUSEHOLD_FORM = testUuid("icon-household-visit");
 const ICON = testUuid("icon-column");
@@ -105,7 +102,10 @@ function visits(
 							f({
 								kind: "text",
 								id: "state",
+								uuid: LABEL,
 								label: proseText("Record this visit"),
+								hint: proseText("Confirm the visit record"),
+								default_value: "'visited'",
 								caseWrite: { caseType: "visit", property: "visit_state" },
 							}),
 						],
@@ -143,6 +143,9 @@ function visits(
 		],
 	});
 	doc.forms[RECORD].entryPoint = { uuid: LINK, id: "record-visit" };
+	doc.forms[RECORD].automaticSubmissionText = {
+		carrier: { role: "field-label", field: LABEL },
+	};
 	doc.forms[REGISTER].entryPoint = { uuid: REGISTER_LINK, id: "register" };
 	doc.forms[HOUSEHOLD_FORM].entryPoint = {
 		uuid: HOUSEHOLD_LINK,
@@ -194,14 +197,30 @@ describe("the forms an icon may submit", () => {
 	});
 
 	it("offers none while no form submits as soon as it opens", () => {
-		submitsOnOpen.value = false;
 		const doc = visits();
+		delete doc.forms[RECORD].automaticSubmissionText;
 		expect(listIconDestinations(doc, doc.modules[VISITS], iconOf(doc))).toEqual(
 			[],
 		);
 		expect(iconFindings(doc)).toEqual([
 			'"Record" needs a form that opens with one visit case and submits as soon as it opens, and no form in this app does. You can remove the icon\'s action.',
 		]);
+	});
+
+	it("requires the editor's question-label pragma, including when that label shares it", () => {
+		const doc = visits();
+		const carrier = { role: "field-hint" as const, field: LABEL };
+		doc.forms[RECORD].automaticSubmissionText = { carrier };
+		expect(listIconDestinations(doc, doc.modules[VISITS], iconOf(doc))).toEqual(
+			[],
+		);
+		doc.forms[RECORD].automaticSubmissionText = {
+			carrier,
+			alsoUsedBy: [{ role: "field-label", field: LABEL }],
+		};
+		expect(
+			listIconDestinations(doc, doc.modules[VISITS], iconOf(doc)),
+		).toHaveLength(1);
 	});
 
 	it("offers a form off the menu only through a deep link that ignores display conditions", () => {
@@ -239,15 +258,24 @@ describe("the forms an icon may submit", () => {
 			expect(
 				listIconDestinations(doc, doc.modules[VISITS], iconOf(doc)),
 			).toEqual([]);
-			expect(iconFindings(doc)).toEqual([
-				"\"Record\" has an icon that submits a form, which only Web Apps runs: Android shows the image's file path, and a worker there can't tap it. You can set the app to run only in Web Apps in App settings, or remove the icon's action.",
-			]);
+			expect(findings(doc)).toContainEqual(
+				expect.objectContaining({
+					code: "PLATFORM_FEATURE_UNAVAILABLE",
+					details: expect.objectContaining({
+						feature: "case-list-icon-actions",
+						platform: "android",
+					}),
+				}),
+			);
 		}
 	});
 
 	it("refuses an icon hidden from Results", () => {
 		const doc = visits();
 		iconOf(doc).visibleInList = false;
+		expect(listIconDestinations(doc, doc.modules[VISITS], iconOf(doc))).toEqual(
+			[],
+		);
 		expect(iconFindings(doc)).toEqual([
 			'"Record" needs to show on Results for a worker to tap its icon. You can show it on Results or remove the icon\'s action.',
 		]);
@@ -328,6 +356,25 @@ describe("an icon at both export boundaries", () => {
 	});
 });
 
+it("reads HQ’s action and its plain detail image as one column tied to the form identity", async () => {
+	const reading = await readLists(visits(), { media: true });
+	expect(closedCodes(reading)).toEqual([]);
+	const read = reading.ctx.doc;
+	if (!read) throw new Error("Expected a readable app.");
+	const target = entryPointInventory(read).find(
+		(one) => one.entryPoint.id === "record-visit",
+	);
+	if (target?.target.kind !== "form")
+		throw new Error("Expected the form’s entry point.");
+	const list = listOf(reading);
+	expect(list.columns.filter((column) => column.kind === "image-map")).toEqual([
+		expect.objectContaining({ entryPointUuid: target.entryPoint.uuid }),
+	]);
+	const icon = list.columns.find((column) => column.kind === "image-map");
+	expect(list.listColumnOrder).toContain(icon?.uuid);
+	expect(list.detailColumnOrder).toContain(icon?.uuid);
+});
+
 describe("what the icon asks of a project space and the tools", () => {
 	it("asks for CommCare HQ's clickable icon setting", () => {
 		const plan = projectSpaceCompatibilityProbePlan(visits());
@@ -354,7 +401,7 @@ describe("what the icon asks of a project space and the tools", () => {
 				],
 			},
 		});
-		submitsOnOpen.value = false;
+		delete doc.forms[RECORD].automaticSubmissionText;
 		const none = await getModuleTool.execute({ moduleUuid: VISITS }, {
 			snapshot: { doc },
 		} as never);

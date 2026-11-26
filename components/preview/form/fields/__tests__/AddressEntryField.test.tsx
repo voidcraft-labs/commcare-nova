@@ -9,7 +9,6 @@ import {
 import { useRef, useState } from "react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { proseText } from "@/lib/domain";
 import type { QuestionMessage } from "@/lib/preview/displayMessages";
 import { AddressEntryField } from "../AddressEntryField";
 
@@ -66,15 +65,9 @@ function mountAddress(
 			<AddressEntryField
 				field={{
 					uuid: testUuid("address-lookup"),
-					id: "address",
-					kind: "text",
-					label: proseText("Address"),
 				}}
 				state={{
-					path: "/data/address",
 					value,
-					visible: true,
-					required: false,
 					valid: true,
 					touched: false,
 				}}

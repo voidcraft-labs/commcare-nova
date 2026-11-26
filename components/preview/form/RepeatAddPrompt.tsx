@@ -26,6 +26,7 @@ import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
 import { repeatAddCaption } from "@/lib/preview/engine/repeatAddCaption";
 import { useEngineStateAt } from "@/lib/preview/hooks/useEngineState";
 import { usePresentationField } from "@/lib/preview/hooks/useVisibleFieldOrder";
+import { presentedLabelText } from "@/lib/preview/labelPresentation";
 import { runtimeMessage } from "@/lib/preview/runtimeMessages";
 import type { OpenRepeatPrompt } from "./sections/useFormPaging";
 
@@ -77,11 +78,10 @@ function RepeatAddPromptContent({
 		prompt.point.repeatPath,
 	);
 	const projectProse = useProseProjection();
-	const label =
-		state.resolvedLabel ??
-		(field !== undefined && "label" in field && field.label
-			? projectProse(field.label)
-			: runtimeMessage(language, "entry"));
+	const title = presentedLabelText(field, true, state);
+	const label = title
+		? (title.resolved ?? projectProse(title.template))
+		: runtimeMessage(language, "entry");
 	const caption =
 		field?.kind === "repeat"
 			? repeatAddCaption(field, state, prompt.point.entryCount, projectProse)

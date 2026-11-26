@@ -577,6 +577,55 @@ describe("the cases above it", () => {
 		]);
 	});
 
+	it("offers an unambiguous basic user connection and saves it through the current gate", () => {
+		const doc = produce(aboveFixture("followup"), (draft) => {
+			const member = draft.caseTypes?.find(({ name }) => name === "member");
+			if (member === undefined)
+				throw new Error("The fixture needs a member type.");
+			member.relations = [
+				{ identifier: "user", targetType: "household", relationship: "child" },
+			];
+		});
+		const caseTypes = doc.caseTypes ?? [];
+		const view = fieldCaseWriteViews(doc, ABOVE_NOTE)[0];
+		if (view === undefined) throw new Error("The note saves nowhere.");
+		const basic = formCasePlacementView(doc, view.formUuid).own?.placement.kind;
+		expect(basic).toBe("basic");
+		const choice = ancestorCaseWriteChoices(
+			caseTypes,
+			"member",
+			"followup",
+			true,
+		).find(({ via }) => via[0].identifier === "user");
+		expect(choice?.via).toEqual([
+			{ identifier: "user", throughCaseType: "household" },
+		]);
+		if (choice === undefined)
+			throw new Error("The user connection should be offered.");
+		const verdict = caseWriteChoiceVerdict(
+			doc,
+			ABOVE_NOTE,
+			{
+				destination: {
+					caseType: choice.caseType,
+					property: "note",
+					via: choice.via,
+				},
+				replace: fieldCaseWriteViewKey(view),
+			},
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
+		expect(verdict).toMatchObject({ ok: true });
+		if (verdict.ok) {
+			const row = rowWith(committed(doc, verdict.mutations), ABOVE_NOTE);
+			expect(row.destination).toBe("Household linked through user · Note");
+			expect(row.readOnly).toBe(false);
+		}
+		expect(
+			ancestorCaseWriteChoices(caseTypes, "member", "followup"),
+		).not.toContainEqual(choice);
+	});
+
 	it("lists an extension's host from a menu over the extension", () => {
 		const doc = aboveFixture("followup");
 		expect(

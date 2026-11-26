@@ -20,6 +20,7 @@ import tablerCalendar from "@iconify-icons/tabler/calendar";
 import tablerCalendarStats from "@iconify-icons/tabler/calendar-stats";
 import tablerCircleDot from "@iconify-icons/tabler/circle-dot";
 import tablerEyeOff from "@iconify-icons/tabler/eye-off";
+import tablerMapPin from "@iconify-icons/tabler/map-pin";
 import tablerSearch from "@iconify-icons/tabler/search";
 import tablerSquareCheck from "@iconify-icons/tabler/square-check";
 import type { ProseProjector } from "@/lib/doc/hooks/useProseProjection";
@@ -35,11 +36,13 @@ import {
 	fuzzyDateMode,
 	fuzzyMode,
 	hiddenSearchFieldRefusal,
+	isSearchAnswerInput,
 	phoneticMode,
 	projectSpaceMatchingFits,
 	rangeMode,
 	SEARCH_INPUT_TYPE_PROPERTY_TYPES,
 	SEARCH_MODE_PROPERTY_TYPES,
+	type SearchAnswerInput,
 	type SearchInputDef,
 	type SearchInputMode,
 	type SearchInputType,
@@ -119,7 +122,9 @@ export const SEARCH_INPUT_TYPE_ICONS: Record<SearchInputType, IconifyIcon> = {
 export function searchInputIcon(input: SearchInputDef): IconifyIcon {
 	return input.kind === "hidden"
 		? tablerEyeOff
-		: SEARCH_INPUT_TYPE_ICONS[input.type];
+		: input.kind === "address"
+			? tablerMapPin
+			: SEARCH_INPUT_TYPE_ICONS[input.type];
 }
 
 /** Plain-words explanation per field type: what the field looks
@@ -523,7 +528,7 @@ export function rowHasStructuralError(resolved: ResolvedRow): boolean {
 // columns use the case-list's configured search stage.
 
 export function deriveSearchInputDecl(
-	row: SearchInputDef,
+	row: SearchAnswerInput,
 ): EditorSearchInputDecl {
 	return {
 		uuid: row.uuid,
@@ -536,7 +541,7 @@ export function deriveSearchInputDecl(
 export function searchInputDecls(
 	rows: readonly SearchInputDef[],
 ): readonly EditorSearchInputDecl[] {
-	return rows.map(deriveSearchInputDecl);
+	return rows.filter(isSearchAnswerInput).map(deriveSearchInputDecl);
 }
 
 // ── Default-value expectedType + seed ─────────────────────────────

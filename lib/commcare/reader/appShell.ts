@@ -7,7 +7,7 @@
  * app's CommCare version against Nova's floor.
  */
 
-import { makeTranslationUnitId } from "@/lib/domain";
+import { type InstallationProfile, makeTranslationUnitId } from "@/lib/domain";
 import { resolvedLanguageDisplayLabel } from "@/lib/domain/languageRegistry/names";
 import { ownRecordValue, recordFromEntries } from "@/lib/domain/records";
 import { requiredAndroidAppsFromProfile } from "../androidAppDependencies";
@@ -43,6 +43,7 @@ import {
 	refuseUnheldText,
 	unheldText,
 } from "./heldText";
+import { externalKey } from "./identity";
 import {
 	isJsonObject,
 	type JsonCursor,
@@ -54,7 +55,7 @@ import {
 	manifestFindingOf,
 	readLanguages,
 } from "./languages";
-import { appPlace, appSettingsPlace } from "./place";
+import { appPlace, appSettingsPlace, whereText } from "./place";
 
 const A = "application-and-settings";
 const key = (name: string) => `schema:Application.${name}`;
@@ -184,11 +185,15 @@ const BY_VALUE = defineClaims("appShell.byValue", {
 		`${A}/49p-hq-mobile-ucr-restore-version-1-0-1-5`,
 		key("mobile_ucr_restore_version"),
 	),
-	buildProfilesEmpty: account(
+	buildProfilesEmpty: take(
 		`${A}/build-profiles-each-profile-s-name-langs-practice-mobile-worker`,
 		key("build_profiles"),
 	),
-	buildProfilesNonEmpty: account(
+	buildProfilesInvalid: refuse(
+		`${A}/build-profiles-invalid-language-subset`,
+		key("build_profiles"),
+	),
+	buildProfilesNonEmpty: take(
 		`${A}/build-profiles-non-empty`,
 		key("build_profiles"),
 	),
@@ -1310,13 +1315,7 @@ function readByValue(ctx: ReadContext): void {
 			? BY_VALUE.ucr2
 			: BY_VALUE.ucrOlder,
 	);
-	const profiles = app.peek("build_profiles");
-	pick(
-		"build_profiles",
-		isJsonObject(profiles) && Object.keys(profiles).length === 0
-			? BY_VALUE.buildProfilesEmpty
-			: BY_VALUE.buildProfilesNonEmpty,
-	);
+
 	const fixture = app.peek("location_fixture_restore");
 	if (fixture === "project_default")
 		app.derived("location_fixture_restore", BY_VALUE.fixtureProjectDefault);
@@ -1326,6 +1325,59 @@ function readByValue(ctx: ReadContext): void {
 		app.refuse("location_fixture_restore", BY_VALUE.fixtureHierarchicalOnly, {
 			name: fixture,
 		});
+}
+
+function readInstallationProfiles(
+	ctx: ReadContext,
+	languages: HqLanguages,
+): void {
+	const observed = ctx.input.source.buildProfiles;
+	if (!observed.length) {
+		consumed(
+			ctx.app.take("build_profiles", BY_VALUE.buildProfilesEmpty, () => true),
+		);
+		return;
+	}
+	const profiles: InstallationProfile[] = [];
+	for (const profile of observed) {
+		const tags = profile.langs.flatMap(
+			(code) => languages.tagOf.get(code) ?? [],
+		);
+		if (
+			!tags.length ||
+			tags.length !== profile.langs.length ||
+			new Set(tags).size !== tags.length
+		) {
+			ctx.app.refuse("build_profiles", BY_VALUE.buildProfilesInvalid, {
+				name: profile.name || profile.id,
+			});
+			return;
+		}
+		const place = appSettingsPlace();
+		const uuid = ctx.accounting.identity(
+			ctx.identities.claim(
+				externalKey.installationProfile(profile.id),
+				whereText(place),
+			),
+			place,
+			key("build_profiles"),
+		);
+		if (uuid)
+			profiles.push({
+				uuid,
+				name: profile.name,
+				languages: tags,
+				requiresPracticeWorker: profile.practiceWorkerId !== undefined,
+			});
+	}
+	const read = ctx.app.take(
+		"build_profiles",
+		BY_VALUE.buildProfilesNonEmpty,
+		() => recordFromEntries(profiles.map((profile) => [profile.uuid, profile])),
+	);
+	ctx.writeDraft(() => {
+		ctx.draft.appSettings.installationProfiles = read.value;
+	});
 }
 
 /** A value a claim admitted, read where nothing more is made of it than the claim. */
@@ -1352,6 +1404,7 @@ export function readApplication(ctx: ReadContext): void {
 			ctx.draft.appName = name;
 		});
 	const languages = readLanguages(ctx);
+	readInstallationProfiles(ctx, languages);
 	const attachments = readAttachments(ctx);
 	const sharing = app.take(
 		"case_sharing",

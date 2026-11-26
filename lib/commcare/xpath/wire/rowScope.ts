@@ -4,7 +4,7 @@ import { w } from "./builders";
 import { caseDbInstance, resultsInstance } from "./instances";
 import type { WireExpr, WirePath, WireStep } from "./tree";
 
-export type InstanceRoot = "casedb" | "results" | "results:inline";
+export type InstanceRoot = "casedb" | "results" | `results:${string}`;
 export const DEFAULT_INSTANCE_ROOT: InstanceRoot = "casedb";
 
 /** Core keeps current() at the original candidate. Only an ancestor chain
