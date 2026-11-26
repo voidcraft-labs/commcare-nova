@@ -79,7 +79,7 @@ function mountAddress(
 					touched: false,
 				}}
 				onBlur={() => {}}
-				onChange={async (next) => {
+				onCommit={async (next, message) => {
 					const revision = ++latest.current;
 					if (publishBeforeAcknowledgement) setValue(next);
 					const applied = await onChange(next);
@@ -89,9 +89,10 @@ function mountAddress(
 						revision === latest.current
 					)
 						setValue(next);
+					if (applied && revision === latest.current && message !== undefined)
+						await onDisplayMessage(message);
 					return applied;
 				}}
-				onDisplayMessage={onDisplayMessage}
 			/>
 		);
 	}

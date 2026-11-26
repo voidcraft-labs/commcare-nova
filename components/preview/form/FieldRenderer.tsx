@@ -50,7 +50,7 @@ interface FieldRendererProps {
 	onBlurAt?: ((path: string) => void) | undefined;
 	onCommitCapture?: CaptureAnswerCommit;
 	/** Sends a Web Apps address choice, or its clearing, to the question's channels. */
-	onDisplayMessage?: (message: QuestionMessage) => Promise<void>;
+	onCommitAddress?: (value: string, message?: QuestionMessage) => boolean;
 }
 
 /**
@@ -82,7 +82,7 @@ export function FieldRenderer({
 	onChangeAt,
 	onBlurAt,
 	onCommitCapture,
-	onDisplayMessage,
+	onCommitAddress,
 }: FieldRendererProps) {
 	const rules = usePreviewPlatformRules();
 	// Capture kinds route to the real attachment control. Narrowed through
@@ -112,7 +112,7 @@ export function FieldRenderer({
 	 * reads the question as ordinary text. */
 	if (
 		rules.addressQuestion === "search" &&
-		onDisplayMessage !== undefined &&
+		onCommitAddress !== undefined &&
 		(field.kind === "text" ||
 			field.kind === "secret" ||
 			field.kind === "barcode") &&
@@ -124,9 +124,8 @@ export function FieldRenderer({
 				field={field}
 				state={state}
 				labelledBy={labelledBy}
-				onChange={onChange}
+				onCommit={onCommitAddress}
 				onBlur={onBlur}
-				onDisplayMessage={onDisplayMessage}
 			/>
 		);
 	}

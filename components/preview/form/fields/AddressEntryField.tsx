@@ -39,7 +39,6 @@ import {
 	addressMessage,
 	type FoundAddress,
 } from "@/lib/preview/addressMessage";
-import type { QuestionMessage } from "@/lib/preview/displayMessages";
 import type { FieldState } from "@/lib/preview/engine/types";
 import { runtimeMessage } from "@/lib/preview/runtimeMessages";
 import {
@@ -67,8 +66,6 @@ interface AddressEntryFieldProps {
 	labelledBy?: string;
 	onChange: (value: string) => Promise<boolean>;
 	onBlur: () => void;
-	/** Sends a chosen address, or `null` for a cleared one, to the question's channels. */
-	onDisplayMessage: (message: QuestionMessage) => Promise<void>;
 }
 
 /** The line Preview shows the author about what Web Apps needs of the project space. */
@@ -87,9 +84,8 @@ export function AddressEntryField({
 	field,
 	state,
 	labelledBy,
-	onChange,
+	onCommit,
 	onBlur,
-	onDisplayMessage,
 }: AddressEntryFieldProps) {
 	const { language } = useBuilderLanguage();
 	const direction = usePortaledContentDirection();
@@ -196,7 +192,7 @@ export function AddressEntryField({
 			};
 			const message = addressMessage(found);
 			pendingChoice.current = reqId;
-			const applied = await onChange(JSON.stringify(message));
+			const applied = await onCommit(JSON.stringify(message), message);
 			if (reqId !== detailsReqRef.current) return;
 			if (applied === false) {
 				setChoiceNeeded(true);
@@ -204,7 +200,6 @@ export function AddressEntryField({
 			}
 			setDraft(null);
 			setChoiceNeeded(false);
-			await onDisplayMessage(message);
 		} catch {
 			if (reqId === detailsReqRef.current) setChoiceNeeded(true);
 		} finally {
@@ -220,11 +215,10 @@ export function AddressEntryField({
 		setLoading(false);
 		pendingChoice.current = null;
 		setResults([]);
-		const applied = await onChange("");
+		const applied = await onCommit("", null);
 		if (reqId !== detailsReqRef.current || applied === false) return;
 		setDraft(null);
 		setChoiceNeeded(false);
-		await onDisplayMessage(null);
 	}
 
 	async function search(next: string) {
@@ -236,7 +230,7 @@ export function AddressEntryField({
 		if (!replaceAddress) return;
 		// Typing over a chosen address clears the sender and broadcasts nothing.
 		setChoiceNeeded(true);
-		const applied = await onChange("");
+		const applied = await onCommit("");
 		if (reqId !== detailsReqRef.current || applied !== false) return;
 		reqRef.current += 1;
 		if (debounceRef.current) clearTimeout(debounceRef.current);

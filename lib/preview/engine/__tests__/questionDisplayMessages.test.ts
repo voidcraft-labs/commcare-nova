@@ -18,7 +18,7 @@ function visitInput(receiverField = "filename") {
 		kind: "inline",
 		options: ["North", "South"].map((label) => ({
 			uuid: testUuid(id + label),
-			value: label.toLowerCase() + "_id",
+			value: `${label.toLowerCase()}_id`,
 			label: proseText(label),
 		})),
 	});
@@ -102,32 +102,35 @@ describe("a worker question receiving a form update", () => {
 				controllers.map((controller) => controller.activateFormAsync(FORM)),
 			);
 			await first.setValueAtAsync("/data/stops[0]/plain_region", "north_id");
-			await first.applyDisplayMessage("/data/stops[0]/address", {
-				city: "Mtoni",
-				province: "Missing",
-				region: "South",
-			});
 			const row = "/data/stops[0]/";
-			expect(first.store.getState()[row + "city"]?.value).toBe("Mtoni");
-			expect(first.store.getState()[row + "region"]?.value).toBe("south_id");
-			expect(first.store.getState()[row + "plain_region"]?.value).toBe("");
-			expect(second.store.getState()[row + "city"]?.value).toBe("");
+			const message = { city: "Mtoni", province: "Missing", region: "South" };
+			const value = JSON.stringify(message);
+			expect(first.stageAddressAnswerAt(`${row}address`, value, message)).toBe(
+				true,
+			);
+			await first.touchAtAsync(`${row}address`);
+			await first.awaitSettled();
+			expect(first.store.getState()[`${row}address`]?.value).toBe(value);
+			expect(first.store.getState()[`${row}city`]?.value).toBe("Mtoni");
+			expect(first.store.getState()[`${row}region`]?.value).toBe("south_id");
+			expect(first.store.getState()[`${row}plain_region`]?.value).toBe("");
+			expect(second.store.getState()[`${row}city`]?.value).toBe("");
 			expect(first.store.getState()[testUuid("form.root_city")]?.value).toBe(
 				"",
 			);
-			await first.applyDisplayMessage(row + "document", {
+			await first.applyDisplayMessage(`${row}document`, {
 				filename: "route.pdf",
 			});
-			expect(first.store.getState()[row + "filename"]?.value).toBe("route.pdf");
-			await first.applyDisplayMessage(row + "address", {
+			expect(first.store.getState()[`${row}filename`]?.value).toBe("route.pdf");
+			await first.applyDisplayMessage(`${row}address`, {
 				province: "North",
 				region: "South",
 			});
-			expect(first.store.getState()[row + "region"]?.value).toBe("north_id");
-			expect(first.store.getState()[row + "city"]?.value).toBe("");
-			await first.applyDisplayMessage(row + "address", null);
-			expect(first.store.getState()[row + "region"]?.value).toBe("");
-			expect(first.store.getState()[row + "filename"]?.value).toBe("route.pdf");
+			expect(first.store.getState()[`${row}region`]?.value).toBe("north_id");
+			expect(first.store.getState()[`${row}city`]?.value).toBe("");
+			await first.applyDisplayMessage(`${row}address`, null);
+			expect(first.store.getState()[`${row}region`]?.value).toBe("");
+			expect(first.store.getState()[`${row}filename`]?.value).toBe("route.pdf");
 		} finally {
 			for (const controller of controllers) controller.dispose();
 			await Promise.all(

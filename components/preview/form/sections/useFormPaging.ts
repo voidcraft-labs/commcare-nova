@@ -501,33 +501,60 @@ export function useFormPaging({
 		if (current === undefined) return;
 		const entryKey = controller.entryKey;
 		const version = ++navigationVersionRef.current;
-		if (
-			!(await controller.leaveScreenAsync(current.path)) ||
-			!ownsNavigation(entryKey, version) ||
-			!(await pagePasses(current, entryKey, version))
-		)
-			return;
-		const livePages = readPages();
-		const fromIndex = livePages.findIndex(
-			(page) => identityOf(page) === identityOf(current),
-		);
-		if (fromIndex === -1) return;
-		const next = availablePages(livePages.slice(fromIndex + 1))[0];
-		const queue =
-			mode === "screens"
-				? repeatPromptsBetween(
-						controller.repeatPromptPoints(),
-						fromIndex,
-						next === undefined ? livePages.length : livePages.indexOf(next),
-					)
-				: [];
-		if (queue.length > 0) {
-			if (ownsNavigation(entryKey, version))
-				setPrompt({ entryKey, queue, from: current, next });
-		} else if (next !== undefined) await turnTo(next, entryKey, version);
+		if (!(await controller.leaveScreenAsync(current.path))) return;
+		const source = identityOf(current);
+		while (ownsNavigation(entryKey, version)) {
+			const livePages = readPages();
+			const fromIndex = livePages.findIndex(
+				(page) => identityOf(page) === source,
+			);
+			if (
+				fromIndex === -1 ||
+				!(await pagePasses(livePages[fromIndex], entryKey, version))
+			)
+				return;
+			const settledPages = readPages();
+			const settledFrom = settledPages.findIndex(
+				(page) => identityOf(page) === source,
+			);
+			if (settledFrom === -1) return;
+			const next = availablePages(settledPages.slice(settledFrom + 1))[0];
+			const queue =
+				mode === "screens"
+					? repeatPromptsBetween(
+							controller.repeatPromptPoints(),
+							settledFrom,
+							next === undefined
+								? settledPages.length
+								: settledPages.indexOf(next),
+						)
+					: [];
+			if (queue.length > 0) {
+				if (ownsNavigation(entryKey, version))
+					setPrompt({ entryKey, queue, from: current, next });
+				return;
+			}
+			if (next === undefined) return;
+			if (!next.needsEntry) {
+				await turnTo(next, entryKey, version);
+				return;
+			}
+
+			// Starting deferred rows can change the page just validated, or
+			// reveal a nearer page. Validate against the new route before turning.
+			if (!(await enterPage(next)) || !ownsNavigation(entryKey, version))
+				return;
+			if (
+				readPages().some(
+					(page) => identityOf(page) === identityOf(next) && page.needsEntry,
+				)
+			)
+				return;
+		}
 	}, [
 		controller,
 		current,
+		enterPage,
 		identityOf,
 		mode,
 		ownsNavigation,

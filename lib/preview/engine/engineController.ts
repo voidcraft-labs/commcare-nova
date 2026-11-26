@@ -2864,6 +2864,23 @@ export class EngineController {
 		);
 	}
 
+	/** Stage the chosen address and any channel receivers in the same input
+	 * turn. A later blur can retire evaluation without undoing this write. */
+	stageAddressAnswerAt(
+		path: string,
+		value: string,
+		message?: QuestionMessage,
+	): boolean {
+		const work = this.beginValueChangeAt(path, value);
+		if (
+			work === undefined ||
+			this.engine?.store.getState()[path]?.value !== value
+		)
+			return false;
+		if (message !== undefined) void this.applyDisplayMessage(path, message);
+		return true;
+	}
+
 	/** Read-only stable-slot lookup. Removed/shrunk rows and reused indices
 	 * cannot stand in for the repeat identity that started a capture. */
 	private captureAnswerPath(target: CaptureAnswerTarget): string | undefined {
