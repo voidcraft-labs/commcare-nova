@@ -68,8 +68,10 @@ const TOP = "xform:model/instance/*/*";
 const NESTED = "xform:model/instance//*";
 /** The form builder's role on the wrapper. */
 const ROLE = "vellum-markup:model/instance//*@vellum:role";
-/** A data node's own namespace. */
+/** A data node's own namespace, and the entry that holds one the form writes. */
 const NAMESPACE = "xform:model/instance//*@xmlns";
+const DATA_NODE_NAMESPACE =
+	"forms-and-case-writes/xmlns-form-json-and-xform-data-node";
 const CALCULATE = "xform:model/bind@calculate";
 
 /** A held block is claimed whole at its wrapper's data node, and recorded inside at each node the
@@ -177,12 +179,6 @@ function recordBlock(
 		for (const child of element.children) {
 			if (!isTag(child)) continue;
 			cursor.within({ element: child }, claim, [NESTED]);
-			// The block's own element declares the Connect namespace, which the
-			// form builder writes on it and Connect finds the block by.
-			if (Object.hasOwn(child.attribs, "xmlns"))
-				cursor.within({ element: child, attribute: "xmlns" }, claim, [
-					NAMESPACE,
-				]);
 			if (!child.children.some(isTag))
 				cursor.within({ element: child }, claim, ["mug:DataBindOnly"]);
 			walk(child);
@@ -430,6 +426,15 @@ export function readConnectBlocks(
 		const claim = HELD[block][wrapper.parent === null ? 0 : 1];
 		cursor.takeSubtree(wrapper.element, claim).value;
 		recordBlock(cursor, wrapper.element, claim, input.parsed.scope);
+		// The block's own element declares the Connect namespace, which the form
+		// builder writes on it and Connect finds the block by: a data node's
+		// namespace, which the export writes back as it stands.
+		accounting.claimEntry(
+			{ element: own.element, attribute: "xmlns" },
+			DATA_NODE_NAMESPACE,
+			NAMESPACE,
+			place,
+		);
 		if (
 			wrapper.parent !== null ||
 			id.length > CONNECT_ID_MAX_LENGTH ||
