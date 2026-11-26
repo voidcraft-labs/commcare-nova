@@ -11,13 +11,13 @@ from proof.editors import compare, pages
 from proof.hq import operations
 from proof.hq.check import hq_check
 from proof.hq.test_case_processing import _case, _create, _submission
-from proof.matrix import ops
+from proof.matrix import ops, registry
 from proof.matrix.authoring import Authoring
-from proof.matrix.bases.hq_case_management import BASE
 from proof.observe.build import arrange
 from proof.observe.sessions import admitted, unmarked_submission
 
 
+BASE = next(base for base in registry.BASES if base.id == "hq-case-management")
 CASE = "http://commcarehq.org/case/transaction/v2"
 RECORD = "date-time-external-id-household"
 ORIGINAL = "original opaque reference"
