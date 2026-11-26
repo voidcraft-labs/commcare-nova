@@ -10090,6 +10090,8 @@ def model_iteration_hides_earlier_row(use, manifest):
     if container is None or form.body is None:
         return False
     wrapper = form.paths[container]
+    if _insertion_scope(form, wrapper) is not None:
+        return False
     path = f"{wrapper}/item"
     bind = form.bind(path)
     if bind is None or not bind.get("relevant"):
