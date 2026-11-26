@@ -66,7 +66,7 @@ const PLACEHOLDER_DATE = "2000-01-01";
  *  username against blank text, or, where the slot reads nothing a device
  *  instance holds, today's date against a fixed day. */
 export function globalSeedSubject(ctx: PredicateEditContext): {
-	readonly subject: Expression;
+	readonly subject: Parameters<typeof eq>[0];
 	readonly value: ReturnType<typeof literal>;
 } {
 	return placeholderReadsNothing(ctx)
