@@ -59,7 +59,7 @@ import {
 	CREATE_ANSWER_LEADS,
 	READING_REFUSAL_COPY,
 } from "@/lib/publish/hqReadingCopy";
-import { deleteAsset, uploadAssetBytes } from "@/lib/storage/media";
+import { copyAssetObjectIfAbsent, deleteAsset } from "@/lib/storage/media";
 import {
 	BRING_IN_TOOL_LEADS,
 	registerBringInHqApp,
@@ -161,8 +161,8 @@ beforeEach(async () => {
 	observed.beforeBirth = null;
 	vi.mocked(decrypt).mockReset();
 	vi.mocked(decrypt).mockResolvedValue("fixture-key");
-	vi.mocked(uploadAssetBytes).mockReset();
-	vi.mocked(uploadAssetBytes).mockResolvedValue(undefined);
+	vi.mocked(copyAssetObjectIfAbsent).mockClear();
+	vi.mocked(deleteAsset).mockClear();
 	await h.seedProjectMember(ACTOR, PROJECT, "editor");
 	await seedFixtureConnection(ACTOR);
 });
@@ -804,7 +804,7 @@ describe("bring_in_hq_app", () => {
 				expect(
 					await h.db().selectFrom("apps").select("id").execute(),
 				).toHaveLength(0);
-				expect(uploadAssetBytes).not.toHaveBeenCalled();
+				expect(copyAssetObjectIfAbsent).not.toHaveBeenCalled();
 				expect(await take(SCOPES)).toMatchObject({
 					isError: false,
 					body: { status: "created" },
@@ -1207,7 +1207,7 @@ describe("each refusal a call can make arrives with its tag and refusal", () => 
 				});
 				expect(await mappings()).toEqual(before);
 				expect(await assets()).toEqual(mediaBefore);
-				expect(uploadAssetBytes).not.toHaveBeenCalled();
+				expect(copyAssetObjectIfAbsent).not.toHaveBeenCalled();
 				expect(await take(SCOPES)).toMatchObject({
 					isError: false,
 					body: { status: "created" },
@@ -1233,17 +1233,21 @@ describe("each refusal a call can make arrives with its tag and refusal", () => 
 			servePng(peer, 2);
 			await withTools(async (client) => {
 				const { args } = await readReview(client);
-				vi.mocked(uploadAssetBytes).mockImplementationOnce(async () => {
+				vi.mocked(copyAssetObjectIfAbsent).mockImplementationOnce(async () => {
 					await sql`UPDATE auth_apikey SET enabled=false WHERE "referenceId"=${ACTOR}`.execute(
 						h.db(),
 					);
+					return { destinationGeneration: "1", replay: false };
 				});
 				expect(await call(client, "bring_in_hq_app", args)).toMatchObject({
 					isError: true,
 					body: { error_type: "permission_denied" },
 				});
-				expect(uploadAssetBytes).toHaveBeenCalled();
-				expect(deleteAsset).toHaveBeenCalled();
+				expect(copyAssetObjectIfAbsent).toHaveBeenCalledOnce();
+				expect(deleteAsset).toHaveBeenCalledWith(
+					vi.mocked(copyAssetObjectIfAbsent).mock.lastCall?.[0]
+						.destinationGcsObjectKey,
+				);
 				expect(
 					await h.db().selectFrom("media_assets").select("id").execute(),
 				).toEqual([]);
