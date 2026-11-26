@@ -4421,6 +4421,30 @@ def _search_and_menus():
         "menus-and-case-lists/more-than-one-address-column-or-more-than-one-image-or-geo": (
             refused(
                 "app",
+                columns_app(_column("a", "address"), _column("b", "address")),
+                "schema:DetailColumn.format",
+                f"{short}/columns/0/format",
+            ),
+            refused(
+                "app",
+                columns_app(_column("a", "address"), _column("b", "address")),
+                "format:address",
+                f"{short}/columns/1/format",
+            ),
+            accepted(
+                "app",
+                columns_app(_column("a", "address"), _column("b", "address"), doc_type="AdvancedModule"),
+                "format:address",
+                f"{short}/columns/1/format",
+            ),
+            accepted(
+                "app",
+                columns_app(_column("a", "address"), _column("b", "plain")),
+                "format:address",
+                f"{short}/columns/0/format",
+            ),
+            refused(
+                "app",
                 columns_app(_column("a", "image"), _column("b", "image")),
                 "format:image",
                 f"{short}/columns/0/format",

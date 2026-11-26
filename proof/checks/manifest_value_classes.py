@@ -5704,22 +5704,25 @@ filter_changes_the_build.__doc__ = """``menus-and-case-lists/24p-filter-otherwis
 SINGLE_FORMATS = ("image", "geo-boundary", "geo-boundary-color", "geo-points", "geo-points-colors")
 
 
-def _repeated_single_format(detail, column=None):
-    """Whether a detail holds a second column of one of ``SINGLE_FORMATS``; for a use in a column, whether that
+def _repeated_single_format(detail, column, single_formats):
+    """Whether a detail holds a second column of one of ``single_formats``; for a use in a column, whether that
     column is of the repeated format, since the class is a fact about those columns and not their neighbours."""
     formats = [_format(one) for one in _columns(detail)]
-    repeated = {single for single in SINGLE_FORMATS if formats.count(single) > 1}
+    repeated = {single for single in single_formats if formats.count(single) > 1}
     return bool(repeated) if column is None else _format(column) in repeated
 
 
 def several_of_one_format_basic(use, manifest):
     """``menus-and-case-lists/more-than-one-address-column-or-more-than-one-image-or-geo``: in a basic or
     shadow module's detail, a second ``image`` or geo column of one format, which the editor refuses; a
-    second ``address`` fails HQ's build (``invalid tile configuration``), which the bar reports."""
+    second ``address`` fails HQ's build (``invalid tile configuration``). The source check also classifies
+    the address columns of a retained mutation that has no build verdict."""
     at, column, detail, kind, module = _column(use)
     if detail is None:
         return None
-    return (module or {}).get("doc_type") != "AdvancedModule" and _repeated_single_format(detail, column)
+    return (module or {}).get("doc_type") != "AdvancedModule" and _repeated_single_format(
+        detail, column, (*SINGLE_FORMATS, "address")
+    )
 
 
 def several_of_one_format_advanced(use, manifest):
@@ -5727,7 +5730,9 @@ def several_of_one_format_advanced(use, manifest):
     at, column, detail, kind, module = _column(use)
     if detail is None:
         return None
-    return (module or {}).get("doc_type") == "AdvancedModule" and _repeated_single_format(detail, column)
+    return (module or {}).get("doc_type") == "AdvancedModule" and _repeated_single_format(
+        detail, column, SINGLE_FORMATS
+    )
 
 
 # HQ's editor's field check (details/utils.js::isValidPropertyName, and sort_rows.js::hasValidPropertyName for a
