@@ -6,14 +6,14 @@ from proof.core.artifacts import TEMPLATE_RESTORE
 from proof.core.client import load_answer_table
 from proof.core.test_session import form_step
 from proof.editors import compare, pages
-from proof.editors.conftest import corpus_document
 from proof.hq import operations
+from proof.hq.check import hq_check
 from proof.hq.test_case_processing import _case, _create, _submission
 from proof.matrix import ops, registry
 from proof.matrix.authoring import Authoring
+from proof.matrix.bases.hq_advanced import BASE
 from proof.observe.build import arrange
 from proof.observe.sessions import admitted, unmarked_submission
-from proof.webapps.hq import authored_project
 
 CASE = "http://commcarehq.org/case/transaction/v2"
 HOUSEHOLD = "label-witness-household"
@@ -40,17 +40,21 @@ def _restore():
     return etree.tostring(restore)
 
 
-def _authored_label(project, driver):
+def _authored_label(unit, driver):
     authoring = Authoring(
-        state=project.unit, documents={}, base="hq-advanced", driver=driver, operation=project.unit.operation,
+        state=unit, documents={}, base=BASE.id, driver=driver, operation=unit.operation,
     )
-    registry.named_change("load_writes_a_label")(authoring, project.app_id)
+    app_id = BASE.build(authoring)
+    for menu, form in BASE.vellum:
+        ops.builder_save(authoring, app_id, menu, form)
+    registry.named_change("load_writes_a_label")(authoring, app_id)
+
     def held_form():
-        return operations.held_app(project.unit, project.app_id).get_module(1).get_form(0)
+        return operations.held_app(unit, app_id).get_module(1).get_form(0)
 
     form = held_form()
     page = pages.ADVANCED_CASE_MANAGEMENT
-    saved = pages.fresh_section_save(driver, project.unit, page, project.app_id, form.unique_id)
+    saved = pages.fresh_section_save(driver, unit, page, app_id, form.unique_id)
     assert saved.save is not None and not saved.refused, (saved.alerts, saved.unsent, saved.response)
     form = held_form()
     load = form.actions.load_update_cases[1]
@@ -58,7 +62,7 @@ def _authored_label(project, driver):
     assert load.case_properties["seen"].question_path == QUESTION
     assert load.case_properties["seen"].update_mode == "always"
     assert load.case_properties["notes"].question_path == "/data/notes"
-    return authoring, form
+    return authoring, app_id, form
 
 
 def _received(state, submission, relevant=True):
@@ -81,12 +85,11 @@ def _received(state, submission, relevant=True):
 
 
 def test_advanced_editor_label_write_keeps_the_submitted_answer_and_case(hq, core_runner, editor_driver, tmp_path):
-    with authored_project(corpus_document("hq-advanced"), "A") as project:
-        authoring, form = _authored_label(project, editor_driver)
-        unit = project.unit
+    with hq_check(BASE.configuration) as (unit, _):
+        authoring, app_id, form = _authored_label(unit, editor_driver)
 
         def read(relevant):
-            built = compare.build(unit, project.app_id, unit.record)
+            built = compare.build(unit, app_id, unit.record)
             assert not built.errors, built.errors
             xml = etree.fromstring(built.files["modules-1/forms-0.xml"])
             (bind,) = xml.xpath("//*[local-name()='bind'][@calculate=$path]", path=QUESTION)
@@ -114,5 +117,5 @@ def test_advanced_editor_label_write_keeps_the_submitted_answer_and_case(hq, cor
             (bind,) = root.xpath("//*[local-name()='bind'][@nodeset=$path]", path=QUESTION)
             bind.set("relevant", "false()")
 
-        ops.set_form_source(authoring, project.app_id, 1, 0, hide, what="hide the label source")
+        ops.set_form_source(authoring, app_id, 1, 0, hide, what="hide the label source")
         read(False)
