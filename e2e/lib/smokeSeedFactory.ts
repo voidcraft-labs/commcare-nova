@@ -140,6 +140,8 @@ import {
 	menuHeldCaseRoute,
 } from "./menuHeldCaseSeed";
 import {
+	ANDROID_DEEP_LINK_VISIT_SEED,
+	buildAndroidDeepLinkVisitBlueprint,
 	buildFormRefusedBlueprint,
 	buildHereColumnBlueprint,
 	buildPreviewAndroidMediaBlueprint,
@@ -1598,6 +1600,29 @@ export async function createSmokeBuilders(
 			});
 			return {
 				searchStartRefused: {
+					appId,
+					route: searchStartRefusedRoute(appId),
+					caseId: patient.caseId,
+				},
+			};
+		},
+		"android-deep-link-visit": async () => {
+			const seed = ANDROID_DEEP_LINK_VISIT_SEED;
+			const appId = await seedRuntimeApp(
+				seed.appName,
+				buildAndroidDeepLinkVisitBlueprint,
+			);
+			const patient = await caseStore.insert({
+				appId,
+				row: {
+					case_type: seed.caseType,
+					case_name: seed.patient.caseName,
+					status: "open",
+					properties: {},
+				},
+			});
+			return {
+				androidDeepLinkVisit: {
 					appId,
 					route: searchStartRefusedRoute(appId),
 					caseId: patient.caseId,

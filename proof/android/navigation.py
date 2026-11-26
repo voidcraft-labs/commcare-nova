@@ -7,9 +7,11 @@ worker HQ made in, and reads each navigation as one session of the app's own hom
   each screen home then starts;
 - ``paths``: lists of menu item ids, chosen from the app's first menu as a worker taps them, a list on the way
   answered with its first case;
-- ``endpoints``: ``{id, arguments?, complete?}``, each launched as CommCare's own launcher sends it
+- ``endpoints``: ``{id, arguments?, complete?, leave?}``, each launched as CommCare's own launcher sends it
   (``CommCareLauncher.launchCommCareForAppId``) and followed through Android's dispatcher to its home
-  activity, a form it opens left as it opened, or completed where ``complete`` says so.
+  activity, a form it opens left as it opened, completed where ``complete`` says so, or discarded through
+  Back's quit dialog with its result handed home where ``leave`` says so; each record then says whether home
+  finished and the result code it handed back (``finished``, ``resultCode``).
 
 The answer holds one record a navigation under ``navs``, keyed ``command:<id>``, ``path:<ids joined by />``
 or ``endpoint:<id>``: a command's and a path's ``steps``, and an endpoint's ``dispatched`` chain,

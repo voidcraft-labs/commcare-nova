@@ -116,7 +116,13 @@ export function useEntryPointLaunch() {
 									: {}),
 							};
 				current.installEntryPointLaunch(launch);
-				if (launch.firstMenuSelections !== undefined)
+				/* Back from a form an Android deep link opened ends the visit
+				 * (`previewEntryPointVisit`), so only a menu or case list
+				 * destination steps back to the first menu. */
+				if (
+					launch.firstMenuSelections !== undefined &&
+					launch.location.kind !== "form"
+				)
 					showFrameFirstMenu(navigate, session, launch.firstMenuSelections);
 				navigate.push(launch.location);
 			}

@@ -103,8 +103,16 @@ When trying the link in Preview, enter a fresh ID for each chosen creation. The 
 
 Generating an HQ link uses the case IDs in the destination project space. Adding or removing a supplied ID changes what callers must provide. Publish and release that choice before sharing a replacement link.
 
-On Android, pressing Back from a deep link's destination returns to the first
-menu with the first record the link supplied still selected, wherever the
-destination sits. A menu that asks for that record under the same name then
-opens without asking again, as Preview's Android device shows. In Web Apps,
-Back returns to a fresh first menu.
+On Android, a visit a deep link opens ends with its first form. Whether the
+worker submits that form or presses Back, CommCare returns to the app that
+opened the link, and the form's after-submit setting doesn't run. The next
+visit starts fresh. Preview's Android device shows the phone's home screen
+then.
+
+A link to a menu or a case list keeps the visit going until a form ends it.
+Pressing Back there returns to the first menu with the first record the link
+supplied still selected. A menu that asks for that record under the same name
+then opens without asking again, as Preview's Android device shows.
+
+In Web Apps, Back returns to a fresh first menu, and a submitted form follows
+its after-submit setting.

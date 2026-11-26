@@ -1052,3 +1052,9 @@ export function useClearPendingIdentityMove(): () => void {
 export function usePreviewEntryPointLaunch() {
 	return useBuilderSession((s) => s.previewEntryPointLaunch);
 }
+
+/** Whether an Android visit an entry point opened is waiting for its first
+ *  form to end, which returns the phone to its home screen. */
+export function usePreviewEntryPointVisit() {
+	return useBuilderSession((s) => s.previewEntryPointVisit);
+}

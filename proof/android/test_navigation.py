@@ -24,12 +24,17 @@ Android's own home activity reads the session each navigation leaves (``proof.an
   phone lacks, which Core's ``CaseXmlParser.loadCase`` refuses as the form saves, so the device quarantines the
   form, sends nothing and tells the worker "Form Record Quarantined". Preview running as Android saves nothing for
   such a form and says so (``lib/preview/platform.ts``, ``entryPointUnheldCaseSubmit``).
+- ``targeted-forms-in-menu-above-one-case``: the entry point ``patient_visit`` (after-submit Previous) completed,
+  then opened again and left through Back's quit dialog (Discard). Either way home, launched from outside, resets the session and finishes,
+  handing RESULT_CANCELED back to the app that opened the link (``SessionLaunchDelegate.kt::exitFromExternalLaunch``),
+  so no after-submit runs and the next visit starts fresh.
 
 The plausible failures: a destination HQ builds as another (``root`` as the app's home, ``parent_module`` as
 the form's own menu); a device that opens a menu selecting several cases, so a destination there would be one a
 worker reaches; a form off the menu a link or an entry point no longer opens, which would make what Nova says
 of Android untrue; a hidden menu a link opens as anything but an empty screen; and a form for a case the phone
-lacks that reaches HQ, which would make Preview's refusal to save it untrue.
+lacks that reaches HQ, which would make Preview's refusal to save it untrue; and a deep link's form whose end
+keeps the visit going, which would make Preview's return to the phone's home screen untrue.
 """
 
 from __future__ import annotations
@@ -51,6 +56,8 @@ FORM_RECORD_QUARANTINED = "Form Record Quarantined"
 FORM_ENTRY = "FormEntryActivity"
 MENU = "MenuActivity"
 LIST = "EntitySelectActivity"
+# Android's Activity.RESULT_CANCELED, which home hands back to the app that opened a deep link once its form ends.
+RESULT_CANCELED = 0
 # Core's name for what a session needs where a menu selects several cases (SessionFrame.STATE_MULTIPLE_DATUM_VAL).
 SELECTED_ENTITIES = "SELECTED_ENTITIES"
 
@@ -234,7 +241,13 @@ def test_reaching_shared_forms_by_android_intent_keeps_each_routes_command_and_b
         assert opened["form"]["FormEntryActivity.getHeaderString"] == f"Field visits > {menu} > {title}", opened
 
 
-def test_a_deep_link_returns_to_the_first_menu_with_the_patient_still_chosen(android_documents, hq):
+def test_a_form_a_deep_link_opened_ends_the_visit_submitted_or_left(android_documents, hq):
+    """Android finishes a visit a deep link opened when its first form ends, submitted or left, before any
+    after-submit runs: home resets the session and hands RESULT_CANCELED back to the app that opened the link
+    (``SessionLaunchDelegate.kt::exitFromExternalLaunch``, ``ccodk_exit_after_form_submission`` true unless the
+    caller says otherwise). ``patient_visit``'s after-submit is Previous, which Web Apps follows to the first
+    menu; Preview running as Android shows the phone's home screen on a new session
+    (``lib/session/store.ts::previewEntryPointVisit``)."""
     doc = android_documents["targeted-forms-in-menu-above-one-case"]
     navs = _navs(
         doc,
@@ -242,14 +255,24 @@ def test_a_deep_link_returns_to_the_first_menu_with_the_patient_still_chosen(and
         endpoints=[{"id": "patient_visit", "arguments": ["patient-2"], "complete": True}],
         paths=[["m1-f0"]],
     )
-    endpoint = navs["endpoint:patient_visit"]
-    assert "raised" not in endpoint, endpoint
-    opened, returned = _after_form(endpoint["landed"])
+    submitted = navs["endpoint:patient_visit"]
+    assert "raised" not in submitted, submitted
+    opened, returned = _after_form(submitted["landed"])
     assert opened["session"]["command"] == "m0-f0", opened
     assert opened["session"]["selectedCase"] == "patient-2", opened
-    assert returned["screen"] == MENU and returned["menu"]["id"] is None, returned
-    assert "m1-f0" in _items(returned), returned
-    assert returned["session"]["selectedCase"] == "patient-2", returned
+    assert returned["screen"] == "home" and returned["session"]["command"] is None, returned
+    assert "selectedCase" not in returned["session"], returned
+    assert submitted["landed"]["finished"] is True, submitted["landed"]
+    assert submitted["landed"]["resultCode"] == RESULT_CANCELED, submitted["landed"]
+    left = _navs(
+        doc,
+        "first-menu-patient-left",
+        endpoints=[{"id": "patient_visit", "arguments": ["patient-2"], "leave": True}],
+    )["endpoint:patient_visit"]
+    assert "raised" not in left, left
+    assert any(step["screen"] == FORM_ENTRY for step in _steps(left["landed"])), left
+    assert left["landed"]["finished"] is True, left["landed"]
+    assert left["landed"]["resultCode"] == RESULT_CANCELED, left["landed"]
     fresh = _steps(navs["path:m1-f0"])
     assert any(step["screen"] == LIST for step in fresh), fresh
 

@@ -34,6 +34,11 @@
  *   form reads the field's starting value as a phone builds the search it
  *   reads, and for a worker assigned nowhere a phone stops there.
  *
+ * - **android-deep-link-visit**: an app that runs only on Android whose
+ *   follow-up returns to the previous screen and has a deep link. A visit
+ *   the link opens ends with that form, submitted or left, on the phone's
+ *   home screen.
+ *
  * - **preview-android-media**: an app that runs only on Android whose one
  *   question's label carries an AMR recording, which only Android plays, so
  *   Preview, which plays media in the browser, shows its line in the player's
@@ -787,4 +792,79 @@ export function searchStartRefusedRoute(appId: string): string {
 		kind: "app-setup",
 		section: "deep-links",
 	});
+}
+
+export const ANDROID_DEEP_LINK_VISIT_SEED = {
+	appName: "Smoke — Android deep link visit",
+	moduleUuid: testUuid("android-deep-link-module"),
+	moduleName: "Patients",
+	formUuid: testUuid("android-deep-link-form"),
+	formName: "Visit",
+	caseType: "patient",
+	columnUuid: testUuid("android-deep-link-name-column"),
+	noteLabel: "Visit note",
+	entryPoint: {
+		uuid: testUuid("android-deep-link-entry-point"),
+		id: "visit_patient",
+	},
+	patient: { caseName: "Ama Owusu" },
+} as const;
+
+/** An app that runs only on Android, whose follow-up returns to the previous
+ *  screen after it is submitted and has a deep link of its own. */
+export function buildAndroidDeepLinkVisitBlueprint(
+	appId: string,
+): BlueprintDoc {
+	const seed = ANDROID_DEEP_LINK_VISIT_SEED;
+	const doc = buildDoc({
+		appId,
+		appName: seed.appName,
+		appSettings: {
+			showSavedForms: false,
+			showIncompleteForms: false,
+			runsOnlyOn: "android",
+		},
+		caseTypes: [
+			{
+				name: seed.caseType,
+				properties: [
+					{ name: "note", label: proseText(seed.noteLabel), data_type: "text" },
+				],
+			},
+		],
+		modules: [
+			{
+				uuid: seed.moduleUuid,
+				name: seed.moduleName,
+				caseType: seed.caseType,
+				caseListConfig: {
+					columns: [plainColumn(seed.columnUuid, "case_name", "Patient")],
+					searchInputs: [],
+				},
+				forms: [
+					{
+						uuid: seed.formUuid,
+						name: seed.formName,
+						type: "followup",
+						postSubmit: "previous",
+						fields: [
+							f({
+								kind: "text",
+								id: "note",
+								label: proseText(seed.noteLabel),
+								caseWrite: { caseType: seed.caseType, property: "note" },
+							}),
+						],
+					},
+				],
+			},
+		],
+	});
+	const form = doc.forms[seed.formUuid];
+	if (form === undefined) throw new Error("The visit form is missing.");
+	doc.forms[seed.formUuid] = {
+		...form,
+		entryPoint: { uuid: seed.entryPoint.uuid, id: seed.entryPoint.id },
+	};
+	return doc;
 }

@@ -38,8 +38,10 @@ import java.util.List;
  * StandardHomeActivity ({@code dispatched}), the media check a first open asks for run and its result handed
  * back. Home is built from the intent the dispatcher handed it ({@code handedHome}), which runs the entry
  * point's stack as it is created (HomeScreenBaseActivity.processSessionEndpoint), and what home then starts is
- * read ({@code landed}): a case list answered and the screen after it read, and a form opened and left, or
- * completed where the entry point carries {@code "complete": true}.</li>
+ * read ({@code landed}): a case list answered and the screen after it read, and a form opened and left as it
+ * opened, completed where the entry point carries {@code "complete": true}, or discarded through Back's quit
+ * dialog and its result handed home where it carries {@code "leave": true}; then whether home finished and the result
+ * code it handed back ({@code finished}, {@code resultCode}).</li>
  * </ul>
  *
  * A step records its {@code screen} (home, MenuActivity, EntitySelectActivity, FormEntryActivity), the session
@@ -211,13 +213,42 @@ final class Nav {
         landed.put("steps", new JSONArray());
         found.put("landed", landed);
         boolean complete = endpoint.optBoolean("complete");
+        boolean leave = endpoint.optBoolean("leave");
         Screens.follow(screen, Shadows.shadowOf(screen), endpoint.getString("id"), new ArrayList<>(), 0, null,
-                complete ? Forms::read : Nav::opened, landed, null);
+                complete ? Forms::read : leave ? Nav::left : Nav::opened, landed, null);
         if (complete) {
             // What CommCare told the worker of the completed form: the messages it holds for its notification.
             landed.put("notifications", Forms.notifications());
         }
+        // Whether home, launched from outside, finished once the form ended and handed the result back to the app
+        // that opened the link (SessionLaunchDelegate.exitFromExternalLaunch, SessionLaunchHost.finishWithResult).
+        landed.put("finished", screen.isFinishing());
+        landed.put("resultCode", Shadows.shadowOf(screen).getResultCode());
         return found;
+    }
+
+    /**
+     * A form an entry point opened and the worker left: Back raises the quit dialog
+     * (FormEntryActivity.triggerUserQuitInput, FormEntryDialogs.createQuitDialog), whose Discard ends the form
+     * (FormEntryActivity.discardChangesAndExit), and home is handed the form's result.
+     */
+    private static boolean left(Intent started, JSONObject step, ShadowActivity home) throws Exception {
+        FormEntryActivity activity = Forms.open(started);
+        JSONObject form = new JSONObject();
+        step.put("form", form);
+        boolean loaded = FormEntryActivity.mFormController != null;
+        form.put("loaded", loaded);
+        if (!loaded) {
+            return false;
+        }
+        activity.discardChangesAndExit();
+        ShadowLooper.idleMainLooper();
+        ShadowActivity shadow = Shadows.shadowOf(activity);
+        form.put("finishing", activity.isFinishing());
+        form.put("resultCode", shadow.getResultCode());
+        home.receiveResult(started, shadow.getResultCode(), shadow.getResultIntent());
+        ShadowLooper.idleMainLooper();
+        return true;
     }
 
     /** A form an entry point opened, left as it opened: whether it loaded, its header and title, and any alert. */

@@ -1670,6 +1670,21 @@ export function FormScreen({ screen }: FormScreenProps) {
 			setPreviewCaseTarget(undefined);
 			letSubmittedSearchesGo();
 		};
+		/* The first form of an Android visit a deep link opened ends the
+		 * visit: Android resets the session and returns to the app that
+		 * opened the link before any after-submit or form link runs
+		 * (`SessionLaunchDelegate.kt::handleFormEntryResult` →
+		 * `exitFromExternalLaunch`), so Preview shows the phone's home
+		 * screen on a new session. */
+		if (session.getState().previewEntryPointVisit) {
+			retireCompletedTask();
+			announceWrite();
+			settleAttempt({ kind: "idle" });
+			forgetCompletedPages();
+			navigate.goHome();
+			setPreviewAtDeviceHome(true);
+			return;
+		}
 		/* Both list actions return through the frames for the host that
 		 * opened this entry. The form's own navigation takes precedence. */
 		const hostUuid = submitted.caseListRegistrationLaunch?.hostModuleUuid;

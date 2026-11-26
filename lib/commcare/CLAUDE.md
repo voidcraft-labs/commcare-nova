@@ -2520,7 +2520,14 @@ then a navigation push. Because each claim push comes before the navigation,
 Android's Back pops the navigation, then each posted claim with every case
 claimed after the first, and stops on Home with the first claimed case still
 chosen, whatever menu the destination is in (`CommCareSession.stepBack`,
-witnessed by `proof/native/core/EndpointRuntimeTest.java`).
+witnessed by `proof/native/core/EndpointRuntimeTest.java`). That Back is a menu
+or case list destination's: the first form of a visit a deep link opened ends
+the visit on Android, submitted or left, before any after-submit runs. Home,
+launched from outside, resets the session and hands `RESULT_CANCELED` back to
+the app that opened the link (`SessionLaunchDelegate.kt::exitFromExternalLaunch`,
+`ccodk_exit_after_form_submission`, true unless the caller says otherwise;
+witnessed by `proof/android/test_navigation.py`), which Preview plays as the
+phone's home screen (`lib/session/store.ts::previewEntryPointVisit`).
 `EntryPointProjection.homeFrame` is that carry (the endpoint frame itself
 with inline search, which claims nothing), and it gives each menu reading that
 case under the same id, type and count its `firstMenuConsumers` for
