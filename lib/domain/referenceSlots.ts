@@ -2309,6 +2309,12 @@ export const NON_REFERENCE_FORM_PATHS: Readonly<
 	"caseOperations[].nameOnlyIfChanged": "config",
 	"caseOperations[].renameOnlyIfChanged": "config",
 	"caseOperations[].ownerOnlyIfChanged": "config",
+	// Imported case-type calculations contain literal pieces only.
+	// The checked caseType above supplies the case catalog reference.
+	"caseOperations[].typeCalculation.kind": "discriminator",
+	"caseOperations[].typeCalculation.parts[].kind": "discriminator",
+	"caseOperations[].typeCalculation.parts[].term.kind": "discriminator",
+	"caseOperations[].typeCalculation.parts[].term.value": "config",
 	// A held placement names the slot or the block CommCare HQ keeps the
 	// change in: closed enums, an index, and the element names of a Save to
 	// Case block's path in the form's source.

@@ -1007,6 +1007,8 @@ function corePlan(
 			...f.operations
 				.filter(
 					(operation) =>
+						(operation.action === "create" &&
+							operation.typeCalculation !== undefined) ||
 						operation.closeAfter === true ||
 						operation.closeCondition !== undefined ||
 						operation.ownerCondition !== undefined,

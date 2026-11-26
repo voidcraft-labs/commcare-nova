@@ -43,7 +43,11 @@ import {
 	unowned,
 } from "@/lib/domain/expression/builders";
 import type { SlotContextRef } from "@/lib/domain/expression/types";
-import { hasUpdateOnlyCaseFacets } from "@/lib/domain/forms";
+import {
+	type CaseTypeCalculation,
+	fixedCaseTypeOf,
+	hasUpdateOnlyCaseFacets,
+} from "@/lib/domain/forms";
 import { moduleUuidOfForm } from "@/lib/domain/postSubmit";
 import {
 	caseOperationLinkNameProblem,
@@ -621,6 +625,29 @@ function literalOf(text: string | undefined): string | undefined {
 	return node?.kind === "string" ? node.value : undefined;
 }
 
+function readFixedCaseType(
+	text: string | undefined,
+): CaseTypeCalculation | undefined {
+	const node = parse(text);
+	if (node?.kind !== "call" || node.name !== "concat") return undefined;
+	const terms = node.args.flatMap((argument) =>
+		argument.kind === "string"
+			? [
+					{
+						kind: "term",
+						term: { kind: "literal", value: argument.value },
+					} as const,
+				]
+			: [],
+	);
+	const [first, second, ...rest] = terms;
+	return first === undefined ||
+		second === undefined ||
+		terms.length !== node.args.length
+		? undefined
+		: { kind: "concat", parts: [first, second, ...rest] };
+}
+
 function isCall(text: string | undefined, name: string): boolean {
 	let node = parse(text);
 	while (node?.kind === "group") node = node.value;
@@ -766,6 +793,7 @@ export interface ProposedBlock {
 		readonly answer?: DraftField;
 	};
 	readonly retype?: string;
+	readonly typeCalculation?: CaseTypeCalculation;
 	readonly writes: readonly ProposedRow[];
 	readonly links: readonly ProposedLink[];
 	readonly condition?: { readonly text: string; readonly site: ClaimSite };
@@ -1476,11 +1504,35 @@ function readBlock(
 		(child) => localName(child) === "case",
 	);
 	if (caseElement === undefined) return { ok: false };
-	const caseType = block.element.attribs["vellum:case_type"];
-	if (caseType === undefined || caseType === "") return { ok: false };
 	const parts = new Map(
 		children(caseElement).map((child) => [localName(child), child]),
 	);
+	const binds = bindsUnder(xform, block.path);
+	const bindAt = (key: string) => binds.get(key);
+	const calc = (key: string) => bindAt(key)?.attribs.calculate;
+	const creates = parts.has("create");
+	const createTypeText = creates ? calc("case/create/case_type") : undefined;
+	const literalType = literalOf(createTypeText);
+	const declaredType = block.element.attribs["vellum:case_type"];
+	// Vellum removes the declared type when the create's type is an XPath.
+	// Keep the literal-only calculation itself, and resolve the fixed type
+	// before asking for that static metadata.
+	const typeCalculation =
+		declaredType === "" ? readFixedCaseType(createTypeText) : undefined;
+	if (
+		createTypeText !== undefined &&
+		literalType === undefined &&
+		typeCalculation === undefined &&
+		parse(createTypeText) !== undefined
+	)
+		return fail(SAVE_TO_CASE_CLAIMS.caseTypeXPath);
+	const fixedType =
+		typeCalculation === undefined
+			? undefined
+			: fixedCaseTypeOf(typeCalculation);
+	const caseType = fixedType ?? declaredType;
+	if (caseType === undefined || (caseType === "" && fixedType === undefined))
+		return { ok: false };
 	// The worker's record is a case a block only updates: a create, a close or
 	// a link of it, and any block of HQ's owner mapping, is the reserved entry.
 	if (
@@ -1494,9 +1546,6 @@ function readBlock(
 	// row's and a link's.
 	if (caseOperationCaseTypeNameProblem(caseType) !== undefined)
 		return fail(SAVE_TO_CASE_CLAIMS.caseTypeName);
-	const binds = bindsUnder(xform, block.path);
-	const bindAt = (key: string) => binds.get(key);
-	const calc = (key: string) => bindAt(key)?.attribs.calculate;
 	// A bind on the block's own node, and a constraint or a type on a leaf.
 	if (bindAt("")?.attribs.relevant !== undefined)
 		return fail(SAVE_TO_CASE_CLAIMS.blockRelevance);
@@ -1519,7 +1568,6 @@ function readBlock(
 	};
 	const casePath = [...block.path, "case"];
 	const idPath = [...casePath, "@case_id"];
-	const creates = parts.has("create");
 	if (
 		block.authoredScopeLength !== undefined &&
 		(creates || caseType === "commcare-user")
@@ -1551,7 +1599,7 @@ function readBlock(
 	// The target.
 	let target: ProposedTarget;
 	if (creates) {
-		const createType = literalOf(calc("case/create/case_type"));
+		const createType = fixedType ?? literalType;
 		if (createType === undefined)
 			return fail(SAVE_TO_CASE_CLAIMS.caseTypeXPath);
 		if (createType !== caseType) return { ok: false };
@@ -2050,6 +2098,7 @@ function readBlock(
 			...(owner !== undefined && { owner }),
 			...(rename !== undefined && { rename }),
 			...(retype !== undefined && { retype }),
+			...(typeCalculation !== undefined && { typeCalculation }),
 			writes,
 			links,
 			...(condition !== undefined && { condition }),
@@ -2658,6 +2707,7 @@ export function readSaveToCaseBlocks(
 		firstBlock.target.idFrom === undefined &&
 		firstBlock.target.authoredId === undefined &&
 		firstBlock.ownerCondition === undefined &&
+		firstBlock.typeCalculation === undefined &&
 		firstBlock.block.repeat === null &&
 		firstBlock.segments.join("/") === "operations/block" &&
 		firstBlock.name?.answer === undefined &&
@@ -3759,6 +3809,9 @@ function operationOf(
 				ownerCondition: placeholder("condition"),
 			}),
 			caseType: one.caseType,
+			...(one.typeCalculation !== undefined && {
+				typeCalculation: one.typeCalculation,
+			}),
 			target: {
 				kind: "new",
 				...(idFrom !== undefined && { idFrom }),
