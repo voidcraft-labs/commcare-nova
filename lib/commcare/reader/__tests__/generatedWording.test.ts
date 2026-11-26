@@ -541,3 +541,68 @@ it("reads a form menu label's own wording back as it was written, beside or with
 		).toEqual([named, titled]);
 	}
 });
+
+it("writes back the app name's two strings as CommCare HQ stores them, in the source language and in another", async () => {
+	const base = localizationWireFixture("bilingual");
+	const name = base.appName;
+	const cases: readonly [string, Record<string, string>][] = [
+		["neither", {}],
+		[
+			"both, alike",
+			{ "app.display.name": "Clinique", "homescreen.title": "Clinique" },
+		],
+		["the display name alone", { "app.display.name": "Clinique" }],
+		["the home screen title alone", { "homescreen.title": "Accueil" }],
+		[
+			"the two, different",
+			{ "app.display.name": "Clinique", "homescreen.title": "Accueil" },
+		],
+		[
+			"the display name alone, equal to the app's name",
+			{ "app.display.name": name },
+		],
+		[
+			"both, equal to the app's name",
+			{ "app.display.name": name, "homescreen.title": name },
+		],
+	];
+	const body = exportedBody(base);
+	const codes = Object.keys(body.translations as Record<string, unknown>);
+	expect(codes.length).toBe(2);
+	for (const code of codes)
+		for (const [label, stored] of cases) {
+			const served = structuredClone(body);
+			const translations = served.translations as Record<
+				string,
+				Record<string, string>
+			>;
+			const strings = { ...translations[code] };
+			delete strings["app.display.name"];
+			delete strings["homescreen.title"];
+			translations[code] = { ...strings, ...stored };
+			const result = readHqApp(
+				await inputFor(served, {
+					appStrings: (read) => localAppStringTable(read, []),
+				}),
+			);
+			if (result.kind !== "read")
+				throw new Error(`${code} ${label}: ${JSON.stringify(result.findings)}`);
+			const again = exportedBody(result.draft.doc);
+			const keys = (body: Record<string, unknown>) =>
+				Object.fromEntries(
+					Object.entries(
+						(body.translations as Record<string, Record<string, string>>)[
+							code
+						] ?? {},
+					).filter(
+						([key]) => key === "app.display.name" || key === "homescreen.title",
+					),
+				);
+			expect([code, label, again.name, keys(again)]).toEqual([
+				code,
+				label,
+				served.name,
+				keys(served),
+			]);
+		}
+});

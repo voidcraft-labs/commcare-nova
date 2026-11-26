@@ -64,7 +64,6 @@ import type {
 	BlueprintDoc,
 	CaseProperty,
 	PersistableDoc,
-	TranslationUnitId,
 	Uuid,
 } from "@/lib/domain";
 import { effectiveCaseTypes } from "@/lib/domain/effectiveCaseTypes";
@@ -83,7 +82,6 @@ import {
 	recordFromEntries,
 } from "@/lib/domain/records";
 import {
-	defaultWording,
 	hasGeneratedWording,
 	snapshotTranslationUnits,
 	storedTranslationValue,
@@ -521,6 +519,13 @@ function narrowed(
 				// agree on a generated output, keep its actual language entry.
 				// The source rebase already moved it to its new storage location.
 				if (before && after && held && deepEqual(before.value, after.value)) {
+					const original = snapshotTranslationUnits(D).get(mutation.unitId);
+					if (original && hasGeneratedWording(original)) break;
+				}
+				// A generated output's wording both readings hold alike, which Nova does not hold (a
+				// pair CommCare HQ keeps beside a Nova-born app's name, its base renamed there): no
+				// change of the wording, so nothing of it comes in.
+				if (before && after && !held && deepEqual(before.value, after.value)) {
 					const original = snapshotTranslationUnits(D).get(mutation.unitId);
 					if (original && hasGeneratedWording(original)) break;
 				}
@@ -1567,46 +1572,6 @@ function formsOf(draft: ReadDraft): readonly { readonly uuid: Uuid }[] {
 	});
 }
 
-/**
- * Whether the next publish still makes a fold an earlier reader made of a generated wording
- * override. Nova's earlier reader folded a key CommCare HQ's app translations set for a text with
- * a base (a form's name, a menu's) into that base, so the document it saved words the base as the
- * override did. A reading today takes the override as the text's own wording and keeps the base
- * CommCare HQ holds, so it lists no fold, and yet publishing the saved document still writes those
- * words into the base, the change `translation-overrides-folded` names. Its signature: where the
- * baseline, read now, holds a text's own wording in a language, the reference document (what the
- * baseline described when Nova recorded it) words the base otherwise than the baseline does, and
- * the head still words it as the reference does, so no edit in Nova made the difference.
- */
-export function holdsFoldedOverride(
-	reference: BlueprintDoc,
-	baseline: BlueprintDoc,
-	head: BlueprintDoc,
-): boolean {
-	const read = effectiveAppLocalization(baseline.localization);
-	const readUnits = snapshotTranslationUnits(baseline);
-	const referenceUnits = snapshotTranslationUnits(reference);
-	const headUnits = snapshotTranslationUnits(head);
-	for (const language of read.languageOrder) {
-		for (const [unitId, entry] of Object.entries(
-			languageEntries(read, language) ?? {},
-		)) {
-			const id = unitId as TranslationUnitId;
-			const unit = readUnits.get(id);
-			const was = referenceUnits.get(id);
-			const now = headUnits.get(id);
-			if (entry === undefined || !unit?.generated?.base || !was || !now)
-				continue;
-			const referenceBase = defaultWording(reference, language, was);
-			if (deepEqual(referenceBase, defaultWording(baseline, language, unit)))
-				continue;
-			if (deepEqual(referenceBase, defaultWording(head, language, now)))
-				return true;
-		}
-	}
-	return false;
-}
-
 interface PlanInput {
 	readonly baseMediaFiles: readonly AdoptedMediaFile[];
 	readonly reference: Extract<ReferenceDocument, { readonly kind: "ok" }>;
@@ -1732,12 +1697,6 @@ export function* planHqChangesSteps(input: PlanInput): Steps<HqChangePlan> {
 				id !== "forms-and-settings-rewritten" &&
 				(!baseIds.includes(id) || changedPublishSubjects.includes(id)),
 		);
-		// A fold an earlier reading made stays the next publish's change until a push ends it.
-		if (
-			!publishChanges.includes("translation-overrides-folded") &&
-			holdsFoldedOverride(ref, B, input.now)
-		)
-			publishChanges = [...publishChanges, "translation-overrides-folded"];
 	} catch {
 		return differs({
 			check: "apply",

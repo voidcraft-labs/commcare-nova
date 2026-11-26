@@ -18,7 +18,6 @@ import {
 } from "@/lib/domain";
 import { NO_ENTRIES, recordFromEntries } from "@/lib/domain/records";
 import type { HqPlace } from "@/lib/publish/hqFindings";
-import { generatedAppStringPattern } from "../appStringKeys";
 import { instanceScanRead } from "../hqInstanceScan";
 import type { Admitted } from "./accounting";
 import { applicationReading } from "./appShell";
@@ -31,7 +30,6 @@ import {
 	take,
 } from "./claims";
 import type { DraftForm, DraftModule, ReadContext } from "./context";
-import { generatedKeyOwner } from "./generatedTranslationKeys";
 import {
 	heldText,
 	recordTextRewrite,
@@ -692,106 +690,19 @@ export function refuseFormNameReadAsInstance(
 		);
 }
 
-/** A form whose first-language name reads as an instance and that an app translation in that
- *  language words otherwise: the scan waits for the generated key's verdict. */
-export interface DeferredFormName {
-	readonly form: DraftForm;
-	/** The first-language name as the form's map holds it, which the scan reads. */
-	readonly stored: string;
-	/** The language and key of the app translation over it. */
-	readonly language: string;
-	readonly key: string;
-}
-
-const DEFERRED_FORM_NAMES = new WeakMap<ReadContext, DeferredFormName[]>();
-
-/** The forms whose instance scan waits for a generated key's verdict, in reading order. */
-export function deferredFormNames(
-	ctx: ReadContext,
-): readonly DeferredFormName[] {
-	return DEFERRED_FORM_NAMES.get(ctx) ?? [];
-}
-
 /**
- * Scans the name a form's source would hold once every generated key over it is decided. A key
- * that folded wrote its own wording there, so a deferred form whose key `folded` names is clear;
- * every other is scanned on its stored name. Runs once, after the keys' verdicts.
- */
-export function settleDeferredFormNames(
-	ctx: ReadContext,
-	folded: ReadonlySet<string>,
-): void {
-	for (const one of deferredFormNames(ctx))
-		if (!folded.has(`${one.language}\u0000${one.key}`))
-			refuseFormNameReadAsInstance(ctx, one.form, one.stored);
-}
-
-/**
- * The app translation that words a form's name in the app's first language
- * (the generated key `forms.m#f#` at the form's position, a non-blank text),
- * which HQ's build lays over the name there
- * (`app_strings.py::SelectKnownAppStrings.app_strings_parts`).
- */
-function firstLanguageNameOverride(
-	ctx: ReadContext,
-	form: DraftForm,
-): { readonly key: string; readonly value: string } | undefined {
-	const reading = applicationReading(ctx);
-	const first = reading?.languages.first;
-	if (reading === undefined || first === undefined) return undefined;
-	for (const held of reading.generatedKeys) {
-		if (held.language !== first || typeof held.value !== "string") continue;
-		if (held.value === "") continue;
-		if (generatedAppStringPattern(held.key) !== "forms.m#f#") continue;
-		const owner = generatedKeyOwner(held.key);
-		if (
-			owner.kind === "form" &&
-			owner.menu === form.menu &&
-			owner.form === form.index
-		)
-			return { key: held.key, value: held.value };
-	}
-	return undefined;
-}
-
-/**
- * Scans a form's name for an instance read, as `formWireName` writes it after
- * the generated keys are decided. Where an app translation words the name in
- * the first language without one, the wording is written there now, so the
- * strings Nova's build makes of the reading can be made, and the scan waits
- * for that key's verdict (`settleDeferredFormNames`): it folds and the source
- * holds the wording, or it does not and the stored name is scanned.
+ * Scans a form's name for an instance read, as `formWireName` writes it, and refuses a name that
+ * reads as one (`refuseFormNameReadAsInstance`). An app translation over the name is the form menu
+ * label's own wording (`generatedTranslationKeys.ts`) and leaves the name as stored.
  */
 function scanFormName(
 	ctx: ReadContext,
 	draft: DraftForm,
-	unit: TranslationUnitId,
 	read: NameAsRead,
 ): string {
 	const wireName = wireNameOf(ctx, read);
-	if (instanceScanRead(wireName) === undefined) return read.source;
-	const override = firstLanguageNameOverride(ctx, draft);
-	const languages = applicationReading(ctx)?.languages;
-	if (
-		override === undefined ||
-		languages?.first === undefined ||
-		instanceScanRead(override.value) !== undefined
-	) {
+	if (instanceScanRead(wireName) !== undefined)
 		refuseFormNameReadAsInstance(ctx, draft, wireName);
-		return read.source;
-	}
-	const deferred = DEFERRED_FORM_NAMES.get(ctx) ?? [];
-	deferred.push({
-		form: draft,
-		stored: wireName,
-		language: languages.first,
-		key: override.key,
-	});
-	DEFERRED_FORM_NAMES.set(ctx, deferred);
-	if (languages.first === languages.source) return override.value;
-	const tag = languages.tagOf.get(languages.first);
-	if (tag !== undefined)
-		ctx.translations.set(unit, "text", new Map([[tag, override.value]]));
 	return read.source;
 }
 
@@ -872,7 +783,7 @@ function readFormKeys(
 	 * app's first language, not the source language's: CommCare HQ's build
 	 * reads `instance('…')` there as an instance read and Nova's gate refuses
 	 * it. */
-	const name = names === undefined ? "" : scanFormName(ctx, draft, unit, names);
+	const name = names === undefined ? "" : scanFormName(ctx, draft, names);
 	ctx.writeDraft(() => {
 		Object.assign(draft.form, { uuid: draft.uuid, name });
 	});

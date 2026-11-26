@@ -1383,91 +1383,17 @@
 		]
 	},
 	{
-		"change": "translation-overrides-folded",
-		"placeKinds": ["app", "menu", "form", "form-part", "form-node"],
+		"change": "unused-translation-keys-removed",
+		"placeKinds": ["app"],
 		"rows": [
 			{
 				"check": "source",
 				"artifact": "app.json",
 				"path": "/translations/*/*"
-			},
-			{
-				"check": "source",
-				"artifact": "app.json",
-				"path": "/name"
-			},
-			{
-				"check": "source",
-				"artifact": "app.json",
-				"path": "/modules/*/name/*"
-			},
-			{
-				"check": "source",
-				"artifact": "app.json",
-				"path": "/modules/*/forms/*/name/*"
-			},
-			{
-				"check": "source",
-				"artifact": "app.json",
-				"path": "/_attachments/*"
-			},
-			{
-				"check": "source",
-				"artifact": "app.json",
-				"path": "/modules/*/case_list/label/*"
-			},
-			{
-				"check": "source",
-				"artifact": "app.json",
-				"path": "/modules/*/case_list_form/label/*"
-			},
-			{
-				"check": "source",
-				"artifact": "app.json",
-				"path": "/modules/*/case_details/*/columns/*/header/*"
-			},
-			{
-				"check": "source",
-				"artifact": "app.json",
-				"path": "/modules/*/case_details/*/sort_elements/*/display/*"
-			},
-			{
-				"check": "source",
-				"artifact": "app.json",
-				"path": "/modules/*/case_details/*/columns/*/enum/*/value/*"
-			},
-			{
-				"check": "source",
-				"artifact": "app.json",
-				"path": "/modules/*/search_config/properties/*/hint/*"
-			},
-			{
-				"check": "source",
-				"artifact": "app.json",
-				"path": "/modules/*/search_config/properties/*/required/text/*"
-			},
-			{
-				"check": "source",
-				"artifact": "app.json",
-				"path": "/modules/*/search_config/properties/*/validations/*/text/*"
-			},
-			{
-				"check": "source",
-				"artifact": "app.json",
-				"path": "/modules/*/search_config/properties/*/label/*"
-			},
-			{
-				"check": "source",
-				"artifact": "app.json",
-				"path": "/modules/*/search_config/title_label/*"
-			},
-			{
-				"check": "source",
-				"artifact": "app.json",
-				"path": "/modules/*/search_config/description/*"
 			}
 		]
 	},
+
 	{
 		"change": "location-list-setting-reset",
 		"placeKinds": ["app"],

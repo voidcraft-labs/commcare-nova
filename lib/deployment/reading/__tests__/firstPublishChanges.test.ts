@@ -42,10 +42,6 @@ import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { constraintMessageFixture } from "@/lib/commcare/__tests__/constraintMessageFixture";
 import { buildShape } from "@/lib/commcare/__tests__/formLinkDocArbitrary";
 import { localizationWireFixture } from "@/lib/commcare/__tests__/localizationWireFixture";
-import {
-	GENERATED_APP_STRING_PATTERNS,
-	generatedAppStringPattern,
-} from "@/lib/commcare/appStringKeys";
 import { localAppStringTable } from "@/lib/commcare/appStrings";
 import { EMISSION_REWRITES } from "@/lib/commcare/emissionRewrites";
 import type { HqAppSource } from "@/lib/commcare/hq/appSource";
@@ -94,8 +90,6 @@ import {
 	type Platform,
 	proseText,
 	type SearchInputDef,
-	type TranslationUnitId,
-	translationUnitsById,
 } from "@/lib/domain";
 import {
 	eq,
@@ -158,15 +152,11 @@ import {
 	publishChangeSubjects,
 } from "../firstPublishChanges";
 import {
-	FOLDED_TEXT_SLOTS,
 	firstPublishPlaceKind,
-	foldedTextPathsOf,
-	foldedTextSlotsOf,
 	formPositionsOf,
 	placeOf,
 	placeOfStoredPointer,
 	placeSteps,
-	placesOfGeneratedKey,
 } from "../firstPublishPlaces";
 import {
 	HQ_MEDIA_SLOTS,
@@ -2859,18 +2849,13 @@ const PAIRS: Readonly<Record<FirstPublishChangeId, Pair>> = {
 		() => localizationWireFixture("bilingual"),
 		{ xml: withBlankSecondLabel },
 	),
-	"translation-overrides-folded": {
-		// A translation of the app that words its name, the one generated key no wording unit
-		// reads (a menu's name reads as the menu's own wording).
+	"unused-translation-keys-removed": {
+		// A key naming no string of the app: a menu the app does not have.
 		on: async () =>
 			factsOf(
 				await readAs(
 					followUpDoc(),
-					{
-						root: {
-							translations: { en: { "app.display.name": "Registration" } },
-						},
-					},
+					{ root: { translations: { en: { "modules.m9": "Nine" } } } },
 					{ appStrings: readingAppStrings(LOOKUP_CONTEXT_UNAVAILABLE) },
 				),
 			),
@@ -3294,67 +3279,28 @@ describe("each entry", () => {
 	});
 });
 
-// ── The text a folded translation key names ──────────────────────────────
+// ── A generated key's override ───────────────────────────────────────────
 
 /**
- * The roles a fold in an app's source language sets (`reader/assemble.ts::sourceTextSlot`): a
- * key over any other unit folds only in another language, as that unit's translation.
+ * An override of every generated key Nova's own strings give `doc` a wording for in `code`, each at
+ * a value of its own: the keys a reading takes as each output's own wording
+ * (`generatedTranslationKeys.ts::classifyGeneratedTranslationKeys`).
  */
-const SOURCE_FOLD_ROLES: ReadonlySet<string> = new Set([
-	"app-name",
-	"module-name",
-	"form-name",
-	"case-list-menu-item-label",
-	"case-list-registration-label",
-	"case-list-header",
-	"search-input-label",
-	"search-input-hint",
-]);
-
-/**
- * An override of every generated id Nova's own strings give `doc`, in each language alike, whose
- * source is one translation unit that feeds no id of several, each unit's ids at one value of its
- * own: the keys a reading folds whole (`generatedTranslationKeys.ts::classifyGeneratedTranslationKeys`
- * folds a key only where every id its unit feeds holds the same value). In the source language,
- * only the units a fold there sets. The app's name is left out: the reading reads its keys
- * itself (`appShell.ts::readTranslations`), and folds only the first language's
- * `app.display.name`, which a case adds on its own.
- */
-function foldingOverrides(
+function wordingOverrides(
 	doc: BlueprintDoc,
-	source: boolean,
+	code: string,
 ): Record<string, string> {
 	const table = localAppStringTable(doc, []);
-	const units = translationUnitsById(doc);
-	const feeds = new Map<string, string[]>();
-	const shared = new Set<string>();
-	for (const [id, from] of Object.entries(table.units)) {
-		const one = typeof from === "string" ? [from] : from;
-		if (one.length !== 1) for (const unit of one) shared.add(unit);
-		const [unit] = one;
-		if (one.length !== 1 || unit === undefined) continue;
-		feeds.set(unit, [...(feeds.get(unit) ?? []), id]);
-	}
-	const overrides: Record<string, string> = {};
-	let index = 0;
-	for (const [unit, ids] of feeds) {
-		if (shared.has(unit)) continue;
-		if (!ids.some((id) => generatedAppStringPattern(id) !== undefined))
-			continue;
-		const role = units.get(unit as TranslationUnitId)?.role;
-		// The app's name is read from `name` and `app.display.name` (`appShell.ts`), never by the
-		// classifier: a case folds the first language's `app.display.name` on its own.
-		if (role === "app-name") continue;
-		if (source && (role === undefined || !SOURCE_FOLD_ROLES.has(role)))
-			continue;
-		index += 1;
-		for (const id of ids) overrides[id] = `Folded words ${index}`;
-	}
-	return overrides;
+	const strings = table.languages[code] ?? {};
+	return Object.fromEntries(
+		Object.keys(table.wordingUnits ?? {})
+			.filter((id) => Object.hasOwn(strings, id))
+			.map((id, index) => [id, `Own words ${index + 1}`]),
+	);
 }
 
 /** The facts of a whole reading of `doc`'s export whose `translations` in `code` also hold `keys`. */
-async function foldingFacts(
+async function wordingFacts(
 	doc: BlueprintDoc,
 	code: string,
 	keys: Readonly<Record<string, string>>,
@@ -3437,212 +3383,42 @@ function labelledRegisteringDoc(): BlueprintDoc {
 	});
 }
 
-/** Each form's `<h:title>` text and its data node's `name` in the body a first publish over
- *  `facts` sends, by the form's position. */
-function publishedFormTitles(
-	facts: FirstPublishFacts,
-): ReadonlyMap<string, { readonly title: string; readonly name: string }> {
-	const body = firstPublishBody(facts);
-	const attachments = body._attachments as Record<string, string>;
-	const titles = new Map<string, { title: string; name: string }>();
-	(body.modules as Json[]).forEach((menu, m) => {
-		(menu.forms as Json[]).forEach((form, f) => {
-			const xml = attachments[`${String(form.unique_id)}.xml`] ?? "";
-			const nodes = parseXml(xml).children.filter(isTag);
-			const title = findOne((one) => one.name === "h:title", nodes, true);
-			const data = findOne(
-				(one) =>
-					one.name === "data" &&
-					one.parent !== null &&
-					isTag(one.parent) &&
-					one.parent.name === "instance",
-				nodes,
-				true,
-			);
-			titles.set(`${m}.${f}`, {
-				title:
-					title?.children
-						.map((child) => (child instanceof Text ? child.data : ""))
-						.join("") ?? "",
-				name: data?.attribs.name ?? "",
-			});
-		});
-	});
-	return titles;
-}
-
-interface FoldCase {
-	readonly doc: () => BlueprintDoc;
-	/** The language whose keys fold, by its wire code, and whether it is the app's source language. */
-	readonly code: string;
-	readonly source: boolean;
-	/** Keys the case folds beside the classifier's: the first language's `app.display.name`. */
-	readonly also?: Readonly<Record<string, string>>;
-	/** The rows of `FOLDED_TEXT_SLOTS` the case's keys are spelled by. */
-	readonly patterns: readonly string[];
-}
-
-const FOLD_CASES: Readonly<Record<string, FoldCase>> = {
+/** The apps whose overrides a case reads, and the language they are stored in. */
+const WORDING_CASES: Readonly<
+	Record<string, { readonly doc: () => BlueprintDoc; readonly code: string }>
+> = {
 	"names and a Register button's label, in the source language": {
 		doc: labelledRegisteringDoc,
 		code: "en",
-		source: true,
-		also: { "app.display.name": "Folded app" },
-		patterns: [
-			"app.display.name",
-			"modules.m#",
-			"forms.m#f#",
-			"case_list_form.m#",
-		],
 	},
 	"a case list's texts and its search's title and subtitle, in a second language":
-		{
-			doc: caseListTextsDoc,
-			code: "es",
-			source: false,
-			patterns: [
-				"modules.m#",
-				"forms.m#f#",
-				"case_lists.m#",
-				"m#.*.*_*_#.header",
-				"m#.*.*_*_*.enum.*",
-				"search_property.m#.*.validation.#.text",
-				"search_property.m#.*",
-				"case_search.m#.inputs",
-				"case_search.m#.description",
-			],
-		},
+		{ doc: caseListTextsDoc, code: "es" },
 	"a search's field texts, in the first language, which is not the source": {
 		doc: () => localizationWireFixture("prompts"),
 		code: "es",
-		source: false,
-		patterns: [
-			"modules.m#",
-			"forms.m#f#",
-			"m#.*.*_*_#.header",
-			"search_property.m#.*.hint",
-			"search_property.m#.*.required.text",
-			"search_property.m#.*",
-			"case_search.m#.inputs",
-		],
 	},
 };
 
-describe("the text a folded translation key names", () => {
-	it("spells each row by one of CommCare HQ's generated patterns, and allows its slots' paths", () => {
-		for (const row of FOLDED_TEXT_SLOTS) {
-			expect([
-				row.pattern,
-				GENERATED_APP_STRING_PATTERNS.includes(row.pattern),
-			]).toEqual([row.pattern, true]);
-			for (const path of foldedTextPathsOf(row))
-				expect(
-					FIRST_PUBLISH_CHANGES["translation-overrides-folded"].paths,
-				).toContain(path);
-		}
-	});
-
-	it("places each key's text at the positions it spells: a column's header on its screen, and its sort element's name", () => {
-		expect(
-			placesOfGeneratedKey("m2.case_long.case_external-id_3.header"),
-		).toEqual([
-			"/menu/2/case_details/long/columns/2/header",
-			"/menu/2/case_details/long/sort_elements",
-		]);
-		expect(placesOfGeneratedKey("m0.search_short.case_name_1.header")).toEqual([
-			"/menu/0/case_details/short/columns/0/header",
-			"/menu/0/case_details/short/sort_elements",
-		]);
-		expect(
-			placesOfGeneratedKey("m1.case_short.case_zone_2.enum.knova_text_0"),
-		).toEqual(["/menu/1/case_details/short/columns/1/enum"]);
-		expect(placesOfGeneratedKey("search_property.m0.notes.hint")).toEqual([
-			"/menu/0/search_config/properties",
-		]);
-		expect(placesOfGeneratedKey("forms.m1f2")).toEqual([
-			"/form/1.2/name",
-			"/form/1.2/xform/title",
-			"/form/1.2/xform/data/@name",
-		]);
-		expect(placesOfGeneratedKey("app.display.name")).toEqual(["/app/name"]);
-	});
-
-	it("refuses to place a key no fold sets: a constant, a media key", () => {
-		for (const key of ["m0_select_text", "case_search.m0", "forms.m0f0.icon"])
-			expect(() => placesOfGeneratedKey(key)).toThrow(/FOLDED_TEXT_SLOTS/);
-	});
-
-	it("exercises every row across its cases", () => {
-		expect(
-			new Set(Object.values(FOLD_CASES).flatMap((one) => one.patterns)),
-		).toEqual(new Set(FOLDED_TEXT_SLOTS.map((row) => row.pattern)));
-	});
-
-	for (const [title, one] of Object.entries(FOLD_CASES))
-		it(`reads ${title} as each text's own wording, folds only the app's name, and changes only the slots its entry allows`, {
+describe("an override of a generated key", () => {
+	for (const [title, one] of Object.entries(WORDING_CASES))
+		it(`reads ${title} as each output's own wording, which the first publish writes back as stored`, {
 			timeout: 60_000,
 		}, async () => {
 			const doc = one.doc();
-			const overridden = foldingOverrides(doc, one.source);
-			const keys = { ...overridden, ...one.also };
-			const on = await foldingFacts(doc, one.code, keys);
-			const off = await foldingFacts(doc, one.code, {});
-			const entry = FIRST_PUBLISH_CHANGES["translation-overrides-folded"];
-
-			// Every key the case sets is spelled by a row; only the app's name folds, since every
-			// other key is a generated wording unit's and reads as that text's own wording.
-			expect(
-				new Set(
-					Object.keys(keys).map((key) => foldedTextSlotsOf(key)?.pattern),
-				),
-			).toEqual(new Set(one.patterns));
-			const folded = on.facts.foldedTranslationKeys.map(
-				(pointer) => placeSteps(pointer).at(-1) ?? "",
-			);
-			expect(new Set(folded)).toEqual(new Set(Object.keys(one.also ?? {})));
-			expect(applies("translation-overrides-folded", off)).toBe(false);
-			expect(applies("translation-overrides-folded", on)).toBe(
-				one.also !== undefined,
-			);
-
-			// The words come back out where CommCare HQ held them: a publish writes each key again.
+			const keys = wordingOverrides(doc, one.code);
+			expect(Object.keys(keys).length).toBeGreaterThan(0);
+			const on = await wordingFacts(doc, one.code, keys);
+			expect(applies("unused-translation-keys-removed", on)).toBe(false);
 			const emitted = (exportedBody(on.doc, {
 				expand: { attachmentTarget: TARGET },
 			}).translations ?? {}) as Record<string, Record<string, string>>;
-			for (const [key, value] of Object.entries(overridden))
+			for (const [key, value] of Object.entries(keys))
 				expect([key, emitted[one.code]?.[key]]).toEqual([key, value]);
-
-			// What the fold of the app's name moves in the stored app: each difference lies under a
-			// path the entry allows and at a place it stands at.
-			const before = new Set(
-				storedDifferences(off.source.raw, firstPublishStored(off, {})),
-			);
-			const moved = storedDifferences(
-				on.source.raw,
-				firstPublishStored(on, {}),
-			).filter((pointer) => !before.has(pointer));
-			const [placed] =
-				one.also === undefined
-					? []
-					: firstPublishChangePlaces(on, ["translation-overrides-folded"]);
-			const places = placed?.places ?? [];
-			const unheld = moved.filter((pointer) => {
-				const at = placeOfStoredPointer(on.positions, pointer);
-				return !(
-					entry.paths.some((path) => pointerCovers(path, pointer)) &&
-					at !== null &&
-					places.some((place) => placeStandsAt(place, at))
-				);
-			});
-			expect(unheld).toEqual([]);
-
-			// A form's source keeps its title and its data node's name: a form's name never folds.
-			const titlesBefore = publishedFormTitles(off);
+			// What the first publish writes in CommCare HQ's app translations is what HQ holds.
 			expect(
-				[...publishedFormTitles(on)].filter(([position, now]) => {
-					const was = titlesBefore.get(position);
-					return now.title !== was?.title || now.name !== was?.name;
-				}),
+				storedDifferences(on.source.raw, firstPublishStored(on, {})).filter(
+					(pointer) => pointer.startsWith("/translations/"),
+				),
 			).toEqual([]);
 		});
 });

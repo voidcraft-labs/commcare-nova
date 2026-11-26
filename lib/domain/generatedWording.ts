@@ -21,6 +21,8 @@ export const generatedWordingRoles = {
 	searchDetails: "Search result detail wording",
 	registrationMenuTitle: "Registration menu title",
 	caseTitle: "Case details title",
+	appDisplayName: "App name workers see",
+	homescreenTitle: "Home screen title",
 	menuTitle: "Menu title",
 	formTitle: "Form menu label",
 	submitButton: "Submit button",
@@ -126,6 +128,19 @@ export function generatedWordingUnits(
 	const app = { kind: "app" } as const;
 
 	add(false, app, "app", "caseTitle", [doc.appName], "Case");
+	// The two strings CommCare HQ's build writes from the app's name: the name a phone and Web Apps
+	// show, and the home screen title, which no runtime shows. Each words the name of its own.
+	const appName = makeTranslationUnitId("app", "name");
+	add(false, app, "app", "appDisplayName", [doc.appName], doc.appName, appName);
+	add(
+		false,
+		app,
+		"app",
+		"homescreenTitle",
+		[doc.appName],
+		doc.appName,
+		appName,
+	);
 	for (const moduleUuid of doc.moduleOrder) {
 		const mod = doc.modules[moduleUuid];
 		if (!mod) continue;

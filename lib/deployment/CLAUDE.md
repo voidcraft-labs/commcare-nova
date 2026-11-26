@@ -833,11 +833,8 @@ kind of place of its own (`firstPublishRegisterRefusals`), and
 place. A record names the value of CommCare HQ's stored app it was read
 from, and its place is that value's: an expression rewrite's slot
 (`ReadRewrite.pointer`), a media reference's map or column icon
-(`ReadMediaReference.pointer`), each folded translation key
-(`ReadFacts.foldedTranslationKeys`, with the text its key names: the slots
-of its kind's row of `firstPublishPlaces.ts::FOLDED_TEXT_SLOTS`, whose paths
-are the entry's own, so a place it gives always lies under a path it allows,
-and a key no row spells throws); an entry
+(`ReadMediaReference.pointer`), each generated translation key with no
+effect that the publish removes (`ReadFacts.unusedTranslationKeys`); an entry
 whose change writes elsewhere places that too (a sort rule's hidden column
 at its index in Nova's projection, a date and time at the property it
 saves). The register's Vitest holds each entry's places to what its pair's
@@ -1277,10 +1274,7 @@ sent:
   and the media record; writes the target-identity record the reading
   resolved over the stored one (`writeTargetIdentityInTransaction`, "Identities"),
   the record the take's ownership was computed over; and keeps the next publish's list (a
-  brought-in app's `first-publish` list from this reading's acceptance, with
-  `translation-overrides-folded` where the plan still finds an earlier reader's
-  fold the head keeps (`plan.ts::holdsFoldedOverride`,
-  `firstPublishChanges.ts::keepingAnEarlierFold`), else
+  brought-in app's `first-publish` list from this reading's acceptance, else
   `next-publish` with the plan's `publishChanges` and each id of a stored
   `next-publish` list this reading still gives, since only a push ends it,
   else none).

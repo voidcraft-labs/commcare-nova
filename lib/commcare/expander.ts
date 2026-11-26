@@ -102,6 +102,7 @@ import {
 	sessionDataRef,
 } from "./formLinkProjection";
 import {
+	appNameWordingKeys,
 	generatedWordingKeys,
 	generatedWordingOverrides,
 	hasOutputOverrides,
@@ -836,13 +837,16 @@ function appLevelValues(
 	readonly langs: string[];
 	readonly translations: Record<string, Record<string, string>>;
 } {
-	const overrides =
-		projection && hasOutputOverrides(doc)
-			? generatedWordingOverrides(
-					doc,
-					generatedWordingKeys(doc, projection.plan, projection.options),
-				)
-			: {};
+	// The app name's two strings are written whatever the projection; every other generated key
+	// only where a projection derives it.
+	const overrides = hasOutputOverrides(doc)
+		? generatedWordingOverrides(
+				doc,
+				projection
+					? generatedWordingKeys(doc, projection.plan, projection.options)
+					: appNameWordingKeys(doc),
+			)
+		: {};
 	const appNameByLanguage = localization.textMap(
 		makeTranslationUnitId("app", "name"),
 	);

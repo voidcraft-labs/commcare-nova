@@ -15,7 +15,6 @@ import {
 	type DeclarationChoices,
 	planDeclarationChoices,
 } from "@/lib/doc/platformDeclaration";
-import { sourceSlotWriter } from "@/lib/doc/sourceLanguage";
 import {
 	type BlueprintDoc,
 	type CaseOperation,
@@ -28,6 +27,7 @@ import {
 	operationCaseType,
 	ownCaseOperationId,
 	type SelectOption,
+	type TranslationEntry,
 	type TranslationUnitId,
 	translationSourceFingerprintsEqual,
 	type Uuid,
@@ -35,24 +35,27 @@ import {
 import { blueprintDocSchema } from "@/lib/domain/blueprint";
 import { effectiveFilterForEmission } from "@/lib/domain/expression/simplify";
 import { formWireName } from "@/lib/domain/formWireName";
+import { generatedWordingId } from "@/lib/domain/generatedWording";
 import { languageEntries } from "@/lib/domain/localization";
 import { PLATFORM_FEATURES } from "@/lib/domain/platforms";
 import type { PlatformFeatureUse } from "@/lib/domain/platformUses";
 import { moduleUuidOfForm } from "@/lib/domain/postSubmit";
+import { type ProseTemplate, proseTemplateIsEmpty } from "@/lib/domain/prose";
 import {
-	type ProseTemplate,
-	proseTemplateIsEmpty,
-	proseText,
-} from "@/lib/domain/prose";
-import { NO_ENTRIES, recordFromEntries } from "@/lib/domain/records";
+	NO_ENTRIES,
+	ownRecordValue,
+	recordFromEntries,
+} from "@/lib/domain/records";
 import {
 	hasGeneratedWording,
 	localizeTranslationUnit,
 	snapshotTranslationUnits,
 	type TranslationUnit,
+	translationRoleRequiresNonblank,
 } from "@/lib/domain/translationUnits";
 import type { Finding, HqPlace } from "@/lib/publish/hqFindings";
 import { syntheticModuleUuid } from "../emissionPlan";
+import { expandAppShell } from "../expander";
 import {
 	effectiveWordingValue,
 	presentedSearchWording,
@@ -100,7 +103,6 @@ import {
 	repositionGeneratedKey,
 } from "./generatedTranslationKeys";
 import {
-	heldText,
 	holdText,
 	hqDeviceText,
 	recordTextRewrite,
@@ -139,15 +141,9 @@ import {
 	emptySearchSettingsBesideFieldsAreAbsent,
 } from "./search/settings";
 import { requiredMessagesAsRead } from "./search/systemSentences";
-import {
-	deferredFormNames,
-	namesRead,
-	recordNameRewrite,
-	refuseFormNameReadAsInstance,
-	settleDeferredFormNames,
-} from "./structure";
-import { translationEntryFor } from "./translations";
-import type { AppStringTable, ReadDraft, ReadFacts } from "./types";
+import { namesRead } from "./structure";
+import { ownWordingEntryFor, translationEntryFor } from "./translations";
+import type { ReadDraft, ReadFacts } from "./types";
 import {
 	levelsAsRead,
 	namedWorkerReadsAreProperties,
@@ -175,10 +171,6 @@ const CLAIMS = defineClaims("assemble", {
 	),
 	generatedNoEffect: account(
 		`${A}/translations-generated-key-with-no-effect`,
-		TRANSLATIONS,
-	),
-	generatedOverOneText: take(
-		`${A}/translations-generated-key-over-one-text`,
 		TRANSLATIONS,
 	),
 	generatedWording: take(`${A}/translations-generated-wording`, TRANSLATIONS),
@@ -598,6 +590,17 @@ export const READER_CANONICAL_CHOICES: readonly ReaderCanonicalChoice[] = [
 			const source = sourceLanguageAsRead(doc, incumbentSource);
 			return source === undefined ? doc : resourcedDocument(doc, source);
 		},
+	},
+	{
+		/** In a language other than the source, the app name's two strings as the export writes
+		 *  them, held as a reading holds them: both alike and other than the app's name as the app
+		 *  name's translation there, and every other as each string's own wording
+		 *  (`appShell.ts::readTranslations`). A document holding a translation beside an own wording
+		 *  of the same words, or a translation beside another own wording, prints one export with the
+		 *  document the reader returns. It reads the source language the row before it settles. */
+		id: "app-name-strings-as-read",
+		kind: "one-wire",
+		apply: (doc) => appNameStringsAsRead(doc),
 	},
 	{
 		/** In a language other than the source, a Search guard's text joined after fields' own
@@ -1384,15 +1387,13 @@ function underProposedDeclaration(
  * a finding where what it names did not read whole, and every other is classified against the
  * strings Nova's build makes of `doc` under the declaration the reading proposes
  * (`underProposedDeclaration`), a media key against what CommCare HQ's build of the stored app
- * shows (`mediaKeyReading`), and claimed by its verdict. A fold writes the value as its unit's text
- * in that language, once per unit, and is counted. Returns whether a key folded.
+ * shows (`mediaKeyReading`), and claimed by its verdict. A wording is written as its unit's own text
+ * in that language. Returns whether a key was a wording.
  */
 function decideGeneratedKeys(
 	ctx: ReadContext,
 	doc: BlueprintDoc,
 	declaration: DeclarationChoices,
-	sourceFolds: Map<TranslationUnitId, string>,
-	foldedKeys: Set<string>,
 ): boolean {
 	const reading = applicationReading(ctx);
 	if (reading === undefined || reading.generatedKeys.length === 0) return false;
@@ -1422,10 +1423,8 @@ function decideGeneratedKeys(
 			ctx.accounting.cover({ json: held.json, key: held.key }, first);
 		return false;
 	}
-	/* The fold rule reads the stored value of every id a unit feeds: every key whose menu and
-	 * form read, the covered ones among them. */
 	const classified: HeldGeneratedKey[] = [];
-	for (const held of reading.generatedKeys) {
+	for (const { held } of left) {
 		if (typeof held.value !== "string") continue;
 		const target = keyTarget(ctx, doc, held.key);
 		if (!readWhole(ctx, held.key, target)) continue;
@@ -1441,10 +1440,8 @@ function decideGeneratedKeys(
 	}
 	const verdicts = new Map<string, GeneratedKeyVerdict>();
 	const langs = reading.languages.codes;
-	classifyGeneratedTranslationKeys(
-		classified,
-		withDeferredNames(ctx, table, classified),
-		(one) => mediaKeyReading(ctx.input.source.raw.modules, langs, one),
+	classifyGeneratedTranslationKeys(classified, table, (one) =>
+		mediaKeyReading(ctx.input.source.raw.modules, langs, one),
 	).forEach((verdict, index) => {
 		const one = classified[index];
 		if (one !== undefined)
@@ -1452,17 +1449,8 @@ function decideGeneratedKeys(
 	});
 	const languages = reading.languages;
 	const units = snapshotTranslationUnits(doc);
-	const folded = new Set<string>();
-	/* Where each folded unit's first key is stored, for a record of the change a worker meets. */
-	const foldSites = new Map<
-		TranslationUnitId,
-		{ readonly entry: string; readonly path: string }
-	>();
-	const foldValues = new Map<
-		TranslationUnitId,
-		Map<LanguageTag, LocalizedValue>
-	>();
-	const foldedPointers: string[] = [];
+	/* Each output's wordings, by language code, as held. */
+	const worded = new Map<TranslationUnitId, Map<string, string>>();
 	let hasWording = false;
 	for (const { held } of left) {
 		const verdict = verdicts.get(`${held.language}\u0000${held.key}`) ?? {
@@ -1471,6 +1459,28 @@ function decideGeneratedKeys(
 		const tag = languages.tagOf.get(held.language);
 		const wordingUnit =
 			verdict.kind === "wording" ? units.get(verdict.unit) : undefined;
+		if (
+			verdict.kind === "wording" &&
+			tag !== undefined &&
+			wordingUnit &&
+			hqDeviceText(verdict.value) === "" &&
+			translationRoleRequiresNonblank(outputLocaleRole(wordingUnit))
+		) {
+			// A wording a device shows as blank, for an output whose text must show something (a
+			// name, a label): Nova holds none, so workers read the output's own text there after
+			// the first publish.
+			held.json.take(held.key, CLAIMS.generatedWording, () => "").value;
+			recordTextRewrite(
+				ctx,
+				{
+					entry: CLAIMS.generatedWording.entry,
+					path: `${held.json.pointer}/${pointerToken(held.key)}`,
+				},
+				"list-settings-respelled",
+				true,
+			);
+			continue;
+		}
 		if (verdict.kind === "wording" && tag !== undefined && wordingUnit) {
 			const refusal = unheldRefusal(
 				unheldText(
@@ -1493,6 +1503,9 @@ function decideGeneratedKeys(
 				).value;
 				ctx.translations.set(verdict.unit, "text", new Map([[tag, wording]]));
 				ctx.translations.own(verdict.unit, tag);
+				const byCode = worded.get(verdict.unit) ?? new Map<string, string>();
+				byCode.set(held.language, wording);
+				worded.set(verdict.unit, byCode);
 				if (hqDeviceText(verdict.value) !== hqDeviceText(kept))
 					recordTextRewrite(
 						ctx,
@@ -1507,292 +1520,77 @@ function decideGeneratedKeys(
 				continue;
 			}
 		}
-		const unit = verdict.kind === "fold" ? units.get(verdict.unit) : undefined;
-		const source =
-			tag !== undefined && tag === doc.localization?.sourceLanguage;
-		const foldable =
-			verdict.kind === "fold" &&
-			tag !== undefined &&
-			unit !== undefined &&
-			(!(source || doc.localization === undefined) ||
-				hasGeneratedWording(unit) ||
-				sourceSlotWriter(unit) !== undefined);
 		if (verdict.kind === "inert") {
 			held.json.account(held.key, CLAIMS.generatedNoEffect);
+			ctx.facts.unusedTranslationKeys.push(
+				`${held.json.pointer}/${pointerToken(held.key)}`,
+			);
 			continue;
 		}
 		// A value whose rest after a carriage return defines another app string never reaches here:
 		// `appShell.ts::readTranslations` refuses it at its key, whatever the key names.
-		// A fold over a text Nova's gate admits no spelling of (one a device shows none of, a
-		// character XML cannot hold, `heldText.ts::holdText`) is no text Nova can hold. Every other
-		// fold is held as every app string is: a text unit's in `keepShownText`, and a choice's
-		// label, whose value is prose, here, as a device shows it (`holdText`).
-		const kept = verdict.kind === "fold" ? holdText(verdict.value) : undefined;
-		if (
-			verdict.kind !== "fold" ||
-			!foldable ||
-			tag === undefined ||
-			unit === undefined ||
-			kept === undefined
-		) {
-			held.json.refuse(held.key, CLAIMS.generatedAnythingElse, {
-				name: held.key,
-			});
-			continue;
-		}
-		held.json.take(held.key, CLAIMS.generatedOverOneText, (value) => value)
-			.value;
-		foldedPointers.push(`${held.json.pointer}/${pointerToken(held.key)}`);
-		foldedKeys.add(`${held.language}\u0000${held.key}`);
-		if (!foldSites.has(verdict.unit))
-			foldSites.set(verdict.unit, {
-				entry: CLAIMS.generatedOverOneText.entry,
-				path: `${held.json.pointer}/${pointerToken(held.key)}`,
-			});
-		const once = `${verdict.unit}\u0000${tag}`;
-		if (folded.has(once)) continue;
-		folded.add(once);
-		// A choice's label is held here as a device shows it: the two characters `\n` a line
-		// break, the text before a carriage return, and no space at either end. Where a worker then
-		// reads another text (a space dropped at its start, a line break at either end) the reading
-		// records it at the key, as `keepShownText` does for a text unit.
-		if (
-			unit.valueKind === "prose" &&
-			hqDeviceText(verdict.value) !== hqDeviceText(kept)
-		)
-			recordTextRewrite(
-				ctx,
-				{
-					entry: CLAIMS.generatedOverOneText.entry,
-					path: `${held.json.pointer}/${pointerToken(held.key)}`,
-				},
-				"list-settings-respelled",
-				true,
-			);
-		const value = unit.valueKind === "prose" ? proseText(kept) : verdict.value;
-		const byTag = foldValues.get(verdict.unit) ?? new Map();
-		byTag.set(tag, value);
-		foldValues.set(verdict.unit, byTag);
-		/* A fold in another language reaches the sink through `keepShownText`, with every other
-		 * language of its unit. */
-		if (source || doc.localization === undefined) {
-			if (hasGeneratedWording(unit))
-				ctx.translations.set(
-					verdict.unit,
-					unit.valueKind,
-					new Map([[tag, value]]),
-				);
-			else sourceFolds.set(verdict.unit, verdict.value);
-		}
+		held.json.refuse(held.key, CLAIMS.generatedAnythingElse, {
+			name: held.key,
+		});
 	}
-	const wireNames = keepShownText(
-		ctx,
-		doc,
-		units,
-		foldValues,
-		sourceFolds,
-		foldSites,
-	);
-	for (const { unit, before, after } of wireNames) {
-		const owner = units.get(unit)?.owner;
-		if (owner?.kind !== "form" || before === after) continue;
-		const form = ctx.draft.modules
-			.flatMap((module) => module.forms)
-			.find((one) => one.uuid === owner.formUuid);
-		if (form !== undefined) refuseFormNameReadAsInstance(ctx, form, after);
-	}
-	ctx.facts.foldedTranslationKeys.push(...foldedPointers);
-	return hasWording || foldedPointers.length > 0;
+	fillShownWordings(ctx, doc, units, worded);
+	return hasWording;
 }
 
 /**
- * The table the verdicts read: Nova's strings for the document as read, with each deferred form
- * name (`structure.ts::scanFormName`) at the text its map holds in the first language. The
- * document holds the app translation's wording there so that Nova's gate admits it and the table
- * can be made; the key over it is judged against the name Nova would otherwise print, as every
- * other key is.
+ * Every language of an output a wording overrides in some language, whose own text CommCare HQ
+ * holds blank, given the text HQ's build shows there as the output's own wording. HQ's build
+ * gives a language whose own string is blank the `default` locale's, the first build language's
+ * own string that is not blank, overrides included (`app_strings.py`:
+ * `AppStringsBase.create_custom_app_strings` drops a blank, `create_default_app_strings` merges
+ * every language's strings, a blank never replacing a text). A language's own text is the one
+ * the structure stage read for a menu's or form's name (`structure.ts::namesRead`), and for any
+ * other base the text Nova prints there. So a wording in one language reaches a blank one as
+ * HQ's build makes it, and the first publish, which writes the wording there, shows workers the
+ * same.
  */
-function withDeferredNames(
-	ctx: ReadContext,
-	table: AppStringTable,
-	classified: readonly HeldGeneratedKey[],
-): AppStringTable {
-	const deferred = deferredFormNames(ctx);
-	if (deferred.length === 0) return table;
-	const languages = recordFromEntries(Object.entries(table.languages));
-	for (const one of deferred) {
-		const key = classified.find(
-			(held) => held.language === one.language && held.key === one.key,
-		);
-		const strings = languages[one.language];
-		if (key === undefined || strings === undefined) continue;
-		if (!Object.hasOwn(strings, key.id)) continue;
-		languages[one.language] = recordFromEntries([
-			...Object.entries(strings),
-			[key.id, one.stored],
-		]);
-	}
-	return { ...table, languages };
-}
-
-/** A value that holds nothing: the empty text, or a template of no parts. */
-function blankValue(value: LocalizedValue): boolean {
-	return typeof value === "string"
-		? value === ""
-		: proseTemplateIsEmpty(value as ProseTemplate);
-}
-
-/**
- * After the folds of a reading, every language of each unit a generated key folded is given the
- * text CommCare HQ's build shows in it. HQ's build gives a language its own string, the app
- * translations' override where one is set and else the unit's own text there (for a name,
- * `clean_trans(name, [lang] + langs)`); a language whose own string is blank shows the
- * `default` locale's, the first build language's own string that is not blank
- * (`app_strings.py`: `AppStringsBase.create_custom_app_strings` drops a blank,
- * `create_default_app_strings` merges every language's strings, overrides included, a blank
- * never replacing a text; `SelectKnownAppStrings.app_strings_parts` lays the language's
- * `translations` over its strings). A language's own text is the one the structure stage read
- * for a menu's or form's name (`structure.ts::namesRead`), and for any other unit the text
- * Nova printed for that language before the folds. So a fold in one language changes no other
- * language's text but where HQ's build changes it too: the source language's fold never becomes
- * the text of a language that held its own. Every text is then held as every app string is
- * (`heldText.ts::heldText`, by its unit's role), and where a worker would read another text in
- * some language the reading records it under `text-spaces-dropped`, at a name's map
- * (`structure.ts::recordNameRewrite`) or else at the first key folded over the text.
- *
- * Returns, for every folded text unit, the text Nova writes in the app's first language before
- * and after the folds: a form's name there is the one `formWireName` writes into its source.
- */
-function keepShownText(
+function fillShownWordings(
 	ctx: ReadContext,
 	doc: BlueprintDoc,
 	units: ReadonlyMap<TranslationUnitId, TranslationUnit>,
-	folds: ReadonlyMap<
-		TranslationUnitId,
-		ReadonlyMap<LanguageTag, LocalizedValue>
-	>,
-	sourceFolds: Map<TranslationUnitId, string>,
-	foldSites: ReadonlyMap<
-		TranslationUnitId,
-		{ readonly entry: string; readonly path: string }
-	>,
-): readonly { unit: TranslationUnitId; before: string; after: string }[] {
-	const localization = doc.localization;
+	worded: ReadonlyMap<TranslationUnitId, ReadonlyMap<string, string>>,
+): void {
 	const languages = applicationReading(ctx)?.languages;
-	const wireNames: {
-		unit: TranslationUnitId;
-		before: string;
-		after: string;
-	}[] = [];
-	if (localization === undefined || languages === undefined) {
-		for (const [unit, stored] of sourceFolds) {
-			// Held as every app string is (`heldText.ts::holdText`, which the fold has already
-			// asked): a device's text, recorded where a worker then reads another.
-			const value = holdText(stored) ?? stored;
-			sourceFolds.set(unit, value);
-			if (hqDeviceText(stored) !== hqDeviceText(value)) {
-				const name = namesRead(ctx).get(unit);
-				const site = foldSites.get(unit);
-				if (name !== undefined) recordNameRewrite(ctx, name, true);
-				else if (site !== undefined)
-					recordTextRewrite(ctx, site, "list-settings-respelled", true);
-			}
-			const current = units.get(unit)?.source;
-			if (typeof current === "string")
-				wireNames.push({ unit, before: current, after: value });
-		}
-		return wireNames;
-	}
+	const localization = doc.localization;
+	if (languages === undefined || localization === undefined) return;
 	const sourceTag = localization.sourceLanguage;
-	const coded = languages.codes.flatMap((code) => {
-		const tag = languages.tagOf.get(code);
-		return tag === undefined ? [] : [{ code, tag }];
-	});
-	const firstTag =
-		languages.first === undefined
-			? undefined
-			: languages.tagOf.get(languages.first);
 	const sunk = new Map(
 		ctx.translations.units().map((one) => [one.unit, one.byLanguage]),
 	);
 	const names = namesRead(ctx);
-	for (const [unitId, byTag] of folds) {
-		const unit = units.get(unitId);
-		if (unit === undefined) continue;
-		const held = sunk.get(unitId);
-		/* What Nova prints in a language for a source and the sink's value there. */
-		const printed = (
-			source: LocalizedValue,
-			value: LocalizedValue | undefined,
-		): LocalizedValue =>
-			value !== undefined &&
-			translationEntryFor(unit.valueKind, source, value, sourceTag) !==
-				undefined
-				? value
-				: source;
-		const before = (tag: LanguageTag): LocalizedValue =>
-			tag === sourceTag ? unit.source : printed(unit.source, held?.get(tag));
-		const firstBefore = firstTag === undefined ? undefined : before(firstTag);
-		const name = names.get(unitId);
-		const text = (one: { code: string; tag: LanguageTag }): LocalizedValue =>
-			byTag.get(one.tag) ?? name?.own.get(one.code) ?? before(one.tag);
-		const firstShown = coded.map(text).find((value) => !blankValue(value));
-		const hqShown = (one: {
-			code: string;
-			tag: LanguageTag;
-		}): LocalizedValue => {
-			const value = text(one);
-			return blankValue(value) ? (firstShown ?? value) : value;
+	for (const [output, byCode] of worded) {
+		const base = units.get(output)?.generated?.base;
+		const baseUnit = base === undefined ? undefined : units.get(base);
+		if (base === undefined || baseUnit === undefined) continue;
+		if (typeof baseUnit.source !== "string") continue;
+		const baseSource = baseUnit.source;
+		/* What Nova prints of the base in a language. */
+		const printed = (tag: LanguageTag): string => {
+			const held = tag === sourceTag ? undefined : sunk.get(base)?.get(tag);
+			return typeof held === "string" ? held : baseSource;
 		};
-		const sourceOne = coded.find((one) => one.tag === sourceTag);
-		/* A text is held as every app string is (`heldText.ts::heldText`): never with a space at
-		 * either end, and never blank beside a source that is not where its role requires text. */
-		const shownByCode = new Map<string, string>();
-		for (const one of coded) {
-			const value = hqShown(one);
-			if (typeof value === "string") shownByCode.set(one.code, value);
+		const own = (code: string, tag: LanguageTag): string =>
+			byCode.get(code) ?? names.get(base)?.own.get(code) ?? printed(tag);
+		const coded = languages.codes.flatMap((code) => {
+			const tag = languages.tagOf.get(code);
+			return tag === undefined ? [] : [{ code, tag }];
+		});
+		const first = coded
+			.map(({ code, tag }) => own(code, tag))
+			.find((text) => text !== "");
+		if (first === undefined) continue;
+		for (const { code, tag } of coded) {
+			if (byCode.has(code) || own(code, tag) !== "") continue;
+			if (printed(tag) === first) continue;
+			ctx.translations.set(output, "text", new Map([[tag, first]]));
+			ctx.translations.own(output, tag);
 		}
-		const heldTexts =
-			sourceOne === undefined || shownByCode.size !== coded.length
-				? undefined
-				: heldText(
-						shownByCode,
-						coded.map((one) => one.code),
-						sourceOne.code,
-						unit.role,
-					);
-		if (heldTexts?.workersSeeAnother) {
-			const site = foldSites.get(unitId);
-			if (name !== undefined) recordNameRewrite(ctx, name, true);
-			else if (site !== undefined)
-				recordTextRewrite(ctx, site, "list-settings-respelled", true);
-		}
-		const shown = (one: { code: string; tag: LanguageTag }): LocalizedValue =>
-			heldTexts === undefined
-				? hqShown(one)
-				: (heldTexts.translations.get(one.code) ?? heldTexts.source);
-		if (sourceOne !== undefined) {
-			const value = shown(sourceOne);
-			if (
-				typeof value === "string" &&
-				!sameJson(value, unit.source) &&
-				sourceSlotWriter(unit) !== undefined
-			)
-				sourceFolds.set(unitId, value);
-		}
-		const others = new Map<LanguageTag, LocalizedValue>();
-		for (const one of coded)
-			if (one.tag !== sourceTag || hasGeneratedWording(unit))
-				others.set(one.tag, shown(one));
-		ctx.translations.set(unitId, unit.valueKind, others);
-		if (firstTag === undefined) continue;
-		const source = sourceFolds.get(unitId) ?? unit.source;
-		const after =
-			firstTag === sourceTag ? source : printed(source, others.get(firstTag));
-		if (typeof firstBefore === "string" && typeof after === "string")
-			wireNames.push({ unit: unitId, before: firstBefore, after });
 	}
-	return wireNames;
 }
 
 // ── The declaration ──────────────────────────────────────────────────────
@@ -1920,21 +1718,74 @@ function formFacts(ctx: ReadContext): ReadFacts["forms"] {
 	);
 }
 
-/** `doc` with each source-language fold written into its unit's own slot. */
-function withSourceFolds(
-	doc: BlueprintDoc,
-	folds: ReadonlyMap<TranslationUnitId, string>,
-): BlueprintDoc {
-	if (folds.size === 0) return doc;
+/** `doc` with the app name's two strings in each language other than the source held as a
+ *  reading of its export holds them (`app-name-strings-as-read`). */
+function appNameStringsAsRead(doc: BlueprintDoc): BlueprintDoc {
+	const localization = doc.localization;
+	if (localization === undefined) return doc;
+	const written = expandAppShell(doc).translations;
+	const name = makeTranslationUnitId("app", "name");
+	const display = generatedWordingId("app", "appDisplayName");
+	const title = generatedWordingId("app", "homescreenTitle");
+	const units = [name, display, title] as const;
+	const source = localization.sourceLanguage;
+	const held = new Map<
+		LanguageTag,
+		ReadonlyMap<TranslationUnitId, TranslationEntry | undefined>
+	>();
+	for (const tag of localization.languageOrder) {
+		if (tag === source) continue;
+		const strings = ownRecordValue(
+			written,
+			ownRecordValue(localization.wireCodes, tag) ?? tag,
+		);
+		const shown = ownRecordValue(strings, "app.display.name");
+		const home = ownRecordValue(strings, "homescreen.title");
+		const own = (value: string | undefined) =>
+			value === undefined || value === ""
+				? undefined
+				: ownWordingEntryFor("text", doc.appName, value, source);
+		held.set(
+			tag,
+			shown !== undefined &&
+				shown !== "" &&
+				shown === home &&
+				shown !== doc.appName
+				? new Map([
+						[name, translationEntryFor("text", doc.appName, shown, source)],
+						[display, undefined],
+						[title, undefined],
+					])
+				: new Map([
+						[name, undefined],
+						[display, own(shown)],
+						[title, own(home)],
+					]),
+		);
+	}
+	const storedValue = (tag: LanguageTag, unit: TranslationUnitId) =>
+		ownRecordValue(ownRecordValue(localization.translations, tag), unit)?.value;
+	if (
+		[...held].every(([tag, entries]) =>
+			units.every((unit) =>
+				sameJson(storedValue(tag, unit), entries.get(unit)?.value),
+			),
+		)
+	)
+		return doc;
 	return withCandidate(doc, (draft) => {
-		for (const [id, value] of folds) {
-			const unit = snapshotTranslationUnits(doc).get(id);
-			if (!unit) continue;
-			if (hasGeneratedWording(unit)) continue;
-			sourceSlotWriter(unit)?.(
-				draft,
-				unit.valueKind === "prose" ? proseText(value) : value,
+		const loc = draft.localization;
+		if (!loc) return;
+		for (const [tag, entries] of held) {
+			const into = recordFromEntries(
+				Object.entries(ownRecordValue(loc.translations, tag) ?? NO_ENTRIES),
 			);
+			for (const unit of units) {
+				const entry = entries.get(unit);
+				if (entry === undefined) delete into[unit];
+				else if (!sameJson(into[unit]?.value, entry.value)) into[unit] = entry;
+			}
+			loc.translations[tag] = into;
 		}
 	});
 }
@@ -2033,21 +1884,9 @@ export function* assembleDocumentSteps(
 	yield;
 
 	// 4. The generated translation keys, in every reading.
-	const sourceFolds = new Map<TranslationUnitId, string>();
-	const foldedKeys = new Set<string>();
-	const folded = decideGeneratedKeys(
-		ctx,
-		whole ?? working,
-		declaration,
-		sourceFolds,
-		foldedKeys,
-	);
-	settleDeferredFormNames(ctx, foldedKeys);
-	if (folded && whole !== undefined) {
-		whole = withReadTexts(
-			withSourceFolds(working, sourceFolds),
-			ctx.translations,
-		);
+	const worded = decideGeneratedKeys(ctx, whole ?? working, declaration);
+	if (worded && whole !== undefined) {
+		whole = withReadTexts(working, ctx.translations);
 		if (!parsesWhole(ctx, whole)) whole = undefined;
 	}
 	ctx.facts.forms.push(...formFacts(ctx));

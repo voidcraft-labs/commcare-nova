@@ -559,7 +559,7 @@ writes again, and a form's under `forms-and-settings-rewritten`.
 
 Every app string a reading holds (the app's, a menu's and a form's name, a case list menu item's
 and a Register button's label, a column's header, a mapping's label, an interval's text, a Search
-field's texts, the search screen's title and subtitle, and a text a generated key folds over) is
+field's texts, the search screen's title and subtitle, and a generated output's own wording) is
 held through one function, `heldText.ts::heldText`, by its translation unit's role: what a device
 shows is the bar (`hqDeviceText`: HQ's build writes a blank text as a non-breaking space, a line
 break as `\n` and a `#` no backslash precedes as `\#`, and Core's locale reader ends a line at a
@@ -607,16 +607,21 @@ or Register button's label, a Search field's label) holding a `${` that screen s
 (`localeFile.ts::argumentScreenIssue`, applied by `heldText` per role) under
 `application-and-settings/name-or-label-holding-a-placeholder-a-screen-fills`; and one holding a
 character XML 1.0 cannot carry, which the gate admits in no app text (`APP_TEXT_UNREPRESENTABLE`),
-under `application-and-settings/app-text-holding-a-character-xml-cannot-carry`. A generated key
-folded over one is refused
-(`assemble.ts::decideGeneratedKeys`); every other fold is held as a device shows it, a choice
-label's too. A constant or one of several outputs of an authored slot can instead carry independent wording.
-A key one of the document's generated wording units writes (`table.wordingUnits`) is always that
-unit's own wording, whatever its value, even one equal to the text its base gives
-(`generatedTranslationKeys.ts`, marked `own` in the sink, `translations.ts::ownWordingEntryFor`),
-and the emitter writes it back the same, so it round-trips; folding it would change every other
-place the base feeds. Only a key no unit writes (`homescreen.title`, `app.display.name`) still
-folds or is inert by value.
+under `application-and-settings/app-text-holding-a-character-xml-cannot-carry`.
+No generated key folds into the text its output is based on: a fold would change every other
+place that text feeds. A key one of the document's generated wording units writes
+(`table.wordingUnits`) is always that unit's own wording, whatever its value, even one equal to
+the text its base gives (`generatedTranslationKeys.ts`, marked `own` in the sink,
+`translations.ts::ownWordingEntryFor`), and the emitter writes it back the same, so it
+round-trips; it is held as a device shows it (`assemble.ts::decideGeneratedKeys`), and one a
+device shows as blank for an output whose text must show (a name, a label) is held as none,
+recorded under `text-spaces-dropped`. A language whose own text CommCare HQ holds blank takes the
+text HQ's build shows there, the first build language's, wording included, as that language's
+wording (`assemble.ts::fillShownWordings`). The app name's two strings, `app.display.name` and
+`homescreen.title`, are each a wording unit's too; alike and other than `name` in a language other
+than the source, they are the app name's translation there (`appShell.ts::readTranslations`, and
+the canonical row `app-name-strings-as-read`). A key no unit writes is inert where it is blank,
+names no string of the app or equals the table's string, and is refused otherwise.
 The generated-key reader takes its exact control identity and output role from the string registry.
 Each case and search column registers its own positions while producing its short and long detail.
 A source or target override is held as the word the device reads for that language, including

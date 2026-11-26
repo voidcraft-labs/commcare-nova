@@ -1594,7 +1594,7 @@ describe("projectDataReadsOf", () => {
 					unreadTables: [
 						{ tag: "gone", place: { kind: "lookup-table", tag: "gone" } },
 					],
-					foldedTranslationKeys: [],
+					unusedTranslationKeys: [],
 					forms: [],
 					sameStateRewrites: [],
 					detailColumnOwners: [],

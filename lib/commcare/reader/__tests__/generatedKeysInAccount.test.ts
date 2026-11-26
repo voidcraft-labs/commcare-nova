@@ -28,6 +28,7 @@ import {
 	makeTranslationUnitId,
 	type Uuid,
 } from "@/lib/domain";
+import { generatedWordingId } from "@/lib/domain/generatedWording";
 import { plainColumn } from "@/lib/domain/modules";
 import { patients, uuid } from "../caseList/__tests__/fixtures";
 import { readHqApp } from "../index";
@@ -35,7 +36,7 @@ import type { AppStringTable, ReaderInput } from "../types";
 import { exportedBody, inputFor, mirrorMenu } from "./novaExport";
 import { retainedSourceBody } from "./readerInput";
 
-const GENERATED = "translations-generated-key";
+const GENERATED = "translations-generated-";
 
 function menu(uniqueId: string, extra: Record<string, unknown> = {}) {
 	return {
@@ -61,15 +62,21 @@ function body(
 	};
 }
 
-/** The strings Nova's build gives a document: each menu's name, under its unit. */
+/** The strings Nova's build gives a document: each menu's name, under its unit, which the menu's
+ *  title words. */
 function menuStrings(doc: BlueprintDoc): AppStringTable {
 	const languages: Record<string, string> = {};
 	const units: Record<string, ReturnType<typeof makeTranslationUnitId>> = {};
+	const wordingUnits: Record<
+		string,
+		ReturnType<typeof makeTranslationUnitId>
+	> = {};
 	doc.moduleOrder.forEach((uuid: Uuid, index) => {
 		languages[`modules.m${index}`] = doc.modules[uuid]?.name ?? "";
 		units[`modules.m${index}`] = makeTranslationUnitId("module", uuid, "name");
+		wordingUnits[`modules.m${index}`] = generatedWordingId(uuid, "menuTitle");
 	});
-	return { languages: { en: languages }, units };
+	return { languages: { en: languages }, units, wordingUnits };
 }
 
 async function read(
@@ -100,7 +107,7 @@ describe("a generated key in a reading", () => {
 			}),
 		);
 		expect(outcome.kind).toBe("account");
-		expect(generated).toEqual(["translations-generated-key-over-one-text"]);
+		expect(generated).toEqual(["translations-generated-wording"]);
 		expect(named).toEqual([]);
 	});
 
@@ -254,6 +261,7 @@ describe("a generated key in a reading", () => {
 			throw Error("The middle menu should be held");
 		expect([...outcome.claims.records()]).toEqual(
 			expect.arrayContaining([
+				// A menu with no form lists no cases, so Nova writes no string under the key.
 				expect.objectContaining({
 					entry:
 						"application-and-settings/translations-generated-key-with-no-effect",

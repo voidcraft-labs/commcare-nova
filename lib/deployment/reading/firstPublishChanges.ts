@@ -63,7 +63,6 @@ import { readingMediaPaths } from "./adoptionBoundary";
 import {
 	FIRST_PUBLISH_PLACE_KINDS,
 	type FirstPublishPlaceKind,
-	FOLDED_TEXT_PATHS,
 	type FormPosition,
 	type FormPositions,
 	firstPublishPlaceKind,
@@ -75,7 +74,6 @@ import {
 	placeOf,
 	placeOfStoredPointer,
 	placeSteps,
-	placesOfGeneratedKey,
 	placesOfMediaReference,
 	placesOfSlot,
 	sortedPlaces,
@@ -1555,26 +1553,23 @@ export const FIRST_PUBLISH_CHANGES: Readonly<
 		paths: ["/auto_gps_capture"],
 	},
 	/**
-	 * A generated translation key folded into the text it names
-	 * (`reader/assemble.ts::decideGeneratedKeys`): the key leaves `translations`, and the text
-	 * takes its value at each slot `firstPublishPlaces.ts::FOLDED_TEXT_SLOTS` names for its kind.
+	 * A generated translation key the reading read as having no effect (blank, naming no string of
+	 * the app, or the string HQ's build generates there; `reader/assemble.ts::decideGeneratedKeys`):
+	 * Nova words no such key, so it leaves `translations`.
 	 */
-	"translation-overrides-folded": {
+	"unused-translation-keys-removed": {
 		touchesWorkers: false,
 		scope: "reading",
-		applies: (facts) => facts.facts.foldedTranslationKeys.length > 0,
+		applies: (facts) => facts.facts.unusedTranslationKeys.length > 0,
 		at: {
-			kinds: ["app", "menu", "form", "form-part", "form-node"],
+			kinds: ["app"],
 			places: (facts) =>
-				facts.facts.foldedTranslationKeys.flatMap((pointer) => {
+				facts.facts.unusedTranslationKeys.flatMap((pointer) => {
 					const stored = placeOfStoredPointer(facts.positions, pointer);
-					return [
-						...(stored === null ? [] : [stored]),
-						...placesOfGeneratedKey(placeSteps(pointer).at(-1) ?? ""),
-					];
+					return stored === null ? [] : [stored];
 				}),
 		},
-		paths: ["/translations/*/*", ...FOLDED_TEXT_PATHS],
+		paths: ["/translations/*/*"],
 	},
 	/** Every app writes `location_fixture_restore: project_default` (`hqShells.ts::applicationShell`). */
 	"location-list-setting-reset": {
@@ -1752,6 +1747,7 @@ export const FIRST_PUBLISH_CHANGES: Readonly<
 			"/modules/*/forms/*/name",
 			"/name",
 			"/translations/*/app.display.name",
+			"/translations/*/homescreen.title",
 		],
 	},
 	/**
@@ -2025,28 +2021,6 @@ export function firstPublishListToStore(
 		ids,
 		touchesWorkers: ids.some((id) => FIRST_PUBLISH_TOUCHES_WORKERS[id]),
 		of: chosen.of,
-	};
-}
-
-/**
- * `list` with `translation-overrides-folded` where the plan of a bring-in of changes still finds
- * the next publish making it (`hqChanges/plan.ts::holdsFoldedOverride`): a fold an earlier
- * reading made, which a reading today no longer lists, stays on the list of an app not yet
- * published until a push writes it.
- */
-export function keepingAnEarlierFold(
-	list: FirstPublishView,
-	publishChanges: readonly FirstPublishChangeId[],
-): FirstPublishView {
-	const id = "translation-overrides-folded";
-	if (list.ids.includes(id) || !publishChanges.includes(id)) return list;
-	const ids = FIRST_PUBLISH_CHANGE_IDS.filter(
-		(one) => one === id || list.ids.includes(one),
-	);
-	return {
-		ids,
-		touchesWorkers: ids.some((one) => FIRST_PUBLISH_TOUCHES_WORKERS[one]),
-		of: list.of,
 	};
 }
 

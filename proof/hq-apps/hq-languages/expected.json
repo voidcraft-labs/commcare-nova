@@ -38,7 +38,9 @@
 		"application-and-settings/rev-domain-copy-of-version",
 		"application-and-settings/target-derived-profile-properties-posturl-posttesturl-ota",
 		"application-and-settings/translations-app-display-name",
+		"application-and-settings/translations-generated-key-with-no-effect",
 		"application-and-settings/translations-generated-wording",
+		"application-and-settings/translations-homescreen-title",
 		"expressions-and-data/xpath-location-paths",
 		"forms-and-case-writes/case-references-data-load",
 		"forms-and-case-writes/form-requires-none-no-case-action",
@@ -83,6 +85,7 @@
 	"firstPublish": [
 		"forms-and-settings-rewritten",
 		"list-settings-respelled",
+		"unused-translation-keys-removed",
 		"blank-translations-filled",
 		"names-respelled",
 		"text-spaces-dropped"

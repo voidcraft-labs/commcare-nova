@@ -96,6 +96,11 @@ function ModuleListHome() {
 		(localizedValues.get(appNameUnitId) as string | undefined) ??
 		canonicalAppName;
 	const appNameEditor = useTranslationUnitEditor(appNameUnitId);
+	// Web Apps' heading is `app.display.name`: the app name's own wording there, else its name.
+	const shownAppName =
+		(localizedValues.get(generatedWordingId("app", "appDisplayName")) as
+			| string
+			| undefined) ?? appName;
 	const projectProse = useProseProjection();
 	const navigate = useNavigate();
 	const { inline } = useBlueprintMutations();
@@ -264,7 +269,7 @@ function ModuleListHome() {
 					/>
 				) : (
 					<EditableTitle
-						value={appName}
+						value={shownAppName}
 						readOnly
 						ariaLabel="Application name"
 					/>

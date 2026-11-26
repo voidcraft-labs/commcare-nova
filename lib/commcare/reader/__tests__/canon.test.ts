@@ -62,6 +62,7 @@ import {
 	type Column,
 	type Expression,
 	intervalColumn,
+	type LanguageTag,
 	makeTranslationUnitId,
 	plainColumn,
 	proseText,
@@ -91,6 +92,7 @@ import {
 	term,
 	whenInput,
 } from "@/lib/domain/expression/builders";
+import { generatedWordingId } from "@/lib/domain/generatedWording";
 import {
 	type CaseSearchConfig,
 	calculatedColumn,
@@ -270,6 +272,46 @@ function fieldNamed(doc: BlueprintDoc, id: string): Record<string, unknown> {
 /** A one-form survey with French beside English, holding a menu name's
  *  translation from a model that wants review, a form name's translation
  *  equal to its source, and an app name's translation of an older source. */
+/** An app whose French name is held twice over: the app name's translation, and the same words
+ *  as the name's own wording on phones. Its export writes both strings alike. */
+function appNameHeldTwice(): BlueprintDoc {
+	const doc = buildDoc({
+		modules: [
+			{
+				name: "Clients",
+				forms: [
+					{
+						name: "Visit",
+						type: "survey",
+						fields: [f({ kind: "text", id: "a", label: "A" })],
+					},
+				],
+			},
+		],
+	});
+	const entry = {
+		value: "Une clinique",
+		sourceFingerprint: translationSourceFingerprint("text", doc.appName),
+		origin: "human" as const,
+		review: "reviewed" as const,
+		translatedFrom: "eng" as LanguageTag,
+	};
+	return produce(doc, (draft) => {
+		draft.localization = {
+			sourceLanguage: "eng",
+			defaultLanguage: "eng",
+			languageOrder: ["eng", "fra"],
+			wireCodes: { eng: "en", fra: "fr" },
+			translations: {
+				fra: {
+					[makeTranslationUnitId("app", "name")]: entry,
+					[generatedWordingId("app", "appDisplayName")]: entry,
+				},
+			},
+		} as never;
+	});
+}
+
 function localized(): BlueprintDoc {
 	const doc = buildDoc({
 		modules: [
@@ -810,6 +852,12 @@ const PAIRS: readonly Pair[] = [
 		id: "translation-equal-to-source-is-absent",
 		name: "a form name's translation equal to its source",
 		other: localized,
+	},
+	{
+		id: "app-name-strings-as-read",
+		name: "an app name translated and also worded alike on phones",
+		other: appNameHeldTwice,
+		afterEarlierRows: true,
 	},
 	{
 		id: "plain-flag-on-blank-text-is-absent",

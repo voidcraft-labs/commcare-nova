@@ -29,6 +29,7 @@ import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { gunzipSync, gzipSync } from "node:zlib";
+import { produce } from "immer";
 import { type Kysely, sql } from "kysely";
 import sharp from "sharp";
 import type { MockAgent } from "undici";
@@ -64,7 +65,11 @@ import {
 	hydratePersistedBlueprint,
 	toPersistableDoc,
 } from "@/lib/doc/fieldParent";
-import type { BlueprintDoc } from "@/lib/domain";
+import {
+	type BlueprintDoc,
+	makeTranslationUnitId,
+	translationSourceFingerprint,
+} from "@/lib/domain";
 import {
 	eq,
 	gt,
@@ -72,6 +77,7 @@ import {
 	sessionContext,
 	sessionUser,
 } from "@/lib/domain/expression";
+import { generatedWordingId } from "@/lib/domain/generatedWording";
 import { lookupTableIdSchema } from "@/lib/domain/lookupIds";
 import { collectAssetRefs } from "@/lib/domain/mediaRefs";
 import type { Uuid } from "@/lib/domain/uuid";
@@ -80,7 +86,6 @@ import { readManagedTableReview } from "@/lib/lookup/managed";
 import { getLookupTable, updateLookupTableTag } from "@/lib/lookup/service";
 import { continueAppTest, startAppTest } from "@/lib/preview/app-tests/service";
 import type { StoredFirstPublish } from "@/lib/publish/firstPublishChangeIds";
-import { FIRST_PUBLISH_SENTENCES } from "@/lib/publish/firstPublishCopy";
 import {
 	ANDROID_APPS_PRIVILEGE_LOST_LINE,
 	hqChangesPublishingStoppedLine,
@@ -88,6 +93,10 @@ import {
 import { PLAN_FEATURE_IDS } from "@/lib/publish/planFeatures";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import { TargetPeer } from "@/proof/corpus/targetPeer";
+import {
+	migrateTranslationFolds,
+	scanTranslationFolds,
+} from "@/scripts/lib/translationFoldRepair";
 import { DeploymentEndedError } from "../errors";
 import { bringInHqChanges } from "../hqChanges/bringIn";
 import { reviewHqChanges } from "../hqChanges/review";
@@ -6394,13 +6403,279 @@ describe("a bring-in of changes made in CommCare HQ to a case app", () => {
 		expect(patients?.case_details.long.columns[0]?.field).toBe("name");
 	});
 
-	/* An app brought in while Nova's reader folded a form name's override in CommCare HQ's app
-	 * translations into the name itself. Its saved document keeps that meaning, and its next
-	 * publish still makes the change the earlier reading promised. */
-	describe("an app adopted while the reader folded a name's override", () => {
+	/* An app born in Nova whose CommCare HQ app holds the app name's two strings, `app.display.name`
+	 * and `homescreen.title`, as production's cutover baselines do: equal to HQ's `name`; a
+	 * language's translated name, equal to what Nova writes; and in the source language other than
+	 * HQ's `name`, where Nova writes no key, with the document's name equal to the pair or other
+	 * than both. The document's name has one owner: the review reports nothing nobody changed, the
+	 * publish is not stopped and lists nothing, and workers then read the document's name. */
+	describe("an app born in Nova whose CommCare HQ app holds the app name's two strings", () => {
+		type Body = Record<string, unknown>;
+		type Strings = Record<string, Record<string, string>>;
+
+		/** A peer that stands for CommCare HQ's app as Nova's publish leaves it, and holds it. */
+		const hqModel = () =>
+			new TargetPeer({
+				credentials: {
+					username: "account",
+					apiKey: "fixture-key",
+					server: FIXTURE_SERVER,
+				},
+				domain: FIXTURE_DOMAIN,
+				flags: new Set(),
+				caseSearchEnabled: false,
+				appId: FIXTURE_REMOTE_APP_ID,
+				commcareVersion: "2.60.0",
+				cloudcareGranted: true,
+			});
+
+		/**
+		 * `doc` published from Nova and its deployment made Nova's own, with CommCare HQ's app, and
+		 * the baseline that describes it, then holding `edit` of the source the publish left: the
+		 * state a cutover recorded.
+		 */
+		async function bornInNova(doc: BlueprintDoc, edit: (body: Body) => void) {
+			const appId = await broughtIn(doc);
+			const model = hqModel();
+			model.holdSource(retainedBodyJson(emission(doc, 2).source));
+			const pushed = await publishOver(
+				appId,
+				emission(doc, 2).source,
+				true,
+				model,
+				2,
+			);
+			expect(pushed.outcome.landed).toBe(true);
+			await h
+				.db()
+				.updateTable("app_deployment_resources")
+				.set({ ownership: "nova-created", adopted_at: null, adopted_by: null })
+				.where("kind", "=", "app")
+				.execute();
+			const held = structuredClone(model.snapshot().source) as Body;
+			edit(held);
+			held.version = model.saveCounter();
+			const normalized = normalizeHqAppSource(held);
+			if ("malformed" in normalized)
+				throw new Error("CommCare HQ's source reads.");
+			await h
+				.db()
+				.updateTable("app_deployment_baselines")
+				.set({
+					source_gzip: gzipSync(normalized.text),
+					source_bytes: normalized.bytes,
+					source_digest: normalized.digest,
+				})
+				.where("remote_app_id", "=", FIXTURE_REMOTE_APP_ID)
+				.execute();
+			// CommCare HQ's app as the cutover found it, for the next publish to write over.
+			const next = hqModel();
+			next.holdSource(held);
+			return { appId, held, model: next };
+		}
+
+		const review = (appId: string, body: Body) =>
+			withHttpPeer(async (peer) => {
+				serveEmission(peer, summarizeServedHqApp(body), 1);
+				return reviewHqChanges(scope(appId), KEY_TARGET, { onEvent: () => {} });
+			});
+
+		/** The app name a phone and Web Apps show in each of `langs`: HQ's build writes it from
+		 *  `name` and lays a language's non-empty stored `app.display.name` over it. */
+		const shownNames = (app: Body, langs: readonly string[]) =>
+			Object.fromEntries(
+				langs.map((lang) => [
+					lang,
+					((app.translations ?? {}) as Strings)[lang]?.["app.display.name"] ||
+						(app.name as string),
+				]),
+			);
+
+		const pairOf = (strings: Strings, lang: string) => ({
+			display: strings[lang]?.["app.display.name"],
+			home: strings[lang]?.["homescreen.title"],
+		});
+
+		async function holds(
+			doc: BlueprintDoc,
+			edit: (body: Body) => void,
+			langs: readonly string[],
+			shown: Record<string, string>,
+		) {
+			const { appId, held, model } = await bornInNova(doc, edit);
+			// A save in CommCare HQ that moves only a form's id, which reads as the same app, so the
+			// review reads both sources and plans.
+			const resaved = structuredClone(held);
+			const [menu] = resaved.modules as { forms: { unique_id: string }[] }[];
+			const moved = menu?.forms[0];
+			if (moved === undefined) throw new Error("The clinic has a first form.");
+			const attachments = resaved._attachments as Record<string, string>;
+			attachments[`${"f".repeat(32)}.xml`] = attachments[
+				`${moved.unique_id}.xml`
+			] as string;
+			delete attachments[`${moved.unique_id}.xml`];
+			moved.unique_id = "f".repeat(32);
+			const answered = await review(appId, resaved);
+			if (answered.kind !== "nothing")
+				throw new Error(`The review answered ${JSON.stringify(answered)}`);
+			expect(answered).toMatchObject({ reason: "reads-the-same" });
+			expect(answered.publishChanges).toEqual([]);
+			const published = await publishOver(
+				appId,
+				changedAnswer(emission(doc, 3).source, () => held),
+				true,
+				model,
+				held.version as number,
+			);
+			expect(published.outcome.landed).toBe(true);
+			const [sent] = published.imported;
+			const after = { ...held, ...sent } as Body;
+			if (sent?.translations === undefined)
+				after.translations = held.translations;
+			expect(after.name).toBe(doc.appName);
+			expect(shownNames(after, langs)).toEqual(shown);
+			return { held, after: after.translations as Strings };
+		}
+
+		it("holds the pair equal to HQ's name: the publish drops the pair, and workers read the same name", async () => {
+			const doc = clinic({});
+			const { after } = await holds(
+				doc,
+				(body) => {
+					const strings = (body.translations ?? {}) as Strings;
+					body.translations = {
+						...strings,
+						en: {
+							...strings.en,
+							"app.display.name": body.name as string,
+							"homescreen.title": body.name as string,
+						},
+					};
+				},
+				["en"],
+				{ en: doc.appName },
+			);
+			expect(pairOf(after, "en")).toEqual({
+				display: undefined,
+				home: undefined,
+			});
+		});
+
+		it("holds the pair at a translated name, equal to what Nova writes: the publish keeps it", async () => {
+			const doc = produce(clinic({}), (draft) => {
+				draft.localization = {
+					sourceLanguage: "eng",
+					defaultLanguage: "eng",
+					languageOrder: ["eng", "fra"],
+					wireCodes: { eng: "en", fra: "fra" },
+					translations: {
+						fra: {
+							[makeTranslationUnitId("app", "name")]: {
+								value: "Clinique",
+								sourceFingerprint: translationSourceFingerprint(
+									"text",
+									draft.appName,
+								),
+								origin: "human",
+								review: "reviewed",
+								translatedFrom: "eng",
+							},
+						},
+					},
+				} as never;
+			});
+			const { held, after } = await holds(doc, () => {}, ["en", "fra"], {
+				en: doc.appName,
+				fra: "Clinique",
+			});
+			expect(pairOf(held.translations as Strings, "fra")).toEqual({
+				display: "Clinique",
+				home: "Clinique",
+			});
+			expect(pairOf(after, "fra")).toEqual({
+				display: "Clinique",
+				home: "Clinique",
+			});
+		});
+
+		it("holds the pair in the source language at the document's name, other than HQ's name: the publish writes the name and drops the pair", async () => {
+			const doc = clinic({});
+			const { after } = await holds(
+				doc,
+				(body) => {
+					body.name = `${doc.appName} (copy)`;
+					const strings = (body.translations ?? {}) as Strings;
+					body.translations = {
+						...strings,
+						en: {
+							...strings.en,
+							"app.display.name": doc.appName,
+							"homescreen.title": doc.appName,
+						},
+					};
+				},
+				["en"],
+				{ en: doc.appName },
+			);
+			expect(pairOf(after, "en")).toEqual({
+				display: undefined,
+				home: undefined,
+			});
+		});
+
+		it("holds the pair in the source language other than both HQ's name and the document's: workers then read the document's name", async () => {
+			const doc = clinic({});
+			const { after } = await holds(
+				doc,
+				(body) => {
+					body.name = "Clinic in HQ";
+					const strings = (body.translations ?? {}) as Strings;
+					body.translations = {
+						...strings,
+						en: {
+							...strings.en,
+							"app.display.name": "Clinic as published",
+							"homescreen.title": "Clinic as published",
+						},
+					};
+				},
+				["en"],
+				{ en: doc.appName },
+			);
+			expect(pairOf(after, "en")).toEqual({
+				display: undefined,
+				home: undefined,
+			});
+		});
+
+		it("reports CommCare HQ renaming the app after the cutover as a change, as any other", async () => {
+			const doc = clinic({});
+			const { appId, held } = await bornInNova(doc, (body) => {
+				const strings = (body.translations ?? {}) as Strings;
+				body.translations = {
+					...strings,
+					en: {
+						...strings.en,
+						"app.display.name": body.name as string,
+						"homescreen.title": body.name as string,
+					},
+				};
+			});
+			const answered = await review(appId, {
+				...held,
+				name: "Renamed in CommCare HQ",
+			});
+			if (answered.kind !== "changes")
+				throw new Error(`The review answered ${JSON.stringify(answered)}`);
+			expect(answered.hqChanges).toEqual(["The app's name"]);
+			expect(answered.novaChanges).toEqual([]);
+		});
+	});
+
+	/* The one-off repair of an app brought in while Nova's reader folded a form name's override in
+	 * CommCare HQ's app translations into the name itself (`scripts/lib/translationFoldRepair.ts`). */
+	describe("the repair of an app adopted while the reader folded a name's override", () => {
 		const FOLDED = "Sign up";
-		const FOLDED_SENTENCE =
-			FIRST_PUBLISH_SENTENCES["translation-overrides-folded"];
 
 		/** `doc`'s emission at `version`, CommCare HQ's translations wording its first form `title`. */
 		function withOverride(
@@ -6425,19 +6700,25 @@ describe("a bring-in of changes made in CommCare HQ to a case app", () => {
 			};
 		}
 
+		/** The first form of `doc`, by its menu's order. */
+		const firstForm = (doc: BlueprintDoc) => {
+			const uuid = doc.formOrder[doc.moduleOrder[0] ?? ""]?.[0];
+			const form = uuid === undefined ? undefined : doc.forms[uuid];
+			if (uuid === undefined || form === undefined)
+				throw new Error("The clinic has a first form.");
+			return { uuid, form };
+		};
+
 		/**
-		 * The app as Nova's earlier reader adopted it: the document it saved names the form as the
-		 * override did, the first form of `folded`, and the deployment's baseline holds CommCare
-		 * HQ's source with the override, beside the list that reading gave. The birth runs through
+		 * The app as Nova's earlier reader adopted it: the document it saved names the first form as
+		 * the override did, and the deployment's baseline holds CommCare HQ's source with the
+		 * override, beside the list that reading gave, the retired id on it. The birth runs through
 		 * the production read and create over the folded document's own emission; the baseline is
 		 * then the source CommCare HQ really held.
 		 */
 		async function adoptedEarlier(doc: BlueprintDoc) {
 			const folded = structuredClone(doc);
-			const form = folded.formOrder[folded.moduleOrder[0] ?? ""]?.[0];
-			const held = form === undefined ? undefined : folded.forms[form];
-			if (held === undefined) throw new Error("The clinic has a first form.");
-			held.name = FOLDED;
+			firstForm(folded).form.name = FOLDED;
 			const appId = await broughtIn(folded, emission(folded, 2));
 			const normalized = normalizeHqAppSource(
 				retainedBodyJson(withOverride(doc, 2, FOLDED).source),
@@ -6453,7 +6734,6 @@ describe("a bring-in of changes made in CommCare HQ to a case app", () => {
 					source_gzip: gzipSync(normalized.text),
 					source_bytes: normalized.bytes,
 					source_digest: normalized.digest,
-					// The list that reading gave, reviewed with its inputs at the birth.
 					first_publish_changes: JSON.stringify({
 						...list,
 						ids: [...(list?.ids ?? []), "translation-overrides-folded"],
@@ -6465,117 +6745,134 @@ describe("a bring-in of changes made in CommCare HQ to a case app", () => {
 			return appId;
 		}
 
-		/** The ids of the next publish's list the deployment's baseline holds. */
-		const storedList = async () =>
+		const storedIds = async () =>
 			(
-				(await baselineOfApp())
-					.first_publish_changes as StoredFirstPublish | null
-			)?.ids ?? [];
+				(
+					(await baselineOfApp()).first_publish_changes as {
+						ids?: readonly string[];
+					} | null
+				)?.ids ?? []
+			).slice();
 
-		const formNameOf = async (appId: string) => {
-			const head = await headDocOf(appId);
-			const form =
-				head.forms[head.formOrder[head.moduleOrder[0] ?? ""]?.[0] ?? ""];
-			return form?.name;
-		};
+		const translationsOf = (app: Record<string, unknown>) =>
+			(app.translations ?? {}) as Record<string, Record<string, string>>;
 
-		/** The first form's name the import sends, and the override CommCare HQ holds after it:
-		 *  an import that carries no `translations` leaves HQ's own (`targetOverlay.ts`). */
-		const importedForm = (
-			app: Record<string, unknown> | undefined,
-			held: ServedHqApp,
-		) => {
-			const [menu] = (app?.modules ?? []) as {
+		it("moves the words back to the form's menu label and the name to CommCare HQ's, so the next publish changes nothing there, and a second run finds nothing", async () => {
+			const doc = clinic({});
+			const appId = await adoptedEarlier(doc);
+			expect(firstForm(await headDocOf(appId)).form.name).toBe(FOLDED);
+			expect(await scanTranslationFolds(appId)).toEqual([
+				expect.objectContaining({
+					standing: "unfolds",
+					unfolds: 1,
+					edited: 0,
+					listsRetiredId: true,
+				}),
+			]);
+			expect((await migrateTranslationFolds(appId, false)).status).toBe(
+				"would-change",
+			);
+			expect(firstForm(await headDocOf(appId)).form.name).toBe(FOLDED);
+			expect((await migrateTranslationFolds(appId, true)).status).toBe(
+				"changed",
+			);
+			const repaired = await headDocOf(appId);
+			const { uuid, form } = firstForm(repaired);
+			expect(form.name).toBe(firstForm(doc).form.name);
+			expect(
+				repaired.localization?.generatedSourceWording?.[
+					generatedWordingId(uuid, "formTitle")
+				]?.value,
+			).toBe(FOLDED);
+			expect(await storedIds()).not.toContain("translation-overrides-folded");
+			expect(await scanTranslationFolds(appId)).toEqual([
+				expect.objectContaining({
+					standing: "nothing-to-unfold",
+					listsRetiredId: false,
+				}),
+			]);
+			expect((await migrateTranslationFolds(appId, true)).status).toBe(
+				"unchanged",
+			);
+
+			const held = withOverride(doc, 2, FOLDED).source;
+			const published = await publishOver(appId, held, true, held, 2);
+			expect(published.outcome.landed).toBe(true);
+			const [sent] = published.imported;
+			const [menu] = (sent?.modules ?? []) as {
 				forms: { name: Record<string, string> }[];
 			}[];
-			const translations = (app?.translations ??
-				retainedBodyJson(held.source).translations ??
-				{}) as Record<string, Record<string, string>>;
-			return {
-				name: menu?.forms[0]?.name.en,
-				override: translations.en?.["forms.m0f0"],
-			};
-		};
-
-		it("publishes the folded name it was adopted with, as its list said, when CommCare HQ kept the app", async () => {
-			const doc = clinic({});
-			const appId = await adoptedEarlier(doc);
-			expect(await formNameOf(appId)).toBe(FOLDED);
-			expect(await storedList()).toContain("translation-overrides-folded");
-
-			// Read again today, CommCare HQ's app reads as the app Nova holds: nothing to bring in.
-			const review = await withHttpPeer(async (peer) => {
-				serveEmission(peer, withOverride(doc, 2, FOLDED), 1, false);
-				return reviewHqChanges(scope(appId), KEY_TARGET, { onEvent: () => {} });
-			});
-			expect(review.kind).toBe("nothing");
-			expect(await storedList()).toContain("translation-overrides-folded");
-
-			const published = await publishOver(
-				appId,
-				withOverride(doc, 2, FOLDED).source,
-				true,
-				withOverride(doc, 2, FOLDED).source,
-				2,
-			);
-			expect(published.outcome.landed).toBe(true);
-			expect(
-				importedForm(published.imported[0], withOverride(doc, 2, FOLDED)),
-			).toEqual({
-				name: FOLDED,
-				override: undefined,
-			});
+			expect(menu?.forms[0]?.name.en).toBe(firstForm(doc).form.name);
+			const after =
+				sent?.translations === undefined ? retainedBodyJson(held) : sent;
+			expect(translationsOf(after).en?.["forms.m0f0"]).toBe(FOLDED);
 		});
 
-		it("still names the fold after CommCare HQ rewords the override, takes the new words as the name's own, and publishes both", async () => {
+		it("leaves an adoption that already published the fold as it is, with nothing listed", async () => {
 			const doc = clinic({});
 			const appId = await adoptedEarlier(doc);
-			const reworded = withOverride(doc, 3, "Enrol");
-			const listed = await withHttpPeer(async (peer) => {
-				serveEmission(peer, reworded);
-				return reviewHqChanges(scope(appId), KEY_TARGET, { onEvent: () => {} });
+			const model = new TargetPeer({
+				credentials: {
+					username: "account",
+					apiKey: "fixture-key",
+					server: FIXTURE_SERVER,
+				},
+				domain: FIXTURE_DOMAIN,
+				flags: new Set(),
+				caseSearchEnabled: false,
+				appId: FIXTURE_REMOTE_APP_ID,
+				commcareVersion: "2.60.0",
+				cloudcareGranted: true,
 			});
-			if (listed.kind !== "changes")
-				throw new Error(`The review answered ${JSON.stringify(listed)}`);
-			// CommCare HQ's edit is the one change; the fold is no edit of the person's.
-			expect(listed.novaChanges).toEqual([]);
-			expect(listed.hqChanges).toEqual(["1 translation changed"]);
-			expect(listed.publishChanges).toContain(FOLDED_SENTENCE);
-			const taken = await withHttpPeer(async (peer) => {
-				serveEmission(peer, reworded);
-				return bringInHqChanges(
-					scope(appId),
-					KEY_TARGET,
-					{
-						readingId: listed.readingId,
-						reviewDigest: listed.reviewDigest,
-						tableChoices: {},
-					},
-					{ onEvent: () => {} },
-				);
-			});
-			expect(taken.kind).toBe("brought-in");
-			expect(await formNameOf(appId)).toBe(FOLDED);
-			expect(await storedList()).toContain("translation-overrides-folded");
-
-			const again = await withHttpPeer(async (peer) => {
-				serveEmission(peer, reworded, 1, false);
-				return reviewHqChanges(scope(appId), KEY_TARGET, { onEvent: () => {} });
-			});
-			expect(again.kind).toBe("nothing");
-
-			const published = await publishOver(
+			model.holdSource(retainedBodyJson(withOverride(doc, 2, FOLDED).source));
+			const pushed = await publishOver(
 				appId,
-				reworded.source,
+				withOverride(doc, 2, FOLDED).source,
 				true,
-				reworded.source,
-				3,
+				model,
+				2,
 			);
-			expect(published.outcome.landed).toBe(true);
-			expect(importedForm(published.imported[0], reworded)).toEqual({
-				name: FOLDED,
-				override: "Enrol",
+			expect(pushed.outcome.landed).toBe(true);
+			const before = await headDocOf(appId);
+			expect(await scanTranslationFolds(appId)).toEqual([
+				expect.objectContaining({ standing: "nothing-to-unfold", unfolds: 0 }),
+			]);
+			expect((await migrateTranslationFolds(appId, true)).status).toBe(
+				"unchanged",
+			);
+			expect(await headDocOf(appId)).toEqual(before);
+		});
+
+		it("leaves a form name an author edited in Nova since as the author left it", async () => {
+			const doc = clinic({});
+			const appId = await adoptedEarlier(doc);
+			const { uuid } = firstForm(await headDocOf(appId));
+			await applyBlueprintChangeProposal({
+				appId,
+				userId: MEMBER,
+				expectedProjectId: E2E_PROJECT,
+				batchId: crypto.randomUUID(),
+				kind: "autosave",
+				guard: {
+					mutations: [{ kind: "renameForm", uuid, newId: "Enrolment" }],
+				},
 			});
+			expect(await scanTranslationFolds(appId)).toEqual([
+				expect.objectContaining({
+					standing: "author-edited",
+					unfolds: 0,
+					edited: 1,
+				}),
+			]);
+			await migrateTranslationFolds(appId, true);
+			const after = await headDocOf(appId);
+			expect(firstForm(after).form.name).toBe("Enrolment");
+			expect(
+				after.localization?.generatedSourceWording?.[
+					generatedWordingId(uuid, "formTitle")
+				],
+			).toBeUndefined();
+			expect(await storedIds()).not.toContain("translation-overrides-folded");
 		});
 	});
 });

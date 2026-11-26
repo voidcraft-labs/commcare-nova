@@ -255,7 +255,7 @@ describe("unreadPlacesFailure", () => {
 				unheldMedia: [],
 				pendingMedia: [],
 				unreadTables: [],
-				foldedTranslationKeys: [],
+				unusedTranslationKeys: [],
 				forms: [],
 				sameStateRewrites: [],
 				detailColumnOwners: [],

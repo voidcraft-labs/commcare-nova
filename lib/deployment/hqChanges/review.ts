@@ -2009,23 +2009,14 @@ export async function checkHqChanges(
 				`The next publish would rewrite another saved value in the form “${name}”.`,
 		),
 	];
-	// A change the plan alone still finds (an earlier reading's fold the head keeps,
-	// `plan.ts::holdsFoldedOverride`) is said beside the reading's own.
-	const plannedOnly = plan.publishChanges.filter(
-		(id) => !declaration.firstPublish.ids.includes(id),
-	);
 	const publishChanges = [
 		...publishChangeSentences(
 			priorNext
-				? [
-						...declaration.firstPublish.ids.filter(
-							(id) =>
-								priorNext.includes(id) || plan.publishChanges.includes(id),
-						),
-						...plannedOnly,
-					]
+				? declaration.firstPublish.ids.filter(
+						(id) => priorNext.includes(id) || plan.publishChanges.includes(id),
+					)
 				: legacy
-					? [...declaration.firstPublish.ids, ...plannedOnly]
+					? declaration.firstPublish.ids
 					: plan.publishChanges,
 		),
 	];

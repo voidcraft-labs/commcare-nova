@@ -479,8 +479,10 @@ beside the generator and use them for both reverse lookup and forward projection
 `lib/commcare/reader/generatedTranslationKeys.ts`, `appStringKeys.ts`, `appStrings.ts`, the translation
 inventory and Preview. Emit the override last under the key that the *current* owner positions generate.
 Deleting an owner deletes its overrides, moving it recomputes the outgoing key, and editing an unrelated sibling
-text never retargets the override. Keep the current fold for a single authored text whose outputs agree and
-`translation-overrides-folded` for that class. A missing, blank or equal entry stays inert. Distinguish override
+text never retargets the override. No override folds into the text its output is based on: every key a
+generated wording unit writes is that unit's own wording, an equal one included, and the app name's two
+strings have units of their own. A missing or blank entry, or one naming no string, stays inert and the first
+publish removes it (`unused-translation-keys-removed`). Distinguish override
 of a constant, one-of-many outputs, catalog text, non-existent generated key, prefix lookalike and the
 dependency-name/catalog overlap. Offer generated wording under its owning control and Languages, with “Use
 default wording” removing the override. Verify secondary locale fallback and the locale-file grammar.

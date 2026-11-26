@@ -21169,7 +21169,7 @@
 	{
 		"id": "hq-kept-settings/homescreen-title",
 		"base": "hq-kept-settings",
-		"entry": "application-and-settings/translations-homescreen-title",
+		"entry": "application-and-settings/translations-generated-wording",
 		"change": {
 			"op": "set-json",
 			"pointer": "/translations/en/homescreen.title",

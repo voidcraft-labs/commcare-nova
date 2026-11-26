@@ -7,7 +7,7 @@
  * nothing, is the wording of one text Nova holds, or is anything else.
  */
 
-import type { TranslationUnitId, WireStringSource } from "@/lib/domain";
+import type { TranslationUnitId } from "@/lib/domain";
 import { generatedAppStringPattern } from "../appStringKeys";
 import type { AppStringTable } from "./types";
 
@@ -100,12 +100,6 @@ export interface HeldGeneratedKey {
 export type GeneratedKeyVerdict =
 	| { readonly kind: "inert" }
 	| {
-			readonly kind: "fold";
-			readonly unit: TranslationUnitId;
-			readonly language: string;
-			readonly value: string;
-	  }
-	| {
 			readonly kind: "wording";
 			readonly unit: TranslationUnitId;
 			readonly value: string;
@@ -125,22 +119,13 @@ export type MediaKeyReading =
 	| { readonly kind: "shows"; readonly value: string }
 	| { readonly kind: "read" };
 
-/** The units a string's source names: one, several, or none for a constant. */
-function unitsOf(
-	source: WireStringSource | undefined,
-): readonly TranslationUnitId[] {
-	if (source === undefined) return [];
-	return typeof source === "string" ? [source] : source;
-}
-
 /**
- * The verdict on each held key, in order, by the five rules: a blank value and an id no string of
- * the table has are inert; an id one of the document's generated wording units writes
- * (`table.wordingUnits`) is that unit's wording; a value equal to the table's string is inert; an id whose source is one
- * translation unit, where every other id that unit feeds holds the same value in that language or
- * is this one, folds into that unit's text in that language; a split or constant with an owned output keeps its own wording. The
- * fold rule reads the stored value of every id a unit feeds, so `held` lists every generated key
- * whose menu and form read, those a finding covers among them.
+ * The verdict on each held key, in order, by four rules: a blank value and an id no string of the
+ * table has are inert; an id one of the document's generated wording units writes
+ * (`table.wordingUnits`) is that unit's wording, whatever its value, so a Nova export reads back
+ * as the document that made it; a value equal to the table's string is inert; and any other key,
+ * a string Nova writes that no unit words, is not yet held. No key folds into another text: a
+ * fold would change every other place that text feeds.
  *
  * A key a media map or an image map writes (`media` answers for it) is judged by what HQ's build
  * reads there instead, since the table holds no such string: HQ's build writes a language's
@@ -156,16 +141,6 @@ export function classifyGeneratedTranslationKeys(
 	media: (one: HeldGeneratedKey) => MediaKeyReading | undefined = () =>
 		undefined,
 ): readonly GeneratedKeyVerdict[] {
-	const stored = new Map<string, string>();
-	for (const one of held)
-		stored.set(`${one.language}\u0000${one.id}`, one.value);
-	const feeds = new Map<TranslationUnitId, string[]>();
-	for (const [id, source] of Object.entries(table.units))
-		for (const unit of unitsOf(source)) {
-			const ids = feeds.get(unit) ?? [];
-			ids.push(id);
-			feeds.set(unit, ids);
-		}
 	return held.map((one): GeneratedKeyVerdict => {
 		if (one.value === "") return { kind: "inert" };
 		// HQ refers to this technical language code only in its mobile report
@@ -189,24 +164,8 @@ export function classifyGeneratedTranslationKeys(
 		const strings = table.languages[one.language];
 		if (strings === undefined || !Object.hasOwn(strings, one.id))
 			return { kind: "inert" };
-		// A key Nova's own wording unit writes is that unit's wording in the language, whatever
-		// its value: equal to the text its base gives, or the only text the language holds there.
-		// Folding it into the base (a form's name, a menu's) would change every other place the
-		// base feeds, and a Nova export would not read back as the document that made it.
 		if (wording) return own;
 		if (strings[one.id] === one.value) return { kind: "inert" };
-		const source = Object.hasOwn(table.units, one.id)
-			? table.units[one.id]
-			: undefined;
-		const units = unitsOf(source);
-		const unit = units[0];
-		if (units.length !== 1 || unit === undefined) return own;
-		const agree = (feeds.get(unit) ?? []).every(
-			(id) =>
-				id === one.id || stored.get(`${one.language}\u0000${id}`) === one.value,
-		);
-		return agree
-			? { kind: "fold", unit, language: one.language, value: one.value }
-			: own;
+		return own;
 	});
 }
