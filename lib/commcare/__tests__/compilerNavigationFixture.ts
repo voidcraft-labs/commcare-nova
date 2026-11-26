@@ -3,6 +3,7 @@ import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import {
 	advancedSearchInputDef,
 	NEW_APP_SETTINGS,
+	plainColumn,
 	proseText,
 	simpleSearchInputDef,
 } from "@/lib/domain";
@@ -25,12 +26,34 @@ export const navigationScenarios = [
 	"links",
 ] as const;
 export type NavigationScenario = (typeof navigationScenarios)[number];
+
+// The document that produced the retained navigation-base HQ answers. The
+// menu ID and form namespaces in those answers pin the original run of the
+// fixture counter. Keep its column and question IDs from that run as well.
+const RETAINED_NAVIGATION_IDENTITIES = {
+	column: "col-0601",
+	menu: "mod-0602",
+	visit: "frm-0603",
+	answer: "fld-0604",
+	register: "frm-0605",
+	name: "fld-0606",
+	external: "fld-0607",
+} as const;
+
+export function retainedNavigationFixture() {
+	return compilerNavigationFixture("base", RETAINED_NAVIGATION_IDENTITIES);
+}
+
 export function compilerNavigationFixture(
 	scenario: NavigationScenario,
 	identities?: {
+		readonly column: string;
 		readonly menu: string;
 		readonly visit: string;
+		readonly answer: string;
 		readonly register: string;
+		readonly name: string;
+		readonly external: string;
 	},
 ) {
 	if (scenario === "links") {
@@ -85,6 +108,17 @@ export function compilerNavigationFixture(
 			},
 		);
 	}
+	const columnUuid =
+		identities === undefined ? undefined : testUuid(identities.column);
+	const config =
+		columnUuid === undefined
+			? caseListConfig([{ field: "case_name", header: "Name" }])
+			: {
+					columns: [plainColumn(columnUuid, "case_name", "Name")],
+					listColumnOrder: [columnUuid],
+					detailColumnOrder: [columnUuid],
+					searchInputs: [],
+				};
 	return buildDoc({
 		appName: "Patients & visits <Café>",
 		...(scenario === "conditions"
@@ -97,9 +131,7 @@ export function compilerNavigationFixture(
 				uuid: identities?.menu,
 				name: "Patients",
 				caseType: "patient",
-				caseListConfig: caseListConfig([
-					{ field: "case_name", header: "Name" },
-				]),
+				caseListConfig: config,
 				...(scenario === "conditions"
 					? { displayCondition: eq(sessionUser("role"), literal("supervisor")) }
 					: {}),
@@ -126,6 +158,7 @@ export function compilerNavigationFixture(
 							: {}),
 						fields: [
 							f({
+								uuid: identities?.answer,
 								kind: "text",
 								id: "answer",
 								label: proseText("Notes"),
@@ -145,6 +178,7 @@ export function compilerNavigationFixture(
 									type: "registration" as const,
 									fields: [
 										f({
+											uuid: identities?.name,
 											kind: "text",
 											id: "name",
 											label: proseText("Name"),
@@ -152,6 +186,7 @@ export function compilerNavigationFixture(
 											caseWrite: { caseType: "patient", property: "case_name" },
 										}),
 										f({
+											uuid: identities?.external,
 											kind: "text",
 											id: "external",
 											label: proseText("External ID"),
