@@ -105,7 +105,10 @@ function BuilderSurfaceLoading() {
 }
 
 const FormScreen = dynamic(
-	() => import("./screens/FormScreen").then((module) => module.FormScreen),
+	() =>
+		import("./screens/FormEntryScreen").then(
+			(module) => module.FormEntryScreen,
+		),
 	{ loading: BuilderSurfaceLoading },
 );
 const ModuleScreen = dynamic(

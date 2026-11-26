@@ -14,6 +14,7 @@ import {
 } from "@/components/builder/shared/cards/PredicateVerbMenu";
 import { editorAxesOf } from "@/components/builder/shared/editorAxes";
 import {
+	isPredicateCardValue,
 	type PredicateEditContext,
 	predicateCardSchemas,
 } from "@/components/builder/shared/editorSchemas";
@@ -758,5 +759,60 @@ describe("canvas seed corpus passes the complete commit gate", () => {
 				`write seed for ${property.name}`,
 			).toEqual([]);
 		}
+	});
+});
+
+// ── Answered conditions ────────────────────────────────────────────────
+
+/**
+ * A case change's condition on one form answer read as CommCare reads it
+ * alone: the condition editor shows it as a card of its own, offers "is
+ * answered" from a question's subject wherever the gate admits the result,
+ * and lists the verb in no other condition menu.
+ */
+describe("an answered condition in the case change editor", () => {
+	it.each(SHAPES)(
+		"is offered from a question and admitted in $label",
+		({ kind }) => {
+			const shape = fixture(kind);
+			const editCtx: PredicateEditContext = editorVocabulary(shape);
+			const current = eq(
+				term({ kind: "field", uuid: TEXT }),
+				term(literal("x")),
+			);
+			const entry = VERB_ENTRIES.find((one) => one.id === "is-answered");
+			if (entry === undefined)
+				throw new Error("The menu holds the answered verb.");
+			const typeCtx = editCtx.expressionContext;
+			const subjectType = scalarDataType(
+				typeOf(term({ kind: "field", uuid: TEXT }), typeCtx)?.data,
+			);
+			expect(verbEntryAdmitted(entry, current, subjectType, editCtx)).toBe(
+				true,
+			);
+			const built = entry.build(current, editCtx);
+			expect(built).toEqual({
+				kind: "call",
+				fn: "boolean",
+				args: [term({ kind: "field", uuid: TEXT })],
+			});
+			expect(isPredicateCardValue(built)).toBe(true);
+			expect(predicateCardSchemas.call.applicable(editCtx)).toBe(true);
+			expect(
+				gateFindings(shape, subjectOperation({ condition: built })),
+			).toEqual([]);
+			// Back to a comparison carries the same question.
+			expect(subjectOf(built)).toEqual(term({ kind: "field", uuid: TEXT }));
+		},
+	);
+
+	it("is no card for any other call", () => {
+		expect(
+			isPredicateCardValue({
+				kind: "call",
+				fn: "boolean",
+				args: [term(literal("x"))],
+			}),
+		).toBe(false);
 	});
 });

@@ -225,6 +225,8 @@ export const PLATFORM_FEATURE_IDS = [
 	"search-on-clear",
 	"list-first",
 	"several-cases",
+	"form-submit-wording",
+	"auto-select-confirm",
 	"search-field-single-date",
 	"search-field-multiple-choice",
 	"connect-app",
@@ -307,6 +309,7 @@ export const REFUSABLE_PLATFORM_FEATURE_IDS = [
 	"forms-read-search",
 	"list-first",
 	"several-cases",
+	"auto-select-confirm",
 	"search-field-single-date",
 	"search-field-multiple-choice",
 	"connect-app",
@@ -445,6 +448,32 @@ export const PLATFORM_FEATURES: Readonly<
 			what: "lets workers choose several cases at once",
 			why: "Android can't choose several cases from one list, so a worker there stops at the home screen and never reaches the form.",
 			alternative: "let workers choose one case",
+		},
+	},
+	"form-submit-wording": {
+		label: "Form submit button wording",
+		channel: "structure",
+		webApps: { reading: "runs" },
+		android: {
+			reading: "ignored",
+			note: "workers finish with the device's own button",
+		},
+	},
+	"auto-select-confirm": {
+		label: "Automatically choosing a record with a confirmation screen",
+		channel: "structure",
+		webApps: {
+			reading: "unavailable",
+			note: "a single matching record cannot open its confirmation screen",
+			remedy:
+				"You can let workers choose the record or run this form on Android.",
+		},
+		android: { reading: "runs" },
+		refusal: {
+			what: "automatically chooses a single record before its confirmation screen",
+			why: "Web Apps cannot continue when exactly one record matches this list.",
+			alternative:
+				"let workers choose the record, remove this confirmation, or run the app on Android",
 		},
 	},
 	"search-field-single-date": {

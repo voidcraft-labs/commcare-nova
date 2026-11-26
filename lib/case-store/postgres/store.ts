@@ -139,6 +139,7 @@ import type {
 	ApplySubmissionArgs,
 	SubmissionEnvelopeResult,
 } from "../submission";
+import { parseSubmissionEnvelopeResult } from "../submission";
 import { clearCaseIndices, replaceCaseIndex } from "./caseIndexWrites";
 import { caseSchemaIndexLockScope } from "./indexIdentity";
 import { retireCaseTypeSchemasInTransaction } from "./schemaRetirement";
@@ -1490,6 +1491,39 @@ export class PostgresCaseStore implements CaseStore {
 		);
 	}
 
+	async holdsDeviceCases(args: {
+		readonly appId: string;
+		readonly restoreScope: RestoreScope;
+		readonly caseIds: readonly string[];
+	}): Promise<boolean> {
+		if (!args.caseIds.length) return true;
+		const projectId = this.requireProjectId();
+		return this.dataTransaction(async (trx) => {
+			const scope = buildRestoreScope(trx, {
+				appId: args.appId,
+				projectId,
+				ownerIds: args.restoreScope.ownerIds,
+			});
+			const result = await scope.liveRows
+				.select((eb) => eb.fn.countAll<string>().as("held"))
+				.where(
+					sql<boolean>`live.case_id = ANY(${sql.val(args.caseIds)}::text[])`,
+				)
+				.where(({ not, exists, selectFrom }) =>
+					not(
+						exists(
+							selectFrom("parked_case_values as parked")
+								.select("parked.id")
+								.whereRef("parked.case_id", "=", "live.case_id")
+								.where("parked.dismissed_at", "is", null),
+						),
+					),
+				)
+				.executeTakeFirstOrThrow();
+			return Number(result.held) === args.caseIds.length;
+		}, true);
+	}
+
 	async readDeviceCaseDatabase(args: {
 		readonly appId: string;
 		readonly restoreScope: RestoreScope;
@@ -1501,11 +1535,24 @@ export class PostgresCaseStore implements CaseStore {
 				projectId,
 				ownerIds: args.restoreScope.ownerIds,
 			});
-			let rowQuery = rowRestore.creator
-				.selectFrom("cases as c")
+			// Read each authorized case by its primary key. On a fresh tenant
+			// PostgreSQL estimates a single case and can otherwise repeatedly
+			// scan both the tenant and its restore for each held row.
+			const storedRows = await rowRestore.liveRows
+				.innerJoinLateral(
+					(qb) =>
+						qb
+							.selectFrom("cases as owned")
+							.selectAll("owned")
+							.whereRef("owned.case_id", "=", "live.case_id")
+							.limit(1)
+							.as("c"),
+					(join) =>
+						join
+							.on("c.app_id", "=", args.appId)
+							.on("c.project_id", "=", projectId),
+				)
 				.selectAll("c")
-				.where("c.app_id", "=", args.appId)
-				.where("c.project_id", "=", projectId)
 				.where(({ not, exists, selectFrom }) =>
 					not(
 						exists(
@@ -1515,52 +1562,18 @@ export class PostgresCaseStore implements CaseStore {
 								.where("held.dismissed_at", "is", null),
 						),
 					),
-				);
-			rowQuery = rowRestore.restrict(rowQuery, "c");
-			const storedRows = await rowQuery
+				)
 				.orderBy("c.opened_on", "asc")
 				.orderBy("c.case_id", "asc")
 				.execute();
 			const rows = storedRows.map(publicCaseRow);
 
-			const indexRestore = buildRestoreScope(trx, {
-				appId: args.appId,
+			const indices = await this.readDeviceIndices(
+				trx,
+				args.appId,
 				projectId,
-				ownerIds: args.restoreScope.ownerIds,
-			});
-			let indexQuery = indexRestore.creator
-				.selectFrom("case_indices as ci")
-				.innerJoin("cases as source", "source.case_id", "ci.case_id")
-				.innerJoin("cases as ancestor", "ancestor.case_id", "ci.ancestor_id")
-				.select([
-					"ci.case_id",
-					"ci.ancestor_id",
-					"ci.identifier",
-					"ci.relationship",
-					"ci.depth",
-					"ci.target_case_type",
-				])
-				.where("ci.depth", "=", 1)
-				.where("source.app_id", "=", args.appId)
-				.where("source.project_id", "=", projectId)
-				.where("ancestor.app_id", "=", args.appId)
-				.where("ancestor.project_id", "=", projectId)
-				.where(({ not, exists, selectFrom }) =>
-					not(
-						exists(
-							selectFrom("parked_case_values as held")
-								.select("held.id")
-								.whereRef("held.case_id", "=", "source.case_id")
-								.where("held.dismissed_at", "is", null),
-						),
-					),
-				);
-			indexQuery = indexRestore.restrict(indexQuery, "source");
-			const indices = await indexQuery
-				.orderBy("ci.case_id", "asc")
-				.orderBy("ci.identifier", "asc")
-				.orderBy("ci.ancestor_id", "asc")
-				.execute();
+				rows,
+			);
 			const propertyTypes = await this.readCaseDatabasePropertyTypes(
 				trx,
 				args.appId,
@@ -1587,6 +1600,28 @@ export class PostgresCaseStore implements CaseStore {
 				}),
 			true,
 		);
+	}
+
+	async readSubmittedCaseDatabasePatch(args: {
+		readonly appId: string;
+		readonly entryKey: string;
+		readonly openingCarryScope: string;
+	}): Promise<DeviceCaseDatabase | undefined> {
+		const row = await this.db
+			.selectFrom("form_submission_intents")
+			.select("result")
+			.where("app_id", "=", args.appId)
+			.where("project_id", "=", this.requireProjectId())
+			.where("created_by", "=", this.requireActorUserId())
+			.where("entry_key", "=", args.entryKey)
+			.where(
+				sql<string>`result->>'openingCarryScope'`,
+				"=",
+				args.openingCarryScope,
+			)
+			.executeTakeFirst();
+		if (row?.result == null) return undefined;
+		return parseSubmissionEnvelopeResult(row.result).caseDatabasePatch;
 	}
 
 	private async readCaseDatabasePatchInTransaction(
@@ -1651,6 +1686,49 @@ export class PostgresCaseStore implements CaseStore {
 			rows.map((row) => row.case_type),
 		);
 		return { rows, indices, propertyTypes };
+	}
+
+	/** The source rows were selected in this transaction, including the worker
+	 * restore and hold when reading a device. Check the far endpoint by its
+	 * tenant key. Rejoining the source or its closure lets an unanalyzed
+	 * tenant pair every case with every other before it probes the edge. */
+	private async readDeviceIndices(
+		trx: Transaction<Database>,
+		appId: string,
+		projectId: string,
+		rows: readonly { readonly case_id: string }[],
+	): Promise<DeviceCaseDatabase["indices"]> {
+		if (rows.length === 0) return [];
+		const sourceIds = rows.map((row) => row.case_id);
+		return trx
+			.selectFrom("case_indices as ci")
+			.innerJoinLateral(
+				(qb) =>
+					qb
+						.selectFrom("cases as ancestor")
+						.select(["ancestor.app_id", "ancestor.project_id"])
+						.whereRef("ancestor.case_id", "=", "ci.ancestor_id")
+						.limit(1)
+						.as("target"),
+				(join) =>
+					join
+						.on("target.app_id", "=", appId)
+						.on("target.project_id", "=", projectId),
+			)
+			.select([
+				"ci.case_id",
+				"ci.ancestor_id",
+				"ci.identifier",
+				"ci.relationship",
+				"ci.depth",
+				"ci.target_case_type",
+			])
+			.where("ci.depth", "=", 1)
+			.where(sql<boolean>`ci.case_id = ANY(${sql.val(sourceIds)}::text[])`)
+			.orderBy("ci.case_id", "asc")
+			.orderBy("ci.identifier", "asc")
+			.orderBy("ci.ancestor_id", "asc")
+			.execute();
 	}
 
 	private async readCaseDatabasePropertyTypes(
@@ -2378,6 +2456,15 @@ export class PostgresCaseStore implements CaseStore {
 							"allow",
 						),
 					}),
+			...(args.row.location_id === null || args.row.location_id === undefined
+				? { location_id: null }
+				: {
+						location_id: normalizedCaseScalar(
+							"location_id",
+							args.row.location_id,
+							"allow",
+						),
+					}),
 			...(args.caseId === undefined ? {} : { case_id: args.caseId }),
 			app_id: args.appId,
 			project_id: this.requireProjectId(),
@@ -2468,7 +2555,7 @@ export class PostgresCaseStore implements CaseStore {
 			if (replay !== undefined) return replay;
 			await this.lockRelationshipWrites(trx, args.appId);
 			await this.lockValidators(trx, args.appId, submissionCaseTypes(args));
-			const effects = await executeSubmissionEnvelope(
+			const { deviceExternalIds, ...effects } = await executeSubmissionEnvelope(
 				trx,
 				this.submissionEnvelopeHost(),
 				args,
@@ -2480,13 +2567,13 @@ export class PostgresCaseStore implements CaseStore {
 					operation.executed ? [operation.caseId] : [],
 				),
 			];
-			const caseDatabasePatch = await this.readCaseDatabasePatchInTransaction(
-				trx,
-				{
+			const caseDatabasePatch = devicePatch(
+				await this.readCaseDatabasePatchInTransaction(trx, {
 					appId: args.appId,
 					projectId: this.requireProjectId(),
 					caseIds: affectedCaseIds,
-				},
+				}),
+				deviceExternalIds,
 			);
 			const result: SubmissionEnvelopeResult = {
 				...effects,
@@ -2532,6 +2619,7 @@ export class PostgresCaseStore implements CaseStore {
 						case_type: a.seed.caseType,
 						case_name: a.seed.caseName,
 						external_id: a.seed.externalId ?? null,
+						location_id: a.seed.locationId ?? null,
 						status: "open",
 						properties: a.seed.properties,
 						...(a.seed.parentCaseId === undefined
@@ -2657,6 +2745,15 @@ export class PostgresCaseStore implements CaseStore {
 								external_id: normalizedCaseScalar(
 									"external_id",
 									row.external_id,
+									"allow",
+								),
+							}),
+					...(row.location_id === null || row.location_id === undefined
+						? { location_id: null }
+						: {
+								location_id: normalizedCaseScalar(
+									"location_id",
+									row.location_id,
 									"allow",
 								),
 							}),
@@ -2842,6 +2939,15 @@ export class PostgresCaseStore implements CaseStore {
 						external_id: normalizedCaseScalar(
 							"external_id",
 							args.patch.external_id,
+							"allow",
+						),
+					}),
+			...(args.patch.location_id === undefined
+				? {}
+				: {
+						location_id: normalizedCaseScalar(
+							"location_id",
+							args.patch.location_id,
 							"allow",
 						),
 					}),
@@ -3146,6 +3252,7 @@ export class PostgresCaseStore implements CaseStore {
 				`${leafAlias}.closed_on as closed_on`,
 				`${leafAlias}.case_name as case_name`,
 				`${leafAlias}.external_id as external_id`,
+				`${leafAlias}.location_id as location_id`,
 				`${leafAlias}.parent_case_id as parent_case_id`,
 				`${leafAlias}.properties as properties`,
 			])
@@ -5234,6 +5341,27 @@ function submissionCaseTypes(args: ApplySubmissionArgs): string[] {
 }
 
 /**
+ * The submission's post-write rows as the submitting device holds them:
+ * where CommCare HQ's server copied a saved `hq_user_id` into a case's
+ * external id, the device keeps the external id it had
+ * (`submissionEnvelope.ts::DeviceExternalIds`) until its next sync.
+ */
+function devicePatch(
+	patch: DeviceCaseDatabase,
+	deviceExternalIds: ReadonlyMap<string, string | null>,
+): DeviceCaseDatabase {
+	if (deviceExternalIds.size === 0) return patch;
+	return {
+		...patch,
+		rows: patch.rows.map((row) =>
+			deviceExternalIds.has(row.case_id)
+				? { ...row, external_id: deviceExternalIds.get(row.case_id) ?? null }
+				: row,
+		),
+	};
+}
+
+/**
  * Strip the bound-tenant `project_id` off a raw `cases` row. It is the
  * tenant scoping key the store filters on, NOT part of the `CaseRow`
  * contract (`Omit<Selectable<CasesTable>, "project_id">`), and must
@@ -5281,7 +5409,7 @@ function creationStamps(
  * any Postgres write. Java/JavaScript string length is UTF-16 code units.
  */
 function normalizedCaseScalar(
-	property: "case_name" | "external_id",
+	property: "case_name" | "external_id" | "location_id",
 	value: string,
 	blank: "allow" | "reject",
 ): string {

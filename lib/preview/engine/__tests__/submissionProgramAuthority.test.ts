@@ -1,12 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { CaptureSubmissionRejectedError } from "@/lib/case-store/errors";
+import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import type { CaseOperation } from "@/lib/domain";
 import { eq, formField, literal, term } from "@/lib/domain/expression";
 import {
 	androidDevice,
 	webAppsDevice,
 } from "@/lib/preview/engine/__tests__/fixtures/previewDevices";
+import { sharedVisitEntries } from "../../../../proof/targeted/documents/sharedVisitEntries";
 import { validateCaptureSubmissionProjection } from "../captureSubmissionValidation";
 import {
 	buildCaseOperationProgramFromDoc,
@@ -14,6 +16,8 @@ import {
 	submissionEnvelopeArgs,
 } from "../caseDataBindingHelpers";
 import type { SubmissionMutation } from "../caseDataBindingTypes";
+import { buildEngineInput } from "../engineInput";
+import { FormEngine } from "../formEngine";
 import type { ResolvedPreviewIdentity } from "../identity";
 import {
 	acceptanceDoc,
@@ -95,6 +99,64 @@ describe("automatic submission location", () => {
 		await expect(build(doc, androidDevice(), fix)).rejects.toThrow(
 			"device location",
 		);
+	});
+});
+
+describe("automatic submission location on a shared entry", () => {
+	// A shared entry holds no location request of its own: whether a submission
+	// carries the device's fix follows the form it opens.
+	it("takes the fix where the form the entry opens asks for location, and refuses it where that form does not", async () => {
+		const shared = hydratePersistedBlueprint(sharedVisitEntries().doc);
+		const entry = Object.values(shared.forms).find(
+			(form) => form.name === "Follow a referral",
+		);
+		if (!entry?.shadowOf) throw new Error("Expected the referral entry.");
+		const parent = entry.shadowOf.form;
+		const asking = {
+			...shared,
+			forms: {
+				...shared.forms,
+				[parent]: { ...shared.forms[parent], captureLocation: true as const },
+			},
+		};
+		const fix = { latitude: 12, longitude: -73, altitude: 7, accuracy: 4 };
+		const build = async (
+			blueprint: typeof shared,
+			locationFix?: typeof fix,
+		) => {
+			const input = buildEngineInput(blueprint, entry.uuid, null);
+			if (!input) throw new Error("Expected the shared visit form.");
+			const engine = new FormEngine(input);
+			engine.setValue("/data/visit_note", "Reached at home");
+			const mutation = engine.computeSubmissionMutation({
+				caseIds: [SECOND_SESSION_CASE],
+				entryKey: ENTRY_KEY,
+			});
+			const submitted = {
+				...mutation,
+				...(locationFix !== undefined && { locationFix }),
+			};
+			const built = await buildSubmissionOperationProgram({
+				appId: blueprint.appId,
+				committedApp: { blueprint, mutation_seq: 2 },
+				blueprintDigest: "b".repeat(64),
+				identity: IDENTITY,
+				device: androidDevice(),
+				lookupScope: {
+					projectId: "local-project",
+					actorId: ACTOR,
+					role: "editor",
+				},
+				lookupTableSchemas: new Map(),
+				mutation: submitted,
+				projection: validateCaptureSubmissionProjection(submitted),
+			});
+			return submissionEnvelopeArgs(submitted, blueprint.appId, built);
+		};
+		expect((await build(asking, fix)).submissionLocation).toEqual(fix);
+		expect((await build(asking)).submissionLocation).toBeNull();
+		expect(await build(shared)).not.toHaveProperty("submissionLocation");
+		await expect(build(shared, fix)).rejects.toThrow("device location");
 	});
 });
 

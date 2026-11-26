@@ -59,12 +59,15 @@ import {
 	type BlueprintDoc,
 	CASE_LOADING_FORM_TYPES,
 	type CaseOperation,
+	type CaseOperationWrite,
 	type CaseTarget,
 	caseOperationRunsPerSelectedCase,
 	caseSelectionCardinality,
 	caseWriteValueField,
 	effectiveCaseTypes,
+	formCaseWriteViews,
 	isCaseScalarTextProperty,
+	isViewAt,
 	MAX_AUTHORED_CASE_KEY_LENGTH,
 	MAX_CASE_SCALAR_TEXT_LENGTH,
 	moduleUuidOfForm,
@@ -85,6 +88,7 @@ import type {
 	PropertyRef,
 } from "@/lib/domain/expression/types";
 import { walkExpressionNodes } from "@/lib/domain/expression/walk";
+import { fieldValueType, writesMoment } from "@/lib/domain/fieldValueType";
 import { caseTypeHopMap } from "../caseTypeDepths";
 import { w } from "../xpath/wire/builders";
 import { toWire, type WireTermBindings } from "../xpath/wire/fromExpression";
@@ -481,6 +485,9 @@ interface SharedOwnRow {
 	readonly value: Expression;
 	readonly condition?: Expression;
 	readonly slot: FormExpressionSlotRef;
+	/** A date-and-time question's answer saved to a `date` property, read as
+	 *  it is rather than through its moment's sibling (`writesMoment`). */
+	readonly day?: true;
 }
 
 /**
@@ -530,6 +537,9 @@ function sharedOwnRows(
 			property: write.property,
 			value: write.value,
 			...(write.condition !== undefined && { condition: write.condition }),
+			...(savesDay(doc, formUuid, own, write) && {
+				day: true as const,
+			}),
 			slot: {
 				entity: "form",
 				uuid: formUuid,
@@ -560,6 +570,37 @@ function sharedOwnRows(
 		.map(({ row }) => row);
 }
 
+/** Whether `operation`'s `write` saves a date-and-time
+ *  question's answer to a `date` property (`writesMoment`): no sibling. */
+function savesDay(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+	operation: CaseOperation,
+	write: CaseOperationWrite,
+): boolean {
+	const source = caseWriteValueField(write.value);
+	const field = source === undefined ? undefined : doc.fields[source.field];
+	if (source === undefined || field === undefined || source.link) return false;
+	const views = formCaseWriteViews(doc, formUuid).get(source.field) ?? [];
+	const view = views.find((one) =>
+		isViewAt(
+			one,
+			{
+				operationUuid: operation.uuid,
+				slot: "write",
+				...(write.via !== undefined && { via: write.via }),
+			},
+			write.property,
+		),
+	);
+	const caseTypes = effectiveCaseTypes(doc);
+	return (
+		view !== undefined &&
+		fieldValueType(field, caseTypes, views) === "datetime" &&
+		!writesMoment(field, caseTypes, views, view)
+	);
+}
+
 /**
  * The generated sibling a shared row reads for a question it saves as it
  * is: a capture's link, the trimmed value of a case name or an external id,
@@ -587,7 +628,7 @@ function sharedRowSibling(
 			: undefined;
 	if (isCaseScalarTextProperty(row.property) && holds("trimmed"))
 		return trimmedValuePath(generatedNodes, source.field, location.path);
-	if (holds("datetime"))
+	if (row.day !== true && holds("datetime"))
 		return datetimeCaseValuePath(generatedNodes, source.field, location.path);
 	return undefined;
 }
@@ -1543,7 +1584,8 @@ export function buildCaseOperations(
 								)
 							: emitExpression(write.value, writePath, valueSlot);
 				}
-				// `external_id` is a fixed text column whatever its declared type,
+				// `external_id`, `location_id` and `hq_user_id` (HQ's copy into the
+				// external id) are fixed text columns whatever their declared type,
 				// so its value is normalized and checked by the text guard, which
 				// `operationGuardKinds` gives every operation that writes it.
 				if (writesFixedTextColumn(write)) {

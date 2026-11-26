@@ -19,18 +19,24 @@
  * load of its own.
  */
 
-import type { BlueprintDoc, Uuid } from "@/lib/domain";
+import type { BlueprintDoc, FormCaseSelection, Uuid } from "@/lib/domain";
 import { planPlacements } from "./placement";
 
 /** One load of an advanced form, in `load_update_cases` order. */
 export interface PlannedLoad {
+	/** Present on a form with explicitly authored entry choices. */
+	readonly selection?: FormCaseSelection;
 	readonly tag: string;
 	readonly caseType: string;
 	/** The module whose list the case is chosen from; null for the worker's
 	 *  load, which HQ selects from the session. */
 	readonly listModule: Uuid | null;
 	/** The load this one is chosen under, and the index name it follows. */
-	readonly index?: { readonly tag: string; readonly identifier: string };
+	readonly index?: {
+		readonly tag: string;
+		readonly identifier: string;
+		readonly relationship?: "extension" | { readonly question: Uuid };
+	};
 	/** The form's own case: the chain's last load. */
 	readonly own: boolean;
 	/** The worker's own record, the form's last load. */
