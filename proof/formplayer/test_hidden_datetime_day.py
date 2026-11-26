@@ -1,10 +1,8 @@
 """The worker submits both the hidden timestamp and its date-only case leaf."""
 
-from dataclasses import replace
-
-from proof.editors.test_hidden_datetime_day import CLOCK, assert_hidden_day_payload, hidden_day_database, prepare_hidden_day
+from proof.editors.test_hidden_datetime_day import assert_hidden_day_payload, hidden_day_database, prepare_hidden_day
 from proof.formplayer import hq as formplayer
-from proof.formplayer.walk import Walk
+from proof.formplayer.walk import DEFAULT_CLOCK, Walk
 from proof.hq.check import hq_check
 from proof.hq.configuration import Configuration
 
@@ -15,11 +13,7 @@ def test_formplayer_preserves_the_hidden_stamp_and_writes_its_day(hq, formplayer
         with formplayer.serve(
             state, None, app_id, runner=formplayer_runner, database=hidden_day_database(), label="hidden-day",
         ) as served:
-            formplayer_runner.set_clock(CLOCK)
-            try:
-                trace = replace(Walk.of(served, runner=formplayer_runner), clock=CLOCK).run()
-            finally:
-                formplayer_runner.set_clock()
+            trace = Walk.of(served, runner=formplayer_runner).run()
             submissions = [
                 sent["instance"].encode()
                 for run in trace["runs"]
@@ -29,4 +23,4 @@ def test_formplayer_preserves_the_hidden_stamp_and_writes_its_day(hq, formplayer
             ]
             assert submissions, trace
             for submission in submissions:
-                assert_hidden_day_payload(submission)
+                assert_hidden_day_payload(submission, clock=DEFAULT_CLOCK)

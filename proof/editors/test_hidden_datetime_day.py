@@ -1,6 +1,6 @@
 """An HQ-built hidden timestamp retains its time while the untyped case leaf saves its day."""
 
-from datetime import datetime, timezone
+from datetime import datetime
 
 from lxml import etree
 
@@ -18,11 +18,9 @@ from proof.observe.sessions import admitted, unmarked_submission
 
 CASE = "http://commcarehq.org/case/transaction/v2"
 PERSON = "person-with-a-visit"
-# Core and Formplayer's clock harness parses the fixed instant with DateUtils.
-# A binary-exact fraction makes the frozen input identical to Android's clock.
-STAMP = datetime(2025, 4, 5, 23, 24, 47, 125000, tzinfo=timezone.utc)
+# Core's fixture parses the input with DateUtils. The fraction is binary-exact.
 CLOCK = "2025-04-05T23:24:47.125Z"
-DAY = "2025-04-05"
+DAY = CLOCK.split("T", 1)[0]
 
 
 def _source(xmlns):
@@ -66,10 +64,10 @@ def prepare_hidden_day(state):
     return app_id, form.xmlns
 
 
-def assert_hidden_day_payload(submission):
+def assert_hidden_day_payload(submission, clock=CLOCK):
     payload = etree.fromstring(submission)
-    assert datetime.fromisoformat(payload.findtext("{*}recorded_at")) == STAMP
-    assert payload.findtext(f"{{{CASE}}}case/{{{CASE}}}update/{{{CASE}}}visit_day") == DAY
+    assert datetime.fromisoformat(payload.findtext("{*}recorded_at")) == datetime.fromisoformat(clock)
+    assert payload.findtext(f"{{{CASE}}}case/{{{CASE}}}update/{{{CASE}}}visit_day") == clock.split("T", 1)[0]
 
 
 def hidden_day_database():
