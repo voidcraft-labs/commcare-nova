@@ -396,26 +396,21 @@ def _hq_plain_source():
     return json.loads(json.loads(answer.read_text(encoding="utf-8"))["body"])
 
 
-def test_a_variant_s_added_uses_are_the_one_its_change_makes_and_none_for_its_base_again():
-    """Contract: ``parity.added_uses`` gives the uses the lane decides in a variant's source that its base's source
-    does not decide alike: exactly the decided use of the one value a row sets (a badge on a form, which the manifest
-    holds, ``forms-and-case-writes/custom-icons-0``), and none for the base's source over itself.
-    The plausible failure: an identity or an extraction that reads a variant's use as already seen in its base, so
-    every row's judged uses come back empty and the join judges nothing (``proof/matrix/parity-decided.json`` then
-    fails by name in the lane; this holds the function without HQ)."""
+def test_a_variants_added_uses_include_the_badge_and_its_fields():
+    """A form badge adds uses for its container and each held field at its own place."""
     base = _hq_plain_source()
     assert parity.added_uses(base, copy.deepcopy(base)) == []
     variant = copy.deepcopy(base)
     variant["modules"][0]["forms"][1]["custom_icons"] = [
         {"doc_type": "CustomIcon", "form": "badge", "text": {"en": "New"}, "xpath": ""}
     ]
-    [added] = parity.added_uses(base, variant)
-    assert added.use == Use("schema:Form.custom_icons", "app.json", "/modules/0/forms/1/custom_icons")
-    assert (added.standing, [entry.id for entry in added.entries]) == (
-        manifest_usage.HELD,
-        ["forms-and-case-writes/custom-icons-0"],
-    )
-
+    where = "/modules/0/forms/1/custom_icons"
+    added = parity.added_uses(base, variant)
+    assert [(one.use, one.standing) for one in added] == [
+        (Use("schema:Form.custom_icons", "app.json", where), HELD),
+        (Use("schema:CustomIcon.text", "app.json", f"{where}/0/text"), HELD),
+        (Use("schema:CustomIcon.xpath", "app.json", f"{where}/0/xpath"), HELD),
+    ]
 
 def test_each_private_language_and_alias_needs_a_claim_at_its_own_position():
     from proof.checks.manifest_usage import app_json_uses, Uses
@@ -503,3 +498,79 @@ def test_an_appearance_the_lane_does_not_decide_is_reported_and_not_joined():
     extracted = [Use(TOKEN_KEY, "form:0.0", APPEARANCE)]
     found = parity.join([], "", held=APPEARANCES, row_of=_row(TOKEN_ROW.id), extracted=extracted)
     assert _whats(found) == ["unclaimed"]
+
+
+@pytest.mark.parametrize(
+    "entry,variant_id,key,artifact,where,standing,member",
+    [
+        (
+            parity.LOCATION_WRITE, "hq-case-management/location-id-write",
+            "schema:UpdateCaseAction.update", "app.json",
+            "/modules/1/forms/0/actions/update_case/update", HELD, "location_id",
+        ),
+        (
+            parity.HYPHEN_TAG, "hq-advanced/tag-with-a-hyphen",
+            "schema:LoadUpdateAction.case_tag", "app.json",
+            "/modules/1/forms/0/actions/load_update_cases/1/case_tag", HELD, None,
+        ),
+        (
+            parity.SHADOW_LOAD, "hq-advanced/shadow-form",
+            "schema:ShadowForm.extra_actions", "app.json",
+            "/modules/1/forms/1/extra_actions", REFUSED, None,
+        ),
+        (
+            parity.SUPPLY_POINT, "hq-advanced/supply-point-id-from-a-computed-datum",
+            "session-path:session/data/*", "form:1.0",
+            "/h:html/h:head[1]/model[1]/bind[3]/@relevant", HELD, None,
+        ),
+        (
+            parity.PARENT_FOLLOW_UP, "hq-case-management/registration-by-a-parent-follow-up",
+            "schema:Module.case_list_form", "app.json", "/modules/1/case_list_form", HELD, None,
+        ),
+        (
+            parity.CHILD_REGISTRATION, "hq-case-management/registration-of-a-child-case",
+            "schema:Module.case_list_form", "app.json", "/modules/1/case_list_form", HELD, None,
+        ),
+        (
+            parity.ADVANCED_REGISTRATION, "hq-case-lists/registration-on-an-advanced-list",
+            "schema:AdvancedModule.case_list_form", "app.json", "/modules/1/case_list_form", HELD, None,
+        ),
+    ],
+)
+def test_retained_forms_decide_the_specific_source_fact(
+    monkeypatch, entry, variant_id, key, artifact, where, standing, member
+):
+    from types import SimpleNamespace
+
+    from proof.matrix import ops, registry
+
+    root = Path(__file__).resolve().parents[1]
+    row = next(row for row in json.loads((root / "matrix/variants.json").read_text()) if row["id"] == variant_id)
+    source = root / "hq-apps" / row["base"] / "app-source.json"
+    base = json.loads(json.loads(source.read_text())["body"])
+    variant = copy.deepcopy(base)
+
+    def set_form_source(authoring, app_id, menu, form, transform, **kwargs):
+        filename = variant["modules"][menu]["forms"][form]["unique_id"] + ".xml"
+        xml = variant["_attachments"][filename]
+        root = etree.fromstring(xml.encode())
+        returned = transform(root, SimpleNamespace(source=xml))
+        variant["_attachments"][filename] = returned if isinstance(returned, str) else etree.tostring(root, encoding="unicode")
+
+    def set_json(authoring, app_id, pointer, value):
+        ops.set_at(variant, pointer, ops.resolve_references(value, ops.ids_at(variant)))
+
+    monkeypatch.setattr(ops, "set_form_source", set_form_source)
+    monkeypatch.setattr(ops, "set_json", set_json)
+    change = row["change"]
+    if change["op"] == "named":
+        registry.named_change(change["name"])(None, "fixture")
+    else:
+        set_json(None, "fixture", change["pointer"], change["value"])
+
+    assert row["entry"] == entry
+    uses, differences = parity.variant_differences(base, variant, [], [entry])
+    assert [(one.use.key, one.use.artifact, one.use.where, one.standing, one.at) for one in uses] == [
+        (key, artifact, where, standing, f"{where}/{member}" if member else None),
+    ]
+    assert [difference.path for difference in differences] == [f"/{parity.pointer_token(key)}/unclaimed"]
