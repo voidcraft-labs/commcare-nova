@@ -64,7 +64,11 @@
 5. A referrals menu that searches case attributes, a date, an ancestor and
    the worker's owner ID. Independent rows use both the matched and excluded
    prompts. A separate device filter narrows the worker's list after the
-   search returns.
+   search returns. Its two order defaults send their values in sequence.
+   The first uses two leading signs on its first term. HQ keeps the stored
+   text and uses its first sign, so the first publish removes only its
+   redundant sign (``search-order-direction-signs-respelled``). The second
+   order stays as written.
 
 Its configuration is the lane's floor with case search on,
 ``SYNC_SEARCH_CASE_CLAIM``, the flag HQ's Search options stand under,
@@ -299,6 +303,8 @@ def build(authoring) -> str:
             ("standing", "'active'"),
             ("parent/district", "'d1'"),
             ("owner_id", "instance('commcaresession')/session/context/userid"),
+            ("commcare_sort", "'+-client_code:exact,-dob:date'"),
+            ("commcare_sort", "'+name'"),
         ],
         rows=[
             json.dumps("date_opened > '2020-01-01'"),
@@ -339,6 +345,7 @@ BASE = Base(
         "case-search/itemset-instance-id-item-list-tag-nodeset-label-value-over",
         "case-search/itemset-sort-over-a-lookup-field",
         "case-search/exclude",
+        "case-search/default-filter-orders-the-records-the-search-sends",
         "case-search/default-properties-entry-keyed-by-a-plain-property-property-p",
         "case-search/default-properties-entry-keyed-by-an-ancestor-path-parent-p",
         "case-search/default-properties-entry-keyed-owner-id-case-id-commcare-project",
