@@ -276,6 +276,18 @@ def test_the_clients_placeholder_is_held_only_in_an_app_that_declares_web_apps()
     assert walk_module.UNSUPPORTED not in sent.values()
 
 
+def test_the_walk_submits_what_the_client_holds_where_formplayer_handed_back_another_answer():
+    """Where Formplayer takes an answer and hands back another (a hidden answer type's text, which it echoes as
+    none), the client keeps what it sent and submits that (``form_ui.js``: the question stays dirty), as the Web Apps
+    client did on ``targeted-hidden-answer-types``. Plausible failure: a walk that submits Formplayer's echo, so its
+    submission differs from the client's (``SubmittedOtherwise``)."""
+    tree = [{"type": "question", "ix": "0", "datatype": "str", "answer": None}]
+    held = {"0": walk_module._held_after(tree, "0", "proof text", None, {})}
+    assert held == {"0": "proof text"}
+    assert walk_module.submission(tree, set(), held)["answers"] == {"0": "proof text"}
+    assert walk_module.submission(tree, set())["answers"] == {"0": None}
+
+
 def test_a_question_on_a_number_keypad_is_given_what_a_worker_types_on_it():
     """In Web Apps the client draws its number keypad box (``PhoneEntry``) for a text question whose style holds
     ``numeric``, unless it also holds ``address``, and sends Formplayer only an answer its pattern takes, so a worker

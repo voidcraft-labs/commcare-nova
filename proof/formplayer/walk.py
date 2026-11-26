@@ -350,12 +350,14 @@ def submission(
     tree: Sequence[Mapping[str, Any]], refused: set[str], held: Mapping[str, Any] | None = None
 ) -> dict[str, Any]:
     """What the Web Apps client submits of a form (``web_form_session.js::submitForm``, ``accumulateAnswers``):
-    each question it holds valid, by its index, with the answer Formplayer last handed it (a label's as ``OK``),
-    and ``prevalidated`` only where it holds every question valid. A question is not valid while Formplayer's
+    each question it holds valid, by its index, with the answer it holds (a label's as ``OK``), and
+    ``prevalidated`` only where it holds every question valid. A question is not valid while Formplayer's
     last answer to it was a validation error (``form_ui.js``, ``session.reconcile`` sets its ``serverError``, and
-    the next answer it takes clears it): ``refused`` holds those, by index. A question the client drew no widget
-    for after Formplayer's last answer still holds its unsupported entry's text, which the client submits as its
-    answer: ``held`` is what the client holds of each question (``Walk._fill``), and names those."""
+    the next answer it takes clears it): ``refused`` holds those, by index. ``held`` is what the client holds of
+    each question (``Walk._fill``): mostly the answer Formplayer last handed it, but what it sent where
+    Formplayer took that answer and handed back another (``_held_after``: the question stays dirty, as a hidden
+    answer type's text Formplayer echoes as none), and its unsupported entry's text for a question it drew no
+    widget for. Without ``held``, Formplayer's answers stand for it."""
     answers, prevalidated = {}, True
     for node in questions(tree):
         if node.get("type") != "question":
@@ -365,8 +367,8 @@ def submission(
             continue
         if node.get("datatype") == "info":
             answers[node["ix"]] = "OK"
-        elif held is not None and not answerable(node) and held.get(str(node.get("ix"))) == UNSUPPORTED:
-            answers[node["ix"]] = UNSUPPORTED
+        elif held is not None and str(node.get("ix")) in held:
+            answers[node["ix"]] = held[str(node.get("ix"))]
         else:
             answers[node["ix"]] = node.get("answer")
     return {"answers": answers, "prevalidated": prevalidated}
