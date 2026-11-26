@@ -23,10 +23,7 @@
 					"value": "upland"
 				}
 			],
-			"expressions": [
-				"/data/site_name",
-				"/data/zone"
-			]
+			"expressions": ["/data/site_name", "/data/zone"]
 		},
 		"expect": [
 			{
@@ -41,6 +38,7 @@
 	},
 	{
 		"id": "note-recorded-from-the-site-list",
+		"entry": "questions/text-input-xsd-string",
 		"form": {
 			"menu": 0,
 			"form": 1
@@ -58,9 +56,7 @@
 					"value": "Visited from Sites"
 				}
 			],
-			"expressions": [
-				"/data/note"
-			]
+			"expressions": ["/data/note"]
 		},
 		"expect": [
 			{
@@ -71,6 +67,7 @@
 	},
 	{
 		"id": "note-recorded-from-the-site-search",
+		"entry": "questions/text-input-xsd-string",
 		"form": {
 			"menu": 1,
 			"form": 0
@@ -88,9 +85,7 @@
 					"value": "Visited from Site search"
 				}
 			],
-			"expressions": [
-				"/data/note"
-			]
+			"expressions": ["/data/note"]
 		},
 		"expect": [
 			{
@@ -119,9 +114,7 @@
 					"value": "   "
 				}
 			],
-			"expressions": [
-				"/data/site_name"
-			]
+			"expressions": ["/data/site_name"]
 		},
 		"expect": [
 			{
@@ -129,9 +122,7 @@
 				"value": "ok"
 			}
 		],
-		"exports": [
-			"A"
-		]
+		"exports": ["A"]
 	},
 	{
 		"id": "case-names-checked:after",
@@ -153,9 +144,7 @@
 					"value": "   "
 				}
 			],
-			"expressions": [
-				"/data/site_name"
-			]
+			"expressions": ["/data/site_name"]
 		},
 		"expect": [
 			{
@@ -163,9 +152,6 @@
 				"value": "constraint"
 			}
 		],
-		"exports": [
-			"B",
-			"local"
-		]
+		"exports": ["B", "local"]
 	}
 ]
