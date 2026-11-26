@@ -361,7 +361,7 @@ it.each(["default filter", "dedicated setting"] as const)(
 				comparison: "text",
 				direction: "ascending",
 			} as const;
-			const columns = [plainColumn(uuid(1), "case_name", "Name")];
+			const columns = [plainColumn(uuid(1), "hq_user_id", "Linked worker")];
 			const doc = useDefault
 				? patients(columns, {
 						search: {},
