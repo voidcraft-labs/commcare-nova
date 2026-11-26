@@ -928,23 +928,24 @@ def _built(artifact, path, at, kind="changed"):
 def test_a_menu_s_change_holds_no_other_menu_s_build_difference():
     # The review's second defect: each of its scenarios, over the register's own rows.
     sites = changes.Sites(
-        builds={("suite.xml", "entry[1]"): ("form", "0.0"), ("suite.xml", "entry[7]"): ("form", "2.0")},
+        builds={("suite.xml", "remote-request[1]"): ("menu", "0"), ("suite.xml", "remote-request[7]"): ("menu", "2")},
         steps={
             (2, 4): ("menu", "1"),
             (2, 5): ("menu", "3", "case_details", "short"),
             (2, 6): ("menu", "2", "search_config"),
+            (2, 7): ("menu", "0", "search_config"),
         },
         choices={(2, 4, 1): ("form", "1.0"), (2, 4, 0): ("menu", "0")},
     )
-    joined = _document(RESIDUE, ("search-filter-joined-to-list", ["/menu/0/case_details/short/filter"]))
-    nodeset = "/suite/entry[*]/session[*]/datum[@id=*]/@nodeset"
-    assert (
-        _held_by(joined, _built("suite.xml", nodeset, "/suite/entry[7]/session[1]/datum[@id=case_id]/@nodeset"), sites)
-        == frozenset()
-    )
-    assert _held_by(
-        joined, _built("suite.xml", nodeset, "/suite/entry[1]/session[1]/datum[@id=case_id]/@nodeset"), sites
-    ) == frozenset()
+    recut = _document(RESIDUE, ("search-filter-rows-recut", ["/menu/0/search_config/default_properties"]))
+    query = "/suite/remote-request[*]/session[*]/query[*]/data[@key=_xpath_query][@ref=*]"
+
+    def clause(position):
+        at = f"/suite/remote-request[{position}]/session[1]/query[1]/data[@key=_xpath_query][@ref=typed]"
+        return _built("suite.xml", query, at, "added")
+
+    assert _held_by(recut, clause(1), sites) == {"search-filter-rows-recut"}
+    assert _held_by(recut, clause(7), sites) == frozenset()
     hidden = _document(
         RESIDUE,
         (
@@ -968,9 +969,11 @@ def test_a_menu_s_change_holds_no_other_menu_s_build_difference():
         RESIDUE, ("sort-by-entry-with-a-blank-name-dropped", ["/menu/0/case_details/short/sort_elements/0/display"])
     )
     assert _held_by(blank, _trace("/runs/2/trace/5/headers/1", "/runs/*/trace/*/headers/*"), sites) == frozenset()
-    today = _document(RESIDUE, ("search-today-device-day", ["/menu/0/search_config/properties/0/default_value"]))
     params = "/runs/*/trace/*/params/_xpath_query/*"
-    assert _held_by(today, _trace("/runs/2/trace/6/params/_xpath_query/x", params, "added"), sites) == frozenset()
+    assert _held_by(recut, _trace("/runs/2/trace/6/params/_xpath_query/x", params, "added"), sites) == frozenset()
+    assert _held_by(recut, _trace("/runs/2/trace/7/params/_xpath_query/x", params, "added"), sites) == {
+        "search-filter-rows-recut"
+    }
 
 
 def test_the_change_that_stands_everywhere_holds_no_form_source_difference_its_rows_do_not_name():
