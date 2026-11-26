@@ -63,6 +63,20 @@ describe("actual options-source staging model", () => {
 		expect(selectOptionsSourceSchema.safeParse(complete).success).toBe(true);
 		expect(complete?.filter).toBe(filter);
 	});
+	it("keeps a sort column the table holds, and completes nothing over one it lost", () => {
+		const sorted = { ...bound, sortColumnId: code };
+		expect(completeLookupSource(sorted, table)).toEqual(sorted);
+		expect(
+			selectOptionsSourceSchema.safeParse(completeLookupSource(sorted, table))
+				.success,
+		).toBe(true);
+		const gone = lookupColumnIdSchema.parse(
+			"00000000-0000-7000-8000-000000000504",
+		);
+		expect(
+			completeLookupSource({ ...bound, sortColumnId: gone }, table),
+		).toBeUndefined();
+	});
 	it("selecting the committed source discards a staged alternative without editing it", () => {
 		const inline = freshInlineSource();
 		expect(beginOptionsSource(inline, "inline", [table])).toEqual({

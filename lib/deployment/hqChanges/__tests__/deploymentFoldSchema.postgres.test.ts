@@ -36,6 +36,9 @@ const h = setupAppStateTestDb("fold_scan_before_ddl_", {
 	// The deployed tree ends at 20261202000000_hq_bring_in_project_data.
 	// Companion migrations in the candidate may sort before the certificate DDL.
 	caseStoreMigrationsBefore: "20261203",
+	// The fold is rehearsed in one representation: the Connect conversion,
+	// which the same release composes with it, has already run.
+	connectRolesApplied: true,
 });
 const projectId = "clinic-project",
 	owner = "clinic-owner";

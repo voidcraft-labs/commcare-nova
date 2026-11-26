@@ -1,3 +1,7 @@
+import type {
+	ActivityFact,
+	ConnectSubmissionProgram,
+} from "@/lib/domain/connectSubmissionFacts";
 // lib/case-store/submission.ts
 //
 // The atomic submission envelope's public contract — the argument and
@@ -29,6 +33,7 @@ import type {
 	OrganizationLevel,
 	Uuid,
 } from "@/lib/domain";
+import { activityFactsSchema } from "@/lib/domain/connectSubmissionFacts";
 import type { ScalarHeld } from "@/lib/domain/expression/typeChecker";
 import type { Expression as DomainExpression } from "@/lib/domain/expression/types";
 import {
@@ -273,6 +278,7 @@ export interface CaseOperationProgram {
 export interface ApplySubmissionArgs {
 	/** Empty when the requested location was unavailable; absent when the form requested none. */
 	readonly submissionLocation?: DeviceLocation | null;
+	readonly connect?: ConnectSubmissionProgram;
 	readonly appId: string;
 	readonly ordinary: OrdinarySubmissionAction;
 	readonly operations?: CaseOperationProgram;
@@ -355,6 +361,7 @@ export interface CreatedChildCaseReceipt {
 export interface SubmissionEnvelopeResult {
 	/** Empty when the requested location was unavailable; absent when the form requested none. */
 	readonly submissionLocation?: DeviceLocation | null;
+	readonly activities?: readonly ActivityFact[];
 	/** The case the registration's own arm created with the id its entry
 	 * minted, the ordered followup/close selection, or an empty collection for
 	 * `kind: "none"` and for a registration whose open condition did not
@@ -431,6 +438,8 @@ export function parseSubmissionEnvelopeResult(
 	if (
 		typeof parsed !== "object" ||
 		parsed === null ||
+		("activities" in parsed &&
+			!activityFactsSchema.safeParse(parsed.activities).success) ||
 		hasCreatedChildren === hasHistoricalChildCaseIds ||
 		(hasCreatedChildren && hasInvalidCreatedChildren(createdChildren)) ||
 		(hasHistoricalChildCaseIds &&

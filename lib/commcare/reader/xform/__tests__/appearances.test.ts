@@ -213,32 +213,39 @@ describe("classifyAppearance", () => {
 });
 
 describe("a trigger's appearance, read through the form's stages", () => {
-	it("reads a label only where Android's widget draws no acknowledge", async () => {
+	it("holds the checkbox answer independently of a trigger's display tokens", async () => {
 		const reading = await readForm(
 			xformSource({
-				data: "<list/><foo/><copy/><banner/>",
-				body: '<trigger ref="/data/list" appearance="field-list"/><trigger ref="/data/foo" appearance="foo"/><trigger ref="/data/copy" appearance="selectable"/><trigger ref="/data/banner" appearance="floating-good"/>',
+				data: "<list/><foo/><copy/><banner/><aligned/>",
+				body: '<trigger ref="/data/list" appearance="field-list"/><trigger ref="/data/foo" appearance="foo"/><trigger ref="/data/copy" appearance="selectable"/><trigger ref="/data/banner" appearance="floating-good"/><trigger ref="/data/aligned" appearance="text-align-center"/>',
 			}),
 		);
 		const fields = readFields(reading.xform ?? ({} as never));
 		expect(
 			fields.map((field) => [field.id, field.kind, field.standIn]),
 		).toEqual([
-			["list", "hidden", true],
-			["foo", "hidden", true],
+			["list", "label", false],
+			["foo", "label", false],
 			["copy", "label", false],
 			["banner", "label", false],
+			["aligned", "label", false],
 		]);
-		const acknowledge = Q(
-			"acknowledge-label-a-trigger-whose-appearance-is-neither-exactly",
-		);
-		expect(codesAt(reading, "list")).toEqual([acknowledge]);
-		expect(codesAt(reading, "foo")).toEqual([acknowledge]);
+		expect(fields.slice(0, 2).map((field) => field.field)).toEqual([
+			expect.objectContaining({ askForConfirmation: true }),
+			expect.objectContaining({ askForConfirmation: true }),
+		]);
+		expect(codesAt(reading, "list")).toEqual([]);
+		expect(codesAt(reading, "foo")).toEqual([]);
 		expect(codesAt(reading, "copy")).toEqual([]);
 		expect(fields[2].field.selectableText).toBe(true);
 		expect(codesAt(reading, "banner")).toEqual([]);
 		expect(fields[3].field.banner).toBe("good");
-		expect(reading.xform?.inertAppearances).toEqual([]);
+		expect(codesAt(reading, "aligned")).toEqual([]);
+		expect(fields[4].field).toMatchObject({
+			askForConfirmation: true,
+			textAlignment: "center",
+		});
+		expect(reading.xform?.inertAppearances).toEqual(["list", "foo"]);
 	});
 });
 

@@ -4,11 +4,11 @@ import type { Form } from "./forms";
 
 /** Android requests a fix when a form opens. Connect requires this on every form. */
 export function capturesDeviceLocation(
-	app: Pick<BlueprintDoc, "connectType" | "appSettings">,
+	app: Pick<BlueprintDoc, "connectRoles" | "appSettings">,
 	form?: Pick<Form, "captureLocation">,
 ): boolean {
 	return (
-		app.connectType !== null ||
+		app.connectRoles.length > 0 ||
 		app.appSettings.captureLocation === true ||
 		form?.captureLocation === true
 	);

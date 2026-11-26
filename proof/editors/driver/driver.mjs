@@ -1834,7 +1834,7 @@ async function runVellum(message) {
 			if (!outcome.edit?.edited) {
 				throw new StepFailed(
 					"page",
-					`The run's edit of ${message.edit.path} did not take (${outcome.edit?.reason}), so the driver did not save the form.`,
+					`The run's ${message.edit.way} edit${message.edit.path ? ` of ${message.edit.path}` : ""} did not take (${outcome.edit?.reason}), so the driver did not save the form.`,
 				);
 			}
 		}

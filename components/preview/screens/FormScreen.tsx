@@ -10,6 +10,7 @@ import {
 	type SyntheticEvent,
 	useCallback,
 	useEffect,
+	useEffectEvent,
 	useLayoutEffect,
 	useMemo,
 	useRef,
@@ -64,6 +65,7 @@ import {
 	reachableCaseTypes,
 } from "@/lib/domain";
 import { formEntryRecord } from "@/lib/domain/advancedEntryDatums";
+import type { ActivityFact } from "@/lib/domain/connectSubmissionFacts";
 import { unhandledKindMessage } from "@/lib/domain/expression/errors";
 import { generatedWordingId } from "@/lib/domain/generatedWording";
 import type { LanguageTag } from "@/lib/domain/localization";
@@ -201,6 +203,7 @@ import {
 } from "@/lib/preview/menuProjection";
 import { refusalCopy, runtimeMessage } from "@/lib/preview/runtimeMessages";
 import {
+	automaticSubmissionEntry,
 	type PreviewSubmitOffer,
 	type PreviewSubmitState,
 	previewSubmitAccess,
@@ -513,6 +516,7 @@ interface FormScreenProps {
 	opening?: FormOpeningState;
 	projection?: FormOpeningProjection;
 	onReopen?: () => void;
+	onSubmittedActivities?: (facts: readonly ActivityFact[]) => void;
 	/** Stable identity passed by PreviewShell so an Activity-retained form never
 	 * starts reading a newer route's module, form, or selected case. */
 	screen: Extract<PreviewScreen, { type: "form" }>;
@@ -557,6 +561,7 @@ const INVALID_CONTROL_SELECTOR =
 
 export function FormScreen({
 	screen,
+	onSubmittedActivities,
 	opening,
 	projection,
 	onReopen,
@@ -3031,6 +3036,8 @@ export function FormScreen({
 				session
 					.getState()
 					.setPreviewSubmissionLocation(result.submissionLocation);
+				if (result.activities?.length)
+					onSubmittedActivities?.(result.activities);
 				await dispatchAfterSubmit({
 					submitted: {
 						...submitted,
@@ -3178,6 +3185,31 @@ export function FormScreen({
 			onReopen,
 		],
 	);
+
+	// The same readiness, access and authoritative submission as the worker's Submit button.
+	const automaticEntry = useRef<string | undefined>(undefined);
+	const submitOnOpen = useEffectEvent(handleSubmit);
+	useEffect(() => {
+		const next = automaticSubmissionEntry({
+			active: mode === "preview" && routeMatchesScreen && loc.kind === "form",
+			enabled: Boolean(form?.automaticSubmissionText),
+			platformAllows: platformRules.webAppsFormPragmas,
+			offered: submitOffer.kind,
+			entry: entryKey,
+			attempted: automaticEntry.current,
+		});
+		if (!next) return;
+		automaticEntry.current = next;
+		void submitOnOpen();
+	}, [
+		entryKey,
+		form?.automaticSubmissionText,
+		loc.kind,
+		mode,
+		platformRules.webAppsFormPragmas,
+		routeMatchesScreen,
+		submitOffer.kind,
+	]);
 
 	// A fresh entry waits for its selected record and ancestor preloads before
 	// running one-time defaults and query snapshots. An existing entry can
