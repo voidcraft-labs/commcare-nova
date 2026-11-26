@@ -1480,7 +1480,7 @@ export const X = {
 	},
 	/** An inline video on a text other than a question's label, which no runtime shows. */
 	videoInlineElsewhere: one(
-		"refuse",
+		"account",
 		Q("video-inline-form-on-a-text-other-than-a-question-label"),
 		"itext-form:android/video-inline",
 	),

@@ -1350,9 +1350,11 @@ const MEDIA_FORMS = new Set(["image", "audio", "video"]);
 /** Whether a slot's media reader holds a value of this form: an image, an audio or a video on
  *  every slot that holds media, and an inline video on a question's label alone, the one text
  *  commcare-android asks for its `video-inline` form (`QuestionWidget.java`). */
-function heldMediaForm(owner: ItextOwner, form: string): boolean {
-	if (MEDIA_FORMS.has(form)) return true;
-	return form === "video-inline" && mediaHolding(owner) === "label_media";
+function putsMediaInDocument(owner: ItextOwner, form: string): boolean {
+	return (
+		MEDIA_FORMS.has(form) ||
+		(form === "video-inline" && mediaHolding(owner) === "label_media")
+	);
 }
 
 /** The media a slot holds, by the kind of its field. */
@@ -1379,7 +1381,8 @@ function writesMedia(
 	const holding = mediaHolding(owner);
 	if (holding === "unheld") return false;
 	for (const held of forms.values())
-		for (const form of held.keys()) if (heldMediaForm(owner, form)) return true;
+		for (const form of held.keys())
+			if (putsMediaInDocument(owner, form)) return true;
 	return false;
 }
 
@@ -2011,7 +2014,8 @@ function claimOtherForm(
 		form === undefined ||
 		form === "default" ||
 		form === "markdown" ||
-		heldMediaForm(owner, form)
+		MEDIA_FORMS.has(form) ||
+		form === "video-inline"
 	)
 		return;
 	if (form.startsWith("__nova_")) return;
@@ -2028,9 +2032,7 @@ function claimOtherForm(
 		else cursor.dropSubtree(value, X.labelTextElsewhere[labelText]);
 		return;
 	}
-	if (form === "video-inline")
-		cursor.refuseSubtree(value, X.videoInlineElsewhere, place);
-	else if (form === "short") cursor.accountSubtree(value, X.shortForm, place);
+	if (form === "short") cursor.accountSubtree(value, X.shortForm, place);
 	else if (form === "big-image")
 		cursor.refuseSubtree(
 			value,

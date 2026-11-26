@@ -23251,19 +23251,17 @@
 		"id": "hq-media/video-inline-on-help",
 		"base": "hq-media",
 		"entry": "questions/video-inline-form-on-a-text-other-than-a-question-label",
-		"standing": "not-yet",
-		"place": {
-			"kind": "question",
-			"menu": 0,
-			"form": 0,
-			"menuName": "Animals",
-			"formName": "Survey",
-			"path": "animal_name"
-		},
 		"change": {
 			"op": "named",
 			"name": "video_inline_on_help"
-		}
+		},
+		"holds": [
+			{
+				"key": ["field", { "$xmlns": [0, 0] }, ["animal_name"]],
+				"pointer": "/help/parts/0/text",
+				"value": "Say what the animal is called"
+			}
+		]
 	},
 	{
 		"id": "hq-media/media-key-outside-jr-file",

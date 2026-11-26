@@ -9858,17 +9858,15 @@
 			"itext-form:hq/video-inline"
 		],
 		"valueClass": "other-text",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: an inline video on a text other than a question's label, which no runtime shows (Android asks a question's label alone for it, `QuestionWidget.java`; Formplayer sends no such form, `PromptToJson`) while HQ ships its file (`xform.py::video_references`)",
-		"subject": "question-media",
-		"owner": "question-display",
+		"disposition": "INERT",
+		"dispositionCell": "**INERT**: Android reads inline video only from question labels (`QuestionWidget.java`). Formplayer sends no inline video (`PromptToJson`). CommCare HQ packages the file (`xform.py::video_references`), so Nova lists the unused reference in the first-publish review.",
 		"platforms": {
 			"kind": "not-applicable",
 			"cell": "n/a"
 		},
 		"emission": {
-			"cell": "—",
-			"markers": []
+			"cell": "omit",
+			"markers": ["omit"]
 		},
 		"gates": []
 	},

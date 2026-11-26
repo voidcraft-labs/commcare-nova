@@ -1082,7 +1082,7 @@ function unshownMediaPlaces(facts: FirstPublishFacts): string[] {
 		const position = `${place.menu}.${place.form}` as const;
 		const places = [
 			nodePlace(position, `/data/${place.path}`) +
-				placeOf(":itext", ref.role, ref.languageCode, ref.mediaKind),
+				placeOf(":itext", ...ref.role, ref.languageCode, ref.form),
 		];
 		if (!retained.has(ref.path))
 			places.push(placeOf("app", "multimedia_map", ref.path));
@@ -2705,7 +2705,7 @@ function mediaSubjects(
 		} else subjects.set(base, place);
 	};
 	for (const ref of facts.facts.unheldMedia)
-		add("unshown-form-media-removed", ref, ref.mediaKind);
+		add("unshown-form-media-removed", ref, ref.form);
 	for (const claim of facts.mediaClaims)
 		add(
 			claim.brokenPicture
