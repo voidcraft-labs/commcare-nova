@@ -40,6 +40,8 @@ export function registrationOpenIndex(
 		return -1;
 	const manual = loads.map(object).filter((action) => !action.auto_select);
 	if (!manual.length) return only;
+	// A manually selected case of the menu type remains the follow-up’s own case.
+	if (manual.some((action) => action.case_type === caseType)) return -1;
 	const indexed = parents(rows[only]);
 	if (!indexed.length) return -1;
 	const byTag = new Map(
