@@ -172,7 +172,7 @@ def test_advanced_case_management_keeps_an_index(editor_driver, hq, core_runner,
         session, = suite.xpath("./entry[form=$xmlns]/session", xmlns=receive.xmlns)
         choice, = session.xpath("datum[@id='case_id_case_requisition']")
         backing, = session.xpath("datum[@id='case_id_return_clinic']")
-        assert f"/index/{reference}" in choice.get("nodeset")
+        assert f"[index/{reference}=" in choice.get("nodeset")
         assert backing.get("function").endswith(f"/index/{reference}")
         with admitted(core_runner, arrange(rebuilt.files, tmp_path / "related")) as admission:
             assert admission["admitted"], admission["problems"]
