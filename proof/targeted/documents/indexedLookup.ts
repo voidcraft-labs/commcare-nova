@@ -54,11 +54,8 @@ export function indexedLookup() {
 								kind: "hidden",
 								calculate: tableLookup(
 									table.id,
-									{ columnId: name.id },
-									eq(
-										tableColumn(table.id, { columnId: code.id }),
-										formField(query),
-									),
+									name.id,
+									eq(tableColumn(table.id, code.id), formField(query)),
 								),
 							}),
 						],
