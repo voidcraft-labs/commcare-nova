@@ -188,6 +188,52 @@ describe("committed capture paths", () => {
 		expect(doc).toEqual(before);
 	});
 
+	it("checks an attachment against its form's actual submitted answer root", () => {
+		const doc = captureDoc();
+		doc.forms[FORM].dataRootName = "survey";
+		const path = committedCapturePath(doc, PHOTO);
+		expect(path?.instancePathTemplate).toBe("/survey/visits[0]/details/photo");
+		if (!path) throw new Error("The form contains the photo.");
+		expect(
+			captureInstancePathMatchesTemplate(
+				"/data/visits[1]/details/photo",
+				path.instancePathTemplate,
+			),
+		).toBe(false);
+		expect(
+			captureInstancePathMatchesTemplate(
+				"/survey/visits[1]/details/photo",
+				path.instancePathTemplate,
+			),
+		).toBe(true);
+	});
+
+	it("authorizes a capture in its submitted group and repeat row when the screen groups it elsewhere", () => {
+		const doc = captureDoc();
+		const visits = Object.values(doc.fields).find(
+			(field) => field.id === "visits",
+		);
+		if (!visits) throw new Error("The form contains the visits repeat");
+		doc.fields[PHOTO].submissionPlacement = {
+			parent: visits.uuid,
+		};
+		const path = committedCapturePath(doc, PHOTO);
+		expect(path?.instancePathTemplate).toBe("/data/visits[0]/photo");
+		if (!path) throw new Error("The form contains the photo");
+		expect(
+			captureInstancePathMatchesTemplate(
+				"/data/visits[1]/photo",
+				path.instancePathTemplate,
+			),
+		).toBe(true);
+		expect(
+			captureInstancePathMatchesTemplate(
+				"/data/visits[1]/details/photo",
+				path.instancePathTemplate,
+			),
+		).toBe(false);
+	});
+
 	it("matches each concrete repeat index and keeps literal group and field names exact", () => {
 		const template = "/data/visits[0]/details/samples[0]/photo";
 		for (const actual of [

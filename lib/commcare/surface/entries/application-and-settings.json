@@ -2548,7 +2548,7 @@
 		"noSurfaceKey": "Who opens a Connect app is Connect's and HQ's account state, which no export carries: Connect makes each worker's HQ account with no password (commcare-connect users/helpers.py::create_hq_user_and_link), HQ's user page refuses to set one (users/forms.py::SetUserPasswordForm), and HQ takes the worker's PersonalID token only at /oauth/token/ (domain/auth.py::ConnectIDAuthBackend), which the Connect app on Android calls (ApiPersonalId.retrieveHqToken).",
 		"origin": "export-use",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: `connectType` (learn or deliver) with its form blocks; declared Android only",
+		"dispositionCell": "**HELD**: the configured Connect roles and their positioned activities; declared Android only",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
@@ -3697,7 +3697,7 @@
 		],
 		"valueClass": "connect-app",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: derived: `true` on a Connect app (`expander.ts::expandDoc` from `connectType`)",
+		"dispositionCell": "**HELD**: derived: `true` on a Connect app (`expander.ts::expandDoc` from the configured Connect roles)",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",

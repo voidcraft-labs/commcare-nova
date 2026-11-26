@@ -1,5 +1,9 @@
 /** Patch form metadata and navigation through the shared canonical workspace. */
 import { z } from "zod";
+import {
+	formBehaviorTextChoices,
+	formBehaviorTextIssue,
+} from "@/lib/commcare/xform/behaviorTexts";
 import { afterEmptySearchOfferBlocked } from "@/lib/doc/alwaysOfferedRegistration";
 import { caseListRegistrationMutations } from "@/lib/doc/caseListRegistrationForm";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
@@ -8,23 +12,24 @@ import {
 	setFormHiddenFromMenuMutation,
 } from "@/lib/doc/displayConditionMutations";
 import { formRecordNameMutations } from "@/lib/doc/formRecordName";
-import type { ConnectConfig, PostSubmitDestination } from "@/lib/domain";
+import type {
+	BlueprintDoc,
+	Form,
+	PostSubmitDestination,
+	Uuid,
+} from "@/lib/domain";
 import {
 	afterEmptySearchRegistrationFormOf,
-	appConnectIds,
-	formRootFieldIds,
 	moduleFormsReadSearch,
 	POST_SUBMIT_DESTINATIONS,
 } from "@/lib/domain";
 import { conditionSchema } from "@/lib/domain/expression";
-import { formLogicSchema } from "@/lib/domain/expression/types";
+import { formLogicSchema, type ItextUnit } from "@/lib/domain/expression/types";
+import { formRootNameSchema } from "@/lib/domain/formAnswerRoot";
+import { behaviorTextSchema, formBehaviorRoles } from "@/lib/domain/forms";
 import { menuBadgeSchema } from "@/lib/domain/menuBadge";
 import { formNavigation } from "@/lib/preview/engine/navigationProjection";
-import {
-	refineFormConnectMutations,
-	updateFormMutations,
-} from "../blueprintHelpers";
-import { connectFormPatchSchema } from "../planningSchemas";
+import { updateFormMutations } from "../blueprintHelpers";
 import type { ToolInvocationContext } from "../workspace/types";
 import {
 	applyToDoc,
@@ -37,8 +42,6 @@ import {
 	caseListRegistrationEntry,
 	caseListRegistrationInputSchema,
 } from "./shared/caseListRegistration";
-import { enforceConnectIds } from "./shared/connectIds";
-import { buildConnectConfig } from "./shared/connectInput";
 import {
 	formAddressSchema,
 	resolveFormAddress,
@@ -48,6 +51,10 @@ import type {
 	MutationSuccess,
 	ToolCallSummary,
 } from "./shared/toolCallSummary";
+
+/** How a form behavior names the text that holds it, from the question tree getForm returns. */
+const BEHAVIOR_TEXT_NAMING =
+	"Name a question's text as { field: the question's id, role: field-label, field-hint, field-help, field-validation-message, field-first-add-label or field-add-label }, and a choice's as { field, role: select-option-label, option: the choice's value }; alsoUsedBy lists other texts written the same that share it.";
 
 export const updateFormInputSchema = formAddressSchema
 	.extend({
@@ -62,6 +69,12 @@ export const updateFormInputSchema = formAddressSchema
 			.optional()
 			.describe(
 				"Wording of the submit button in Web Apps. Null restores the platform wording for the source language.",
+			),
+		answerRoot: formRootNameSchema
+			.nullable()
+			.optional()
+			.describe(
+				"The first name in every submitted answer address. Set this when an existing reporting or data workflow expects a particular name. Null restores data.",
 			),
 		purpose: z
 			.string()
@@ -92,12 +105,6 @@ export const updateFormInputSchema = formAddressSchema
 			.describe(
 				'Post-submit destination: "app_home", "firstMenu" (the app\'s first menu, which lists its modules; in Web Apps the same screen as "app_home"), "module" (its normal opening screen), "parentMenu" (the parent module, with its selection kept), or "previous" (the preceding selection or task shown by the resolved navigation result). null resets to the default: "app_home" for registration/survey, and for followup/close the first the module offers of "previous", "module", "firstMenu". A module offers "previous" unless it or its parent selects several cases, its forms read the search, or it is off the menu; "module" unless its parent selects several cases or it is off the menu; "parentMenu" when its parent neither selects several cases nor is off the menu. A destination the module does not offer is refused. A form that is its menu\'s registration from the case list returns to the results after submit, or goes to "firstMenu" when that is set, which a menu choosing several cases requires. A form with after-submit destinations takes no post_submit; set where it goes when none runs with setFormOtherwise/set_form_otherwise.',
 			),
-		connect: connectFormPatchSchema
-			.nullable()
-			.optional()
-			.describe(
-				"Refine this already-participating form after the app has a Connect mode: omitted sub-configs keep their current value, null removes one sub-config only while another remains, and a stated one replaces it. Use configureConnect/configure_connect for enable, mode switch, participant-set changes, or disable; whole-slot null is refused here.",
-			),
 		badge: menuBadgeSchema
 			.nullable()
 			.optional()
@@ -122,6 +129,25 @@ export const updateFormInputSchema = formAddressSchema
 			.optional()
 			.describe(
 				"Whether this form requests the Android device's location when it opens. False uses the app setting. Connect always requests location. Web Apps leaves the location empty.",
+			),
+		automaticSubmissionText: z
+			.union([z.literal(true), behaviorTextSchema])
+			.nullable()
+			.optional()
+			.describe(
+				`Submit this form automatically in Web Apps when it opens and its answers are valid. True lets Nova choose a question label in this form to hold the setting; or name a text of this form. ${BEHAVIOR_TEXT_NAMING} Null restores manual submission.`,
+			),
+		skipAutomaticSyncText: behaviorTextSchema
+			.nullable()
+			.optional()
+			.describe(
+				"Mark this form so Web Apps skips a sync after it submits. Web Apps syncs after a form only in an app set to sync after each form, which Nova apps never are, so this changes nothing for workers; it keeps a setting an app brought in holds. Name a text of this form as automaticSubmissionText does. Null removes the setting.",
+			),
+		validateChangedAnswersText: behaviorTextSchema
+			.nullable()
+			.optional()
+			.describe(
+				"In Web Apps, recheck changed answers and blanks at submission. A previously accepted nonblank answer can stay accepted after a related answer changes. Name a text of this form as automaticSubmissionText does. Null removes the setting.",
 			),
 		plain_text: z
 			.boolean()
@@ -156,9 +182,53 @@ export type UpdateFormResult =
 	  })
 	| { error: string };
 
+/**
+ * The first text of the form, question labels first, that can hold automatic
+ * submission beside the form's other behaviors as `patch` leaves them: one the
+ * commit gate would admit, never one another behavior holds or an earlier
+ * equal text takes over.
+ */
+function freeBehaviorText(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+	patch: Parameters<typeof updateFormMutations>[2],
+): ItextUnit | undefined {
+	const form = doc.forms[formUuid];
+	if (form === undefined) return undefined;
+	const others: Form = { ...form };
+	for (const role of formBehaviorRoles) {
+		if (role === "automaticSubmissionText" || patch[role] === undefined)
+			continue;
+		const value = patch[role];
+		if (value === null) delete others[role];
+		else others[role] = value;
+	}
+	const options = formBehaviorTextChoices(doc, formUuid);
+	const ranked = [
+		...options.filter((option) => option.questionLabel),
+		...options.filter((option) => !option.questionLabel),
+	];
+	return ranked.find(
+		(option) =>
+			formBehaviorTextIssue(
+				{
+					...doc,
+					forms: {
+						...doc.forms,
+						[formUuid]: {
+							...others,
+							automaticSubmissionText: { carrier: option.unit },
+						},
+					},
+				},
+				formUuid,
+			) === undefined,
+	)?.unit;
+}
+
 export const updateFormTool = {
 	description:
-		"Edit a form's name, purpose, record naming rule, open and close conditions, visibility, menu badge, Connect settings, after-submit navigation, or whether it is its menu's registration from the case list.",
+		"Edit a form's name, purpose, record naming rule, open and close conditions, visibility, menu badge, automatic submission, after-submit navigation, or whether it is its menu's registration from the case list.",
 	inputSchema: updateFormInputSchema,
 	async execute(
 		input: UpdateFormInput,
@@ -169,17 +239,18 @@ export const updateFormTool = {
 			moduleUuid: rawModuleUuid,
 			formUuid: rawFormUuid,
 			name,
+			answerRoot,
 			purpose,
 			submitLabel,
 			recordName,
 			open_condition,
 			close_condition,
 			post_submit,
-			connect,
 			badge,
 			displayCondition,
 			hiddenFromMenu,
 			capture_location,
+			automaticSubmissionText,
 			plain_text,
 			case_list_registration,
 		} = input;
@@ -202,13 +273,36 @@ export const updateFormTool = {
 			// domain vocabulary. Omitted = leave unchanged; `null` = clear
 			// (a `null` patch entry — the reducer deletes the key).
 			const patch: Parameters<typeof updateFormMutations>[2] = {};
-			let refinedConnect: ConnectConfig | undefined;
 			if (name !== undefined) patch.name = name;
+			if (answerRoot !== undefined)
+				patch.dataRootName = answerRoot === "data" ? null : answerRoot;
 			if (purpose !== undefined) patch.purpose = purpose;
 			if (submitLabel !== undefined)
 				patch.submitLabel = submitLabel === null ? {} : { text: submitLabel };
 			if (capture_location !== undefined)
 				patch.captureLocation = capture_location ? true : null;
+			for (const role of formBehaviorRoles) {
+				if (role !== "automaticSubmissionText" && input[role] !== undefined)
+					patch[role] = input[role];
+			}
+			if (automaticSubmissionText === true) {
+				if (!existing.automaticSubmissionText) {
+					const chosen = freeBehaviorText(doc, formUuid, patch);
+					if (chosen === undefined)
+						return {
+							kind: "mutate",
+							mutations: [],
+							result: {
+								error:
+									formBehaviorTextChoices(doc, formUuid).length === 0
+										? "A question or choice with text lets this form submit automatically. Add one and try again."
+										: "Every question and choice text in this form already holds another setting or matches an earlier text. You can add a question with its own text, or name a text for automatic submission.",
+							},
+						};
+					patch.automaticSubmissionText = { carrier: chosen };
+				}
+			} else if (automaticSubmissionText !== undefined)
+				patch.automaticSubmissionText = automaticSubmissionText;
 			if (plain_text !== undefined)
 				patch.plainText = plain_text === true ? true : null;
 			// Each condition arrives parsed in its own form slot; the checker
@@ -265,79 +359,6 @@ export const updateFormTool = {
 					};
 				}
 			}
-			if (connect !== undefined) {
-				if (doc.connectType === null) {
-					return {
-						kind: "mutate" as const,
-						mutations: [],
-						result: {
-							error:
-								"CommCare Connect is not enabled. Use configureConnect/configure_connect with the complete nonempty participant set.",
-						},
-					};
-				}
-				if (existing.connect === undefined) {
-					return {
-						kind: "mutate" as const,
-						mutations: [],
-						result: {
-							error:
-								"This form is not a Connect participant. Use configureConnect/configure_connect to replace the complete participant set.",
-						},
-					};
-				}
-				if (connect === null) {
-					return {
-						kind: "mutate" as const,
-						mutations: [],
-						result: {
-							error:
-								"Removing a form from Connect changes the app-wide participant set. Use configureConnect/configure_connect with the complete target.",
-						},
-					};
-				}
-				// Structural partial-update merge of exact XPath AST slots. Per
-				// sub-config: omitted keeps the existing one, an explicit
-				// null REMOVES it, a stated one replaces it.
-				const merged = buildConnectConfig(connect, existing.connect);
-				if (
-					!merged.learn_module &&
-					!merged.assessment &&
-					!merged.deliver_unit &&
-					!merged.task
-				) {
-					return {
-						kind: "mutate" as const,
-						mutations: [],
-						result: {
-							error:
-								"Removing the form's final Connect section changes the app-wide participant set. Use configureConnect/configure_connect with the complete target.",
-						},
-					};
-				} else {
-					// Force connect ids correct at the source: autofill omitted
-					// ids, reject explicit-invalid ids (fail the call, write
-					// nothing). `existingIds` excludes this form's own ids so a
-					// re-patch of an unchanged id doesn't read as a self-conflict.
-					const enforced = enforceConnectIds(
-						merged,
-						doc.connectType,
-						module.name,
-						name ?? existing.name,
-						appConnectIds(doc, formUuid),
-						formRootFieldIds(doc, formUuid),
-					);
-					if (!enforced.ok) {
-						return {
-							kind: "mutate" as const,
-							mutations: [],
-							result: { error: enforced.error },
-						};
-					}
-					refinedConnect = enforced.config;
-				}
-			}
-
 			// Compute the mutations, apply via Immer, and persist through
 			// the shared context so both surfaces write the same stream +
 			// log + Postgres trio.
@@ -348,9 +369,6 @@ export const updateFormTool = {
 							{ kind: "updateForm" as const, uuid: formUuid, patch: { badge } },
 						]),
 				...updateFormMutations(doc, formUuid, patch),
-				...(refinedConnect === undefined
-					? []
-					: refineFormConnectMutations(doc, formUuid, refinedConnect)),
 				/* Omission keeps the current condition; an explicit null clears it.
 				 * The mutation spells the clear as null so it survives JSONB, SSE,
 				 * and replay — `undefined` would be dropped and the stale condition

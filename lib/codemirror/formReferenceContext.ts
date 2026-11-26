@@ -12,20 +12,19 @@
 import type { BlueprintDoc } from "@/lib/domain";
 import {
 	asUuid,
-	type Field,
 	type FieldKind,
 	type Form,
 	type FormType,
-	isContainer,
-	type ProseTemplate,
-	projectProseTemplate,
 	type ReachableCaseTypeIndex,
 	reachableCaseTypes,
 	toReachableIndex,
 	type UserProperty,
 	type Uuid,
 } from "@/lib/domain";
-import { VALUE_PRODUCING_TYPES } from "@/lib/references/provider";
+import {
+	collectFieldEntries,
+	VALUE_PRODUCING_TYPES,
+} from "@/lib/references/provider";
 
 /** What one form's references resolve against. */
 export interface FormReferenceContext {
@@ -38,6 +37,8 @@ export interface FormReferenceContext {
 	/** Valid `/data/...` paths reachable in the current form. Used by
 	 *  data-path autocomplete. */
 	validPaths: Set<string>;
+	/** Missing on older, default-root projections. */
+	rootName?: string;
 	/** The case types this form can READ — its own loaded case (depth 0) plus
 	 *  its ancestor chain — each mapped to its `depth` and property metadata.
 	 *  Keyed by case-type name so a `#<type>/<prop>` ref resolves to exactly one
@@ -122,43 +123,20 @@ export function buildFormReferenceContext(
 	const form = state.forms[formUuid] as Form | undefined;
 	if (!form) return undefined;
 
-	const validPaths = new Set<string>();
-	const formEntries: Array<{
-		uuid: Uuid;
-		path: string;
-		label: string;
-		kind: FieldKind;
-	}> = [];
-	function walk(parent: Uuid, prefix: string) {
-		const order = state.fieldOrder[parent] ?? [];
-		for (const childUuid of order) {
-			const field = state.fields[childUuid] as Field | undefined;
-			if (!field) continue;
-			const path = `${prefix}/${field.id}`;
-			validPaths.add(path);
-			// Field variants differ in label presence — safe fallback to id so
-			// the autocomplete always has something readable to display.
-			const withLabel = field as Field & { label?: ProseTemplate };
-			formEntries.push({
-				uuid: field.uuid,
-				path: path.slice("/data/".length),
-				label: withLabel.label
-					? projectProseTemplate(withLabel.label, state).text
-					: field.id,
-				kind: field.kind,
-			});
-			if (isContainer(field)) {
-				walk(childUuid, path);
-			}
-		}
-	}
-	walk(formUuid, "/data");
+	const rootName = form.dataRootName ?? "data";
+	const formEntries = collectFieldEntries(state, formUuid);
+	const validPaths = new Set(
+		formEntries.map(({ path }) => `/${rootName}/${path}`),
+	);
 
 	return {
 		formUuid,
 		validPaths,
+		rootName,
 		reachableCaseTypes: formReachableCaseTypes(state, formUuid),
-		formEntries: formEntries.filter((e) => VALUE_PRODUCING_TYPES.has(e.kind)),
+		formEntries: formEntries
+			.filter((e) => VALUE_PRODUCING_TYPES.has(e.kind))
+			.map(({ uuid, path, label, kind }) => ({ uuid, path, label, kind })),
 		userProperties: Object.values(state.userProperties ?? {}),
 		formType: form.type,
 	};

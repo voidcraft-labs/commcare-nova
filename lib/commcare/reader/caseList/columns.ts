@@ -2999,28 +2999,40 @@ export function labelShownProperty(
  *  names nothing. */
 const NO_REFERENCES = { fields: {}, forms: {}, fieldOrder: {} };
 
-/** The second argument of every `selected(…, '<value>')` of a tree, in document order. */
-function selectedValues(node: FormSyntax | undefined, out: string[]): string[] {
-	if (node === undefined) return out;
-	switch (node.kind) {
-		case "call": {
-			const value = node.args[1];
-			if (node.name === "selected" && node.args.length === 2) {
-				const text = literalText(value);
-				if (text !== undefined) out.push(text);
-			}
-			for (const arg of node.args) selectedValues(arg, out);
-			return out;
+/** Fixed operands of comparisons and selection tests, in display order.
+ * Printing the projection back verifies which, if either, is its choice list. */
+function choiceOperands(tree: FormSyntax | undefined): {
+	equal: string[];
+	selected: string[];
+} {
+	const equal: string[] = [];
+	const selected: string[] = [];
+	function visit(node: FormSyntax | undefined): void {
+		if (node === undefined) return;
+		switch (node.kind) {
+			case "call":
+				if (node.name === "selected" && node.args.length === 2) {
+					const value = literalText(node.args[1]);
+					if (value !== undefined) selected.push(value);
+				}
+				for (const arg of node.args) visit(arg);
+				break;
+			case "group":
+			case "negative":
+				visit(node.value);
+				break;
+			case "binary":
+				if (node.op === "=") {
+					const value = literalText(node.right);
+					if (value !== undefined) equal.push(value);
+				}
+				visit(node.left);
+				visit(node.right);
+				break;
 		}
-		case "group":
-		case "negative":
-			return selectedValues(node.value, out);
-		case "binary":
-			selectedValues(node.left, out);
-			return selectedValues(node.right, out);
-		default:
-			return out;
 	}
+	visit(tree);
+	return { equal, selected };
 }
 
 /**
@@ -3045,13 +3057,14 @@ function selectLabelCandidate(
 	if (entries.some((entry, index) => entry.key !== hqEnumPlaceholder(index)))
 		return undefined;
 	const tree = parse(text);
-	const { strings, properties } = literalsOf(tree);
+	const { properties } = literalsOf(tree);
 	const read = projectionRead(tree, properties, options);
 	if (read === undefined) return undefined;
 	const { field } = read;
+	const operands = choiceOperands(tree);
 	const proposals: [SelectChoices["dataType"], readonly string[]][] = [
-		["single_select", strings],
-		["multi_select", selectedValues(tree, [])],
+		["single_select", operands.equal],
+		["multi_select", operands.selected],
 	];
 	for (const [dataType, values] of proposals) {
 		if (

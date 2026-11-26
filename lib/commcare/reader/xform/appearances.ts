@@ -1461,6 +1461,7 @@ export function claimAppearance(
 	const claim = verdict.claim;
 	let respelled = false;
 	if (isUse(claim, "take")) {
+		const askForConfirmation = field?.field.askForConfirmation === true;
 		const next =
 			field &&
 			readFieldAppearance(
@@ -1469,12 +1470,16 @@ export function claimAppearance(
 				control.children.some(
 					(child) => child.tag === "repeat" || wrapsRepeat(child),
 				),
+				askForConfirmation,
 			);
 		/* A reading that writes nothing back took no setting from the value
 		 * (a lone `broadcast-…` on a text question with no address search,
 		 * which no entry sends from), so the value stands unrecognized rather
 		 * than vanish from the question. */
-		const written = next && field && writeFieldAppearance(field.kind, next);
+		const written =
+			next &&
+			field &&
+			writeFieldAppearance(field.kind, { ...next, askForConfirmation });
 		if (!next || !field || written === undefined) {
 			const detail = { name: value };
 			accounting.circumstance("unrecognized", place, detail);

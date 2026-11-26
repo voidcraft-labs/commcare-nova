@@ -671,7 +671,7 @@ it("writes each chosen record and replays the committed receipt after the saved 
 			repeats: [],
 		},
 	};
-	const submit = (payload = mutation) =>
+	const submit = (payload = mutation, run = request.run) =>
 		submitFormAction(
 			payload,
 			app,
@@ -680,6 +680,8 @@ it("writes each chosen record and replays the committed receipt after the saved 
 			undefined,
 			undefined,
 			device,
+			undefined,
+			run,
 		);
 	expect((await submit({ ...mutation, caseIds: ["training-3"] })).kind).toBe(
 		"error",
@@ -721,6 +723,10 @@ it("writes each chosen record and replays the committed receipt after the saved 
 	).toBe("reopen");
 	expect(await reclaimExpiredFormOpeningData()).toBe(1);
 	expect(await submit()).toEqual(result);
+	expect(await submit(mutation, testUuid("replay-in-another-run"))).toEqual({
+		...result,
+		receiptOutsideRun: true,
+	});
 });
 
 it("saves the rich lookup value from the signed opening after its live row changes", async () => {

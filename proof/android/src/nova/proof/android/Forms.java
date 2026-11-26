@@ -3,6 +3,7 @@ package nova.proof.android;
 import android.app.Activity;
 import android.content.Intent;
 import android.view.View;
+import android.widget.CheckBox;
 
 import org.commcare.CommCareApplication;
 import org.commcare.activities.FormEntryActivity;
@@ -13,6 +14,7 @@ import org.commcare.dalvik.R;
 import org.commcare.utils.RobolectricUtil;
 import org.commcare.views.QuestionsView;
 import org.commcare.views.widgets.QuestionWidget;
+import org.commcare.views.widgets.TriggerWidget;
 import org.javarosa.core.model.data.IAnswerData;
 import org.javarosa.form.api.FormEntryController;
 import org.javarosa.form.api.FormEntryPrompt;
@@ -706,10 +708,42 @@ final class Forms {
                 entry.put("given", JSONObject.NULL);
                 continue;
             }
+            if (widget instanceof TriggerWidget && Answers.named(prompt) != null) {
+                // Only a named step asks us to tap or leave a checkbox. Reading the actual widget also
+                // records a passive label's OK and a nonblank starting answer under an unchecked box.
+                TriggerWidget trigger = (TriggerWidget)widget;
+                CheckBox box = null;
+                for (int i = 0; i < trigger.getChildCount(); i++) {
+                    if (trigger.getChildAt(i) instanceof CheckBox) {
+                        box = (CheckBox)trigger.getChildAt(i);
+                    }
+                }
+                List<String> values = Answers.valuesFor(prompt);
+                entry.put("checkbox", box != null);
+                if (box != null && !values.isEmpty()) {
+                    boolean check = "OK".equals(values.get(0));
+                    if (check != box.isChecked()) {
+                        box.performClick();
+                    }
+                    entry.put("checked", box.isChecked());
+                }
+                IAnswerData value = trigger.getAnswer();
+                entry.put("given", value == null ? JSONObject.NULL : value.getDisplayText());
+                int status = FormEntryActivity.mFormController.answerQuestion(prompt.getIndex(), value);
+                entry.put("result", answerResult(status));
+                answered |= status == FormEntryController.ANSWER_OK;
+                continue;
+            }
             if (Captures.kind(widget) != null) {
                 // A capture question takes a file the worker gives through the question's own screen, never a
                 // value written into the form.
                 String index = String.valueOf(FormEntryActivity.mFormController.getFormIndex());
+                JSONArray requested = Answers.named(prompt);
+                if (requested != null && requested.length() == 0) {
+                    IAnswerData existing = widget.getAnswer();
+                    entry.put("kept", existing == null ? JSONObject.NULL : existing.getDisplayText());
+                    continue;
+                }
                 answered |= Captures.give(activity, widget, entry);
                 if (!index.equals(String.valueOf(FormEntryActivity.mFormController.getFormIndex()))) {
                     // Android went on to the next screen itself (a signature taken on a screen of one question).

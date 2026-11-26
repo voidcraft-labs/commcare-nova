@@ -30,6 +30,7 @@ import {
 	projectProseTemplate,
 	type ReferenceNamesDoc,
 	readCaseReference,
+	referenceNames,
 	UNPRINTED_PROSE_VALUE_TEXT,
 	type Uuid,
 } from "@/lib/domain";
@@ -50,8 +51,8 @@ export type ParsedReference =
 
 /**
  * Field kinds that produce referenceable values — derived from the
- * domain registry's `isStructural` flag. Groups, repeats, and labels
- * are structural; everything else produces a value that can be written
+ * domain registry's `isStructural` flag. Groups, repeats, and sections
+ * are structural. Every leaf produces a value that can be written
  * to a case or referenced from XPath. Used by FieldPicker, XPath
  * autocomplete (#form/), and TipTap reference chips.
  *
@@ -631,7 +632,6 @@ export interface FieldEntrySource {
 export function collectFieldEntries(
 	src: FieldEntrySource,
 	parentUuid: Uuid,
-	parent?: FieldPath,
 ): Array<{
 	uuid: Uuid;
 	path: FieldPath;
@@ -646,24 +646,30 @@ export function collectFieldEntries(
 		labelProjection: ProseProjectionResult;
 		kind: FieldKind;
 	}> = [];
-	const childUuids = src.fieldOrder[parentUuid] ?? [];
-	for (const uuid of childUuids) {
-		const field = src.fields[uuid];
-		if (!field) continue;
-		const path = fpath(field.id, parent);
-		const labelProjection = field.label
-			? projectProseTemplate(field.label, src)
-			: ({ ok: true, text: path } as const);
-		entries.push({
-			uuid: field.uuid,
-			path,
-			label: labelProjection.text.trim() || path,
-			labelProjection,
-			kind: field.kind,
-		});
-		if (fieldRegistry[field.kind].isContainer) {
-			entries.push(...collectFieldEntries(src, uuid, path));
+	const names = referenceNames(src);
+	function visit(parentUuid: Uuid) {
+		const childUuids = src.fieldOrder[parentUuid] ?? [];
+		for (const uuid of childUuids) {
+			const field = src.fields[uuid];
+			if (!field) continue;
+			const segments = names.fieldPathSegments(uuid);
+			if (!segments) continue;
+			const path = fpath(segments.join("/"));
+			const labelProjection = field.label
+				? projectProseTemplate(field.label, src)
+				: ({ ok: true, text: path } as const);
+			entries.push({
+				uuid: field.uuid,
+				path,
+				label: labelProjection.text.trim() || path,
+				labelProjection,
+				kind: field.kind,
+			});
+			if (fieldRegistry[field.kind].isContainer) {
+				visit(uuid);
+			}
 		}
 	}
+	visit(parentUuid);
 	return entries;
 }

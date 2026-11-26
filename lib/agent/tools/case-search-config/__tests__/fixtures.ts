@@ -62,7 +62,7 @@ export function makeCaseSearchDoc(): BlueprintDoc {
 	return {
 		appId: "test-app",
 		appName: "Clinic Intake",
-		connectType: null,
+		connectRoles: [],
 		appSettings: { showSavedForms: false, showIncompleteForms: false },
 		caseTypes: [
 			{

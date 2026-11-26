@@ -906,6 +906,15 @@ export class Accounting implements ClaimLedger {
 		detail?: FindingDetail,
 	): void {
 		this.finding(claim, place, detail);
+		this.recordAtNode(claim, node, key);
+	}
+
+	/**
+	 * A finding's entry recorded at one more node it is made of, where one
+	 * cause spans two nodes (the two Connect activities one submission
+	 * cannot hold together), with the finding itself standing at the other.
+	 */
+	recordAtNode(claim: Claim, node: XmlNode, key: string): void {
 		const entry = this.#index.entry(claim.entry);
 		if (
 			entry === undefined ||
