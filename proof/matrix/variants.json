@@ -23271,10 +23271,28 @@
 		]
 	},
 	{
-		"id": "hq-lookups/itemset-filter-position-of-scalar",
+		"id": "hq-lookups/itemset-filter-numeric-row-index",
 		"base": "hq-lookups",
 		"entry": "questions/itemset-filter-outside-predicate",
 		"standing": "not-yet",
+		"place": {
+			"kind": "question",
+			"menu": 0,
+			"form": 0,
+			"menuName": "Farm survey",
+			"formName": "Survey",
+			"path": "village"
+		},
+		"change": {
+			"op": "named",
+			"name": "itemset_filter_numeric_row_index"
+		}
+	},
+	{
+		"id": "hq-lookups/itemset-filter-position-of-scalar",
+		"base": "hq-lookups",
+		"entry": "questions/itemset-position-called-on-a-number",
+		"standing": "fix-in-hq",
 		"place": {
 			"kind": "question",
 			"menu": 0,

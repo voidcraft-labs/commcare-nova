@@ -897,6 +897,14 @@ export const X = {
 		"expressions-and-data/an-expression-core-cannot-evaluate-as-its-author-meant",
 		null,
 	),
+	itemsetScalarPosition: under(
+		"refuse",
+		Q("itemset-position-called-on-a-number"),
+		{
+			select1: "xform:select1/itemset@nodeset",
+			select: "xform:select/itemset@nodeset",
+		},
+	),
 	itemsetItextLabel: one(
 		"refuse",
 		Q("itemset-label-jr-itext-field"),

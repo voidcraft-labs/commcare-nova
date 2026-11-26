@@ -299,6 +299,8 @@
 	"hq-lookups": [
 		"hq-lookups/declared-report-fixture",
 		"hq-lookups/itemset-copy",
+		"hq-lookups/itemset-filter-numeric-row-index",
+		"hq-lookups/itemset-filter-position-of-scalar",
 		"hq-lookups/itemset-property-as-label"
 	],
 	"hq-media": [
@@ -381,9 +383,7 @@
 		"hq-new-app/smart-lang-display",
 		"hq-new-app/vellum-case-management-off"
 	],
-	"hq-nova-then-builder": [
-		"hq-nova-then-builder/close-on-a-survey"
-	],
+	"hq-nova-then-builder": ["hq-nova-then-builder/close-on-a-survey"],
 	"hq-owner-rules": [],
 	"hq-places": [],
 	"hq-plain": [

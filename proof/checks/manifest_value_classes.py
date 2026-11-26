@@ -10704,6 +10704,52 @@ def model_iteration_reading_blank_answer(use, manifest):
     return False
 
 
+def _lookup_itemset_predicate(use):
+    """The predicate on a declared fixture's row step, from the independent XPath parser."""
+    form, itemset = _form_element(use)
+    if form is None or _local(itemset) != "itemset":
+        return form, None
+    tree = expression_tree(itemset.get("nodeset") or "")
+    if not tree or tree[0] != "path" or not tree[1].startswith("instance:"):
+        return form, None
+    instance = tree[1].removeprefix("instance:")
+    src = dict(form.declared_instances).get(instance)
+    if src is None or not src.startswith("jr://fixture/item-list:"):
+        return form, None
+    tag = src.removeprefix("jr://fixture/item-list:")
+    if tree[4] != [["child", f"{tag}_list", 0], ["child", tag, 1]] or len(tree[3]) != 2:
+        return form, None
+    return form, tree[3][1]
+
+
+def itemset_position_of_number(use, manifest):
+    """A normal lookup itemset reaches Core's nodeset cast with a literal number."""
+    form, predicate = _lookup_itemset_predicate(use)
+    if form is None:
+        return None
+    if predicate is None:
+        return False
+
+    def directly(node):
+        if node[:2] != ["call", "position"] or len(node[2]) != 1:
+            return False
+        argument, = node[2]
+        return argument[0] == "number" or (argument[0] == "negative" and argument[1][0] == "number")
+
+    return directly(predicate) or (
+        predicate[0] == "binary" and predicate[1] in ("=", "!=", "<", "<=", ">", ">=")
+        and any(directly(operand) for operand in predicate[2:])
+    )
+
+
+def itemset_literal_row_index(use, manifest):
+    """A bare numeric fixture row index works in Core and is outside Nova's boolean filter."""
+    form, predicate = _lookup_itemset_predicate(use)
+    if form is None:
+        return None
+    return predicate is not None and predicate[0] == "number"
+
+
 def _itemset_read(use):
     """The actual form or Search itemset slot, parsed as a row-relative XPath by the proof parser."""
     from proof.checks.xpath_tree import tree
@@ -12839,6 +12885,8 @@ VALUE_CLASSES = {
     "questions/a-default-value-s-setvalue-whose-event-does-not-match-where-the": default_event_mismatching_placement,
     "questions/setvalue-event-xforms-value-changed-authored-xforms-revalidate": form_level_setvalue,
 
+    "questions/itemset-position-called-on-a-number": itemset_position_of_number,
+    "questions/itemset-filter-outside-predicate": itemset_literal_row_index,
     "questions/savetocase-owner-condition-on-an-aliased-create": conditioned_aliased_create_owner,
     "questions/savetocase-update-owner-condition": conditioned_unsupported_update_owner,
     "questions/savetocase-link-name-changes-actions-on-save": index_name_adds_action,
