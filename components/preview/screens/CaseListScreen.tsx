@@ -3801,7 +3801,7 @@ export function CaseListScreen({
 				)}
 			</div>
 			{platform === "android" &&
-				step === "results" &&
+				(step === "browse" || step === "results") &&
 				accessPhase === "authorized" &&
 				config?.deviceLookup && (
 					<div className="mb-4 space-y-1">
@@ -3819,6 +3819,12 @@ export function CaseListScreen({
 							Open this case list on an Android device with its companion app to
 							use this lookup.
 						</p>
+						{config.deviceLookup.resultHeading !== undefined && (
+							<dl className="flex flex-wrap gap-x-2 text-sm">
+								<dt className="text-nova-text-muted">Lookup results heading</dt>
+								<dd>{config.deviceLookup.resultHeading}</dd>
+							</dl>
+						)}
 					</div>
 				)}
 			{step === "results" && hasSearchInputs && (

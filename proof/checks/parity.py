@@ -306,6 +306,42 @@ def _generated_badge(use, held):
                     yield Decided(use, manifest_usage.HELD, (entry,), f"{use.where}/{pointer_token(code)}/{key}")
 
 
+def _generated_lookup_heading(use, held):
+    """A row-layout case-ID lookup uses its own short-detail heading locale."""
+    if use.key != "schema:Application.translations" or use.at is None:
+        return
+    translations = use.at.value
+    langs = use.at.owner.get("langs")
+    menus = use.at.owner.get("modules")
+    if not isinstance(translations, dict) or not isinstance(langs, list) or not isinstance(menus, list):
+        return
+    entry = next((entry for entry in held.entries[use.key]
+                  if entry.id == "application-and-settings/translations-generated-wording"), None)
+    if entry is None:
+        return
+    for module_index, menu in enumerate(menus):
+        pair = menu.get("case_details") if isinstance(menu, dict) else None
+        detail = pair.get("short") if isinstance(pair, dict) else None
+        if not isinstance(detail, dict) or not detail.get("columns") or detail.get("case_tile_template"):
+            continue
+        if not (detail.get("lookup_enabled") is True and detail.get("lookup_display_results") is True
+                and detail.get("lookup_action") and detail.get("lookup_field_template") == "@case_id"):
+            continue
+        headers = detail.get("lookup_field_header")
+        if not isinstance(headers, dict):
+            continue
+        key = f"case_lists.m{module_index}.callout.header"
+        for code in langs:
+            if not isinstance(code, str) or not isinstance(translations.get(code), dict):
+                continue
+            base = headers.get(code)
+            label = translations[code].get(key)
+            if not isinstance(base, str) or not base or not isinstance(label, str) or label == base:
+                continue
+            if label and label.isascii() and label.isprintable() and label.strip() == label and "\\" not in label:
+                yield Decided(use, manifest_usage.HELD, (entry,), f"{use.where}/{pointer_token(code)}/{key}")
+
+
 def decided_uses(found, held=None) -> tuple[list[Decided], dict[str, int]]:
     """Each use of ``found`` (``manifest_usage.Uses``) the lane decides, with its standing, and the count of the
     others by key."""
@@ -316,6 +352,7 @@ def decided_uses(found, held=None) -> tuple[list[Decided], dict[str, int]]:
         decided.extend(_generated_case_title(use, held))
         decided.extend(_generated_detail_tab_title(use, held))
         decided.extend(_generated_badge(use, held))
+        decided.extend(_generated_lookup_heading(use, held))
         if decides(held, use, standing, entries):
             decided.append(Decided(use, standing, tuple(entries)))
             if standing == manifest_usage.HELD:

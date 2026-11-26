@@ -190,6 +190,21 @@ def test_a_fallback_confidence_heading_builds_as_its_explicit_translation(hq, ed
         assert published["modules"][0]["case_details"]["short"]["lookup_field_header"] == {"en": heading, "fr": heading}
         after = compare.build(state, app_id, record, version=before.app.version)
 
+        key = "case_lists.m0.callout.header"
+        app = operations.held_app(state, app_id)
+        app.set_translations("en", {**app.translations.get("en", {}), key: "Match score"})
+        app.save()
+        saved_override = pages.fresh_section_save(
+            editor_driver, state, pages.CASE_LIST, app_id, module_id, cookies={"lang": "en"},
+        )
+        assert saved_override.save and saved_override.save.status == 200 and not saved_override.refused
+        app = operations.held_app(state, app_id)
+        assert dict(app.get_module(0).case_details.short.lookup_field_header) == {"en": heading, "fr": heading}
+        assert app.translations["en"][key] == "Match score"
+        override = compare.build(state, app_id, record, version=before.app.version)
+        assert compare._parsed("en/app_strings.txt", override.files["en/app_strings.txt"])[key] == "Match score"
+        assert compare._parsed("fr/app_strings.txt", override.files["fr/app_strings.txt"])[key] == heading
+
     differences = [
         item.as_json() for item in compare_sources("lookup-confidence", source, published)
         if "/lookup_field_header" in item.at

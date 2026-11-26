@@ -3,7 +3,13 @@ import {
 	mediaIds,
 	mediaManifest,
 } from "@/lib/commcare/__tests__/mediaWireFixtures";
-import { NEW_APP_SETTINGS, plainColumn, proseText } from "@/lib/domain";
+import {
+	NEW_APP_SETTINGS,
+	plainColumn,
+	proseText,
+	translationSourceFingerprint,
+} from "@/lib/domain";
+import { generatedWordingId } from "@/lib/domain/generatedWording";
 import { uploadedMedia } from "../../corpus/documents";
 import { caseListOf, targetedDocument, targetedUuid } from "../build";
 import { restoreXml } from "../restore";
@@ -17,11 +23,16 @@ export function caseListDeviceLookupProperty() {
 	return caseListDeviceLookup("property");
 }
 
+export function caseListDeviceLookupWording() {
+	return caseListDeviceLookup("wording");
+}
+
 export function caseListDeviceLookup(
-	mode: "count" | "property" | "ordinary" = "ordinary",
+	mode: "count" | "property" | "wording" | "ordinary" = "ordinary",
 ) {
 	const count = mode === "count";
 	const property = mode === "property";
+	const heading = "Confidence";
 	const id =
 		mode === "ordinary"
 			? "targeted-case-list-device-lookup"
@@ -38,83 +49,104 @@ export function caseListDeviceLookup(
 		rows: [
 			"Android case list lookup keeps the companion action and text response order",
 		],
-		doc: buildDoc({
-			appId: id,
-			...(count && {
-				appSettings: { ...NEW_APP_SETTINGS, runsOnlyOn: "android" },
-			}),
-			appName: "Case list lookup",
-			caseTypes: [
-				{
-					name: "visit",
-					properties: property
-						? [
-								{
-									name: "scan_id",
-									label: proseText("Scan ID"),
-									data_type: "text",
-								},
-							]
-						: [],
-				},
-			],
-			modules: [
-				{
-					uuid: module,
-					name: "Visits",
-					caseType: "visit",
-					caseListConfig: {
-						...caseListOf([plainColumn(uuid("name"), "case_name", "Name")]),
-						deviceLookup: {
-							action: "org.nova.proof.CASE_LOOKUP",
-							label: "Find a visit",
-							resultHeading: "Confidence",
-							...(property && { resultProperty: "scan_id" }),
-							icon: mediaIds.icon,
-							...(!count && { automatic: true }),
-							extras: [
-								{ name: "visit_mode", value: "followup" },
-								{ name: "visit_limit", value: "3" },
-								{
-									name: "worker_name",
-									expression: {
-										kind: "term",
-										term: { kind: "session-context", field: "username" },
+		doc: buildDoc(
+			{
+				appId: id,
+				...(count && {
+					appSettings: { ...NEW_APP_SETTINGS, runsOnlyOn: "android" },
+				}),
+				appName: "Case list lookup",
+				caseTypes: [
+					{
+						name: "visit",
+						properties: property
+							? [
+									{
+										name: "scan_id",
+										label: proseText("Scan ID"),
+										data_type: "text",
 									},
-								},
-								{
-									name: "worker_id",
-									expression: {
-										kind: "term",
-										term: { kind: "session-context", field: "userid" },
+								]
+							: [],
+					},
+				],
+				modules: [
+					{
+						uuid: module,
+						name: "Visits",
+						caseType: "visit",
+						caseListConfig: {
+							...caseListOf([plainColumn(uuid("name"), "case_name", "Name")]),
+							deviceLookup: {
+								action: "org.nova.proof.CASE_LOOKUP",
+								label: "Find a visit",
+								resultHeading: heading,
+								...(property && { resultProperty: "scan_id" }),
+								icon: mediaIds.icon,
+								...(!count && { automatic: true }),
+								extras: [
+									{ name: "visit_mode", value: "followup" },
+									{ name: "visit_limit", value: "3" },
+									{
+										name: "worker_name",
+										expression: {
+											kind: "term",
+											term: { kind: "session-context", field: "username" },
+										},
 									},
-								},
-							],
-							responses: ["first", "second"],
+									{
+										name: "worker_id",
+										expression: {
+											kind: "term",
+											term: { kind: "session-context", field: "userid" },
+										},
+									},
+								],
+								responses: ["first", "second"],
+							},
+						},
+						forms: [
+							{
+								uuid: visit,
+								name: "Visit",
+								type: "followup",
+								fields: [
+									f({ kind: "text", id: "note", label: proseText("Note") }),
+									...(count
+										? [
+												f({
+													kind: "hidden",
+													id: "lookup_count",
+													calculate: { kind: "case-list-lookup-count", module },
+												}),
+											]
+										: []),
+								],
+							},
+						],
+					},
+				],
+			},
+			(doc) => {
+				if (mode !== "wording") return;
+				doc.localization = {
+					sourceLanguage: "eng",
+					defaultLanguage: "eng",
+					languageOrder: ["eng"],
+					wireCodes: { eng: "en" },
+					translations: {},
+					generatedSourceWording: {
+						[generatedWordingId(module, "lookupResultHeading")]: {
+							value: "Match score",
+							origin: "human",
+							review: "reviewed",
+							translatedFrom: "eng",
+							sourceFingerprint: translationSourceFingerprint("text", heading),
 						},
 					},
-					forms: [
-						{
-							uuid: visit,
-							name: "Visit",
-							type: "followup",
-							fields: [
-								f({ kind: "text", id: "note", label: proseText("Note") }),
-								...(count
-									? [
-											f({
-												kind: "hidden",
-												id: "lookup_count",
-												calculate: { kind: "case-list-lookup-count", module },
-											}),
-										]
-									: []),
-							],
-						},
-					],
-				},
-			],
-		}),
+				};
+			},
+		),
 		files: {
 			"restore.xml": restoreXml({
 				cases: [

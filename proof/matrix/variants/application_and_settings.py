@@ -135,6 +135,29 @@ def translation_overrides_a_lookup_heading(authoring, app_id):
         assert parse_app_strings(app.create_app_strings("en"))[key] == "Match score"
 
 
+def translation_overrides_a_search_group_heading(authoring, app_id):
+    """A grouped Search heading has native generated wording of its own."""
+    from lxml import etree
+
+    from proof.checks.compare.app_strings import parse_app_strings
+    from proof.hq import operations
+    from proof.matrix.variants.case_search import _grouped_search_rows
+
+    key = "search_property.m0.group_header_0"
+    ops.set_json(authoring, app_id, "/modules/0/search_config/properties", _grouped_search_rows(authoring, app_id, "Local details"))
+    with authoring.step("variant:plain-search-group-heading"):
+        app = operations.held_app(authoring.state, app_id)
+        assert parse_app_strings(app.create_app_strings("en"))[key] == "Local details"
+        assert etree.fromstring(app.create_suite()).xpath(f"//group/display/text/locale[@id='{key}']")
+    translations = dict(app.translations)
+    translations["en"] = {**translations.get("en", {}), key: "Find a client"}
+    ops.set_json(authoring, app_id, "/translations", translations)
+    with authoring.step("variant:overridden-search-group-heading"):
+        app = operations.held_app(authoring.state, app_id)
+        assert app.get_module(0).search_config.properties[0].label["en"] == "Local details"
+        assert parse_app_strings(app.create_app_strings("en"))[key] == "Find a client"
+
+
 def every_form_deleted(authoring, app_id):
     """The first menu's case list offered as a menu item of its own (``case_list``, shown, labelled), and then each
     of its forms deleted through the form's own delete (``views/forms.py::delete_form``), which takes the form out

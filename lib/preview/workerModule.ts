@@ -58,6 +58,13 @@ export function projectWorkerModule(
 		original;
 	const mod = structuredClone(projected);
 	mod.name = word(uuid, "menuTitle", mod.name);
+	const lookup = mod.caseListConfig?.deviceLookup;
+	if (lookup?.resultHeading !== undefined)
+		lookup.resultHeading = word(
+			uuid,
+			"lookupResultHeading",
+			lookup.resultHeading,
+		);
 	if (mod.caseListConfig)
 		for (const input of mod.caseListConfig.searchInputs) {
 			input.label = word(input.uuid, "promptLabel", input.label);
