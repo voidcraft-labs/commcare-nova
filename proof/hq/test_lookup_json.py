@@ -234,6 +234,7 @@ def test_manual_json_install_then_native_app_import_reads_exact_lookup_value(hq,
     from dataclasses import replace
     from zipfile import ZipFile
 
+    from corehq.apps.app_manager.dbaccessors import get_brief_apps_in_domain
     from corehq.apps.fixtures.models import LookupTable
 
     from proof.formplayer.test_shared_lookup_journey import _manual_import
@@ -251,7 +252,11 @@ def test_manual_json_install_then_native_app_import_reads_exact_lookup_value(hq,
 
     value = " " + "🌱" * 17_000 + ' "'
     assert len(value.encode("utf-8")) > 64 * 1024
-    configuration = replace(CONFIGURATION, domain="manual-lookup-json")
+    configuration = replace(
+        document.exports["minimum"].configuration.hq(),
+        domain="manual-lookup-json",
+        privileges=CONFIGURATION.privileges | {"CLOUDCARE"},
+    )
     worker = casedata.CaseDatabase(casedata.USER_ID, "manual-lookup-worker", (), ())
     with hq_check(configuration) as (state, record), hq_redis.shared(None), state.committing(), api_rate_limits(state):
         assert not LookupTable.objects.filter(domain=state.domain).exists()
@@ -295,7 +300,9 @@ def test_manual_json_install_then_native_app_import_reads_exact_lookup_value(hq,
         ])
         result = operations.upload_lookup_workbook(state, ordinary, replace=False)
         assert result.errors == [], result.errors
+        assert not list(get_brief_apps_in_domain(state.domain))
         imported = _manual_import(state, manual_app)
+        assert {app.get_id for app in get_brief_apps_in_domain(state.domain)} == {imported.get_id}
         assert _rows(state, table.id.hex) == before
         app, xmlns = _compiled_app(state, record, imported.get_id, tmp_path / "manual")
         restored = casedata.restore(worker, state.domain, casedata.served_fixtures(state, worker.user_id))
