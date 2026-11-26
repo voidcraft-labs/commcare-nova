@@ -492,17 +492,12 @@ class Form:
     def long_text_owners(self):
         """The text IDs named by the form's question references, retaining the kind of each owner.
 
-        The retained variants see HQ's source before the device observations. Use the same XPath grammar
-        as the observer there, so these classes still separate actual text owners from arbitrary IDs.
+        The same XPath grammar as the observer reads the owning references directly from the form.
+        These classes can therefore judge the authored variants before device observations exist.
         """
         kinds = {}
         for reference, kind in self.question_references:
-            if self.readings is None:
-                text_id = _variant_itext_owner(reference)
-            else:
-                tree = self.tree(reference)
-                text_id = _itext_id(tree) if tree is not None else None
-            if text_id is not None:
+            if (text_id := _question_text_id(reference)) is not None:
                 kinds.setdefault(text_id, set()).add(kind)
         return kinds
 
@@ -744,7 +739,7 @@ DATA_ROLES = frozenset(
 
 
 @cache
-def _variant_itext_owner(reference):
+def _question_text_id(reference):
     tree = expression_tree(reference)
     return _itext_id(tree) if tree is not None else None
 
@@ -1408,7 +1403,7 @@ def _long_form_on(owners):
             return None
         if value is None or value.get("form") != "long":
             return False
-        return bool(form.long_text_owners.get(value.getparent().get("id"), set()) & owners)
+        return not owners.isdisjoint(form.long_text_owners.get(value.getparent().get("id"), ()))
 
     return reader
 
