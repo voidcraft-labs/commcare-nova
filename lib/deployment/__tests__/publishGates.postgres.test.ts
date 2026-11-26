@@ -2202,6 +2202,60 @@ const withProfile =
 		};
 	};
 
+it("asks before removing a language already held at the earlier cutover", async () => {
+	const doc = await seed();
+	const hqLanguages = listing(["lug", "en"]);
+	const bodies: ImportBody[] = [];
+	await withPeer(async (peer) => {
+		await firstPublish(peer, doc, hqLanguages);
+		await h
+			.db()
+			.updateTable("app_deployment_baselines")
+			.set({ origin: "cutover" })
+			.execute();
+		const before = requests(peer).length;
+		serve(peer, "source-live", hqLanguages);
+		const asked = refusal(await publish(doc));
+		expect(asked).toMatchObject({
+			phase: "preflight",
+			failure: { code: "hq_changed" },
+			remoteChanges: [
+				{
+					kind: "app",
+					novaResourceId: APP,
+					baselineKnown: true,
+					parts: [
+						"Publishing would remove Ganda (lug) from this app in CommCare HQ.",
+					],
+				},
+			],
+		});
+		expect(requests(peer).slice(before)).toEqual([`GET ${SOURCE}`]);
+
+		serve(peer, "source-live", hqLanguages);
+		accepted(peer, 200, bodies);
+		serve(peer, "source-live");
+		const [shown] = asked.remoteChanges;
+		if (!shown || shown.kind !== "app")
+			throw new Error("Expected a review of the app's languages.");
+		expect(
+			landed(
+				await publish(doc, [], {
+					discardRemoteChanges: [
+						{
+							kind: "app",
+							novaResourceId: APP,
+							observedDigest: shown.observedDigest,
+						},
+					],
+				}),
+			).hqAppAction,
+		).toBe("updated");
+	});
+	expect(bodies).toHaveLength(1);
+	expect(bodies[0]?.app).toHaveProperty("langs", ["en"]);
+});
+
 describe("a build profile that names a language the app no longer has", () => {
 	const TAB =
 		"That tab shows only where the project space's plan includes application profiles.";

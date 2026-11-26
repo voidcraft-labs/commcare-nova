@@ -590,7 +590,8 @@ def undecided_appearances(document, records, *, claims=None) -> list[str]:
     readings = _readings(document, records)
     found = []
     for name in sorted(claims):
-        uses = _lane_uses(document, records, name, readings)
+        reads = _authored_reads(document, records, name)
+        uses = _lane_uses(document, records, name, readings, reads)
         if uses is None:
             continue
         join([], "", document=document.id, undecided=found, extracted=uses.uses)

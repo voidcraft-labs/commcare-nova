@@ -1970,7 +1970,19 @@ export async function runDeploymentPreflight(
 		}
 
 		compared = true;
+		// The historical cutover saved the live HQ source beside the Nova revision.
+		// It could accept an existing language that the Nova revision did not hold,
+		// so comparing HQ to that same saved source alone cannot disclose its loss.
+		const emittedLanguages = publishedLanguageCodes(boundary.prepared.doc);
+		const legacyLanguagesRemoved =
+			appBaseline?.origin === "cutover"
+				? read.source.langs.filter((code) => !emittedLanguages.includes(code))
+				: [];
 		const change = appRemoteChange({
+			legacyLanguageRemoval:
+				legacyLanguagesRemoved.length > 0
+					? `Publishing would remove ${legacyLanguagesRemoved.map(buildProfileLanguageLabel).join(", ")} from this app in CommCare HQ.`
+					: undefined,
 			authority: appConfirmationScope(
 				input.access,
 				target,
