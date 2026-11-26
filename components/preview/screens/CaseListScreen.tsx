@@ -2967,28 +2967,32 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 						)}
 					</p>
 				)}
+				{/* A screen that draws no field still sends every field's
+				 *  answer: Web Apps only hides a hidden field's row
+				 *  (`query.js` adds `d-none`) and `getAnswers` collects it, so
+				 *  the press sends the draft, each hidden field's starting value
+				 *  in it, and a cleared draft after Clear. */}
 				{accessPhase === "authorized" &&
 					!hasSearchInputs &&
+					searchRun.refusal === undefined &&
 					searchRun.pending !== true && (
 						<Button
 							type="button"
 							data-search-submit
-							onClick={() => submitSearch(EMPTY_SEARCH_INPUT_VALUES)}
+							onClick={() => submitSearch(searchRun.draft)}
 							className="h-auto min-h-11 w-full whitespace-normal break-words rounded-md bg-pv-accent px-4 py-2.5 text-center text-sm font-semibold text-nova-void not-disabled:hover:bg-pv-accent not-disabled:hover:brightness-110"
 						>
 							<Icon icon={tablerSearch} width="15" height="15" />
 							{CASE_SEARCH_BUTTON_LABEL}
 						</Button>
 					)}
-				{accessPhase === "authorized" &&
-					hasSearchInputs &&
-					searchRun.refusal !== undefined && (
-						<PreviewDataRefusalPanel
-							surface="search"
-							reason={searchRun.refusal.reason}
-							moduleUuid={moduleUuid}
-						/>
-					)}
+				{accessPhase === "authorized" && searchRun.refusal !== undefined && (
+					<PreviewDataRefusalPanel
+						surface="search"
+						reason={searchRun.refusal.reason}
+						moduleUuid={moduleUuid}
+					/>
+				)}
 				{accessPhase === "authorized" &&
 					hasSearchInputs &&
 					searchRun.refusal === undefined &&
@@ -3499,7 +3503,7 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 					<Button
 						type="button"
 						onClick={() => {
-							submitSearch(EMPTY_SEARCH_INPUT_VALUES);
+							submitSearch(searchRun.draft);
 							focusNextFrame(() => resultsTitleRef.current);
 						}}
 						className="mb-4 h-auto min-h-11 max-w-full gap-2 whitespace-normal break-words rounded-lg bg-pv-accent px-4 py-2.5 text-center text-[14px] font-semibold text-nova-void not-disabled:hover:bg-pv-accent not-disabled:hover:brightness-110 [overflow-wrap:anywhere]"

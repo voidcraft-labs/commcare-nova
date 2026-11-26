@@ -469,6 +469,34 @@ async function hiddenFieldSearchPeer(page: Page) {
 	return { peer, reads };
 }
 
+test("Web Apps' Search screen with no field drawn still sends a hidden field's starting value", async ({
+	page,
+}) => {
+	const { peer, reads } = await hiddenFieldSearchPeer(page);
+	try {
+		/* Web Apps hides the row but sends its answer (`query.js` adds
+		 * `d-none`; `getAnswers` collects every child). */
+		await page.goto(peer.origin);
+		try {
+			await expect(page.getByLabel("Region", { exact: true })).toHaveCount(0);
+			await page
+				.getByRole("button", { name: "Search All Cases", exact: true })
+				.click();
+			await expect.poll(reads).toEqual([
+				JSON.stringify({
+					inputValues: { region: "north" },
+					defaultSearch: false,
+				}),
+			]);
+		} finally {
+			if (!page.isClosed())
+				await page.evaluate(() => window.previewHiddenFieldSearch?.dispose());
+		}
+	} finally {
+		await peer.close();
+	}
+});
+
 test("a skip-to-results menu's default search sends no prompt's starting value", async ({
 	page,
 }) => {
