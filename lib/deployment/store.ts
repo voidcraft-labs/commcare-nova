@@ -2281,8 +2281,8 @@ async function withRecordRow<T>(
 		/** The kinds of admitted write this record states the outcome of. */
 		readonly writeKinds: readonly HqRemoteWriteKind[];
 		readonly liveDecision?: Pick<DeploymentFence, "manageInstallations">;
-		/** Each kind whose complete set is being recorded must actually have gone. */
-		readonly requireAllKinds?: boolean;
+		/** At least one admitted transport for every resource kind being recorded. */
+		readonly requiredWriteGroups?: readonly (readonly HqRemoteWriteKind[])[];
 	},
 	body: (
 		tx: Transaction<AppDatabase>,
@@ -2310,7 +2310,7 @@ async function withRecordRow<T>(
 					target,
 					writeIds,
 					record.writeKinds,
-					record.requireAllKinds,
+					record.requiredWriteGroups,
 				);
 			const row = await lockDeploymentRow(tx, scope, target);
 			if (!writeIds.length && record.liveDecision)
@@ -3982,6 +3982,12 @@ export async function admitLookupJsonWrite(
 			searchConnections: input.searchConnections,
 		},
 		async (tx, row) => {
+			await authorizePublishDecision(
+				tx,
+				scope,
+				row.id,
+				input.manageInstallations,
+			);
 			const tables = await lockLookupTablesForPublishInTransaction(
 				tx,
 				{ projectId: scope.projectId, actorId: scope.actorUserId },
@@ -5603,10 +5609,10 @@ async function writeResourceBaselines(
 	`.execute(tx);
 }
 
-function resourceWriteKinds(kinds: Iterable<DeploymentResourceKind>) {
+function resourceWriteKindGroups(kinds: Iterable<DeploymentResourceKind>) {
 	return [...new Set(kinds)].map((kind) => {
-		if (kind === "lookup-table") return "workbook" as const;
-		if (kind === "location") return "places" as const;
+		if (kind === "lookup-table") return ["workbook", "lookup-json"] as const;
+		if (kind === "location") return ["places"] as const;
 		throw new Error("A resource push records tables and places.");
 	});
 }
@@ -5629,16 +5635,18 @@ export async function markResourceBaselinesUnread(
 ): Promise<void> {
 	if (refs.length === 0 && (admitted?.settle ?? []).length === 0) return;
 	const observedAt = new Date().toISOString();
-	const writeKinds = resourceWriteKinds(refs.map((ref) => ref.kind));
+	const requiredWriteGroups = resourceWriteKindGroups(
+		refs.map((ref) => ref.kind),
+	);
 	await withRecordRow(
 		scope,
 		target,
 		{
 			admitted,
-			writeKinds: writeKinds.length
-				? writeKinds
+			writeKinds: requiredWriteGroups.length
+				? requiredWriteGroups.flat()
 				: ["workbook", "lookup-json", "places"],
-			requireAllKinds: writeKinds.length > 0,
+			requiredWriteGroups,
 			liveDecision: fence,
 		},
 		async (tx, row) => {
@@ -6616,16 +6624,16 @@ export async function recordPushedResources(
 		...(write.baselines ?? []).map((baseline) => baseline.kind),
 		...(outcome.status === "complete" ? outcome.kinds : []),
 	]);
-	const writeKinds = resourceWriteKinds(kinds);
+	const requiredWriteGroups = resourceWriteKindGroups(kinds);
 	return withRecordRow(
 		scope,
 		target,
 		{
 			admitted: write.admitted,
-			writeKinds: writeKinds.length
-				? writeKinds
+			writeKinds: requiredWriteGroups.length
+				? requiredWriteGroups.flat()
 				: ["workbook", "lookup-json", "places"],
-			requireAllKinds: writeKinds.length > 0,
+			requiredWriteGroups,
 			liveDecision: write,
 		},
 		async (tx, row, access) => {
@@ -6882,7 +6890,7 @@ async function lockAppForAdmittedRecord(
 	target: DeploymentTargetKey,
 	writeIds: readonly string[],
 	writeKinds: readonly HqRemoteWriteKind[],
-	requireAllKinds = false,
+	requiredWriteGroups?: readonly (readonly HqRemoteWriteKind[])[],
 ): Promise<RecordAccess> {
 	const app = await tx
 		.selectFrom("apps")
@@ -6898,7 +6906,7 @@ async function lockAppForAdmittedRecord(
 		target,
 		writeIds,
 		writeKinds,
-		requireAllKinds,
+		requiredWriteGroups,
 	);
 	try {
 		const role = await authorizeDeploymentApp(
@@ -6924,7 +6932,7 @@ async function verifyAdmittedWrites(
 	target: DeploymentTargetKey,
 	writeIds: readonly string[],
 	writeKinds: readonly HqRemoteWriteKind[],
-	requireAllKinds = false,
+	requiredWriteGroups?: readonly (readonly HqRemoteWriteKind[])[],
 	remoteId?: string,
 ): Promise<void> {
 	let query = tx
@@ -6940,10 +6948,11 @@ async function verifyAdmittedWrites(
 	if (remoteId !== undefined) query = query.where("resource_id", "=", remoteId);
 	const admitted = await query.execute();
 	if (admitted.length !== new Set(writeIds).size) throw deploymentNotFound();
+	const admittedKinds = new Set(admitted.map((write) => write.write_kind));
 	if (
-		requireAllKinds &&
-		new Set(admitted.map((write) => write.write_kind)).size !==
-			new Set(writeKinds).size
+		requiredWriteGroups?.some(
+			(group) => !group.some((kind) => admittedKinds.has(kind)),
+		)
 	)
 		throw deploymentNotFound();
 }
@@ -7031,7 +7040,7 @@ export async function applyDeploymentObservation(
 					target,
 					[input.importReplyId],
 					["import"],
-					true,
+					undefined,
 					input.observedRemoteId,
 				);
 			else if (input.publishRead)

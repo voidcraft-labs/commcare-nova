@@ -431,7 +431,7 @@ it.each(["last-profile-removed", "new-pending-review", "ordinary"] as const)(
 					ACTOR,
 					mode === "new-pending-review"
 						? ["nova.read", "nova.write", "nova.hq.write", "nova.hq.import"]
-						: ["nova.read", "nova.hq.write"],
+						: ["nova.read", "nova.write", "nova.hq.write"],
 				);
 				expect(
 					await h
@@ -3215,6 +3215,7 @@ it("keeps an actually runnable deployment intact when a later publish has a miss
 				.state,
 		).toBe("runnable");
 		const before = await snapshot();
+		const beforeRequests = requests(peer);
 		await h
 			.db()
 			.updateTable("user_settings")
@@ -3250,8 +3251,7 @@ it("keeps an actually runnable deployment intact when a later publish has a miss
 			);
 		});
 		expect(await snapshot()).toEqual(before);
-		/* The first publish's unanswered project-space read goes out twice. */
-		expect(requests(peer)).toHaveLength(8);
+		expect(requests(peer)).toEqual(beforeRequests);
 	});
 });
 
