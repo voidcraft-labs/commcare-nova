@@ -393,6 +393,7 @@ it("keeps the source app and its shared lookup through renewed consent, publish,
 				compiledAtSeq: edited.seq,
 			},
 			origin.domain,
+			[],
 		),
 	);
 	const appFile = file
