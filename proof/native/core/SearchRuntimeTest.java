@@ -1,6 +1,8 @@
 package nova.compatibility;
 
+import java.io.BufferedReader;
 import java.io.ByteArrayInputStream;
+import java.io.InputStreamReader;
 import java.io.InputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -28,6 +30,9 @@ import org.javarosa.core.model.condition.EvaluationContext;
 import org.javarosa.core.model.data.StringData;
 import org.javarosa.core.model.instance.*;
 import org.javarosa.core.model.instance.utils.InstanceUtils;
+import org.javarosa.core.services.locale.Localizer;
+import org.javarosa.core.services.locale.LocalizerManager;
+import org.javarosa.core.services.locale.TableLocaleSource;
 import org.javarosa.test_utils.ExprEvalUtils;
 import org.javarosa.xform.util.XFormUtils;
 import org.junit.Test;
@@ -144,8 +149,30 @@ public class SearchRuntimeTest {
         }
     }
 
+    private void localizeNamedSearch(boolean hq) throws IOException {
+        String path = "/search/named-parent." + (hq ? "hq.strings.txt" : "strings.txt");
+        Hashtable<String, String> strings = new Hashtable<>();
+        try (InputStream input = getClass().getResourceAsStream(path)) {
+            assertNotNull(path, input);
+            try (BufferedReader reader = new BufferedReader(new InputStreamReader(input, StandardCharsets.UTF_8))) {
+                for (String line; (line = reader.readLine()) != null;) {
+                    int delimiter = line.indexOf('=');
+                    if (delimiter > 0) strings.put(line.substring(0, delimiter), line.substring(delimiter + 1));
+                }
+            }
+        }
+        LocalizerManager.init(true);
+        Localizer localizer = LocalizerManager.getGlobalLocalizer();
+        localizer.addAvailableLocale("en");
+        localizer.registerLocaleResource("en", new TableLocaleSource(strings));
+        localizer.setLocale("en");
+    }
+
+    @org.junit.After public void clearLocale() { LocalizerManager.clearInstance(); }
+
     @Test public void namedParentAndChildKeepTheirOwnPromptThroughRetryAndBack() throws Exception {
         for (boolean hq : new boolean[]{false, true}) {
+            localizeNamedSearch(hq);
             Suite suite = suite("named-parent", hq);
             CommCarePlatform platform = new CommCarePlatform(2, 53, 0);
             platform.registerSuite(suite);

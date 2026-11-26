@@ -40761,17 +40761,52 @@
 		"id": "hq-search/search-endpoint",
 		"base": "hq-search",
 		"entry": "case-search/case-search-endpoint-id",
-		"standing": "not-yet",
-		"place": {
-			"kind": "search",
-			"menu": 0,
-			"name": "Clients"
-		},
 		"change": {
 			"op": "set-json",
-			"pointer": "/modules/0/search_config/case_search_endpoint_id",
-			"value": 1
-		}
+			"pointer": "/modules/0/search_config",
+			"value": {
+				"doc_type": "CaseSearch",
+				"case_search_endpoint_id": 1,
+				"properties": [],
+				"default_properties": [
+					{
+						"doc_type": "DefaultCaseSearchProperty",
+						"property": "district",
+						"defaultValue": "'north'"
+					},
+					{
+						"doc_type": "DefaultCaseSearchProperty",
+						"property": "_xpath_query",
+						"defaultValue": "concat('region', '-north')"
+					}
+				],
+				"auto_launch": true,
+				"default_search": false,
+				"inline_search": false
+			}
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseSearchConfig/projectSearch/defaults/0/name",
+				"value": "district"
+			},
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseSearchConfig/projectSearch/defaults/1/name",
+				"value": "_xpath_query"
+			}
+		]
 	},
 	{
 		"id": "hq-search/search-input-in-the-results-detail",
