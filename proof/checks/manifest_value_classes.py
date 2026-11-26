@@ -5224,6 +5224,30 @@ receiver_on_another_appearance.__doc__ = """``case-search/receiver-expression-on
 field nor a lookup or Mobile UCR selection (``editor_appearance``); a blank one is no value, and on any other prompt
 the expression is ``case-search/receiver-expression``'s."""
 
+def single_choice_receives_from_address(use, manifest):
+    """Web Apps assigns a single choice's displayed position, not its lookup key."""
+    at, config = _search(use)
+    if config is None:
+        return None
+    prompt = at.nearest("CaseSearchProperty")
+    if at.key != "receiver_expression" or prompt is None or prompt.get("input_") != "select1":
+        return False
+    expression = prompt.get("receiver_expression")
+    if not isinstance(expression, str):
+        return False
+    topic, separator, fields = expression.partition("-")
+    if not topic or not separator or not fields or prompt.get("hidden"):
+        return False
+    return any(
+        source.get("appearance") == "address" and source.get("name") == topic
+        and not source.get("input_") and not source.get("hidden") and not source.get("is_group")
+        and not source.get("allow_blank_value") and not source.get("default_value")
+        and not source.get("receiver_expression") and not _required(source) and not _validations(source)
+        and (not isinstance(source.get("itemset"), dict) or not source["itemset"].get("nodeset"))
+        for source in (row for row in config.get("properties") or [] if isinstance(row, dict))
+    )
+
+
 # The input types a runtime names (commcare-core ``QueryPrompt.INPUT_TYPE_*``): the six Formplayer supports
 # (``QueryScreen.getSupportedPrompts``), of which Android supports three (``QueryRequestActivity``).
 RUNTIME_PROMPT_INPUTS = frozenset({"select1", "select", "date", "daterange", "checkbox", "address"})
@@ -12718,6 +12742,7 @@ VALUE_CLASSES = {
     "case-search/input-select1-select-commcare-reports-itemset-mobile-ucr": mobile_ucr_reports,
     "case-search/input-no-runtime-names": input_no_runtime_names,
     "case-search/receiver-expression-on-a-prompt-whose-editor-appearance-is": receiver_on_another_appearance,
+    "case-search/address-receiver-single-choice-lookup-position": single_choice_receives_from_address,
     "case-search/search-button-label-any-other-value": other_search_button_label,
     "case-search/workflow-legacy-classic-auto-launch-false-in-an-app-with": list_first_with_web_apps,
     "case-search/a-prompt-that-reaches-hq-as-its-own-key-named-as-a-config-keys": reserved_request_key,

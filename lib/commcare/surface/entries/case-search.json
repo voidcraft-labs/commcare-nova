@@ -3532,7 +3532,7 @@
 		],
 		"valueClass": "address-topic-and-ordered-parts",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: Text or lookup Search field with an address subscription",
+		"dispositionCell": "**HELD**: Text or multiple-choice Search field with an address subscription",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
@@ -3549,6 +3549,33 @@
 			"markers": []
 		},
 		"gates": ["privilege/geocoder", "toggle/CASE_SEARCH_ADVANCED"]
+	},
+	{
+		"id": "case-search/address-receiver-single-choice-lookup-position",
+		"area": "case-search",
+		"section": "Case search",
+		"subsection": "Search prompts",
+		"item": "A single-choice Search field that receives from an address picker",
+		"surfaceKeys": ["schema:CaseSearchProperty.receiver_expression"],
+		"valueClass": "address-single-choice-selection-by-position",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: Web Apps selects by position even when the lookup uses different values.",
+		"subject": "search-fields",
+		"reasons": [
+			{
+				"kind": "untypeable",
+				"named": "a single-choice receiver may substitute a different lookup value"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
 	},
 	{
 		"id": "case-search/receiver-expression",

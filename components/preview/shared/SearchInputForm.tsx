@@ -136,8 +136,6 @@ function AddressSearchRow({
 	input,
 	value,
 	onCommit,
-	blank,
-	onBlankChange,
 }: {
 	readonly input: Extract<SearchInputDef, { kind: "address" }>;
 	readonly value: string;
@@ -145,12 +143,8 @@ function AddressSearchRow({
 		value: string,
 		message?: QuestionMessage,
 	) => Promise<boolean>;
-	readonly blank: boolean;
-	readonly onBlankChange: (checked: boolean) => void;
 }) {
 	const label = useId();
-	const blankLabel = useId();
-	const { language } = useBuilderLanguage();
 	return (
 		<Field>
 			<FieldLabel id={label}>{input.label}</FieldLabel>
@@ -163,19 +157,6 @@ function AddressSearchRow({
 			/>
 			{input.hint !== undefined && (
 				<FieldDescription>{input.hint}</FieldDescription>
-			)}
-			{input.allowBlank && (
-				<label
-					htmlFor={blankLabel}
-					className="flex items-center gap-2 text-sm text-muted-foreground"
-				>
-					<Checkbox
-						checked={blank}
-						onCheckedChange={onBlankChange}
-						id={blankLabel}
-					/>
-					{runtimeMessage(language, "searchForBlank", { label: input.label })}
-				</label>
 			)}
 		</Field>
 	);
@@ -362,7 +343,6 @@ export function SearchInputForm({
 		readonly values: ReadonlyMap<string, string>;
 	}>({ key: scopeKey, values: new Map() });
 	const [addressReset, setAddressReset] = useState(0);
-	const [blankAddresses, setBlankAddresses] = useState(new Set<string>());
 	const displayed = useMemo<ReturnType<typeof webSearchRangeDraft>>(
 		() =>
 			platformRules.searchRangeStartingValue === "date-picker"
@@ -686,7 +666,7 @@ export function SearchInputForm({
 					continue;
 				const part = receiver.parts.find((key) => message?.[key] !== undefined);
 				const received = part === undefined ? undefined : message?.[part];
-				if (input.type === "select" || input.type === "multi-select") {
+				if (input.type === "multi-select") {
 					const choices =
 						choicesRead.kind === "read"
 							? choicesRead.value.get(input.uuid)
@@ -694,52 +674,21 @@ export function SearchInputForm({
 					const matches = choices?.filter(
 						(choice) => choice.label.trim() === received,
 					);
-					const selected = matches?.length === 1 ? matches[0].value : undefined;
-					if (input.type === "multi-select") {
-						if (selected === undefined) continue;
-						const answers = splitMultiSelectSearchAnswer(
-							next.get(input.name) ?? "",
+					if (matches?.length !== 1) continue;
+					const selected = matches[0].value;
+					const answers = splitMultiSelectSearchAnswer(
+						next.get(input.name) ?? "",
+					);
+					if (!answers.includes(selected))
+						next.set(
+							input.name,
+							joinMultiSelectSearchAnswer([...answers, selected]),
 						);
-						if (!answers.includes(selected)) {
-							next.set(
-								input.name,
-								joinMultiSelectSearchAnswer([...answers, selected]),
-							);
-						}
-						continue;
-					}
-					if (selected === undefined) next.delete(input.name);
-					else next.set(input.name, selected);
 					continue;
 				}
+				if (input.type !== "text") continue;
 				if (received) next.set(input.name, received);
 				else next.delete(input.name);
-			}
-			return next;
-		});
-	};
-	const setAddressBlank = (source: SearchInputDef, blank: boolean) => {
-		setBlankAddresses((previous) => {
-			const next = new Set(previous);
-			if (blank) next.add(source.uuid);
-			else next.delete(source.uuid);
-			return next;
-		});
-		setDraft((previous) => {
-			const next = new Map(previous);
-			for (const input of searchInputs) {
-				if (
-					input.kind === "hidden" ||
-					input.kind === "address" ||
-					input.allowBlank !== true
-				)
-					continue;
-				const receiver = input.addressReceiver;
-				if (receiver?.kind !== "address" || receiver.source !== source.uuid)
-					continue;
-				const key = searchForBlankKey(input.name);
-				if (blank) next.set(key, "true");
-				else next.delete(key);
 			}
 			return next;
 		});
@@ -766,7 +715,6 @@ export function SearchInputForm({
 			setDraft(cleared);
 			setAddressScope({ key: scopeKey, values: new Map() });
 			setAddressReset((previous) => previous + 1);
-			setBlankAddresses(new Set());
 			lastValidatedDraftRef.current = undefined;
 			setValidationState({ scopeKey, attempted: false, errors: new Map() });
 			setCheckRefusal(undefined);
@@ -824,8 +772,6 @@ export function SearchInputForm({
 			<AddressSearchRow
 				key={JSON.stringify([scopeKey, addressReset, input.uuid])}
 				input={input}
-				blank={blankAddresses.has(input.uuid)}
-				onBlankChange={(checked) => setAddressBlank(input, checked)}
 				value={
 					addressScope.key === scopeKey
 						? (addressScope.values.get(input.uuid) ?? "")

@@ -1130,9 +1130,7 @@ function VisibleSearchInputEditor({
 				)}
 
 				{value.hidden !== true &&
-					(value.type === "text" ||
-						value.type === "select" ||
-						value.type === "multi-select") && (
+					(value.type === "text" || value.type === "multi-select") && (
 						<AddressFillSetting
 							inputs={siblings}
 							receiver={value.addressReceiver}

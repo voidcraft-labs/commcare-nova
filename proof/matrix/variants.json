@@ -42389,6 +42389,21 @@
 		]
 	},
 	{
+		"id": "hq-search/address-fills-a-single-choice-by-position",
+		"base": "hq-search",
+		"entry": "case-search/address-receiver-single-choice-lookup-position",
+		"standing": "fix-in-hq",
+		"place": {
+			"kind": "search",
+			"menu": 0,
+			"name": "Clients"
+		},
+		"change": {
+			"op": "named",
+			"name": "address_picker_and_single_choice"
+		}
+	},
+	{
 		"id": "hq-search/two-fields-receive-from-the-address-picker",
 		"base": "hq-search",
 		"entry": "case-search/address-picker-receiver-on-a-search-screen",

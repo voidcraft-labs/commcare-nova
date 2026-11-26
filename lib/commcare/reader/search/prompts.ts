@@ -328,6 +328,10 @@ export const PROMPT_CLAIMS = defineClaims("search.prompts", {
 		`${S}receiver-expression-on-a-prompt-whose-editor-appearance-is`,
 		"schema:CaseSearchProperty.receiver_expression",
 	),
+	receiverSingleChoice: refuse(
+		`${S}address-receiver-single-choice-lookup-position`,
+		"schema:CaseSearchProperty.receiver_expression",
+	),
 	blankReceiver: drop(
 		BLANK_IS_ABSENT,
 		"schema:CaseSearchProperty.receiver_expression",
@@ -734,6 +738,7 @@ function canReadAddressPrompt(
 		!prompt.peek("input_") &&
 		!prompt.peek("default_value") &&
 		prompt.peek("hidden") !== true &&
+		prompt.peek("allow_blank_value") !== true &&
 		!prompt.peek("receiver_expression") &&
 		(!isJsonObject(required) || !required.test) &&
 		(!Array.isArray(validations) || validations.length === 0) &&
@@ -908,6 +913,8 @@ function readPrompt(
 			prompt.peek("hidden") === true
 		)
 			refuseWith("receiver_expression", P.receiverOther);
+		else if (validSource && prompt.peek("input_") === "select1")
+			refuseWith("receiver_expression", P.receiverSingleChoice);
 		else if (
 			wire === null ||
 			(validSource &&
@@ -1658,7 +1665,6 @@ function readPrompt(
 			label: common.label,
 			...(group !== undefined && { group }),
 			...(hint !== "" && { hint }),
-			...(allowBlank && { allowBlank: true }),
 			...(exclude && { excludeFromRequest: true }),
 		};
 	else {

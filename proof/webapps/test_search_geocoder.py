@@ -25,8 +25,9 @@ def _geocoder_fields(app, mode):
     district = next(field for field in fields if field["name"] == "district")
     if mode in ("text", "combined"):
         village["receiver_expression"] = "home-us_state||city"
-    if mode in ("lookup", "combined"):
+    if mode in ("lookup", "combined", "single"):
         district["receiver_expression"] = "home-region"
+        district["input_"] = "select1" if mode == "single" else "select"
     fields.insert(0, {
         "doc_type": "CaseSearchProperty", "name": "home",
         "label": {"en": "Find an address"}, "appearance": "address",
@@ -78,8 +79,8 @@ CLEAR_ADDRESS = {
 
 @pytest.mark.parametrize(
     ("viewport", "mode"),
-    [(None, "text"), (SMALL_SCREEN, "text"), (None, "lookup"), (None, "combined")],
-    ids=["desktop-text", "phone-text", "lookup", "combined"],
+    [(None, "text"), (SMALL_SCREEN, "text"), (None, "lookup"), (None, "combined"), (None, "single")],
+    ids=["desktop-text", "phone-text", "lookup", "combined", "single"],
 )
 def test_address_query_sends_ordered_fallback_and_lookup_value_without_the_address(
     hq, core_runner, formplayer_runner, editor_driver, webapps_documents, evidence, viewport, mode
@@ -127,10 +128,13 @@ def test_address_query_sends_ordered_fallback_and_lookup_value_without_the_addre
     if mode in ("text", "combined"):
         assert filled["city"] == "Example Town", filled
         expected["village"] = "Example Town"
-    if mode in ("lookup", "combined"):
+    if mode in ("lookup", "combined", "single"):
         assert any(label == "Upper valley" for _, label in initial["districtChoices"]), initial
-        assert filled["district"] == "Upper valley", filled
-        expected["district"] = "d1"
+        if mode == "single":
+            assert filled["district"] == "", filled
+        else:
+            assert filled["district"] == "Upper valley", filled
+            expected["district"] = "d1"
     if cleared:
         assert cleared["city"] == "" and cleared["district"] != "Upper valley"
     assert actual == [expected], actual

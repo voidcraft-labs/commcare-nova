@@ -3940,6 +3940,22 @@ def _search_and_menus():
             refused("suite", INPUT_SUITE, "parser:QueryPromptParser/prompt@input", "prompt[1]/@input"),
             accepted("suite", INPUT_SUITE, "parser:QueryPromptParser/prompt@input", "prompt[2]/@input"),
         ),
+        "case-search/address-receiver-single-choice-lookup-position": tuple(
+            make(
+                "app",
+                search(_search_module(properties=[
+                    _prompt("district", input_=input_, receiver_expression=receiver),
+                    _prompt("home", appearance="address", exclude=True),
+                ])),
+                "schema:CaseSearchProperty.receiver_expression",
+                f"{prompts}/receiver_expression",
+            )
+            for make, input_, receiver in (
+                (refused, "select1", "home-region"),
+                (accepted, "select", "home-region"),
+                (accepted, "select1", "away-region"),
+            )
+        ),
         "case-search/receiver-expression-on-a-prompt-whose-editor-appearance-is": tuple(
             make(
                 "app",

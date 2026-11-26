@@ -2145,7 +2145,7 @@ export const addressSearchInputSchema = searchInputBase.extend({
 	hidden: z.never().optional(),
 	addressReceiver: z.never().optional(),
 	hint: z.string().min(1).optional(),
-	allowBlank: z.literal(true).optional(),
+	allowBlank: z.never().optional(),
 });
 export type AddressSearchInput = z.infer<typeof addressSearchInputSchema>;
 
@@ -3612,7 +3612,9 @@ export function searchAddressReceiverProblem(
 			input.type !== "select" &&
 			input.type !== "multi-select")
 	)
-		return "An address can fill a visible text field or a field that chooses from a table.";
+		return "An address can fill a visible text or multiple-choice field.";
+	if (input.type === "select" && receiver.kind === "address")
+		return "Web Apps can select a different lookup value when an address fills a single-choice Search field. Link a text or multiple-choice field instead.";
 	const active = inputs.some(
 		(source) =>
 			source.kind === "address" &&
