@@ -102,10 +102,6 @@ final class Queries {
         RemoteQuerySessionManager manager = manager(activity);
         if (manager == null) {
             query.put("opened", false);
-            JSONObject alert = Views.alert(activity);
-            if (alert != null) {
-                query.put("openingAlert", alert);
-            }
             return false;
         }
         query.put("opened", true);

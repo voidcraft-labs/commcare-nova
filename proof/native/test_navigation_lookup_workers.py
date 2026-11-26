@@ -6,6 +6,7 @@ import json
 import os
 from contextlib import contextmanager
 from pathlib import Path
+from urllib.parse import parse_qs, urlsplit
 
 import pytest
 from lxml import etree
@@ -147,26 +148,29 @@ def test_android_search_default_reads_only_its_request(hq, request, has_sibling)
         blobs = Blobs()
         result = observe.app(served, blobs, label="navigation-lookup", archive=observe.release_archive(served))
         answer = blobs.get_json(result["answer"])
-        _record(request, {"answer": answer, "hq": blobs.get_json(result["hq"])})
+        exchanges = blobs.get_json(result["hq"])
+        _record(request, {"answer": answer, "hq": exchanges})
         assert answer["install"] == "Installed", answer
         assert answer["signIn"].startswith("Success("), answer
-        # Android may expose Search as a list action even when Web Apps auto-launches it.
-        search_walks = [walk for name, walk in answer["walks"].items() if name in ("m0", "m0/@action:0")]
-        assert search_walks, answer["walks"]
-        queries = [
-            step["query"] for walk in search_walks for step in walk.get("steps", []) if "query" in step
-        ]
+        # Android opens the worker's list before the worker presses its Search action.
+        walk = answer["walks"]["m0/@action:0"]
+        requests = [exchange for exchange in exchanges if exchange["url_name"] == "app_aware_remote_search"]
         if not has_sibling:
-            assert queries, search_walks
-            for query in queries:
-                assert query["opened"] is False, query
-                alert = query.get("openingAlert", {})
-                assert alert.get("class") == "StandardAlertDialog" and MISSING in alert.get("msg", ""), query
-            assert served.hq.searches == []
+            # QueryRequestActivity catches the missing-instance XPath exception during initialization.
+            # Its base activity then tries to inspect the UI manager the initializer did not create.
+            raised = walk["raised"]
+            assert raised["class"] == "java.lang.NullPointerException", raised
+            assert "getUIManager()" in raised["message"], raised
+            assert "CommCareActivity.persistManagedUiState" in raised["stack"], raised
+            assert "SessionAwareCommCareActivity.onCreate" in raised["stack"], raised
+            assert requests == []
             return
 
-        assert queries, search_walks
-        for query in queries:
-            assert query["opened"], query
-            assert query["RemoteQuerySessionManager.getRawQueryParams"]["zone"] == [MATCH], query
-        assert any(search.values("zone") == (MATCH,) for search in served.hq.searches), served.hq.searches
+        (query,) = [step["query"] for step in walk["steps"] if "query" in step]
+        assert query["opened"] and query["finishing"] and query["resultCode"] == -1, query
+        assert query["RemoteQuerySessionManager.getRawQueryParams"]["zone"] == [MATCH], query
+        (received,) = [
+            exchange for exchange in requests
+            if parse_qs(urlsplit(exchange["url"]).query).get("zone") == [MATCH]
+        ]
+        assert received["status"] == 200, received
