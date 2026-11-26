@@ -670,9 +670,24 @@ describe("the Save only if changed switch", () => {
 		expect(switchVerdict(turnedOn, ABOVE_NOTE)).toMatchObject({ ok: true });
 	});
 
-	it("is not offered on a name", () => {
+	it("is offered on a follow-up's rename and turns on as the name's flag, and not on a new case's name", () => {
 		const doc = aboveFixture("followup");
-		expect(rowWith(doc, ABOVE_NAME).onlyIfChanged).toBeUndefined();
+		const row = rowWith(doc, ABOVE_NAME);
+		expect(row.onlyIfChanged).toMatchObject({
+			on: false,
+			line: SAVE_ONLY_IF_CHANGED_LINE,
+		});
+		const on = switchVerdict(doc, ABOVE_NAME);
+		expect(on).toMatchObject({ ok: true });
+		if (!on.ok) return;
+		const turnedOn = committed(doc, on.mutations);
+		const form = Object.values(turnedOn.forms)[0];
+		expect(
+			form?.caseOperations?.find((operation) => operation.action === "own"),
+		).toMatchObject({ nameOnlyIfChanged: true });
+		expect(rowWith(turnedOn, ABOVE_NAME).onlyIfChanged?.on).toBe(true);
+		const registration = aboveFixture("registration");
+		expect(rowWith(registration, ABOVE_NAME).onlyIfChanged).toBeUndefined();
 	});
 
 	it("is offered on a new child case, saying it saves only a given answer, and on the worker's record", () => {

@@ -2,7 +2,11 @@ import type { Draft } from "immer";
 import { caseWriteIdOf, caseWriteKeyId } from "@/lib/doc/caseWriteKeys";
 import { spliceAfter, spliceEntryAfter } from "@/lib/doc/mutations/sequence";
 import type { BlueprintDoc, Mutation } from "@/lib/doc/types";
-import { caseOperationSchema, type Form } from "@/lib/domain";
+import {
+	CASE_FACET_OF_ONLY_IF_CHANGED,
+	caseOperationSchema,
+	type Form,
+} from "@/lib/domain";
 import { applyFormEntryChange } from "../formEntryMutations";
 import { cascadeDeleteForm, dropCaseListRegistrationsNaming } from "./helpers";
 import { postSubmitBefore, reconcilePostSubmitWithMenuShape } from "./modules";
@@ -311,6 +315,12 @@ export function applyFormMutation(
 							action: semantic.targetAction,
 						} as Record<string, unknown>;
 						applyPatch(prospective, semantic.patch as Record<string, unknown>);
+						// Saving a name or owner only when changed means nothing once
+						// the operation stops saving that name or owner.
+						for (const [flag, facet] of Object.entries(
+							CASE_FACET_OF_ONLY_IF_CHANGED,
+						))
+							if (prospective[facet] === undefined) delete prospective[flag];
 						const parsed = caseOperationSchema.safeParse(prospective);
 						if (!parsed.success) {
 							console.warn(

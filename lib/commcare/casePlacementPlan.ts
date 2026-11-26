@@ -361,16 +361,32 @@ function buildPlan(
 			if (path !== null)
 				update[key] = { question_path: path, update_mode: mode };
 		};
+		const mode = (flag: true | undefined) => (flag ? "edit" : "always");
 		if (
 			operation.action === "own" &&
 			!isRegistration(form) &&
 			operation.name !== undefined
 		)
-			put("name", operation.name, "case_name", "always");
+			put(
+				"name",
+				operation.name,
+				"case_name",
+				mode(operation.nameOnlyIfChanged),
+			);
 		if (operation.rename !== undefined)
-			put("name", operation.rename, "case_name", "always");
+			put(
+				"name",
+				operation.rename,
+				"case_name",
+				mode(operation.renameOnlyIfChanged),
+			);
 		if (options.owner && operation.owner !== undefined)
-			put("owner_id", operation.owner, "owner_id", "always");
+			put(
+				"owner_id",
+				operation.owner,
+				"owner_id",
+				mode(operation.ownerOnlyIfChanged),
+			);
 		for (const write of operation.writes ?? []) {
 			// HQ maps `name` to the case's `case_name` element
 			// (`xform.py::XFormCaseBlock.add_case_updates`). An external id is
@@ -813,7 +829,7 @@ function advancedPlan(input: AdvancedPlanInput): AdvancedFormCaseWirePlan {
 			if (path !== null)
 				caseProperties.owner_id = {
 					question_path: path,
-					update_mode: "always",
+					update_mode: op.ownerOnlyIfChanged ? "edit" : "always",
 				};
 		}
 		const close = openClose.get(i);

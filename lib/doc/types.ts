@@ -211,9 +211,15 @@ function caseOperationPatchSchemaFor(
 	// Identity and destination action are represented once on the outer update
 	// arm. Writes and links have their own keyed merge units. The own arm's
 	// case type, target, condition and repeat are the form's, so only its name
-	// and owner are scalar slots of its own.
+	// and owner, and whether each is saved only when changed, are scalar slots
+	// of its own.
 	const ownOperationPatchSchema = clearablePartialPatch(arms.own)
-		.pick({ name: true, owner: true })
+		.pick({
+			name: true,
+			nameOnlyIfChanged: true,
+			owner: true,
+			ownerOnlyIfChanged: true,
+		})
 		.strict();
 	const createOperationPatchSchema = clearablePartialPatch(arms.create)
 		.omit({ action: true, writes: true, links: true })

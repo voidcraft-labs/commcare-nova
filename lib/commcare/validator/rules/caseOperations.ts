@@ -28,9 +28,11 @@ import {
 } from "@/lib/doc/caseOperationOrder";
 import {
 	type BlueprintDoc,
+	CASE_FACET_OF_ONLY_IF_CHANGED,
 	CASE_LOADING_FORM_TYPES,
 	CASE_OPERATION_IDENTIFIER_FORMAT_MESSAGE,
 	CASE_OPERATION_PROPERTY_FORMAT_MESSAGE,
+	type CaseFacetOnlyIfChanged,
 	type CaseOperation,
 	type CaseOperationWrite,
 	type CaseTarget,
@@ -570,6 +572,7 @@ function validateOperation(
 		workerRecord,
 		errors,
 	);
+	validateFacetOnlyIfChanged(ctx, operation, errors);
 	validateLinks(ctx, operation, priorCreates, errors);
 }
 
@@ -722,6 +725,7 @@ function validateOwnOperation(
 		if (worker && ctx.form.type === "followup")
 			validateOwnWorkerFacets(ctx, operation, errors);
 	}
+	validateFacetOnlyIfChanged(ctx, operation, errors);
 	validateLinks(ctx, operation, new Map(), errors);
 }
 
@@ -1168,6 +1172,103 @@ function validateOnlyIfChanged(
 			},
 		),
 	);
+}
+
+/**
+ * Saving a name or an owner only when changed (`CaseFacetOnlyIfChanged`): HQ's
+ * build applies `update_mode: "edit"` to the `name` and `owner_id` keys of an
+ * update map as to any other key. It needs the facet it qualifies, and a
+ * registration's own name is its `open_case.name_update`, whose mode HQ's
+ * build never reads (`xform.py::XForm.create_casexml_2`). Save to Case has no
+ * such setting, as for a write.
+ */
+function validateFacetOnlyIfChanged(
+	ctx: OperationRuleContext,
+	operation: CaseOperation,
+	errors: ValidationError[],
+): void {
+	const flags = (
+		Object.keys(CASE_FACET_OF_ONLY_IF_CHANGED) as CaseFacetOnlyIfChanged[]
+	).filter((flag) => operation[flag as keyof CaseOperation] === true);
+	if (flags.length === 0) return;
+	const property = (flag: CaseFacetOnlyIfChanged) =>
+		CASE_FACET_OF_ONLY_IF_CHANGED[flag] === "owner" ? "owner_id" : "case_name";
+	const words = (flag: CaseFacetOnlyIfChanged) =>
+		CASE_FACET_OF_ONLY_IF_CHANGED[flag] === "owner" ? "owner" : "new name";
+	const refuse = (
+		flag: CaseFacetOnlyIfChanged,
+		reason: "facet" | "never-blank" | "registration-name" | "placement",
+		message: string,
+		extra: Record<string, string> = {},
+	) =>
+		errors.push(
+			opError(ctx, operation, "CASE_WRITE_ONLY_IF_CHANGED_INVALID", message, {
+				reason,
+				property: property(flag),
+				...extra,
+			}),
+		);
+	let placement:
+		| { readonly ineligibility?: string; readonly sentence: string }
+		| undefined
+		| null = null;
+	for (const flag of flags) {
+		const facet = CASE_FACET_OF_ONLY_IF_CHANGED[flag];
+		if (operation[facet] === undefined) {
+			refuse(
+				flag,
+				"facet",
+				`“${operation.id}” saves its ${words(flag)} only when it changed, but it saves no ${words(flag)}. You can choose one, or turn off saving it only when it changed.`,
+			);
+			continue;
+		}
+		// The worker and "no one" are never blank, so the owner they give is
+		// saved every time, and HQ's build sets either one beside the update
+		// map (`autoset_owner_id_for_*`), where no mode applies.
+		const ownerKind = operation.owner?.kind;
+		if (
+			flag === "ownerOnlyIfChanged" &&
+			(ownerKind === "acting-user" || ownerKind === "unowned")
+		) {
+			refuse(
+				flag,
+				"never-blank",
+				`“${operation.id}” saves its owner only when it changed, but ${ownerKind === "acting-user" ? "the worker who submits the form" : "no one"} is never a blank answer, so the owner is saved every time. You can turn off saving it only when it changed.`,
+			);
+			continue;
+		}
+		if (
+			flag === "nameOnlyIfChanged" &&
+			operation.action === "own" &&
+			ctx.form.type === "registration"
+		) {
+			refuse(
+				flag,
+				"registration-name",
+				`“${ctx.form.name}” makes a new case, so its name has no earlier value to compare with. You can save the name every time.`,
+			);
+			continue;
+		}
+		if (placement === null)
+			placement =
+				operation.action === "own"
+					? ownSlotRefusal(ctx, operation)
+					: savedThroughSaveToCase(ctx, operation);
+		if (placement === undefined) continue;
+		refuse(
+			flag,
+			"placement",
+			operation.action === "own"
+				? `This form's case is saved through Save to Case, which can't save only changed answers. ${placement.sentence} You can save its ${words(flag)} every time, or change the form so Case Management can hold it.`
+				: `“${operation.id}” is saved through Save to Case, which can't save only changed answers. You can save its ${words(flag)} every time instead.`,
+			placement.ineligibility === undefined
+				? {}
+				: {
+						ineligibility: placement.ineligibility,
+						placementSentence: placement.sentence,
+					},
+		);
+	}
 }
 
 /** A change other than the own arm that Nova saves through Save to Case. */

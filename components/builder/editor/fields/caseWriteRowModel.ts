@@ -83,6 +83,14 @@ export const SAVE_ONLY_IF_CHANGED_LINE =
  *  value: the answer differs from nothing unless it is blank. */
 export const SAVE_ONLY_IF_ANSWERED_LINE =
 	"A new case has no earlier value, so this saves the answer only when the worker gives one.";
+/** The switch's line on a case's owner: a case holds its owner apart from its
+ *  values, so the answer is compared with nothing and saved whenever the
+ *  worker gives one (`CaseFacetOnlyIfChanged`). */
+export const SAVE_OWNER_ONLY_IF_ANSWERED_LINE =
+	"Saves the owner only when the worker gives one, so a blank answer leaves the owner as it is.";
+/** The owner switch's line on a case the form creates. */
+export const SAVE_NEW_OWNER_ONLY_IF_ANSWERED_LINE =
+	"Saves the owner only when the worker gives one, so a blank answer leaves the new case with no owner.";
 /** Why the switch is off while CommCare HQ keeps the own change in Save to
  *  Case, whose block has no such setting. */
 export const KEPT_IN_SAVE_TO_CASE_REASON =
@@ -238,14 +246,32 @@ function onlyIfChangedSwitch(
 	input: CaseWriteRowInput,
 ): CaseWriteOnlyIfChangedSwitch | undefined {
 	const { view, form } = input;
-	if (view.slot !== "write" || !SWITCHED_DESTINATIONS.has(view.destination))
-		return undefined;
+	if (!SWITCHED_DESTINATIONS.has(view.destination)) return undefined;
 	const createsCase =
 		view.destination === "child" ||
 		(view.destination === "own" && form.type === "registration");
+	// A case's name and owner are saved only when changed too
+	// (`CaseFacetOnlyIfChanged`): a rename of this form's case, and the owner
+	// of this form's case or of a case it creates. A new case's name has no
+	// earlier value to compare with.
+	if (view.slot === "name" && (createsCase || view.destination !== "own"))
+		return undefined;
+	if (
+		view.slot === "owner" &&
+		view.destination !== "own" &&
+		view.destination !== "child"
+	)
+		return undefined;
 	const base = {
 		label: SAVE_ONLY_IF_CHANGED_LABEL,
-		line: createsCase ? SAVE_ONLY_IF_ANSWERED_LINE : SAVE_ONLY_IF_CHANGED_LINE,
+		line:
+			view.slot === "owner"
+				? createsCase
+					? SAVE_NEW_OWNER_ONLY_IF_ANSWERED_LINE
+					: SAVE_OWNER_ONLY_IF_ANSWERED_LINE
+				: createsCase
+					? SAVE_ONLY_IF_ANSWERED_LINE
+					: SAVE_ONLY_IF_CHANGED_LINE,
 		on: view.onlyIfChanged,
 		destination: onlyIfChangedDestination(view),
 	};

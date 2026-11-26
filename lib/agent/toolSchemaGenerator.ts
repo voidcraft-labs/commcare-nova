@@ -298,7 +298,7 @@ export const fieldCaseWriteInputSchema = z.strictObject({
 		.literal(true)
 		.optional()
 		.describe(
-			"Save only when the worker changed the answer from the case's value. Only on a follow-up or close form, and refused where CommCare HQ keeps the change in Save to Case.",
+			"Save only when the answer differs from the case's value; on a case the form creates, and on an owner_id, only a non-blank answer. Not on a new case's case_name, and refused where CommCare HQ keeps the change in Save to Case.",
 		),
 });
 export type FieldCaseWriteInput = z.infer<typeof fieldCaseWriteInputSchema>;

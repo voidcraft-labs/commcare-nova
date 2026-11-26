@@ -346,7 +346,7 @@ describe("CommCare HQ's spellings of a basic form's case actions", () => {
 		expect(codes(reading)).toEqual([]);
 	});
 
-	it("with the flag on, reads `edit` on a registration's update as onlyIfChanged and refuses it on the name key", async () => {
+	it("with the flag on, reads `edit` on a registration's update as onlyIfChanged, and on a follow-up's name and owner keys as the facets' flags", async () => {
 		const onUpdate = await readCases(app([registration]), {
 			saveOnlyEditedApplied: true,
 			edit: (json) => {
@@ -370,9 +370,23 @@ describe("CommCare HQ's spellings of a basic form's case actions", () => {
 					unknown
 				>;
 				update.name = { question_path: "/data/other", update_mode: "edit" };
+				update.owner_id = {
+					question_path: "/data/notes",
+					update_mode: "edit",
+				};
 			},
 		});
-		expect(codes(onName)).toContain(
+		expect(codes(onName)).toEqual([]);
+		expect(
+			onName.forms[0]?.form.caseOperations?.find((one) => one.action === "own"),
+		).toMatchObject({
+			nameOnlyIfChanged: true,
+			ownerOnlyIfChanged: true,
+		});
+		const records = [...onName.ctx.close().claims.records()].map(
+			(one) => one.entry,
+		);
+		expect(records).toContain(
 			`${F}/update-mode-edit-on-a-case-s-name-or-owner`,
 		);
 	});
@@ -888,9 +902,12 @@ describe("CommCare HQ's spellings of a basic form's case actions", () => {
 					},
 				}),
 			});
-			expect(codes(owner)).toContain(
-				`${F}/update-mode-edit-on-a-case-s-name-or-owner`,
-			);
+			expect(codes(owner)).toEqual([]);
+			expect(
+				owner.forms[0]?.form.caseOperations?.find(
+					(one) => one.action === "create",
+				),
+			).toMatchObject({ ownerOnlyIfChanged: true });
 		});
 	});
 });

@@ -6,9 +6,10 @@ import { openBuilder } from "../../lib/pageLoads";
 /**
  * Where a question's answer is saved, authored from both of its screens:
  * the case changes list keeps this form's own case first and unmovable, a
- * follow-up's question can save to the case above the one it opened, and
- * a registration's question can't save only changed answers, since its new
- * case has nothing earlier to compare with.
+ * follow-up's question can save to the case above the one it opened, a
+ * registration's question saves only an answer the worker gives, since its
+ * new case has nothing earlier to compare with, and a follow-up's new name
+ * can be saved only when it differs from the case's name.
  */
 
 /** The next save of the app whose body carries `needle`. */
@@ -117,4 +118,39 @@ test("a registration's question saves only an answer the worker gives", {
 			.locator('[data-only-if-changed="on"]')
 			.getByRole("switch", { name: "Save only if changed" }),
 	).toBeChecked({ timeout: 20_000 });
+});
+
+test("a follow-up's new name saves only when it differs from the case's name", {
+	tag: "@seed:case-changes",
+}, async ({ scenario, page }) => {
+	const { caseChanges } = seedFor(scenario, "case-changes");
+	await openBuilder(page, caseChanges.followupOperationsRoute);
+
+	const rows = page
+		.getByRole("list", { name: "Case changes in the order they happen" })
+		.getByRole("listitem");
+	await expect(rows.first()).toContainText("Update this form's", {
+		timeout: 20_000,
+	});
+	await rows
+		.first()
+		.getByRole("button", { name: /Open this change\.$/ })
+		.click();
+
+	const renamed = savedWith(page, caseChanges.appId, '"name"');
+	await page.getByRole("button", { name: "Set a new name" }).click();
+	expect((await renamed).ok()).toBe(true);
+
+	const facet = page.locator('[data-facet-only-if-changed="off"]');
+	await expect(facet).toContainText(
+		"Saves the new name only when it differs from the case's name.",
+	);
+	const flagged = savedWith(page, caseChanges.appId, '"nameOnlyIfChanged"');
+	await facet.getByRole("switch", { name: "Save only if changed" }).click();
+	expect((await flagged).ok()).toBe(true);
+	await expect(
+		page
+			.locator('[data-facet-only-if-changed="on"]')
+			.getByRole("switch", { name: "Save only if changed" }),
+	).toBeChecked();
 });

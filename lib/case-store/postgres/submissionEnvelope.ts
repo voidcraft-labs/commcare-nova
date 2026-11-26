@@ -232,6 +232,9 @@ function programSteps(
 			id: stored.id,
 			caseType: own.caseType,
 			...(stored.owner === undefined ? {} : { owner: stored.owner }),
+			...(stored.ownerOnlyIfChanged === undefined
+				? {}
+				: { ownerOnlyIfChanged: stored.ownerOnlyIfChanged }),
 			...(stored.writes === undefined ? {} : { writes: stored.writes }),
 			...(stored.links === undefined ? {} : { links: stored.links }),
 		};
@@ -262,6 +265,9 @@ function programSteps(
 				action: "update",
 				target: { kind: "session" },
 				...(stored.name === undefined ? {} : { rename: stored.name }),
+				...(stored.nameOnlyIfChanged === undefined
+					? {}
+					: { renameOnlyIfChanged: stored.nameOnlyIfChanged }),
 			},
 			recordAction: "own",
 			own: true,
@@ -1003,6 +1009,10 @@ export interface ResolvedLink {
 }
 
 const MAX_SELECTED_CASES = 100;
+
+/** The owner CommCare HQ's build gives a case it creates beside an
+ *  `owner_id` update (`const.py::UNOWNED_EXTENSION_OWNER_ID`). */
+const UNOWNED_OWNER_ID = "-";
 
 function rejectSelection(
 	rejection: Extract<
@@ -1911,17 +1921,28 @@ async function resolveOperationProgram(
 			// guard rejects it — same rejection here.
 			preparedName = prepareText("name", evaluatedText(bag?.name));
 		}
+		// An owner saved only when changed (`CaseFacetOnlyIfChanged`) is
+		// compared with the case's `owner_id` leaf, which a case holds as an
+		// attribute, so the comparison reads "" and a blank answer saves
+		// nothing. On a case the form creates, CommCare HQ's build then leaves
+		// the create block's own owner `-` (`autoset_owner_id_for_*`).
+		const ownerKept =
+			operation.ownerOnlyIfChanged === true &&
+			blankText(evaluatedText(bag?.owner));
 		let preparedOwner: string | undefined;
 		if (operation.action === "create") {
-			preparedOwner = prepareText(
-				"owner",
-				operation.owner === undefined
-					? host.actingUserId
-					: evaluatedText(bag?.owner),
-			);
+			preparedOwner = ownerKept
+				? UNOWNED_OWNER_ID
+				: prepareText(
+						"owner",
+						operation.owner === undefined
+							? host.actingUserId
+							: evaluatedText(bag?.owner),
+					);
 		} else if (
 			operation.action === "update" &&
 			operation.owner !== undefined &&
+			!ownerKept &&
 			!(
 				instance.envelope.blankSavesNothing &&
 				blankText(evaluatedText(bag?.owner))
@@ -1929,7 +1950,7 @@ async function resolveOperationProgram(
 		) {
 			preparedOwner = prepareText("owner", evaluatedText(bag?.owner));
 		}
-		const preparedRename =
+		let preparedRename =
 			operation.rename === undefined ||
 			(instance.envelope.blankSavesNothing &&
 				blankText(evaluatedText(bag?.rename)))
@@ -1974,6 +1995,15 @@ async function resolveOperationProgram(
 			}
 			return snapshots.get(caseId);
 		};
+		// A rename saved only when changed is compared with the case's name
+		// when the form opened, as HQ's `case/update/case_name` relevance
+		// compares the casedb `case_name` with the trimmed answer.
+		if (
+			operation.renameOnlyIfChanged === true &&
+			preparedRename !== undefined &&
+			(await storedValuesOf(target.caseId))?.caseName === preparedRename
+		)
+			preparedRename = undefined;
 		for (const [writeIndex, write] of (operation.writes ?? []).entries()) {
 			if (skippedWrites.get(index)?.has(writeIndex)) continue;
 			// A write through an index saves to the case the chain reaches in

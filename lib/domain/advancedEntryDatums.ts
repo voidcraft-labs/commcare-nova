@@ -67,6 +67,7 @@ import {
 	formLinkEntries,
 	opensWithWorkerValue,
 	operationCaseType,
+	operationSavesOnlyChanged,
 	orderedCaseOperations,
 	usesFormEntryActions,
 } from "./forms";
@@ -1072,7 +1073,7 @@ function heldWorkerBlockExpresses(
 	const held = operation.placement;
 	if (held?.kind !== "save-to-case") return false;
 	const writes = operation.writes ?? [];
-	if (writes.some((write) => write.onlyIfChanged === true)) return false;
+	if (operationSavesOnlyChanged(operation)) return false;
 	if (writes.some((write) => write.via !== undefined)) return false;
 	if (held.repeat !== operation.forEach?.repeat) return false;
 	const shape =

@@ -1,5 +1,6 @@
 import {
 	type BlueprintDoc,
+	type CaseFacetOnlyIfChanged,
 	type CaseOperation,
 	type CaseOperationLink,
 	type CaseOperationWrite,
@@ -51,8 +52,11 @@ const OPERATION_PATCH_KEYS = [
 	"condition",
 	"forEach",
 	"name",
+	"nameOnlyIfChanged",
 	"owner",
+	"ownerOnlyIfChanged",
 	"rename",
+	"renameOnlyIfChanged",
 	"retype",
 ] as const satisfies readonly (keyof CaseOperation)[];
 
@@ -79,6 +83,19 @@ function operationMutation(
 	};
 }
 
+/** The patch of one facet flag (`CaseFacetOnlyIfChanged`): `true` sets it,
+ *  `null` clears it. */
+function flagPatch<K extends CaseFacetOnlyIfChanged>(
+	key: K,
+	before: CaseOperation,
+	after: StoredCaseOperation,
+): Partial<Record<K, true | null>> {
+	const was = (before as { readonly [key: string]: unknown })[key] === true;
+	const is = (after as { readonly [key: string]: unknown })[key] === true;
+	if (was === is) return {};
+	return { [key]: is ? true : null } as Partial<Record<K, true | null>>;
+}
+
 function scalarOperationUpdate(
 	before: CaseOperation,
 	after: StoredCaseOperation,
@@ -87,14 +104,17 @@ function scalarOperationUpdate(
 		case "own": {
 			// The own arm's case type, target, condition and repeat are the
 			// form's; its id names its block and never changes. Only its name
-			// and owner are its own slots.
+			// and owner, and whether each is saved only when changed, are its
+			// own slots.
 			const patch = {
 				...(!deepEqual(before.name, after.name)
 					? { name: clearable(after.name) }
 					: {}),
+				...flagPatch("nameOnlyIfChanged", before, after),
 				...(!deepEqual(before.owner, after.owner)
 					? { owner: clearable(after.owner) }
 					: {}),
+				...flagPatch("ownerOnlyIfChanged", before, after),
 			};
 			return {
 				operation: "update",
@@ -121,10 +141,17 @@ function scalarOperationUpdate(
 				...(!deepEqual(before.name, after.name)
 					? { name: structuredClone(after.name) }
 					: {}),
+				...(before.nameOnlyIfChanged !== undefined
+					? { nameOnlyIfChanged: null }
+					: {}),
 				...(!deepEqual(before.owner, after.owner)
 					? { owner: clearable(after.owner) }
 					: {}),
+				...flagPatch("ownerOnlyIfChanged", before, after),
 				...(before.rename !== undefined ? { rename: null } : {}),
+				...(before.renameOnlyIfChanged !== undefined
+					? { renameOnlyIfChanged: null }
+					: {}),
 				...(before.retype !== undefined ? { retype: null } : {}),
 			};
 			return {
@@ -150,12 +177,17 @@ function scalarOperationUpdate(
 					? { forEach: clearable(after.forEach) }
 					: {}),
 				...(before.name !== undefined ? { name: null } : {}),
+				...(before.nameOnlyIfChanged !== undefined
+					? { nameOnlyIfChanged: null }
+					: {}),
 				...(!deepEqual(before.owner, after.owner)
 					? { owner: clearable(after.owner) }
 					: {}),
+				...flagPatch("ownerOnlyIfChanged", before, after),
 				...(!deepEqual(before.rename, after.rename)
 					? { rename: clearable(after.rename) }
 					: {}),
+				...flagPatch("renameOnlyIfChanged", before, after),
 				...(!deepEqual(before.retype, after.retype)
 					? { retype: clearable(after.retype) }
 					: {}),
@@ -183,8 +215,17 @@ function scalarOperationUpdate(
 					? { forEach: clearable(after.forEach) }
 					: {}),
 				...(before.name !== undefined ? { name: null } : {}),
+				...(before.nameOnlyIfChanged !== undefined
+					? { nameOnlyIfChanged: null }
+					: {}),
 				...(before.owner !== undefined ? { owner: null } : {}),
+				...(before.ownerOnlyIfChanged !== undefined
+					? { ownerOnlyIfChanged: null }
+					: {}),
 				...(before.rename !== undefined ? { rename: null } : {}),
+				...(before.renameOnlyIfChanged !== undefined
+					? { renameOnlyIfChanged: null }
+					: {}),
 				...(before.retype !== undefined ? { retype: null } : {}),
 			};
 			return {

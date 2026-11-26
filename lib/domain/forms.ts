@@ -522,7 +522,13 @@ export const ownCaseOperationSchema = z.strictObject({
 	/** Registration: the new case's name. Follow-up and close: a rename of
 	 *  the case the form loaded. */
 	name: valueSchema.optional(),
+	/** Follow-up and close: the rename is saved only when it differs from
+	 *  the case's name (`caseFacetOnlyIfChanged`). */
+	nameOnlyIfChanged: z.literal(true).optional(),
 	owner: valueSchema.optional(),
+	/** The owner is saved only when the answer is not blank
+	 *  (`caseFacetOnlyIfChanged`). */
+	ownerOnlyIfChanged: z.literal(true).optional(),
 	writes: z.array(caseOperationWriteSchema).optional(),
 	links: z.array(caseOperationLinkSchema).optional(),
 	placement: casePlacementSchema.optional(),
@@ -531,6 +537,7 @@ export const ownCaseOperationSchema = z.strictObject({
 	condition: z.never().optional(),
 	forEach: z.never().optional(),
 	rename: z.never().optional(),
+	renameOnlyIfChanged: z.never().optional(),
 	retype: z.never().optional(),
 });
 
@@ -541,9 +548,12 @@ export const caseOperationSchema = z.discriminatedUnion("action", [
 		action: z.literal("create"),
 		target: newCaseTargetSchema,
 		name: valueSchema,
+		nameOnlyIfChanged: z.never().optional(),
 		owner: valueSchema.optional(),
+		ownerOnlyIfChanged: z.literal(true).optional(),
 		links: z.array(caseOperationLinkSchema).optional(),
 		rename: z.never().optional(),
+		renameOnlyIfChanged: z.never().optional(),
 		retype: z.never().optional(),
 	}),
 	z.strictObject({
@@ -551,8 +561,11 @@ export const caseOperationSchema = z.discriminatedUnion("action", [
 		action: z.literal("update"),
 		target: updateCaseTargetSchema,
 		name: z.never().optional(),
+		nameOnlyIfChanged: z.never().optional(),
 		owner: valueSchema.optional(),
+		ownerOnlyIfChanged: z.literal(true).optional(),
 		rename: valueSchema.optional(),
+		renameOnlyIfChanged: z.literal(true).optional(),
 		retype: z.string().optional(),
 		links: z.array(caseOperationLinkSchema).optional(),
 	}),
@@ -561,18 +574,70 @@ export const caseOperationSchema = z.discriminatedUnion("action", [
 		action: z.literal("close"),
 		target: existingCaseTargetSchema,
 		name: z.never().optional(),
+		nameOnlyIfChanged: z.never().optional(),
 		owner: z.never().optional(),
+		ownerOnlyIfChanged: z.never().optional(),
 		rename: z.never().optional(),
+		renameOnlyIfChanged: z.never().optional(),
 		retype: z.never().optional(),
 		links: z.never().optional(),
 	}),
 ]);
 
+/**
+ * The name and owner facets an operation saves only when changed, as HQ's
+ * build applies `update_mode: "edit"` to the `name` and `owner_id` keys of
+ * an update map (`xform.py::XFormCaseBlock.add_case_updates`): the key's
+ * leaf is relevant only while the answer differs from the case's
+ * `case/<key>` in the casedb when the form opened. A case holds its name as
+ * `case_name`, so a rename is saved only when it differs from the name; a
+ * case holds its owner as an attribute, so `case/owner_id` is empty
+ * (`XPathNodeset.unpack` of no node is "") and the owner is saved only when
+ * the answer is not blank. On a case the form creates, HQ's build then
+ * leaves the create block's own owner as `-` (`autoset_owner_id_for_*`
+ * finds `owner_id` among the updates), so a blank answer leaves it unowned.
+ *
+ * - `nameOnlyIfChanged`: the own arm's rename on a follow-up or close form.
+ * - `renameOnlyIfChanged`: an update's rename.
+ * - `ownerOnlyIfChanged`: the owner of the own arm, a create or an update.
+ */
+export type CaseFacetOnlyIfChanged =
+	| "nameOnlyIfChanged"
+	| "renameOnlyIfChanged"
+	| "ownerOnlyIfChanged";
+
+/** The facet each flag saves only when changed. */
+export const CASE_FACET_OF_ONLY_IF_CHANGED = {
+	nameOnlyIfChanged: "name",
+	renameOnlyIfChanged: "rename",
+	ownerOnlyIfChanged: "owner",
+} as const satisfies Record<
+	CaseFacetOnlyIfChanged,
+	"name" | "rename" | "owner"
+>;
+
+/** Whether some write or facet of `operation` is saved only when changed. */
+export function operationSavesOnlyChanged(operation: {
+	readonly writes?: readonly CaseOperationWrite[];
+	readonly nameOnlyIfChanged?: true;
+	readonly renameOnlyIfChanged?: true;
+	readonly ownerOnlyIfChanged?: true;
+}): boolean {
+	return (
+		operation.nameOnlyIfChanged === true ||
+		operation.renameOnlyIfChanged === true ||
+		operation.ownerOnlyIfChanged === true ||
+		(operation.writes ?? []).some((write) => write.onlyIfChanged === true)
+	);
+}
+
 type CaseOperationFacets = {
 	uuid: Uuid;
 	id: string;
 	name?: Expression;
+	nameOnlyIfChanged?: true;
 	owner?: Expression;
+	ownerOnlyIfChanged?: true;
 	writes?: CaseOperationWrite[];
 	links?: CaseOperationLink[];
 	placement?: CasePlacement;
@@ -586,6 +651,7 @@ export type OwnCaseOperation = CaseOperationFacets & {
 	condition?: undefined;
 	forEach?: undefined;
 	rename?: undefined;
+	renameOnlyIfChanged?: undefined;
 	retype?: undefined;
 };
 
@@ -597,6 +663,7 @@ export type TargetedCaseOperation = CaseOperationFacets & {
 	condition?: Expression;
 	forEach?: { repeat: Uuid };
 	rename?: Expression;
+	renameOnlyIfChanged?: true;
 	retype?: string;
 };
 

@@ -7732,17 +7732,22 @@
 		"item": "`update_mode: edit` on the `name` or `owner_id` key of a form's own `update_case`, on the `owner_id` key of a child case's `case_properties`, or on the `name` or `owner_id` key of an advanced load's or open action's `case_properties`, in a project space with `SAVE_ONLY_EDITED_FORM_FIELDS`",
 		"surfaceKeys": ["schema:ConditionalCaseUpdate.update_mode"],
 		"valueClass": "edit-on-a-case-s-name-or-owner",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: a case's own name or owner saved only when changed: HQ's build applies the mode to these keys too (`xform.py::XFormCaseBlock.add_case_updates`, comparing the casedb `case_name` leaf, and an `owner_id` leaf a case holds as an attribute, so always empty), while Nova saves an operation's name and owner facets every time and holds `onlyIfChanged` only on its writes",
-		"subject": "form-case-management",
-		"owner": "forms-and-case-management",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the operation's `nameOnlyIfChanged`, `renameOnlyIfChanged` or `ownerOnlyIfChanged` (`forms.ts::CaseFacetOnlyIfChanged`): HQ's build applies the mode to these keys as to any other (`xform.py::XFormCaseBlock.add_case_updates`), comparing the casedb `case_name` leaf with a rename, and with an owner an `owner_id` leaf a case holds as an attribute, so always empty: an owner is saved only when the answer is not blank, and on a case the form creates the create block's own owner is then `-` (`autoset_owner_id_for_*`); the case store compares the same way (`postgres/submissionEnvelope.ts`), and Nova's export writes `edit` back; a registration's own name (its `open_case.name_update`, whose mode HQ's build never reads), an owner that is the worker or no one, and a change saved through Save to Case are refused (`CASE_WRITE_ONLY_IF_CHANGED_INVALID`)",
+		"slotChanges": [],
 		"platforms": {
-			"kind": "not-applicable",
-			"cell": "n/a"
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
 		},
 		"emission": {
-			"cell": "omit",
-			"markers": ["omit"]
+			"cell": "`edit`",
+			"markers": []
 		},
 		"gates": []
 	},

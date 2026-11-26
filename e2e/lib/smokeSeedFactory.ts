@@ -86,6 +86,7 @@ import {
 	CASE_CHANGES_SEED,
 	caseChangesRoute,
 	caseWriteFieldRoute,
+	caseWritesFollowupOperationsRoute,
 	identityProjectionRoute,
 } from "./caseChangesSeed";
 import {
@@ -1139,6 +1140,8 @@ export async function createSmokeBuilders(
 					route: caseChangesRoute(caseChangesAppId),
 					identityProjectionRoute: identityProjectionRoute(caseChangesAppId),
 					followupWriteRoute: caseWriteFieldRoute(caseChangesAppId, "followup"),
+					followupOperationsRoute:
+						caseWritesFollowupOperationsRoute(caseChangesAppId),
 					registrationWriteRoute: caseWriteFieldRoute(
 						caseChangesAppId,
 						"registration",

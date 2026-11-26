@@ -38,6 +38,7 @@ import {
 	type CaseOperation,
 	caseOperationRunsPerSelectedCase,
 	type Form,
+	operationSavesOnlyChanged,
 	orderedCaseOperations,
 } from "./forms";
 import {
@@ -759,7 +760,7 @@ function ownOrCreateSaveToCaseReasons(
 ): PlacementIneligibility[] {
 	const reasons: PlacementIneligibility[] = [];
 	const writes = operation.writes ?? [];
-	if (writes.some((write) => write.onlyIfChanged === true))
+	if (operationSavesOnlyChanged(operation))
 		reasons.push({ reason: "only-if-changed" });
 	if (writes.some((write) => write.via !== undefined))
 		reasons.push({ reason: "via" });

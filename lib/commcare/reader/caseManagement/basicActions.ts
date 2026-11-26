@@ -216,7 +216,7 @@ export const BASIC_CLAIMS = defineClaims("caseManagement.basicActions", {
 		`${F}/update-mode-edit-off-a-follow-up-form-s-own-update`,
 		"schema:ConditionalCaseUpdate.update_mode",
 	),
-	editNotHeld: refuse(
+	editFacet: take(
 		`${F}/update-mode-edit-on-a-case-s-name-or-owner`,
 		"schema:ConditionalCaseUpdate.update_mode",
 	),
@@ -611,7 +611,9 @@ export interface ProposedOperation {
 	readonly action: "own" | "create" | "close" | "update";
 	readonly caseType?: string;
 	readonly name?: ProposedValue;
+	readonly nameOnlyIfChanged?: true;
 	readonly owner?: ProposedValue;
+	readonly ownerOnlyIfChanged?: true;
 	readonly writes: readonly ProposedWrite[];
 	readonly condition?: ProposedCondition;
 	readonly forEach?: DraftField;
@@ -1393,9 +1395,8 @@ function readUpdate(
 	r: FormReading,
 	cursor: JsonCursor,
 	property: string,
-	/** The row a write saved only when changed reads under: absent on a
-	 *  case's name or owner, which Nova saves every time. */
-	edit: Claim<"take"> | undefined,
+	/** The row a write saved only when changed reads under. */
+	edit: Claim<"take">,
 	pathClaim: Claim<"take">,
 	keyClaim?: Claim<"take">,
 ): {
@@ -1405,17 +1406,14 @@ function readUpdate(
 } {
 	const path = cursor.peek("question_path");
 	let onlyIfChanged: true | undefined;
-	let ok = true;
+	const ok = true;
 	if (cursor.peek("update_mode") === "edit") {
 		// Without the flag HQ's build saves every time: a follow-up's own update
 		// keeps its row, respelled; anywhere else the mode is inert.
-		if (edit === BASIC_CLAIMS.editHeld || (edit !== undefined && r.applied)) {
+		if (edit === BASIC_CLAIMS.editHeld || r.applied) {
 			consume(cursor.take("update_mode", edit, (value) => value));
 			if (r.applied) onlyIfChanged = true;
 			else rewrite(r.ctx, edit.entry, `${cursor.pointer}/update_mode`);
-		} else if (r.applied) {
-			cursor.refuse("update_mode", BASIC_CLAIMS.editNotHeld);
-			ok = false;
 		} else cursor.drop("update_mode", BASIC_CLAIMS.editNotApplied);
 	}
 	const read =
@@ -1473,12 +1471,16 @@ function readUpdateMap(
 ): {
 	readonly writes: ProposedWrite[];
 	name?: ProposedValue;
+	nameOnlyIfChanged?: true;
 	owner?: ProposedValue;
+	ownerOnlyIfChanged?: true;
 } {
 	const out: {
 		writes: ProposedWrite[];
 		name?: ProposedValue;
+		nameOnlyIfChanged?: true;
 		owner?: ProposedValue;
+		ownerOnlyIfChanged?: true;
 	} = {
 		writes: [],
 	};
@@ -1583,10 +1585,11 @@ function readUpdateMap(
 			continue;
 		}
 		// Every write of an update map is saved only when changed where HQ's
-		// build applies the mode (`XFormCaseBlock.add_case_updates`); the own
-		// case's name and owner are its facets, which Nova saves every time.
+		// build applies the mode (`XFormCaseBlock.add_case_updates`), the own
+		// case's name and owner, its facets, among them
+		// (`CaseFacetOnlyIfChanged`).
 		const edit = facet
-			? undefined
+			? BASIC_CLAIMS.editFacet
 			: slot === "own" && loads
 				? BASIC_CLAIMS.editHeld
 				: BASIC_CLAIMS.editElsewhere;
@@ -1642,10 +1645,12 @@ function readUpdateMap(
 				continue;
 			}
 			out.name = read.value;
+			if (read.onlyIfChanged !== undefined) out.nameOnlyIfChanged = true;
 			continue;
 		}
 		if (facet && property === "owner_id") {
 			out.owner = read.value;
+			if (read.onlyIfChanged !== undefined) out.ownerOnlyIfChanged = true;
 			continue;
 		}
 		out.writes.push({
@@ -1775,7 +1780,9 @@ export function readBasicActions(
 
 	// The own case.
 	let ownName: ProposedValue | undefined;
+	let ownNameOnlyIfChanged: true | undefined;
 	let ownOwner: ProposedValue | undefined;
+	let ownOwnerOnlyIfChanged: true | undefined;
 	const ownWrites: ProposedWrite[] = [];
 	let openCondition: ProposedCondition | undefined;
 	let closeCondition: ProposedCondition | "match-all" | undefined;
@@ -1962,7 +1969,9 @@ export function readBasicActions(
 				);
 				ownWrites.push(...read.writes);
 				if (read.name !== undefined) ownName = read.name;
+				if (read.nameOnlyIfChanged !== undefined) ownNameOnlyIfChanged = true;
 				if (read.owner !== undefined) ownOwner = read.owner;
+				if (read.ownerOnlyIfChanged !== undefined) ownOwnerOnlyIfChanged = true;
 			} else if (U.used("update"))
 				U.drop("update", BASIC_CLAIMS.updateMapUnderNever);
 		}
@@ -2054,7 +2063,13 @@ export function readBasicActions(
 				id: operationId(caseType),
 				action: "own",
 				...(ownName !== undefined && { name: ownName }),
+				...(ownNameOnlyIfChanged !== undefined && {
+					nameOnlyIfChanged: ownNameOnlyIfChanged,
+				}),
 				...(ownOwner !== undefined && { owner: ownOwner }),
+				...(ownOwnerOnlyIfChanged !== undefined && {
+					ownerOnlyIfChanged: ownOwnerOnlyIfChanged,
+				}),
 				writes: ownWrites,
 				placement: { kind: "basic", slot: "own" },
 			});
@@ -2377,6 +2392,7 @@ function readSubcases(
 		}
 		const writes: ProposedWrite[] = [];
 		let owner: ProposedValue | undefined;
+		let ownerOnlyIfChanged: true | undefined;
 		const properties = S.map(
 			"case_properties",
 			"ConditionalCaseUpdate",
@@ -2408,7 +2424,9 @@ function readSubcases(
 				r,
 				cursor,
 				key,
-				key === "owner_id" ? undefined : BASIC_CLAIMS.editElsewhere,
+				key === "owner_id"
+					? BASIC_CLAIMS.editFacet
+					: BASIC_CLAIMS.editElsewhere,
 				BASIC_CLAIMS.subcaseQuestionPath,
 			);
 			if (!read.ok || read.value === undefined) {
@@ -2426,8 +2444,10 @@ function readSubcases(
 				ok = false;
 				continue;
 			}
-			if (key === "owner_id") owner = read.value;
-			else
+			if (key === "owner_id") {
+				owner = read.value;
+				ownerOnlyIfChanged = read.onlyIfChanged;
+			} else
 				writes.push({
 					property: key,
 					value: read.value,
@@ -2494,6 +2514,7 @@ function readSubcases(
 			caseType,
 			name,
 			...(owner !== undefined && { owner }),
+			...(ownerOnlyIfChanged !== undefined && { ownerOnlyIfChanged }),
 			writes,
 			...(condition !== undefined && { condition }),
 			...(repeat !== undefined && { forEach: repeat }),
@@ -2640,6 +2661,10 @@ export function writeBasicOperations(
 			proposal.forEach?.uuid === undefined
 				? undefined
 				: { repeat: proposal.forEach.uuid };
+		const ownerFlag =
+			owner !== undefined && proposal.ownerOnlyIfChanged === true
+				? { ownerOnlyIfChanged: true as const }
+				: {};
 		const common = {
 			uuid: proposal.uuid,
 			id: proposal.id,
@@ -2653,7 +2678,12 @@ export function writeBasicOperations(
 				...common,
 				action: "own",
 				...(name !== undefined && { name }),
+				...(name !== undefined &&
+					proposal.nameOnlyIfChanged === true && {
+						nameOnlyIfChanged: true,
+					}),
 				...(owner !== undefined && { owner }),
+				...ownerFlag,
 			});
 		else if (proposal.action === "create" && name !== undefined)
 			operations.push({
@@ -2663,6 +2693,7 @@ export function writeBasicOperations(
 				target: { kind: "new" },
 				name,
 				...(owner !== undefined && { owner }),
+				...ownerFlag,
 				...(condition !== undefined && { condition }),
 				...(forEach !== undefined && { forEach }),
 				...(proposal.linksOwn === true && {

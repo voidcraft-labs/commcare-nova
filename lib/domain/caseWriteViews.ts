@@ -224,7 +224,10 @@ function deriveFormViews(
 					slot,
 					caseType: operationType,
 					property: slot === "name" ? "case_name" : "owner_id",
-					onlyIfChanged: false,
+					onlyIfChanged:
+						(slot === "name"
+							? operation.nameOnlyIfChanged
+							: operation.ownerOnlyIfChanged) === true,
 					link: read.link,
 					destination,
 				},

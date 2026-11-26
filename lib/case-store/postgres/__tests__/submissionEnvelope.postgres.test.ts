@@ -3666,6 +3666,92 @@ describe("the form's own case", () => {
 		});
 	});
 
+	it("saves a rename only when it differs from the name the form opened on, and an owner only when one is given", async () => {
+		// HQ's `edit` on `name` compares the casedb `case_name` with the
+		// answer, and on `owner_id` a leaf a case holds as an attribute, so
+		// "" (`XFormCaseBlock.add_case_updates`, `XPathNodeset.unpack`).
+		const store = makeStore();
+		await seedSessionPatient(store);
+		const entered = {
+			currentOwnerIds: [ACTOR],
+			lookupRows: [],
+			cases: await store.readDeviceCaseDatabase({
+				appId: APP_ID,
+				restoreScope: { ownerIds: [ACTOR] },
+			}),
+		};
+		// Another submission renames the case after this form opened on "Alice".
+		await submit(store, {
+			appId: APP_ID,
+			ordinary: followupOrdinary(),
+			operations: ownProgram("followup", [
+				ownOp({ name: term(literal("Bob")) }),
+			]),
+		});
+		const facets = (name: string, owner: string, flagged: boolean) =>
+			submit(store, {
+				appId: APP_ID,
+				ordinary: followupOrdinary(),
+				operations: {
+					...ownProgram("followup", [
+						ownOp({
+							name: term(literal(name)),
+							owner: term(literal(owner)),
+							...(flagged && {
+								nameOnlyIfChanged: true as const,
+								ownerOnlyIfChanged: true as const,
+							}),
+						}),
+					]),
+					openingReads: entered,
+				},
+			});
+		// The answer equals the name the form opened on, and the owner is
+		// blank: neither is saved, so the other submission's name stands.
+		await facets("Alice", "", true);
+		let row = await patientRow(store, SESSION_CASE_ID);
+		expect(row?.case_name).toBe("Bob");
+		expect(row?.owner_id).toBe(ACTOR);
+		// Saved every time, the same answers rename the case and a blank owner
+		// is refused, as a blank owner always is.
+		expect(
+			(await rejection(facets("Alice", "", false))).rejection,
+		).toMatchObject({ kind: "text-value", facet: "owner" });
+		await facets("Carol", "group-a", true);
+		row = await patientRow(store, SESSION_CASE_ID);
+		expect(row?.case_name).toBe("Carol");
+		expect(row?.owner_id).toBe("group-a");
+	});
+
+	it("leaves a new case with no owner where its owner saved only when given is blank", async () => {
+		// HQ's build gives the create block `-` beside an `owner_id` update
+		// (`autoset_owner_id_for_open_case`), which the update's leaf
+		// overwrites only when the answer is given.
+		const store = makeStore();
+		const register = (name: string, owner: string) =>
+			submit(store, {
+				appId: APP_ID,
+				ordinary: { kind: "none" },
+				operations: ownProgram("registration", [
+					ownOp({
+						name: term(literal(name)),
+						owner: term(literal(owner)),
+						ownerOnlyIfChanged: true,
+					}),
+				]),
+			});
+		await register("Unowned", "");
+		await register("Owned", "group-a");
+		const patients = await store.query({
+			reading: SEARCH_READING,
+			appId: APP_ID,
+			caseType: "patient",
+		});
+		const byName = new Map(patients.map((one) => [one.case_name, one]));
+		expect(byName.get("Unowned")?.owner_id).toBe("-");
+		expect(byName.get("Owned")?.owner_id).toBe("group-a");
+	});
+
 	it("updates the acting worker's own record through the worker-record target", async () => {
 		const store = makeStore();
 		const usercaseBlueprint = buildSimpleBlueprint(

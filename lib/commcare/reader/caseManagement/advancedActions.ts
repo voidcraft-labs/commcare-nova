@@ -342,7 +342,7 @@ export const ADVANCED_CLAIMS = defineClaims("caseManagement.advancedActions", {
 		`${F}/update-mode-edit-off-a-follow-up-form-s-own-update`,
 		"schema:ConditionalCaseUpdate.update_mode",
 	),
-	editNotHeld: refuse(
+	editFacet: take(
 		`${F}/update-mode-edit-on-a-case-s-name-or-owner`,
 		"schema:ConditionalCaseUpdate.update_mode",
 	),
@@ -637,8 +637,12 @@ interface AdvancedProposal {
 	readonly tag: string;
 	readonly row?: true;
 	readonly name?: ProposedValue;
+	/** The own arm's rename on a load, saved only when changed. */
+	readonly nameOnlyIfChanged?: true;
 	readonly rename?: ProposedValue;
+	readonly renameOnlyIfChanged?: true;
 	readonly owner?: ProposedValue | "acting-user" | "unowned";
+	readonly ownerOnlyIfChanged?: true;
 	readonly writes: readonly {
 		readonly property: string;
 		readonly value: ProposedValue;
@@ -925,7 +929,9 @@ function readProperties(
 		onlyIfChanged?: true;
 	}[];
 	name?: ProposedValue;
+	nameOnlyIfChanged?: true;
 	owner?: ProposedValue | "acting-user" | "unowned";
+	ownerOnlyIfChanged?: true;
 	ownerNode?: OwnerNode;
 	/** A key of the map was refused, as its own finding. */
 	refused?: true;
@@ -1031,20 +1037,19 @@ function readProperties(
 			continue;
 		}
 		// Every write is saved only when changed where HQ's build applies the
-		// mode (`XFormCaseBlock.add_case_updates`); the action's own name and
-		// owner are its facets, which Nova saves every time.
+		// mode (`XFormCaseBlock.add_case_updates`), the action's own name and
+		// owner, its facets, among them (`CaseFacetOnlyIfChanged`).
 		let onlyIfChanged: true | undefined;
 		if (cursor.peek("update_mode") === "edit") {
 			if (!r.applied)
 				cursor.drop("update_mode", ADVANCED_CLAIMS.editNotApplied);
-			else if (via === undefined && (key === "name" || key === "owner_id")) {
-				cursor.refuse("update_mode", ADVANCED_CLAIMS.editNotHeld);
-				r.ok = false;
-			} else {
+			else {
 				consume(
 					cursor.take(
 						"update_mode",
-						ADVANCED_CLAIMS.editHeld,
+						via === undefined && (key === "name" || key === "owner_id")
+							? ADVANCED_CLAIMS.editFacet
+							: ADVANCED_CLAIMS.editHeld,
 						(value) => value,
 					),
 				);
@@ -1062,8 +1067,9 @@ function readProperties(
 			out.refused = true;
 			continue;
 		}
-		// An open action's owner may name the owner node Nova folds beside it.
-		if (key === "owner_id" && opens) {
+		// An open action's owner may name the owner node Nova folds beside it,
+		// which Nova saves every time.
+		if (key === "owner_id" && opens && onlyIfChanged === undefined) {
 			const owner = ownerNode(r, path);
 			if (owner !== undefined) {
 				out.ownerNode = owner;
@@ -1097,9 +1103,13 @@ function readProperties(
 				via,
 				...(onlyIfChanged !== undefined && { onlyIfChanged }),
 			});
-		else if (key === "name") out.name = read.value;
-		else if (key === "owner_id") out.owner = read.value;
-		else
+		else if (key === "name") {
+			out.name = read.value;
+			if (onlyIfChanged !== undefined) out.nameOnlyIfChanged = true;
+		} else if (key === "owner_id") {
+			out.owner = read.value;
+			if (onlyIfChanged !== undefined) out.ownerOnlyIfChanged = true;
+		} else
 			out.writes.push({
 				property: key,
 				value: read.value,
@@ -2100,7 +2110,13 @@ function readOrdinaryAdvancedActions(
 					action: "own",
 					tag: placement,
 					...(properties.name !== undefined && { name: properties.name }),
+					...(properties.nameOnlyIfChanged !== undefined && {
+						nameOnlyIfChanged: true,
+					}),
 					...(properties.owner !== undefined && { owner: properties.owner }),
+					...(properties.ownerOnlyIfChanged !== undefined && {
+						ownerOnlyIfChanged: true,
+					}),
 					writes: properties.writes,
 					links: [],
 				});
@@ -2122,7 +2138,13 @@ function readOrdinaryAdvancedActions(
 					tag: placement,
 					target: ref,
 					...(properties.name !== undefined && { rename: properties.name }),
+					...(properties.nameOnlyIfChanged !== undefined && {
+						renameOnlyIfChanged: true,
+					}),
 					...(properties.owner !== undefined && { owner: properties.owner }),
+					...(properties.ownerOnlyIfChanged !== undefined && {
+						ownerOnlyIfChanged: true,
+					}),
 					writes: properties.writes,
 					links: [],
 				});
@@ -2541,6 +2563,9 @@ function readOrdinaryAdvancedActions(
 				tag: placementTag,
 				name,
 				...(owner !== undefined && { owner }),
+				...(properties.ownerOnlyIfChanged !== undefined && {
+					ownerOnlyIfChanged: true,
+				}),
 				writes: properties.writes,
 				links,
 			});
@@ -2566,6 +2591,9 @@ function readOrdinaryAdvancedActions(
 			...(row !== undefined && { row }),
 			name,
 			...(owner !== undefined && { owner }),
+			...(properties.ownerOnlyIfChanged !== undefined && {
+				ownerOnlyIfChanged: true,
+			}),
 			writes: properties.writes,
 			...(openOn !== undefined && { condition: openOn }),
 			...(repeat !== undefined && { forEach: repeat }),
@@ -3079,12 +3107,23 @@ export function writeAdvancedOperations(
 			...(writes.length > 0 && { writes }),
 			...(proposal.shares === undefined && { placement }),
 		};
+		// A facet saved only when changed is read from a question, so it is
+		// never the worker or "no one".
+		const ownerFlag =
+			owner !== undefined && proposal.ownerOnlyIfChanged === true
+				? { ownerOnlyIfChanged: true as const }
+				: {};
 		if (proposal.action === "own")
 			operations.push({
 				...common,
 				action: "own",
 				...(name !== undefined && { name }),
+				...(name !== undefined &&
+					proposal.nameOnlyIfChanged === true && {
+						nameOnlyIfChanged: true,
+					}),
 				...(owner !== undefined && { owner }),
+				...ownerFlag,
 				...(links.length > 0 && { links }),
 			} as CaseOperation);
 		else if (proposal.action === "create" && name !== undefined)
@@ -3095,6 +3134,7 @@ export function writeAdvancedOperations(
 				target: { kind: "new" },
 				name,
 				...(owner !== undefined && { owner }),
+				...ownerFlag,
 				...(links.length > 0 && { links }),
 				...(condition !== undefined && { condition }),
 				...(forEach !== undefined && { forEach }),
@@ -3106,7 +3146,12 @@ export function writeAdvancedOperations(
 				caseType: proposal.caseType as string,
 				target: caseTarget(proposal.target ?? { kind: "session" }),
 				...(owner !== undefined && { owner }),
+				...ownerFlag,
 				...(rename !== undefined && { rename }),
+				...(rename !== undefined &&
+					proposal.renameOnlyIfChanged === true && {
+						renameOnlyIfChanged: true,
+					}),
 			} as CaseOperation);
 		else if (proposal.action === "close")
 			operations.push({

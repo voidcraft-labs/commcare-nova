@@ -258,6 +258,18 @@ function columnRelationSentence(e: ValidationError): string {
 
 function onlyIfChangedSentence(e: ValidationError): string {
 	const property = det(e, "property", "this value");
+	const facet =
+		e.details?.property === "owner_id"
+			? "owner"
+			: e.details?.property === "case_name"
+				? "name"
+				: undefined;
+	if (e.details?.reason === "facet")
+		return `This change saves its ${facet ?? "value"} only when it changed, but it saves no ${facet ?? "value"}. You can choose one, or save it every time.`;
+	if (e.details?.reason === "never-blank")
+		return "This change's owner is never blank, so it is saved every time. You can turn off saving it only when it changed.";
+	if (e.details?.reason === "registration-name")
+		return "This form makes a new case, so its name has no earlier value to compare with. You can save the name every time.";
 	if (e.details?.placementSentence === undefined)
 		return `This change is saved through Save to Case, which can't save only changed answers. You can save ${property} every time instead.`;
 	return [

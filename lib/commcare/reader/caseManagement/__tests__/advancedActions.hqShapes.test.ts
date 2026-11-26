@@ -361,6 +361,65 @@ describe("an advanced form's loads and open actions", () => {
 		).toEqual([]);
 	});
 
+	it("writes a load's and an open action's name and owner saved only when changed as `edit` and reads them back as the facets' flags", async () => {
+		const followup = memberFollowup();
+		const own = followup.doc.forms[followup.formUuid]?.caseOperations?.[0];
+		if (own === undefined) throw new Error("The fixture holds the own load.");
+		Object.assign(own, {
+			name: read("name"),
+			nameOnlyIfChanged: true,
+			owner: read("name"),
+			ownerOnlyIfChanged: true,
+		});
+		const withKid = registration([
+			{ ...kid, owner: read("kid_name"), ownerOnlyIfChanged: true },
+		]);
+		const loadMode = (app: AppJson) => {
+			const loads = actionsOf(app).load_update_cases;
+			const properties = (
+				loads[loads.length - 1] as {
+					case_properties: Record<string, { update_mode: string }>;
+				}
+			).case_properties;
+			return [properties.name?.update_mode, properties.owner_id?.update_mode];
+		};
+		const openMode = (app: AppJson) =>
+			(
+				actionsOf(app).open_cases.find(
+					(open) => open.case_type === "member",
+				) as { case_properties: Record<string, { update_mode: string }> }
+			).case_properties.owner_id?.update_mode;
+		let loadModes: unknown;
+		let openModes: unknown;
+		const readFollowup = await readCases(followup.doc, {
+			saveOnlyEditedApplied: true,
+			edit: (app) => {
+				loadModes = loadMode(app);
+			},
+		});
+		const readRegistration = await readCases(withKid.doc, {
+			saveOnlyEditedApplied: true,
+			edit: (app) => {
+				openModes = openMode(app);
+			},
+		});
+		expect(loadModes).toEqual(["edit", "edit"]);
+		expect(openModes).toBe("edit");
+		for (const reading of [readFollowup, readRegistration])
+			expect(actionFindings(reading)).toEqual([]);
+		const underTest = (reading: typeof readFollowup) =>
+			reading.forms.find((form) => form.form.name === "Under test")?.form
+				.caseOperations ?? [];
+		expect(
+			underTest(readFollowup).find((operation) => operation.action === "own"),
+		).toMatchObject({ nameOnlyIfChanged: true, ownerOnlyIfChanged: true });
+		expect(
+			underTest(readRegistration).find(
+				(operation) => operation.action === "create",
+			),
+		).toMatchObject({ ownerOnlyIfChanged: true });
+	});
+
 	describe("a written key outside Nova's property grammar, or one HQ's server stores apart", () => {
 		// HQ's build holds every key of every advanced action, a load's and an open
 		// action's, to `validate_property` with parents and its reserved words on the
