@@ -174,3 +174,43 @@ def test_novas_json_requests_put_a_types_table_there_row_by_row(hq):
         assert again.status == 201
         assert json.loads(again.body)["id"].replace("-", "") not in ids
         assert LookupTableRow.objects.filter(domain=state.domain, table_id=table_id).count() == 3
+
+
+def test_native_json_keeps_a_segmented_value_beyond_the_workbook_cell_limit(hq):
+    from corehq.apps.fixtures.models import LookupTable
+
+    from proof.hq import redis as hq_redis
+    from proof.hq.seams import api_rate_limits
+    from proof.observe.casedata import served_fixtures
+
+    value = " " + "🌱" * 17_000 + ' "'
+    assert len(value.encode("utf-8")) > 64 * 1024
+    assert len(value.encode("utf-16-le")) // 2 > 32767
+
+    with hq_check(CONFIGURATION) as (state, _), hq_redis.shared(None), state.committing(), api_rate_limits(state):
+        publisher = operations.seed_api_user(state, "paged-lookup@example.org", edit_data=True)
+
+        def send(method, path, body=None):
+            return operations.api_request(
+                state,
+                method,
+                path.format(domain=state.domain),
+                credential=publisher,
+                body=b"" if body is None else json.dumps(body, ensure_ascii=False).encode("utf-8"),
+            )
+
+        assert send("POST", TABLES, REQUESTS["create"]).status == 201
+        table = LookupTable.objects.get(domain=state.domain, tag="types")
+        for text in ("Clinic", value):
+            body = _for_table(REQUESTS["appends"][0], table.id.hex)
+            body["fields"]["name"]["field_list"][0]["field_value"] = text
+            saved = send("POST", ROWS, body)
+            assert saved.status == 201, saved.retained()
+            row_id = json.loads(saved.body)["id"].replace("-", "")
+            detail = send("GET", ROWS + row_id + "/")
+            assert detail.status == 200, detail.retained()
+            assert json.loads(detail.body)["fields"]["name"]["field_list"][0]["field_value"] == text
+
+        (fixture,) = served_fixtures(state)
+        values = etree.fromstring(fixture).xpath("./types_list/types/name/text()")
+        assert values == ["Clinic", value]

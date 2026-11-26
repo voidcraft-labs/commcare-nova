@@ -10,6 +10,7 @@ import {
 	lookupTableIdSchema,
 } from "@/lib/domain/lookupIds";
 import { applyLookupAuthoringBatchInTransaction } from "@/lib/lookup/authoringBatch";
+import { applyLookupValueEditInTransaction } from "@/lib/lookup/largeValues/service";
 import { getLookupTable } from "@/lib/lookup/service";
 import type { LookupAuthoringRowOperation } from "@/lib/lookup/types";
 import { authorizeLookupWriteInTransaction } from "@/lib/lookup/writerTransaction";
@@ -4502,7 +4503,7 @@ async function editTypesRows(
 	);
 }
 
-async function typesDocument(): Promise<BlueprintDoc> {
+async function typesDocument(extraRows = 0): Promise<BlueprintDoc> {
 	const scope = { projectId: PROJECT, actorId: ACTOR, role: "editor" };
 	await h.seedProjectMember(ACTOR, PROJECT, "editor");
 	const table = await createLookupTable(scope, {
@@ -4520,6 +4521,10 @@ async function typesDocument(): Promise<BlueprintDoc> {
 		rows: [
 			{ [code.id]: "001", [name.id]: " Clinic " },
 			{ [code.id]: "002", [name.id]: "Hospital" },
+			...Array.from({ length: extraRows }, (_, index) => ({
+				[code.id]: String(index + 3),
+				[name.id]: `Facility ${index + 3}`,
+			})),
 		],
 	});
 	return buildDoc({
@@ -4637,6 +4642,80 @@ describe("a table only CommCare HQ's JSON resources can carry", () => {
 					(resource) => resource.kind === "lookup-table",
 				),
 			).toHaveLength(1);
+		});
+	});
+
+	it("resumes the ordinary publish of a paged lookup without sending the settled rows again", async () => {
+		const doc = await seed(await typesDocument(201));
+		const { tableId, tableRevision, columns, rowIds } = await typesTable();
+		const value = ` ${"🌱".repeat(17_000)} "`;
+		const bytes = Buffer.from(value);
+		const operationId = v7();
+		const edit = async (
+			change: Parameters<typeof applyLookupValueEditInTransaction>[2],
+		) =>
+			withAppTx(async (tx) =>
+				applyLookupValueEditInTransaction(
+					tx,
+					await authorizeLookupWriteInTransaction(tx, editorScope, "edit"),
+					change,
+					"paged-json-fixture",
+				),
+			);
+		await edit({
+			kind: "begin",
+			tableId,
+			rowId: rowIds[0] ?? fail(),
+			slot: { kind: "cell", columnId: columns.name },
+			expectedTableRevision: tableRevision,
+			operationId,
+			baseDigest: createHash("sha256").update(" Clinic ").digest("hex"),
+			startByte: 0,
+			endByte: Buffer.byteLength(" Clinic "),
+			replacementBytes: bytes.length,
+			replacementDigest: createHash("sha256").update(bytes).digest("hex"),
+		});
+		for (let offset = 0; offset < bytes.length; offset += 16_001)
+			await edit({
+				kind: "append",
+				tableId,
+				operationId,
+				offset,
+				base64: bytes.subarray(offset, offset + 16_001).toString("base64"),
+			});
+		await edit({ kind: "finish", tableId, operationId });
+
+		await withPeer(async (peer) => {
+			const hq = jsonLookupPeer(peer);
+			accepted(peer, 201);
+			serve(peer, SOURCE, "source-shell");
+			expect(refusal(await publish(doc))).toMatchObject({
+				phase: "resources",
+				failure: { message: expect.stringContaining("saved its progress") },
+			});
+			expect(hq.writes).toHaveLength(200);
+			expect(hq.rows.size).toBe(199);
+			const firstId = [...hq.rows.keys()][0] ?? fail();
+			expect(hq.rows.get(firstId)?.fields.name[0]?.field_value).toBe(value);
+			expect(
+				requests(peer).filter((line) => line === `POST ${IMPORT}`),
+			).toHaveLength(1);
+
+			hq.writes.length = 0;
+			serve(peer, SOURCE, "source-shell");
+			serve(peer, SOURCE, "source-shell");
+			accepted(peer, 200);
+			serve(peer, SOURCE, "source-after-create-then-update");
+			const resumed = await publish(doc);
+			expect(resumed.landed ? null : resumed.refusal).toBeNull();
+			expect(hq.rows.size).toBe(203);
+			expect(hq.writes).toEqual(
+				Array(4).fill("POST /a/clinic/api/lookup_table_item/v2/"),
+			);
+			expect(hq.rows.get(firstId)?.fields.name[0]?.field_value).toBe(value);
+			expect(requests(peer).some((line) => line.includes("fixapi"))).toBe(
+				false,
+			);
 		});
 	});
 

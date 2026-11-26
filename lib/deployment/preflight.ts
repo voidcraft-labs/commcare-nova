@@ -469,6 +469,7 @@ export interface LookupJsonPushPlan {
 		readonly name: string;
 		readonly definition: HqLookupJsonDefinition;
 		readonly rows: readonly LookupJsonLocalRow[];
+		readonly pagedBytes?: number;
 	}[];
 }
 
@@ -1555,17 +1556,21 @@ export async function runDeploymentPreflight(
 			const rows = boundary.prepared.lookupSnapshot.rowsByTable.get(
 				table.tableId,
 			);
-			if (rows === undefined)
+			const paged = boundary.prepared.pagedJsonRows?.get(table.tableId);
+			if (rows === undefined && paged === undefined)
 				throw new Error("A table that travels as JSON lost its rows.");
 			tables.push({
 				tableId: table.tableId,
 				tag: table.tag,
 				name,
 				definition: jsonDefinition,
-				rows: rows.map((row) => ({
-					novaRowId: row.id,
-					content: lookupJsonRowContent(table, row),
-				})),
+				rows:
+					paged?.rows ??
+					(rows ?? []).map((row) => ({
+						novaRowId: row.id,
+						content: lookupJsonRowContent(table, row),
+					})),
+				...(paged && { pagedBytes: paged.bytes }),
 			});
 		}
 		const stop =

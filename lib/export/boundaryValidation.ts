@@ -89,7 +89,17 @@ import {
 	planLargeWorkbooks,
 	type StreamLookupWorkbook,
 } from "@/lib/commcare/lookup/archiveWorkbooks";
-import { describeLookupCarrierAlternative } from "@/lib/commcare/lookup/carrier";
+import {
+	alternativeLookupCarrier,
+	describeLookupCarrierAlternative,
+} from "@/lib/commcare/lookup/carrier";
+import { lookupWireNaming } from "@/lib/commcare/lookup/naming";
+import {
+	PAGED_LOOKUP_JSON_BYTES,
+	PAGED_LOOKUP_JSON_ROWS,
+	type PagedLookupJsonRow,
+	stagePagedLookupJson,
+} from "@/lib/commcare/lookup/pagedJsonRows";
 import {
 	measureStreamedLookupFixtures,
 	plannedLookupFixtureBudget,
@@ -223,6 +233,13 @@ export interface PreparedExportBoundary {
 	 * where none does.
 	 */
 	readonly jsonLookupTables?: readonly LookupTableWireNaming[];
+	readonly pagedJsonRows?: ReadonlyMap<
+		LookupTableId,
+		{
+			readonly rows: readonly PagedLookupJsonRow[];
+			readonly bytes: number;
+		}
+	>;
 }
 
 export type PrepareExportBoundaryResult =
@@ -502,33 +519,82 @@ async function prepareWithRegistry(
 		input.mode === "hq-upload",
 	);
 	if (streamed.issues.length) return { ok: false, violations: streamed.issues };
+	const continuedJson = [...streamed.tables.values()].filter(
+		(table) =>
+			input.mode === "hq-upload" &&
+			input.jsonDestinationTableIds?.has(table.definition.id),
+	);
 	const workbookPlan =
 		input.mode === "ccz"
 			? { files: [], alternatives: [] }
-			: await planLargeWorkbooks([...streamed.tables.values()]);
-	if (workbookPlan.alternatives.length)
-		return {
-			ok: false,
-			violations: workbookPlan.alternatives.map((item) =>
-				validationError(
-					"LOOKUP_WORKER_SOURCE_UNAVAILABLE",
-					"app",
-					/* Only a table held as a streamed generation reaches here, and
-					 * no carrier takes one exactly yet, the direct publish included. */
-					describeLookupCarrierAlternative(
-						item.table.definition.name,
-						item.carrier,
-						"too-large",
+			: await planLargeWorkbooks(
+					[...streamed.tables.values()].filter(
+						(table) => !continuedJson.includes(table),
 					),
-					{},
-					{
-						tableId: item.table.definition.id,
-						tableName: item.table.definition.name,
-						delivery: item.carrier.kind,
-					},
-				),
+				);
+	const pagedJsonRows = new Map<
+		LookupTableId,
+		{
+			rows: readonly PagedLookupJsonRow[];
+			bytes: number;
+		}
+	>();
+	const pagedJsonTables: LookupTableWireNaming[] = [];
+	let remainingRows = PAGED_LOOKUP_JSON_ROWS;
+	let remainingBytes = PAGED_LOOKUP_JSON_BYTES;
+	const blocked: ValidationError[] = [];
+	for (const { table, carrier } of [
+		...workbookPlan.alternatives,
+		...continuedJson.map((table) => ({
+			table,
+			carrier: alternativeLookupCarrier(
+				table.definition,
+				"This table already uses the destination’s JSON resources.",
 			),
-		};
+		})),
+	]) {
+		const { definition } = table;
+		const tableNaming = lookupWireNaming([definition]).tableFor(definition.id);
+		const inWorkbook = input.workbookLookupTags
+			?.get(definition.id)
+			?.has(tableNaming.tag);
+		const direct = input.mode === "hq-upload";
+		let issue: string;
+		if (direct && carrier.kind === "json" && !inWorkbook) {
+			const staged = await stagePagedLookupJson(table, tableNaming, {
+				rows: remainingRows,
+				bytes: remainingBytes,
+			});
+			if (!("issue" in staged)) {
+				pagedJsonTables.push(tableNaming);
+				pagedJsonRows.set(definition.id, staged);
+				remainingRows -= staged.rows.length;
+				remainingBytes -= staged.bytes;
+				continue;
+			}
+			issue = staged.issue;
+		} else {
+			issue = describeLookupCarrierAlternative(
+				definition.name,
+				carrier,
+				direct && inWorkbook ? "workbook-there" : "too-large",
+			);
+		}
+		blocked.push(
+			validationError(
+				"LOOKUP_WORKER_SOURCE_UNAVAILABLE",
+				"app",
+				issue,
+				{},
+				{
+					tableId: definition.id,
+					tableName: definition.name,
+					delivery: carrier.kind,
+				},
+			),
+		);
+	}
+	if (blocked.length) return { ok: false, violations: blocked };
 
 	const carrier = ccZCarrier ?? buildCarrier();
 	const {
@@ -602,9 +668,11 @@ async function prepareWithRegistry(
 			...(lookupWorkbook !== undefined && { lookupWorkbook }),
 			managedLookupTables,
 			managedLookupWorkbooks,
-			...(carrier.jsonLookupTables.length > 0 && {
-				jsonLookupTables: carrier.jsonLookupTables,
+			...((carrier.jsonLookupTables.length > 0 ||
+				pagedJsonTables.length > 0) && {
+				jsonLookupTables: [...carrier.jsonLookupTables, ...pagedJsonTables],
 			}),
+			...(pagedJsonRows.size > 0 && { pagedJsonRows }),
 		},
 	};
 }
