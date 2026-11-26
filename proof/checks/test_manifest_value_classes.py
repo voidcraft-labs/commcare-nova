@@ -7431,11 +7431,22 @@ def _held_new():
             accepted("form", fresh, owner_key, owner_site),
             accepted("form", update_owner, owner_key, owner_site),
         ),
+        "forms-and-case-writes/basic-update-key-with-an-unaddressable-uncased-letter": (
+            refused("app", own_update("n名字"), update_map, updates),
+            accepted("app", own_update("n_name"), update_map, updates),
+            accepted("app", own_update("estado_é"), update_map, updates),
+            accepted("app", own_update("aⅣ"), update_map, updates),
+            accepted("app", own_update("note½"), update_map, updates),
+            accepted("app", child_update("n名字"), child_map, children),
+        ),
         "forms-and-case-writes/update-key-holding-a-non-ascii-core-name-character": (
             refused("app", own_update("größe"), update_map, updates),
             refused("app", child_update("größe"), child_map, children),
             accepted("app", own_update("size"), update_map, updates),
-            # ``ª`` is a letter to HQ's grammar and no name character to Core: HQ's build refuses it (the bar's).
+            refused("app", own_update("estado_é"), update_map, updates),
+            refused("app", own_update("aⅣ"), update_map, updates),
+            accepted("app", own_update("n名字"), update_map, updates),
+            # The case update's XML name is outside the held value class.
             accepted("app", own_update("aª"), update_map, updates),
         ),
         "forms-and-case-writes/index-identifier-outside-an-xml-element-name": (

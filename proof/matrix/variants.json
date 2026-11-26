@@ -19352,6 +19352,28 @@
 		}
 	},
 	{
+		"id": "hq-case-management/update-key-with-an-unaddressable-uncased-letter",
+		"base": "hq-case-management",
+		"entry": "forms-and-case-writes/basic-update-key-with-an-unaddressable-uncased-letter",
+		"standing": "fix-in-hq",
+		"place": {
+			"kind": "form",
+			"menu": 1,
+			"form": 0,
+			"menuName": "Members",
+			"name": "Followup Form"
+		},
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/1/forms/0/actions/update_case/update/n名字",
+			"value": {
+				"question_path": "/data/status_note",
+				"update_mode": "always",
+				"doc_type": "ConditionalCaseUpdate"
+			}
+		}
+	},
+	{
 		"id": "hq-case-management/update-key-with-a-fraction",
 		"base": "hq-case-management",
 		"entry": "forms-and-case-writes/update-key-holding-a-character-validate-property-accepts-that-is",
