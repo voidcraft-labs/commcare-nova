@@ -46,6 +46,7 @@ import {
 	XHTML_NS,
 } from "../xmlNamespaces";
 import { heldXmlParse } from "../xmlParse";
+import { advancedFormParents, sharedFormParent } from "./sharedFormSource";
 
 /** A condition as Case Management states it, the question's path relative to the data root. */
 export type PublishedCondition =
@@ -154,7 +155,7 @@ export interface PublishedForm {
 export type UnreadFormReason =
 	| "no-xmlns"
 	| "shared-xmlns"
-	| "shadow-form"
+	| "shadow-parent-missing-or-not-advanced"
 	| "unknown-form-kind"
 	| "no-xform"
 	| "xform-unparsed"
@@ -911,6 +912,7 @@ function readBlocks(normalizedSource: unknown): PublishedCaseBlocks {
 		return { forms, unread: unreadForms };
 	const attachments = normalizedSource._attachments;
 	const modules = normalizedSource.modules;
+	const parents = advancedFormParents(modules);
 	// Two forms with one `xmlns` cannot be told apart by it.
 	const holders = new Map<string, number>();
 	for (const module of modules) {
@@ -924,6 +926,21 @@ function readBlocks(normalizedSource: unknown): PublishedCaseBlocks {
 		if (!isObject(module) || !Array.isArray(module.forms)) return;
 		module.forms.forEach((form: unknown, position: number) => {
 			const xmlns = storedXmlns(form);
+			if (isObject(form) && form.doc_type === "ShadowForm") {
+				// Only the parent's XForm is built. Its case writes are checked once, at
+				// the parent; the entry's selection order and sources are checked by hqEntryFacts.
+				if (
+					module.doc_type !== "AdvancedModule" ||
+					!sharedFormParent(form, parents)
+				)
+					unreadForms.push({
+						menu,
+						form: position,
+						xmlns,
+						reason: "shadow-parent-missing-or-not-advanced",
+					});
+				return;
+			}
 			const read = readForm(form, xmlns, holders, module, attachments);
 			if ("reason" in read)
 				unreadForms.push({ menu, form: position, xmlns, reason: read.reason });
@@ -940,9 +957,6 @@ function readForm(
 	module: JsonObject,
 	attachments: JsonObject,
 ): Omit<PublishedForm, "xmlns"> | { readonly reason: UnreadFormReason } {
-	// A shadow form's actions are its parent's, merged at build.
-	if (isObject(form) && form.doc_type === "ShadowForm")
-		return { reason: "shadow-form" };
 	const builds = !isObject(form)
 		? undefined
 		: form.doc_type === "Form"

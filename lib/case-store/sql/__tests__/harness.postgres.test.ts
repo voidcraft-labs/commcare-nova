@@ -94,6 +94,7 @@ describe("case-store harness — schema", () => {
 				"closed_on",
 				"case_name",
 				"external_id",
+				"location_id",
 				"parent_case_id",
 				"properties",
 				// The record's link history: whether every link change since it was

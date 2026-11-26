@@ -48,6 +48,7 @@ import {
 	plainColumn,
 } from "@/lib/domain";
 import { concat, literal, term } from "@/lib/domain/expression";
+import { independentChoicesBlueprint } from "@/proof/targeted/documents/independentFormChoices";
 import type { HqLocationType } from "../../hq/locations";
 import {
 	targetWireIdentity,
@@ -420,6 +421,12 @@ const NOVA_APPS: Readonly<Record<string, NovaApp>> = {
 				),
 		},
 	"a deep link to a menu, its case list and a form": { doc: entryPoints },
+	"two choices from one list, an automatic record and a value made at entry": {
+		doc: () => independentChoicesBlueprint("parity-independent-choices"),
+	},
+	"values two opening records and the form's own record give its questions": {
+		doc: () => independentChoicesBlueprint("parity-opening-values", true),
+	},
 	"two links to one menu, a link to a form and a link otherwise": {
 		doc: () =>
 			buildShape(
@@ -541,14 +548,14 @@ const RETAINED_READ: readonly string[] = [
 
 /**
  * Retained app sources holding content Nova does not hold, with the finding
- * that says so: a mirror form, and a report menu and a visit schedule. Each
+ * that says so: a report menu beside a shared form, and a report menu beside a visit schedule. Each
  * is held to its account; one that comes to read moves to `RETAINED_READ`.
  */
 const RETAINED_ACCOUNT: readonly [string, () => RetainedHqAnswer, string][] = [
 	[
 		"reading/source-shadow",
 		() => retainedReadingRead("source-shadow"),
-		"forms-and-case-writes/shadowform",
+		"menus-and-case-lists/reportmodule-mobile-ucr-and-all-of-report-configs",
 	],
 	[
 		"hq-built/app-source",

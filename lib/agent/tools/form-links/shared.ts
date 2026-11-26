@@ -48,7 +48,7 @@ export {
  *  it. */
 export const formLinkDatumInputSchema = z.strictObject({
 	name: formLinkDatumNameSchema.describe(
-		"The session value the target reads, usually its case id datum such as case_id.",
+		"The opening record the destination needs. Each choice of the same list has its own identity.",
 	),
 	xpath: formLogicSchema.describe(
 		"Session-scope XPath that supplies the value after the form has closed, such as a case-ref or #user value. Never a form answer.",

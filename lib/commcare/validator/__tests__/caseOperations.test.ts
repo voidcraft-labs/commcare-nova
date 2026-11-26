@@ -809,8 +809,6 @@ describe("case-operation action, catalog, and reserved vocabulary", () => {
 			"owner_id",
 			"date_opened",
 			"date_modified",
-			"location_id",
-			"hq_user_id",
 		]) {
 			expectCode("CASE_OPERATION_RESERVED_PROPERTY", [
 				update({ writes: [{ property, value: term(literal("x")) }] }),
@@ -833,6 +831,22 @@ describe("case-operation action, catalog, and reserved vocabulary", () => {
 		];
 		const codes = validateCandidate(built.doc).map((error) => error.code);
 		expect(codes).toEqual([]);
+	});
+
+	it("admits location_id through the generic write slot without a catalog declaration", () => {
+		// HQ's server keeps the key as the case's location column
+		// (`update_strategy.py::_apply_update_action`), which the case store
+		// holds as it holds the external id.
+		const built = fixture();
+		built.doc.forms[built.formUuid].caseOperations = [
+			...ownArms(built.doc.forms[built.formUuid]),
+			update({
+				writes: [
+					{ property: "location_id", value: term(literal("district-7")) },
+				],
+			}),
+		];
+		expect(validateCandidate(built.doc).map((error) => error.code)).toEqual([]);
 	});
 
 	it("admits only retypes whose source values remain portable", () => {
@@ -1914,5 +1928,61 @@ describe("case-operation links and on-device totality", () => {
 			}),
 		]);
 		expect(errors).toEqual([]);
+	});
+});
+
+describe("a captured file's link saved as a standard case value", () => {
+	const PHOTO = testUuid("capture-standard-photo");
+	function captureWrite(property: string) {
+		const doc = buildDoc({
+			caseTypes: [{ name: "patient", properties: [] }],
+			modules: [
+				{
+					name: "Patients",
+					caseType: "patient",
+					forms: [
+						{
+							name: "Visit",
+							type: "followup",
+							fields: [
+								f({
+									uuid: PHOTO,
+									kind: "image",
+									id: "photo",
+									label: proseText("Photo"),
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
+		const formUuid = doc.formOrder[doc.moduleOrder[0]][0];
+		doc.forms[formUuid].caseOperations = [
+			...ownArms(doc.forms[formUuid]),
+			{
+				uuid: SECOND,
+				id: "update_patient",
+				action: "update",
+				caseType: "patient",
+				target: { kind: "session" },
+				writes: [
+					{ property, value: term({ kind: "capture-link", field: PHOTO }) },
+				],
+			},
+		];
+		return validateCandidate(doc).filter(
+			(error) => error.code === "CAPTURE_CASE_WRITE_STANDARD_PROPERTY",
+		);
+	}
+
+	it.each([
+		["external_id", "external id"],
+		["location_id", "location ID"],
+	])("names %s as the value it is", (property, words) => {
+		const [error] = captureWrite(property);
+		if (error === undefined) throw new Error("The write should be refused.");
+		expect(error.message).toContain(`as the case's ${words},`);
+		expect(userFacingError(error)).toContain(`as the case's ${words},`);
 	});
 });

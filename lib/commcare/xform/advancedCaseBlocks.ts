@@ -78,13 +78,14 @@ import { InstanceSink, sessionInstance } from "../xpath/wire/instances";
 import { caseById } from "../xpath/wire/rowScope";
 import { serializeWire } from "../xpath/wire/serialize";
 import type { WireExpr } from "../xpath/wire/tree";
+import { caseOpeningSetvalues } from "./caseOpeningSetvalues";
 
 /** CommCare's case-transaction namespace, which every `<case>` is in. */
 const CASE_TRANSACTION_XMLNS = "http://commcarehq.org/case/transaction/v2";
 
-/** The owner HQ writes on an open action whose owner it does not set
- *  (`const.py::UNOWNED_EXTENSION_OWNER_ID`). */
-const UNOWNED_OWNER_ID = "-";
+/** The owner HQ writes into a create block whose owner it does not set
+ *  (`const.py::UNOWNED_EXTENSION_OWNER_ID`, `xform.py::add_create_block`). */
+export const UNOWNED_OWNER_ID = "-";
 
 /** What the injection reads of the form's case wire plan. */
 export interface AdvancedCaseBlocksPlan {
@@ -280,12 +281,15 @@ function addLoadBlock(
 	load: LoadUpdateAction,
 	datumId: string,
 ): void {
+	const caseId = sessionRead(datumId);
+	emission.setvalues.push(
+		...caseOpeningSetvalues(load.preload, caseId, emission.context),
+	);
 	const properties = Object.entries(load.case_properties);
 	if (properties.length === 0 && load.close_condition.type === "never") return;
 	const name = formElementName(load.case_tag);
 	const basePath = FormPath.root().child(name);
 	const casePath = basePath.child("case");
-	const caseId = sessionRead(datumId);
 	const baseEl = el(name, {}, []);
 	append(data, baseEl);
 	const caseEl = caseElement(emission, casePath);

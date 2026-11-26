@@ -74,6 +74,14 @@ function searchDoc(): BlueprintDoc {
 			],
 		},
 	);
+	member.properties.push({
+		name: "location_id",
+		label: proseText("Location ID"),
+	});
+	household.properties.push({
+		name: "location_id",
+		label: proseText("Location ID"),
+	});
 	household.properties.push({
 		name: "kind",
 		label: proseText("Kind"),
@@ -176,6 +184,41 @@ describe("Date closed", () => {
 				),
 			),
 		).toContain("closed-on-not-on-device");
+	});
+});
+
+describe("a case's location ID", () => {
+	// CommCare HQ keeps a case's location as its own column, which its case
+	// search indexes nothing of (`corehq/pillows/case_search.py::
+	// _get_case_properties`), while a device holds it as a property.
+	const location = member("location_id");
+	it("is refused where CommCare's server search reads it", () => {
+		expect(
+			findings(PREDICATE, eq(location, term(literal("district-7")))),
+		).toMatchObject([
+			{
+				code: "location-not-in-search",
+				message:
+					"A case's location ID is kept on the device but not in CommCare's server search, so a search can't read it. A property of your own can hold the same value for searching.",
+			},
+		]);
+	});
+	it("reads as text wherever a device reads it, a chosen case in a search among them", () => {
+		expect(
+			codes(FILTER(chosen.members), eq(location, term(literal("district-7")))),
+		).toEqual([]);
+		expect(
+			codes(
+				PREDICATE,
+				eq(
+					member("village_name"),
+					chosenCaseProperty(chosen.households, "household", "location_id"),
+				),
+			),
+		).toEqual([]);
+		expect(codes(DISPLAY, eq(location, term(literal("x"))))).not.toContain(
+			"location-not-in-search",
+		);
 	});
 });
 

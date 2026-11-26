@@ -241,12 +241,10 @@ export function usercaseValuesBySlug(
  * usercase row can be stored and read like any other. Deriving it is what
  * keeps the two from drifting: there is no second place to add a property.
  *
- * It is deliberately NOT in `effectiveCaseTypes`. That view is the authoring
- * catalog — what a module can list, a form can create, a picker can offer —
- * and the usercase is none of those. Nova owns it, HQ creates the row, and no
- * author may open or close one. It joins the catalog only at the STORAGE
- * boundary (`buildCaseTypeMap`), which is exactly the set of callers that
- * need to resolve a `commcare-user` property's type to read or write a row.
+ * Storage always materializes this system schema. A module that lists worker
+ * records also uses it in its list, expressions and form entry. The editable
+ * business case catalog omits it: HQ creates its worker records, and a new
+ * case, close, or change of worker identity cannot be authored.
  *
  * `case_name` is absent for the same reason it is absent from HQ's
  * `get_usercase_properties`: the worker's name is the case's own name column,

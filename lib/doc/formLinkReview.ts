@@ -41,7 +41,11 @@ import {
 	resolveFormLinkTarget,
 	type Uuid,
 } from "@/lib/domain";
-import type { FormLinkDatumName } from "@/lib/domain/expression/types";
+import {
+	type FormLinkDatumName,
+	formLinkSelectionName,
+} from "@/lib/domain/expression/types";
+import type { ResolvedFormLinkTarget } from "@/lib/domain/formLinkTargets";
 import {
 	menuWithInheritedCaseSettings,
 	routeContainsForm,
@@ -257,9 +261,48 @@ function formLinkTargetVerdictForDatumMode(
 	return { ok: true };
 }
 
+/** The name of each value this specific target accepts from another form.
+ * The saved selection identity survives label edits. An ordinary form from
+ * an older app keeps accepting the physical name its clients already use. */
+export function namedFormLinkTargetDatums(
+	doc: BlueprintDoc,
+	context: ReturnType<typeof formLinkProjectionContext>,
+	target: ResolvedFormLinkTarget,
+) {
+	const datums = formLinkTargetDatumIds(doc, context, target);
+	const choices =
+		target.type === "form"
+			? doc.forms[target.formUuid]?.caseSelections
+			: undefined;
+	const bySelection = new Map(
+		choices?.map((choice) => [choice.uuid, choice] as const),
+	);
+	const labelCount = new Map<string, number>();
+	const physical = new Set(datums.map((datum) => datum.id));
+	for (const choice of bySelection.values())
+		labelCount.set(choice.name, (labelCount.get(choice.name) ?? 0) + 1);
+	return datums.map((datum) => {
+		const selected = formLinkSelectionName(datum.refs);
+		const choice =
+			selected?.kind === "form-selection"
+				? bySelection.get(selected.selection)
+				: undefined;
+		if (!choice) return { ...datum, name: datum.id };
+		const label =
+			labelCount.get(choice.name) === 1
+				? choice.name
+				: `${choice.name} (${choice.tag})`;
+		const clashes =
+			(label !== datum.id && physical.has(label)) ||
+			(label !== choice.name && labelCount.has(label));
+		return { ...datum, name: clashes ? datum.id : label };
+	});
+}
+
 export interface FormLinkRequiredDatum {
 	readonly name: FormLinkDatumName;
 	readonly id: string;
+	readonly label?: string;
 	readonly caseType?: string;
 }
 
@@ -290,12 +333,18 @@ export function formLinkRequiredDatums(
 	const selections = new Map(
 		targetSelectionDatums(doc, ctx, resolved).map((datum) => [datum.id, datum]),
 	);
-	return formLinkTargetDatumIds(doc, ctx, resolved).flatMap((datum) => {
-		const name = datum.refs.find((ref) => ref.kind === "selected-case");
-		if (name === undefined || name.kind !== "selected-case") return [];
+	return namedFormLinkTargetDatums(doc, ctx, resolved).flatMap((datum) => {
+		const name = formLinkSelectionName(datum.refs);
+		if (name === undefined) return [];
+		const label = name.kind === "form-selection" ? datum.name : undefined;
 		const caseType = selections.get(datum.id)?.caseType;
 		return [
-			{ name, id: datum.id, ...(caseType === undefined ? {} : { caseType }) },
+			{
+				name,
+				id: datum.id,
+				...(label && { label }),
+				...(caseType === undefined ? {} : { caseType }),
+			},
 		];
 	});
 }

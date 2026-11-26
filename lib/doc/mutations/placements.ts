@@ -2,7 +2,8 @@
  * The `holdPlacements` reducer: writes each entry's held slot, in order, and
  * computes nothing. A case operation's hold is its `placement`, an own
  * close's is `Form.ownClosePlacement`, a query repeat's is the repeat's
- * `placement`, a menu's kind is `Module.heldKind`; `null` deletes the key. Target admission
+ * `placement`, a menu's kind is `Module.heldKind`, an adopted basic form's case settings
+ * slot for its starting values is `Form.heldBasicOpening`; `null` deletes the key. Target admission
  * (`mutationTargetAdmission.ts`) refuses an entry whose target is missing,
  * so a target the reducer cannot find is a stale replay and is left alone.
  */
@@ -10,6 +11,7 @@
 import type { Draft } from "immer";
 import type { BlueprintDoc, Mutation } from "@/lib/doc/types";
 import { ownRecordValue } from "@/lib/domain";
+import { recordWithoutKey, recordWithValue } from "@/lib/domain/records";
 
 type HoldPlacementsMutation = Extract<Mutation, { kind: "holdPlacements" }>;
 
@@ -27,6 +29,25 @@ export function applyHoldPlacements(
 				if (operation === undefined) break;
 				if (hold.placement === null) delete operation.placement;
 				else operation.placement = hold.placement;
+				break;
+			}
+			case "form-selection": {
+				const form = ownRecordValue(draft.forms, hold.formUuid);
+				if (!form) break;
+				if (hold.placement)
+					form.heldSelectionTags = recordWithValue(
+						form.heldSelectionTags,
+						hold.selectionUuid,
+						hold.placement.tag,
+					);
+				else if (form.heldSelectionTags) {
+					const tags = recordWithoutKey(
+						form.heldSelectionTags,
+						hold.selectionUuid,
+					);
+					if (Object.keys(tags).length) form.heldSelectionTags = tags;
+					else delete form.heldSelectionTags;
+				}
 				break;
 			}
 			case "own-close": {
@@ -53,6 +74,13 @@ export function applyHoldPlacements(
 				if (module === undefined) break;
 				if (hold.placement === null) delete module.heldKind;
 				else module.heldKind = hold.placement;
+				break;
+			}
+			case "basic-opening": {
+				const form = ownRecordValue(draft.forms, hold.formUuid);
+				if (form === undefined) break;
+				if (hold.placement === null) delete form.heldBasicOpening;
+				else form.heldBasicOpening = hold.placement;
 				break;
 			}
 		}

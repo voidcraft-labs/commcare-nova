@@ -44,6 +44,7 @@ import {
 	formConnectIds,
 	isCaseOperationIdentifier,
 	isCaseOperationProperty,
+	isReservedCaseOperationWrite,
 	type Uuid,
 } from "@/lib/domain";
 import {
@@ -492,17 +493,20 @@ const CASE_OPERATION_PROPERTY_OK: CaseOperationPropertyVerdict = { ok: true };
  * Adjudicate a case property a case operation would write.
  *
  * Reserved properties are the ones the operation's own facets own (the
- * name, the owner) or that CommCare HQ stores somewhere other than the
- * property (`location_id`, `hq_user_id`), so writing one through the
- * generic slot would mean something a property write does not. A case operation's write is always in the form's
+ * name, the owner) or that are a fact of the case or a word CommCare HQ
+ * reserves, so writing one through the generic slot would mean something a
+ * property write does not. A case operation's write is always in the form's
  * source, so the names HQ's form builder can't keep there are refused too:
  * the three it can't open a form with, and `close`, which it reads as
  * closing the case. `alreadyWritten` is the set this operation already
- * writes: one operation may not write the same property twice.
+ * writes: one operation may not write the same property twice. A write
+ * `throughIndex` saves to a case above the operation's own, whose name and
+ * owner it may save (`CASE_FACETS_THROUGH_INDEX`).
  */
 export function caseOperationWritePropertyVerdict(
 	property: string,
 	alreadyWritten: ReadonlySet<string>,
+	throughIndex = false,
 ): CaseOperationPropertyVerdict {
 	const trimmed = property.trim();
 	if (trimmed.length === 0) {
@@ -532,7 +536,12 @@ export function caseOperationWritePropertyVerdict(
 			userMessage: `Keep it to ${MAX_CASE_PROPERTY_LENGTH} characters or fewer.`,
 		};
 	}
-	if (FORBIDDEN_CASE_OPERATION_WRITE_PROPERTIES.has(trimmed)) {
+	if (
+		isReservedCaseOperationWrite({
+			property: trimmed,
+			...(throughIndex && { via: [] }),
+		})
+	) {
 		return {
 			ok: false,
 			code: "reserved",

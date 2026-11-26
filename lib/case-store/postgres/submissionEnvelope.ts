@@ -50,7 +50,7 @@
 // transaction rolls the whole envelope back, so partial success is
 // unobservable.
 
-import type { Transaction } from "kysely";
+import type { Expression as SqlExpression, Transaction } from "kysely";
 import { expressionBuilder, sql } from "kysely";
 import { v7 as uuidv7 } from "uuid";
 import {
@@ -59,8 +59,10 @@ import {
 	caseOperationRunsPerSelectedCase,
 	casePropertyDataTypes,
 	deriveAuthoredCaseId,
+	isFacetWriteThroughIndex,
 	prepareCaseScalarTextValue,
 	type TargetedCaseOperation,
+	USERCASE_BUILT_IN_KEYS,
 	USERCASE_CASE_TYPE,
 	type Uuid,
 } from "@/lib/domain";
@@ -75,6 +77,8 @@ import { walkExpressionTerms } from "@/lib/domain/expression/walk";
 import {
 	caseDatetimeValue,
 	caseInstantText,
+	instantDatetimeValue,
+	storageDatetimeValue,
 	storageTimeValue,
 } from "@/lib/domain/temporalValues";
 import {
@@ -95,6 +99,10 @@ import {
 	expressionContextFor,
 	type PredicateCompileContext,
 } from "../sql";
+import {
+	buildRestoreScope,
+	type RestoreScopeQuery,
+} from "../sql/compileRestoreScope";
 import type { FormFieldBindingValue, TermBindings } from "../sql/compileTerm";
 import type { Database, JsonObject, JsonValue } from "../sql/database";
 import type { CaseUpdate } from "../store";
@@ -139,6 +147,7 @@ export interface SubmissionEnvelopeHost {
 				caseType: string;
 				caseName: string;
 				externalId?: string;
+				locationId?: string;
 				properties: JsonObject;
 				parentCaseId?: string;
 				parentRelationship?: "child" | "extension";
@@ -225,6 +234,9 @@ function programSteps(
 			id: stored.id,
 			caseType: own.caseType,
 			...(stored.owner === undefined ? {} : { owner: stored.owner }),
+			...(stored.ownerOnlyIfChanged === undefined
+				? {}
+				: { ownerOnlyIfChanged: stored.ownerOnlyIfChanged }),
 			...(stored.writes === undefined ? {} : { writes: stored.writes }),
 			...(stored.links === undefined ? {} : { links: stored.links }),
 		};
@@ -255,6 +267,9 @@ function programSteps(
 				action: "update",
 				target: { kind: "session" },
 				...(stored.name === undefined ? {} : { rename: stored.name }),
+				...(stored.nameOnlyIfChanged === undefined
+					? {}
+					: { renameOnlyIfChanged: stored.nameOnlyIfChanged }),
 			},
 			recordAction: "own",
 			own: true,
@@ -556,6 +571,38 @@ interface EvalRequest {
 	readonly savedAsText?: true;
 }
 
+/** Execute the normal expression compiler against the signed entry's device rows.
+ * The CTEs only exist in this SELECT. The later locks and DML use current tables. */
+async function readOpeningValues(
+	trx: Transaction<Database>,
+	program: CaseOperationProgram,
+	projectId: string,
+	query: SqlExpression<Record<string, unknown>>,
+): Promise<Record<string, unknown> | undefined> {
+	const opening = program.openingReads;
+	if (!opening)
+		return (await sql<Record<string, unknown>>`${query}`.execute(trx)).rows[0];
+	const statement = sql<Record<string, unknown>>`
+		WITH cases AS (
+			SELECT opening_case.*, ${projectId}::text AS project_id
+			FROM jsonb_to_recordset(${JSON.stringify(opening.cases.rows)}::jsonb) AS opening_case(
+				case_id text, app_id text, case_type text, owner_id text, status text,
+				opened_on timestamptz, modified_on timestamptz, closed_on timestamptz,
+				case_name text, external_id text, location_id text, parent_case_id text,
+				properties jsonb)
+		), case_indices AS (
+			SELECT * FROM jsonb_to_recordset(${JSON.stringify(opening.cases.indices)}::jsonb)
+			AS opening_index(case_id text, ancestor_id text, target_case_type text, identifier text, relationship text, depth int)
+		), parked_case_values AS (
+			SELECT null::uuid AS id, null::text AS case_id, null::timestamptz AS dismissed_at WHERE false
+		), lookup_rows AS (
+			SELECT opening_lookup.*, ${projectId}::text AS project_id
+			FROM jsonb_to_recordset(${JSON.stringify(opening.lookupRows)}::jsonb)
+			AS opening_lookup(id uuid, table_id uuid, order_key bigint, values jsonb)
+		) ${query}`;
+	return (await statement.execute(trx)).rows[0];
+}
+
 /**
  * Evaluate a batch of expressions/predicates in one SELECT anchored on
  * the pre-submission session row (or anchor-free when the form loads
@@ -598,6 +645,9 @@ async function evaluateBatch(
 				...(program.organizationLevels === undefined
 					? {}
 					: { organizationLevels: program.organizationLevels }),
+				...(program.openingReads && {
+					workerPlaceLineage: program.openingReads.locations ?? [],
+				}),
 				...(program.workerPlaceIds === undefined
 					? {}
 					: { workerPlaceIds: program.workerPlaceIds }),
@@ -646,7 +696,12 @@ async function evaluateBatch(
 		await sql`SAVEPOINT submission_expression`.execute(trx);
 		let row: Record<string, unknown> | undefined;
 		try {
-			row = await trx.selectNoFrom(selections).executeTakeFirst();
+			row = await readOpeningValues(
+				trx,
+				program,
+				host.projectId,
+				trx.selectNoFrom(selections),
+			);
 		} catch (error) {
 			const reasonFor = (failure: unknown) => {
 				const code =
@@ -667,7 +722,12 @@ async function evaluateBatch(
 			// the same pre-effect transaction and bindings to identify the exact slot.
 			for (const [offset, selection] of selections.entries()) {
 				try {
-					await trx.selectNoFrom(selection).executeTakeFirst();
+					await readOpeningValues(
+						trx,
+						program,
+						host.projectId,
+						trx.selectNoFrom(selection),
+					);
 				} catch (cause) {
 					const reason = reasonFor(cause);
 					if (!reason) throw cause;
@@ -761,6 +821,13 @@ export function storageValueFromEvaluation(
 	switch (dataType) {
 		case "multi_select": {
 			if (Array.isArray(value)) return value.map((entry) => String(entry));
+			// One choice saved to a list of choices (`ruleSets.ts::
+			// isValueStorageAssignable`): the list a device reads from the
+			// text it stores, its values split on spaces.
+			if (typeof value === "string") {
+				const tokens = value.split(/\s+/).filter((token) => token !== "");
+				return tokens.length === 0 ? undefined : tokens;
+			}
 			throw new Error(
 				compilerBugMessage({
 					where: "case-store.submissionEnvelope.storageValueFromEvaluation",
@@ -776,7 +843,7 @@ export function storageValueFromEvaluation(
 		}
 		case "date": {
 			if (value instanceof Date) return localDayText(value);
-			return String(value);
+			return dayText(String(value), zone);
 		}
 		case "datetime": {
 			// A date and time on a case is the text CommCare HQ stores, UTC
@@ -799,8 +866,9 @@ export function storageValueFromEvaluation(
 		case "text":
 		case "single_select":
 		case "geopoint": {
-			// A number or a date saved to text is the text a device submits for
-			// it (`casePropertyTypes.ts::TEXT_JOINED_DATA_TYPES`): a number read
+			// A number, a date or a location saved to text is the text a device
+			// submits for it (`casePropertyTypes.ts::TEXT_JOINED_DATA_TYPES`; a
+			// location is already its four numbers' text): a number read
 			// back as a double (`compileSubmittedTextValue`) as
 			// `Recalculate.wrapData` holds it, and a date, which a `date`
 			// column gives in the process's local time, as its day. A date and
@@ -822,6 +890,22 @@ export function storageValueFromEvaluation(
 			);
 		}
 	}
+}
+
+/**
+ * The day a `date` property keeps of a value's text. A date and time (a
+ * date-and-time question's answer saved to a day,
+ * `ruleSets.ts::isAnswerWriteAssignable`) keeps the day of its moment where
+ * the device is: Core wraps it as `DateData` (`Recalculate.java::wrapData`),
+ * which a device writes as its day in its own zone, the viewer's here
+ * (`zone`). Any other text is kept as it is, for the schema to judge.
+ */
+function dayText(text: string, zone: string): string {
+	const trimmed = text.trim();
+	if (!trimmed.includes("T")) return text;
+	const instant = Date.parse(storageDatetimeValue(trimmed, zone));
+	if (Number.isNaN(instant)) return text;
+	return instantDatetimeValue(instant, zone).slice(0, 10);
 }
 
 /** node-postgres parses a `date` column in LOCAL time; read the local
@@ -930,6 +1014,10 @@ export interface ResolvedLink {
 }
 
 const MAX_SELECTED_CASES = 100;
+
+/** The owner CommCare HQ's build gives a case it creates beside an
+ *  `owner_id` update (`const.py::UNOWNED_EXTENSION_OWNER_ID`). */
+const UNOWNED_OWNER_ID = "-";
 
 function rejectSelection(
 	rejection: Extract<
@@ -1068,7 +1156,10 @@ export async function executeSubmissionEnvelope(
 	trx: Transaction<Database>,
 	host: SubmissionEnvelopeHost,
 	args: ApplySubmissionArgs,
-): Promise<SubmissionEnvelopeResult> {
+): Promise<
+	SubmissionEnvelopeResult & { readonly deviceExternalIds: DeviceExternalIds }
+> {
+	const deviceExternalIds: DeviceExternalIds = new Map();
 	const steps =
 		args.operations === undefined
 			? []
@@ -1085,6 +1176,8 @@ export async function executeSubmissionEnvelope(
 			.where("project_id", "=", host.projectId)
 			.where("case_type", "=", USERCASE_CASE_TYPE)
 			.where(sql<string>`properties->>'hq_user_id'`, "=", host.actingUserId)
+			.orderBy("case_id")
+			.forUpdate()
 			.limit(2)
 			.execute();
 		if (rows.length > 1)
@@ -1098,12 +1191,22 @@ export async function executeSubmissionEnvelope(
 		workerRecordCaseId = rows[0].case_id;
 	}
 	const selectedCaseIds = validatedSelectedCaseIds(args);
+	const opening = args.operations?.openingReads;
+	const currentAccess =
+		opening &&
+		buildRestoreScope(trx, {
+			appId: args.appId,
+			projectId: host.projectId,
+			ownerIds: opening.currentOwnerIds,
+		});
 	const sessionAnchors = await loadSelectedCaseAnchors(
 		trx,
 		host,
 		args.appId,
 		args.ordinary,
 		selectedCaseIds,
+		currentAccess,
+		opening?.submittedCaseIds,
 	);
 	const operationRecords: OperationEffectRecord[] = [];
 	let registeredCaseId: string | undefined;
@@ -1135,6 +1238,7 @@ export async function executeSubmissionEnvelope(
 			args.appId,
 			program.resolved,
 			args.ordinary,
+			deviceExternalIds,
 		);
 	}
 
@@ -1148,6 +1252,7 @@ export async function executeSubmissionEnvelope(
 					: [registeredCaseId],
 		createdChildren: [],
 		operations: operationRecords,
+		deviceExternalIds,
 	};
 }
 
@@ -1254,6 +1359,7 @@ async function resolveOperationProgram(
 			formFields: instance.formFields,
 			operationIds: operationIdsFor(instances, allocations, index),
 			actingUserId: host.actingUserId,
+			...(program.entryDatums && { entryDatums: program.entryDatums }),
 			...(program.sessionUser === undefined
 				? {}
 				: { sessionUser: program.sessionUser }),
@@ -1436,7 +1542,7 @@ async function resolveOperationProgram(
 				{ write: writeIndex },
 				{
 					expression: write.value,
-					...(write.property !== "external_id" &&
+					...(!isScalarColumnWrite(write.property) &&
 						writeDataType(program, instance.envelope, writeIndex) ===
 							"text" && { savedAsText: true as const }),
 				},
@@ -1513,10 +1619,25 @@ async function resolveOperationProgram(
 			expressionIds.push(evaluatedText(value));
 		}
 	}
-	const knownRows = await loadTargetRows(trx, host, appId, {
-		unheldIds: expressionIds.filter((id) => id !== ""),
-		anyIds: [...authoredIds, ...(program.sessionCaseIds ?? [])],
-	});
+	const opening = program.openingReads;
+	const currentAccess =
+		opening &&
+		buildRestoreScope(trx, {
+			appId,
+			projectId: host.projectId,
+			ownerIds: opening.currentOwnerIds,
+		});
+	const knownRows = await loadTargetRows(
+		trx,
+		host,
+		appId,
+		{
+			unheldIds: expressionIds.filter((id) => id !== ""),
+			anyIds: [...authoredIds, ...(program.sessionCaseIds ?? [])],
+		},
+		currentAccess,
+		opening?.submittedCaseIds,
+	);
 
 	// A case id supplied by an entry can also appear as an independently
 	// resolved expression target or another create's allocation. Each
@@ -1694,6 +1815,27 @@ async function resolveOperationProgram(
 			}
 		};
 		const target = resolveTargetId();
+		const ownClose = instance.envelope.ownClose;
+		const closes =
+			operation.action === "close" ||
+			(ownClose !== undefined &&
+				(ownClose.condition === undefined || bag?.close === true));
+		if (
+			target.snapshotCaseType === USERCASE_CASE_TYPE &&
+			(operation.action !== "update" ||
+				closes ||
+				operation.retype ||
+				operation.owner ||
+				operation.rename ||
+				operation.links?.length)
+		) {
+			throw new SubmissionRejectedError({
+				kind: "target",
+				operationUuid: operation.uuid,
+				slot: "target",
+				reason: "managed-worker-record",
+			});
+		}
 
 		const links: ResolvedLink[] = [];
 		for (const [linkIndex, link] of (operation.links ?? []).entries()) {
@@ -1825,19 +1967,30 @@ async function resolveOperationProgram(
 			// guard rejects it — same rejection here.
 			preparedName = prepareText("name", evaluatedText(bag?.name));
 		}
+		// An owner saved only when changed (`CaseFacetOnlyIfChanged`) is
+		// compared with the case's `owner_id` leaf, which a case holds as an
+		// attribute, so the comparison reads "" and a blank answer saves
+		// nothing. On a case the form creates, CommCare HQ's build then leaves
+		// the create block's own owner `-` (`autoset_owner_id_for_*`).
+		const ownerKept =
+			operation.ownerOnlyIfChanged === true &&
+			blankText(evaluatedText(bag?.owner));
 		let preparedOwner: string | undefined;
 		if (operation.action === "create") {
-			preparedOwner = prepareText(
-				"owner",
-				program.groupDefaults?.operations.includes(operation.uuid)
-					? program.groupDefaults.owner
-					: operation.owner === undefined
-						? host.actingUserId
-						: evaluatedText(bag?.owner),
-			);
+			preparedOwner = ownerKept
+				? UNOWNED_OWNER_ID
+				: prepareText(
+						"owner",
+						program.groupDefaults?.operations.includes(operation.uuid)
+							? program.groupDefaults.owner
+							: operation.owner === undefined
+								? host.actingUserId
+								: evaluatedText(bag?.owner),
+					);
 		} else if (
 			operation.action === "update" &&
 			operation.owner !== undefined &&
+			!ownerKept &&
 			!(
 				instance.envelope.blankSavesNothing &&
 				blankText(evaluatedText(bag?.owner))
@@ -1845,7 +1998,7 @@ async function resolveOperationProgram(
 		) {
 			preparedOwner = prepareText("owner", evaluatedText(bag?.owner));
 		}
-		const preparedRename =
+		let preparedRename =
 			operation.rename === undefined ||
 			(instance.envelope.blankSavesNothing &&
 				blankText(evaluatedText(bag?.rename)))
@@ -1869,6 +2022,19 @@ async function resolveOperationProgram(
 		const storedValuesOf = async (
 			caseId: string,
 		): Promise<StoredCaseValues | undefined> => {
+			if (program.openingReads) {
+				const row = program.openingReads.cases.rows.find(
+					(row) => row.case_id === caseId,
+				);
+				return (
+					row && {
+						caseName: row.case_name,
+						externalId: row.external_id,
+						locationId: row.location_id ?? null,
+						properties: row.properties,
+					}
+				);
+			}
 			if (!snapshots.has(caseId)) {
 				snapshots.set(
 					caseId,
@@ -1877,6 +2043,15 @@ async function resolveOperationProgram(
 			}
 			return snapshots.get(caseId);
 		};
+		// A rename saved only when changed is compared with the case's name
+		// when the form opened, as HQ's `case/update/case_name` relevance
+		// compares the casedb `case_name` with the trimmed answer.
+		if (
+			operation.renameOnlyIfChanged === true &&
+			preparedRename !== undefined &&
+			(await storedValuesOf(target.caseId))?.caseName === preparedRename
+		)
+			preparedRename = undefined;
 		for (const [writeIndex, write] of (operation.writes ?? []).entries()) {
 			if (skippedWrites.get(index)?.has(writeIndex)) continue;
 			// A write through an index saves to the case the chain reaches in
@@ -1884,19 +2059,73 @@ async function resolveOperationProgram(
 			// the index's id, which is empty where no case is indexed, and case
 			// processing drops a block with an empty id, so nothing is saved.
 			let destinationCaseId = target.caseId;
+			let actualType = target.snapshotCaseType;
 			if (write.via !== undefined) {
-				const reached = await ancestorCaseId(
+				const reached = opening
+					? openedAncestorId(opening.cases.indices, target.caseId, write.via)
+					: await ancestorCaseId(trx, host, appId, target.caseId, write.via);
+				const slot = `write:${writeIndex}` as const;
+				if (!reached) {
+					if (!opening) continue;
+					throw new SubmissionRejectedError({
+						kind: "target",
+						operationUuid: operation.uuid,
+						slot,
+						reason: "missing-connection",
+					});
+				}
+				const current = await loadTargetRows(
 					trx,
 					host,
 					appId,
-					target.caseId,
-					write.via,
+					{ unheldIds: [reached], anyIds: [] },
+					currentAccess,
+					opening?.submittedCaseIds,
 				);
-				if (reached === undefined) continue;
+				const destination = current.get(reached);
+				const expected = instance.envelope.viaCaseTypes?.get(writeIndex);
+				if (
+					!destination ||
+					(expected !== undefined && destination.caseType !== expected)
+				) {
+					throw new SubmissionRejectedError({
+						kind: "target",
+						operationUuid: operation.uuid,
+						slot,
+						reason: destination
+							? "case-type-mismatch"
+							: "not-found-or-out-of-scope",
+					});
+				}
+				actualType = destination.caseType;
 				destinationCaseId = reached;
 			}
+			if (
+				actualType === USERCASE_CASE_TYPE &&
+				(USERCASE_BUILT_IN_KEYS.includes(write.property) ||
+					!program.caseTypeSchemas
+						.get(USERCASE_CASE_TYPE)
+						?.properties?.some((property) => property.name === write.property))
+			) {
+				throw new SubmissionRejectedError({
+					kind: "target",
+					operationUuid: operation.uuid,
+					slot: `write:${writeIndex}`,
+					reason: "managed-worker-record",
+				});
+			}
 			let value: JsonValue | undefined;
-			if (write.property === "external_id") {
+			if (isFacetWriteThroughIndex(write)) {
+				// The name or owner of the case above, prepared as the
+				// operation's own rename and owner are: CommCare HQ writes the
+				// key into that case's block as its `case_name` or `owner_id`.
+				const raw = evaluatedText(bag?.writes.get(writeIndex));
+				if (instance.envelope.blankSavesNothing && blankText(raw)) continue;
+				value = prepareText(
+					write.property === "case_name" ? "rename" : "owner",
+					raw,
+				);
+			} else if (isScalarColumnWrite(write.property)) {
 				const prepared = prepareCaseScalarTextValue(
 					evaluatedText(bag?.writes.get(writeIndex)),
 					"allow",
@@ -1905,7 +2134,7 @@ async function resolveOperationProgram(
 					throw new SubmissionRejectedError({
 						kind: "text-value",
 						operationUuid: operation.uuid,
-						facet: "external_id",
+						facet: write.property,
 						reason: prepared.reason,
 					});
 				}
@@ -1916,6 +2145,19 @@ async function resolveOperationProgram(
 					writeDataType(program, instance.envelope, writeIndex),
 					program.viewerTimeZone ?? "UTC",
 				);
+				// CommCare HQ copies a saved `hq_user_id` into the case's
+				// external id, a 255-character column, so the text it copies
+				// holds to that column's bound as an external id does.
+				if (write.property === "hq_user_id") {
+					const copied = prepareCaseScalarTextValue(storedText(value), "allow");
+					if (!copied.ok)
+						throw new SubmissionRejectedError({
+							kind: "text-value",
+							operationUuid: operation.uuid,
+							facet: "hq_user_id",
+							reason: copied.reason,
+						});
+				}
 			}
 			if (instance.envelope.blankSavesNothing && blankText(storedText(value)))
 				continue;
@@ -1924,12 +2166,18 @@ async function resolveOperationProgram(
 			// `case/update` relevance compares the casedb value with the answer.
 			if (write.onlyIfChanged === true) {
 				const stored = await storedValuesOf(destinationCaseId);
+				// CommCare Core unpacks each side of `!=` to one value, and an
+				// empty node set unpacks to "" (`XPathNodeset.unpack`). So a case
+				// the opening never held, or a leaf it never saved, compares as
+				// "", and a non-blank answer is saved, as on a device.
 				const before =
 					write.property === "case_name"
 						? (stored?.caseName ?? "")
 						: write.property === "external_id"
 							? (stored?.externalId ?? "")
-							: storedText(stored?.properties[write.property]);
+							: write.property === "location_id"
+								? (stored?.locationId ?? "")
+								: storedText(stored?.properties[write.property]);
 				if (before === storedText(value)) continue;
 			}
 			if (write.via !== undefined) {
@@ -1942,12 +2190,6 @@ async function resolveOperationProgram(
 				writes.push({ property: write.property, value });
 			}
 		}
-
-		const ownClose = instance.envelope.ownClose;
-		const closes =
-			operation.action === "close" ||
-			(ownClose !== undefined &&
-				(ownClose.condition === undefined || bag?.close === true));
 
 		resolvedInstances.push({
 			instance,
@@ -2052,21 +2294,48 @@ async function resolveOperationProgram(
 	};
 }
 
+/** Every route to a worker record uses the same eligibility as its direct
+ * worker-record supply. A typed list, a raw ID or an earlier connection
+ * can supply an ID but cannot grant access to another worker's record. */
+function workerRowAvailable(actingUserId: string) {
+	return sql<boolean>`(c.case_type <> ${USERCASE_CASE_TYPE} or
+		(c.status = 'open' and c.owner_id = ${actingUserId} and c.properties->>'hq_user_id' = ${actingUserId}))`;
+}
+
 async function loadSelectedCaseAnchors(
 	trx: Transaction<Database>,
 	host: SubmissionEnvelopeHost,
 	appId: string,
 	ordinary: ApplySubmissionArgs["ordinary"],
 	caseIds: readonly string[],
+	currentAccess?: RestoreScopeQuery,
+	submittedCaseIds: readonly string[] = [],
 ): Promise<ReadonlyMap<string, SessionAnchor>> {
 	if (caseIds.length === 0) return new Map();
-	const rows = await trx
-		.selectFrom("cases as c")
-		.select(["c.case_id", "c.case_type"])
-		.where("c.app_id", "=", appId)
-		.where("c.case_id", "in", caseIds)
-		.where("c.project_id", "=", host.projectId)
-		.execute();
+	const select = (ids: readonly string[], restrict: boolean) => {
+		const selected = (currentAccess?.creator ?? trx)
+			.selectFrom("cases as c")
+			.select(["c.case_id", "c.case_type"])
+			.where("c.app_id", "=", appId)
+			.where("c.case_id", "in", ids)
+			.where("c.project_id", "=", host.projectId)
+			.where(workerRowAvailable(host.actingUserId))
+			.orderBy("c.case_id")
+			.forUpdate("c");
+		return (
+			(restrict ? currentAccess?.restrict(selected, "c") : undefined) ??
+			selected
+		).execute();
+	};
+	// A case the device holds from this actor's own unsynced submission is
+	// its to write though the current restore omits it (one it closed).
+	const held = new Set(submittedCaseIds);
+	const restricted = caseIds.filter((id) => !held.has(id));
+	const exempt = caseIds.filter((id) => held.has(id));
+	const rows = [
+		...(restricted.length ? await select(restricted, true) : []),
+		...(exempt.length ? await select(exempt, false) : []),
+	];
 	const byId = new Map(
 		rows.map((row) => [
 			row.case_id,
@@ -2109,20 +2378,32 @@ async function loadTargetRows(
 	host: SubmissionEnvelopeHost,
 	appId: string,
 	ids: { unheldIds: readonly string[]; anyIds: readonly string[] },
+	currentAccess?: RestoreScopeQuery,
+	submittedCaseIds: readonly string[] = [],
 ): Promise<ReadonlyMap<string, { caseId: string; caseType: string }>> {
 	const rows = new Map<string, { caseId: string; caseType: string }>();
+	// A case the device holds from this actor's own unsynced submission is
+	// its to write though the current restore omits it (one it closed).
+	const submitted = new Set(submittedCaseIds);
 	const load = async (
 		caseIds: readonly string[],
 		excludeHeld: boolean,
+		restrict = true,
 	): Promise<void> => {
-		const distinct = [...new Set(caseIds)];
+		const distinct = [...new Set(caseIds)].filter(
+			(id) => submitted.has(id) !== restrict,
+		);
 		if (distinct.length === 0) return;
-		let qb = trx
+		let qb = (currentAccess?.creator ?? trx)
 			.selectFrom("cases as c")
 			.select(["c.case_id", "c.case_type"])
 			.where("c.app_id", "=", appId)
 			.where("c.project_id", "=", host.projectId)
-			.where("c.case_id", "in", distinct);
+			.where(workerRowAvailable(host.actingUserId))
+			.where("c.case_id", "in", distinct)
+			.orderBy("c.case_id")
+			.forUpdate("c");
+		if (currentAccess && restrict) qb = currentAccess.restrict(qb, "c");
 		if (excludeHeld) {
 			qb = qb.where(({ not, exists, selectFrom }) =>
 				not(
@@ -2141,6 +2422,8 @@ async function loadTargetRows(
 	};
 	await load(ids.unheldIds, true);
 	await load(ids.anyIds, false);
+	await load(ids.unheldIds, true, false);
+	await load(ids.anyIds, false, false);
 	return rows;
 }
 
@@ -2154,6 +2437,7 @@ async function applyOperationEffects(
 	appId: string,
 	resolved: readonly ResolvedInstance[],
 	ordinary: ApplySubmissionArgs["ordinary"],
+	device: DeviceExternalIds,
 ): Promise<void> {
 	// Ids this envelope has already created: a later duplicate-key
 	// create of the SAME submission (duplicate repeat values) merges
@@ -2176,9 +2460,10 @@ async function applyOperationEffects(
 				entry,
 				operation,
 				createdInEnvelope,
+				device,
 			);
 		} else {
-			await applyMutationEffect(trx, host, appId, entry, operation);
+			await applyMutationEffect(trx, host, appId, entry, operation, device);
 		}
 
 		if (entry.closes) {
@@ -2212,72 +2497,107 @@ async function applyOperationEffects(
 			await stampModified(trx, host, appId, entry.caseId);
 		}
 
-		// The writes through an index, each on the case its chain reached,
-		// after the block of the case they start from.
+		// The writes through an index, after the block of the case they start
+		// from. CommCare HQ's build gathers the writes reaching one case into
+		// one block (`xform.py::_add_case_updates`), whose known keys it
+		// applies before its other keys, so each reached case takes its writes
+		// as one partition, whatever their authored order.
+		const byCase = new Map<string, (typeof entry.viaWrites)[number][]>();
 		for (const write of entry.viaWrites) {
-			const { patch, removals, externalId } = partitionWrites([
-				{ property: write.property, value: write.value },
-			]);
+			const writes = byCase.get(write.caseId);
+			if (writes) writes.push(write);
+			else byCase.set(write.caseId, [write]);
+		}
+		for (const [caseId, writes] of byCase) {
+			const named = writes.findLast((write) => write.property === "case_name");
+			const owned = writes.findLast((write) => write.property === "owner_id");
+			const part = partitionWrites(
+				writes
+					.filter(
+						(write) =>
+							write.property !== "case_name" && write.property !== "owner_id",
+					)
+					.map((write) => ({ property: write.property, value: write.value })),
+			);
+			const { patch, removals, scalars } = part;
+			await noteDeviceExternalId(trx, host, appId, caseId, part, device);
 			if (
 				Object.keys(patch).length > 0 ||
-				externalId !== undefined ||
-				write.property === "case_name"
+				Object.keys(scalars).length > 0 ||
+				named !== undefined
 			) {
 				await host.updateCase(trx, {
 					appId,
-					caseId: write.caseId,
-					patch:
-						write.property === "case_name"
-							? { case_name: storedText(write.value) }
-							: {
-									...(externalId === undefined
-										? {}
-										: { external_id: externalId }),
-									...(Object.keys(patch).length > 0
-										? { properties: patch }
-										: {}),
-								},
+					caseId,
+					patch: {
+						...(named !== undefined && {
+							case_name: storedText(named.value),
+						}),
+						...scalars,
+						...(Object.keys(patch).length > 0 ? { properties: patch } : {}),
+					},
 				});
-			} else if (removals.length > 0) {
-				await removeProperties(trx, host, appId, write.caseId, removals);
 			}
+			if (removals.length > 0)
+				await removeProperties(trx, host, appId, caseId, removals);
+			if (owned !== undefined)
+				await setOwner(trx, host, appId, caseId, storedText(owned.value));
 		}
 	}
 }
 
-/** Split resolved writes into the additive patch and the blank-write
- * key removals (the wire's `''` write projected onto typed storage). */
+/**
+ * Split resolved writes into the additive patch, the blank-write key removals
+ * (the wire's `''` write projected onto typed storage) and the row's scalar
+ * columns, as CommCare HQ's server applies one block's `<update>`
+ * (`update_strategy.py::SqlCaseUpdateStrategy._apply_update_action`):
+ * `external_id` to its column, `location_id` to the case's location column and
+ * not its properties, and `hq_user_id` to its property and, copied, to the
+ * external id. HQ applies the block's known keys before its other keys, so a
+ * block writing both keeps the copy as the external id.
+ *
+ * `deviceExternalId` is what a device holds of the external id where it
+ * differs from the server's: a device applies `hq_user_id` as a property alone
+ * (`CaseXmlParser.updateCase`) until its next sync, so it keeps the block's own
+ * `external_id` (`explicit`) or, with none, the one the case held (`kept`).
+ */
 function partitionWrites(writes: ResolvedInstance["writes"]): {
 	patch: JsonObject;
 	removals: string[];
-	externalId?: string;
+	scalars: { external_id?: string; location_id?: string };
+	deviceExternalId?: "kept" | { readonly explicit: string };
 } {
 	const patch: JsonObject = {};
 	const removals: string[] = [];
-	let externalId: string | undefined;
+	const scalars: { external_id?: string; location_id?: string } = {};
+	let copied: string | undefined;
 	for (const write of writes) {
-		if (write.property === "external_id") {
+		if (isScalarColumnWrite(write.property)) {
 			if (typeof write.value !== "string") {
 				throw new Error(
 					compilerBugMessage({
 						where: "case-store.submissionEnvelope.partitionWrites",
-						invariant:
-							"an admitted external_id write did not carry its prepared scalar string",
+						invariant: `an admitted ${write.property} write did not carry its prepared scalar string`,
 						detail:
-							"Resolution normalizes external_id separately before generic JSON conversion; blank is a real empty-string scalar write and must never become a JSONB removal.",
+							"Resolution normalizes a scalar column's write separately before generic JSON conversion; blank is a real empty-string scalar write and must never become a JSONB removal.",
 					}),
 				);
 			}
-			externalId = write.value;
+			scalars[write.property] = write.value;
 			continue;
 		}
+		if (write.property === "hq_user_id") copied = storedText(write.value);
 		if (write.value === undefined) removals.push(write.property);
 		else patch[write.property] = write.value;
 	}
+	const explicit = scalars.external_id;
+	if (copied === undefined) return { patch, removals, scalars };
+	scalars.external_id = copied;
 	return {
 		patch,
 		removals,
-		...(externalId === undefined ? {} : { externalId }),
+		scalars,
+		deviceExternalId: explicit === undefined ? "kept" : { explicit },
 	};
 }
 
@@ -2289,6 +2609,54 @@ function rejectTakenCaseId(caseId: string): never {
 	});
 }
 
+/**
+ * The external id a device holds for each case whose external id this
+ * submission set only through CommCare HQ's `hq_user_id` copy: the id it held
+ * before the submission, or the one a later block of the submission wrote
+ * explicitly. The case store holds HQ's copy; the submission's device patch
+ * holds this until the device's next sync reads the server's.
+ */
+export type DeviceExternalIds = Map<string, string | null>;
+
+/** Note, before a block's write lands, what a device keeps of its case's
+ *  external id (`DeviceExternalIds`). */
+async function noteDeviceExternalId(
+	trx: Transaction<Database>,
+	host: SubmissionEnvelopeHost,
+	appId: string,
+	caseId: string,
+	part: ReturnType<typeof partitionWrites>,
+	device: DeviceExternalIds,
+): Promise<void> {
+	const held = part.deviceExternalId;
+	if (held !== undefined && held !== "kept") {
+		device.set(caseId, held.explicit);
+		return;
+	}
+	if (held === "kept") {
+		if (device.has(caseId)) return;
+		const row = await trx
+			.selectFrom("cases as c")
+			.select("c.external_id")
+			.where("c.app_id", "=", appId)
+			.where("c.project_id", "=", host.projectId)
+			.where("c.case_id", "=", caseId)
+			.executeTakeFirst();
+		device.set(caseId, row?.external_id ?? null);
+		return;
+	}
+	if (part.scalars.external_id !== undefined && device.has(caseId))
+		device.set(caseId, part.scalars.external_id);
+}
+
+/** A write CommCare HQ keeps in a column of the case rather than among its
+ *  properties: the external id and the case's own location. */
+function isScalarColumnWrite(
+	property: string,
+): property is "external_id" | "location_id" {
+	return property === "external_id" || property === "location_id";
+}
+
 async function applyCreateEffect(
 	trx: Transaction<Database>,
 	host: SubmissionEnvelopeHost,
@@ -2296,16 +2664,19 @@ async function applyCreateEffect(
 	entry: ResolvedInstance,
 	operation: TargetedCaseOperation,
 	createdInEnvelope: Set<string>,
+	device: DeviceExternalIds,
 ): Promise<void> {
-	const { patch, removals, externalId } = partitionWrites(entry.writes);
+	const part = partitionWrites(entry.writes);
+	const { patch, removals, scalars } = part;
 	if (entry.mergesExisting || createdInEnvelope.has(entry.caseId)) {
+		await noteDeviceExternalId(trx, host, appId, entry.caseId, part, device);
 		// Create-of-existing merges (duplicate authored key, a retry of
 		// the same definition): the create block's facets apply over the
 		// existing row, exactly as Core/HQ accept a create for a known
 		// id. The rolling proof already refused a stored-type mismatch.
 		if (
 			entry.preparedName !== undefined ||
-			externalId !== undefined ||
+			Object.keys(scalars).length > 0 ||
 			Object.keys(patch).length > 0
 		) {
 			await host.updateCase(trx, {
@@ -2315,7 +2686,7 @@ async function applyCreateEffect(
 					...(entry.preparedName === undefined
 						? {}
 						: { case_name: entry.preparedName }),
-					...(externalId === undefined ? {} : { external_id: externalId }),
+					...scalars,
 					...(Object.keys(patch).length > 0 ? { properties: patch } : {}),
 				},
 			});
@@ -2340,12 +2711,23 @@ async function applyCreateEffect(
 	}
 	// Blank writes on a fresh create simply never mint the key — the
 	// two-state collapse (absent reads as blank) every storage write keeps.
+	// A fresh case has no external id on the device until its next sync.
+	if (part.deviceExternalId !== undefined)
+		device.set(
+			entry.caseId,
+			part.deviceExternalId === "kept" ? null : part.deviceExternalId.explicit,
+		);
 	await host.insertCase(trx, {
 		appId,
 		seed: {
 			caseType: operation.caseType,
 			caseName: entry.preparedName,
-			...(externalId === undefined ? {} : { externalId }),
+			...(scalars.external_id === undefined
+				? {}
+				: { externalId: scalars.external_id }),
+			...(scalars.location_id === undefined
+				? {}
+				: { locationId: scalars.location_id }),
 			properties: patch,
 		},
 		caseId: entry.caseId,
@@ -2369,6 +2751,7 @@ async function applyMutationEffect(
 	appId: string,
 	entry: ResolvedInstance,
 	operation: TargetedCaseOperation,
+	device: DeviceExternalIds,
 ): Promise<void> {
 	if (
 		operation.retype !== undefined &&
@@ -2378,13 +2761,15 @@ async function applyMutationEffect(
 		// change as ONE unit — the wire emits them in a single <update>
 		// block that Core/HQ apply together, so the writes are
 		// destination-typed and land on the destination-typed row.
-		await applyRetypeEffect(trx, host, appId, entry, operation.retype);
+		await applyRetypeEffect(trx, host, appId, entry, operation.retype, device);
 	} else {
-		const { patch, removals, externalId } = partitionWrites(entry.writes);
+		const part = partitionWrites(entry.writes);
+		const { patch, removals, scalars } = part;
+		await noteDeviceExternalId(trx, host, appId, entry.caseId, part, device);
 		if (
 			Object.keys(patch).length > 0 ||
 			entry.preparedRename !== undefined ||
-			externalId !== undefined
+			Object.keys(scalars).length > 0
 		) {
 			await host.updateCase(trx, {
 				appId,
@@ -2393,7 +2778,7 @@ async function applyMutationEffect(
 					...(entry.preparedRename === undefined
 						? {}
 						: { case_name: entry.preparedRename }),
-					...(externalId === undefined ? {} : { external_id: externalId }),
+					...scalars,
 					...(Object.keys(patch).length > 0 ? { properties: patch } : {}),
 				},
 			});
@@ -2429,6 +2814,7 @@ async function applyRetypeEffect(
 	appId: string,
 	entry: ResolvedInstance,
 	toCaseType: string,
+	device: DeviceExternalIds,
 ): Promise<void> {
 	const operationUuid = entry.instance.envelope.operation.uuid;
 	const row = await trx
@@ -2469,7 +2855,9 @@ async function applyRetypeEffect(
 		throw err;
 	}
 
-	const { patch, removals, externalId } = partitionWrites(entry.writes);
+	const part = partitionWrites(entry.writes);
+	const { patch, removals, scalars } = part;
+	await noteDeviceExternalId(trx, host, appId, entry.caseId, part, device);
 	const finalDocument: JsonObject = { ...retained, ...patch };
 	for (const key of removals) delete finalDocument[key];
 	if (Object.keys(patch).length > 0) {
@@ -2487,7 +2875,7 @@ async function applyRetypeEffect(
 			...(entry.preparedRename === undefined
 				? {}
 				: { case_name: entry.preparedRename }),
-			...(externalId === undefined ? {} : { external_id: externalId }),
+			...scalars,
 			modified_on: sql<Date>`now()`,
 		})
 		.where("c.app_id", "=", appId)
@@ -2629,7 +3017,8 @@ function storedText(value: JsonValue | undefined): string {
 
 interface StoredCaseValues {
 	readonly caseName: string;
-	readonly externalId: string;
+	readonly externalId: string | null;
+	readonly locationId: string | null;
 	readonly properties: JsonObject;
 }
 
@@ -2642,7 +3031,7 @@ async function readStoredCaseValues(
 ): Promise<StoredCaseValues | undefined> {
 	const row = await trx
 		.selectFrom("cases as c")
-		.select(["c.case_name", "c.external_id", "c.properties"])
+		.select(["c.case_name", "c.external_id", "c.location_id", "c.properties"])
 		.where("c.app_id", "=", appId)
 		.where("c.project_id", "=", host.projectId)
 		.where("c.case_id", "=", caseId)
@@ -2650,7 +3039,8 @@ async function readStoredCaseValues(
 	if (row === undefined) return undefined;
 	return {
 		caseName: row.case_name,
-		externalId: row.external_id ?? "",
+		externalId: row.external_id,
+		locationId: row.location_id,
 		properties: row.properties,
 	};
 }
@@ -2662,6 +3052,27 @@ async function readStoredCaseValues(
  * Undefined where a step finds no index, or an index to no case of this app
  * and Project.
  */
+function openedAncestorId(
+	indices: NonNullable<
+		CaseOperationProgram["openingReads"]
+	>["cases"]["indices"],
+	caseId: string,
+	via: CaseWriteVia,
+): string | undefined {
+	let current = caseId;
+	for (const step of via) {
+		const edge = indices.find(
+			(row) =>
+				row.case_id === current &&
+				row.identifier === step.identifier &&
+				row.depth === 1,
+		);
+		if (!edge) return undefined;
+		current = edge.ancestor_id;
+	}
+	return current;
+}
+
 async function ancestorCaseId(
 	trx: Transaction<Database>,
 	host: SubmissionEnvelopeHost,
