@@ -18,6 +18,9 @@ import { submittedAction } from "./submittedAnswerName";
 
 export const CASE_OPERATION_IDENTIFIER_REGEX = /^[A-Za-z_][A-Za-z0-9_]*$/;
 export const CASE_OPERATION_LINK_IDENTIFIER_REGEX = /^[A-Za-z_][A-Za-z0-9_-]*$/;
+/** HQ's Advanced open action can also build a name with complete dot-separated parts. */
+export const ADVANCED_OPEN_LINK_IDENTIFIER_REGEX =
+	/^[A-Za-z_][A-Za-z0-9_-]*(?:\.[A-Za-z_][A-Za-z0-9_-]*)*$/;
 /** A written property's name: the catalog's grammar. */
 export const CASE_OPERATION_PROPERTY_REGEX =
 	AUTHORED_CASE_PROPERTY_NAME_PATTERN;
@@ -27,6 +30,9 @@ export const CASE_OPERATION_IDENTIFIER_FORMAT_MESSAGE =
 
 export const CASE_OPERATION_LINK_IDENTIFIER_FORMAT_MESSAGE =
 	"Start with a letter or underscore. Use only letters, digits, underscores, or hyphens.";
+
+export const ADVANCED_OPEN_LINK_IDENTIFIER_FORMAT_MESSAGE =
+	"Start each part with a letter or underscore. Use letters, digits, underscores, or hyphens within each part, with a single period between parts.";
 
 export const CASE_OPERATION_PROPERTY_FORMAT_MESSAGE =
 	"Start with a letter; use only letters, digits, underscores, or hyphens.";

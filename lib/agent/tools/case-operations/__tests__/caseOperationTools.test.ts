@@ -317,7 +317,8 @@ describe("case-operation canonical author boundary", () => {
 		).toBe(true);
 		for (const [identifier, valid] of [
 			["parent-link", true],
-			["parent.link", false],
+			["parent.link", true],
+			["parent/link", false],
 		] as const) {
 			expect(
 				caseOperationInputSchema.safeParse({
@@ -592,6 +593,40 @@ describe("shared case-operation tools", () => {
 		});
 		expect(result.result).toMatchObject({
 			error: expect.stringContaining("closing the case"),
+		});
+		expect(h.currentDoc()).toEqual(saved);
+	});
+
+	it("holds a dotted index when the actual shared write uses Save to Case", async () => {
+		const { doc, moduleUuid, formUuid } = fixture();
+		const h = makeToolWorkspaceHarness(doc);
+		const link = {
+			identifier: "my-parent",
+			targetType: "patient",
+			target: { kind: "session" },
+			relationship: "child",
+		} as const;
+		const caseAddress = { moduleUuid, formUuid };
+		await h.runTool(addCaseOperationsTool, {
+			...caseAddress,
+			operations: [item({ ...createVisit, links: [link] }, CREATE_UUID)],
+		});
+		const saved = h.currentDoc();
+		expect(saved.forms[formUuid].caseOperations?.at(-1)).toMatchObject({
+			uuid: CREATE_UUID,
+			links: [link],
+		});
+		const result = await h.runTool(updateCaseOperationTool, {
+			...caseAddress,
+			operationUuid: CREATE_UUID,
+			operation: {
+				...createVisit,
+				links: [{ ...link, identifier: "my.parent" }],
+			},
+		});
+		expect(result.mutations).toEqual([]);
+		expect(result.result).toMatchObject({
+			error: expect.stringContaining("requires an Advanced open action"),
 		});
 		expect(h.currentDoc()).toEqual(saved);
 	});

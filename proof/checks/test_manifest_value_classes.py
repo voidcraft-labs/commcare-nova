@@ -7488,7 +7488,12 @@ def _held_new():
             accepted("app", own_update("aª"), update_map, updates),
         ),
         "forms-and-case-writes/index-identifier-outside-an-xml-element-name": (
-            refused("app", opened("my.parent"), reference, f"{opens}/0/case_indices/0/reference_id"),
+            refused("app", opened("my/parent"), reference, f"{opens}/0/case_indices/0/reference_id"),
+            refused("app", opened("my..parent"), reference, f"{opens}/0/case_indices/0/reference_id"),
+            refused("app", opened("my."), reference, f"{opens}/0/case_indices/0/reference_id"),
+            refused("app", opened(".parent"), reference, f"{opens}/0/case_indices/0/reference_id"),
+            refused("app", opened("my:parent"), reference, f"{opens}/0/case_indices/0/reference_id"),
+            accepted("app", opened("my.parent"), reference, f"{opens}/0/case_indices/0/reference_id"),
             accepted("app", opened("my-parent"), reference, f"{opens}/0/case_indices/0/reference_id"),
             accepted("app", opened("my_parent"), reference, f"{opens}/0/case_indices/0/reference_id"),
             # A load's index is another class's.

@@ -9,11 +9,11 @@ import {
 	caseOperationWritePropertyVerdict,
 } from "@/lib/doc/identifierVerdicts";
 import {
+	ADVANCED_OPEN_LINK_IDENTIFIER_FORMAT_MESSAGE,
+	ADVANCED_OPEN_LINK_IDENTIFIER_REGEX,
 	type BlueprintDoc,
 	CASE_OPERATION_IDENTIFIER_FORMAT_MESSAGE,
 	CASE_OPERATION_IDENTIFIER_REGEX,
-	CASE_OPERATION_LINK_IDENTIFIER_FORMAT_MESSAGE,
-	CASE_OPERATION_LINK_IDENTIFIER_REGEX,
 	CASE_OPERATION_PROPERTY_FORMAT_MESSAGE,
 	CASE_OPERATION_PROPERTY_REGEX,
 	type CaseOperation,
@@ -115,8 +115,8 @@ const propertyInputSchema = z
 const linkIdInputSchema = z
 	.string()
 	.regex(
-		CASE_OPERATION_LINK_IDENTIFIER_REGEX,
-		CASE_OPERATION_LINK_IDENTIFIER_FORMAT_MESSAGE,
+		ADVANCED_OPEN_LINK_IDENTIFIER_REGEX,
+		ADVANCED_OPEN_LINK_IDENTIFIER_FORMAT_MESSAGE,
 	)
 	.max(255)
 	.superRefine((value, ctx) => {
@@ -125,10 +125,14 @@ const linkIdInputSchema = z
 			value,
 			new Set(),
 			"suggested",
+			true,
 		);
 		if (verdict.ok) return;
 		ctx.addIssue({ code: "custom", message: verdict.userMessage });
-	});
+	})
+	.describe(
+		"A connection name. A period is allowed only when CommCare HQ builds this change as an Advanced open action.",
+	);
 
 const newTargetInputSchema = z.strictObject({
 	kind: z.literal("new"),

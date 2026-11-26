@@ -6786,7 +6786,7 @@
 		"id": "forms-and-case-writes/index-identifier-outside-an-xml-element-name",
 		"area": "forms-and-case-writes",
 		"section": "Advanced form actions",
-		"item": "an `AdvancedOpenCaseAction.case_indices[].reference_id` outside `[a-zA-Z_][a-zA-Z0-9_-]*`",
+		"item": "an `AdvancedOpenCaseAction.case_indices[].reference_id` outside the supported name grammar, including incomplete dotted names",
 		"surfaceKeys": [
 			"schema:AdvancedOpenCaseAction.case_indices",
 			"schema:CaseIndex.tag",
@@ -6795,7 +6795,7 @@
 		],
 		"valueClass": "open-action-index-name-outside-xml-name",
 		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: a name outside Nova's case operation link identifier grammar (`isCaseOperationLinkIdentifier`)",
+		"dispositionCell": "**HELD-NEW**: a name outside the supported Advanced index grammar (`ADVANCED_OPEN_LINK_IDENTIFIER_REGEX`)",
 		"subject": "advanced-forms",
 		"owner": "forms-and-case-management",
 		"platforms": {
