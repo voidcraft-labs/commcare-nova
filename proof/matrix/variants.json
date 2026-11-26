@@ -2316,7 +2316,7 @@
 						"$xmlns": [1, 0]
 					}
 				],
-				"pointer": "/caseOperations/0/links/0/relationship",
+				"pointer": "/caseOperations/2/links/0/relationship",
 				"value": "extension"
 			},
 			{
@@ -2326,7 +2326,7 @@
 						"$xmlns": [1, 0]
 					}
 				],
-				"pointer": "/caseOperations/0/links/0/identifier",
+				"pointer": "/caseOperations/2/links/0/identifier",
 				"value": "host"
 			}
 		]
@@ -2384,7 +2384,7 @@
 						"$xmlns": [1, 0]
 					}
 				],
-				"pointer": "/caseOperations/0/placement",
+				"pointer": "/caseOperations/2/placement",
 				"value": {
 					"kind": "advanced",
 					"tag": "open_member_0"
@@ -2399,6 +2399,16 @@
 				],
 				"pointer": "/caseOperations/0/action",
 				"value": "own"
+			},
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [1, 0]
+					}
+				],
+				"pointer": "/caseOperations/2/action",
+				"value": "create"
 			}
 		]
 	},
@@ -2428,8 +2438,38 @@
 						"$xmlns": [1, 0]
 					}
 				],
-				"pointer": "/closeCondition/kind",
+				"pointer": "/caseOperations/3/condition/kind",
 				"value": "eq"
+			},
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [1, 0]
+					}
+				],
+				"pointer": "/caseOperations/2/action",
+				"value": "create"
+			},
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [1, 0]
+					}
+				],
+				"pointer": "/closeCondition",
+				"value": null
+			},
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [1, 0]
+					}
+				],
+				"pointer": "/caseOperations/3/target/kind",
+				"value": "op"
 			}
 		]
 	},
@@ -2537,7 +2577,7 @@
 						"$xmlns": [1, 0]
 					}
 				],
-				"pointer": "/caseOperations/0/placement",
+				"pointer": "/caseOperations/2/placement",
 				"value": {
 					"kind": "advanced",
 					"tag": "open_member_0"
@@ -2550,8 +2590,28 @@
 						"$xmlns": [1, 0]
 					}
 				],
-				"pointer": "/openCondition/kind",
+				"pointer": "/caseOperations/2/condition/kind",
 				"value": "eq"
+			},
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [1, 0]
+					}
+				],
+				"pointer": "/caseOperations/2/action",
+				"value": "create"
+			},
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [1, 0]
+					}
+				],
+				"pointer": "/openCondition",
+				"value": null
 			}
 		]
 	},
@@ -2614,7 +2674,7 @@
 						"$xmlns": [1, 0]
 					}
 				],
-				"pointer": "/caseOperations/0/writes/0/property",
+				"pointer": "/caseOperations/2/writes/0/property",
 				"value": "first_visit"
 			}
 		]
