@@ -23818,6 +23818,24 @@
 		]
 	},
 	{
+		"id": "hq-lookups/itemset-filters-available-cases-by-survey-readiness",
+		"base": "hq-lookups",
+		"entry": "questions/itemset-over-casedb-or-another-instance-advanced-data-source",
+		"standing": "not-yet",
+		"place": {
+			"kind": "question",
+			"menu": 0,
+			"form": 0,
+			"menuName": "Farm survey",
+			"formName": "Survey",
+			"path": "district"
+		},
+		"change": {
+			"op": "named",
+			"name": "itemset_filters_available_cases_by_survey_readiness"
+		}
+	},
+	{
 		"id": "hq-lookups/itemset-sort",
 		"base": "hq-lookups",
 		"entry": "questions/itemset-sort-ref",

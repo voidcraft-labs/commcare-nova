@@ -2347,6 +2347,21 @@ def itemset_over_closed_cases(authoring, app_id):
     _case_itemset(authoring, app_id, "itemset-over-closed-cases", "[@status = &apos;closed&apos;]")
 
 
+def itemset_filters_available_cases_by_survey_readiness(authoring, app_id):
+    """Vellum's advanced data source filters the worker's cases by a property shared across case types."""
+    itemset_over_cases(authoring, app_id)
+    with authoring.step("variant:enable-advanced-itemsets"):
+        body, content_type = ops.form_body([("advanced_itemsets", "on")])
+        ops.post(authoring, "edit_add_ons", [app_id], body, content_type, "the advanced itemset add-on")
+    run = ops.builder_save(authoring, app_id, 0, 0, edit={
+        "way": "itemset-query",
+        "path": "/data/district",
+        "value": "instance('casedb')/casedb/case[survey_ready = 'yes']",
+    })
+    assert not run.question_errors(), run.question_errors()
+    return run
+
+
 def _case_itemset(authoring, app_id, name, predicate):
     _change(
         authoring,

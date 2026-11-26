@@ -323,6 +323,7 @@
 		"hq-lookups/itemset-copy",
 		"hq-lookups/itemset-filter-numeric-row-index",
 		"hq-lookups/itemset-filter-position-of-scalar",
+		"hq-lookups/itemset-filters-available-cases-by-survey-readiness",
 		"hq-lookups/itemset-property-as-label"
 	],
 	"hq-media": [

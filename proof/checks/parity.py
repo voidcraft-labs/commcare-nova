@@ -68,6 +68,7 @@ from proof.checks import appearance_rows, changes, lookup_parity, manifest_usage
 from proof.checks.differences import Difference, pointer_token
 from proof.checks.manifest_value_classes import (
     _guarded_lookup_count,
+    case_itemset_survey_readiness,
     direct_parent_text_prompt_key,
     extended_open_index_to_first_choice,
     itemset_literal_row_index,
@@ -455,6 +456,7 @@ CHILD_REGISTRATION = (
 )
 ADVANCED_REGISTRATION = "menus-and-case-lists/case-list-form-on-an-advanced-module-or-naming-an-advanced-form"
 ITEMSET_FILTER = "questions/itemset-filter-outside-predicate"
+ADVANCED_CASE_ITEMSET = "questions/itemset-over-casedb-or-another-instance-advanced-data-source"
 ITEMSET_NODESETS = frozenset({"xform:select1/itemset@nodeset", "xform:select/itemset@nodeset"})
 OWN_CASE_BESIDE = "questions/a-savetocase-change-of-the-form-s-own-case-beside-the-form-s-own-change-of-it"
 DATE_TO_TEXT = "questions/a-savetocase-retype-that-keeps-a-date-as-text"
@@ -667,7 +669,8 @@ def _forms_variant_uses(found, held, entries):
     """Source facts retained variants can decide without the full corpus's runtime observations."""
     wanted = {
         AUTOMATIC_MULTI, LOCATION_WRITE, HYPHEN_TAG, EXTENDED_OPEN_INDEX, SHADOW_LOAD, SUPPLY_POINT,
-        OWN_CASE_BESIDE, LOOKUP_COUNT, ITEMSET_FILTER, PARENT_USER_WRITE, *REGISTRATION_ENTRIES, *RETYPE_ENTRIES,
+        OWN_CASE_BESIDE, LOOKUP_COUNT, ITEMSET_FILTER, ADVANCED_CASE_ITEMSET, PARENT_USER_WRITE,
+        *REGISTRATION_ENTRIES, *RETYPE_ENTRIES,
         CONDITIONAL_WORKER_UPDATE, REPEATED_WORKER_UPDATE, HELD_REPEATED_WORKER_UPDATE, LATER_OWNER_ON_FRESH_CREATE,
     }.intersection(entries)
     if not wanted:
@@ -707,6 +710,9 @@ def _forms_variant_uses(found, held, entries):
         # broad outside-predicate class is not exhausted by a row ordinal.
         if ITEMSET_FILTER in wanted and use.key in ITEMSET_NODESETS and itemset_literal_row_index(use):
             yield Decided(use, manifest_usage.HELD_NEW, (by_id[ITEMSET_FILTER],))
+        if (ADVANCED_CASE_ITEMSET in wanted and use.key == "xform:select1/itemset"
+                and case_itemset_survey_readiness(use)):
+            yield Decided(use, manifest_usage.HELD_NEW, (by_id[ADVANCED_CASE_ITEMSET],))
         if PARENT_USER_WRITE in wanted and use.key == "schema:UpdateCaseAction.update":
             yield from _parent_user_write_uses(use, by_id[PARENT_USER_WRITE])
         if LOCATION_WRITE in wanted and use.key == LOCATION_UPDATE_KEY:
