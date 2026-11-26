@@ -63,6 +63,7 @@ import {
 import {
 	CASE_LOADING_FORM_TYPES,
 	type CaseOperation,
+	type CaseOperationWrite,
 	caseOperationRunsPerSelectedCase,
 	type Form,
 	formLinkEntries,
@@ -75,6 +76,10 @@ import {
 import { uniqueSlug } from "./idSlug";
 import { moduleParent, projectedModulePreorder } from "./moduleHierarchy";
 import type { AdvancedIneligibility } from "./placements";
+import {
+	isReservedCaseOperationWrite,
+	isWritableStandardCaseProperty,
+} from "./standardCaseProperties";
 import { USERCASE_CASE_TYPE } from "./usercase";
 import type { Uuid } from "./uuid";
 
@@ -491,6 +496,38 @@ function readsQuestion(
 	return stands === undefined || stands === repeat;
 }
 
+/** A passive label's submitted value is ordinary text. Keep its Advanced load
+ * away from the case facets and properties HQ routes to dedicated columns. */
+export function isAdvancedOwnLabelProperty(property: string): boolean {
+	return (
+		property !== "hq_user_id" &&
+		!isReservedCaseOperationWrite({ property }) &&
+		!isWritableStandardCaseProperty(property)
+	);
+}
+
+function readsOwnPassiveLabel(
+	f: CaseSlotFacts,
+	write: CaseOperationWrite,
+): boolean {
+	if (
+		write.via !== undefined ||
+		write.onlyIfChanged ||
+		!isAdvancedOwnLabelProperty(write.property)
+	)
+		return false;
+	const source = caseWriteValueField(write.value);
+	if (source === undefined || source.link) return false;
+	const field = f.doc.fields[source.field];
+	return (
+		field?.kind === "label" &&
+		field.askForConfirmation !== true &&
+		field.default_value === undefined &&
+		f.doc.fieldOrder[f.formUuid]?.includes(source.field) === true &&
+		f.submittedChildren.get(f.formUuid)?.includes(source.field) === true
+	);
+}
+
 function stateable(
 	f: CaseSlotFacts,
 	condition: Expression | undefined,
@@ -528,17 +565,26 @@ export function loadClause(
 	if (isWorkerRecordUpdate(operation) && operation.condition !== undefined)
 		return "write-condition";
 	const writes = operation.writes ?? [];
-	const values: Expression[] = [
-		...(operation.action === "own"
-			? operation.name === undefined
-				? []
-				: [operation.name]
-			: operation.action === "update" && operation.rename !== undefined
-				? [operation.rename]
-				: []),
-		...writes.map((write) => write.value),
-	];
-	if (values.some((value) => !readsQuestion(f, value, undefined)))
+	const name =
+		operation.action === "own"
+			? operation.name
+			: operation.action === "update"
+				? operation.rename
+				: undefined;
+	const ownFollowup =
+		operation.action === "own" &&
+		f.form.type === "followup" &&
+		!f.severalCases &&
+		load.kind === "chain" &&
+		f.module?.caseType !== USERCASE_CASE_TYPE;
+	if (
+		(name !== undefined && !readsQuestion(f, name, undefined)) ||
+		writes.some(
+			(write) =>
+				!readsQuestion(f, write.value, undefined) &&
+				!(ownFollowup && readsOwnPassiveLabel(f, write)),
+		)
+	)
 		return "value-not-a-question";
 	if (
 		writes.some((write) => write.condition !== undefined) ||

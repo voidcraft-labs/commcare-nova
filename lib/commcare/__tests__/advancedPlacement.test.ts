@@ -516,6 +516,41 @@ describe("advanced action clauses", () => {
 });
 
 describe("the advanced procedure", () => {
+	it("keeps only a root passive label on the selected case's Advanced follow-up load", () => {
+		const { doc, formUuid } = advancedFixture({
+			menu: "members",
+			formType: "followup",
+			operations: () => [
+				own({
+					writes: [
+						{ property: "seen", value: read("note") },
+						{ property: "notes", value: read("name") },
+					],
+				}),
+			],
+		});
+		const label = doc.fields[U("note")];
+		if (label?.kind !== "label") throw new Error("Expected a label");
+		const placed = (snapshot: typeof doc) =>
+			planPlacements(snapshot, formUuid).placements.get(OWN)?.placement;
+		expect(placed(doc)).toEqual({ kind: "advanced", tag: "load_member1" });
+		expect(
+			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).map(
+				(finding) => finding.code,
+			),
+		).toEqual([]);
+		for (const variant of [
+			{ ...label, askForConfirmation: true as const },
+			{ ...label, default_value: term(literal("later")) },
+		]) {
+			const snapshot = {
+				...doc,
+				fields: { ...doc.fields, [label.uuid]: variant },
+			};
+			expect(placed(snapshot)?.kind).toBe("save-to-case");
+		}
+	});
+
 	it("tags the chain's loads root first, the own load last, and the worker's after them", () => {
 		const { doc, formUuid } = advancedFixture(
 			followup(

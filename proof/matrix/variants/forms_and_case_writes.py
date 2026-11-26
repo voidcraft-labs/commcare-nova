@@ -417,11 +417,20 @@ def child_case_in_a_shared_multi_select_menu(authoring, app_id):
 def load_writes_a_label(authoring, app_id):
     """``hq-advanced``'s member visit form given a label ``seen_label``, whose value the member's load saves to
     ``seen``."""
+    _load_writes_a_label(authoring, app_id, ' appearance="minimal"')
+
+
+def load_writes_an_interactive_label(authoring, app_id):
+    """The selected member's load writes a message with an interactive confirmation."""
+    _load_writes_a_label(authoring, app_id, "")
+
+
+def _load_writes_a_label(authoring, app_id, appearance):
     _change(
         authoring,
         app_id,
         "seen-label",
-        *_question("seen_label", "The member was seen", "trigger", None, attributes=' appearance="minimal"'),
+        *_question("seen_label", "The member was seen", "trigger", None, attributes=appearance),
         menu=1,
         form=0,
     )
