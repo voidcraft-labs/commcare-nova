@@ -27,6 +27,7 @@ ROWS = (
     ("west-one", (("en", "West clinic"), ("fr", "Clinique ouest"))),
 )
 STAMP = "2025-02-01T12:00:00.000Z"
+RESTORE = "{http://openrosa.org/http/response}"
 
 
 class FullRestores(formplayer_hq.HqViews):
@@ -94,16 +95,16 @@ def _fixture_rows(root, worker_id):
     (fixture,) = [node for node in root.iter() if node.get("id") == "item-list:clinics"]
     assert fixture.get("user_id") == worker_id, fixture.attrib
     (table,) = fixture
-    assert table.tag == "clinics_list"
+    assert table.tag == f"{RESTORE}clinics_list"
     return list(table)
 
 
 def _restored_rows(restore, remote_ids, worker_id):
     rows = _fixture_rows(ElementTree.fromstring(restore), worker_id)
     for row in rows:
-        assert row.tag == "clinics", row.tag
+        assert row.tag == f"{RESTORE}clinics", row.tag
         assert set(row.attrib) == {"code"}, row.attrib
-        assert all(field.tag == "name" and set(field.attrib) == {"lang"} for field in row)
+        assert all(field.tag == f"{RESTORE}name" and set(field.attrib) == {"lang"} for field in row)
         assert not any(identifier.encode() in ElementTree.tostring(row) for identifier in remote_ids)
     return [(row.get("code"), tuple((field.get("lang"), field.text) for field in row)) for row in rows]
 
