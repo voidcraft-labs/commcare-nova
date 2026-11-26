@@ -741,9 +741,13 @@ describe("a Search field Nova cannot hold", () => {
 						picker,
 						first,
 						{
-							...second,
+							kind: "simple",
+							uuid: second.uuid,
+							name: second.name,
+							label: second.label,
+							property: second.name,
 							type: "multi-select",
-							mode: undefined,
+							addressReceiver: second.addressReceiver,
 							options: {
 								kind: "lookup",
 								tableId,
