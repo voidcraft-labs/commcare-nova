@@ -1078,7 +1078,11 @@ export function catalogAsRead(
 				if (caseType === undefined) continue;
 				noteType(caseTypes, caseType);
 				const destination = (op.action === "update" && op.retype) || caseType;
-				noteType(caseTypes, destination);
+				const destinations =
+					op.action === "create" && op.typeChoice !== undefined
+						? [destination, op.typeChoice.otherwise]
+						: [destination];
+				for (const type of destinations) noteType(caseTypes, type);
 				for (const write of op.writes ?? []) {
 					// A write through an index saves to a case above; its type is the
 					// expression stage's to note, by the read it binds.
@@ -1088,17 +1092,18 @@ export function catalogAsRead(
 						value.kind === "term" && value.term.kind === "field"
 							? doc.fields[value.term.uuid]
 							: undefined;
-					writes.push({
-						caseType: destination,
-						property: write.property,
-						kind: field?.kind ?? "expression",
-						...(field !== undefined &&
-							isSelect(field.kind) && {
-								options: inlineOptions(
-									field as unknown as Readonly<Record<string, unknown>>,
-								),
-							}),
-					});
+					for (const type of destinations)
+						writes.push({
+							caseType: type,
+							property: write.property,
+							kind: field?.kind ?? "expression",
+							...(field !== undefined &&
+								isSelect(field.kind) && {
+									options: inlineOptions(
+										field as unknown as Readonly<Record<string, unknown>>,
+									),
+								}),
+						});
 				}
 				for (const link of op.links ?? []) {
 					noteType(caseTypes, link.targetType);
