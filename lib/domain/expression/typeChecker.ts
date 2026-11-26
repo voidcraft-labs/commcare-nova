@@ -500,7 +500,7 @@ function infer(
 					verdict.reason === "value-expected"
 						? "This position takes a value."
 						: expression.kind === "term"
-							? "This position takes a condition, and this reads a value that isn't a yes or no. You can compare it with something, such as = 'yes', write boolean(...) around a question to mean it was answered at all, or read a Hidden Value calculated as a condition."
+							? "This position takes a condition, and this reads a value that isn't a yes or no. You can compare it with something, such as = 'yes', write boolean(...) around a question to mean it was answered at all (a number answered 0 counts as not), or read a Hidden Value calculated as a condition."
 							: "This position takes a condition. Compare this value with something.",
 			});
 	}

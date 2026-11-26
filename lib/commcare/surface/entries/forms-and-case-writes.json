@@ -4588,7 +4588,7 @@
 		],
 		"valueClass": "condition-is-true-not-yes-no",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: a case change's condition holding the explicit operation `boolean(...)` of the question (`reader/caseManagement/conditions.ts::effectiveBooleanConditions`), which reads an answer alone as CommCare reads it, true wherever the answer is not empty, `0` and the text `false` included (`FunctionUtils.toBoolean`, over `XPathConditional.eval` of the question's path HQ's build prints, `xform.py::XForm.action_relevance`), and which Case Management states back as `boolean_true` (`basicCaseSlots.ts::stateCondition`); a hidden value a condition calculates is held as the condition it reads (`subcases[].condition: if`)",
+		"dispositionCell": "**HELD**: a case change's condition holding the explicit operation `boolean(...)` of the question (`reader/caseManagement/conditions.ts::effectiveBooleanConditions`), which reads an answer alone as CommCare reads it, true wherever the answer is not empty, a text or choice answer of `0` and the text `false` included, and false for a number answered `0` (`FunctionUtils.toBoolean`, over `XPathConditional.eval` of the question's path HQ's build prints, `xform.py::XForm.action_relevance`), and which Case Management states back as `boolean_true` (`basicCaseSlots.ts::stateCondition`); a hidden value a condition calculates is held as the condition it reads (`subcases[].condition: if`)",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
