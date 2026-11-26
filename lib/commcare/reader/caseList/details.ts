@@ -1,5 +1,4 @@
-import { caseTextWireKey } from "../../suite/case-list/calculationText";
-import { nativeCalculationText } from "./calculationText";
+import { bindCalculationText } from "./calculationText";
 import { mappingIdentityAt } from "./mappingIdentity";
 /**
  * A menu's two details read into one case list (`readCaseDetails`): the
@@ -2567,9 +2566,7 @@ export function readCaseDetails(
 					});
 				}
 				built.texts = pieces;
-				text = nativeCalculationText(expression.text, keys, (_key, index) =>
-					caseTextWireKey(pieces[index].uuid),
-				);
+				text = bindCalculationText(expression.text, keys, pieces);
 			}
 			const registration = ctx.pending.register(
 				{

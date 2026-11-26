@@ -1,3 +1,5 @@
+import type { Uuid } from "@/lib/domain/uuid";
+import { caseTextWireKey } from "../../suite/case-list/calculationText";
 import { keyAsVariable } from "../../suite/case-list/keyVariable";
 import { chargeWork } from "../../workMeter";
 import { visitSyntax } from "../../xpath/formSyntax";
@@ -39,4 +41,15 @@ export function nativeCalculationText(
 		position = to;
 	}
 	return result + effective.slice(position);
+}
+
+/** The parser binds each translated variable to its piece in this column. */
+export function bindCalculationText(
+	field: string,
+	keys: readonly string[],
+	pieces: readonly { uuid: Uuid }[],
+): string {
+	return nativeCalculationText(field, keys, (_key, index) =>
+		caseTextWireKey(pieces[index].uuid),
+	);
 }

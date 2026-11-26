@@ -2225,6 +2225,7 @@ function readBack(
 	let text: string;
 	try {
 		text = printSlot(doc, pending.ref, candidate, env, {
+			bindCalculationText: true,
 			...(form !== undefined && names !== undefined
 				? { projection: sourceNodeProjection(doc, form, names) }
 				: {}),
