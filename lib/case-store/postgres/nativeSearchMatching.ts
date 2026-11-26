@@ -1,7 +1,10 @@
 import { type RawBuilder, sql } from "kysely";
 import type { CaseSearchCriterion } from "../searchRequest";
 import type { PredicateCompileContext } from "../sql";
-import { certifiedFuzzyMatch } from "../sql/certifiedFuzzyMatch";
+import {
+	certifiedFuzzyMatch,
+	type FuzzyScope,
+} from "../sql/certifiedFuzzyMatch";
 import {
 	compileRelationPath,
 	relationPathContextFrom,
@@ -10,12 +13,13 @@ import { indexedSearchDate } from "../sql/searchIndexedDate";
 
 type Truth = RawBuilder<boolean | null>;
 
-/** case_properties.value is standard-analyzed text, and its exact subfield
+/** case_properties.value is whitespace-analyzed text, and its exact subfield
  * is a case-sensitive keyword (ignore_above 8191 UTF-16 code units). */
 function propertyMatches(
 	value: RawBuilder<unknown>,
 	values: readonly string[],
 	fuzzy: boolean,
+	scope: FuzzyScope,
 ): Truth {
 	const blank = values.includes("");
 	const terms = values.filter((v) => v !== "");
@@ -25,7 +29,7 @@ function propertyMatches(
 		return sql`(coalesce(${value} = any(${terms.filter((v) => v.length <= 8191)}::text[]), false) or ${blank} and ${missing})`;
 	const needle = terms[0];
 	if (needle === undefined) return missing;
-	return sql`(${certifiedFuzzyMatch(value, sql.val(needle))} or ${blank} and ${missing})`;
+	return sql`(${certifiedFuzzyMatch(value, sql.val(needle), scope)} or ${blank} and ${missing})`;
 }
 
 /** All-blank multivalue criteria ask whether the original indexed key is
@@ -124,7 +128,7 @@ export function nativeSearchTruth(
 				}
 			};
 			if (!target.ancestors)
-				return propertyMatches(sourceValue("c"), values, criterion.fuzzy);
+				return propertyMatches(sourceValue("c"), values, criterion.fuzzy, ctx);
 			const [first, ...rest] = target.ancestors;
 			// Type annotations resolve the author's property. HQ follows the
 			// named links themselves, including links retained in old data.
@@ -150,6 +154,7 @@ export function nativeSearchTruth(
 							sourceValue(path.leafAlias),
 							values,
 							criterion.fuzzy,
+							ctx,
 						);
 			// The native ancestor query looks up matching parents and then follows
 			// their reverse links. A record with no such ancestor never qualifies.

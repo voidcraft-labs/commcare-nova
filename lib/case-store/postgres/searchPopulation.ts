@@ -6,27 +6,30 @@ import {
 	type CaseSearchCriterion,
 	type CaseSearchRequest,
 	CaseSearchUnavailableError,
+	type SearchUnavailableReason,
 } from "../searchRequest";
-import { compilePredicate, type PredicateCompileContext } from "../sql";
+import {
+	compileFuzzyQueries,
+	compilePredicate,
+	type PredicateCompileContext,
+} from "../sql";
+import {
+	type FuzzyScope,
+	fuzzyExpansionExceeded,
+} from "../sql/certifiedFuzzyMatch";
 import {
 	compileRelationPath,
 	relationPathContextFrom,
 } from "../sql/compileRelationPath";
 import type { Database } from "../sql/database";
 import { indexedSearchDate } from "../sql/searchIndexedDate";
+import { indexedSearchNumber } from "../sql/searchIndexedNumber";
 import {
 	missingNativeProperty,
 	nativeRangeTruth,
 	nativeSearchPropertyText,
 	nativeSearchTruth,
 } from "./nativeSearchMatching";
-
-const JAVA_DOUBLE_TRIM = Array.from({ length: 32 }, (_, index) =>
-	String.fromCharCode(index + 1),
-).join("");
-const DECIMAL_MANTISSA = "([0-9]+([.][0-9]*)?|[.][0-9]+)([eE][+-]?[0-9]+)?";
-const DECIMAL_NUMBER = `^[+-]?${DECIMAL_MANTISSA}$`;
-const OTHER_JAVA_NUMBER = `^[+-]?(${DECIMAL_MANTISSA}[dDfF]|0[xX][0-9a-fA-F.]+[pP][+-]?[0-9]+[dDfF]?|NaN|Infinity)$`;
 
 /** Conditions using the native term dictionary are resolved together with
  * the other request filters. An uncertain candidate cannot enter the WHERE
@@ -149,6 +152,31 @@ function criterionTruth(
 		where ${sql.ref(prefix.leafAlias + ".anchor_case_id")} = ${sql.ref(ctx.anchorAlias + ".case_id")}) as sources)`;
 }
 
+/** Why a similar match stayed undecided: past HQ's expansion limit for some
+ * query, or text Preview cannot read as the index does. */
+async function fuzzyRefusal(
+	db: Kysely<Database>,
+	candidates: SqlExpression<unknown>,
+	field: string,
+	queries: readonly SqlExpression<unknown>[],
+	scope: FuzzyScope,
+): Promise<SearchUnavailableReason> {
+	if (queries.length === 0)
+		return { kind: "fuzzy-expansion-unavailable", field };
+	const result = await sql<{
+		exceeded: boolean | null;
+	}>`select bool_or(${sql.join(
+		queries.map((query) => fuzzyExpansionExceeded(query, scope)),
+		sql` or `,
+	)}) as exceeded from (${candidates}) as c`.execute(db);
+	return {
+		kind: result.rows[0]?.exceeded
+			? "fuzzy-expansion-unavailable"
+			: "fuzzy-text-unavailable",
+		field,
+	};
+}
+
 /** Select the bounded, certified primary set. The caller's candidate relation
  * already enforces open status, type, Project, app, holds and request
  * conditions. Only the returned IDs reach the detail query. The two share
@@ -181,23 +209,18 @@ export async function searchPopulationIds(
 				break;
 			}
 			case "number": {
-				// Java accepts leading and trailing ASCII controls in a floating-point
-				// string. PostgreSQL accepts a wider grammar, so use only the shared
-				// decimal spelling here. Keep unclear index values out of certified
-				// ordering if they could affect a worker's result.
-				const trimmed = sql`btrim(${value}, ${JAVA_DOUBLE_TRIM})`;
-				const decimal = sql`${trimmed} collate "C" ~ ${DECIMAL_NUMBER}`;
-				const valid = sql`pg_input_is_valid(${trimmed}, 'double precision')`;
-				const couldBeOtherNumber = sql`${trimmed} collate "C" ~ ${OTHER_JAVA_NUMBER}`;
-				// Elasticsearch distinguishes -0.0 from +0.0. The second key
-				// preserves this distinction when the database compares equal zeroes.
-				indexed = sql`case when ${decimal} and ${valid} then array[
-					(${trimmed})::double precision,
-					case when (${trimmed})::double precision = 0 and left(${trimmed},1) = '-' then -1 else 0 end
+				// Keep unclear index values out of certified ordering if they
+				// could affect a worker's result. Elasticsearch distinguishes
+				// -0.0 from +0.0; the second key preserves that distinction where
+				// the database compares equal zeroes.
+				const number = indexedSearchNumber(value);
+				indexed = sql`case when ${number.number} is not null then array[
+					${number.number},
+					case when ${number.number} = 0 and left(${number.trimmed},1) = '-' then -1 else 0 end
 				] end`;
 				uncertainIndexValues.push({ index, key: sort.key });
 				projections.push(
-					sql`, coalesce((${decimal} and not ${valid}) or ${couldBeOtherNumber},false) as ${sql.ref(`unknown_key_${index}`)}`,
+					sql`, ${number.uncertain} as ${sql.ref(`unknown_key_${index}`)}`,
 				);
 				break;
 			}
@@ -285,6 +308,19 @@ export async function searchPopulationIds(
 		if (criterion.kind === "missing-property")
 			throw new Error("An exact missing-key criterion yielded unknown.");
 		if (
+			criterion.kind === "search-condition" &&
+			criterion.reason.kind === "fuzzy-expansion-unavailable"
+		)
+			throw new CaseSearchUnavailableError(
+				await fuzzyRefusal(
+					db,
+					candidates,
+					criterion.reason.field,
+					compileFuzzyQueries(criterion.expression, ctx),
+					ctx,
+				),
+			);
+		if (
 			criterion.kind === "unavailable" ||
 			criterion.kind === "search-condition"
 		)
@@ -295,11 +331,19 @@ export async function searchPopulationIds(
 				field: criterion.field,
 			});
 		if (criterion.kind === "native") {
-			const { field, target } = criterion.parameter;
+			const { field, target, values } = criterion.parameter;
 			throw new CaseSearchUnavailableError(
 				target.kind === "project-space"
 					? { kind: "project-space-unavailable", field }
-					: { kind: "fuzzy-expansion-unavailable", field },
+					: await fuzzyRefusal(
+							db,
+							candidates,
+							field,
+							values
+								.filter((value) => value !== "")
+								.map((value) => sql.val(value)),
+							ctx,
+						),
 			);
 		}
 		throw new CaseSearchUnavailableError(

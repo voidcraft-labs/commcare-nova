@@ -97,7 +97,10 @@ import type {
 	Term,
 } from "@/lib/domain/expression/types";
 import { isConditionArm } from "@/lib/domain/expression/types";
-import { walkPropertyRefs } from "@/lib/domain/expression/walk";
+import {
+	walkExpressionNodes,
+	walkPropertyRefs,
+} from "@/lib/domain/expression/walk";
 import { SYSTEM_DATETIME_CASE_PROPERTIES } from "@/lib/domain/standardCaseProperties";
 import {
 	isReadableTemporalValue,
@@ -127,6 +130,7 @@ import {
 import { compileCoreDayNumber } from "./coreDayNumber";
 import type { Database } from "./database";
 import { indexedSearchDate } from "./searchIndexedDate";
+import { indexedSearchNumber } from "./searchIndexedNumber";
 
 /** Module-scoped expression builder. Same shape as the sibling compilers. */
 const eb = expressionBuilder<Database, keyof Database>();
@@ -165,6 +169,26 @@ const GEOPOINT_CENTER_NUMBER_PATTERN = `${GEOPOINT_NUMBER_PATTERN}(?:[eE][+-]?[0
 const GEOPOINT_CENTER_PATTERN = `^${GEOPOINT_CENTER_NUMBER_PATTERN} ${GEOPOINT_CENTER_NUMBER_PATTERN}(?: ${GEOPOINT_METADATA_PATTERN} ${GEOPOINT_METADATA_PATTERN})?$`;
 const SQL_ASCII_WHITESPACE = "[ \t\n\u000b\f\r]";
 const GEOPOINT_RAW_CENTER_PATTERN = `^(?:${SQL_ASCII_WHITESPACE}*${GEOPOINT_CENTER_NUMBER_PATTERN}${SQL_ASCII_WHITESPACE}+${GEOPOINT_CENTER_NUMBER_PATTERN}(?:${SQL_ASCII_WHITESPACE}+${GEOPOINT_METADATA_PATTERN}${SQL_ASCII_WHITESPACE}+${GEOPOINT_METADATA_PATTERN})?${SQL_ASCII_WHITESPACE}*|${SQL_ASCII_WHITESPACE}*${GEOPOINT_CENTER_NUMBER_PATTERN}${SQL_ASCII_WHITESPACE}*,${SQL_ASCII_WHITESPACE}*${GEOPOINT_CENTER_NUMBER_PATTERN}${SQL_ASCII_WHITESPACE}*)$`;
+
+/** The query text of every similar match (`match` in `fuzzy` mode) in a
+ * search condition, compiled against the anchor record. A query that reads
+ * a related record it cannot reach from there is left out. Searches use it
+ * to say why a similar match is undecided. */
+export function compileFuzzyQueries(
+	pred: DomainExpression,
+	ctx: PredicateCompileContext,
+): Expression<unknown>[] {
+	const queries: Expression<unknown>[] = [];
+	walkExpressionNodes(pred, (node) => {
+		if (node.kind !== "match" || node.mode !== "fuzzy") return;
+		try {
+			queries.push(compileValueExprOperand(node.value, ctx));
+		} catch {
+			// A query bound inside a related-record walk has no anchor reading.
+		}
+	});
+	return queries;
+}
 
 /** Compile a `DomainExpression` to a Kysely `Expression<SqlBool>`. */
 export function compilePredicate(
@@ -926,8 +950,15 @@ function compileOrderedComparison(
 			if (mode === "exact-text")
 				return eb(raw, operator, sql`(${bound})::text`);
 			if (mode === "number") {
-				const number = sql<number>`case when trim(${raw}) collate "C" ~ '^[+-]?([0-9]+([.][0-9]*)?|[.][0-9]+)([eE][+-]?[0-9]+)?$' and pg_input_is_valid(trim(${raw}), 'double precision') then (${raw})::double precision end`;
-				return eb(number, operator, sql<number>`(${bound})::double precision`);
+				const indexed = indexedSearchNumber(raw);
+				const compare = eb(
+					indexed.number,
+					operator,
+					sql<number>`(${bound})::double precision`,
+				);
+				return ctx.searchBound
+					? sql<boolean>`case when ${indexed.uncertain} then ${ctx.searchBound === "possible"} else ${compare} end`
+					: compare;
 			}
 			const indexed = indexedSearchDate(raw);
 			const value =
@@ -1226,7 +1257,7 @@ function compileMatch(
 			]) as unknown as Expression<SqlBool>;
 		case "fuzzy":
 			if (ctx.searchBound) {
-				const matched = certifiedFuzzyMatch(propRead, valueRead);
+				const matched = certifiedFuzzyMatch(propRead, valueRead, ctx);
 				return sql<boolean>`coalesce(${matched}, ${ctx.searchBound === "possible"})`;
 			}
 			return compileFuzzyMatch(propRead, valueRead, ctx);

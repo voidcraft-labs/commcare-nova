@@ -125,7 +125,10 @@ export type SearchUnavailableReason =
 			readonly field: string;
 			readonly identifier: string;
 	  }
-	| { readonly kind: "fuzzy-expansion-unavailable"; readonly field: string }
+	| {
+			readonly kind: "fuzzy-expansion-unavailable" | "fuzzy-text-unavailable";
+			readonly field: string;
+	  }
 	| {
 			readonly kind:
 				| "cutoff-order-unavailable"
@@ -163,7 +166,9 @@ export function searchUnavailableMessage(
 		case "link-history-unavailable":
 			return "This search needs earlier record-link history that Nova doesn’t have.";
 		case "fuzzy-expansion-unavailable":
-			return "This search needs the project space’s word index to find similar matches.";
+			return `Over 100 saved words are close to what was typed for “${reason.field}”, and CommCare checks only 100 of them, so Preview can’t tell which records it would find. A longer or more exact search lets you preview it.`;
+		case "fuzzy-text-unavailable":
+			return `Preview can’t compare some letters in this search for “${reason.field}” the way CommCare does, so it can’t tell which records CommCare would find. Typing the search in lowercase often lets you preview it.`;
 		case "cutoff-order-unavailable":
 			return "Matching records share the last available result. A narrower search or a search order that separates those records lets you preview it.";
 		case "hit-score-unavailable":

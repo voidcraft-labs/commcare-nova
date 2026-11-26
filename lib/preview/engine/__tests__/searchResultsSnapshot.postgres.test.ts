@@ -25,7 +25,6 @@ import type { Database } from "@/lib/case-store/sql/database";
 import { SEARCH_RESULTS_CAP } from "@/lib/commcare/session";
 import type { CaseType } from "@/lib/domain";
 import {
-	and,
 	eq,
 	gt,
 	literal,
@@ -507,7 +506,11 @@ describe("a completed search's snapshot", () => {
 		).rejects.toMatchObject({ reason: { kind: "search-settings-changed" } });
 	});
 
-	it("certifies exact tokens and independent exclusions inside a fuzzy search condition", async () => {
+	it("decides a fuzzy search condition from the Project's own words", async () => {
+		// "smith" reaches two stored words ("smith" exactly, "smyth" one edit
+		// past the shared "sm"), far below HQ's 100 expansions, so both
+		// records match and the third is certainly left out
+		// (`proof/hq/fixtures/similar-match-vectors.json` holds HQ's answers).
 		const store = storeAs(WORKER);
 		for (const [id, district] of [
 			["exact", "North Smith"],
@@ -529,29 +532,15 @@ describe("a completed search's snapshot", () => {
 			},
 		};
 		const similar = match(prop("patient", "district"), "smith", "fuzzy");
-		await expect(
-			store.count({ ...args, predicate: similar }),
-		).rejects.toMatchObject({
-			reason: { kind: "fuzzy-expansion-unavailable", field: "district" },
-		});
-		await expect(
-			store.count({ ...args, predicate: not(similar) }),
-		).rejects.toMatchObject({
-			reason: { kind: "fuzzy-expansion-unavailable" },
-		});
-		const named = (id: string) => eq(prop("patient", "case_id"), literal(id));
 		expect(
-			(
-				await store.query({ ...args, predicate: and(similar, named("exact")) })
-			).map((r) => r.case_id),
-		).toEqual(["exact"]);
+			(await store.query({ ...args, predicate: similar }))
+				.map((r) => r.case_id)
+				.sort(),
+		).toEqual(["exact", "near"]);
 		expect(
-			(
-				await store.query({
-					...args,
-					predicate: and(not(similar), named("other")),
-				})
-			).map((r) => r.case_id),
+			(await store.query({ ...args, predicate: not(similar) })).map(
+				(r) => r.case_id,
+			),
 		).toEqual(["other"]);
 	});
 
