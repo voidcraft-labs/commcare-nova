@@ -15,6 +15,13 @@ export function workbenchExpressionAdmission(
 		family: "expression",
 		value: next,
 	});
+	return workbenchRuleAdmission(candidate, expressionContext);
+}
+
+export function workbenchRuleAdmission(
+	candidate: Expression,
+	expressionContext: ExpressionContext,
+) {
 	const verdict = expressionEditVerdict(candidate, expressionContext);
 	return verdict.ok
 		? { admitted: true as const }

@@ -81,6 +81,15 @@ function menuCountSources(
 	].includes(slot);
 }
 
+function deviceCaseCountAvailable(
+	ctx: Pick<ExpressionEditContext, "expressionContext">,
+) {
+	return (
+		ctx.expressionContext.slot.slot === "search_button_display_condition" ||
+		(menuCountSources(ctx) && ctx.expressionContext.profile.caseData)
+	);
+}
+
 export function hasCountableRelation(ctx: ExpressionEditContext): boolean {
 	const current = ctx.caseTypes.find(
 		(caseType) => caseType.name === ctx.currentCaseType,
@@ -94,9 +103,8 @@ export function hasCountableRelation(ctx: ExpressionEditContext): boolean {
 	return (
 		hasParent ||
 		hasChild ||
-		(menuCountSources(ctx) &&
-			(ctx.expressionContext.profile.caseData ||
-				Boolean(ctx.lookupTables?.length)))
+		deviceCaseCountAvailable(ctx) ||
+		(menuCountSources(ctx) && Boolean(ctx.lookupTables?.length))
 	);
 }
 
@@ -106,12 +114,12 @@ export function hasCountableRelation(ctx: ExpressionEditContext): boolean {
 export function countDefault(
 	ctx: ExpressionEditContext,
 ): ExpressionOfKind<"count"> {
+	if (deviceCaseCountAvailable(ctx))
+		return {
+			kind: "count",
+			via: { kind: "cases", source: "casedb", where: [] },
+		};
 	if (menuCountSources(ctx)) {
-		if (ctx.expressionContext.profile.caseData)
-			return {
-				kind: "count",
-				via: { kind: "cases", source: "casedb", where: [] },
-			};
 		const first = ctx.lookupTables?.[0];
 		if (first)
 			return {
@@ -160,9 +168,11 @@ function DeviceCountCard({
 	const rows = value.via;
 	const conditionIdentity = useStableListIdentity(rows.where);
 	const kinds = ctx.caseTypes ?? [];
-	const tables = ctx.lookupTables ?? [];
+	const isSearchButton =
+		ctx.expressionContext?.slot.slot === "search_button_display_condition";
+	const tables = isSearchButton ? [] : (ctx.lookupTables ?? []);
 	const options = [
-		...(ctx.expressionContext?.profile.caseData
+		...(isSearchButton || ctx.expressionContext?.profile.caseData
 			? [
 					{
 						id: "all",
