@@ -232,7 +232,7 @@ def _single(manifest, form, element, kind, value) -> str | None:
         if classes._per_row_without_leading_digits(value, control):
             return "a-per-row-token-the-first-token-web-apps-per-row-pattern-matches-does"
         if classes._per_row_holding_read(manifest, form, element, value, control):
-            return "a-per-row-token-the-first-token-web-apps-per-row-pattern-matches-start"
+            return "a-per-row-token-the-first-token-web-apps-per-row-pattern-matches-starts"
         if EXACT_PER_ROW.fullmatch(value):
             return "n-per-row-any-question-or-group-other-than-a-vellum-repeat-n-one"
         return "any-other-per-row-token-the-first-token-web-apps-per-row-pattern"
@@ -330,7 +330,7 @@ def row_of(manifest, form, element) -> str | None:
     if classes._per_row_without_leading_digits(value, control):
         return Q + "a-per-row-token-the-first-token-web-apps-per-row-pattern-matches-does"
     if classes._per_row_holding_read(manifest, form, element, value, control):
-        return Q + "a-per-row-token-the-first-token-web-apps-per-row-pattern-matches-start"
+        return Q + "a-per-row-token-the-first-token-web-apps-per-row-pattern-matches-starts"
     unread = classes.appearance_words(manifest, form, element, value)[1]
     if unread:
         if classes.unread_words_dropped(manifest, form, element, value):

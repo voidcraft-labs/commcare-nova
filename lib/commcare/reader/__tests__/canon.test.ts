@@ -312,6 +312,43 @@ function appNameHeldTwice(): BlueprintDoc {
 	});
 }
 
+/** An app whose name's own wording on the home screen, in the source language, is fingerprinted
+ *  against itself rather than against the name it overrides. */
+function sourceWordingAgainstItself(): BlueprintDoc {
+	const doc = buildDoc({
+		modules: [
+			{
+				name: "Clients",
+				forms: [
+					{
+						name: "Visit",
+						type: "survey",
+						fields: [f({ kind: "text", id: "a", label: "A" })],
+					},
+				],
+			},
+		],
+	});
+	return produce(doc, (draft) => {
+		draft.localization = {
+			sourceLanguage: "eng",
+			defaultLanguage: "eng",
+			languageOrder: ["eng"],
+			wireCodes: { eng: "en" },
+			translations: {},
+			generatedSourceWording: {
+				[generatedWordingId("app", "homescreenTitle")]: {
+					value: "Home",
+					sourceFingerprint: translationSourceFingerprint("text", "Home"),
+					origin: "human",
+					review: "reviewed",
+					translatedFrom: "eng",
+				},
+			},
+		} as never;
+	});
+}
+
 function localized(): BlueprintDoc {
 	const doc = buildDoc({
 		modules: [
@@ -852,6 +889,12 @@ const PAIRS: readonly Pair[] = [
 		id: "translation-equal-to-source-is-absent",
 		name: "a form name's translation equal to its source",
 		other: localized,
+	},
+	{
+		id: "source-wording-fingerprint-as-read",
+		name: "a home screen title's own wording fingerprinted against itself",
+		other: sourceWordingAgainstItself,
+		afterEarlierRows: true,
 	},
 	{
 		id: "app-name-strings-as-read",

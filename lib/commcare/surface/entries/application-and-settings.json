@@ -1895,7 +1895,10 @@
 		"area": "application-and-settings",
 		"section": "Application",
 		"item": "a key matching a generated pattern that one of Nova's generated wordings writes (a menu's or form's name, a case list column's header, a Search field's text, the app's name as `app.display.name` or `homescreen.title`, a constant, one of several outputs of a shared slot), in a language, whatever its value: read as that output's own wording in that language",
-		"surfaceKeys": ["schema:Application.translations"],
+		"surfaceKeys": [
+			"schema:Application.translations",
+			"ui-string:app.display.name"
+		],
 		"valueClass": "generated-output-wording",
 		"disposition": "HELD",
 		"dispositionCell": "**HELD**: the wording is held for this language and the stable control that generates the output, even where it equals the text the output's base gives; the base (a name, a header) keeps CommCare HQ's own text",

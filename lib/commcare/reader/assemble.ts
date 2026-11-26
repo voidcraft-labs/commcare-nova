@@ -29,6 +29,7 @@ import {
 	type SelectOption,
 	type TranslationEntry,
 	type TranslationUnitId,
+	translationSourceFingerprint,
 	translationSourceFingerprintsEqual,
 	type Uuid,
 } from "@/lib/domain";
@@ -47,6 +48,7 @@ import {
 	recordFromEntries,
 } from "@/lib/domain/records";
 import {
+	defaultWording,
 	hasGeneratedWording,
 	localizeTranslationUnit,
 	snapshotTranslationUnits,
@@ -174,6 +176,12 @@ const CLAIMS = defineClaims("assemble", {
 		TRANSLATIONS,
 	),
 	generatedWording: take(`${A}/translations-generated-wording`, TRANSLATIONS),
+	/** The app name's own wording on phones and in Web Apps, `app.display.name`: a runtime UI
+	 *  string, recorded at its key as the app name's translation there is. */
+	generatedDisplayName: take(
+		`${A}/translations-generated-wording`,
+		"ui-string:app.display.name",
+	),
 	generatedAnythingElse: refuse(
 		`${A}/translations-generated-key-anything-else`,
 		TRANSLATIONS,
@@ -554,6 +562,43 @@ export const READER_CANONICAL_CHOICES: readonly ReaderCanonicalChoice[] = [
 					entry.origin = "human";
 					entry.review = "reviewed";
 					entry.translatedFrom = source;
+				}
+			});
+		},
+	},
+	{
+		/** A generated output's own wording in the source language, and the same wording
+		 *  fingerprinted against the text its base gives there: an output's own wording is never
+		 *  out of date, so no export carries the fingerprint, and the reader returns the second
+		 *  (`caseList/readTexts.ts`, `translations.ts::ownWordingEntryFor`). */
+		id: "source-wording-fingerprint-as-read",
+		kind: "not-carried",
+		apply: (doc) => {
+			const localization = doc.localization;
+			const entries = localization?.generatedSourceWording;
+			if (localization === undefined || entries === undefined) return doc;
+			const units = snapshotTranslationUnits(doc);
+			const moved: [TranslationUnitId, string][] = [];
+			for (const [id, entry] of Object.entries(entries)) {
+				const raw = units.get(id as TranslationUnitId);
+				if (entry === undefined || raw === undefined || entry.workerFallback)
+					continue;
+				const unit = wordingSourceUnit(doc, raw);
+				if (!hasGeneratedWording(unit)) continue;
+				const fingerprint = translationSourceFingerprint(
+					unit.valueKind,
+					defaultWording(doc, localization.sourceLanguage, unit),
+				);
+				if (entry.sourceFingerprint !== fingerprint)
+					moved.push([id as TranslationUnitId, fingerprint]);
+			}
+			if (moved.length === 0) return doc;
+			return withCandidate(doc, (draft) => {
+				const into = draft.localization?.generatedSourceWording;
+				if (into === undefined) return;
+				for (const [id, fingerprint] of moved) {
+					const entry = into[id];
+					if (entry !== undefined) entry.sourceFingerprint = fingerprint;
 				}
 			});
 		},
@@ -1469,7 +1514,7 @@ function decideGeneratedKeys(
 			// A wording a device shows as blank, for an output whose text must show something (a
 			// name, a label): Nova holds none, so workers read the output's own text there after
 			// the first publish.
-			held.json.take(held.key, CLAIMS.generatedWording, () => "").value;
+			held.json.take(held.key, wordingClaim(held.key), () => "").value;
 			recordTextRewrite(
 				ctx,
 				{
@@ -1498,7 +1543,7 @@ function decideGeneratedKeys(
 			if (kept !== undefined) {
 				const wording = held.json.take(
 					held.key,
-					CLAIMS.generatedWording,
+					wordingClaim(held.key),
 					() => kept,
 				).value;
 				ctx.translations.set(verdict.unit, "text", new Map([[tag, wording]]));
@@ -1535,6 +1580,14 @@ function decideGeneratedKeys(
 	}
 	fillShownWordings(ctx, doc, units, worded);
 	return hasWording;
+}
+
+/** The claim of a generated key read as its output's wording: `app.display.name` under the runtime
+ *  UI string it is, every other under the map's data. */
+function wordingClaim(key: string) {
+	return key === "app.display.name"
+		? CLAIMS.generatedDisplayName
+		: CLAIMS.generatedWording;
 }
 
 /**

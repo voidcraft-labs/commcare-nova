@@ -1390,6 +1390,12 @@
 				"check": "source",
 				"artifact": "app.json",
 				"path": "/translations/*/*"
+			},
+			{
+				"check": "proof2",
+				"artifact": "app_strings:*",
+				"path": "/*",
+				"kind": "removed"
 			}
 		]
 	},

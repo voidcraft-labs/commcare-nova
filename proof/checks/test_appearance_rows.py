@@ -124,3 +124,39 @@ def test_an_untyped_text_box_or_secret_with_numeric_or_numbers_is_its_own_row_in
     assert rows["/data/s"] == "questions/a-secret-whose-bind-has-no-type-with-numeric-or-numbers-ignoring"
     # The control a typed secret is: its own row, which the untyped rows never take.
     assert rows["/data/ts"] == "questions/secret-numeric"
+
+
+def _string_constants(code):
+    for const in code.co_consts:
+        if isinstance(const, str):
+            yield const
+        elif hasattr(const, "co_consts"):
+            yield from _string_constants(const)
+
+
+def test_every_row_the_classifier_names_is_an_inventory_row():
+    """A row id the classifier returns that the inventory lacks reads as no standing, so parity judges nothing
+    there: every row-shaped string the module holds is a row of ``questions.json``."""
+    import inspect
+    import types
+
+    entries = json.loads((ROOT.parent / "lib" / "commcare" / "surface" / "entries" / "questions.json").read_text())
+    ids = {entry["id"] for entry in entries}
+    named = set()
+    for _, value in inspect.getmembers(appearance_rows):
+        if isinstance(value, types.FunctionType) and value.__module__ == appearance_rows.__name__:
+            named.update(_string_constants(value.__code__))
+        elif isinstance(value, dict):
+            for inner in value.values():
+                named.update(inner.values() if isinstance(inner, dict) else [inner] if isinstance(inner, str) else [])
+        elif isinstance(value, (tuple, list)):
+            for item in value:
+                if isinstance(item, tuple):
+                    named.update(part for part in item if isinstance(part, str))
+    rows = {
+        name.removeprefix("questions/")
+        for name in named
+        if isinstance(name, str) and name.count("-") >= 4 and " " not in name and "." not in name and "*" not in name
+    }
+    missing = sorted(row for row in rows if f"questions/{row}" not in ids)
+    assert not missing, f"The classifier names rows the inventory does not hold: {missing}"
