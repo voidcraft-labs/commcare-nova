@@ -100,7 +100,7 @@ import {
 	type PagedLookupJsonRow,
 	stagePagedLookupJson,
 } from "@/lib/commcare/lookup/pagedJsonRows";
-import { LOOKUP_RUNTIME_STRING_LIMIT_LINE } from "@/lib/commcare/lookup/runtimeStrings";
+import { lookupRuntimeValueFinding } from "@/lib/commcare/lookup/runtimeStrings";
 import {
 	measureStreamedLookupFixtures,
 	plannedLookupFixtureBudget,
@@ -569,12 +569,11 @@ async function prepareWithRegistry(
 		let issue: string;
 		let code: ValidationError["code"] = "LOOKUP_WORKER_SOURCE_UNAVAILABLE";
 		let delivery: string = carrier.kind;
-		let problem: string | undefined;
 		if (runtimeValueTooLong) {
-			issue = LOOKUP_RUNTIME_STRING_LIMIT_LINE;
-			problem = "runtime-value-length";
-			code = "LOOKUP_CELL_TEXT_UNREPRESENTABLE";
-		} else if (jsonAllowed && carrier.kind === "json" && !inWorkbook) {
+			blocked.push(lookupRuntimeValueFinding(definition));
+			continue;
+		}
+		if (jsonAllowed && carrier.kind === "json" && !inWorkbook) {
 			const staged = await stagePagedLookupJson(table, tableNaming, {
 				rows: remainingRows,
 				bytes: remainingBytes,
@@ -586,8 +585,11 @@ async function prepareWithRegistry(
 				remainingBytes -= staged.bytes;
 				continue;
 			}
+			if (staged.problem === "runtime-value-length") {
+				blocked.push(lookupRuntimeValueFinding(definition));
+				continue;
+			}
 			issue = staged.issue;
-			problem = staged.problem;
 			code = staged.excess
 				? "LOOKUP_HQ_PUSH_TOO_LARGE"
 				: "LOOKUP_CELL_TEXT_UNREPRESENTABLE";
@@ -606,7 +608,6 @@ async function prepareWithRegistry(
 				issue,
 				{},
 				{
-					...(problem && { problem }),
 					tableId: definition.id,
 					tableName: definition.name,
 					delivery,
@@ -654,19 +655,7 @@ async function prepareWithRegistry(
 		if (runtimeValueTable)
 			return {
 				ok: false,
-				violations: [
-					validationError(
-						"LOOKUP_CELL_TEXT_UNREPRESENTABLE",
-						"app",
-						LOOKUP_RUNTIME_STRING_LIMIT_LINE,
-						{},
-						{
-							tableId: runtimeValueTable.id,
-							tableName: runtimeValueTable.name,
-							problem: "runtime-value-length",
-						},
-					),
-				],
+				violations: [lookupRuntimeValueFinding(runtimeValueTable)],
 			};
 		const findings = lookupFixtureBudgetFindings(budget, incomplete);
 		if (findings.length) return { ok: false, violations: findings };

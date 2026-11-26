@@ -92,6 +92,32 @@ it("emits complete text-only workbook sheets and a suite fixture read by indepen
 	expect(JSON.parse(parse.stdout.toString())).toEqual(["<007>", "李 & María"]);
 });
 
+it("keeps the native string limit separate from aggregate fixture and workbook limits", async () => {
+	const accepted = data("valid", "s".repeat(65_535));
+	// This cell fits Excel, but its Java modified UTF-8 representation does not.
+	const refused = data("too_long", "🌱".repeat(10_923));
+	const naming = lookupWireNaming([accepted.definition, refused.definition]);
+	const empty = buildLookupFixtures(
+		naming,
+		new Map([
+			[accepted.definition.id, []],
+			[refused.definition.id, []],
+		]),
+	);
+	expect(
+		await measureStreamedLookupFixtures(empty, [accepted], true),
+	).toMatchObject({ incomplete: false });
+	expect(
+		await measureStreamedLookupFixtures(empty, [accepted, refused], true),
+	).toMatchObject({
+		incomplete: true,
+		runtimeValueTable: { id: refused.definition.id },
+	});
+	const workbook = await planLargeWorkbooks([refused]);
+	expect(workbook.files).toEqual([]);
+	expect(workbook.alternatives).toMatchObject([{ runtimeValueTooLong: true }]);
+});
+
 it("retains the exact reason when a destination workbook would change a row", async () => {
 	const table = data("areas", " 007 ");
 	const plan = await planLargeWorkbooks([table]);

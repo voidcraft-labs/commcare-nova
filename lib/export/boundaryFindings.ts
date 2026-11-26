@@ -32,8 +32,8 @@ import {
 	lookupWireNaming,
 } from "@/lib/commcare/lookup/naming";
 import {
-	LOOKUP_RUNTIME_STRING_LIMIT_LINE,
 	lookupRuntimeStringTooLong,
+	lookupRuntimeValueFinding,
 } from "@/lib/commcare/lookup/runtimeStrings";
 import { lookupSelectSourceRowFindings } from "@/lib/commcare/lookup/selectSourceRows";
 import {
@@ -316,19 +316,7 @@ export function exportCarrierFindings(
 				Array.from(column.values(row)).some(lookupRuntimeStringTooLong),
 			),
 		)
-			? [
-					validationError(
-						"LOOKUP_CELL_TEXT_UNREPRESENTABLE",
-						"app",
-						LOOKUP_RUNTIME_STRING_LIMIT_LINE,
-						{},
-						{
-							tableId: table.id,
-							tableName: table.name,
-							problem: "runtime-value-length",
-						},
-					),
-				]
+			? [lookupRuntimeValueFinding(table)]
 			: [];
 	});
 

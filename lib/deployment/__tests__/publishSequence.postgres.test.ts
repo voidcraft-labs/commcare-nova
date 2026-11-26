@@ -4770,6 +4770,31 @@ describe("a table only CommCare HQ's JSON resources can carry", () => {
 		});
 	});
 
+	it("rechecks the HQ data grant before the next journaled row write", async () => {
+		const doc = await seed(await typesDocument());
+		await withPeer(async (peer) => {
+			let allowed = true;
+			const hq = jsonLookupPeer(peer, {
+				mayEditData: () => allowed,
+				after: async (method, path) => {
+					if (method === "POST" && path.endsWith("/lookup_table/v1/"))
+						allowed = false;
+				},
+			});
+			accepted(peer, 201);
+			serve(peer, SOURCE, "source-shell");
+			expect(refusal(await publish(doc))).toMatchObject({
+				phase: "resources",
+				failure: { code: "hq_rejected_resource_push" },
+			});
+			expect(hq.writes).toEqual(["POST /a/clinic/api/lookup_table/v1/"]);
+			expect(hq.rows.size).toBe(0);
+			expect(
+				requests(peer).filter((line) => line === `POST ${IMPORT}`),
+			).toHaveLength(1);
+		});
+	});
+
 	it("refuses an external lookup value JavaRosa cannot load before a publish or manual install", async () => {
 		const doc = await seed(await typesDocument());
 		await stageTypesLabel("🌱".repeat(17_000));
