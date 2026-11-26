@@ -36,6 +36,7 @@ import type { CsqlNode } from "@/lib/commcare/csql/tree";
 import { moduleExpressionContexts } from "@/lib/commcare/expressionContext";
 import { caseListStepDatumId } from "@/lib/commcare/formLinkProjection";
 import type { LookupWireNaming } from "@/lib/commcare/lookup/naming";
+import { emitSearchFilterValue } from "@/lib/commcare/suite/case-search/nativeFilters";
 import { getAdvancedArmPredicates } from "@/lib/commcare/suite/case-search/searchPrompts";
 import {
 	composeXPathQueryClauses,
@@ -60,6 +61,7 @@ import { readChosenCaseProperty } from "@/lib/domain/expression/chosenCase";
 import { csqlRuntimeRoots } from "@/lib/domain/expression/csqlPositions";
 import type { Expression, Term } from "@/lib/domain/expression/types";
 import { expressionReferencesAnySearchInput } from "@/lib/domain/expression/walk";
+import { searchConditionOf } from "@/lib/domain/searchConditions";
 import { toBoolean, xpathToString } from "../xpath/coerce";
 import { evaluate } from "../xpath/evaluator";
 import { invokeGeneratedJavaRosaFunction } from "../xpath/generatedJavaRosaFunctions";
@@ -102,6 +104,7 @@ import {
  * refuses the search rather than answer it without that row.
  */
 export interface SearchCsqlRuntimeWire {
+	readonly filterValues?: Readonly<Record<string, string>>;
 	readonly segments: Readonly<Record<string, string>>;
 	readonly choices: Readonly<Record<string, boolean>>;
 	readonly refusal?: SearchRuntimeValidationKind;
@@ -167,8 +170,9 @@ export function searchCsqlReadsCaseDatabase(
 ): boolean {
 	const known = configReadsCaseDatabase.get(caseListConfig);
 	if (known !== undefined) return known;
+	const condition = searchConditionOf(caseListConfig);
 	const rows = [
-		...(caseListConfig.filter === undefined ? [] : [caseListConfig.filter]),
+		...(condition === undefined ? [] : [condition]),
 		...getAdvancedArmPredicates(caseListConfig.searchInputs).map(
 			(entry) => entry.predicate,
 		),
@@ -289,7 +293,8 @@ export async function evaluateSearchCsqlRuntime(
 		world.caseListConfig,
 		world.lookup?.naming,
 	);
-	if (clauses === undefined) return undefined;
+	if (clauses === undefined && !world.caseListConfig.searchFilters?.length)
+		return undefined;
 	const bindings = {
 		searchInputInstanceId:
 			STANDALONE_SEARCH_INPUT_INSTANCE_ID as SearchInputInstanceId,
@@ -330,7 +335,27 @@ export async function evaluateSearchCsqlRuntime(
 	const choices: Record<string, boolean> = {};
 	let refusal: SearchRuntimeValidationKind | undefined;
 	let unevaluated = false;
-	for (const [row, clause] of clauses.entries()) {
+	const filterValues: Record<string, string> = {};
+	for (const filter of world.caseListConfig.searchFilters ?? []) {
+		if (!("value" in filter)) continue;
+		const result = await piece(
+			emitSearchFilterValue(
+				filter.value,
+				filter.uuid,
+				moduleExpressionContexts(
+					world.doc,
+					world.moduleUuid,
+					world.lookup?.naming,
+				),
+				bindings.searchInputInstanceId,
+				world.lookup?.naming,
+				bindings.datumId,
+			),
+		);
+		if (result === undefined) unevaluated = true;
+		else filterValues[filter.uuid] = xpathToString(result);
+	}
+	for (const [row, clause] of (clauses ?? []).entries()) {
 		let tree: CsqlNode;
 		try {
 			tree = emitCsqlTree(clause.expression, {
@@ -364,6 +389,7 @@ export async function evaluateSearchCsqlRuntime(
 	return {
 		segments,
 		choices,
+		...(Object.keys(filterValues).length && { filterValues }),
 		...(refusal === undefined ? {} : { refusal }),
 		...(unevaluated ? { unevaluated: true as const } : {}),
 		...(dataRefusal === undefined ? {} : { dataRefusal }),
@@ -568,10 +594,21 @@ export interface SearchCsqlQuery {
 	readonly unfoldedDeviceRead: boolean;
 }
 
+/** A search no row restricts: HQ is sent no `_xpath_query`, so it finds
+ * every open case of the type. A search whose rows fold to nothing, and a
+ * read keyed by case ids, both read as this. */
+const UNRESTRICTED_SEARCH_CSQL: SearchCsqlQuery = {
+	query: { kind: "match-all" },
+	authored: undefined,
+	readsAnswers: false,
+	unfoldedDeviceRead: false,
+};
+
 /**
  * The search's rows folded with the device's values: what HQ's search is
- * asked once the device has built the request. `undefined` when the search
- * has no row. `lookupNaming` names the lookup tables the rows read, as the
+ * asked once the device has built the request. A search with no row is
+ * asked nothing beyond its type, never the device list's condition: an
+ * independent list condition is the browse list's alone. `lookupNaming` names the lookup tables the rows read, as the
  * browser's evaluation named them (`world.lookup.naming`), so both sides
  * compose each clause in one context and key its pieces alike.
  */
@@ -581,14 +618,14 @@ export function foldSearchCsql(
 	caseListConfig: CaseListConfig,
 	wire: SearchCsqlRuntimeWire,
 	lookupNaming?: LookupWireNaming,
-): SearchCsqlQuery | undefined {
+): SearchCsqlQuery {
 	const clauses = searchCsqlClauses(
 		doc,
 		moduleUuid,
 		caseListConfig,
 		lookupNaming,
 	);
-	if (clauses === undefined) return undefined;
+	if (clauses === undefined) return UNRESTRICTED_SEARCH_CSQL;
 	const rows = clauses.map((clause, row) => ({
 		readsAnswers: expressionReferencesAnySearchInput(clause.expression),
 		folded: foldCsqlRuntime(clause.expression, rowValues(wire, row), {
@@ -630,19 +667,12 @@ function readsDeviceData(node: Expression | Term): boolean {
 	}
 }
 
-/** The search of a read keyed by case ids: the case the no-matches form
- * registered, which the device shows by its id (the wire's return frame),
- * not by the search, so no row of the search applies. */
-const KEYED_SEARCH_CSQL: SearchCsqlQuery = {
-	query: { kind: "match-all" },
-	authored: undefined,
-	readsAnswers: false,
-	unfoldedDeviceRead: false,
-};
-
 /**
  * The search rows one Results read compiles: none for a read keyed by case
- * ids (`keyed`), the rows folded with the browser's values otherwise.
+ * ids (`keyed`: the case the no-matches form registered, which the device
+ * shows by its id, the wire's return frame, not by the search), the rows
+ * folded with the browser's values otherwise. Always defined, so a searched
+ * read never falls back to the browse list's condition.
  */
 export function searchCsqlForRead(args: {
 	readonly keyed: boolean;
@@ -651,8 +681,8 @@ export function searchCsqlForRead(args: {
 	readonly caseListConfig: CaseListConfig;
 	readonly wire: SearchCsqlRuntimeWire | undefined;
 	readonly lookupNaming?: LookupWireNaming;
-}): SearchCsqlQuery | undefined {
-	if (args.keyed) return KEYED_SEARCH_CSQL;
+}): SearchCsqlQuery {
+	if (args.keyed) return UNRESTRICTED_SEARCH_CSQL;
 	return foldSearchCsql(
 		args.doc,
 		args.moduleUuid,
@@ -680,7 +710,7 @@ export function parseSearchCsqlRuntimeWire(
 	if (value === undefined) return undefined;
 	if (typeof value !== "object" || value === null)
 		throw new SearchCsqlRuntimeError();
-	const { segments, choices, refusal, unevaluated, dataRefusal } =
+	const { segments, choices, filterValues, refusal, unevaluated, dataRefusal } =
 		value as Record<string, unknown>;
 	const refusedIn =
 		typeof dataRefusal === "object" &&
@@ -692,6 +722,10 @@ export function parseSearchCsqlRuntimeWire(
 	if (
 		!plainRecord(segments, (entry) => typeof entry === "string") ||
 		!plainRecord(choices, (entry) => typeof entry === "boolean") ||
+		!(
+			filterValues === undefined ||
+			plainRecord(filterValues, (entry) => typeof entry === "string")
+		) ||
 		!(refusal === undefined || isSearchRuntimeValidationKind(refusal)) ||
 		!(unevaluated === undefined || unevaluated === true) ||
 		!(dataRefusal === undefined || refusedIn !== undefined)
@@ -700,6 +734,9 @@ export function parseSearchCsqlRuntimeWire(
 	return {
 		segments: segments as Record<string, string>,
 		choices: choices as Record<string, boolean>,
+		...(filterValues !== undefined && {
+			filterValues: filterValues as Record<string, string>,
+		}),
 		...(refusal === undefined ? {} : { refusal }),
 		...(unevaluated === true ? { unevaluated } : {}),
 		...(refusedIn === undefined

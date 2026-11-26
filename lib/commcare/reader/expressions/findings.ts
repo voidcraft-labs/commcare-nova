@@ -80,6 +80,30 @@ export const EXPRESSION_CLAIMS = defineClaims("expressions", {
 		"menus-and-case-lists/badge-calculation-outside-typed-values",
 		"schema:CustomIcon.xpath",
 	),
+	"default-properties-entry-keyed-by-a-plain-property-property-p": take(
+		"case-search/default-properties-entry-keyed-by-a-plain-property-property-p",
+		"schema:DefaultCaseSearchProperty.defaultValue",
+	),
+	"default-properties-entry-keyed-by-an-ancestor-path-parent-p": take(
+		"case-search/default-properties-entry-keyed-by-an-ancestor-path-parent-p",
+		"schema:DefaultCaseSearchProperty.defaultValue",
+	),
+	"default-properties-entry-keyed-owner-id-case-id-commcare-project": take(
+		"case-search/default-properties-entry-keyed-owner-id-case-id-commcare-project",
+		"schema:DefaultCaseSearchProperty.defaultValue",
+	),
+	"blacklisted-owner-ids-expression-without-that-clause": take(
+		"case-search/blacklisted-owner-ids-expression-without-that-clause",
+		"schema:CaseSearch.blacklisted_owner_ids_expression",
+	),
+	"default-properties-entry-keyed-commcare-blacklisted-owner-ids": take(
+		"case-search/default-properties-entry-keyed-commcare-blacklisted-owner-ids",
+		"schema:DefaultCaseSearchProperty.defaultValue",
+	),
+	"native-filter-value-outside-screen-scope": refuse(
+		"case-search/native-filter-value-outside-screen-scope",
+		"schema:DefaultCaseSearchProperty.defaultValue",
+	),
 	"search-button-display-condition-lifting-into-predicate": take(
 		"case-search/search-button-display-condition-lifting-into-predicate",
 		"schema:CaseSearch.search_button_display_condition",
@@ -103,6 +127,10 @@ export const EXPRESSION_CLAIMS = defineClaims("expressions", {
 	"itemset-nodeset-filter-predicate-outside-predicate": refuse(
 		"case-search/itemset-nodeset-filter-predicate-outside-predicate",
 		"schema:Itemset.nodeset",
+	),
+	"default-value-on-a-date-range-input": take(
+		"case-search/default-value-on-a-date-range-input",
+		"schema:CaseSearchProperty.default_value",
 	),
 	"default-value-lifting-into-valueexpression": take(
 		"case-search/default-value-lifting-into-valueexpression",
@@ -263,17 +291,17 @@ export const EXPRESSION_CLAIMS = defineClaims("expressions", {
 		"csql-metadata:@case_type",
 	),
 	"date-only-comparison-on-date-opened-closed-on-last-modified@csql-metadata:date_opened":
-		refuse(
+		take(
 			"case-search/date-only-comparison-on-date-opened-closed-on-last-modified",
 			"csql-metadata:date_opened",
 		),
 	"date-only-comparison-on-date-opened-closed-on-last-modified@csql-metadata:closed_on":
-		refuse(
+		take(
 			"case-search/date-only-comparison-on-date-opened-closed-on-last-modified",
 			"csql-metadata:closed_on",
 		),
 	"date-only-comparison-on-date-opened-closed-on-last-modified@csql-metadata:last_modified":
-		refuse(
+		take(
 			"case-search/date-only-comparison-on-date-opened-closed-on-last-modified",
 			"csql-metadata:last_modified",
 		),
@@ -483,8 +511,8 @@ export const EXPRESSION_CLAIMS = defineClaims("expressions", {
 		"case-search/several-xpath-query-rows",
 		"csql-key:_xpath_query",
 	),
-	"xpath-query-condition-outside-what-nova-types": refuse(
-		"case-search/xpath-query-condition-outside-what-nova-types",
+	"xpath-query-condition-nova-s-checker-refuses": refuse(
+		"case-search/xpath-query-condition-nova-s-checker-refuses",
 		"csql-key:_xpath_query",
 	),
 	"casedb-jr-instance-casedb": take(
@@ -1508,8 +1536,9 @@ const M3 = C["a-form-expression-outside-what-nova-types"].entry;
 const M5 = C["required-or-validation-test-reading-the-case"].entry;
 /** M6: a search test outside what Nova types. */
 const M6 = C["required-or-validation-test-outside-what-nova-types"].entry;
-/** M7: a search filter outside what Nova types. */
-const M7 = C["xpath-query-condition-outside-what-nova-types"].entry;
+/** M7: a search filter Nova's checker refuses for a reason no other row names. A comparison HQ's
+ *  search converts is held (`csqlRead.ts::holdsHqConvertedComparison`). */
+const M7 = C["xpath-query-condition-nova-s-checker-refuses"].entry;
 /** M8: a child menu's form reading its inline-search parent's Search fields. */
 const M8 =
 	C["search-input-read-in-the-forms-of-a-child-menu-of-an-inline-search-menu"]
@@ -1673,7 +1702,10 @@ const SAVE_TO_CASE_ROWS =
  *  field's own condition, which is a search filter row that
  *  `csqlRead.ts::readSearchFilterRow` reads where the search is settled,
  *  answering its own claim. */
-export type RegisteredSlotName = Exclude<SlotName, "search_input_predicate">;
+export type RegisteredSlotName = Exclude<
+	SlotName,
+	"search_input_predicate" | "case_search_filter"
+>;
 
 /** Each slot's held entry and its refusal's default entry, by slot name. `held` and
  *  `refused` take the document because a row can choose by the slot's owner
@@ -1853,10 +1885,59 @@ export const SLOT_ENTRIES: Readonly<Record<RegisteredSlotName, SlotRow>> = {
 		C["itemset-nodeset-filter-predicate-lifting-into-predicate"].entry,
 		C["itemset-nodeset-filter-predicate-outside-predicate"].entry,
 	),
-	search_input_default: fixed(
-		C["default-value-lifting-into-valueexpression"].entry,
-		C["default-value-outside-valueexpression"].entry,
-	),
+	search_filter_value: {
+		held: (doc, ref) => {
+			if (ref.entity !== "module" || ref.slot !== "search_filter_value")
+				return undefined;
+			const filter = doc.modules[ref.uuid]?.caseListConfig?.searchFilters?.find(
+				(f) => f.uuid === ref.member.filterUuid,
+			);
+			const target = filter && "target" in filter ? filter.target : undefined;
+			if (target === undefined) return undefined;
+			if (target.kind === "excluded-owners")
+				return target.placement === "search-setting"
+					? "case-search/blacklisted-owner-ids-expression-without-that-clause"
+					: "case-search/default-properties-entry-keyed-commcare-blacklisted-owner-ids";
+			if (
+				target.kind === "record-name" ||
+				(target.kind === "property" && !target.ancestors)
+			)
+				return "case-search/default-properties-entry-keyed-by-a-plain-property-property-p";
+			if (target.kind === "property")
+				return "case-search/default-properties-entry-keyed-by-an-ancestor-path-parent-p";
+			return "case-search/default-properties-entry-keyed-owner-id-case-id-commcare-project";
+		},
+		refused: (doc, ref) => {
+			if (ref.entity === "module" && ref.slot === "search_filter_value") {
+				const filter = doc.modules[
+					ref.uuid
+				]?.caseListConfig?.searchFilters?.find(
+					(row) => row.uuid === ref.member.filterUuid,
+				);
+				if (
+					filter &&
+					"target" in filter &&
+					filter.target.kind === "excluded-owners" &&
+					filter.target.placement === "search-setting"
+				)
+					return "case-search/blacklisted-owner-ids-expression-outside-valueexpression";
+			}
+			return "case-search/native-filter-value-outside-screen-scope";
+		},
+	},
+	search_input_default: {
+		held(doc, ref) {
+			if (ref.entity === "module" && ref.slot === "search_input_default") {
+				const input = doc.modules[ref.uuid]?.caseListConfig?.searchInputs.find(
+					(candidate) => candidate.uuid === ref.member.searchInputUuid,
+				);
+				if (input?.kind !== "hidden" && input?.type === "date-range")
+					return C["default-value-on-a-date-range-input"].entry;
+			}
+			return C["default-value-lifting-into-valueexpression"].entry;
+		},
+		refused: () => C["default-value-outside-valueexpression"].entry,
+	},
 	search_input_hidden_value: fixed(
 		C["default-value-lifting-into-valueexpression"].entry,
 		C["default-value-outside-valueexpression"].entry,
@@ -1868,7 +1949,7 @@ export const SLOT_ENTRIES: Readonly<Record<RegisteredSlotName, SlotRow>> = {
 /** The row of a registration's slot. No reader registers a Search field's own
  *  condition: it is a search filter row, read at the search's settle. */
 export function slotEntries(slot: SlotName): SlotRow {
-	if (slot === "search_input_predicate")
+	if (slot === "search_input_predicate" || slot === "case_search_filter")
 		throw new Error(
 			"A Search field's own condition was registered with the expression stage, but it is a search filter row, which `csqlRead.ts::readSearchFilterRow` reads where the search is settled. Read it there instead of registering it.",
 		);
@@ -2653,6 +2734,13 @@ export function childOfInlineSearchMenu(
 	);
 }
 
+/** What a checker error is about: the slot, and whether the text is a search
+ *  filter row, which `csqlRead.ts` reads as CSQL, rather than a registration. */
+export interface CheckedText {
+	readonly ref: SlotContextRef;
+	readonly searchRow?: true;
+}
+
 const SYSTEM_DATES: ReadonlySet<string> = new Set([
 	"date_opened",
 	"closed_on",
@@ -2693,13 +2781,6 @@ function comparesSystemDate(
 		},
 	});
 	return found;
-}
-
-/** What a checker error is about: the slot, and whether the text is a search
- *  filter row, which `csqlRead.ts` reads as CSQL, rather than a registration. */
-export interface CheckedText {
-	readonly ref: SlotContextRef;
-	readonly searchRow?: true;
 }
 
 /** "By checker code", before the slot's default: the entry, or

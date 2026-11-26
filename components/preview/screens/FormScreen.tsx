@@ -781,6 +781,7 @@ export function FormScreen({ screen }: FormScreenProps) {
 	);
 	const searchResults = useSearchResultsSnapshot({
 		enabled: readsSearchResults,
+		formUuid,
 		appId,
 		doc: menuSource.doc,
 		moduleUuid,

@@ -32,7 +32,15 @@ function dependencies(
 	uuid: typeof targetUuid,
 ) {
 	const doc = buildDoc({
-		caseTypes: [{ name: "client", properties: [] }],
+		caseTypes: [
+			{
+				name: "client",
+				properties: ["district", "region", "home_district"].map((name) => ({
+					name,
+					label: name,
+				})),
+			},
+		],
 		modules: [
 			{
 				name: "Clients",
@@ -229,6 +237,51 @@ describe("searchInputRemovalDependencies", () => {
 			},
 		]);
 		expect(dependencies(config, undefined, siblingUuid)).toEqual([]);
+	});
+
+	it("reports each search filter whose value reads the answer", () => {
+		const target = simpleSearchInputDef(
+			targetUuid,
+			"district",
+			"District",
+			"text",
+			"district",
+		);
+		const filterUuid = testUuid("search-removal-filter");
+		const config: CaseListConfig = {
+			...resolveCaseListConfig({
+				columns: [
+					{
+						uuid: testUuid("search-removal-column"),
+						kind: "plain",
+						field: "case_name",
+						header: "Name",
+					},
+				],
+				searchInputs: [target],
+			}),
+			searchFilters: [
+				{
+					uuid: testUuid("search-removal-fixed-filter"),
+					target: { kind: "property", property: "region" },
+					value: term(literal("north")),
+				},
+				{
+					uuid: filterUuid,
+					target: { kind: "property", property: "home_district" },
+					value: term(input(targetUuid)),
+				},
+			],
+		};
+
+		expect(dependencies(config, {}, targetUuid)).toEqual([
+			{
+				kind: "search-filter",
+				label: "Search filter 2",
+				filterUuid,
+				paths: [[]],
+			},
+		]);
 	});
 
 	it("ignores the removed field's own required condition and check", () => {

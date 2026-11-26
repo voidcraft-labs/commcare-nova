@@ -50,6 +50,8 @@ import * as exportArtifacts from "./20261207040000_export_artifacts";
 import * as organizationPlacePages from "./20261207050000_organization_place_pages";
 import * as userSettingsConnectionEpoch from "./20261207060000_user_settings_connection_epoch";
 import * as lookupJsonDestinations from "./20261208000000_lookup_json_destinations";
+import * as caseIndexHistory from "./20261208020000_case_index_history";
+import * as previewSearchSettings from "./20261208050000_preview_search_settings";
 // Case-store migration set + provider.
 //
 // Static (import-based) `MigrationProvider` rather than Kysely's
@@ -271,6 +273,8 @@ export const caseStoreMigrations: Record<string, Migration> = {
 	"20261207050000_organization_place_pages": organizationPlacePages,
 	"20261207060000_user_settings_connection_epoch": userSettingsConnectionEpoch,
 	"20261208000000_lookup_json_destinations": lookupJsonDestinations,
+	"20261208020000_case_index_history": caseIndexHistory,
+	"20261208050000_preview_search_settings": previewSearchSettings,
 };
 
 export const caseStoreMigrationProvider: MigrationProvider = {

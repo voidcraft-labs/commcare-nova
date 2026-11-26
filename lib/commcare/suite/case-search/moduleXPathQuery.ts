@@ -11,8 +11,12 @@
 import type { BlueprintDoc, Uuid } from "@/lib/domain";
 import { moduleExpressionContexts } from "../../expressionContext";
 import { caseListStepDatumId } from "../../formLinkProjection";
-import type { LookupWireNaming } from "../../lookup/naming";
 import {
+	identityLookupWireNaming,
+	type LookupWireNaming,
+} from "../../lookup/naming";
+import {
+	buildRuntimeCsqlPromptValidations,
 	type ComposedXPathQuery,
 	composeXPathQueryEmission,
 } from "./xpathQuery";
@@ -34,5 +38,25 @@ export function composeModuleXPathQueryEmission(
 		options.lookupNaming,
 		options.searchInputInstanceId,
 		caseListStepDatumId(doc, moduleUuid),
+	);
+}
+
+/**
+ * The names of the Search fields whose answers the module's search guards
+ * itself (`xpathQuery.ts::buildRuntimeCsqlPromptValidations`), which share the
+ * field's one check (`searchPrompts.ts::buildValidation`). Which field a guard
+ * names reads no table's name, so every table is named by its id. It throws
+ * where the search can't be composed, as the composition does.
+ */
+export function searchGuardedFieldNames(
+	doc: BlueprintDoc,
+	moduleUuid: Uuid,
+): ReadonlySet<string> {
+	return new Set(
+		buildRuntimeCsqlPromptValidations(
+			composeModuleXPathQueryEmission(doc, moduleUuid, {
+				lookupNaming: identityLookupWireNaming(),
+			}),
+		).keys(),
 	);
 }

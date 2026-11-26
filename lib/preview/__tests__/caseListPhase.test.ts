@@ -38,6 +38,7 @@ function step(
 const WORKFLOWS: readonly (SearchWorkflow | undefined)[] = [
 	undefined,
 	"listFirst",
+	"listFirstWithDefaultResults",
 	"searchFirst",
 	"skipToResults",
 ];

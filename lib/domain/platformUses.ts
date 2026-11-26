@@ -35,6 +35,12 @@ import { walkExpressionNodes } from "./expression/walk";
 import { choiceDisplayFeatures, fieldDisplayValues } from "./fieldDisplay";
 import type { Field } from "./fields";
 import { inlineOptionsOf } from "./fields/selectOptionsSource";
+import {
+	effectiveAppLocalization,
+	makeTranslationUnitId,
+	translationSourceFingerprint,
+	translationSourceFingerprintsEqual,
+} from "./localization";
 import { caseListRegistrationReturnOf } from "./menuForms";
 import { menuScreenOf } from "./menuScreens";
 import {
@@ -50,6 +56,8 @@ import {
 	moduleSearchWorkflow,
 	rawTileTextShowsInGroupedWebBody,
 	type SearchInputDef,
+	searchOpensOnList,
+	searchScreenTitleText,
 	tileCellFor,
 	tileCellOnlyOnAndroid,
 } from "./modules";
@@ -370,7 +378,15 @@ export function platformFeatureUses(
 	for (const moduleUuid of doc.moduleOrder) {
 		const module = doc.modules[moduleUuid];
 		if (module === undefined) continue;
-		out.push(...moduleUses(moduleUuid, module, wanted, expressionUses));
+		out.push(
+			...moduleUses(
+				moduleUuid,
+				module,
+				wanted,
+				expressionUses,
+				searchTitleTranslated(doc, moduleUuid),
+			),
+		);
 		if (
 			module.caseListRegistrationForm?.kind === "always" &&
 			firstMenuCaseOnRoute(moduleUuid) &&
@@ -493,11 +509,38 @@ type ExpressionUses = (
 	ownerOf: (ref: SlotContextRef) => PlatformFeatureOwner,
 ) => PlatformFeatureUse[];
 
+/** Whether a language other than the source holds a search title text of its own. */
+function searchTitleTranslated(doc: BlueprintDoc, moduleUuid: Uuid): boolean {
+	const module = doc.modules[moduleUuid];
+	const search =
+		module === undefined ? undefined : effectiveCaseSearchConfig(module);
+	if (search === undefined) return false;
+	const unit = makeTranslationUnitId("module", moduleUuid, "search-title");
+	// Only a current translation shows: one of an older source shows the source's title.
+	const source = translationSourceFingerprint(
+		"text",
+		searchScreenTitleText(search) ?? "",
+	);
+	return Object.values(
+		effectiveAppLocalization(doc.localization).translations,
+	).some((entries) => {
+		const entry = entries[unit];
+		return (
+			entry !== undefined &&
+			typeof entry.value === "string" &&
+			entry.value.trim() !== "" &&
+			translationSourceFingerprintsEqual(entry.sourceFingerprint, source)
+		);
+	});
+}
+
 function moduleUses(
 	moduleUuid: Uuid,
 	module: Module,
 	wanted: (feature: PlatformFeatureId) => boolean,
 	expressionUses: ExpressionUses,
+	/** Whether a language other than the source shows a search title of its own. */
+	titleTranslated: boolean,
 ): PlatformFeatureUse[] {
 	const owner: PlatformFeatureOwner = { kind: "module", moduleUuid };
 	const list = module.caseListConfig;
@@ -512,7 +555,11 @@ function moduleUses(
 		own.push(
 			slotUse("forms-read-search", owner, "caseSearchConfig.formsReadSearch"),
 		);
-	if (workflow === "listFirst" && wanted("list-first"))
+	if (search?.searchOnClear && wanted("search-on-clear"))
+		own.push(
+			slotUse("search-on-clear", owner, "caseSearchConfig.searchOnClear"),
+		);
+	if (searchOpensOnList(workflow) && wanted("list-first"))
 		own.push(slotUse("list-first", owner, "caseSearchConfig.workflow"));
 	if (
 		caseSelectionCardinality(module) === "multiple" &&
@@ -574,9 +621,10 @@ function moduleUses(
 	if (list?.tile?.grouping !== undefined && wanted("tile-grouping"))
 		own.push(slotUse("tile-grouping", owner, "caseListConfig.tile.grouping"));
 	// A search with no title holds no text for Android to leave out, so only
-	// an authored title text is a use.
+	// an authored title text is a use, in the source language or another.
 	const authoredTitleText =
-		search !== undefined && typeof search.searchScreenTitle === "string";
+		search !== undefined &&
+		(typeof search.searchScreenTitle === "string" || titleTranslated);
 	if (
 		search !== undefined &&
 		(authoredTitleText || search.searchScreenSubtitle !== undefined) &&
@@ -782,6 +830,8 @@ function searchInputUses(
 		return uses;
 	}
 	if (!isVisibleSearchInput(input)) return uses;
+	if (input.hidden === true && wanted("hidden-search-field"))
+		uses.push(slotUse("hidden-search-field", owner, `${path}.hidden`));
 	const type = "type" in input ? input.type : undefined;
 	if (type === "date" && wanted("search-field-single-date"))
 		uses.push(slotUse("search-field-single-date", owner, `${path}.type`));
@@ -802,8 +852,17 @@ function searchInputUses(
 					: `${path}.validation`,
 			),
 		);
+	if (
+		type === "date-range" &&
+		"default" in input &&
+		input.default !== undefined &&
+		wanted("search-starting-dates")
+	)
+		uses.push(slotUse("search-starting-dates", owner, `${path}.default`));
 	if (type === "barcode" && wanted("barcode-search-field"))
 		uses.push(slotUse("barcode-search-field", owner, `${path}.type`));
+	if (input.allowBlank === true && wanted("search-for-blank"))
+		uses.push(slotUse("search-for-blank", owner, `${path}.allowBlank`));
 	return uses;
 }
 

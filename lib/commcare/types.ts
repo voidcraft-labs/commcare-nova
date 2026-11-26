@@ -555,11 +555,18 @@ export interface CaseSearchConfig<XPath = string> {
 	properties: CaseSearchProperty<XPath>[];
 	auto_launch: boolean;
 	default_search: boolean;
+	search_on_clear?: true;
 	inline_search: boolean;
 	include_all_related_cases: boolean;
 	search_button_display_condition?: XPath;
 	default_properties: DefaultCaseSearchProperty<XPath>[];
 	blacklisted_owner_ids_expression?: XPath;
+	custom_sort_properties?: {
+		doc_type: "CaseSearchCustomSortProperty";
+		property_name: string;
+		sort_type: "exact" | "date" | "numeric";
+		direction: "ascending" | "descending";
+	}[];
 	title_label: LocalizedString | Record<string, never>;
 	description: LocalizedString | Record<string, never>;
 }

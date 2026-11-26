@@ -416,13 +416,75 @@ replaces the current answer; cancelling keeps it.
 
 On Android, an answer that holds both `'` and `"` finds nothing.
 
+### Search filters and project space matching
+
+Use **Add search filter** when you want to send a value with every search. You
+can find it in **Results**, under **Cases available**, once you choose
+**Online search**. That choice appears when the menu has a search field or
+search settings. For example, match the worker's assigned district while
+letting them search for a household by name. Choose the information to match,
+enter its starting value, then open the value editor to choose a search answer,
+an earlier selection or information about the worker. You can edit and reorder
+individual filters. Filters for the same information send their values together.
+To keep particular owners' records out of the online results, or to choose which
+matches arrive first, see [Choose which matches Search sends](#choose-which-matches-search-sends).
+
+A search field can also send its answer under the field's own name. Choose
+**Use project space matching** when your project space manages how to compare
+that information. A project space can ignore particular text or match similar
+words. Existing search fields keep the matching rules they were created with.
+Project space matching also lets a date or a date range search information your
+forms save as text: the project space finds the cases whose saved text it reads
+as a date in that range, and Preview does the same.
+
+Turn on **Also find blank** to let workers include cases where the field's
+information is blank. In Web Apps a box appears under the field, and workers can
+tick it with or without an answer. Android shows the field without the box. The
+option is offered on a field that searches its own information under the same
+name, with exact matching or a date range, and on a field with project space
+matching, except one that searches the case owner. A form that
+reads the search answer sees the blank before the answer, the way CommCare sends
+it.
+
+Turn on **Hidden in Web Apps** to search with a field's starting value without
+showing the field. Web Apps leaves the field off the Search screen and searches
+with the starting value as it stands. Android still shows the field, where
+workers can change it. A hidden field has no hint, requirement, check or
+**Also find blank**, since nobody in Web Apps can see them, and a hidden text
+field searches the information of its own name with exact matching or project
+space matching. For a value the search never matches by its name, add a
+**Hidden value** instead.
+
+Preview uses the selected destination's search settings. A search returns up to
+500 records, or 1,500 when the destination has the higher limit. When a form
+uses those results, a condition on the device can hide a record that the
+search found. Clearing the condition lets you see what came back. A date
+condition on **Date opened**, **Date closed** or **Last modified** can depend on
+the destination's time zone. The worker's day and the project space's day can
+differ.
+
+If Preview needs an unconfirmed search setting, choose the destination and
+confirm the setting there. If similar words or a tie at the last result could
+change which record is returned, Preview explains why the exact result is
+unavailable. A more specific search can make the result clear. A search for an
+empty link can also depend on earlier changes to that record. An isolated App
+Test with newly created records lets you exercise the empty, linked and cleared
+states. These searches remain available on the published app.
+
 ### Hints, required fields, and checks
 
 Each search field can carry a **Hint**, a short line under its label that
 says what to type or why it matters. A field can also be **Required**, always
 or only while a condition holds, with a message of your own or Nova's default.
 A **Check on the answer** is one rule a filled-in answer must pass, with the
-message shown when it does not. Both the required condition and the check are
+message shown when it does not. Leave the check's message blank and people see
+CommCare's own "Sorry, this response is invalid!". People see that same
+message if Search checks the answer before using it. A field brought in
+from CommCare HQ can also be required
+with no message at all: in Web Apps its search then waits until the field is
+answered, and the field shows as needing attention without saying why.
+**Show a message** gives it Nova's default.
+Both the required condition and the check are
 decided on the Search screen itself, so they can look at this field, the other
 search fields (a field that has not been answered reads as blank), fixed
 values, and current-user information, but not at case information. They are
@@ -437,10 +499,10 @@ as guidance for web workers rather than a guarantee.
 
 ### Choice fields
 
-A search field whose type is **Single choice** or **Multiple choice** offers
-its answers from a Project lookup table: pick the table, the column that holds
-the stored value, and the column that holds the label, exactly as a
-lookup-backed question does. Nova does not offer a typed-in list of choices on
+**Single choice**, **Multiple choice** and **Checkboxes** offer answers from a
+Project lookup table. Choose the column that holds the saved value and the
+column that holds the label. Checkboxes let workers tick several choices on
+Android or Web Apps. Multiple choice offers a selection list in Web Apps. Nova does not offer a typed-in list of choices on
 the Search screen, so a fixed yes/no choice is a two-row table you own. A
 multiple-choice field finds cases whose value is any of the chosen answers.
 
@@ -472,11 +534,14 @@ it names, so Nova asks for another name and says why.
 ### Hidden values
 
 **Add search field** also offers a **Hidden value**: a value carried with the
-search, such as the time of the search or the worker's id. It is never shown, never asked, and
-never narrows the results; it exists so other conditions can read it by name.
+search, such as the time of the search or the worker's id. Web Apps never shows
+or asks it, and it never narrows the results; it exists so other conditions can
+read it by name. Android shows it on the Search screen as an ordinary field,
+where the worker can change it.
 A hidden value works with fixed values, the current date and time, and
 current-user information, and cannot read case information or another search
-field.
+field. It can also start with no value: Web Apps keeps it blank, and Android
+shows it empty for the worker to fill in.
 
 In Preview, each new search uses the current worker and data to resolve these
 values. Editing answers keeps the previous search's hidden values until you
@@ -488,6 +553,10 @@ Some workflows should never show a list before anyone has searched: a
 registry too large to scroll, or a program where finding the right person
 comes first. **When this menu opens**, in the Search panel, decides what a
 worker sees first.
+
+**Search again after clearing** refreshes the results when a worker clears the fields on a desktop Web Apps screen. A required field still needs an answer before Search can run. On smaller Web Apps screens, Clear empties the fields. Android has no Clear button.
+
+A menu that shows its forms in the menu above can keep an ordinary search. The case list has no Search or Register button there. To let workers open Search from the list, give the menu its own screen. Forms that read the search also need their menu to have its own screen.
 
 A menu that searches can open on **Search first**, the Search screen; **Results
 first**, the matches of its search as it opens; or **Case list first**, its case
@@ -522,7 +591,9 @@ Each choice says what workers see:
 - **Case list first**: workers see their cases and can search from the list. In
   an app that runs in Web Apps the choice says **Not available in Web Apps. You
   can open this menu on Search first, which Android still opens on its case
-  list, or change where this app runs in App settings.**
+  list, or change where this app runs in App settings.** For an Android-only
+  app, **Request default search results** keeps that preference when you publish.
+  On Android workers still open the search fields and press **Search All Cases**.
 - **Forms read the search**: each form runs the search as it opens, so it can
   read what was searched for and what was found. In an app that runs on Android
   the switch says **Not available on Android. You can change where this app runs
@@ -545,6 +616,15 @@ field, the canvas says the menu opens on the cases the search finds, and
 **Cases available** decides what workers see. While a saved Search button
 condition is false, a menu whose forms don't read the search opens on its case
 list.
+
+A Search button condition can read only what the case list itself loads
+wherever it shows. CommCare HQ loads, for each screen that shows the list, what
+that screen's case selection, its list and its return after the form read, and
+never what the button's condition alone reads. So a condition on the worker's
+session or user information works where the list's filter reads it, or where
+every form that shows the list returns to it with the chosen case, and Nova
+asks you to change it anywhere else, since the list wouldn't open once the app
+is on CommCare HQ.
 
 **Forms read the search** is offered when every form on the menu works on an
 existing case, or when the menu is a case list with no forms. A menu with a
@@ -632,9 +712,13 @@ An empty task list can be an expected result, such as when every loan has been
 returned. Preview distinguishes cases that do not meet a task's conditions from
 an app with no case data; an empty task does not mean its settings need repair.
 
-Results owns **Cases available**, the rules that always decide which cases can
-appear before anyone searches. The conditions are listed and edited together
-in the canvas, above Default order. Choose **Add condition** for another rule,
+In Results, **Cases available** holds the rules for finding records. **Device
+list** chooses which records a worker sees when browsing. **Online search**
+chooses which records the project space can return. For example, a worker can
+browse active households and search online for a household that has left the
+program. Each edit applies to the selected surface. A form that opens its own
+list inside search results also applies the device list condition to the
+returned records. Choose **Add condition** for another rule,
 then decide whether **all conditions must match** or **any condition can
 match**. You can group conditions, exclude matches, use a search answer only
 when it has been filled in, follow connections to related cases, and combine
@@ -717,8 +801,16 @@ manage.
 For dates, **Exact value** means the complete selected calendar day, including
 datetime values later that day. Choose **Between dates** when people should
 enter both a start and an end; Nova changes the field to one paired **Date
-range** control automatically. Date ranges do not offer a one-date starting
-value, because that would leave the other end undefined.
+range** control automatically. Under **Starting dates**, **Choose dates**
+sets the first and last days together. Both dates stay the same when the app
+runs in another time zone. **Use a calculation** can fill the dates from
+worker information. Preview shows the dates the selected worker will see.
+A date calculation brought in from CommCare HQ can start a day earlier on
+an Android device west of UTC. Choosing fixed dates avoids this shift.
+An imported starting value can show a single date or more than two dates on
+Web Apps. If Search asks for a valid range, pick a start and an end and search
+again. You can also change the field’s starting dates in the Builder.
+The running search keeps the dates it opened with while the worker checks the results.
 
 A date can be compared with before or after, or searched between two dates. A
 time of day can't: CommCare compares these as numbers and a time is not one, so
@@ -780,6 +872,14 @@ its forms', so there people choose a form or the entry before any case.
 You can give the entry its own label, icon and spoken label; with
 no label it takes the menu's name. A menu with no forms and no submenus is its case list, so the
 switch stays on until the menu has a form.
+
+## Choose which matches Search sends
+
+A broad search can match more records than the worker receives. Under **Search filters**, **Which matches arrive first** sets which records the server sends. Pick a property, how to compare its values and a direction. Comparing a priority as a number puts 2 before 10 in ascending order; compared as text, 10 comes first. Add a tie-breaker to decide between records that share a priority. Your list can still show the records it receives in its own order.
+
+This order uses advanced case search in your CommCare HQ project space. If your project space doesn't have it, **Add order as a search filter** sets the same kind of order among the search filters instead. When a search has both, the server applies the filters' orders first, then the one above. An app you bring in from CommCare HQ keeps each order where it was.
+
+To keep particular owners' records out of the online results, add a search filter and choose **Owners to leave out of Search**. Its value names the owner IDs, separated by spaces, and can come from the worker's Search answers. It applies to the online search only: **Assigned cases** still decides which records the device list shows. A search takes one such rule, so name every owner in its value.
 
 ## Choose which cases appear first
 

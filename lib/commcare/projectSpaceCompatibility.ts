@@ -44,6 +44,7 @@ import {
 import { addressSearchFormReasons } from "./planPrivileges";
 import { sameTypeBasicChildCases } from "./sameTypeChildCases";
 import { moduleUsesInlineSearch } from "./suite/case-search/inlineSearch";
+import { readSearchFilterTarget } from "./suite/case-search/nativeFilters";
 import { searchNeedsSupportingCases } from "./suite/case-search/relatedCaseProjection";
 import {
 	searchInputIsSingleDate,
@@ -169,9 +170,16 @@ export interface HqProjectSpaceCompatibilityProbePlan {
  * filter for every project space.
  */
 export function advancedCaseSearchReasons(module: Module): string[] {
-	if (effectiveCaseSearchConfig(module) === undefined) return [];
+	const config = effectiveCaseSearchConfig(module);
+	if (config === undefined) return [];
 	const inputs = module.caseListConfig?.searchInputs ?? [];
 	const reasons: string[] = [];
+	if (config.searchOnClear)
+		reasons.push(
+			"Clearing Search requests fresh results on a desktop Web Apps screen.",
+		);
+	if (config.requestOrder !== undefined)
+		reasons.push("Search chooses which matches to send in a set order.");
 	if (inputs.some((input) => searchInputDefault(input) !== undefined)) {
 		reasons.push("A Search field starts with a suggested value.");
 	}
@@ -183,6 +191,12 @@ export function advancedCaseSearchReasons(module: Module): string[] {
 	if (moduleUsesInlineSearch(module)) {
 		reasons.push("The menu's forms read the search.");
 	}
+	if (
+		inputs.some(
+			(input) => input.kind !== "hidden" && input.type === "checkboxes",
+		)
+	)
+		reasons.push("A Search field lets workers tick several choices.");
 	if (inputs.some(searchInputIsSingleDate)) {
 		reasons.push("A Search field takes one date.");
 	}
@@ -209,7 +223,24 @@ function relatedCaseSearchReasons(doc: BlueprintDoc, module: Module): string[] {
 	}
 	const expressions = moduleExpressionContexts(doc, module.uuid);
 	const reasons: string[] = [];
+	const nativeTargets = [
+		...(list.searchFilters ?? []).flatMap((row) =>
+			"target" in row ? [row.target] : [],
+		),
+		...list.searchInputs.flatMap((input) => {
+			if (input.kind !== "simple" || searchInputSuppressesAutoMatch(input))
+				return [];
+			const target = readSearchFilterTarget(input.name);
+			return target ? [target] : [];
+		}),
+	];
 	if (
+		nativeTargets.some(
+			(target) =>
+				"ancestors" in target &&
+				target.ancestors &&
+				!(target.kind === "attribute" && target.attribute === "id"),
+		) ||
 		xpathQueryUsesRelatedLookup(
 			list,
 			module.caseType,
