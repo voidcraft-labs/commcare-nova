@@ -103,7 +103,18 @@ def _answers() -> dict:
 
 
 def _read(
-    served, blobs, label, op, archives: dict, options: dict, *, delivered: bool = False, sent=None, submissions=None, about=None
+    served,
+    blobs,
+    label,
+    op,
+    archives: dict,
+    options: dict,
+    *,
+    delivered: bool = False,
+    sent=None,
+    submissions=None,
+    about=None,
+    stored=None,
 ) -> dict:
     from proof.android.hq import DevicePeer
     from proof.formplayer.hq import DEVICE_REPORT
@@ -136,7 +147,9 @@ def _read(
             report = progress.activity(stage, count="native")
         with report:
             reader = services.android()
-            peer = DevicePeer(served, label, delivered=delivered, device=options.get("device", "phone"))
+            peer = DevicePeer(
+                served, label, delivered=delivered, device=options.get("device", "phone"), stored=stored
+            )
             try:
                 answer = reader.request(op, peer=peer, drawn=drawn, worker=worker(served), **arguments)
             finally:
@@ -183,6 +196,7 @@ def app(
     clock=None,
     sent=None,
     submissions=None,
+    stored=None,
     device: str = "phone",
     commands=None,
     views: bool = False,
@@ -198,8 +212,9 @@ def app(
     the worker HQ made and its restore and forms delivered to HQ's own addresses for the worker and the app
     (``proof.android.hq``); ``fix`` where the device's GPS puts it (``[latitude, longitude, altitude,
     accuracy]``, or None for a GPS that finds no fix); ``clock`` the device's instant where it is not the lane's;
-    ``sent``, a list each form the device sent HQ is added to; ``device`` a phone or a tablet held in landscape
-    (``Reader.device``). Every walk is walked again in each language the served app holds but the one it starts
+    ``sent``, a list each form the device sent HQ is added to; ``stored``, a list what HQ's receiver stored of
+    each such form is added to (``proof.android.hq.DevicePeer.stored``); ``device`` a phone or a tablet held in
+    landscape (``Reader.device``). Every walk is walked again in each language the served app holds but the one it starts
     in, as every reader's walk is (``proof.observe.walks.chosen``), the same languages for every archive of the
     state so the walks of two archives pair by name.
 
@@ -246,7 +261,18 @@ def app(
         options["reopen"] = True
     if searches is not None:
         options["searches"] = list(searches)
-    return _read(served, blobs, label, "app", {"archive": archive}, options, delivered=delivered, sent=sent, submissions=submissions)
+    return _read(
+        served,
+        blobs,
+        label,
+        "app",
+        {"archive": archive},
+        options,
+        delivered=delivered,
+        sent=sent,
+        submissions=submissions,
+        stored=stored,
+    )
 
 
 def automatic_location(served, blobs, archive, fix, label):

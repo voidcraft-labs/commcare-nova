@@ -1,4 +1,8 @@
-"""On an installed Android app, ordinary answers arrive and the form creates the household."""
+"""On an installed Android app, ordinary answers arrive, the form creates the household, and HQ stores both.
+
+An answer named ``script`` on either app, and one named ``Registration`` on the app that runs only on Android, is
+an ordinary answer: the device offers its transaction parsers only stock-namespace nodes and ``case``
+(``FormRecordProcessor``), and HQ's receiver stores the form whole and applies its one case change."""
 
 import pytest
 from lxml import etree
@@ -20,11 +24,11 @@ def test_android_keeps_the_answer_and_processes_the_household(android_documents,
         expected["Registration"] = "R12"
     with apps.published(document, core_runner, "maximum") as published:
         with hq_forms.serve(published.unit, document, published.app_id) as served:
-            blobs, sent = Blobs(), []
+            blobs, sent, stored = Blobs(), [], []
             report = observe.app(
                 served, blobs, label=app_id, archive=observe.release_archive(served),
                 commands=["m0-f0"], questions={"/data/visit/" + k: [v] for k, v in expected.items()},
-                views=True, sent=sent,
+                views=True, sent=sent, stored=stored,
             )
             walk = blobs.get_json(report["answer"])["walks"]["m0-f0"]
     form, = [s["form"] for s in walk["steps"] if "form" in s and s["screen"] == "FormEntryActivity"]
@@ -40,3 +44,11 @@ def test_android_keeps_the_answer_and_processes_the_household(android_documents,
     # by the id the form gave it; the submission's own case block carries that id.
     assert case is not None and case.get("case_id"), received
     assert household["id"].startswith("@device-case:"), household
+    # HQ's receiver stored the form the device sent, every answer in it, and applied its case change once.
+    kept, = stored
+    assert "raised" not in kept, kept
+    assert kept["instanceID"] == root.findtext("{*}meta/{*}instanceID"), kept
+    assert kept["form"]["normal"] and kept["form"]["xmlns"] == etree.QName(root).namespace, kept
+    hq_root = etree.fromstring(kept["form"]["xml"].encode())
+    assert {k: hq_root.findtext("{*}visit/{*}" + k) for k in expected} == expected
+    assert kept["cases"] == {case.get("case_id"): {"name": "Chen", "type": "household", "forms": [kept["instanceID"]]}}
