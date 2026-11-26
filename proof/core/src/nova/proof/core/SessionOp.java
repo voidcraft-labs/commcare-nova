@@ -556,6 +556,11 @@ final class SessionOp {
      * "missing" when it names one the suite does not define.
      */
     static JSONObject caseDetail(EntityScreen screen, EntityDatum datum, TreeReference reference) {
+        return caseDetail(screen, datum, reference, false);
+    }
+
+    static JSONObject caseDetail(EntityScreen screen, EntityDatum datum, TreeReference reference,
+                                 boolean includeTemplateForms) {
         String id = datum.getLongDetail();
         if (id == null) {
             return null;
@@ -582,6 +587,13 @@ final class SessionOp {
             titles[i] = title instanceof String ? (String)title : "";
             JSONObject t = new JSONObject();
             t.put("title", title);
+            if (includeTemplateForms) {
+                JSONArray forms = new JSONArray();
+                for (DetailField field : tab.getFields()) {
+                    forms.put(FormRun.nullable(field.getTemplateForm()));
+                }
+                t.put("templateForms", forms);
+            }
             described.put(t);
         }
         EvaluationContext caseContext = new EvaluationContext(context, reference);
