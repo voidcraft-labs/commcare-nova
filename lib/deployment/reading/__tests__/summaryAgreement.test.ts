@@ -29,6 +29,7 @@
  */
 
 import { describe, expect, it } from "vitest";
+import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { expandDoc } from "@/lib/commcare/expander";
 import type { HqAlignedModule } from "@/lib/commcare/hq/appReading";
 import { sourceIdentity } from "@/lib/commcare/hq/sourceIdentity";
@@ -149,6 +150,48 @@ async function signatures(
 }
 
 describe("summaryDifferences over CommCare HQ's retained summary", () => {
+	it("checks the translated question at HQ's named submitted path", async () => {
+		const withNamedForm = eachForm((xml) =>
+			xml.includes('id="answer-label"')
+				? xml
+						.replace("<data ", "<visit ")
+						.replace("</data>", "</visit>")
+						.replaceAll('"/data/answer"', '"/visit/answer"')
+				: xml,
+		);
+		const body = (source: Body) => {
+			const updated = withNamedForm(structuredClone(source));
+			const [menu] = updated.modules as {
+				forms: {
+					actions: {
+						update_case: { update: { notes: { question_path: string } } };
+					};
+				}[];
+			}[];
+			// HQ also stores this answer's address in its active case update.
+			menu.forms[0].actions.update_case.update.notes.question_path =
+				"/visit/answer";
+			return updated;
+		};
+		const summary = (other: boolean) =>
+			eachQuestion((q) =>
+				q.value === "/data/answer"
+					? {
+							...q,
+							value: "/visit/answer",
+							...(other && {
+								translations: { en: "Wrong question" },
+								label: "Wrong question",
+							}),
+						}
+					: q,
+			);
+		expect(await signatures({ body, summary: summary(false) })).toEqual([]);
+		expect(await signatures({ body, summary: summary(true) })).toEqual([
+			"summary/question/label",
+		]);
+	});
+
 	it("finds nothing for the reading of navigation-base", async () => {
 		expect(await signatures()).toEqual([]);
 	});
@@ -371,6 +414,58 @@ describe("the text rule", () => {
 });
 
 describe("documentSummary", () => {
+	it("compares the submitted activity leaves inside their actual group", () => {
+		const doc = buildDoc({
+			connectRoles: ["deliver"],
+			modules: [
+				{
+					name: "Visits",
+					forms: [
+						{
+							name: "Visit",
+							type: "survey",
+							fields: [
+								f({ kind: "text", id: "person" }),
+								f({
+									kind: "group",
+									id: "visit",
+									children: [
+										f({
+											kind: "connect_activity",
+											id: "service",
+											relevant: "#form/person != ''",
+											activity: {
+												kind: "delivery",
+												name: "Visit",
+												entityId: "#form/person",
+											},
+										}),
+									],
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
+		const form = Object.values(doc.forms)[0];
+		if (form === undefined) throw new Error("Expected the visit form.");
+		expect(
+			documentSummary(doc, form.uuid).map((row) => [
+				row.path,
+				row.hasCalculate,
+				row.hasRelevant,
+			]),
+		).toEqual([
+			["/data/person", false, false],
+			["/data/visit", false, false],
+			["/data/visit/service/deliver/name", false, false],
+			["/data/visit/service/deliver/entity_id", true, false],
+			["/data/visit/service/deliver/entity_name", false, false],
+			["/data/visit/service/deliver/work_area_id", false, false],
+		]);
+	});
+
 	it("gives a query repeat in the count placement a row at its wrapper and one at its row path", {
 		timeout: 120_000,
 	}, () => {

@@ -8,6 +8,7 @@ import type { FormNodeGraph, FormNodeStep } from "./formNodes";
 import { formatNumeric } from "./numberLiteral";
 import { relativePath } from "./relativePath";
 import { type ExpressionSpans, spanKey } from "./spans";
+import { quoteXPathLiteral } from "./stringLiteral";
 import {
 	type CheckPath,
 	type DatumRef,
@@ -22,6 +23,7 @@ import {
 
 export interface FormPrintContext {
 	readonly graph?: FormNodeGraph;
+	readonly dataRootName?: string;
 	readonly sourceNode?: FormNodeRef;
 	readonly contextNode?: FormNodeRef;
 	readonly step?: (node: FormNodeRef) => FormNodeStep | undefined;
@@ -182,14 +184,11 @@ function printWith(
 			emit(formatNumeric(value));
 			return;
 		}
-		if (
-			typeof value !== "string" ||
-			(value.includes("'") && value.includes('"'))
-		) {
+		if (typeof value !== "string") {
 			missing(path, "literal");
 			return;
 		}
-		emit(value.includes("'") ? `"${value}"` : `'${value}'`);
+		emit(quoteXPathLiteral(value));
 	}
 	function child(
 		parent: Expression | Term,
@@ -290,6 +289,27 @@ function printWith(
 		const graph = ctx.graph;
 		if (spelling !== "relative" && spelling !== "current") {
 			if (target.kind !== "field" && target.kind !== "repeat-row") {
+				if (
+					spelling === "absolute" &&
+					"activity" in target &&
+					ctx.step &&
+					graph
+				) {
+					const coordinates = graph.path(target);
+					if (coordinates) {
+						emit("/data");
+						for (const node of coordinates.slice(1)) {
+							const step = ctx.step(node);
+							if (!step) {
+								missing(path, "context");
+								return;
+							}
+							emit(`/${step.attribute ? "@" : ""}${step.name}`);
+							filters(term, node, path, ctx);
+						}
+						return;
+					}
+				}
 				missing(path, "arm");
 				return;
 			}
@@ -299,7 +319,9 @@ function printWith(
 				missing(path);
 				return;
 			}
-			emit(spelling === "absolute" ? "/data" : "#form");
+			emit(
+				spelling === "absolute" ? `/${ctx.dataRootName ?? "data"}` : "#form",
+			);
 			const coordinates = graph
 				?.path(target)
 				?.filter((node) => node.kind === "field" && node.role === undefined);

@@ -119,7 +119,7 @@ it("keeps an inspected App Test date empty, skips intervening widgets and saves 
 	expect(answer(last, "visit/arrival")).toBe(day);
 	expect(answer(last, "skipped")).toBe("");
 	expect(answer(last, "last")).toBe("");
-	const submitted = await run({}, { entry: last.entry, submitting: true });
+	const submitted = await run({}, { entry: last.entry, submitEntry: true });
 	expect(submitted.submission).toMatchObject({ kind: "survey" });
 	expect(submitted.valid).toBe(true);
 	expect(answer(submitted, "last")).toBe(day);

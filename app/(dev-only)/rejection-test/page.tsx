@@ -10,6 +10,7 @@ import {
 	RejectionInline,
 } from "@/components/builder/RejectionNotice";
 import { ToastContainer } from "@/components/ui/ToastContainer";
+import { fieldIdFormatVerdict } from "@/lib/doc/identifierVerdicts";
 import type { CommitOutcome } from "@/lib/domain";
 import { showToast } from "@/lib/ui/toastStore";
 
@@ -33,20 +34,16 @@ const FORMULA_BAD_REF =
 	'A formula on "visit_score" in "Follow-up" points to a field that isn\'t here. Check for a typo, or a field that was renamed or removed.';
 const FIELD_ID_TAKEN =
 	'Another field is already named "age". Give this one a different ID, or rename that one first.';
-// Mirrors lib/commcare/connectSlugs.ts::connectIdError's over-length branch,
-// recomputed live so the character count tracks the draft: the way the real
-// form-settings Connect ID field validates while you type. The CommCare
-// boundary keeps lib/commcare out of this dev page, so the copy and the
-// 50-char cap (CONNECT_SLUG_MAX_LENGTH) are mirrored here.
-const CONNECT_ID_MAX = 50;
-const connectIdTooLong = (v: string): string | null =>
-	v.length > CONNECT_ID_MAX
-		? `"${v}" is ${v.length} characters — Connect stores ids in a column limited to ${CONNECT_ID_MAX}. Shorten it to ${CONNECT_ID_MAX} characters or fewer.`
-		: null;
+// A learning module's receiver ID must fit its saved column. This fixture uses
+// the same format verdict as the Builder, including its suggested repair.
+const connectIdTooLong = (id: string): string | null => {
+	const verdict = fieldIdFormatVerdict(id, "learning-module");
+	return verdict.ok ? null : verdict.userMessage;
+};
 const CONNECT_ID_DUP =
-	'The Connect ID "learn_intro" is already used by another form. Give this one a different ID, or change the other form\'s first.';
-const CONNECT_NO_FORMS =
-	"You've turned Connect on for the app, but no form is using it yet. Set up Connect on at least one form, or turn it off for the app.";
+	'Another field is already named "learn_intro". Give this one a different ID, or rename the other field first.';
+const CONNECT_MISSING_ROLE =
+	"This activity uses the learning role. You can enable learning in the app settings.";
 
 const alwaysReject =
 	(message: string) =>
@@ -197,7 +194,11 @@ export default function RejectionTestPage() {
 							className="px-3 py-1.5 text-xs rounded-md border border-white/[0.08] hover:border-nova-violet/40 cursor-pointer"
 							onClick={() =>
 								showToast("error", "Change not applied", undefined, {
-									lines: [FIELD_ID_TAKEN, CONNECT_NO_FORMS, FORMULA_BAD_REF],
+									lines: [
+										FIELD_ID_TAKEN,
+										CONNECT_MISSING_ROLE,
+										FORMULA_BAD_REF,
+									],
 								})
 							}
 						>

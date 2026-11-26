@@ -37,6 +37,7 @@
 		"questions/password-secret-xsd-string",
 		"questions/phone-number-xsd-string-appearance-numeric",
 		"questions/question-list-group-appearance-field-list-labelled",
+		"questions/relevance-bound-on-a-model-iteration-repeat-s-container",
 		"questions/repeat-model-iteration-vellum-role-repeat-ids-count-current",
 		"questions/repeat-with-jr-count-naming-an-integer-question-of-the-form-s",
 		"questions/signature-image-signature",

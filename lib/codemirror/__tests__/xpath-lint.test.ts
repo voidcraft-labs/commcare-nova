@@ -12,9 +12,8 @@ import { EditorState } from "@codemirror/state";
 import type { EditorView } from "@codemirror/view";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { buildDoc } from "@/lib/__tests__/docHelpers";
+import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { SESSION_FORM_READ_MESSAGE } from "@/lib/commcare/validator/formLogicFindings";
-import { prepareFormConnectExpressions } from "@/lib/doc/formExpressionStructure";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { literal, term } from "@/lib/domain/expression/builders";
 import type { ExpressionSlotRef } from "@/lib/domain/expression/types";
@@ -263,25 +262,44 @@ describe("a slot whose place changed", () => {
 		]);
 	});
 
-	it("uses pending Connect blocks while the saved app is still disabled", () => {
-		const doc = fixture();
-		const form = prepareFormConnectExpressions(
-			doc,
-			FORM,
-			"learn",
-			{ assessment: { id: "quiz" } },
-			new Map(),
-			"unavailable",
-		);
-		const ctx = buildExpressionEditorContext(
-			doc,
-			{ entity: "form", uuid: FORM, slot: "assessment_user_score" },
-			LOOKUP_CONTEXT_UNAVAILABLE,
-			{ form },
-		);
+	it("checks a positioned assessment score on its activity and drops that context when the activity is removed", () => {
+		const activity = testUuid("lint-assessment");
+		const doc = buildDoc({
+			connectRoles: ["learn"],
+			appSettings: {
+				runsOnlyOn: "android",
+				showSavedForms: false,
+				showIncompleteForms: false,
+			},
+			modules: [
+				{
+					name: "Learning",
+					forms: [
+						{
+							name: "Quiz",
+							type: "survey",
+							uuid: FORM,
+							fields: [
+								f({
+									kind: "connect_activity",
+									id: "quiz",
+									uuid: activity,
+									activity: { kind: "assessment", score: "1 + 2" },
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
+		const slot = {
+			entity: "field",
+			uuid: activity,
+			slot: "assessment_user_score",
+		} as const;
+		const ctx = context(slot, doc);
 		expect(ctx).toBeDefined();
 		expect(xpathDiagnostics("1 + 2", ctx)).toEqual([]);
-		expect(doc.connectType).toBeNull();
-		expect(doc.forms[FORM].connect).toBeUndefined();
+		expect(context(slot, fixture())).toBeUndefined();
 	});
 });

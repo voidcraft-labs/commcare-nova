@@ -214,7 +214,7 @@ export function invalidConnectIds() {
 	const doc = buildDoc({
 		appId: id,
 		appName: "Connect ids",
-		connectType: "learn",
+		connectRoles: ["learn"],
 		// A Connect app runs on Android alone.
 		appSettings: { ...NEW_APP_SETTINGS, runsOnlyOn: "android" },
 		modules: [
@@ -226,22 +226,29 @@ export function invalidConnectIds() {
 						uuid: form,
 						name: "Lesson",
 						type: "survey",
-						connect: {
-							learn_module: {
-								// What the cutover made of a 50-character id that starts `_1st_lesson`.
-								id: "q1st_lesson".padEnd(50, "x"),
-								name: "Hand washing",
-								description: "Wash for twenty seconds.",
-								time_estimate: 5,
-							},
-							assessment: { id: "qXMLquiz" },
-						},
 						fields: [
 							f({
 								kind: "int",
 								uuid: uuid("score"),
 								id: "score",
 								label: proseText("Score"),
+							}),
+							f({
+								kind: "connect_activity",
+								uuid: uuid("lesson"),
+								id: "q1st_lesson".padEnd(50, "x"),
+								activity: {
+									kind: "learning-module",
+									name: "Hand washing",
+									description: "Wash for twenty seconds.",
+									estimatedHours: 5,
+								},
+							}),
+							f({
+								kind: "connect_activity",
+								uuid: uuid("assessment"),
+								id: "qXMLquiz",
+								activity: { kind: "assessment", score: "100" },
 							}),
 						],
 					},

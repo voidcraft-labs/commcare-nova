@@ -14,6 +14,9 @@ export const PLATFORM_FEATURE_ENTRIES = {
 	"datetime-question": ["questions/date-and-time-xsd-datetime"],
 	"worker-distance": ["menus-and-case-lists/9-distance"],
 	"sort-by-distance": ["menus-and-case-lists/type-distance"],
+	"web-apps-form-behavior": [
+		"questions/a-question-text-whose-itext-id-is-a-web-apps-presence-pragma",
+	],
 	"case-list-here": [
 		"expressions-and-data/here-in-a-case-list-calculated-column-or-sort",
 	],
@@ -55,6 +58,9 @@ export const PLATFORM_FEATURE_ENTRIES = {
 	],
 	"location-question": ["questions/gps-geopoint"],
 	"barcode-question": ["questions/barcode-barcode"],
+	"image-size": [
+		"questions/jr-imagedimensionscaledmax-250-500-1000px-or-another-positive",
+	],
 	"image-question": ["questions/image-capture-upload-image"],
 	"audio-question": ["questions/audio-capture-audio"],
 	"video-question": ["questions/video-capture-video"],
@@ -130,14 +136,26 @@ export const PLATFORM_FEATURE_ENTRIES = {
 	"combined-question-display": [
 		"questions/multi-token-strings-e-g-minimal-hint-as-placeholder-signature-2",
 	],
+	"answer-name-requires-android": [
+		"questions/submitted-answer-name-only-android-stores",
+	],
 	"number-keypad": ["questions/phone-number-xsd-string-appearance-numeric"],
+	"row-starting-value": [
+		"questions/hidden-value-with-both-calculate-and-a-default-by-any-expression",
+	],
 	"plain-text": [
 		"questions/plain-label-containing-html-text",
 		"questions/choice-label-with-no-markdown-form",
 		"questions/help-text-with-no-markdown-form",
 	],
 	"choice-media": ["questions/choice-image", "questions/choice-audio-video"],
-	"help-media": ["questions/help-media"],
+	"help-media": [
+		"questions/help-media",
+		"questions/help-media-on-a-capture-question-or-a-label",
+	],
+	"confirm-message": [
+		"questions/acknowledge-label-a-trigger-whose-appearance-is-neither-exactly",
+	],
 	"label-inline-video": ["questions/label-video-inline"],
 	"label-qr-code": ["questions/label-qrcode"],
 	"label-spoken-text": ["questions/label-tts"],
@@ -342,6 +360,10 @@ export const AMBIENT_PLATFORM_ENTRIES = {
 		"The same markdown text as a copy in every language; renderer only.",
 	"questions/label-image-audio-video-same-asset-every-language":
 		"Renderer only.",
+	"questions/hint-text-on-a-label":
+		"The platform renders the message’s hint like any other hint.",
+	"questions/help-text-on-a-capture-question-or-a-label":
+		"The platform renders help on messages and attachments like any other help text.",
 	"questions/hint-text":
 		"Renderer only: markdown on Web Apps, plain on Android.",
 	"questions/help-text-markdown-form": "Renderer only.",

@@ -31,8 +31,7 @@ describe("questionIdProblem", () => {
 		["Meta", "reserved-name"],
 		["meta", "reserved-name"],
 		["Case", "reserved-name"],
-		["REGISTRATION", "reserved-name"],
-		["script", "reserved-name"],
+
 		["instance", "reserved-name"],
 		["bind", "reserved-name"],
 		["parsererror", "reserved-name"],
@@ -48,6 +47,8 @@ describe("questionIdProblem", () => {
 		"XmLcode",
 		"metadata",
 		"cases",
+		"Registration",
+		"script",
 		"registrations",
 		"scripts",
 		"instances",
@@ -84,12 +85,7 @@ describe("questionIdProblem", () => {
 	// keep what HQ's form builder does with each of these names. Removing one
 	// here is a reviewed change.
 	it("pins the reserved names", () => {
-		expect([...RESERVED_QUESTION_IDS.anyCase]).toEqual([
-			"meta",
-			"case",
-			"registration",
-			"script",
-		]);
+		expect([...RESERVED_QUESTION_IDS.anyCase]).toEqual(["meta", "case"]);
 		expect([...RESERVED_QUESTION_IDS.exact]).toEqual([
 			"instance",
 			"bind",

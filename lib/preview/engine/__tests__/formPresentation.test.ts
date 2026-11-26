@@ -9,7 +9,11 @@ import type { PreviewDevice } from "../previewDevice";
 import { availablePages } from "../sectionPaging";
 import { androidDevice, webAppsDevice } from "./fixtures/previewDevices";
 
-function runtime(fields: FieldSpec[], device?: PreviewDevice) {
+function runtime(
+	fields: FieldSpec[],
+	device?: PreviewDevice,
+	dataRootName?: string,
+) {
 	const formUuid = testUuid("worker-presentation-form");
 	const doc = buildDoc({
 		modules: [
@@ -28,6 +32,8 @@ function runtime(fields: FieldSpec[], device?: PreviewDevice) {
 		)
 			delete field.label;
 	}
+	if (dataRootName !== undefined)
+		doc.forms[formUuid].dataRootName = dataRootName;
 	const input = buildEngineInput(doc, formUuid, null);
 	if (!input) throw new Error("Form fixture is incomplete.");
 	return {
@@ -52,9 +58,13 @@ const literalText = (prose: ProseTemplate) =>
 
 function observe(engine: FormEngine) {
 	return projectFormPresentation(
-		engine.getFieldTree(),
-		{ stateAt: (_field, path) => engine.getState(path) },
+		engine.getControlTree(),
 		{
+			stateAt: (_field, path) => engine.getState(path),
+			workerRelevant: engine.workerRelevantPaths(),
+		},
+		{
+			rootPath: engine.rootPath,
 			currentSectionUuid: engine.currentSectionUuid(),
 			availableSectionUuids: new Set(
 				availablePages(engine.sectionScreens()).map((page) => page.uuid),
@@ -80,6 +90,7 @@ it("keeps the authored hierarchy and instance order after restoring a differentl
 		},
 		{ kind: "label", id: "review", label: "Review your visit" },
 	]);
+	engine.addRepeat("/data/visits");
 	engine.addRepeat("/data/visits");
 	engine.setValue("/data/visits[0]/rating", "2");
 	engine.setValue("/data/visits[1]/rating", "4");
@@ -185,9 +196,7 @@ it("omits automatic processing chrome while retaining its calculations, headings
 	expect(view.nodes[1]).toMatchObject({ label: "Batch summary", children: [] });
 	expect(view.nodes[2]).toMatchObject({
 		controls: { add: true },
-		children: [
-			{ kind: "repeat-instance", controls: { remove: false }, children: [] },
-		],
+		children: [],
 	});
 	expect(
 		view.fields
@@ -293,8 +302,11 @@ it("puts every shown page on Web Apps' one screen", () => {
 		{ kind: "form", path: "/data" },
 	]);
 	const view = projectFormPresentation(
-		engine.getFieldTree(),
-		{ stateAt: (_field, path) => engine.getState(path) },
+		engine.getControlTree(),
+		{
+			stateAt: (_field, path) => engine.getState(path),
+			workerRelevant: engine.workerRelevantPaths(),
+		},
 		{
 			currentScreenPath: engine.currentScreenPath(),
 			/* As `evaluate_form` passes: a section with nothing to show is
@@ -368,3 +380,323 @@ it("removes empty automatic iterations as relevance changes and keeps blank prom
 	expect(observe(engine).nodes).toHaveLength(1);
 	expect(engine.getRepeatCount("/data/untitled_rows")).toBe(2);
 });
+
+it("draws the question outside its submitted group on Android and saves the answer there", () => {
+	const group = testUuid("address-group");
+	const question = testUuid("address-question");
+	const { input } = runtime(
+		[
+			{
+				id: "visit",
+				uuid: group,
+				kind: "group",
+				children: [{ id: "in_group", kind: "text" }],
+			},
+			{
+				id: "outside",
+				uuid: question,
+				kind: "text",
+				submissionPlacement: { parent: group, position: 0 },
+			},
+		],
+		androidDevice(),
+		"household",
+	);
+	const engine = new FormEngine(
+		input,
+		undefined,
+		undefined,
+		undefined,
+		undefined,
+		undefined,
+		{ device: androidDevice() },
+	);
+	expect(engine.formScreens().map((screen) => screen.path)).toContain(
+		"/household/visit/outside",
+	);
+	expect(
+		engine.containsControl("/household/visit", "/household/visit/outside"),
+	).toBe(false);
+	engine.setValue("/household/visit/outside", "Collected outside the group");
+	expect(engine.getState("/household/visit/outside").value).toBe(
+		"Collected outside the group",
+	);
+	expect(engine.fieldTarget("/household/visit/outside")?.ancestorUuids).toEqual(
+		[],
+	);
+	expect(
+		engine.getFieldTree()[0].children?.map((node) => node.field.id),
+	).toEqual(["outside", "in_group"]);
+	expect(engine.getControlTree().map((node) => node.field.id)).toEqual([
+		"visit",
+		"outside",
+	]);
+});
+
+it("runs and resumes a form at its submitted answer root on both platforms", () => {
+	for (const device of [webAppsDevice(), androidDevice()]) {
+		const { engine } = runtime(
+			[
+				{ id: "rate", kind: "int", label: "Rating" },
+				{
+					id: "visits",
+					kind: "repeat",
+					children: [{ id: "note", kind: "text", label: "Visit note" }],
+				},
+			],
+			device,
+			"visit.survey",
+		);
+		engine.setValue("/visit.survey/rate", "2");
+		expect(engine.addRepeat("/visit.survey/visits")).toBe(0);
+		engine.setValue("/visit.survey/visits[0]/note", "first");
+		engine.addRepeat("/visit.survey/visits");
+		engine.setValue("/visit.survey/visits[1]/note", "second");
+		engine.restoreEntryCheckpoint(engine.entryCheckpoint());
+		expect(
+			engine.getValueSnapshot().values.get("/visit.survey/visits[1]/note"),
+		).toBe("second");
+		expect(
+			engine
+				.formScreens()
+				.every(({ path }) => path.startsWith("/visit.survey")),
+		).toBe(true);
+		expect(observe(engine).nodes.map(({ path }) => path)).toEqual([
+			"rate",
+			"visits",
+		]);
+	}
+});
+
+it("confirms passive messages and preserves the worker's Android checkbox through validation", () => {
+	for (const device of [androidDevice(), webAppsDevice()]) {
+		const { engine } = runtime(
+			[
+				{
+					kind: "label",
+					id: "notice",
+					label: "Take a seat",
+					required: "true()",
+				},
+				{
+					kind: "label",
+					id: "confirm",
+					label: "I have checked the form",
+					required: "true()",
+					askForConfirmation: true,
+				},
+				{ kind: "hidden", id: "copy", calculate: "#form/confirm" },
+			],
+			device,
+		);
+		const android = device.platform === "android";
+		expect(engine.validateAll()).toBe(!android);
+		expect(engine.getState("/data/notice").value).toBe("OK");
+		expect(engine.getState("/data/confirm").value).toBe(android ? "" : "OK");
+		if (android) {
+			expect(engine.firstInvalidFieldTarget()?.instancePath).toBe(
+				"/data/confirm",
+			);
+			engine.setValue("/data/confirm", "OK");
+			expect(engine.validateAll()).toBe(true);
+			expect(engine.getState("/data/copy").value).toBe("OK");
+			engine.setValue("/data/confirm", "");
+			expect(engine.validateAll()).toBe(false);
+		}
+	}
+});
+
+it("confirms visible messages at their submitted addresses and leaves messages outside the worker's screen alone", () => {
+	const group = testUuid("message-storage-group");
+	const { engine } = runtime(
+		[
+			{ kind: "text", id: "show_storage" },
+			{
+				kind: "group",
+				uuid: group,
+				id: "storage",
+				relevant: "#form/show_storage = 'yes'",
+				children: [
+					{ kind: "text", id: "notes" },
+					{
+						kind: "label",
+						id: "controls_only",
+						label: "Read the result",
+						submissionPlacement: {
+							parent: testUuid("worker-presentation-form"),
+							position: 1,
+						},
+					},
+				],
+			},
+			{
+				kind: "label",
+				id: "notice",
+				label: "Read the visit instructions",
+				submissionPlacement: { parent: group, position: 0 },
+			},
+			{
+				kind: "label",
+				id: "consent",
+				label: "Confirm consent",
+				askForConfirmation: true,
+			},
+		],
+		androidDevice(),
+		"visit_report",
+	);
+	const address = "/visit_report/storage/notice";
+	engine.validateAll();
+	expect(engine.getState(address).value).toBe("");
+	expect(
+		engine.effectivelyVisiblePaths().has("/visit_report/controls_only"),
+	).toBe(true);
+	expect(engine.getState("/visit_report/controls_only").value).toBe("");
+	engine.setValue("/visit_report/show_storage", "yes");
+	expect(engine.validateScreen("/visit_report/consent")).toBe(true);
+	expect(engine.getState(address).value).toBe("");
+	expect(engine.validateScreen(address)).toBe(true);
+	expect(engine.getState(address).value).toBe("OK");
+	expect(engine.getState("/visit_report/consent").value).toBe("");
+	expect(engine.validateScreen("/visit_report/controls_only")).toBe(true);
+	expect(engine.getState("/visit_report/controls_only").value).toBe("OK");
+});
+
+it("asks before inserting the first visit and can return to the empty invitation", () => {
+	const { engine, input } = runtime([
+		{
+			kind: "repeat",
+			id: "visit",
+			label: "Visit",
+			addFirstLabel: { parts: [{ kind: "text", text: "Record a place" }] },
+			addLabel: { parts: [{ kind: "text", text: "Record another place" }] },
+			children: [
+				{ kind: "text", id: "village", label: "Village" },
+				{
+					kind: "repeat",
+					id: "person",
+					children: [{ kind: "text", id: "name" }],
+				},
+			],
+		},
+	]);
+	const path = "/data/visit";
+	const expectEmpty = () => {
+		expect(engine.getRepeatCount(path)).toBe(0);
+		expect(observe(engine).nodes[0]).toMatchObject({
+			repeatCount: 0,
+			controls: { addLabel: "Record a place" },
+			children: [],
+		});
+	};
+	expectEmpty();
+	expect(engine.addRepeat(path)).toBe(0);
+	expect(engine.getRepeatCount(path + "[0]/person")).toBe(0);
+	engine.setValue(path + "[0]/village", "Oak Hill");
+	expect(observe(engine).nodes[0]).toMatchObject({
+		repeatCount: 1,
+		controls: { addLabel: "Record another place" },
+		children: [{ controls: { remove: true } }],
+	});
+	const chosen = engine.getRepeatInstanceKey(path, 0);
+	engine.updateSchema(input);
+	expect(engine.getRepeatCount(path)).toBe(1);
+	expect(engine.getState(path + "[0]/village").value).toBe("Oak Hill");
+	expect(engine.getRepeatInstanceKey(path, 0)).toBe(chosen);
+	const checkpoint = engine.entryCheckpoint();
+	engine.removeRepeat(path, 0);
+	expect(engine.setValue(path + "[0]/village", "Late answer")).toBe(false);
+	expectEmpty();
+	expect(engine.addRepeat(path)).toBe(0);
+	expect(engine.getState(path + "[0]/village").value).toBe("");
+	expect(engine.getRepeatInstanceKey(path, 0)).not.toBe(chosen);
+	engine.restoreEntryCheckpoint(checkpoint);
+	expect(engine.getState(path + "[0]/village").value).toBe("Oak Hill");
+	expect(engine.getRepeatInstanceKey(path, 0)).toBe(chosen);
+});
+
+it("keeps live answers and dependent calculations when the submission root changes", () => {
+	const { engine, input } = runtime([
+		{ kind: "text", id: "name", label: "Name" },
+		{ kind: "hidden", id: "echo", calculate: "concat(#form/name, '!')" },
+	]);
+	engine.setValue("/data/name", "Ana");
+	engine.renamePaths(
+		["name", "echo"].map((id) => ({
+			oldPath: "/data/" + id,
+			newPath: "/visit/" + id,
+		})),
+	);
+	engine.rebuildDag({
+		...input,
+		form: { ...input.form, dataRootName: "visit" },
+	});
+	engine.evaluatePathsInto(engine.getAllPaths());
+	expect(engine.getValueSnapshot().values.get("/visit/name")).toBe("Ana");
+	engine.setValue("/visit/name", "Bo");
+	expect(engine.getValueSnapshot().values.get("/visit/echo")).toBe("Bo!");
+	expect(engine.getValueSnapshot().values.has("/data/name")).toBe(false);
+});
+
+it.each([androidDevice(), webAppsDevice()])(
+	"matches both control and data relevance without dropping submitted defaults",
+	(device) => {
+		const form = testUuid("worker-presentation-form");
+		const group = testUuid("worker-private-group");
+		const { engine } = runtime(
+			[
+				{ kind: "text", id: "show" },
+				{
+					kind: "group",
+					uuid: group,
+					id: "visit",
+					relevant: "#form/show = 'yes'",
+					children: [
+						{
+							kind: "text",
+							id: "reported",
+							default_value: "'stored'",
+							submissionPlacement: { parent: form, position: 1 },
+						},
+					],
+				},
+				{
+					kind: "text",
+					id: "local",
+					default_value: "'private'",
+					submissionPlacement: { parent: group, position: 0 },
+				},
+			],
+			device,
+		);
+		const worker = () =>
+			observe(engine)
+				.fields.filter((f) => f.visible)
+				.map((f) => f.path);
+		expect(worker()).toEqual(["/data/show"]);
+		expect(engine.effectivelyVisiblePaths().has("/data/reported")).toBe(true);
+		expect(engine.getState("/data/reported").value).toBe("stored");
+		expect(engine.effectivelyVisiblePaths().has("/data/visit/local")).toBe(
+			false,
+		);
+		if (device.platform === "android") {
+			expect(availablePages(engine.formScreens()).map((p) => p.path)).toEqual([
+				"/data/show",
+			]);
+		}
+		engine.setValue("/data/show", "yes");
+		expect(worker()).toEqual([
+			"/data/show",
+			"/data/visit",
+			"/data/reported",
+			"/data/visit/local",
+		]);
+		expect(engine.effectivelyVisiblePaths().has("/data/visit/local")).toBe(
+			true,
+		);
+		expect(engine.getState("/data/visit/local").value).toBe("private");
+		engine.setValue("/data/show", "no");
+		expect(worker()).toEqual(["/data/show"]);
+		expect(engine.getState("/data/reported").value).toBe("stored");
+	},
+);

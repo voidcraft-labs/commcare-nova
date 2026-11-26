@@ -187,7 +187,7 @@ async function main() {
 		["Status", data.status ?? "(unknown)"],
 		["Error Type", data.error_type ?? "(none)"],
 		["Run ID", data.run_id ?? "(none)"],
-		["Connect Type", data.connect_type ?? "(none)"],
+		["Connect roles", data.connect_roles.join(", ") || "(none)"],
 		["Created", tsToISO(data.created_at)],
 		["Updated", tsToISO(data.updated_at)],
 		["Modules", String(modules.length)],

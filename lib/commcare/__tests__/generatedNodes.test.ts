@@ -7,7 +7,12 @@ import { type Element, isTag } from "domhandler";
 import { parseDocument } from "htmlparser2";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
+import {
+	addFixtureField,
+	buildDoc,
+	caseListConfig,
+	f,
+} from "@/lib/__tests__/docHelpers";
 import { expandDoc } from "@/lib/commcare/expander";
 import {
 	type GeneratedNodePlan,
@@ -157,10 +162,14 @@ function names(doc: BlueprintDoc, formUuid: Uuid, plan: GeneratedNodePlan) {
 describe("planGeneratedNodes", () => {
 	it("steps around every authored name, Connect ids at the root among them", () => {
 		const { doc, formUuid } = collisionDoc();
-		doc.connectType = "deliver";
-		doc.forms[formUuid].connect = {
-			deliver_unit: { id: "nova_selected_cases", name: "Visit" },
-		};
+		doc.connectRoles = ["deliver"];
+		doc.appSettings = { ...doc.appSettings, runsOnlyOn: "android" };
+		addFixtureField(doc, formUuid, {
+			kind: "connect_activity",
+			uuid: testUuid("generated-node-activity"),
+			id: "nova_selected_cases",
+			activity: { kind: "delivery", name: "Visit" },
+		});
 		const plan = planGeneratedNodes(doc, formUuid);
 		expect(names(doc, formUuid, plan)).toMatchObject({
 			constraintCounts: [

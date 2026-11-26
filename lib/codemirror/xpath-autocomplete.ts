@@ -26,6 +26,8 @@ import {
 	type CompletionResult,
 	completionKeymap,
 	ifNotIn,
+	insertCompletionText,
+	pickedCompletion,
 	snippetCompletion,
 } from "@codemirror/autocomplete";
 import { syntaxTree } from "@codemirror/language";
@@ -40,6 +42,7 @@ import {
 	caseReferencePrefix,
 	caseReferenceText,
 } from "@/lib/domain";
+import { quoteXPathLiteral } from "@/lib/domain/expression/stringLiteral";
 import { FUNCTION_REGISTRY } from "@/lib/domain/expressionFunctions";
 import { USER_PROPERTIES } from "@/lib/references/provider";
 import type {
@@ -366,7 +369,7 @@ export function hashtagSource(
 }
 
 /** /data/... path completions — uses Child/Descendant + NameTest tree nodes. */
-function dataPathSource(
+export function dataPathSource(
 	getReference: () => FormReferenceContext | undefined,
 ): (ctx: CompletionContext) => CompletionResult | null {
 	return (ctx) => {
@@ -382,10 +385,13 @@ function dataPathSource(
 			left = left.firstChild;
 		const firstNameTest = left.getChild("NameTest");
 		if (!firstNameTest) return null;
-		if (state.doc.sliceString(firstNameTest.from, firstNameTest.to) !== "data")
+		const reference = getReference();
+		if (
+			state.doc.sliceString(firstNameTest.from, firstNameTest.to) !==
+			(reference?.rootName ?? "data")
+		)
 			return null;
 
-		const reference = getReference();
 		// No form paths after the form has closed: same rule as `#form/`.
 		if (!reference || reference.scope === "session") return null;
 
@@ -495,7 +501,8 @@ function isOpenQuote(node: SyntaxNode | null, text: TextOf): boolean {
 /**
  * Where the cursor sits inside a quoted value: the literal itself, or the
  * text after a quote not yet closed. `container` is the node the quoted
- * value is a direct child of.
+ * value is a direct child of; `closed` says whether a closing quote sits
+ * at `to`.
  */
 function quotedValueAt(
 	node: SyntaxNode,
@@ -507,6 +514,7 @@ function quotedValueAt(
 			readonly quote: number;
 			readonly from: number;
 			readonly to: number;
+			readonly closed: boolean;
 	  }
 	| undefined {
 	if (is(node, T.StringLiteral) && node.parent !== null) {
@@ -516,6 +524,7 @@ function quotedValueAt(
 			quote: node.from,
 			from: node.from + 1,
 			to: node.to - 1,
+			closed: true,
 		};
 	}
 	let current: SyntaxNode | null = node;
@@ -528,6 +537,7 @@ function quotedValueAt(
 					quote: child.from,
 					from: child.to,
 					to: pos,
+					closed: false,
 				};
 			child = child.nextSibling;
 		}
@@ -869,6 +879,37 @@ function insidePredicate(node: SyntaxNode): boolean {
 	return false;
 }
 
+/**
+ * A static select's choice as a completion inside an open quote. A value
+ * free of that quote mark goes between the quotes as typed; one holding it
+ * replaces the whole literal, quotes included, with the spelling that reads
+ * back as the value: the other quote mark, or a `concat` of pieces when the
+ * value holds both.
+ */
+function choiceCompletion(
+	choice: NamedRead,
+	quoted: NonNullable<ReturnType<typeof quotedValueAt>>,
+	text: TextOf,
+): Completion {
+	const completion: Completion = {
+		label: choice.name,
+		type: "constant",
+		...(choice.label === undefined ? {} : { detail: choice.label }),
+	};
+	if (!choice.name.includes(text(quoted.quote, quoted.quote + 1)))
+		return completion;
+	const literal = quoteXPathLiteral(choice.name);
+	const closing = quoted.closed ? 1 : 0;
+	return {
+		...completion,
+		apply: (view, picked, from, to) =>
+			view.dispatch({
+				...insertCompletionText(view.state, literal, from - 1, to + closing),
+				annotations: pickedCompletion.of(picked),
+			}),
+	};
+}
+
 /** The completions for a quoted value, from what sits opposite it. */
 function quotedOptions(
 	reads: ExpressionReads,
@@ -890,11 +931,9 @@ function quotedOptions(
 	}
 	// A static select's starting value is one of its choices.
 	if (is(container, T.XPath))
-		return (reads.slotChoices ?? []).map((choice) => ({
-			label: choice.name,
-			type: "constant",
-			...(choice.label === undefined ? {} : { detail: choice.label }),
-		}));
+		return (reads.slotChoices ?? []).map((choice) =>
+			choiceCompletion(choice, quoted, text),
+		);
 	if (!is(container, T.EqualsExpr) && !is(container, T.NotEqualsExpr))
 		return [];
 	const left = container.firstChild;
@@ -933,11 +972,9 @@ function quotedOptions(
 		}));
 	// Opposite a static select's answer: its choices.
 	if (insidePredicate(container)) return [];
-	return reads.choicesOpposite(text(other.from, other.to)).map((choice) => ({
-		label: choice.name,
-		type: "constant",
-		...(choice.label === undefined ? {} : { detail: choice.label }),
-	}));
+	return reads
+		.choicesOpposite(text(other.from, other.to))
+		.map((choice) => choiceCompletion(choice, quoted, text));
 }
 
 /**

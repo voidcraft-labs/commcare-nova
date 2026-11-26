@@ -26,6 +26,7 @@ import {
 } from "@/lib/domain/expression/types";
 import { walkExpression } from "@/lib/domain/expression/walk";
 import { formOfField } from "@/lib/domain/fieldForm";
+import { isCaptureFieldKind } from "@/lib/domain/fields";
 import { menuScreenOf, screenChoosesCaseFirst } from "@/lib/domain/menuScreens";
 import { moduleFormsReadSearch } from "@/lib/domain/modules";
 import { moduleUuidOfForm } from "@/lib/domain/postSubmit";
@@ -1499,6 +1500,22 @@ export const EXPRESSION_CLAIMS = defineClaims("expressions", {
 		"questions/bind-required-expr",
 		"xform:model/bind@required",
 	),
+	"label-required": take(
+		"questions/bind-required-on-a-label",
+		"xform:model/bind@required",
+	),
+	"attachment-constraint": take(
+		"questions/bind-constraint-on-a-capture-question-or-a-label",
+		"xform:model/bind@constraint",
+	),
+	"attachment-default": take(
+		"questions/default-on-a-capture-question-or-a-label",
+		"xform:setvalue@value",
+	),
+	"capture-default-not-blank": refuse(
+		"questions/default-other-than-blank-on-a-capture-question",
+		"xform:setvalue@value",
+	),
 	"bind-constraint": take(
 		"questions/bind-constraint",
 		"xform:model/bind@constraint",
@@ -1722,12 +1739,24 @@ export type RegisteredSlotName = Exclude<
  *  `refused` answers `"form-default"` where a refusal takes M2 or M3 by its code. */
 export const SLOT_ENTRIES: Readonly<Record<RegisteredSlotName, SlotRow>> = {
 	relevant: formSlot(C["bind-relevant"].entry),
-	validate: formSlot(C["bind-constraint"].entry),
+	validate: {
+		held: (doc, ref) => {
+			const kind =
+				ref.entity === "field" ? doc.fields[ref.uuid]?.kind : undefined;
+			return kind !== undefined &&
+				(kind === "label" || kind === "geopoint" || isCaptureFieldKind(kind))
+				? C["attachment-constraint"].entry
+				: C["bind-constraint"].entry;
+		},
+		refused: () => "form-default",
+	},
 	required: {
-		held: (_doc, _ref, bound) =>
-			bound.kind === "match-all"
-				? C["bind-required-true"].entry
-				: C["bind-required-expr"].entry,
+		held: (doc, ref, bound) =>
+			ref.entity === "field" && doc.fields[ref.uuid]?.kind === "label"
+				? C["label-required"].entry
+				: bound.kind === "match-all"
+					? C["bind-required-true"].entry
+					: C["bind-required-expr"].entry,
 		refused: () => "form-default",
 	},
 	calculate: formSlot(C["bind-calculate-on-a-hidden-value"].entry),
@@ -1735,6 +1764,9 @@ export const SLOT_ENTRIES: Readonly<Record<RegisteredSlotName, SlotRow>> = {
 		held(doc, ref, bound) {
 			if (readsFormNode(bound))
 				return C["a-default-value-that-reads-form-nodes"].entry;
+			const kind = doc.fields[ref.uuid]?.kind;
+			if (kind !== undefined && (kind === "label" || isCaptureFieldKind(kind)))
+				return C["attachment-default"].entry;
 			return insideRepeat(doc, ref.uuid)
 				? C["setvalue-event-jr-insert-default-inside-a-repeat-not-reading"]
 						.entry
@@ -1755,6 +1787,8 @@ export const SLOT_ENTRIES: Readonly<Record<RegisteredSlotName, SlotRow>> = {
 	extended_text: PROSE,
 	qr_code: PROSE,
 	spoken_text: PROSE,
+	addFirstLabel: PROSE,
+	addLabel: PROSE,
 	option_label: PROSE,
 	form_badge: fixed(
 		C["form-badge"].entry,
@@ -1782,6 +1816,7 @@ export const SLOT_ENTRIES: Readonly<Record<RegisteredSlotName, SlotRow>> = {
 	assessment_user_score: formSlot(C["connect-assessment"].entry),
 	deliver_entity_id: formSlot(C["connect-deliver-unit"].entry),
 	deliver_entity_name: formSlot(C["connect-deliver-unit"].entry),
+	deliver_work_area_id: formSlot(C["connect-deliver-unit"].entry),
 	// A form whose destinations hold two or more conditions, any two of which may hold together:
 	// every destination whose condition holds runs, in author order.
 	form_link_condition: {
@@ -2822,6 +2857,8 @@ export function checkErrorEntry(
 				"a-read-of-the-worker-s-session-data-under-a-name-no-worker-property-takes"
 			].entry,
 		);
+	if (error.code === "capture-default-not-blank")
+		return answer(C["capture-default-not-blank"].entry);
 	if (error.code === "time-ordering")
 		return answer(
 			C[
@@ -2954,6 +2991,7 @@ export function formRefusalEntry(code: CheckErrorCode): string {
 		case "expected-value":
 		case "constraint-value":
 		case "default-not-a-choice":
+		case "capture-default-not-blank":
 		case "arm-unavailable":
 		case "search-answer-unavailable":
 		case "search-results-not-supplied":
