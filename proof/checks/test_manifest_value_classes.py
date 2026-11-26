@@ -2891,6 +2891,12 @@ def _advanced_actions():
                 "schema:AutoSelectCase.value_source",
                 f"{loads}/0/auto_select/value_source",
             ),
+            accepted(
+                "app",
+                _advanced_app([household, _load("region", auto_select={**by_case, "value_source": "load_household_0"})]),
+                "schema:AutoSelectCase.value_source",
+                f"{loads}/1/auto_select/value_source",
+            ),
             unsettled(
                 "app",
                 _advanced_app([_load("region", auto_select=from_table)]),
