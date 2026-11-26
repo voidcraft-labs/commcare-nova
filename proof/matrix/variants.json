@@ -35398,6 +35398,24 @@
 		}
 	},
 	{
+		"id": "hq-questions/save-to-case-keyed-from-outside-its-row",
+		"base": "hq-questions",
+		"entry": "questions/savetocase-create-with-an-authored-non-uuid-case-id-xpath-inside",
+		"standing": "not-yet",
+		"place": {
+			"kind": "question",
+			"menu": 0,
+			"form": 0,
+			"menuName": "Questions",
+			"formName": "Survey",
+			"path": "members/nova_operations/kid"
+		},
+		"change": {
+			"op": "named",
+			"name": "save_to_case_keyed_from_outside_its_row"
+		}
+	},
+	{
 		"id": "hq-questions/save-to-case-declared-type-choice",
 		"base": "hq-questions",
 		"entry": "questions/savetocase-create-case-type-literal-case-name-owner-id-uuid-case",
@@ -35532,6 +35550,24 @@
 		"change": {
 			"op": "named",
 			"name": "save_to_case_link_name_outside_grammar"
+		}
+	},
+	{
+		"id": "hq-questions/save-to-case-link-stops-form-designer",
+		"base": "hq-questions",
+		"entry": "questions/savetocase-link-name-outside-nova-s-identifier-grammar",
+		"standing": "not-yet",
+		"place": {
+			"kind": "question",
+			"menu": 0,
+			"form": 0,
+			"menuName": "Questions",
+			"formName": "Survey",
+			"path": "nova_operations/make_household"
+		},
+		"change": {
+			"op": "named",
+			"name": "save_to_case_link_stops_form_designer"
 		}
 	},
 	{

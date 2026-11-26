@@ -2089,6 +2089,11 @@ def save_to_case_link_name_outside_grammar(authoring, app_id):
     _save_to_case_link(authoring, app_id, "save-to-case-link-name-outside-grammar", "par.ent")
 
 
+def save_to_case_link_stops_form_designer(authoring, app_id):
+    """An ordinary case link whose element uses the reserved script name."""
+    _save_to_case_link_with_guard(authoring, app_id, "save-to-case-link-stops-form-designer", "script")
+
+
 def save_to_case_index_close_adds_action(authoring, app_id):
     """This block creates a case without a close action, before Vellum saves it."""
     _save_to_case_link(authoring, app_id, "save-to-case-index-close-adds-action", "close")
@@ -2882,6 +2887,23 @@ def save_to_case_retype_converts(authoring, app_id):
         app_id,
         "save-to-case-retype-converts",
         lambda text: _transplanted(text, RETYPE_CONVERTS_DATA, RETYPE_CONVERTS_MODEL, RETYPE_CONVERTS_BODY),
+    )
+
+
+def save_to_case_keyed_from_outside_its_row(authoring, app_id):
+    """A create in members keys all its rows from the one root answer full_name."""
+    _edit(
+        authoring,
+        app_id,
+        "save-to-case-keyed-from-outside-its-row",
+        lambda text: _transplanted(
+            text,
+            KEYED_IN_REPEAT_DATA,
+            KEYED_IN_REPEAT_MODEL.replace("current()/../../../../member_name", "/data/full_name"),
+            KEYED_IN_REPEAT_BODY,
+            data_before="</members>",
+            body_after=MEMBER_NAME_CLOSE,
+        ),
     )
 
 
