@@ -356,7 +356,11 @@ it("keeps the source app and its shared lookup through renewed consent, publish,
 		expect(held.tables).toEqual([nativeTable]);
 		expect(held.source?.langs).toEqual(["fra", "en"]);
 		if (!held.source) throw new Error("HQ needs the edited source.");
-		expect(identities(held.source)).toEqual(identities(reviewedSource));
+		// HQ's source download remints form IDs. The application resource
+		// names the working form the publish must preserve.
+		expect(identities(held.source)).toEqual(
+			identities(body(retained.application)),
+		);
 		expect(identities(held.source)).not.toEqual(siblingIdentities);
 		expect(peer.unexpected).toEqual([]);
 	});
