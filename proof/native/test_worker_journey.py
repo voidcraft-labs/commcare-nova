@@ -127,7 +127,7 @@ def _asset_bytes(unit, app_id, paths):
         assert sha256(answer.data).hexdigest() == path.rsplit("/", 1)[-1].removesuffix(".png")
 
 
-def _read_from_hq(unit, app_id, credential, label):
+def _read_from_hq(unit, app_id, credential, label, english, french):
     authoring = SimpleNamespace(
         state=unit,
         step=lambda name, seed: unit.operation(f"worker-journey:{label}:{name}", seed),
@@ -135,49 +135,47 @@ def _read_from_hq(unit, app_id, credential, label):
     answers = retain.app_reads(authoring, app_id, credential)
     project, media = retain.project_data_reads(authoring, app_id, credential)
     base = SimpleNamespace(id="worker-journey", declaration=None, owner_rule_choices={})
+    key = retain.hold_key(
+        ["field", {"$xmlns": [0, 1]}, "/data/clinic"], json.loads(answers["source"].body),
+    )
+    English = "/label_media/image"
+    French = "/label_media/mediaByLanguage/fra/image"
+    options = "/optionsSource"
+    expected = {
+        English: retain.hold_value({"$projectFile": english}, base.id, media),
+        French: retain.hold_value({"$projectFile": french}, base.id, media),
+    }
     (answer,) = retain.run_bundle([{
         "id": label,
         "mode": "first-read",
         "input": retain.reading_input(answers, project, media, base, claims="counts"),
+        "holds": [
+            {"key": key, "pointer": path, "value": expected.get(path)}
+            for path in (English, French, options)
+        ],
     }])
     assert answer["kind"] == "read", answer
-    return answer
-
-
-def _form_image_paths(read):
-    doc = read["doc"]
-    module = doc["moduleOrder"][0]
-    form = doc["formOrder"][module][1]
-    field = doc["fields"][doc["fieldOrder"][form][0]]
-    bundle = field["label_media"]
-    english = bundle["image"]
-    french = bundle["mediaByLanguage"]["fra"]["image"]
-    media = {item["assetId"]: item for item in read["media"]["files"]}
-    return tuple(
-        (media[asset]["paths"], media[asset]["contentHash"])
-        for asset in (english, french)
-    )
+    assert all(item["named"] for item in answer["held"]), answer
+    held = {item["pointer"]: item["found"] for item in answer["held"]}
+    assert {path: held[path] for path in expected} == expected, answer
+    return held[options]
 
 
 def _edit_and_read_form_translation(unit, app_id, paths, evidence):
     credential = operations.seed_api_key(unit, unit.web_user.username, domain=unit.domain)
-    before = _read_from_hq(unit, app_id, credential, "before")
-    expected_path = lambda slot: (
-        [f"jr://file/{paths[slot]}"], paths[slot].rsplit("/", 1)[-1].removesuffix(".png"),
-    )
-    assert _form_image_paths(before) == (expected_path("formEnglish"), expected_path("formFrench"))
-
-    form = operations.held_app(unit, app_id).get_module(0).get_form(1)
-    source = form.source
+    english = f"jr://file/{paths['formEnglish']}"
     old = f"jr://file/{paths['formFrench']}"
     new = f"jr://file/{paths['menuFrench']}"
+    before = _read_from_hq(unit, app_id, credential, "before", english, old)
+    assert before["kind"] == "lookup"
+
+    source = operations.held_app(unit, app_id).get_module(0).get_form(1).source
     assert source.count(old) == 1
     with unit.operation("worker-journey:edit-french", new.encode()):
         hqside.questions(unit, app_id, {"module": 0, "form": 1, "xform": source.replace(old, new)})
-    after = _read_from_hq(unit, app_id, credential, "after")
-    evidence("brought-in-label-paths", _form_image_paths(after))
-    assert _form_image_paths(after) == (expected_path("formEnglish"), expected_path("menuFrench"))
-    assert before["lookup"] == after["lookup"]
+    after = _read_from_hq(unit, app_id, credential, "after", english, new)
+    assert before == after
+    evidence("brought-in-label-paths", {"english": english, "frenchBefore": old, "frenchAfter": new})
 
 
 # Labels are read from the actual HTML widget. Fixture keys and their order are
