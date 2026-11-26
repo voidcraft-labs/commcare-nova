@@ -2146,6 +2146,18 @@ def itemset_filter_outside_predicate(authoring, app_id):
         (VILLAGE_FILTER, 'villages[position(/data/district) &lt; 3]"', 1),
     )
 
+
+def itemset_filter_position_of_scalar(authoring, app_id):
+    """The Core position function with an argument expects a nodeset."""
+    _change(
+        authoring,
+        app_id,
+        "itemset-filter-position-of-scalar",
+        ('villages[district = #form/district]"', 'villages[position(3) &lt; 3]"', 1),
+        (VILLAGE_FILTER, 'villages[position(3) &lt; 3]"', 1),
+    )
+
+
 def itemset_over_cases(authoring, app_id):
     """The district select's choices read from every case the worker holds (``instance('casedb')``), declared in
     the model, in place of the table."""

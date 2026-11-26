@@ -493,5 +493,5 @@ def test_an_explicit_position_uses_the_first_referenced_nodes_multiplicity(core_
         restoreBase64=restore64(), formBase64=base64.b64encode(form).decode(), expressions=queries,
     )
     first, second, third, last, missing = result["values"]
-    assert [item["value"] for item in (first, second, third, last)] == [0, 0, 1, 0]
-    assert "empty" in missing["error"]["message"]
+    assert [item["value"] for item in (first, second, third, last)] == ["0", "0", "1", "0"]
+    assert "value" not in missing and missing["error"]
