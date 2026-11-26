@@ -100,3 +100,27 @@ def test_a_case_variant_is_its_own_row_and_an_unknown_value_is_one_no_runtime_re
     assert _rows(date="Ethiopian")["/data/d"] == "questions/a-case-variant-of-numeric-short-or-ethiopian-as-the-whole"
     assert _rows(text="1x2-per-row")["/data/a"] == "questions/any-other-per-row-token-the-first-token-web-apps-per-row-pattern"
     assert _rows(text="frobnicate")["/data/a"] == "questions/any-other-value-read-by-no-runtime-not-an-intent-value-on-an"
+
+
+UNTYPED = """<h:html xmlns:h="http://www.w3.org/1999/xhtml" xmlns="http://www.w3.org/2002/xforms">
+<h:head><model><instance><data><t/><s/><ts/></data></instance>
+<bind nodeset="/data/ts" type="xsd:string"/></model></h:head>
+<h:body>
+<input ref="/data/t" appearance="{text}"><label>T</label></input>
+<secret ref="/data/s" appearance="{secret}"><label>S</label></secret>
+<secret ref="/data/ts" appearance="{typed}"><label>TS</label></secret>
+</h:body></h:html>"""
+
+
+@pytest.mark.parametrize("value", ["numeric", "numbers", "NUMBERS", "Numeric"])
+def test_an_untyped_text_box_or_secret_with_numeric_or_numbers_is_its_own_row_in_any_case(value):
+    form = Form(etree.fromstring(UNTYPED.format(text=value, secret=value, typed="numeric").encode()), "form:0.0")
+    manifest = parity.manifest()
+    rows = {
+        element.get("ref"): appearance_rows.row_of(manifest, form, element)
+        for element in form.body_elements
+    }
+    assert rows["/data/t"] == "questions/an-input-whose-bind-has-no-type-with-numeric-or-numbers-ignoring"
+    assert rows["/data/s"] == "questions/a-secret-whose-bind-has-no-type-with-numeric-or-numbers-ignoring"
+    # The control a typed secret is: its own row, which the untyped rows never take.
+    assert rows["/data/ts"] == "questions/secret-numeric"

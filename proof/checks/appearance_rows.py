@@ -257,11 +257,7 @@ def _single(manifest, form, element, kind, value) -> str | None:
     if value.startswith("broadcast-") and kind in SENDERS:
         return "broadcast-topic-an-address-entry-under-the-gates-above-and"
     if kind == "text" and value == "numeric":
-        return (
-            "an-input-whose-bind-has-no-type-with-numeric-or-numbers-ignoring"
-            if _untyped(form, element)
-            else "phone-number-xsd-string-appearance-numeric"
-        )
+        return "phone-number-xsd-string-appearance-numeric"
     if kind in ("select1", "select") and COMPACT.fullmatch(value):
         return f"{kind}-compact-compact-n"
     if kind == "select" and value.startswith("combobox"):
@@ -302,8 +298,16 @@ def row_of(manifest, form, element) -> str | None:
         return Q + "signature-image-signature"
     if kind == "image" and value == "face":
         return Q + "face-capture-image-face"
-    # A case variant of a value a whole-value read takes ignoring case.
+    # An untyped text box or secret with ``numeric`` or ``numbers``, ignoring case, as the whole value: its own row,
+    # before any case variant's (a Vellum save types the bind and keeps the value, which Android then reads).
     lower = value.lower()
+    if lower in ("numeric", "numbers") and kind in ("text", "secret") and _untyped(form, element):
+        return Q + (
+            "an-input-whose-bind-has-no-type-with-numeric-or-numbers-ignoring"
+            if kind == "text"
+            else "a-secret-whose-bind-has-no-type-with-numeric-or-numbers-ignoring"
+        )
+    # A case variant of a value a whole-value read takes ignoring case.
     if lower != value and " " not in value:
         alike = {"numbers": ("text", "secret"), "nepali": ("date",), "maps": ("geopoint",), "compact": ("group",)}
         apart = {"numeric": ("text", "secret"), "short": ("text", "secret"), "ethiopian": ("date",)}
