@@ -128,6 +128,7 @@ import {
 	readAppBaseline,
 	readDeployment,
 	readDeploymentNovaRevisions,
+	readSiblingLookupMappings,
 	readTargetFacts,
 	readTargetIdentity,
 } from "../store";
@@ -4001,6 +4002,31 @@ describe("a table only CommCare HQ's JSON resources can carry", () => {
 					remoteId: table?.id,
 					ownership: "nova-created",
 					pushedIdentity: "types",
+				}),
+			]);
+			/* Another app's reading of this project space finds the table there
+			 * as its JSON destination, which a workbook's rules never judge. */
+			expect(
+				await readSiblingLookupMappings(
+					{ ...SCOPE, appId: "another-app" },
+					TARGET,
+					[
+						(
+							await h
+								.db()
+								.selectFrom("lookup_tables")
+								.select("id")
+								.where("project_id", "=", PROJECT)
+								.executeTakeFirstOrThrow()
+						).id,
+					],
+				),
+			).toEqual([
+				expect.objectContaining({
+					appId: APP,
+					remoteId: table?.id,
+					pushedIdentity: "types",
+					jsonDestination: true,
 				}),
 			]);
 			/* Every JSON request was admitted as the publisher's write, and settled. */

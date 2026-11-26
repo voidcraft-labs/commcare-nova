@@ -12,6 +12,7 @@ import type {
 	HqFixtureRow,
 	HqLookupTable,
 } from "@/lib/commcare/hq/lookupTables";
+import { alternativeLookupCarrier } from "@/lib/commcare/lookup/carrier";
 import { lookupFixtureCellText } from "@/lib/commcare/lookup/cellText";
 import { lookupHqCellTextFindings } from "@/lib/commcare/lookup/hqCellText";
 import {
@@ -661,15 +662,22 @@ function oneTableWorkbookRows(rows: readonly LookupFixtureRow[]): number {
 }
 
 /**
- * Whether a workbook to the reading's project space would take the Project's
- * table as it stands, by the three rules the export boundary holds one to: a
- * tag other than `types` in any case, no cell CommCare HQ's upload would trim,
- * and a workbook within CommCare HQ's row ceiling.
+ * Whether a direct publish to the reading's project space would carry the
+ * Project's table as it stands. A table the Project already keeps there as
+ * its JSON destination goes on through CommCare HQ's JSON resources while
+ * they can carry it (`lib/export/boundaryFindings.ts::travelsAsJson`), which
+ * hold none of a workbook's rules. Any other goes in a workbook, by the three
+ * rules the export boundary holds one to: a tag other than `types` in any
+ * case, no cell CommCare HQ's upload would trim, and a workbook within
+ * CommCare HQ's row ceiling.
  */
 function passesProjectSpaceRules(
 	table: LookupTableDefinition,
 	rows: readonly LookupFixtureRow[],
+	jsonDestination: boolean,
 ): boolean {
+	if (jsonDestination && alternativeLookupCarrier(table, "").kind === "json")
+		return true;
 	return (
 		table.tag.toLowerCase() !== TYPES_SHEET &&
 		lookupHqCellTextFindings(oneTableSnapshot(table, rows)).length === 0 &&
@@ -736,13 +744,20 @@ export function lookupTableStanding(input: {
 	const sameColumns = columnsEqual(read, table);
 	const comparable = !restricted && !privateProject && rows !== undefined;
 	const sameRows = comparable && rowsEqual(read, table, rows);
-	const accounted = input.siblings.some(
+	const accountedBy = input.siblings.filter(
 		(sibling) =>
 			sibling.tableId === table.id &&
 			sibling.pushedIdentity === read.table.tag &&
 			sibling.remoteId === read.table.id,
 	);
-	const passesRules = comparable && passesProjectSpaceRules(table, rows);
+	const accounted = accountedBy.length > 0;
+	const passesRules =
+		comparable &&
+		passesProjectSpaceRules(
+			table,
+			rows,
+			accountedBy.some((sibling) => sibling.jsonDestination === true),
+		);
 	if (
 		managedElsewhere === null &&
 		sameColumns &&

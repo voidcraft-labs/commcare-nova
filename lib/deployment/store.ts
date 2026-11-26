@@ -1219,6 +1219,14 @@ export interface SiblingLookupMapping {
 	readonly ownership: DeploymentResourceOwnership;
 	readonly adoptedAt: string | null;
 	readonly adoptedBy: string | null;
+	/**
+	 * Present where the mapping is the table's JSON destination on that
+	 * project space (`lookup_json_destinations`, the same CommCare HQ table):
+	 * a direct publish put it there through CommCare HQ's JSON resources, not
+	 * a workbook, and keeps carrying it that way
+	 * (`lib/export/boundaryFindings.ts::travelsAsJson`).
+	 */
+	readonly jsonDestination?: true;
 }
 
 /**
@@ -1246,6 +1254,14 @@ export async function readSiblingLookupMappings(
 	const rows = await db
 		.selectFrom("app_deployment_resources as r")
 		.innerJoin("app_deployments as d", "d.id", "r.deployment_id")
+		.leftJoin("lookup_json_destinations as j", (join) =>
+			join
+				.onRef("j.project_id", "=", "d.project_id")
+				.onRef("j.server", "=", "d.server")
+				.onRef("j.domain", "=", "d.domain")
+				.onRef("j.remote_table_id", "=", "r.remote_id")
+				.on(sql<SqlBool>`j.table_id::text = r.nova_resource_id`),
+		)
 		.select([
 			"r.nova_resource_id",
 			"d.app_id",
@@ -1254,6 +1270,7 @@ export async function readSiblingLookupMappings(
 			"r.ownership",
 			"r.adopted_at",
 			"r.adopted_by",
+			"j.table_id as json_table_id",
 		])
 		.where("d.project_id", "=", scope.projectId)
 		.where("d.server", "=", target.server)
@@ -1290,6 +1307,7 @@ export async function readSiblingLookupMappings(
 			ownership: ownership.data,
 			adoptedAt: isoOrNull(row.adopted_at),
 			adoptedBy: row.adopted_by,
+			...(row.json_table_id !== null && { jsonDestination: true as const }),
 		};
 	});
 }

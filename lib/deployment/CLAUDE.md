@@ -2691,6 +2691,13 @@ findings name what it cannot carry (`carriedBy: "workbook-there"`). The HQ
 app file cannot carry such a table and says so
 (`describeLookupCarrierAlternative`, `carriedBy: "file"`); a table held in a
 paged generation does not travel this way yet on either (`"too-large"`).
+A reading of that project space judges a Project table there by the carrier
+that keeps it there: a sibling mapping that is the table's JSON destination
+(`store.ts::readSiblingLookupMappings`, `jsonDestination`) is held to the JSON
+resources, not to a workbook's rules
+(`reading/projectData/lookupTables.ts::passesProjectSpaceRules`), so an equal
+table tagged `types` or holding a value a workbook would trim stands
+`same-equal`.
 
 The destination ledger (`lookupJsonLedger.ts`, tables
 `lookup_json_destinations`, `lookup_json_destination_rows`,

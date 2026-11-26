@@ -818,6 +818,78 @@ describe("lookupTableStanding", () => {
 		).toBe("same-equal");
 	});
 
+	it("stands a table a direct publish keeps there through the JSON resources by those resources, not a workbook's rules", () => {
+		/* Neither a trailing space nor the tag `types` stops the JSON resources,
+		 * which is how such a table reached the project space. Kept there by a
+		 * workbook, the same table fails the workbook's rules (above). */
+		const json = (table: LookupTableDefinition, tag: string) => ({
+			...sibling(table, plainTable.id),
+			pushedIdentity: tag,
+			jsonDestination: true as const,
+		});
+		const read = plain({ rows: withCell(plainRows, 0, "name", "Clinic ") });
+		const spaced = projectTable(
+			"plain",
+			[column("code"), column("name")],
+			[
+				{ code: "001", name: "Clinic " },
+				{ code: "002", name: "Hospital" },
+			],
+		);
+		expect(
+			standingOf(read, spaced, { siblings: [json(spaced.table, "plain")] }),
+		).toEqual({ kind: "same-equal", table: spaced.table });
+
+		const typesRead = plain({ table: { tag: "types" } });
+		const types = projectTable(
+			"types",
+			[column("code"), column("name")],
+			[
+				{ code: "001", name: "Clinic" },
+				{ code: "002", name: "Hospital" },
+			],
+		);
+		expect(
+			standingOf(typesRead, types, { siblings: [json(types.table, "types")] }),
+		).toEqual({ kind: "same-equal", table: types.table });
+		/* Other rows under the same tag ask, and offer the Project's table. */
+		const otherRows = choiceOf(
+			standingOf(
+				plain({ table: { tag: "types" }, rows: plainRows.slice(1) }),
+				types,
+				{ siblings: [json(types.table, "types")] },
+			),
+		);
+		expect(otherRows.options["use-project"]).toEqual({
+			offered: true,
+			goneColumns: [],
+			retypedColumns: [],
+		});
+		/* The JSON resources carry no index, so an indexed table is held to a
+		 * workbook's rules, and `types` fails them. */
+		const indexed = {
+			...types,
+			table: {
+				...types.table,
+				columns: types.table.columns.map((each) => ({
+					...each,
+					index: "indexed" as const,
+				})),
+			},
+		};
+		expect(
+			choiceOf(
+				standingOf(typesRead, indexed, {
+					siblings: [json(indexed.table, "types")],
+				}),
+			).options["use-project"],
+		).toEqual({
+			offered: false,
+			why: "fails-a-project-space-rule",
+			name: null,
+		});
+	});
+
 	it("does not offer a Project table holding a character XML cannot carry", () => {
 		const broken = projectTable(
 			"plain",
