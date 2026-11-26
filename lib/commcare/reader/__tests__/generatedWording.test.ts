@@ -6,6 +6,10 @@ import { expect, it } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { manifestFor } from "@/lib/commcare/__tests__/compilerEvidence";
 import { localizationWireFixture } from "@/lib/commcare/__tests__/localizationWireFixture";
+import {
+	ROUTE,
+	twoMenus,
+} from "@/lib/commcare/__tests__/menuFormRoutesFixture";
 import { TEST_RUNTIME_TARGET } from "@/lib/commcare/__tests__/runtimeTargetFixture";
 import { localAppStringTable } from "@/lib/commcare/appStrings";
 import { compileCcz } from "@/lib/commcare/compiler";
@@ -246,6 +250,49 @@ it("keeps separate tab wording through adoption, a source change and publishing"
 	).toBe("Patient details");
 	checkOutputs(rebased.nextDoc);
 	checkOutputs(await read(exportedBody(adopted)));
+});
+
+it("publishes the title on a listed-form menu with its own details", () => {
+	const doc = twoMenus();
+	const route = doc.modules[ROUTE];
+	const config = route.caseListConfig;
+	if (!config) throw new Error("The listed-form route needs a case list.");
+	const tab = {
+		uuid: uuid(43),
+		title: "Clinic patient",
+		startColumnUuid: config.columns[0].uuid,
+	};
+	config.detailTabs = [tab];
+	const id = detailTabWordingId(tab.uuid, false);
+	const unit = snapshotTranslationUnits(doc).get(id);
+	if (!unit)
+		throw new Error("The route needs its detail tab translation unit.");
+	const changed = mutationCommitVerdict(
+		doc,
+		[
+			{
+				kind: "setTranslation",
+				language: "eng",
+				unitId: id,
+				entry: {
+					value: "Clinic details",
+					origin: "human",
+					review: "reviewed",
+					sourceFingerprint: unit.sourceFingerprint,
+					translatedFrom: "eng",
+				},
+			},
+		],
+		LOOKUP_CONTEXT_UNAVAILABLE,
+	);
+	if (!changed.ok) throw new Error(JSON.stringify(changed.findings));
+	const key = "m0.case_long.tab.1.title";
+	expect(localAppStringTable(changed.nextDoc, []).languages.en[key]).toBe(
+		"Clinic details",
+	);
+	expect(expandDoc(changed.nextDoc).translations?.en[key]).toBe(
+		"Clinic details",
+	);
 });
 
 it("moves an override with the form and forgets it when that form is removed", () => {

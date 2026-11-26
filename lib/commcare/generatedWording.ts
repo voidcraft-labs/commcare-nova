@@ -17,6 +17,7 @@ import {
 	type GeneratedWordingRole,
 	generatedWordingId,
 } from "@/lib/domain/generatedWording";
+import { menuWithInheritedCaseSettings } from "@/lib/domain/listedForms";
 import { ownRecordValue, recordFromEntries } from "@/lib/domain/records";
 import type { EmissionPlan } from "./emissionPlan";
 import type { ExpandOptions } from "./expander";
@@ -98,7 +99,8 @@ export function generatedWordingKeys(
 	}
 	const doc = plan.doc;
 	for (const [m, moduleUuid] of projectedModulePreorder(doc).entries()) {
-		const mod = doc.modules[moduleUuid];
+		const mod = menuWithInheritedCaseSettings(doc, moduleUuid);
+		if (!mod) throw new Error("The menu or its source is missing.");
 		const menu = `m${m}`;
 		const hidden = plan.synthetic.get(moduleUuid);
 		if (hidden)
