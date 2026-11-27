@@ -18,6 +18,7 @@ DOCUMENTS = (
     "media-language-files",
     "case-list-action-advanced",
     "case-list-action-basic",
+    "case-list-inline",
     "targeted-receiving-answers",
 
     "case-capture-multiple",
