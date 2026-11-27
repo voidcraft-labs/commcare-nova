@@ -696,7 +696,8 @@ describe("CommCare HQ's column formats", () => {
 				}),
 			});
 			assembleDocument(reading.ctx);
-			expect(closedCodes(reading)).toEqual([]);
+			expect(reading.ctx.close().findings).toEqual([]);
+			expect(reading.ctx.assembled).toBeDefined();
 			expect(reading.app.modules[0]?.case_details.short.max_select_value).toBe(
 				101,
 			);
