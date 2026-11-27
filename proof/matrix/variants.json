@@ -2106,7 +2106,13 @@
 		"base": "hq-advanced",
 		"entry": "forms-and-case-writes/an-advanced-load-s-update-or-preload-or-an-open-action-s-name-or",
 		"standing": "not-yet",
-		"place": { "kind": "form", "menu": 1, "form": 0, "name": "Member visit" },
+		"place": {
+			"kind": "form",
+			"menu": 1,
+			"form": 0,
+			"menuName": "Member visits",
+			"name": "Untitled Form"
+		},
 		"change": {
 			"op": "named",
 			"name": "load_writes_a_label_preloaded_from_an_earlier_case"
