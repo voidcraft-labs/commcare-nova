@@ -101,3 +101,39 @@ def test_installed_android_compares_the_direct_external_id_day_before_saving(hq,
                             assert external is None
                         else:
                             assert external is not None and external.text == want_leaf
+
+
+def test_installed_android_saves_its_displayed_minute_for_a_default_datetime(hq, editor_driver):
+    stored_clock = "2025-04-06T06:24:47.125Z"
+    with hq_check(BASE.configuration) as (state, record):
+        authoring = Authoring(state=state, documents={}, base=BASE.id, driver=editor_driver, operation=state.operation)
+        app_id = BASE.build(authoring)
+        ops.builder_save(authoring, app_id, 0, 3, edit={
+            "path": QUESTION, "property": "defaultValue", "value": "now()", "way": "builder-model",
+        })
+        built = compare.build(state, app_id, record)
+        assert not built.errors, built.errors
+        source = etree.fromstring(built.files["modules-0/forms-3.xml"])
+        (starting,) = source.xpath("//*[local-name()='setvalue'][@ref=$question][@value='now()']", question=QUESTION)
+        assert starting.get("event")
+
+        database = CaseDatabase(
+            USER_ID, USERNAME, (),
+            (CaseRecord(RECORD, "household", "One household", USER_ID, MOMENT, MOMENT, DAY, ()),),
+        )
+        with hq_forms.serve(state, None, app_id, database=database, platforms={"android"}) as served:
+            archive = observe.release_archive(served)
+            blobs, sent, stored = Blobs(), [], []
+            result = observe.app(
+                served, blobs, label="existing-datetime-display", archive=archive,
+                commands=["m0-f3"], questions={QUESTION: []}, clock=stored_clock,
+                delivered=True, sent=sent, stored=stored, installation_languages=("en",),
+            )
+            walk = blobs.get_json(result["answer"])["walks"]["m0-f3"]
+            assert len(sent) == 1, walk
+            receipt, = stored
+            assert receipt["form"]["normal"], receipt
+            for payload in (sent[0], receipt["form"]["xml"].encode()):
+                root = etree.fromstring(payload)
+                moment = datetime.fromisoformat(root.findtext("{*}seen_at"))
+                assert moment == datetime.fromisoformat("2025-04-06T06:24:00.000Z")
