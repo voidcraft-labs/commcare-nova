@@ -105,14 +105,19 @@ export function claimAndroidApp(
 	held: boolean,
 ): void {
 	if (held) {
-		const claim = X.androidAppHead;
-		cursor.take({ element: app.head }, claim).value;
-		for (const attribute of ["id", "class"])
-			cursor.partOf({ element: app.head, attribute }, claim);
-		for (const value of [...app.send, ...app.receive]) {
-			cursor.partOf({ element: value.element }, claim);
-			cursor.partOf({ element: value.element, attribute: "key" }, claim);
-			cursor.partOf({ element: value.element, attribute: "ref" }, claim);
+		const claims = X.androidAppHead;
+		cursor.take({ element: app.head }, claims.head).value;
+		cursor.take({ element: app.head, attribute: "id" }, claims.id).value;
+		cursor.take({ element: app.head, attribute: "class" }, claims.action).value;
+		for (const { element } of app.send) {
+			cursor.take({ element }, claims.extra).value;
+			cursor.take({ element, attribute: "key" }, claims.extraKey).value;
+			cursor.take({ element, attribute: "ref" }, claims.extraRef).value;
+		}
+		for (const { element } of app.receive) {
+			cursor.take({ element }, claims.response).value;
+			cursor.take({ element, attribute: "key" }, claims.responseKey).value;
+			cursor.take({ element, attribute: "ref" }, claims.responseRef).value;
 		}
 	} else cursor.refuseSubtree(app.head, X.androidAppRefused.head, field.place);
 }
