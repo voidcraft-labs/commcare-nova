@@ -1,5 +1,7 @@
 """Native HQ locale precedence for an app-owned image override."""
 
+from lxml import etree
+
 from proof.checks.compare.app_strings import parse_app_strings
 from proof.rules.conftest import edited, published
 
@@ -100,3 +102,10 @@ def test_named_packages_follow_exact_paths_even_when_hq_maps_them_to_one_file(hq
                 assert ORIGINAL in needed
                 assert (OVERRIDE in needed) == (ordinary_language == "en")
                 assert (OVERRIDE in native.all_media_paths()) == (ordinary_language is not None)
+                # The released media suite, unlike the locale, prunes the mapped path when no carrier requests it.
+                media_suite = etree.fromstring(native.create_media_suite())
+                resource_locations = media_suite.xpath("./media/resource/location/text()")
+                assert any(location.endswith("/original.png") for location in resource_locations)
+                assert any(location.endswith("/translated.png") for location in resource_locations) == (
+                    ordinary_language is not None
+                )

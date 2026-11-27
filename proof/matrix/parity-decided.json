@@ -336,6 +336,7 @@
 	"hq-media": [
 		"hq-media/form-media-for-every-language",
 		"hq-media/label-video-inline",
+		"hq-media/translation-overrides-a-menu-icon-with-only-a-map-entry",
 		"hq-media/translation-overrides-a-menu-icon-without-a-map-entry",
 		"hq-media/video-as-only-help",
 		"hq-media/video-inline-as-only-help",

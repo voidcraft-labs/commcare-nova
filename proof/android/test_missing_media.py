@@ -195,7 +195,7 @@ def test_android_prompts_for_a_questions_missing_image_and_offers_the_missing_so
     assert image not in str([item for item in items if item["image"] is not None]), items
 
 
-@pytest.mark.parametrize("scenario", ["ordinary", "orphan", "unmapped", "other-language"])
+@pytest.mark.parametrize("scenario", ["ordinary", "orphan", "unmapped", "other-language", "same-language"])
 def test_generated_navigation_icon_needs_a_file_in_the_full_release(
     hq, android_documents, android_walk_evidence, scenario
 ):

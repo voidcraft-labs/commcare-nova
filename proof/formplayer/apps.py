@@ -308,9 +308,10 @@ def generated_menu_icon(holder, scenario):
         form_written(holder, {"0.0": remove_original_carrier})(stored)
         app = operations.held_app(holder.unit, holder.app_id)
         assert image in app.multimedia_map
-        if scenario == "other-language":
+        form_carrier_language = {"same-language": "en", "other-language": "fr"}.get(scenario)
+        if form_carrier_language:
             app.langs = ["en", "fr"]
-            app.modules[0].forms[0].media_image = {"fr": image}
+            app.modules[0].forms[0].media_image = {form_carrier_language: image}
         override = UNMAPPED_GENERATED_ICON if scenario == "unmapped" else image
         if scenario == "unmapped":
             del app.multimedia_map[image]
@@ -319,8 +320,8 @@ def generated_menu_icon(holder, scenario):
         app = operations.held_app(holder.unit, holder.app_id)
         assert app.translations["en"][key] == override
         assert (override in app.multimedia_map) == (scenario != "unmapped")
-        assert (override in app.all_media_paths()) == (scenario == "other-language")
-        assert override not in app.all_media_paths(lang="en")
+        assert (override in app.all_media_paths()) == bool(form_carrier_language)
+        assert (override in app.all_media_paths(lang="en")) == (form_carrier_language == "en")
         stored.clear()
         stored.update(app.to_json())
 

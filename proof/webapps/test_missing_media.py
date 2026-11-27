@@ -105,7 +105,7 @@ def test_web_apps_shows_a_player_for_a_missing_sound_and_a_broken_picture_in_the
     assert set(drawn) == {True, False}, drawn
 
 
-@pytest.mark.parametrize("scenario", ["ordinary", "orphan", "unmapped", "other-language"])
+@pytest.mark.parametrize("scenario", ["ordinary", "orphan", "unmapped", "other-language", "same-language"])
 def test_generated_navigation_icon_needs_a_file_in_the_web_apps_release(
     hq, formplayer_runner, editor_driver, webapps_documents, evidence, scenario
 ):
