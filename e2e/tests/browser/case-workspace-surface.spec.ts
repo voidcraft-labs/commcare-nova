@@ -581,6 +581,30 @@ test("a human-readable date calculation keeps its worker-zone dates when the pic
 	).toBeVisible();
 });
 
+test("a Search starting value keeps its text when the worker name comparison changes", async ({
+	page,
+}) => {
+	await page.goto(`${peer.origin}?scenario=search-ordered-default`);
+	await selectSearchInput(page);
+	const before = (await savedModule(page)).caseListConfig.searchInputs[0];
+	await page.getByRole("button", { name: "Condition is", exact: true }).click();
+	const ordered = page.getByRole("menuitem", { name: /^is more than/ });
+	await expect(ordered).toBeEnabled();
+	await ordered.click();
+	await expect
+		.poll(async () => (await savedModule(page)).caseListConfig.searchInputs[0])
+		.toEqual({
+			...before,
+			default: {
+				...before.default,
+				cond: { ...before.default.cond, kind: "gt" },
+			},
+		});
+	await expect(
+		page.getByRole("button", { name: "Condition is more than", exact: true }),
+	).toBeVisible();
+});
+
 test("native compatible Search type edit preserves its saved match and starting value", async ({
 	page,
 }) => {
