@@ -242,15 +242,16 @@ describe("case-list author command boundaries", () => {
 		).toBe(false);
 	});
 
-	it("setCaseListTile: accepts a hyphen inside a grouping connection", () => {
+	it("setCaseListTile: accepts hyphens and periods inside one grouping connection", () => {
 		const accepts = (identifier: string) =>
 			setCaseListTileTool.inputSchema.safeParse({
 				moduleUuid: MODULE_UUID,
 				tile: { grouping: { identifier, headerRows: 1 } },
 			}).success;
 		expect(accepts("my-parent")).toBe(true);
+		expect(accepts("my.parent")).toBe(true);
 		expect(accepts("-my-parent")).toBe(false);
-		expect(accepts("my.parent")).toBe(false);
+		expect(accepts("my parent")).toBe(false);
 		expect(accepts("my/parent")).toBe(false);
 	});
 
