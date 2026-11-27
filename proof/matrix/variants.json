@@ -3197,8 +3197,8 @@
 	{
 		"id": "hq-advanced/open-relationship-by-question",
 		"base": "hq-advanced",
-		"entry": "forms-and-case-writes/caseindex-relationship-question-relationship-question-the-index-naming-a",
-		"standing": "not-yet",
+		"entry": "forms-and-case-writes/advanced-open-relationship-from-unrestricted-text",
+		"standing": "fix-in-hq",
 		"place": {
 			"kind": "form",
 			"menu": 1,
@@ -3246,6 +3246,23 @@
 					"doc_type": "AdvancedOpenCaseAction"
 				}
 			]
+		}
+	},
+	{
+		"id": "hq-advanced/open-relationship-by-constrained-question",
+		"base": "hq-advanced",
+		"entry": "forms-and-case-writes/caseindex-relationship-question-relationship-question-the-index-naming-a",
+		"standing": "not-yet",
+		"place": {
+			"kind": "form",
+			"menu": 1,
+			"form": 0,
+			"menuName": "Member visits",
+			"name": "Untitled Form"
+		},
+		"change": {
+			"op": "named",
+			"name": "open_relationship_from_constrained_text"
 		}
 	},
 	{

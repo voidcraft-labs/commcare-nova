@@ -1039,3 +1039,18 @@ def first_load_writes_through_declared_parent(authoring, app_id):
         }
 
     _pages.change_app_model(authoring, app_id, "save-visit-to-household-district", update_district)
+
+
+def open_relationship_from_constrained_text(authoring, app_id):
+    """Exercise an editable Text answer that can carry only the two permitted relationships."""
+    from proof.matrix.registry import load_variants
+
+    change = next(row.change for row in load_variants() if row.id == "hq-advanced/open-relationship-by-question")
+    ops.set_json(authoring, app_id, change["pointer"], change["value"])
+
+    def constrain_notes(root, _form):
+        bind, = root.xpath("//*[local-name()='bind'][@nodeset='/data/notes']")
+        bind.set("constraint", ". = 'child' or . = 'extension'")
+        bind.set("required", "true()")
+
+    ops.set_form_source(authoring, app_id, 1, 0, constrain_notes, what="require a valid case relationship")

@@ -605,6 +605,10 @@ export const ADVANCED_CLAIMS = defineClaims("caseManagement.advancedActions", {
 		`${F}/an-advanced-open-action-s-parent-index-against-a-menu-s-parent-selection`,
 		"schema:AdvancedOpenCaseAction.case_indices",
 	),
+	questionToLoadFromFreeText: refuse(
+		`${F}/advanced-open-relationship-from-unrestricted-text`,
+		"schema:CaseIndex.relationship",
+	),
 	questionToLoad: refuse(
 		`${F}/caseindex-relationship-question-relationship-question-the-index-naming-a`,
 		"schema:CaseIndex.relationship",
@@ -2588,6 +2592,10 @@ function readOrdinaryAdvancedActions(
 							? index.relationship_question
 							: "";
 					const field = question === "" ? undefined : fieldAt(form, question);
+					const freeText =
+						field?.kind === "text" &&
+						field.node.path.length === 1 &&
+						!form.xform?.binds.get(field.node)?.logic.constraint?.trim();
 					const claim =
 						question === ""
 							? ADVANCED_CLAIMS.openIndexQuestion
@@ -2598,7 +2606,9 @@ function readOrdinaryAdvancedActions(
 									: loadIndex !== undefined && earlierOpenIndex
 										? ADVANCED_CLAIMS.questionAfterOpenIndex
 										: loadIndex !== undefined && loadUuids.has(loadIndex)
-											? ADVANCED_CLAIMS.questionToLoad
+											? freeText
+												? ADVANCED_CLAIMS.questionToLoadFromFreeText
+												: ADVANCED_CLAIMS.questionToLoad
 											: undefined;
 					if (claim !== undefined) {
 						I.refuseWhole(claim);
