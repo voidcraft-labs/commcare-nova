@@ -69,9 +69,22 @@ describe("case choices in the captured device world", () => {
 		{ stagedAsync: true, status: "open" },
 		{ stagedAsync: false, status: "closed" },
 		{ stagedAsync: true, status: "closed" },
+		{
+			stagedAsync: false,
+			status: undefined,
+			propertyMatch: { property: "survey_ready", text: "yes" },
+		},
+		{
+			stagedAsync: true,
+			status: "open",
+			propertyMatch: { property: "survey_ready", text: "yes" },
+		},
 	] as const)(
 		"filters the restored choices where asked and keeps opaque IDs (worker=$stagedAsync status=$status)",
-		async ({ stagedAsync, status }) => {
+		async (arm) => {
+			const { stagedAsync, status } = arm;
+			const propertyMatch =
+				"propertyMatch" in arm ? arm.propertyMatch : undefined;
 			const form = choiceUuid("all-visible");
 			const question = choiceUuid("all-cases-question");
 			const copy = choiceUuid("copy-unrefined-id");
@@ -94,6 +107,7 @@ describe("case choices in the captured device world", () => {
 											optionsSource: {
 												kind: "available-cases",
 												...(status !== undefined && { status }),
+												...(propertyMatch !== undefined && { propertyMatch }),
 											},
 										}),
 										f({
@@ -110,15 +124,25 @@ describe("case choices in the captured device world", () => {
 				}),
 			);
 			const rows = [
-				choiceRow("old service key", "former", "Former service"),
+				{
+					...choiceRow("old service key", "former", "Former service"),
+					properties: { survey_ready: "yes" },
+				},
 				{
 					...choiceRow("closed host key", "former", "Closed host"),
 					status: "closed" as const,
 				},
 				choiceRow("worker-profile-key", "commcare-user", "Worker profile"),
+				{
+					...choiceRow("current outpost", "outpost", "Outpost"),
+					properties: { survey_ready: "yes" },
+				},
 			];
 			const available = rows.filter(
-				(row) => status === undefined || row.status === status,
+				(row) =>
+					(status === undefined || row.status === status) &&
+					(propertyMatch === undefined ||
+						row.properties?.survey_ready === "yes"),
 			);
 			const selectedId =
 				status === "closed" ? "closed host key" : "old service key";

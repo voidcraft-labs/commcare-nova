@@ -13,6 +13,7 @@ import type { FormNodeProjection } from "./xpath/formNodeProjection";
 import { w } from "./xpath/wire/builders";
 import { toWire, type WireTermBindings } from "./xpath/wire/fromExpression";
 import { caseDbInstance } from "./xpath/wire/instances";
+import { casePropertyStep } from "./xpath/wire/rowScope";
 import type { WireExpr } from "./xpath/wire/tree";
 
 /** The local device case path, with the predicates of the chosen source. */
@@ -23,15 +24,21 @@ function deviceCasesNodeset(predicates: readonly WireExpr[] = []): WireExpr {
 	]);
 }
 
-/** Every restored case, optionally filtered by status across all restored types. */
+/** Restored cases narrowed by optional row-local status and property checks. */
 export function availableCasesNodeset(
-	status?: AvailableCasesOptionsSource["status"],
+	source: Pick<AvailableCasesOptionsSource, "status" | "propertyMatch">,
 ): WireExpr {
-	return deviceCasesNodeset(
-		status === undefined
-			? []
-			: [w.eq(w.context([w.attr("status")]), w.str(status))],
-	);
+	const predicates: WireExpr[] = [];
+	if (source.status !== undefined)
+		predicates.push(w.eq(w.context([w.attr("status")]), w.str(source.status)));
+	if (source.propertyMatch !== undefined)
+		predicates.push(
+			w.eq(
+				w.context([casePropertyStep(source.propertyMatch.property)]),
+				w.str(source.propertyMatch.text),
+			),
+		);
+	return deviceCasesNodeset(predicates);
 }
 
 /** Standard device itemsets, evaluated against the worker's local case database.

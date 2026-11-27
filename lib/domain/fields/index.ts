@@ -869,6 +869,7 @@ export {
 } from "./base";
 export {
 	type AvailableCasesOptionsSource,
+	availableCasePropertyMatchSchema,
 	availableCasesOptionsSourceSchema,
 	type CaseOptionsSource,
 	caseOptionsSourceSchema,

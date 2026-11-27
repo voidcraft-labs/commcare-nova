@@ -21,6 +21,7 @@ import type { EditorFormFieldDecl } from "@/components/builder/shared/formFieldP
 import { LookupValuePicker } from "@/components/builder/shared/LookupValuePicker";
 import { PredicateWorkbench } from "@/components/builder/shared/PredicateWorkbench";
 import { Button } from "@/components/shadcn/button";
+import { Input } from "@/components/shadcn/input";
 import { Label } from "@/components/shadcn/label";
 import {
 	Select,
@@ -35,13 +36,15 @@ import { useDeclaredPlatforms } from "@/lib/doc/hooks/useDeclaredPlatforms";
 import { useExpressionSlotContext } from "@/lib/doc/hooks/useExpressionSlotContext";
 import { useFormFieldEntries } from "@/lib/doc/hooks/useFormFieldEntries";
 import { useUserProperties } from "@/lib/doc/hooks/useUserCollections";
-import type {
-	InlineOptionsSource,
-	LookupOptionsSource,
-	LookupTableId,
-	MultiSelectField,
-	SelectOptionsSource,
-	SingleSelectField,
+import {
+	type AvailableCasesOptionsSource,
+	availableCasePropertyMatchSchema,
+	type InlineOptionsSource,
+	type LookupOptionsSource,
+	type LookupTableId,
+	type MultiSelectField,
+	type SelectOptionsSource,
+	type SingleSelectField,
 } from "@/lib/domain";
 import type { Expression } from "@/lib/domain/expression";
 import type { FieldEditorComponentProps } from "@/lib/domain/kinds";
@@ -358,8 +361,8 @@ export function OptionsSourceEditor<
 								)
 									return;
 								const next: typeof active = {
-									kind: "available-cases",
-									...(selection !== "all" && { status: selection }),
+									...active,
+									status: selection === "all" ? undefined : selection,
 								};
 								if (draft?.kind === "available-cases") setDraft(next);
 								else commit(next);
@@ -375,6 +378,16 @@ export function OptionsSourceEditor<
 							</SelectContent>
 						</Select>
 					</div>
+					<AvailableCasePropertyMatchEditor
+						key={JSON.stringify(active.propertyMatch ?? null)}
+						value={active.propertyMatch}
+						canEdit={canEdit}
+						onChange={(propertyMatch) => {
+							const next: typeof active = { ...active, propertyMatch };
+							if (draft?.kind === "available-cases") setDraft(next);
+							else commit(next);
+						}}
+					/>
 					{draft?.kind === "available-cases" ? (
 						<div className="flex justify-end gap-2">
 							<Button
@@ -558,6 +571,66 @@ export function OptionsSourceEditor<
 			)}
 
 			<RejectionInline message={rejection} />
+		</div>
+	);
+}
+
+function AvailableCasePropertyMatchEditor({
+	value,
+	canEdit,
+	onChange,
+}: {
+	value: AvailableCasesOptionsSource["propertyMatch"];
+	canEdit: boolean;
+	onChange: (value: AvailableCasesOptionsSource["propertyMatch"]) => void;
+}) {
+	const [property, setProperty] = useState(value?.property ?? "");
+	const [text, setText] = useState(value?.text ?? "");
+	const propertyId = useId();
+	const valueId = useId();
+	const match = availableCasePropertyMatchSchema.safeParse({ property, text });
+	return (
+		<div className="space-y-2">
+			<Label htmlFor={propertyId}>Match a case property</Label>
+			<Input
+				id={propertyId}
+				value={property}
+				disabled={!canEdit}
+				onChange={(event) => setProperty(event.currentTarget.value)}
+			/>
+			<Label htmlFor={valueId}>Stored value</Label>
+			<Input
+				id={valueId}
+				value={text}
+				disabled={!canEdit}
+				onChange={(event) => setText(event.currentTarget.value)}
+			/>
+			<div className="flex gap-2">
+				<Button
+					type="button"
+					variant="outline"
+					disabled={
+						!canEdit ||
+						!match.success ||
+						(value?.property === property && value?.text === text)
+					}
+					onClick={() => {
+						if (match.success) onChange(match.data);
+					}}
+				>
+					Apply filter
+				</Button>
+				{value ? (
+					<Button
+						type="button"
+						variant="ghost"
+						disabled={!canEdit}
+						onClick={() => onChange(undefined)}
+					>
+						Clear filter
+					</Button>
+				) : null}
+			</div>
 		</div>
 	);
 }

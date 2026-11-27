@@ -7103,7 +7103,7 @@ export class FormEngine {
 	): string {
 		return serializeWire(
 			source.kind === "available-cases"
-				? availableCasesNodeset(source.status)
+				? availableCasesNodeset(source)
 				: caseOptionsNodeset(
 						source,
 						this.choiceContext(questionPath),

@@ -179,11 +179,15 @@ describe("mutating a document that carries a lookup source", () => {
 	});
 });
 
-it("saves closed-only case choices through the shared options tool", async () => {
+it("saves closed-only case choices and their property filter through the shared options tool", async () => {
 	const { h, lookupDefinitions } = makeHarness(docWithInlineSelect(), {
 		answering: true,
 	});
-	const closedCases = { kind: "available-cases", status: "closed" } as const;
+	const closedCases = {
+		kind: "available-cases",
+		status: "closed",
+		propertyMatch: { property: "survey_ready", text: "yes" },
+	} as const;
 	const out = await h.runTool(setFieldOptionsSourceTool, {
 		moduleUuid: MODULE,
 		formUuid: FORM,
