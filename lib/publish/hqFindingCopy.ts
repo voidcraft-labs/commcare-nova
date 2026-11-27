@@ -584,6 +584,8 @@ export const FIX_IN_HQ_SENTENCES: Readonly<
  * get past it. `findingLine` adds the name itself ("In CommCare HQ: …").
  */
 export const FIX_IN_HQ_ENTRY_SENTENCES: Readonly<Record<string, string>> = {
+	"forms-and-case-writes/repeat-open-index-unavailable-on-either-worker":
+		"This repeat creates a case link with a name Web Apps cannot save and Android cannot read. In CommCare HQ, you can use ordinary letters, digits or underscores for the link name.",
 	"forms-and-case-writes/basic-update-key-with-a-roman-numeral":
 		"The form builder marks this Case Property name as an error because it contains a Roman numeral character. In CommCare HQ, you can choose a name with ordinary letters or digits. If existing cases use this property, move its values before switching the mapping.",
 	"forms-and-case-writes/whole-number-starting-answer-from-free-text":

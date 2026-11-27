@@ -594,6 +594,10 @@ export const ADVANCED_CLAIMS = defineClaims("caseManagement.advancedActions", {
 		`${F}/root-open-index-unavailable-on-either-worker`,
 		"schema:AdvancedOpenCaseAction.case_indices",
 	),
+	repeatOpenIndexWebOnly: refuse(
+		`${F}/repeat-open-index-unavailable-on-either-worker`,
+		"schema:AdvancedOpenCaseAction.case_indices",
+	),
 	openIndexName: refuse(
 		`${F}/index-identifier-outside-an-xml-element-name`,
 		"schema:AdvancedOpenCaseAction.case_indices",
@@ -2585,12 +2589,11 @@ function readOrdinaryAdvancedActions(
 				if (namesOpen) afterOpenIndex = true;
 				const nameProblem = advancedCaseIndexNameProblem(identifier);
 				if (nameProblem) {
-					// A top-level creation puts the index element in the primary instance
-					// before Formplayer serializes it as ASCII. A repeat template is omitted.
-					const rootWriter =
+					// Formplayer skips templates at opening, but serializes a new row
+					// as ASCII as soon as it saves the session after adding that row.
+					const unavailableWriter =
 						nameProblem === "one-platform" &&
 						form.docType === "AdvancedForm" &&
-						(open.repeat_context == null || open.repeat_context === "") &&
 						conditionType(openStored) === "always" &&
 						(index.relationship === undefined ||
 							index.relationship === "child") &&
@@ -2598,12 +2601,15 @@ function readOrdinaryAdvancedActions(
 						loadIndex !== undefined &&
 						submittedElementNameNeedsAndroid(identifier) &&
 						isPortableName(identifier, ["web-apps"]);
+					let onePlatform = ADVANCED_CLAIMS.openIndexName;
+					if (unavailableWriter && context === "")
+						onePlatform = ADVANCED_CLAIMS.rootOpenIndexWebOnly;
+					else if (unavailableWriter && repeat !== undefined && !closes)
+						onePlatform = ADVANCED_CLAIMS.repeatOpenIndexWebOnly;
 					const claim = {
 						"invalid-xml": ADVANCED_CLAIMS.openIndexInvalidXml,
 						unaddressable: ADVANCED_CLAIMS.openIndexUnaddressable,
-						"one-platform": rootWriter
-							? ADVANCED_CLAIMS.rootOpenIndexWebOnly
-							: ADVANCED_CLAIMS.openIndexName,
+						"one-platform": onePlatform,
 					}[nameProblem];
 					I.refuseWhole(claim, { name: identifier });
 					r.ok = false;

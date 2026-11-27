@@ -14362,11 +14362,25 @@ def _index_is_xml_name(name):
     return True
 
 
-def _writer_unavailable_source(at, index):
+def _writer_unavailable_source(at, index, *, repeat=False):
     """HQ writes this child connection in the initial primary instance. Repeat templates can be absent."""
     form = at.nearest("AdvancedForm")
     action = at.nearest("AdvancedOpenCaseAction")
-    if action is None or form is None or action.get("repeat_context") not in (None, ""):
+    if action is None or form is None:
+        return False
+    context = action.get("repeat_context")
+    if repeat:
+        xform = at.app.xform(form)
+        update = action.get("name_update")
+        path = update.get("question_path") if isinstance(update, dict) else None
+        if (not context or not path or xform is None
+                or context != _innermost_repeat(xform, path) or _active(action.get("close_condition"))):
+            return False
+        _, opens = _advanced_lists(form)
+        scoped = [one for one in opens if one.get("repeat_context") == context]
+        if len(scoped) > 1 and sum(bool(one.get("case_indices")) for one in scoped) < 2:
+            return False
+    elif context not in (None, ""):
         return False
     condition = action.get("open_condition")
     if not isinstance(condition, dict) or condition.get("type") != "always":
@@ -14389,12 +14403,21 @@ def root_open_index_writer_unavailable(use, manifest):
     return None if indices is None else any(_writer_unavailable_source(use.at, index) for index in indices)
 
 
+def repeat_open_index_writer_unavailable(use, manifest):
+    """A newly added row materializes a name Formplayer cannot serialize and Core cannot address."""
+    indices = _open_indexes_for_name(use)
+    return None if indices is None else any(
+        _writer_unavailable_source(use.at, index, repeat=True) for index in indices
+    )
+
+
 def index_identifier_outside_an_xml_name(use, manifest):
     """A one-worker spelling whose owning Advanced open is outside the proven writer shape."""
     indices = _open_indexes_for_name(use)
     return None if indices is None else any(
         _index_is_xml_name(name) and sum(_worker_name_acceptance(name)) == 1
         and not _writer_unavailable_source(use.at, index)
+        and not _writer_unavailable_source(use.at, index, repeat=True)
         for index in indices if (name := _index_identifier(index))
     )
 
@@ -15405,6 +15428,7 @@ VALUE_CLASSES = {
     "forms-and-case-writes/basic-update-key-with-an-unaddressable-uncased-letter": basic_update_key_with_unaddressable_letter,
     "forms-and-case-writes/update-key-holding-a-non-ascii-core-name-character": non_ascii_core_name_key,
     "forms-and-case-writes/root-open-index-unavailable-on-either-worker": root_open_index_writer_unavailable,
+    "forms-and-case-writes/repeat-open-index-unavailable-on-either-worker": repeat_open_index_writer_unavailable,
     "forms-and-case-writes/index-identifier-outside-an-xml-element-name": index_identifier_outside_an_xml_name,
     "forms-and-case-writes/index-identifier-unaddressable-in-worker-xpath": index_identifier_unaddressable_in_worker_xpath,
     "case-search/prompt-key-outside-nova-s-name-grammar": prompt_key_outside_nova_s_name_grammar,

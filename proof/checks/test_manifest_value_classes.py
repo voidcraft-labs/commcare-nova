@@ -7875,6 +7875,7 @@ def _held_new():
         index = _index(index_tag, reference_id=identifier, relationship=relationship)
         return _advanced_app([household], [_open(
             "open_visit_0", case_indices=[index], repeat_context=repeat_context,
+            name_update={"question_path": "/data/rep/name", "doc_type": "ConditionalCaseUpdate"},
             open_condition={"doc_type": "FormActionCondition", "type": condition},
         )])
 
@@ -7991,8 +7992,14 @@ def _held_new():
             accepted("app", opened("აprobe", relationship="extension"), reference, f"{opens}/0/case_indices/0/reference_id"),
             accepted("app", load_indexed("აprobe"), reference, f"{loads}/1/case_index/reference_id"),
         ),
-        "forms-and-case-writes/index-identifier-outside-an-xml-element-name": (
+        "forms-and-case-writes/repeat-open-index-unavailable-on-either-worker": (
             refused("app", opened("აprobe", repeat_context="/data/rep"), reference, f"{opens}/0/case_indices/0/reference_id"),
+            accepted("app", opened("aprobe", repeat_context="/data/rep"), reference, f"{opens}/0/case_indices/0/reference_id"),
+            accepted("app", opened("აprobe"), reference, f"{opens}/0/case_indices/0/reference_id"),
+        ),
+        "forms-and-case-writes/index-identifier-outside-an-xml-element-name": (
+            accepted("app", opened("აprobe", repeat_context="/data/rep"), reference, f"{opens}/0/case_indices/0/reference_id"),
+            refused("app", opened("აprobe", condition="if"), reference, f"{opens}/0/case_indices/0/reference_id"),
             accepted("app", opened("აprobe"), reference, f"{opens}/0/case_indices/0/reference_id"),
             accepted("app", opened("Ωprobe"), reference, f"{opens}/0/case_indices/0/reference_id"),
             accepted("app", opened("Équipe"), reference, f"{opens}/0/case_indices/0/reference_id"),

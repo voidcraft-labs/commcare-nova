@@ -7046,10 +7046,33 @@
 		"gates": []
 	},
 	{
+		"id": "forms-and-case-writes/repeat-open-index-unavailable-on-either-worker",
+		"area": "forms-and-case-writes",
+		"section": "Advanced form actions",
+		"item": "A repeat opens a child case using an index name that only the Web Apps lexer reads",
+		"surfaceKeys": [
+			"schema:AdvancedOpenCaseAction.case_indices",
+			"schema:CaseIndex.reference_id"
+		],
+		"valueClass": "repeat-open-action-index-writer-unavailable",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: adding the repeat materializes a child index that Formplayer saves as ASCII. Android cannot address the generated index in XPath.",
+		"subject": "advanced-forms",
+		"reasons": [
+			{
+				"kind": "broken-at-runtime",
+				"named": "Formplayer's new-repeat handler serializes the materialized instance as ASCII. The non-ASCII element name prevents the saved instance from being parsed. Android's XPath reader cannot address that name."
+			}
+		],
+		"platforms": { "kind": "none", "cell": "—" },
+		"emission": { "cell": "—", "markers": [] },
+		"gates": []
+	},
+	{
 		"id": "forms-and-case-writes/index-identifier-outside-an-xml-element-name",
 		"area": "forms-and-case-writes",
 		"section": "Advanced form actions",
-		"item": "an `AdvancedOpenCaseAction.case_indices[].reference_id` addressable on only one pinned worker outside the verified top-level child connection writer",
+		"item": "an `AdvancedOpenCaseAction.case_indices[].reference_id` addressable on only one pinned worker outside the root and repeat child connection writers",
 		"surfaceKeys": [
 			"schema:AdvancedOpenCaseAction.case_indices",
 			"schema:CaseIndex.tag",
