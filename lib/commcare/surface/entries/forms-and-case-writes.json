@@ -5806,6 +5806,28 @@
 		"gates": []
 	},
 	{
+		"id": "forms-and-case-writes/loadupdateaction-first-load-writes-through-a-declared-parent-or-host",
+		"area": "forms-and-case-writes",
+		"section": "Advanced form actions",
+		"item": "A first manually selected ordinary case saves a property through its declared parent or host path",
+		"surfaceKeys": ["schema:LoadUpdateAction.case_properties"],
+		"valueClass": "first-load-write-through-a-declared-parent-or-host",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: a linked write starts from the case chosen by the first Advanced load. Each parent or host connection has a declared destination type. The form opening fixes the reached case and submission verifies its identity and authority.",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": { "reading": "runs" },
+			"android": { "reading": "runs" }
+		},
+		"emission": {
+			"cell": "`case_properties` under the original Advanced load",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
 		"id": "forms-and-case-writes/loadupdateaction-case-properties-key-with-on-a-load-with-no-case",
 		"area": "forms-and-case-writes",
 		"section": "Advanced form actions",

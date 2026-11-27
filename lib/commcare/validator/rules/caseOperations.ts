@@ -85,7 +85,9 @@ import {
 	userPropertiesOf,
 } from "@/lib/domain";
 import {
+	chainLoadOfTarget,
 	entryOperationCaseType,
+	formCaseSelections,
 	menuEmittedAdvanced,
 } from "@/lib/domain/advancedEntryDatums";
 import {
@@ -1545,11 +1547,25 @@ function validateVia(
 			"new-case",
 			`${write.property} is saved to the case above a case this form creates, and that case has no link yet while the form is open. You can save it from a form that opens the existing case.`,
 		);
-	if (operation.action !== "own")
-		return refuse(
-			"target",
-			"Only this form's own case can save to the case above it. You can add a case change that updates that case instead.",
+	if (operation.action !== "own") {
+		const planned = planPlacements(ctx.doc, ctx.formUuid).placements.get(
+			operation.uuid,
 		);
+		if (
+			operation.action !== "update" ||
+			operation.target.kind !== "expression" ||
+			chainLoadOfTarget(ctx.doc, ctx.formUuid, operation.target) !== 0 ||
+			formCaseSelections(ctx.doc, ctx.formUuid)[0]?.source.kind !== "choose" ||
+			planned?.placement.kind !== "advanced" ||
+			via.some(
+				(step) => step.identifier !== "parent" && step.identifier !== "host",
+			)
+		)
+			return refuse(
+				"target",
+				"A change can save through a parent or host from this form's own case or its first manually chosen case. You can add a change for the connected case directly.",
+			);
+	}
 	const directUserIndex = via.length === 1 && via[0].identifier === "user";
 	if (isParentUserWritePath(via)) {
 		if (caseWriteValueField(write.value)?.link === true)
