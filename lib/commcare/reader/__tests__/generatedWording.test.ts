@@ -438,16 +438,34 @@ it("rekeys only a unique live legacy Search heading and records both source posi
 		es: { [currentKey]: "Otros datos" },
 	};
 	const competing = await read();
-	if (competing.kind !== "account")
-		throw Error(
-			"A separate dormant second-language override needs its own proof",
-		);
-	expect(competing.findings).toContainEqual(
+	if (competing.kind !== "read")
+		throw Error(JSON.stringify(competing.findings));
+	const after = expandDoc(competing.draft.doc);
+	expect(after.translations?.en[currentKey]).toBe("Find a client");
+	expect(after.translations?.es?.[currentKey]).toBeUndefined();
+	expect(
+		competing.draft.facts.sameStateRewrites
+			.filter(({ register }) => register === changes)
+			.map(({ path }) => path),
+	).toEqual([
+		"/modules/0/search_config/properties/0/group_key",
+		`/translations/en/${oldKey}`,
+		`/translations/en/${currentKey}`,
+		`/translations/es/${currentKey}`,
+	]);
+	body.build_profiles = {
+		spanish: { doc_type: "BuildProfile", name: "Spanish", langs: ["es"] },
+	};
+	const separateInstallation = await read();
+	if (separateInstallation.kind !== "account")
+		throw Error("The named installation has a different fallback palette");
+	expect(separateInstallation.findings).toContainEqual(
 		expect.objectContaining({
 			code: "application-and-settings/translations-generated-key-anything-else",
 			detail: { name: oldKey },
 		}),
 	);
+	delete body.build_profiles;
 	body.translations = { en: { [oldKey]: "Find a client" } };
 
 	menus[0].search_config.properties[0].label.es = "Datos personales";

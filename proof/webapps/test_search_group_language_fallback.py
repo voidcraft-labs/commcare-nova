@@ -1,5 +1,6 @@
 """Compare the actual bilingual native labels before and after a Search group is rekeyed."""
 
+import pytest
 from lxml import etree
 
 from proof.checks.compare.app_strings import parse_app_strings
@@ -13,14 +14,18 @@ OLD = "search_property.m0.g"
 CANONICAL = "search_property.m0.group_header_0"
 
 
+@pytest.mark.parametrize("spanish_override", [False, True], ids=["english-only", "english-and-spanish"])
 def test_bilingual_legacy_search_group_uses_the_same_words_after_rekey(
-    hq, webapps_documents, evidence,
+    hq, webapps_documents, evidence, spanish_override,
 ):
     document = webapps_documents["hq-search"]
     with webapps_hq.authored_project(document, "A", configure=enable_address_search) as project:
         authoring = Authoring(project.unit, {}, document.id, operation=project.unit.operation)
         app_id = project.app_id
-        variant = registry.named_change("translation_competes_with_a_legacy_heading_in_two_languages")
+        variant = registry.named_change(
+            "a_legacy_search_group_competes_with_a_second_language_override" if spanish_override
+            else "translation_competes_with_a_legacy_heading_in_two_languages"
+        )
         variant(authoring, app_id)
 
         def observe():
@@ -59,6 +64,9 @@ def test_bilingual_legacy_search_group_uses_the_same_words_after_rekey(
             for code, entries in operations.held_app(project.unit, app_id).translations.items()
         }
         translations["en"][CANONICAL] = translations["en"].pop(OLD)
+        if spanish_override:
+            assert translations["es"].pop(CANONICAL) == "Otros datos"
+            assert stock["active"]["es"] == "Otros datos"
         ops.set_json(authoring, app_id, "/translations", translations)
         after = observe()
         evidence("bilingual-search-group-fallback", {"legacy": before, "stock": stock, "rekeyed": after})

@@ -1859,7 +1859,7 @@ function decideGeneratedKeys(
 		if (uses) uses.push(key);
 		else stored.set(key.key, [key]);
 	}
-	const replacedDestinations = new Set<HeldTranslationKey>();
+	const replacedDestinations = new Map<HeldTranslationKey, boolean>();
 	for (const { held, target } of left) {
 		if (typeof held.value !== "string" || !readWhole(ctx, held.key, target))
 			continue;
@@ -1882,8 +1882,15 @@ function decideGeneratedKeys(
 				destination === undefined ? [] : (stored.get(destination) ?? []);
 			const source = ctx.input.source.raw;
 			const build = source.build_langs;
-			// On this native bilingual shape the Spanish key is absent in both
-			// builds. The default table still picks the same English override.
+			// A dormant canonical locale does not supply the live legacy heading
+			// in either language. Drop both stored copies when moving the live
+			// English override so the Spanish locale still falls back to it.
+			const ordinaryCopies = copies.every(
+				(copy) =>
+					typeof copy.value === "string" &&
+					holdText(copy.value) === copy.value &&
+					hqDeviceText(copy.value).trim() !== "",
+			);
 			const bilingualFallback =
 				sourceGroup.missingSpanishLabel === true &&
 				held.language === "en" &&
@@ -1896,23 +1903,22 @@ function decideGeneratedKeys(
 					(isJsonObject(source.build_profiles) &&
 						Object.keys(source.build_profiles).length === 0)) &&
 				(stored.get(held.key)?.length ?? 0) === 1 &&
-				copies.length === 1;
-
+				(copies.length === 1 || copies.length === 2) &&
+				copies.some((copy) => copy.language === "en") &&
+				copies.every((copy) => copy.language === "en" || copy.language === "es") &&
+				ordinaryCopies;
 			const dormant =
-				(reading.languages.codes.length === 1 || bilingualFallback) &&
-				copies.length === 1 &&
-				copies[0].language === held.language &&
-				typeof copies[0].value === "string" &&
-				holdText(copies[0].value) === copies[0].value &&
-				hqDeviceText(copies[0].value).trim() !== ""
-					? copies[0]
-					: undefined;
+				ordinaryCopies &&
+				(bilingualFallback ||
+					(reading.languages.codes.length === 1 &&
+						copies.length === 1 &&
+						copies[0].language === held.language));
 			if (
 				destination !== undefined &&
 				sourceGroup.owner !== undefined &&
 				sourceGroup.unit !== undefined &&
 				target.position?.menu === target.module?.index &&
-				(copies.length === 0 || dormant !== undefined) &&
+				(copies.length === 0 || dormant) &&
 				(sourceGroup.missingSpanishLabel !== true || bilingualFallback) &&
 				table.wordingUnits?.[destination] === sourceGroup.unit &&
 				holdText(held.value) === held.value &&
@@ -1925,7 +1931,9 @@ function decideGeneratedKeys(
 					value: held.value,
 				});
 				moved.set(held, { key: destination, owner: sourceGroup.owner });
-				if (dormant !== undefined) replacedDestinations.add(dormant);
+				if (dormant)
+					for (const copy of copies)
+						replacedDestinations.set(copy, copy.language !== held.language);
 			} else {
 				verdicts.set(
 					`${held.language}\u0000${held.key}`,
@@ -1959,8 +1967,15 @@ function decideGeneratedKeys(
 	const worded = new Map<TranslationUnitId, Map<string, string>>();
 	let hasWording = false;
 	for (const { held } of left) {
-		if (replacedDestinations.has(held)) {
+		const removed = replacedDestinations.get(held);
+		if (removed !== undefined) {
 			held.json.take(held.key, wordingClaim(held.key), () => held.value).value;
+			if (removed)
+				ctx.facts.sameStateRewrites.push({
+					entry: CLAIMS.generatedWording.entry,
+					path: `${held.json.pointer}/${pointerToken(held.key)}`,
+					register: "legacy-search-group-wording-rekeyed",
+				});
 			continue;
 		}
 		const verdict = verdicts.get(`${held.language}\u0000${held.key}`) ?? {

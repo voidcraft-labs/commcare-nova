@@ -239,6 +239,14 @@ def a_legacy_search_group_competes_with_a_second_language_override(authoring, ap
     ops.set_json(authoring, app_id, "/translations", translations)
 
 
+def a_legacy_search_group_competes_with_a_named_installation(authoring, app_id):
+    """The additional Spanish-only installation keeps a separate default locale."""
+    a_legacy_search_group_competes_with_a_second_language_override(authoring, app_id)
+    ops.set_json(authoring, app_id, "/build_profiles", {
+        "spanish": {"doc_type": "BuildProfile", "name": "Spanish", "langs": ["es"]},
+    })
+
+
 def translation_duplicates_a_saved_legacy_search_group_heading(authoring, app_id):
     """The live heading and its dormant current key store the same wording."""
     translation_overrides_a_saved_legacy_search_group_heading(authoring, app_id)
