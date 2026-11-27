@@ -47,7 +47,7 @@ export function boundedFlatCloseForm(
 		owner.displayCondition ||
 		owner.formLinks ||
 		owner.closeCondition ||
-		effectivePostSubmit(doc, form) !== "home"
+		effectivePostSubmit(doc, form) !== "app_home"
 	)
 		return undefined;
 	const operations = owner.caseOperations ?? [];

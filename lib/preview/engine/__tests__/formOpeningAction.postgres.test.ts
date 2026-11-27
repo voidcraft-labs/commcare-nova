@@ -427,7 +427,7 @@ it("signs and atomically closes an ordered flat selection without restoring unre
 					{
 						name: "Close these visits",
 						type: "close",
-						postSubmit: "home",
+						postSubmit: "app_home",
 						fields: [{ kind: "hidden", id: "done", calculate: "'yes'" }],
 					},
 				],
