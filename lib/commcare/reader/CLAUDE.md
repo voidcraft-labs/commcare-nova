@@ -734,6 +734,11 @@ makes greater-than false.
 A supported Android lookup results heading registers one module-owned `case_lists.m#.callout.header` for the case and standalone Search short details. The typed `lookup_field_header` keeps the ordinary Case List editor label.
 
 A lookup argument can be a saved sum of two fixed whole numbers. Pinned Android normally evaluates it and sends a string, but its legacy reporting-domain mode sends the saved value verbatim unless `force_xpath_parsing` is `yes`. The reader preserves a canonical addition of two nonnegative whole numbers up to the signed 32-bit sum limit. Both publishers send the original two-operand spelling. Other calculation and configuration shapes follow their existing gates.
+A plain Results-only column can read an offered text prompt from Search in
+Web Apps. The menu opens Search first and has no local list entry. The column
+keeps the prompt identifier and emits the exact result-input path for the
+Search list. A skipped prompt contributes empty text.
+
 A regular Search prompt's required condition can count the worker's restored
 cases of one declared type, optionally comparing a text property with fixed
 text or a second text property on the same case. It uses the normal case query and
