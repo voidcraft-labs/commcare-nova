@@ -23,3 +23,9 @@ export const updateLocationAction = createLocationAction;
 export const moveLocationAction = createLocationAction;
 export const describeArchiveImpactAction = createLocationAction;
 export const setLocationArchivedAction = createLocationAction;
+// A paged place search is offered only to an organization too large to load
+// whole, which no automation fixture holds.
+export async function readPlacePageAction(): Promise<never> {
+	throw new Error("Unexpected paged place read in automation evidence");
+}
+export const readPlaceRuleIssuesAction = readPlacePageAction;

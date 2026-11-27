@@ -154,7 +154,9 @@ the one record type that declares it, and the edit is refused when none or
 several do. A form expression can read a data table by its export tag, as
 `instance('<tag>')/<tag>_list/<tag>[<column> = <value>]/<column>`;
 `get_lookup_tables` lists each table's tag and its columns' export names, and
-renaming the tag or a column keeps the read. In a form link's condition and
+renaming the tag or a column keeps the read. Use `instance('item-list:<tag>')`
+when the table shares a name with an app data source, such as `locations`.
+In a form link's condition and
 datums, these reads print `instance('item-list:<tag>')`. A form in a menu
 whose forms read the search (`formsReadSearch`) reads what the search found through
 `instance('results:inline')/results/case`, always behind the related-case
@@ -191,7 +193,7 @@ to add as a user field on CommCare HQ, since Nova can't create those fields, and
 a phone stops where it reads a field its project space doesn't define.
 
 Record queries use expressions such as `#case/age >= 18`. Within a data-table
-filter, `#row/column` reads the current row. A case-list filter, an advanced
+filter, `#row/column` reads the current row. A name with punctuation or accents can use the quoted form, such as `table-column('facilities', 'site.name')`; a form reads a table only by a tag of unaccented letters, digits, underscores, hyphens and periods. A case-list filter, an advanced
 Search input's rule or a form's display condition that runs after a case is
 chosen in an earlier menu reads that case as `chosen-case('<menu name>')` and
 its properties as `chosen-case-property('<menu name>', '<property>')`.
@@ -497,7 +499,7 @@ remote write, even when the agent called `check_project_space_compatibility`
 earlier. A successful upload and a `project_space_incompatible` error both
 return `project_space_compatibility` so the agent can explain the checked result.
 
-`compile_app` stays available for the CommCare HQ app file, which has no destination, and compiles a CommCare mobile app file for a project space the app is published to. Neither checks a project space.
+`compile_app` prepares the ordinary CommCare HQ import file or a mobile app for a project space where the app is published. To include assignments in a private import file, choose its server and project space, set `private_data` to `true`, and connect with the `nova.projects.data.export` permission. Nova checks the destination’s worker, group and place bindings before releasing the file.
 When the app has destination requirements, its leading
 `nova_project_space_compatibility` result block contains
 `project_space_compatibility` with `status: "not_checked"`. The same report is
@@ -577,7 +579,7 @@ use the saved revision.
 
 | Tool | What it does |
 |---|---|
-| `update_app` | Set the app's name, whether workers see their saved forms and their incomplete forms, whether every form requests the Android device location (`capture_location`), whether it runs only in Web Apps or only on Android, and which apps workers need installed on Android (`required_android_apps`, the whole selection in the order workers see it; an empty list clears it). |
+| `update_app` | Set the app's name, whether workers see their saved forms and their incomplete forms, whether every form requests the Android device location (`capture_location`), whether new cases are shared with the worker's case-sharing group (`case_sharing`), whether it runs only in Web Apps or only on Android, and which apps workers need installed on Android (`required_android_apps`, the whole selection in the order workers see it; an empty list clears it). |
 | `configure_connect` | Set the exact app-wide CommCare Connect target atomically, or turn Connect off and clear every form block. |
 | `generate_schema` | Record the data model on the app: every case type with its properties and parent links. A private app edit; modules reference types by name, and a form field that writes a recorded property may inherit its intrinsic type, canonical label, and choice catalog. Field hint, requiredness, and validation remain specific to each form. Also how a new case type enters an existing app. A declaration can have no custom properties; an already satisfied declaration reports unchanged records. |
 
@@ -1104,7 +1106,10 @@ screen instead.
 Project data belongs to the app's Nova Project, so a change may affect several
 apps. Read before writing. `get_lookup_tables` returns table and column
 definitions without the row values, plus counts, byte use, and the current
-Project, definition, row, and table revisions. Every table `id` and column `id`
+Project, definition, row, and table revisions. A table whose rows depend on
+who reads them (`rowsRequireSourceAccess`) comes without counts or byte use: a
+connected Project editor can check its source access with
+`inspect_lookup_source`, and each worker receives their own rows. Every table `id` and column `id`
 is its immutable UUID. Names, tags, labels, and export names are included so the
 agent can explain its choice, not so it can address the resource.
 
@@ -1114,6 +1119,10 @@ changes between pages, restart the read instead of combining two generations.
 Repeat the same `query` and `columnIds` with each returned cursor.
 Rows and cells use stable row and column UUIDs. A missing cell and an explicitly
 empty text value are different values and stay different across every tool.
+`readerPage` lists the apps that use a table and the Project revision they were
+read at; `valueSlice` reads one long text value in parts by its UTF-8 byte
+offset; and `assignments` shows a row's workers, groups and places and searches
+for more by name. Each of these is a read of its own.
 
 Every write other than table creation takes `expectedTableRevision`. Chain the
 returned revision into the next write, and re-read after a conflict. Adds and
@@ -1128,11 +1137,38 @@ UUID and returns each row UUID by input position, without inventing a second
 durable identity.
 `edit_lookup_columns` batches add, update, move, remove, and retype operations.
 `edit_lookup_rows` batches add, complete-row update, move, and remove operations.
+It can also `patch` single cells, details or list positions while keeping every
+other value, `assign` the complete set of workers, groups and places that
+receive a row, set `workerAccess` to `assigned` (only those rows reach each
+worker) or `all`, and replace a byte span of a long text value with
+`valueEdit`, which begins, appends base64 chunks of up to 32 KiB, and then
+finishes or cancels under one `operationId`.
 `replace_lookup_rows` replaces the complete row set and mints new row UUIDs for
 the replacement. A batch either lands completely or saves nothing.
 
-Changing a table or column export name, retyping or removing a column, and
-removing a table require admin access. Other writes require edit access. A
+Changing a table's export tag, or the export name of a column or a row or
+value detail, retyping or removing a column, switching a table to share every
+row with everyone, and removing a table require admin access. Other writes
+require edit access.
+
+A change to a table's definition that apps read (row details, value details,
+repeated values or indexing) needs a fresh review. Read
+`get_lookup_table_rows` with `readerPage` at offset 0, show the user the apps it
+lists, and send the change with `reviewed` holding that Project revision and
+those app IDs. If the apps or the revision moved in between, the change is
+refused with the current readers, and you review again.
+
+A tag or export name starts with a letter or an underscore and goes on with
+letters, digits, underscores, hyphens and periods: `site_code` and `site.name`
+both work. Some places only read plain names: CommCare HQ changes a period in
+a case list filter or display condition, a menu reads a table only by a tag of
+letters, digits, underscores and hyphens, Android reads fewer characters
+than Web Apps, a form reads a table only by a tag of unaccented letters,
+digits, underscores, hyphens and periods, and a display condition reads a
+table or column only by such a name. A form's choices and logic can read a
+column named `région`. A rename is checked against every app and accepted design that
+uses the table, and refused with the app, the place and a suggested name like
+`district_code` where the new name won't work there. A
 referenced table or column cannot be removed, incompatible values block a
 retype, and the final column cannot be removed. A stale write returns the
 current revision, and a destructive refusal states whether an app or accepted
@@ -1153,15 +1189,19 @@ child or sibling repeating section.
 | Tool | What it does |
 |---|---|
 | `get_lookup_tables` | List this app Project's table definitions without row values, including stable column UUIDs, counts, byte use, and revision axes. A table with `managed_in_commcare_hq` (`project_space`, `refreshed_at`) is a copy of a table that lives in CommCare HQ: read it freely. Its rows and columns change in CommCare HQ, and changing them here is refused. |
-| `get_lookup_table_rows` | Read a snapshot-bound page of one table's ordered rows, optionally narrowed by text query or column projection. |
+| `get_lookup_table_rows` | Read a snapshot-bound page of one table's ordered rows, optionally narrowed by text query or column projection; or, by themselves, the apps that use the table (`readerPage`), a slice of one long value (`valueSlice`), or a row's assignments and the workers, groups and places to assign (`assignments`). |
+| `get_worker_groups` | Find workers, groups and places in the Project by name and kind; open one group's name, case sharing, details and members by `groupId`; or, with `target`, list approved project spaces, find a CommCare HQ group by its exact name, and review it before connecting it. |
+| `edit_worker_group` | Create or change a worker group, its details, whether it shares cases, or one worker's membership, at the Project revision you read and with one `operationId` for retries; or connect a CommCare HQ group you reviewed with `get_worker_groups`. |
+| `inspect_lookup_source` | Check where a table's rows come from with your approved CommCare HQ connection: a fresh check of one mobile worker or your connected account (`worker`) with a small row sample, a freshly downloaded table workbook the user approved (`workbook`), one row of the source inventory (`inventory-row`), or the last recorded check (`receipt`). |
 | `create_lookup_table` | Create a complete table schema plus optional initial rows atomically and return every minted table, column, and row UUID. |
 | `update_lookup_table` | Change one table's display name or export tag at the expected table revision. |
 | `edit_lookup_columns` | Apply one atomic batch of UUID-addressed add, update, move, remove, or retype column operations. |
-| `edit_lookup_rows` | Apply one atomic batch of UUID-addressed add, whole-row update, move, or remove row operations. |
+| `edit_lookup_rows` | Apply one atomic batch of UUID-addressed add, whole-row update, patch, move, assign, or remove row operations, set `workerAccess`, or replace a byte span of one long value with `valueEdit`. |
 | `replace_lookup_rows` | Replace every row atomically from structured values, returning the replacement row UUIDs. |
 | `remove_lookup_table` | Remove an unreferenced table at the expected revision. |
 | `refresh_managed_data` | Read a lookup table (`table_id`) or an app's places (`app_id`) of the Project (`project_id`) again from the project space that manages them, and answer what changed. Give exactly one of `table_id` and `app_id`. Requires `nova.hq.import`. |
-| `set_lookup_table_management` | Hand a lookup table (`table_id`) of the Project (`project_id`) to Nova (`managed_by: "nova"`) or back to CommCare HQ (`"commcare-hq"`). Without `review_digest` it answers what the change does, which apps read the table and a `review_digest`, and writes nothing; show that to the user and ask, then send the same call again with that `review_digest`. If the table or the apps that read it changed in between, nothing changes and the answer (`reason: "review-moved"`) is the preview as it stands now, with a new `review_digest`. Requires `nova.hq.write` and `nova.hq.import`. |
+| `set_lookup_table_management` | Hand a lookup table (`table_id`) of the Project (`project_id`) to Nova (`managed_by: "nova"`) or back to CommCare HQ (`"commcare-hq"`). Without `review_digest` it answers what the change does, which apps read the table and a `review_digest`, and writes nothing; show that to the user and ask, then send the same call again with that `review_digest`. If the table or the apps that read it changed in between, nothing changes and the answer (`reason: "review-moved"`) is the preview as it stands now, with a new `review_digest`. For a table made in Nova that a publish put in a project space, `managed_by: "commcare-hq"` with `source_domain` (and `source_server` where two servers hold that name) takes that project space's table, which CommCare HQ manages from then on; without `source_domain` the answer lists those project spaces in `sources`. Requires `nova.hq.write` and `nova.hq.import`. |
+| `separate_lookup_table` | Make a new Project table from the columns and rows a table (`table_id`) has now, and point the apps the user chooses (`app_ids`) at it under a new `name` and export `tag`. The old table and the other apps stay as they are. Without `review_digest` it answers what it does, the apps that read the table, a vacant `suggested` name and tag and a `review_digest`, and writes nothing. Only for a table every worker receives. |
 | `set_field_options_source` | Replace a choice field's complete inline or lookup source, including an optional lookup row filter, addressed by `moduleUuid`, `formUuid`, and `fieldUuid`. |
 
 ## Changing cases on submission
@@ -1408,7 +1448,7 @@ queries of records in form expressions, and the same change updates each one.
 
 ## Working with media
 
-You can attach images, audio, and video to parts of an app, a field's label or help, a dropdown choice, a module or form menu tile, or the app logo. First upload the files, then attach them by their asset id. Every attach checks the asset before anything saves: it must be in your library, fully uploaded, and the right type for the slot (an audio file can't become a menu icon), and the app's total attached media must stay within the export limit. A bad id fails the call with a message saying what to fix, and nothing is saved.
+You can attach images, audio, and video to parts of an app, a field's label or help, a dropdown choice, a module or form menu tile, or the app logo. First upload the files, then attach them by their asset id. Every attach checks the asset before anything saves: it must be in your library, fully uploaded, and the right type for the slot (an audio file can't become a menu icon), and in a format that plays on every platform the app runs on. A bad id fails the call with a message saying what to fix, and nothing is saved.
 
 | Tool | What it does |
 |---|---|
@@ -1457,6 +1497,8 @@ the result as a `nova_manual_import_guide` block. The import file works in any
 project space, so it takes no `domain`; `server` only chooses where its case
 attachment links open.
 
+A publish that stops for destination place IDs can be resumed after a workbook import. `prepare_place_id_workbook` takes `app_id`, `server` and `domain`. Download the returned private resource with the same authorized editor credential. The person importing it can verify each destination row on CommCare HQ’s Organization page. Call the upload tool again to verify the saved IDs and finish the publish.
+
 `get_entry_point_link` takes `app_id`, `server`, `domain`,
 `entry_point_uuid`, and `selections: [{ module_uuid, case_ids }]`. Supply every
 required selection from `get_entry_points`, using **external case IDs from
@@ -1486,6 +1528,8 @@ Recipients still authenticate and need the relevant app and case access.
 | `withdraw_deployment_confirmation` | Withdraw something the user confirmed about a project space: `kind` is `plan-feature` (with its `subject`), `flat-location-fixture`, `connect-forwarder`, `form-entry-sync-off`, `commtrack-off`, or `worker-level` (with the level's code as `subject`). The next upload there asks about it again, or for a level, the next `provision_workers` that stands a worker there. Commcare Nova keeps who confirmed it and who withdrew it. Requires `nova.hq.write` and edit access; returns the deployment. |
 | `stop_publishing` | Stop publishing an app to one project space, given the `hq_app_id` `get_deployment` shows there. The app in CommCare HQ stays; a later upload makes a new app beside it. Sending it again for the same `hq_app_id` answers the stopped deployment, and `deployment_changed` means the app publishes to a different HQ app there now, so nothing was stopped. Admins and owners of the app's Project only. Requires `nova.hq.write`. |
 | `provision_workers` | Create CommCare mobile-worker accounts on a project space for the app's personas, or bring existing ones into step with what the app says. The app must already be published there. Each new account carries that persona's worker information and places, and comes back with a password that exists only in that answer. |
+
+Small ordinary files arrive as base64. For a large file or a private data file, the tool returns a download receipt with its byte length, SHA-256 digest, expiration and a resource URI. Read the URI with the same connection and follow each next resource until the final range. If the underlying data or your access changes, prepare a fresh download. The ordinary import file leaves each worker’s private rows in their project space. A large table can travel in its own numbered workbook. Each workbook lists the complete tables it installs in the accompanying README.
 
 <Callout type="info">
 An upload never changes your Commcare Nova copy. If the linked HQ app was deleted on HQ, the upload refuses with `remote_app_missing` and tells you that uploading again will create a fresh one. The deployment record names anything an earlier upload left behind, under `left_behind`, so you can archive or delete it on HQ. Commcare Nova never deletes a resource it put on a project space.

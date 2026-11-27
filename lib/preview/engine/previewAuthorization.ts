@@ -1,11 +1,8 @@
+import { uuidSchema as workerUuidSchema } from "@/lib/domain/uuid";
 import "server-only";
 import { type AppCapability, roleAllowsApp } from "@/lib/auth/projectRoles";
 import { getSession } from "@/lib/auth-utils";
-import {
-	type CaseStore,
-	type RestoreScope,
-	withProjectContext,
-} from "@/lib/case-store";
+import { type CaseStore, withProjectContext } from "@/lib/case-store";
 import {
 	resolveAppScope,
 	resolveAuthorizedAppSnapshot,
@@ -28,7 +25,6 @@ import {
 import { effectiveAppLocalization } from "@/lib/domain/localization";
 import { declaredPlatforms } from "@/lib/domain/platforms";
 import { log } from "@/lib/logger";
-import type { LookupScope } from "@/lib/lookup/types";
 import { schemaHealingCaseStore } from "./caseDataBindingHelpers";
 import {
 	previewAsMe,
@@ -40,7 +36,8 @@ import {
 	type PreviewDevice,
 	previewDeviceInput,
 } from "./previewDevice";
-import { resolveRestoreScope } from "./restoreScope";
+import { resolveRestoreScope, type WorkerRestoreScope } from "./restoreScope";
+import type { PreviewLookupScope } from "./workerLookupScope";
 
 // Request authentication stays outside the production I/O helpers, which also
 // serve explicitly authorized background and disposable-test transactions.
@@ -93,7 +90,7 @@ export type AuthorizedPreviewContext =
 			 */
 			device: PreviewDevice;
 			store: CaseStore;
-			scope: LookupScope;
+			scope: PreviewLookupScope;
 			blueprint?: PersistableDoc;
 			baseSeq?: number;
 			/**
@@ -112,7 +109,7 @@ export type AuthorizedPreviewContext =
 			 * The worker's claims are case rows it owns, so the scope's owned
 			 * seed already holds them and their hosts.
 			 */
-			restoreScope: RestoreScope;
+			restoreScope: WorkerRestoreScope;
 	  };
 
 export const PERSONA_UNAVAILABLE_MESSAGE =
@@ -139,7 +136,7 @@ export async function resolveAuthorizedPreviewContext(args: {
 		args.device === undefined ? undefined : previewDeviceInput(args.device);
 	const session = await getSession();
 	const memberIdentity = previewAsMe(session?.user);
-	if (memberIdentity === null) return { kind: "unauthenticated" };
+	if (!session || memberIdentity === null) return { kind: "unauthenticated" };
 
 	// The app id is client input. Blueprint-needed paths use the locked
 	// authorization snapshot so membership, Project, cursor, and document
@@ -247,6 +244,7 @@ export async function resolveAuthorizedPreviewContext(args: {
 	});
 
 	const restoreScope = await resolveRestoreScope({
+		projectId: access.projectId,
 		appId: args.appId,
 		identity: identityOnRecord,
 		blueprint,
@@ -260,6 +258,17 @@ export async function resolveAuthorizedPreviewContext(args: {
 		scope: {
 			projectId: access.projectId,
 			actorId: identityOnRecord.actorUserId,
+			worker: {
+				scope: {
+					appId: args.appId,
+					projectId: access.projectId,
+					actorUserId: identityOnRecord.actorUserId,
+				},
+				grant: { kind: "session", sessionId: session.session.id },
+				personaUuid: workerUuidSchema
+					.optional()
+					.parse(identityOnRecord.personaUuid),
+			},
 			role: access.role,
 		},
 		...(blueprint !== undefined && { blueprint }),

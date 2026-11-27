@@ -1,3 +1,4 @@
+import { mediaUploadStream } from "./hq/uploadStream";
 /**
  * CommCare HQ REST API client — server-side only.
  *
@@ -49,12 +50,12 @@ import {
 import { type HqReadDeadline, withHqRequestDeadline } from "./hq/deadline";
 import { classifyHqFailure, type HqFailure } from "./hq/failure";
 import {
-	baseUrl,
 	type CommCareApiError,
 	type CommCareCredentials,
 	delay,
 	HQ_MALFORMED_ANSWER,
 	type HqAnswer,
+	hqDomainPath,
 	hqTextFacts,
 	isEdgeRefusal,
 	isHqCount,
@@ -70,16 +71,13 @@ import {
 import { isHqObject, readHqCollection } from "./hq/readCollection";
 import { readHqJson } from "./hq/readJson";
 import { HQ_THROTTLE_MAX_WAIT_MS } from "./hq/throttle";
-/** Private compatibility inputs stay behind the CommCare boundary: the probe
- * takes its plan as data, and the one flag this client reads by name comes
- * from `hqPrivateFeatureFlag`, so its slug is the probe's own. */
+/** Project flag slugs are resolved from the pinned domain-scoped gate definitions. */
 import type {
 	HqPrivateFeatureFlagRequirement,
 	HqProjectSpaceAdvisoryProbePlan,
 	HqProjectSpaceCapabilityProbePlan,
 	HqProjectSpaceCompatibilityProbePlan,
 } from "./projectSpaceCompatibility";
-import { hqPrivateFeatureFlag } from "./projectSpaceCompatibility";
 import { domainFeatureFlag } from "./surface/gates";
 
 /* The HQ wire primitives live in `./hq/http` so every driver shares one
@@ -153,7 +151,7 @@ async function listDomainsMatching(
 	if (featureFlag) query.set("feature_flag", featureFlag);
 	const list = await readHqCollection(creds, {
 		label: "project space list",
-		firstUrl: `${baseUrl(creds)}/api/user_domains/v1/?${query.toString()}`,
+		firstUrl: `/api/user_domains/v1/?${query.toString()}`,
 		maxPages: 51,
 		maxRows: HQ_PROJECT_SPACE_LIST_MAX_ROWS,
 		maxBytes: HQ_PROJECT_SPACE_LIST_MAX_BYTES,
@@ -432,7 +430,7 @@ async function probeCaseSearchRuntime(
 	try {
 		return await runBoundedCompatibilityProbe(async ({ signal }) => {
 			const query = new URLSearchParams({ case_type: CASE_SEARCH_PROBE_TYPE });
-			const url = `${baseUrl(creds)}/a/${domain}/phone/search/?${query.toString()}`;
+			const url = `${hqDomainPath(domain)}/phone/search/?${query.toString()}`;
 			const response = await getResendingUnanswered(
 				() => sendHq(creds, url, { signal }),
 				signal,
@@ -587,11 +585,9 @@ function notAMemberProjectSpaceResult(
 	};
 }
 
-/** Whether CommCare HQ's builds in a project space save an answer only when the worker changed it. */
-export type HqSaveOnlyEditedAnswers =
-	/** The project space holds the flag: CommCare HQ's build compares before it saves. */
+/** Whether CommCare HQ applies the named feature to this source project. */
+export type HqSourceProjectFlag =
 	| { readonly kind: "applied" }
-	/** The project space does not hold it: CommCare HQ's build saves every time. */
 	| { readonly kind: "not-applied" }
 	/** The key's own list of project spaces answered and does not hold this one. */
 	| { readonly kind: "not-a-member" }
@@ -615,8 +611,25 @@ export async function readHqSaveOnlyEditedAnswers(
 	creds: CommCareCredentials,
 	domain: string,
 	options: { readonly cancel?: AbortSignal } = {},
-): Promise<HqSaveOnlyEditedAnswers> {
-	const failed = (error: CommCareApiError): HqSaveOnlyEditedAnswers => ({
+): Promise<HqSourceProjectFlag> {
+	return readHqSourceFlag(
+		creds,
+		domain,
+		"SAVE_ONLY_EDITED_FORM_FIELDS",
+		options,
+	);
+}
+
+export async function readHqSourceFlag(
+	creds: CommCareCredentials,
+	domain: string,
+	symbol:
+		| "HIERARCHICAL_LOCATION_FIXTURE"
+		| "MOBILE_UCR"
+		| "SAVE_ONLY_EDITED_FORM_FIELDS",
+	options: { readonly cancel?: AbortSignal } = {},
+): Promise<HqSourceProjectFlag> {
+	const failed = (error: CommCareApiError): HqSourceProjectFlag => ({
 		kind: "failed",
 		failure: classifyHqFailure(error, "project-spaces"),
 	});
@@ -631,7 +644,7 @@ export async function readHqSaveOnlyEditedAnswers(
 	if (!Array.isArray(visible)) return failed(visible);
 	if (!visible.some((candidate) => candidate.name === domain))
 		return { kind: "not-a-member" };
-	const flag = hqPrivateFeatureFlag("save-only-edited-answers");
+	const flag = domainFeatureFlag(symbol);
 	const flagged = await list(flag.slug);
 	if (!Array.isArray(flagged)) {
 		/* A slug HQ no longer knows answers 400, which is Nova's to fix. */
@@ -843,8 +856,7 @@ export async function importApp(
 	) {
 		return { success: false, status: 400 };
 	}
-	const base = baseUrl(creds);
-	const url = `${base}/a/${domain}/apps/api/import_app/`;
+	const url = `${hqDomainPath(domain)}/apps/api/import_app/`;
 	const appFile = JSON.stringify(appJson);
 
 	/* Multipart form: waf_padding (see WAF_PADDING) + app_name (string) +
@@ -1098,27 +1110,20 @@ export async function uploadAppMediaBundle(
 	creds: CommCareCredentials,
 	domain: string,
 	appId: string,
-	zipBytes: Buffer,
+	zipBytes: Buffer | AsyncIterable<Uint8Array>,
 	options: {
 		/**
 		 * Called once with the job id HQ named, the moment it accepted the
 		 * ZIP and before any status read: whatever the reads answer after it,
 		 * the job may run, and the caller holds the id it is polled by.
 		 */
-		readonly onAccepted?: (processingId: string) => void;
+		readonly onAccepted?: (processingId: string) => void | Promise<void>;
 	} = {},
 ): Promise<MediaBundleUploadResult | CommCareApiError> {
 	if (!isValidDomainSlug(domain) || !/^[\w-]+$/.test(appId)) {
 		return { success: false, status: 400 };
 	}
-	const base = `${baseUrl(creds)}/a/${domain}/apps/api/${appId}/multimedia`;
-	const formData = new FormData();
-	formData.append("waf_padding", WAF_PADDING);
-	formData.append(
-		"bulk_upload_file",
-		new Blob([new Uint8Array(zipBytes)], { type: "application/zip" }),
-		"multimedia.zip",
-	);
+	const base = `${hqDomainPath(domain)}/apps/api/${appId}/multimedia`;
 	const controller = new AbortController();
 	const timer = setTimeout(
 		() => controller.abort(),
@@ -1128,7 +1133,14 @@ export async function uploadAppMediaBundle(
 	try {
 		const response = await sendHq(creds, `${base}/`, {
 			method: "POST",
-			body: formData,
+			...mediaUploadStream(
+				Buffer.isBuffer(zipBytes)
+					? (async function* () {
+							yield zipBytes;
+						})()
+					: zipBytes,
+				controller.signal,
+			),
 			signal: controller.signal,
 		});
 		if (!response.ok)
@@ -1149,6 +1161,7 @@ export async function uploadAppMediaBundle(
 		return { success: false, status: 503 };
 	} finally {
 		clearTimeout(timer);
+		controller.abort();
 	}
 	if (!isHqObject(started)) return { success: false, status: 502 };
 	if (started.success === false) return { success: false, status: 422 };
@@ -1158,7 +1171,7 @@ export async function uploadAppMediaBundle(
 		!/^[\w-]+$/.test(started.processing_id)
 	)
 		return { success: false, status: 502 };
-	options.onAccepted?.(started.processing_id);
+	await options.onAccepted?.(started.processing_id);
 	return pollMediaBundleStatus(
 		creds,
 		domain,
@@ -1190,7 +1203,7 @@ export async function readAppMediaBundleStatus(
 		!/^[\w-]+$/.test(processingId)
 	)
 		return "unknown";
-	const base = `${baseUrl(creds)}/a/${domain}/apps/api/${appId}/multimedia`;
+	const base = `${hqDomainPath(domain)}/apps/api/${appId}/multimedia`;
 	const status = await pollMediaBundleStatus(
 		creds,
 		domain,
@@ -1277,6 +1290,22 @@ async function pollMediaBundleStatus(
 					unmatchedFiles.push({ path: file.path, reason: file.reason });
 				}
 				if (status.complete) {
+					if (status.skipped_files !== undefined) {
+						if (!Array.isArray(status.skipped_files))
+							return { success: false, status: 502 };
+						for (const skipped of status.skipped_files) {
+							if (
+								!isHqObject(skipped) ||
+								typeof skipped.path !== "string" ||
+								!skipped.path
+							)
+								return { success: false, status: 502 };
+							unmatchedFiles.push({
+								path: skipped.path,
+								reason: "CommCare HQ skipped this file.",
+							});
+						}
+					}
 					const matchedFiles = matchedMediaFiles(status.matched_files);
 					if (matchedFiles === null)
 						log.warn("[commcare] media bundle report names no matched ids", {
@@ -1357,7 +1386,7 @@ export async function readAppVersions(
 ): Promise<HqAppVersions | CommCareApiError> {
 	if (!isValidDomainSlug(domain) || !/^[\w-]+$/.test(hqAppId))
 		return { success: false, status: 400 };
-	const url = `${baseUrl(creds)}/a/${domain}/apps/view/${encodeURIComponent(hqAppId)}/current_version/`;
+	const url = `${hqDomainPath(domain)}/apps/view/${encodeURIComponent(hqAppId)}/current_version/`;
 	const result = await readHqJson(creds, url, "app versions", {
 		maxBytes: HQ_APP_VERSIONS_MAX_BYTES,
 		cancel: options.cancel,
@@ -1457,7 +1486,7 @@ export async function readBuildXml(
 	const send = () =>
 		sendHq(
 			creds,
-			`${baseUrl(creds)}/a/${domain}/apps/download/${encodeURIComponent(buildId)}/${resource}`,
+			`${hqDomainPath(domain)}/apps/download/${encodeURIComponent(buildId)}/${resource}`,
 			{ accept: "application/xml", noStore: true, signal: controller.signal },
 		);
 	try {

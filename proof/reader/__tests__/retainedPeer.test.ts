@@ -144,6 +144,48 @@ describe("withRetainedHq", () => {
 		expect(connects).not.toHaveBeenCalled();
 	});
 
+	it("keeps the source project's flag answers distinct", async () => {
+		const base = "/api/user_domains/v1/?limit=100";
+		const locations = `${base}&feature_flag=hierarchical_location_fixture`;
+		const mobile = `${base}&feature_flag=mobile_ucr`;
+		const answers = {
+			...ANSWERS,
+			projectSpaces: {
+				all: { status: 200, body: "member" },
+				flagged: { status: 200, body: "save on edit" },
+			},
+			sourceFactoryReads: {
+				[locations]: { status: 200, body: "hierarchical" },
+				"membership:hierarchical_location_fixture": {
+					status: 200,
+					body: "reader",
+				},
+			},
+		};
+		const bodies = await withRetainedHq(answers, async () => {
+			const seen = [];
+			for (const path of [
+				base,
+				`${base}&feature_flag=save-only-edited-form-fields`,
+				base,
+				locations,
+			])
+				seen.push(await (await fetch(ORIGIN + path)).text());
+			return seen;
+		});
+		expect(bodies).toEqual([
+			"member",
+			"save on edit",
+			"reader",
+			"hierarchical",
+		]);
+		await expect(
+			withRetainedHq(answers, async () => {
+				await fetch(ORIGIN + mobile).catch(() => undefined);
+			}),
+		).rejects.toThrow(RetainedAnswerMissing);
+	});
+
 	it("refuses a second request of an answer it already gave", async () => {
 		const path = `/a/${LANE_TARGET.domain}/api/application/v1/${APP_ID}/`;
 		const run = withRetainedHq(ANSWERS, async () => {
@@ -152,6 +194,25 @@ describe("withRetainedHq", () => {
 			await fetch(`${ORIGIN}${path}`).catch(() => undefined);
 		});
 		await expect(run).rejects.toThrow(new RetainedAnswerMissing(path));
+	});
+
+	it("gives a table's rows again, as an unchanged HQ answers a rich table's second observation", async () => {
+		const plainId = (
+			retainedBodyJson(retainedGroupRead("lookups/lookup-tables")).objects as {
+				id: string;
+				tag: string;
+			}[]
+		).find((table) => table.tag === "plain")?.id;
+		const path = `/a/${LANE_TARGET.domain}/api/fixture/v1/?fixture_type_id=${plainId}`;
+		const { bodies, asked } = await withRetainedHq(ANSWERS, async (peer) => {
+			const seen = [];
+			for (let read = 0; read < 3; read++)
+				seen.push(await (await fetch(`${ORIGIN}${path}`)).text());
+			return { bodies: seen, asked: peer.asked() };
+		});
+		const body = ANSWERS.projectData.fixtureRows.plain.body;
+		expect(bodies).toEqual([body, body, body]);
+		expect(asked).toEqual(["fixtureRows:plain"]);
 	});
 
 	it("refuses a request to any other host", async () => {

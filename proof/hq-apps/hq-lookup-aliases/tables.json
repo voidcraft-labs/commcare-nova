@@ -1,0 +1,110 @@
+[
+	{
+		"tag": "commcaresession",
+		"is_global": true,
+		"description": "",
+		"fields": [
+			{
+				"name": "id",
+				"properties": [],
+				"is_indexed": false
+			},
+			{
+				"name": "name",
+				"properties": [],
+				"is_indexed": false
+			}
+		],
+		"item_attributes": [],
+		"rows": [
+			{
+				"fields": {
+					"id": [
+						{
+							"value": "initial",
+							"properties": {}
+						}
+					],
+					"name": [
+						{
+							"value": "First visit",
+							"properties": {}
+						}
+					]
+				},
+				"item_attributes": {}
+			},
+			{
+				"fields": {
+					"id": [
+						{
+							"value": "follow_up",
+							"properties": {}
+						}
+					],
+					"name": [
+						{
+							"value": "Follow-up",
+							"properties": {}
+						}
+					]
+				},
+				"item_attributes": {}
+			}
+		]
+	},
+	{
+		"tag": "locations",
+		"is_global": true,
+		"description": "",
+		"fields": [
+			{
+				"name": "id",
+				"properties": [],
+				"is_indexed": false
+			},
+			{
+				"name": "name",
+				"properties": [],
+				"is_indexed": false
+			}
+		],
+		"item_attributes": [],
+		"rows": [
+			{
+				"fields": {
+					"id": [
+						{
+							"value": "school",
+							"properties": {}
+						}
+					],
+					"name": [
+						{
+							"value": "School yard",
+							"properties": {}
+						}
+					]
+				},
+				"item_attributes": {}
+			},
+			{
+				"fields": {
+					"id": [
+						{
+							"value": "clinic",
+							"properties": {}
+						}
+					],
+					"name": [
+						{
+							"value": "Health center",
+							"properties": {}
+						}
+					]
+				},
+				"item_attributes": {}
+			}
+		]
+	}
+]

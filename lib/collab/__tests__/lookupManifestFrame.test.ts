@@ -41,6 +41,40 @@ describe("lookup manifest stream frames", () => {
 		expect(parseLookupManifestFrame(JSON.stringify(exact))).toEqual(exact);
 	});
 
+	it("relays tables beyond one edit and keeps protected source counts unavailable", () => {
+		const wide = {
+			...MANIFEST.tables[0],
+			columnCount: 300,
+			rowCount: 6000,
+			dataBytes: 9000000,
+		};
+		const hq = {
+			server: "production",
+			domain: "demo",
+			remoteId: "r",
+			managedBy: "commcare-hq",
+			source: {
+				inventory: "unavailable",
+				distribution: "assigned",
+				indexEvidence: "unobserved",
+			},
+			broughtInAt: "2026-01-01T00:00:00Z",
+			takenOverAt: null,
+			takenOverBy: null,
+		};
+		const frame = (table: unknown) =>
+			parseLookupManifestFrame(
+				JSON.stringify({ ...MANIFEST, tables: [table] }),
+			);
+		expect(frame(wide)?.tables[0]).toEqual(wide);
+		expect(frame({ ...wide, hq })).toBeNull();
+		expect(
+			frame({ ...wide, hq, rowCount: null, dataBytes: null })?.tables[0]
+				.rowCount,
+		).toBeNull();
+		expect(frame({ ...wide, columnCount: 0 })?.tables[0].columnCount).toBe(0);
+	});
+
 	it("rejects malformed JSON, numeric revisions, and inconsistent clocks", () => {
 		expect(parseLookupManifestFrame("not json")).toBeNull();
 		expect(

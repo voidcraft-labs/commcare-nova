@@ -10,6 +10,10 @@
 import { z } from "zod";
 import type { LookupTableId } from "@/lib/domain/lookupIds";
 import { recordFromEntries } from "@/lib/domain/records";
+import {
+	type LookupSourceFacts,
+	lookupSourceFactsSchema,
+} from "@/lib/lookup/source";
 import type { LookupReferencingAppSummary } from "@/lib/lookup/types";
 import { canonicalJsonText } from "@/lib/utils/canonicalJsonText";
 
@@ -30,6 +34,7 @@ export type LookupChoiceOffer =
 	| {
 			readonly offered: false;
 			readonly why:
+				| "needs-source-evidence"
 				| "needs-admin"
 				| "managed-elsewhere"
 				| "app-reads-a-missing-column"
@@ -43,6 +48,7 @@ export type LookupChoiceOffer =
 
 /** JSON, equal for equal CommCare HQ content and equal Project revisions. */
 export interface ReviewTable {
+	readonly source?: LookupSourceFacts;
 	readonly tag: string;
 	/** `LookupTableStanding["kind"]`. */
 	readonly standing: "new" | "same-managed" | "same-equal" | "choice";
@@ -78,6 +84,7 @@ export const lookupChoiceOfferSchema: z.ZodType<LookupChoiceOffer> =
 		z.strictObject({
 			offered: z.literal(false),
 			why: z.enum([
+				"needs-source-evidence",
 				"needs-admin",
 				"managed-elsewhere",
 				"app-reads-a-missing-column",
@@ -90,6 +97,7 @@ export const lookupChoiceOfferSchema: z.ZodType<LookupChoiceOffer> =
 
 export const reviewTableSchema: z.ZodType<ReviewTable> = z.strictObject({
 	tag: z.string().min(1),
+	source: lookupSourceFactsSchema.optional(),
 	standing: z.enum(["new", "same-managed", "same-equal", "choice"]),
 	hqDigest: z.string().regex(/^[0-9a-f]{64}$/),
 	projectTable: z

@@ -29,6 +29,7 @@ HQ's build does) is the build's, in no source class.
 from __future__ import annotations
 
 import json
+import html
 import re
 import unicodedata
 from dataclasses import dataclass
@@ -38,7 +39,7 @@ from lxml import etree
 
 from proof.checks.compare.app_strings import is_locale_file_key
 from proof.checks.compare.names import nova_name
-from proof.observe.manifest import CSQL_HOLES
+from proof.observe.manifest import CSQL_HOLES, form_language_profiles
 from proof.rules._xpath import tokens as xpath_tokens
 
 XFORMS = "http://www.w3.org/2002/xforms"
@@ -125,6 +126,11 @@ def _core_control_path(control):
     return None if text is None else (attribute, text)
 
 
+def scanned_instance_names(text):
+    """HQ suite_xml/post_process/instances.py::get_instance_names on one emitted XPath or full XForm."""
+    return set(re.findall(r"""instance\(\s*['"]([\w\-:]+)['"]\s*\)""", html.unescape(text)))
+
+
 class Form:
     """One XForm as the value classes read it: its tree and, built once, the relations its readers follow (a
     control to its bind, a path to its instance node). Paths are matched as the text HQ, Vellum and Nova
@@ -138,10 +144,62 @@ class Form:
         self.artifact = artifact
         self.readings = None  # proof.checks.manifest_usage.Readings, once the check reads the observation's
         self.app_form = None  # (App, its form object) where an app JSON carries the form
+        self.scans = {}  # per-language-profile readings from HQ's pre-factory pipeline
+        self.read_built_instances = None  # lazily, for an undeclared read in an actual HQ build
         self.case_types = None  # the document's declared types, or the optional metadata a control retained
         # The suites (their roots) whose entries open the form, where the check reads any: HQ's builds of an app
         # JSON's upload, or a local archive's own suite (``manifest_usage.link_entry_suites``).
         self.entry_suites = ()
+
+    @cached_property
+    def scanned_instance_ids(self):
+        """The names HQ actually scanned on every installed language profile of this source."""
+        if self.app_form is None:
+            return set()
+        from proof.checks.manifest_usage import ObservationMissing
+
+        app, _ = self.app_form
+        sets = []
+        for key in form_language_profiles(app.doc):
+            if key not in self.scans:
+                raise ObservationMissing(f"The manifest observation lacks the built form instance scan for {self.artifact}, languages {key}")
+            sets.append(set(self.scans[key].get("names", [])))
+        names = set.intersection(*sets) if sets else set()
+        if self.model is not None:
+            names -= {element.get("id") for element in self.model if element.tag in ("instance", f"{{{XFORMS}}}instance")}
+        return names
+
+    @cached_property
+    def built_instances(self):
+        return self.read_built_instances() if self.read_built_instances is not None else ()
+
+    @cached_property
+    def working_instances(self):
+        """External declarations present in every recorded build and available across language profiles.
+        A declaration present without a default-profile scan was added by HQ's concrete form build."""
+        if not self.built_instances or self.app_form is None:
+            return {}
+        app, form = self.app_form
+        first_profile = next(iter(form_language_profiles(app.doc)), None)
+        default_scan = set(self.scans.get(first_profile, {}).get("names", []))
+        all_profiles = self.scanned_instance_ids
+        direct = {"commcaresession"}
+        actions = form.get("actions") or {}
+        if form.get("doc_type") == "Form" and (
+            (_requires(form) != "none" and (actions.get("case_preload") or {}).get("preload"))
+            or (actions.get("usercase_preload") or {}).get("preload")
+        ):
+            direct.add("casedb")
+        if form.get("doc_type") == "AdvancedForm" and any(
+            isinstance(load, dict) and load.get("preload") for load in actions.get("load_update_cases") or []
+        ):
+            direct.add("casedb")
+        return {
+            name: source
+            for name, source in self.built_instances[0].items()
+            if (name in direct or name in all_profiles or name not in default_scan)
+            and all(instances.get(name) == source for instances in self.built_instances[1:])
+        }
 
     @cached_property
     def xmlns(self):
@@ -361,7 +419,15 @@ class Form:
     @cached_property
     def declared_instances(self):
         """Each ``(id, src)`` the form declares, in order."""
-        return _declared_instances(self.root)
+        return (
+            tuple(
+                (element.get("id"), element.get("src"))
+                for element in self.model
+                if element.tag == f"{{{XFORMS}}}instance" and element.get("id") and element.get("src")
+            )
+            if self.model is not None
+            else ()
+        )
 
     @cached_property
     def counted_repeats(self):
@@ -930,6 +996,35 @@ class App:
         self.forms = {}  # a form's unique_id -> Form
         self.readings = None
         self.case_types = None  # the document's declared types, or the optional metadata a control retained
+
+    @cached_property
+    def detail_sources(self):
+        """Each named detail's common external instance sources across all built entries and suites."""
+        suites = _app_suites(self)
+        if not suites:
+            return None
+        scopes = {}
+        detail_attributes = ("detail-select", "detail-confirm", "detail-inline", "detail-persistent")
+        for suite in suites:
+            known = {detail.get("id") for detail in suite.root.findall("detail")}
+            for entry in suite.root:
+                if entry.tag not in ("entry", "remote-request"):
+                    continue
+                reached = {
+                    datum.get(attr) for datum in entry.iterfind("./session/*")
+                    if datum.tag in ("datum", "instance-datum") for attr in detail_attributes
+                } & known
+                declared = {}
+                for instance in entry.findall("instance"):
+                    name = instance.get("id")
+                    declared[name] = None if name in declared else instance.get("src")
+                sources = {(name, src) for name, src in declared.items() if name and src}
+                for name in reached:
+                    if name in scopes:
+                        scopes[name].intersection_update(sources)
+                    else:
+                        scopes[name] = sources.copy()
+        return {name: dict(values) for name, values in scopes.items()}
 
     @cached_property
     def modules(self):
@@ -5573,9 +5668,12 @@ def hierarchical_locations(use, manifest):
     if document is not None:
         if read is None:
             return None
-        places = {instance_id for instance_id in read if instance_id.split(":", 1)[0] in ("locations", "commtrack")}
+        declarations = dict(document.declared_instances)
+        if isinstance(document, Form) and read - set(declarations):
+            declarations = {**document.working_instances, **declarations}
         verdicts = {
-            _locations_source(source) for instance_id, source in document.declared_instances if instance_id in places
+            _locations_source(source) for instance_id, source in declarations.items() if instance_id in read
+            and source in (FLAT_LOCATIONS, HIERARCHICAL_LOCATIONS)
         }
         if True in verdicts:
             return True
@@ -8246,6 +8344,69 @@ def model_iteration_reading_blank_answer(use, manifest):
     return None if None in verdicts else False
 
 
+def _itemset_read(use):
+    """The actual form or Search itemset slot, parsed as a row-relative XPath by the proof parser."""
+    from proof.checks.xpath_tree import tree
+
+    if isinstance(use.at, JsonAt):
+        item = use.at.nearest("Itemset")
+        if item is None or use.at.key not in ("label", "value", "sort"):
+            return None
+        value = item.get(use.at.key)
+    elif isinstance(use.at, XmlAt):
+        element = use.at.element
+        parent = element.getparent()
+        if parent is None or _local(parent) != "itemset" or _local(element) not in ("label", "value", "sort"):
+            return None
+        value = element.get("ref")
+    else:
+        return None
+    return tree(value) if isinstance(value, str) else None
+
+
+# What ends a name step for every XPath reader of an itemset reference: whitespace, quotes and XPath's operator
+# and delimiter characters. ``:`` is left out with them, as it may start a QName's local part.
+_STEP_BREAKS = frozenset(" \t\r\n'\"/[]()@=<>!|*+,:$")
+
+
+def _one_non_ascii_step(element):
+    """For an itemset ``ref`` the proof's parser leaves unread because it holds a non-ASCII character (it reads ASCII
+    alone, ``proof.rules._xpath``): whether it is no single child or ``@`` attribute step, the shape Vellum's
+    ``itemset.js::validateRefWidget`` compares as a string with the table's fields and attributes. A text that is one
+    such step is decided editable (False); whether Core reads its characters as a name is the business of
+    ``expressions-and-data/tag-or-field-name-core-s-xpath-lexer-does-not-read-as-a-name-any``. Any other text
+    stays undecided (None)."""
+    if element is None or _local(element) not in ("label", "value", "sort"):
+        return None
+    ref = element.get("ref")
+    if not isinstance(ref, str) or ref.isascii():
+        return None
+    name = ref[1:] if ref.startswith("@") else ref
+    if not name or set(name) & _STEP_BREAKS:
+        return None
+    return False
+
+
+def form_itemset_ref_uneditable(use, manifest):
+    from proof.rules import _xpath
+
+    form, element = _form_element(use)
+    if form is None:
+        return None
+    read = _itemset_read(use)
+    if read is None:
+        return _one_non_ascii_step(element)
+    if read[:2] == ("call", "jr:itext"):
+        return False
+    if read[:3] != ("path", None, None):
+        return True
+    steps = [step for step in read[3] if step[1] != "self"]
+    if len(steps) != 1 or steps[0][1] not in ("child", "attribute"):
+        return True
+    # A literal opening bracket interrupts Vellum's predicate stripping.
+    return any(tok.kind == "STR" and "[" in tok.text for tok in _xpath.tokens(element.get("ref")))
+
+
 def itemset_label_itext(use, manifest):
     """``questions/itemset-label-jr-itext-field``: an itemset label whose ``ref`` calls ``jr:itext``, which Vellum's
     lookup table widget does not find among a table's fields (``itemset.js::validateRefWidget``). Read from Core's
@@ -9704,6 +9865,7 @@ VALUE_CLASSES = {
     "questions/validation-message-without-a-validation-condition": message_without_condition,
     "questions/literal-jr-constraintmsg-text-no-itext": literal_validation_message,
     "questions/bind-readonly": authored_readonly,
+    "questions/lookup-choice-reference-the-form-editor-cannot-keep": form_itemset_ref_uneditable,
     "questions/itemset-label-jr-itext-field": itemset_label_itext,
     "questions/markdown-form-differing-from-the-default-text": markdown_differing,
     "questions/a-label-with-a-markdown-form-in-some-languages-only-as-hq-s-bulk": markdown_in_some_languages,

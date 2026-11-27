@@ -127,6 +127,7 @@ import {
 	formFieldDisambiguator,
 	formFieldDisplayLabel,
 } from "../../formFieldPresentation";
+import { LookupValuePicker } from "../../LookupValuePicker";
 import { rebuildLiteralPreservingDataType } from "../../literalRebuild";
 import { lookupColumnDisplayLabel } from "../../lookupTablePresentation";
 import type { EditorPath } from "../../path";
@@ -1363,6 +1364,34 @@ function TableColumnRefMenu({
 	const ctx = usePredicateEditContext();
 	const triggerRef = useRef<HTMLButtonElement>(null);
 	const scope = ctx.tableScope;
+	const pickerId = useId();
+	if (
+		scope &&
+		(scope.attributes?.length ||
+			scope.columns.some((column) => column.repeated))
+	) {
+		return (
+			<LookupValuePicker
+				id={pickerId}
+				label="Value from this row"
+				value={value.columnId}
+				table={{
+					id: scope.tableId,
+					name: "Row",
+					columns: scope.columns.filter(
+						(column) =>
+							constraint.accepts === "any" ||
+							acceptsType(constraint, column.dataType),
+					),
+					attributes:
+						constraint.accepts === "any" || acceptsType(constraint, "text")
+							? scope.attributes
+							: [],
+				}}
+				onChange={(read) => onChange(tableColumn(scope.tableId, read))}
+			/>
+		);
+	}
 	const current =
 		scope?.tableId === value.tableId
 			? scope.columns.find((column) => column.id === value.columnId)

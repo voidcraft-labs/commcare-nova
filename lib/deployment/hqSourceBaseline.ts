@@ -229,6 +229,10 @@ function project(
 	settings.add_ons = pick(source.add_ons, ownership.addOns);
 	settings.profile = ownedProfilePart(source.profile, ownership);
 	if (ownership.autoGpsCapture) copyKey(settings, source, "auto_gps_capture");
+	/* HQ holds `case_sharing` false unless someone turned it on, and an
+	 * import that leaves the key out keeps HQ's value: an absent key is off. */
+	if (ownership.caseSharing)
+		settings.case_sharing = source.case_sharing === true;
 	const text: JsonObject = {};
 	/* The body carries the target's own keys back, so only Nova's part of
 	 * `translations` is compared, and a key a person saved in HQ is none. */

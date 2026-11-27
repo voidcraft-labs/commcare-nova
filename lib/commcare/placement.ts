@@ -1070,7 +1070,10 @@ function deriveReadsTrimmedSibling(
 	doc: BlueprintDoc,
 	formUuid: Uuid,
 ): (operationUuid: Uuid) => boolean {
-	const placed = placedBasic(doc, formUuid);
+	// Derived here, not read through `placedBasic`'s cache: the predicate is
+	// this form's own closure either way, and the result is held per form by
+	// `readsTrimmedSibling`'s cache.
+	const placed = derivePlacedBasic(doc, formUuid);
 	const { placements } = planPlacements(doc, formUuid);
 	const f = caseSlotFacts(doc, formUuid);
 	return (operationUuid) => {

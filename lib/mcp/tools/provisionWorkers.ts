@@ -118,7 +118,7 @@ import type {
 	WorkerRefusalCode,
 } from "@/lib/deployment/workers";
 import { provisionWorkers } from "@/lib/deployment/workers";
-import { readOrganization } from "@/lib/organization/service";
+import { readPlaceOverview } from "@/lib/organization/pages";
 import {
 	type McpToolErrorResult,
 	type McpToolSuccessResult,
@@ -272,7 +272,7 @@ export function registerProvisionWorkers(
 				};
 				/* The places, so a refusal can name the one a persona stands
 				 * in rather than making somebody look up a uuid. */
-				const organization = await readOrganization({
+				const organization = await readPlaceOverview({
 					appId: args.app_id,
 					projectId: access.projectId,
 					role: access.role,

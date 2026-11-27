@@ -271,6 +271,7 @@ async function populatedApp() {
  * places, worker records), which this document-only harness cannot supply. */
 const readInputs: Record<ReadToolName, readonly unknown[] | null> = {
 	getLookupTables: null,
+	getWorkerGroups: null,
 	getLookupTableRows: null,
 	evaluateForm: null,
 	readAppTest: null,

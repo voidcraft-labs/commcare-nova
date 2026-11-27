@@ -1,7 +1,7 @@
 import type { MediaKind } from "@/lib/domain/multimedia";
 import type { BuilderSessionStoreApi } from "@/lib/session/provider";
 import { type MediaAssetView, uploadMediaAsset } from "./mediaClient";
-import type { AttachBudgetVerdict } from "./useAttachBudget";
+import type { AttachGuardVerdict } from "./useAttachGuard";
 
 /** The transfer belongs to the Project; only its final attachment edits the
  * blueprint. A lost attachment destination never queues a later mutation. */
@@ -10,7 +10,7 @@ export async function uploadToStagedSlot({
 	slotKey,
 	kind,
 	file,
-	checkAttachBudget,
+	checkAttach,
 	onReady,
 	onRetained,
 }: {
@@ -18,7 +18,7 @@ export async function uploadToStagedSlot({
 	slotKey: string;
 	kind: MediaKind;
 	file: File;
-	checkAttachBudget: (asset: MediaAssetView) => Promise<AttachBudgetVerdict>;
+	checkAttach: (asset: MediaAssetView) => Promise<AttachGuardVerdict>;
 	onReady: (asset: MediaAssetView) => void;
 	onRetained: () => void;
 }): Promise<void> {
@@ -82,9 +82,9 @@ export async function uploadToStagedSlot({
 		}
 		if (!ownsTransfer()) return;
 		if (retainInLibrary()) return;
-		let verdict: AttachBudgetVerdict;
+		let verdict: AttachGuardVerdict;
 		try {
-			verdict = await checkAttachBudget(asset);
+			verdict = await checkAttach(asset);
 		} catch {
 			// The file is already confirmed. A failed attachment check must
 			// settle the chip just like a refusal, never strand an upload.

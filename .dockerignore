@@ -19,6 +19,7 @@ scripts
 !scripts/
 scripts/*
 !scripts/harden-agent-react-devtools.mjs
+!scripts/fix-yazl-descriptors.mjs
 !scripts/build-xpath-worker.mjs
 !scripts/build-office-parser.mjs
 !scripts/build-app.mjs

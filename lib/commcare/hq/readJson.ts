@@ -20,6 +20,7 @@ import { giveBackHeld } from "./memoryMeter";
 import { HQ_READ_SENDS, readRetryWaitMs } from "./throttle";
 
 export type ReadHqJsonOptions = {
+	readonly parse?: (text: string) => unknown;
 	/**
 	 * The most bytes of body Nova reads, a constant of `bounds.ts`. Required: no
 	 * read of CommCare HQ is without one. A longer body is refused whole and
@@ -229,7 +230,10 @@ async function readAnswer(
 	try {
 		/* What was parsed stays charged to the request's lease, as the data
 		 * its caller keeps. */
-		return { data: parseHqJsonText(text), bytes: body.bytes.byteLength };
+		return {
+			data: (options.parse ?? parseHqJsonText)(text),
+			bytes: body.bytes.byteLength,
+		};
 	} catch {
 		/* HQ answers its sign-in page, its plan page and an inactive project
 		 * space's page as HTML where JSON was asked. Nothing of it is kept. */
@@ -244,6 +248,7 @@ async function readAnswer(
 
 /** The project space a `/a/<domain>/…` URL names, for a log line; null for any other path. */
 function domainOf(url: string): string | null {
-	const segments = new URL(url).pathname.split("/");
+	// `url` is a path on the credentials' server (`sendHq`).
+	const segments = new URL(url, "https://hq.invalid").pathname.split("/");
 	return segments[1] === "a" && segments[2] ? segments[2] : null;
 }

@@ -3516,10 +3516,9 @@
 			"setting:hq.case_sharing",
 			"schema:Application.case_sharing"
 		],
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `caseSharing`: owner from the user's case-sharing group plus the entry assertion (`xform.py::XFormCaseBlock.add_create_block`, `entries.py::add_case_sharing_assertion`)",
-		"subject": "case-sharing",
-		"owner": "settings-nova-comes-to-own",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: `caseSharing`: owner from the user's case-sharing group plus the entry assertion (`xform.py::XFormCaseBlock.add_create_block`, `entries.py::add_case_sharing_assertion`)",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",

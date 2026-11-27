@@ -64,7 +64,10 @@ const controllers = new Set<EngineController>();
 let doc: BlueprintDoc;
 let digest: string;
 beforeEach(async () => {
-	getSession.mockResolvedValue({ user: MEMBER });
+	getSession.mockResolvedValue({
+		user: MEMBER,
+		session: { id: "running-app-session" },
+	});
 	doc = assertAdmittedPreviewDoc(buildFixtureDoc());
 	digest = canonicalJsonDigest(toPersistableDoc(doc));
 	await h.seedAppWithBlueprint(doc, {
@@ -72,6 +75,10 @@ beforeEach(async () => {
 		owner: OWNER_ID,
 		projectId: PROJECT,
 	});
+	// The live browser session every Project data read locks.
+	await sql`INSERT INTO auth_session(id,token,"userId","expiresAt","createdAt","updatedAt")
+		VALUES ('running-app-session','running-app-token',${OWNER_ID},now()+interval '1 hour',now(),now())
+		ON CONFLICT (id) DO NOTHING`.execute(h.db());
 });
 afterEach(async () => {
 	for (const controller of controllers) controller.dispose();

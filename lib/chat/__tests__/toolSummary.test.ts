@@ -169,6 +169,20 @@ describe("updateApp transcript row", () => {
 		).toBe("Location for every form off");
 	});
 
+	it("names a change to case sharing, after the location every form requests", () => {
+		const part = donePart("updateApp", {
+			captureLocation: true,
+			caseSharing: true,
+		});
+		expect(toolAction(part)).toBe("Updated app settings");
+		expect(toolLocation(part)).toBe(
+			"Location for every form on · Case sharing on",
+		);
+		expect(toolLocation(donePart("updateApp", { caseSharing: false }))).toBe(
+			"Case sharing off",
+		);
+	});
+
 	it("keeps the rename and puts the name first when a call also changes a setting", () => {
 		const part = donePart("updateApp", {
 			subject: "Village Health",

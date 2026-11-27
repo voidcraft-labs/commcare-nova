@@ -1,5 +1,6 @@
 /** One semantic walk over the stored expression tree. Slot admission, scalar
  * rules and native held classes share the same lexical contexts and cache. */
+
 import type { CasePropertyDataType } from "../casePropertyTypes";
 import { COMMCARE_DATE_PATTERN_REGEX } from "../commCareDatePattern";
 import {
@@ -9,6 +10,7 @@ import {
 } from "../expressionFunctions";
 import { isCaptureFieldKind } from "../fields";
 import type { TranslationUnitId } from "../localization";
+import { lookupReadType } from "../lookupRead";
 import {
 	expressionLeafFeature,
 	type Platform,
@@ -16,6 +18,7 @@ import {
 	platformRefusalMessage,
 	unavailablePlatform,
 } from "../platforms";
+import { isPortableName } from "../portableName";
 import {
 	isSearchOnlyCaseProperty,
 	SEARCH_ONLY_CASE_PROPERTY_DATA_TYPES,
@@ -104,7 +107,13 @@ export type ScalarType = CasePropertyDataType | "boolean" | "_any";
 export type ExpressionType =
 	| ScalarType
 	| {
-			readonly nodes: ScalarType | "case" | "table" | "location" | "repeat";
+			readonly nodes:
+				| ScalarType
+				| "case"
+				| "table"
+				| "location"
+				| "worker-group"
+				| "repeat";
 			readonly cardinality: "one" | "many";
 			/** Several nodes by the app's shape, not its data: a form read that
 			 * crosses a repeat its context is not inside, or `selected-cases`. */
@@ -352,7 +361,7 @@ function scalar(
 	return { data, held, ...(caseIdOf === undefined ? {} : { caseIdOf }) };
 }
 function nodes(
-	data: ScalarType | "case" | "table" | "location" | "repeat",
+	data: ScalarType | "case" | "table" | "location" | "worker-group" | "repeat",
 	held: ScalarHeld = "string",
 	cardinality: "one" | "many" = "one",
 	caseIdOf?: string,
@@ -395,20 +404,22 @@ function rebind(
 		const queryRow: RecordQueryRowScope =
 			row.kind === "case"
 				? { kind: "case", caseType: row.caseType }
-				: row.kind === "location"
-					? { kind: "location" }
-					: {
-							kind: "table",
-							tableId: row.tableId,
-							...(row.capturedCase === undefined
-								? {}
-								: {
-										capturedCase: {
-											kind: "case",
-											caseType: row.capturedCase.caseType,
-										},
-									}),
-						};
+				: row.kind === "worker-group"
+					? { kind: "worker-group" }
+					: row.kind === "location"
+						? { kind: "location" }
+						: {
+								kind: "table",
+								tableId: row.tableId,
+								...(row.capturedCase === undefined
+									? {}
+									: {
+											capturedCase: {
+												kind: "case",
+												caseType: row.capturedCase.caseType,
+											},
+										}),
+							};
 		return pushRowScope(ctx, queryRow);
 	}
 	if (!("root" in row))
@@ -599,6 +610,7 @@ function childUse(
 		case "table-lookup":
 		case "cases":
 		case "table-rows":
+		case "worker-groups":
 		case "locations":
 		case "project":
 		case "value-list":
@@ -1065,7 +1077,9 @@ function admission(
 				"places-unavailable",
 			);
 		if (
-			["call", "cases", "table-rows", "project"].includes(expression.kind) ||
+			["call", "cases", "table-rows", "worker-groups", "project"].includes(
+				expression.kind,
+			) ||
 			(expression.kind === "count" && !isRelationPath(expression.via))
 		)
 			return refusal(
@@ -1355,6 +1369,7 @@ function termAdmission(
 				"repeat-row",
 				"case-index",
 				"location-field",
+				"worker-group-field",
 				"location-level",
 			].includes(term.kind) ||
 			// A case's type is read where a case row is in scope.
@@ -1471,6 +1486,7 @@ const HELD_SEARCH_READ_KINDS: ReadonlySet<string> = new Set([
 	"cases",
 	"table-rows",
 	"locations",
+	"worker-groups",
 	"project",
 ]);
 
@@ -1813,9 +1829,13 @@ function readsRowPosition(node: Expression | Term): boolean {
 			child.kind !== "relation" &&
 			!(
 				child.kind === "expression" &&
-				["cases", "table-rows", "locations", "table-lookup"].includes(
-					child.value.kind,
-				)
+				[
+					"cases",
+					"table-rows",
+					"locations",
+					"worker-groups",
+					"table-lookup",
+				].includes(child.value.kind)
 			) &&
 			readsRowPosition(child.value),
 	);
@@ -1886,6 +1906,10 @@ export function expressionRowScope(
 			...(capturedCase === undefined ? {} : { capturedCase }),
 		} as RowScope;
 	}
+	if (expression.kind === "worker-groups")
+		return "kind" in ctx
+			? { kind: "worker-group" }
+			: { kind: "worker-group", root: "worker-groups" };
 	if (expression.kind === "locations")
 		return "kind" in ctx
 			? { kind: "location" }
@@ -1971,6 +1995,7 @@ export function expressionChildContext(
 	if (
 		(parent.kind === "cases" ||
 			parent.kind === "table-rows" ||
+			parent.kind === "worker-groups" ||
 			parent.kind === "locations" ||
 			parent.kind === "table-lookup") &&
 		child.role.kind !== "form-step-filter"
@@ -2511,7 +2536,7 @@ function inferNode(
 				});
 				return undefined;
 			}
-			const type = columns.get(expression.resultColumnId);
+			const type = lookupReadType(columns, expression.resultColumnId);
 			if (type === undefined)
 				errors.push({
 					path: ["table-lookup", "resultColumnId"],
@@ -2529,6 +2554,7 @@ function inferNode(
 		}
 		case "cases":
 		case "table-rows":
+		case "worker-groups":
 		case "locations": {
 			const row = expressionRowScope(expression, ctx);
 			const scoped = row === undefined ? ctx : rebind(ctx, row as RowScope);
@@ -2552,7 +2578,9 @@ function inferNode(
 					? "case"
 					: expression.kind === "table-rows"
 						? "table"
-						: "location",
+						: expression.kind === "worker-groups"
+							? "worker-group"
+							: "location",
 				"string",
 				"many",
 			);
@@ -3306,7 +3334,10 @@ function inferTerm(
 						? "A lookup column is available only inside its table's filter."
 						: "This rule reads a column from a different data table than the one it filters. A row rule can only read its own table's columns.",
 				);
-			const type = ctx.lookupTables.get(row.tableId)?.get(term.columnId);
+			const type = lookupReadType(
+				ctx.lookupTables.get(row.tableId),
+				term.columnId,
+			);
 			return type === undefined
 				? fail(
 						"unknown-lookup-column",
@@ -3359,6 +3390,21 @@ function inferTerm(
 						"location-level",
 					)
 				: scalar("text");
+		case "worker-group-field": {
+			if (activeRowScope(ctx)?.kind !== "worker-group")
+				return fail(
+					"row-scope",
+					"Group information needs a worker group in scope.",
+					"worker-group",
+				);
+			return nodes(
+				"text",
+				"string",
+				typeof term.field === "object" && term.field.key === undefined
+					? "many"
+					: "one",
+			);
+		}
 		case "location-field": {
 			if (activeRowScope(ctx)?.kind !== "location")
 				return fail(
@@ -3388,6 +3434,17 @@ function inferTerm(
 					"This piece of place information no longer exists.",
 					"location-property",
 				);
+			if (typeof field === "object" && "profile" in ctx) {
+				const name =
+					"level" in field
+						? ctx.facts.organizationLevels[field.level]?.code
+						: ctx.facts.locationProperties.get(field.property)?.slug;
+				if (name !== undefined && !isPortableName(name, ctx.platforms))
+					return fail(
+						"operation-context-value",
+						`A worker platform for this app cannot read the place field "${name}". Choose another field or platform.`,
+					);
+			}
 			return nodes("text", "string");
 		}
 		case "capture-link": {
@@ -3443,6 +3500,14 @@ function inferTerm(
 				return fail(
 					"operation-context-value",
 					`The destination level '${destination.name}' has no case-owning level above it to match against the current owner.`,
+				);
+			if (
+				ancestor !== undefined &&
+				!isPortableName(ancestor.code, ctx.platforms)
+			)
+				return fail(
+					"operation-context-value",
+					`A worker platform for this app cannot follow the owner path through "${ancestor.code}". Choose another owner rule or platform.`,
 				);
 			return inferTerm(
 				{ kind: "prop", caseType: term.ownerCaseType, property: "owner_id" },

@@ -78,7 +78,14 @@ function retainedAnswers(base: RetainedHqApp): Map<string, string> {
 	]);
 	if (base.projectSpaces !== undefined) {
 		answers.set("projectSpaces:all", "project-spaces.json");
-		answers.set("projectSpaces:flagged", "project-spaces-flag.json");
+		// A reading that resolves a factory asks for the flagged list among its
+		// factory reads (`source-factories.json`); the lane keeps the flagged
+		// file beside the full list then, which the corpus reads as one pair.
+		const flaggedAmongFactories = Object.keys(
+			base.sourceFactoryReads ?? {},
+		).some((path) => path.includes("feature_flag="));
+		if (!flaggedAmongFactories)
+			answers.set("projectSpaces:flagged", "project-spaces-flag.json");
 	}
 	for (const tag of Object.keys(base.fixtureRows ?? {}))
 		answers.set(`fixtureRows:${tag}`, `fixture-rows-${tag}.json`);

@@ -414,6 +414,7 @@ const NOVA_APPS: Readonly<Record<string, NovaApp>> = {
 				),
 		},
 		input: {
+			sourceProjectFactories: { locations: "flat" },
 			organization: {
 				levelCodes: LEVELS.map((one) => one.code),
 				levels: LEVELS,

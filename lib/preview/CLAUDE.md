@@ -740,11 +740,10 @@ and close conditions as `ownCase`). A child's relationship is its committed
 create's link; the client never asserts `child` versus `extension`, and the
 envelope persists the same `parent` index relationship the XForm emits. That same authorized boundary retains the `LookupScope`, projects the
 canonical production lookup occurrences onto the built program's operation
-UUIDs, and loads one rows-free definition snapshot only when those operations
+UUIDs, and loads the selected worker’s typed row projection only when those operations
 actually carry lookup references. The resulting `lookupTableSchemas` map is
 part of the immutable program handed to `applySubmission`, so a schema-heal
-retry reuses the exact same compiler context; lookup rows themselves stay
-current inside the submission transaction. A committed operation-bearing form
+retry reuses the same worker data and types for the submission. A committed operation-bearing form
 with missing answer bags rejects wholesale rather than applying part of its
 effects. A survey with a program executes it, and the envelope's
 typed `SubmissionRejectedError` surfaces as the
@@ -1085,10 +1084,12 @@ list prints the wire's nodeset (`lib/commcare/lookupOptions.ts::lookupOptionsNod
 shared with the XForm itemset and the Search prompt) and evaluates as Core
 evaluates the itemset, over the fixture instance built under each table's
 XForm id (`lookupEvaluation.ts` reads each selected row node back as its row).
-A `table-lookup` prints the wire's `instance('<tag>')/<tag>_list/<tag>[…]`
+A `table-lookup` prints the wire's `instance('<id>')/<tag>_list/<tag>[…]`
 read: a no-match is Core's empty node-set, and missing and stored-empty cells
 both read blank, the fixture boundary's semantics. Form logic reads a table
-under its bare tag. A form-link slot also reads it under `item-list:<tag>`,
+under the ID the XForm declares for its fixture. This is the tag for an
+ordinary name and `item-list:<tag>` for a name the runtime also uses. A
+form-link slot reads the same table under `item-list:<tag>`,
 the id the suite declares (`includeFixtureAliases`).
 
 Data is ONE Project fixture snapshot (definitions + complete ordered rows for
@@ -2597,3 +2598,11 @@ guard. A generated wording override replaces that complete message.
 ### Android location at form entry
 
 The Preview phone supplies a simulated fix when a form opens. The committed form and platform decide whether the submission may carry it. `SubmissionEnvelopeResult.submissionLocation` records the point, null for a requested fix the platform did not provide, and no property for a form that requested none. The same receipt replays on retry. The geopoint question’s answer stays independent. A worker test session’s optional `locationFix` supplies the same evidence. An Android session takes its own fix or the test’s; a Web Apps session takes none, and a fix it names itself, or a test fix no Android session takes, is refused.
+
+## Worker groups and shared new cases
+
+A worker sees their own cases and the eligible case owners from their restore. Group rows retain location groups and classic case-sharing groups, including their distinct metadata. Row assignment and case ownership use different location rules. A form using the automatic group owner admits exactly one group before entry and checks it again before any database write. The server derives the owner from current scoped state, compares the group with the entry and locks membership and place revisions through submission. An explicit owner and an unowned operation preserve their authored meaning.
+
+Lookup rows and group names and details read trimmed, as Core's `TreeElementParser` reads every fixture text, so a cell HQ serves as ` 007 ` reads `007` on every platform; the stored value keeps HQ's spelling. A row detail and a value detail are attributes there and read as stored. A select's choice labels and sort text follow the same reading (`lookupEvaluation.ts::deviceChoiceText`), and so does the SQL that decides a list's rows, counts and targets (`lib/case-store/sql/compileLookup.ts::lookupCellRead`, Java's trim through `btrim`), so Preview's list, Preview's form and a device agree on a padded cell.
+
+App Tests bind group fixtures and lookup rows to each authorized Preview identity. A test-only place assignment may replace the journey's local place groups. The classic groups keep their verified membership.

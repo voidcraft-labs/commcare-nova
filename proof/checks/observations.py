@@ -241,6 +241,8 @@ def api_reads(records, name, part, label):
     found = {
         key: _answer(reads.get(key), blobs, f"{where}.{key}") for key in ("source", "application", "currentVersion")
     }
+    if reads.get("sourceFactoryReads"):
+        found["sourceFactoryReads"] = {path: _answer(answer, blobs, f"{where}.{path}") for path, answer in reads["sourceFactoryReads"].items()}
     spaces = reads.get("projectSpaces")
     if spaces is not None:
         found["projectSpaces"] = {
@@ -255,7 +257,7 @@ def api_reads(records, name, part, label):
                 for tag, answer in sorted((data.get("fixtureRows") or {}).items())
             },
         }
-        for key in ("locationTypes", "locations"):
+        for key in ("locationTypes", "locations", "locationsV1"):
             if data.get(key) is not None:
                 held[key] = _answer(data[key], blobs, f"{where}.projectData.{key}")
         found["projectData"] = held

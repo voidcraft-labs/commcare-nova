@@ -268,6 +268,7 @@ from proof.checks.manifest_value_classes import (
     instance_scheme,
     instance_source,
     preset_source,
+    scanned_instance_names,
     protected_constraint_form,
 )
 from proof.observe.intent import FORM_FILE
@@ -469,6 +470,7 @@ class Uses:
     csql: list = field(default_factory=list)  # [(artifact, where, expression text)]
     questions: list = field(default_factory=list)  # [(artifact, the sha256 of the form's bytes, its Form)]
     roots: set = field(default_factory=set)
+    lookup_tags: set = field(default_factory=set)  # table sources read by this app
     documents: list = field(default_factory=list)  # [Form | Runtime]
 
     def add(self, key, artifact, where, at=None, *, holds_non_object=False):
@@ -702,9 +704,12 @@ def _special(cls, key, value, at, manifest, artifact, found, slot):
     elif cls == "HQMediaMapItem" and key == "media_type" and isinstance(value, str) and value:
         found.add(f"media-class:{value}", artifact, at, slot)
     elif cls == "Itemset" and key == "instance_id" and isinstance(value, str) and value:
-        # A Search field's choices: HQ's build writes the itemset's nodeset over this instance and declares it by
-        # its scheme (``suite_xml/post_process/remote_requests.py``, ``instances.py::get_instance_factory``).
+        # HQ validates the configured selection here. The worker reads the separately emitted nodeset below.
         found.add(f"instance-scheme:{instance_scheme(value)}", artifact, at, slot)
+    elif cls == "Itemset" and key == "nodeset" and isinstance(value, str):
+        # Observe actual row reads without counting the selection scheme twice. The ID alone reads no rows.
+        if not (slot.nearest("CaseSearchProperty") or {}).get("is_group"):
+            found.expression(artifact, at, value, at=slot, schemes_only=True, schemes=frozenset())
     elif cls in ("Application", "LinkedApplication") and key == "translations" and isinstance(value, dict):
         # HQ's build writes the strings of the app's languages alone (``Application._make_language_files``:
         # ``default`` and each of ``get_build_langs``, which ``app_strings.py::create_default_app_strings`` merges
@@ -1461,18 +1466,6 @@ def _data_type(text):
 # Instances, hashtags and question types ------------------------------------
 
 
-# The sources HQ's factories write under an instance name, by their prefix (``suite_xml/post_process/instances.py``:
-# a fixture's ``jr://fixture/{instance_name}``, a remote search's ``jr://instance/remote/{instance_name}``, the cases a
-# list selects ``jr://instance/selected-entities/{instance_name}``, and the Search fields' answers
-# ``jr://instance/search-input/<query datum>`` under ``search-input:<query datum>``).
-SOURCE_NAMES = (
-    ("jr://fixture/", ""),
-    ("jr://instance/remote/", ""),
-    ("jr://instance/selected-entities/", ""),
-    ("jr://instance/search-input/", "search-input:"),
-)
-
-
 @cache
 def _preset_sources(manifest):
     """Each source a preset instance HQ's build declares takes, with that preset's id (``preset_instances``)."""
@@ -1485,27 +1478,45 @@ def _preset_sources(manifest):
 
 
 def read_scheme(manifest, instance_id, declared):
-    """The scheme of an instance a form's expression reads: its id's (``instance_scheme``), where HQ registers that
-    scheme; else, where the form declares the id from a source one of HQ's factories writes, the name that factory
-    declares that source under (``SOURCE_NAMES``, a preset's own id), as HQ's build keeps the form's own declaration
-    of an id it has no factory for (``XForm.add_missing_instances``) and Nova's reader classes the read by the
-    declared source; else the id's."""
-    scheme = instance_scheme(instance_id)
+    """The declaration kept by XForm.add_missing_instances, or HQ's implicit factory for an undeclared id."""
     src = declared.get(instance_id)
-    if f"instance-scheme:{scheme}" in manifest.items or not src:
-        return scheme
-    named = _preset_sources(manifest).get(src)
-    for prefix, spelled in SOURCE_NAMES:
-        if named is None and src.startswith(prefix) and len(src) > len(prefix):
-            named = spelled + src[len(prefix) :]
-    return scheme if named is None else instance_scheme(named)
+    if src is None:
+        return instance_scheme(instance_id)
+    if instance_id == "locations" and src == "jr://fixture/commtrack:locations":
+        return "locations"
+    if src == "jr://instance/search-input":
+        return "search-input"
+    preset = _preset_sources(manifest).get(src)
+    if preset is not None:
+        return instance_scheme(preset)
+    if src.startswith("jr://instance/selected-entities/") and src.removeprefix("jr://instance/selected-entities/"):
+        return "selected_cases"
+    if src.startswith("jr://instance/search-input/") and src.removeprefix("jr://instance/search-input/"):
+        return "search-input"
+    if src.startswith("jr://instance/remote/"):
+        scheme = instance_scheme(src.removeprefix("jr://instance/remote/"))
+        return "results" if scheme == "results" else None
+    if src.startswith("jr://fixture/"):
+        scheme = instance_scheme(src.removeprefix("jr://fixture/"))
+        if src == "jr://fixture/locations":
+            return "locations"
+        if scheme in {"item-list", "commtrack", "schedule", "indicators", "case-search-fixture",
+                      "commcare-reports", "commcare-reports-filters"}:
+            return scheme
+    return None
+
 
 
 def _instance_uses(document, manifest, artifact, found, *, schemes):
     """Each instance a document declares with a source: the source Core gives it, and (where HQ's build reads the
     document's instance ids, ``schemes``) its scheme; the (id, src) pairs, in order."""
     declared = []
-    for element in document.root.iter():
+    nodes = (
+        document.root.iter()
+        if not isinstance(document, Form)
+        else ((child for child in document.model if child.tag == INSTANCE) if document.model is not None else ())
+    )
+    for element in nodes:
         if not isinstance(element.tag, str) or etree.QName(element).localname != "instance":
             continue
         src, instance_id = element.get("src"), element.get("id")
@@ -1953,6 +1964,23 @@ def built_suites(document, records, states, parsed=None) -> tuple:
     return tuple(found)
 
 
+def built_form_instances(records, states, position, cache):
+    """Declarations of the worker form in each recorded HQ build, independent of its source's spelling."""
+    menu, form = position.split(".")
+    path = f"modules-{menu}/forms-{form}.xml"
+    seen = set()
+    for configuration, part in states:
+        state = (records.configurations[configuration].part(part) or {}).get("state") or {}
+        ref = ((state.get("build") or {}).get("files") or {}).get(path)
+        if not ref or ref in seen:
+            continue
+        seen.add(ref)
+        if ref not in cache:
+            native = Form(_parse(records.blobs.get(ref), path), path)
+            cache[ref] = (native.xmlns, dict(native.declared_instances))
+        yield cache[ref]
+
+
 def _form_position(name):
     """``modules-<m>/forms-<f>.xml`` as ``<m>.<f>``, the path HQ and Nova both write a form at."""
     matched = FORM_FILE.fullmatch(name)
@@ -2026,6 +2054,12 @@ def read_observed(found: Uses, manifest: Manifest, readings: Readings):
     string, as HQ's parser read it, and every form's questions, as HQ's reader read them; each added as uses."""
     for document in found.documents:
         document.readings = readings
+    # Built archives already carry their final declarations. For HQ app source the
+    # observation caught what FormBase actually scanned on every build profile.
+    for artifact, digest, form in found.questions:
+        if form is not None and form.app_form is not None:
+            observation = readings.read("questions", digest, artifact)
+            form.scans = observation.get("instanceScans", {})
     # Core's parser accepts dynamic form names. A protected message's recorded expression and technical
     # label prove which group owns these particular names; its generic @form use already exists. Other
     # custom forms, including identical names on an unrelated group, retain their unknown-form use.
@@ -2061,6 +2095,59 @@ def read_observed(found: Uses, manifest: Manifest, readings: Readings):
     found.questions = []
 
 
+def _column_declarations(slot):
+    """The declarations in every installed entry reaching this physical case detail.
+    Where the observation holds no built suite, sibling template expressions can still
+    establish a factory on the same physical detail."""
+    column = slot.nearest("DetailColumn")
+    detail = slot.nearest("Detail")
+    if slot.key != "field" or not column or not column.get("useXpathExpression") or not detail or not slot.app:
+        return None
+    for index, module in enumerate(slot.app.modules):
+        pair = module.get("case_details") or {}
+        screen = next((screen for screen in ("short", "long") if pair.get(screen) is detail), None)
+        if screen is not None:
+            break
+    else:
+        return None
+    suites = slot.app.detail_sources
+    if suites is not None:
+        # Module.get_details and AdvancedModule.get_details clone the same
+        # authored columns on search results when inline search does not apply.
+        ids = (f"m{index}_case_{screen}", f"m{index}_search_{screen}")
+        held = [set(suites[name].items()) for name in ids if name in suites]
+        return dict(set.intersection(*held)) if held else {}
+    return {
+        name: f"jr://fixture/{name}"
+        for sibling in detail.get("columns") or []
+        if isinstance(sibling, dict) and sibling.get("useXpathExpression")
+        and (sibling.get("format") or "plain") in ("plain", "invisible") and isinstance(sibling.get("field"), str)
+        for name in scanned_instance_names(sibling["field"]) if name.startswith("item-list:")
+    }
+
+
+def _suite_fixture_names(slot, expression):
+    """A fixture spelling the actual suite slot or this remote request supplies to HQ's scanner.
+
+    No HQ hashtag expands into an item-list ID. Its lookup spellings in the emitted required and validation
+    tests survive interpolation; defaults depend on a target toggle. Group headings emit no QueryPrompt.
+    """
+    if (slot.nearest("CaseSearchProperty") or {}).get("is_group"):
+        return set()
+    names = scanned_instance_names(expression) if isinstance(expression, str) else set()
+    search = slot.nearest("CaseSearch")
+    if search is not None:
+        for prompt in search.get("properties") or []:
+            if not isinstance(prompt, dict) or prompt.get("is_group"):
+                continue
+            values = [(prompt.get("itemset"), "nodeset"), (prompt.get("required"), "test")]
+            values.extend((test, "test") for test in (prompt.get("validations") or []))
+            for part, key in values:
+                if isinstance(part, dict) and isinstance(part.get(key), str):
+                    names.update(scanned_instance_names(part[key]))
+    return names
+
+
 def _expression_uses(expression, parsed, manifest, found):
     artifact, where, at = expression.artifact, expression.where, expression.at
     if "error" in parsed:
@@ -2070,11 +2157,29 @@ def _expression_uses(expression, parsed, manifest, found):
     # once an expression. A suite's are its declarations' (``_instance_uses``).
     if not (isinstance(at, XmlAt) and at.document.kind == "runtime"):
         declared = dict(expression.instances)
-        schemes = {
-            read_scheme(manifest, path["instance"], declared) for path in parsed["instancePaths"] if path["instance"]
-        }
-        for scheme in sorted(schemes):
-            if expression.schemes is None or scheme in expression.schemes:
+        referenced = {path["instance"] for path in parsed["instancePaths"] if path["instance"]}
+        if isinstance(at, XmlAt) and isinstance(at.document, Form):
+            if referenced - set(declared):
+                if at.document.built_instances:
+                    declared = {**at.document.working_instances, **declared}
+                    referenced &= set(declared)
+                else:
+                    referenced &= set(declared) | at.document.scanned_instance_ids
+        detail = _column_declarations(at) if isinstance(at, JsonAt) else None
+        if detail is not None:
+            declared.update(detail)
+        for instance_id in referenced:
+            src = declared.get(instance_id)
+            scheme = read_scheme(manifest, instance_id, declared)
+            if scheme == "item-list" and isinstance(at, JsonAt):
+                available = detail if detail is not None else _suite_fixture_names(at, expression.text)
+                if instance_id not in available:
+                    continue
+            if scheme == "item-list":
+                fixture = src.removeprefix("jr://fixture/") if src is not None else instance_id
+                if fixture.startswith("item-list:") and fixture != "item-list:":
+                    found.lookup_tags.add(fixture.removeprefix("item-list:"))
+            if scheme is not None and (expression.schemes is None or scheme in expression.schemes):
                 found.add(f"instance-scheme:{scheme}", artifact, where, at)
     if expression.schemes_only:
         return
@@ -2557,6 +2662,7 @@ def export_uses(document, records, manifest: Manifest) -> Uses:
         if state not in states:
             states.append(state)
     suites = {}  # each built suite's blob, parsed once
+    form_instances = {}
     for (artifact, ref), (key, configurations, states) in sent.items():
         try:
             app = json.loads(blobs.get(ref))
@@ -2577,6 +2683,14 @@ def export_uses(document, records, manifest: Manifest) -> Uses:
         for exported in found.documents[first:]:
             if isinstance(exported, Form):
                 exported.entry_suites = built
+                position = exported.artifact.rpartition("form:")[2]
+                exported.read_built_instances = lambda states=states, position=position, form_xmlns=exported.xmlns: (
+                    tuple(
+                        instances
+                        for xmlns, instances in built_form_instances(records, states, position, form_instances)
+                        if xmlns == form_xmlns
+                    )
+                )
     for artifact, entries in sorted(observed["archives"].items()):
         archive_uses(
             {name: blobs.get(ref) for name, ref in entries.items()}, manifest, artifact, found, document.hq_side

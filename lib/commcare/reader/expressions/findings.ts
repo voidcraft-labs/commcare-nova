@@ -36,8 +36,8 @@ import type { Uuid } from "@/lib/domain/uuid";
 import { inventoryIndex } from "../../surface/inventory";
 import { rethrowWorkStop } from "../../workMeter";
 import type { FormParseIssue } from "../../xpath/formParseIssues";
-import { canonicalInstanceId } from "../../xpath/formPathBinding";
 import type { FormSyntax } from "../../xpath/formSyntax";
+import { declaredInstance, instanceForRead } from "../../xpath/instanceSources";
 import { parser } from "../../xpath/parser";
 import { defineClaims, drop, refuse, take } from "../claims";
 import { sameJson } from "../jsonCursor";
@@ -548,7 +548,7 @@ export const EXPRESSION_CLAIMS = defineClaims("expressions", {
 		"expressions-and-data/item-list-tag-read-in-any-other-expression",
 		"instance-scheme:item-list",
 	),
-	"groups-jr-fixture-user-groups": refuse(
+	"groups-jr-fixture-user-groups": take(
 		"expressions-and-data/groups-jr-fixture-user-groups",
 		"instance-scheme:groups",
 	),
@@ -1913,14 +1913,12 @@ function instanceEntry(
 			C["declared-and-referenced-instance-with-an-unrecognized-src"].entry
 		);
 	return (
-		schemeEntry(id) ??
+		(sources === undefined ? schemeEntry(id) : undefined) ??
 		C[
 			"referenced-undeclared-instance-id-with-no-known-scheme-or-one@instance-scheme:commcare"
 		].entry
 	);
 }
-
-const TABLE_ID = "item-list:";
 
 /** The tag of the table an `instance-unknown` issue's read names: by the
  *  source the slot's form declares for the id read
@@ -1936,11 +1934,11 @@ export function tableReadTag(
 	if (issue.code !== "instance-unknown") return undefined;
 	const id = namesIn(spannedSyntax(pending, issue)).strings[0];
 	if (id === undefined) return undefined;
-	const src = form.instanceSources.get(id);
-	const read = src === undefined ? id : canonicalInstanceId(src);
-	return read?.startsWith(TABLE_ID) && read.length > TABLE_ID.length
-		? read.slice(TABLE_ID.length)
-		: undefined;
+	const source = instanceForRead(
+		id,
+		pending.mode.target === "xform" ? form.instanceSources : undefined,
+	);
+	return source?.kind === "table" ? source.tag : undefined;
 }
 
 /** The id a declared source names an instance by, as CommCare HQ's build
@@ -1949,12 +1947,30 @@ export function tableReadTag(
  *  `jr://instance/remote/<id>`, `ledgerdb` for the ledger's source, and the
  *  legacy `search-input` for `jr://instance/search-input`. */
 function sourceSchemeId(src: string): string | undefined {
-	if (src === "jr://instance/ledgerdb") return "ledgerdb";
-	if (src === LEGACY_SEARCH_INPUT_SOURCE) return "search-input";
-	for (const prefix of ["jr://fixture/", "jr://instance/remote/"])
-		if (src.startsWith(prefix) && src.length > prefix.length)
-			return src.slice(prefix.length);
-	return undefined;
+	const bound = declaredInstance(src);
+	switch (bound?.kind) {
+		case "table":
+			return `item-list:${bound.tag}`;
+		case "selected":
+			return "selected_cases";
+		case "native":
+			return bound.id;
+		default:
+			return undefined;
+	}
+}
+
+/** The identity for the account of a form's declared source, including
+ * runtime data whose read the app model cannot yet hold. HQ's locations
+ * factory historically produces the same tree as the commtrack factory. */
+export function classifiedInstanceId(
+	id: string,
+	src: string | undefined,
+): string | undefined {
+	if (src === undefined) return id;
+	if (id === "locations" && src === "jr://fixture/commtrack:locations")
+		return id;
+	return sourceSchemeId(src);
 }
 
 /** The entry an instance id's scheme claims, the text before its first colon;
@@ -1999,8 +2015,7 @@ function schemeEntry(id: string | undefined): string | undefined {
 	}
 }
 
-/** The source HQ's build declares the legacy `search-input` instance from. */
-const LEGACY_SEARCH_INPUT_SOURCE = "jr://instance/search-input";
+/** A read of the legacy search input after the search has ended. */
 const LEGACY_SEARCH_INPUT =
 	C["legacy-search-input-read-after-the-query-in-the-results-detail"].entry;
 
@@ -2261,8 +2276,6 @@ export function parseIssueEntry(
 							.entry,
 					)
 				: answer("slot-default");
-		case "groups-held":
-			return answer(C["groups-jr-fixture-user-groups"].entry);
 		case "search-results-remote":
 			// A form opened after a search that is not inline finds no results;
 			// any other slot that reads them is a setting Nova's record rule

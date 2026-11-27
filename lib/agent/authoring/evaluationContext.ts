@@ -1,3 +1,6 @@
+import { uuidSchema as workerUuidSchema } from "@/lib/domain/uuid";
+import { readPreviewLookup } from "@/lib/preview/engine/workerLookupScope";
+import { lookupAgentScope } from "../tools/shared/lookupScope";
 import "server-only";
 import { getAuthDb } from "@/lib/auth/db";
 import { roleAllowsApp } from "@/lib/auth/projectRoles";
@@ -10,6 +13,7 @@ import {
 import { resolveAppScope } from "@/lib/db/appAccess";
 import { projectRoleFor } from "@/lib/db/projectMembership";
 import { previewProjectSpaceFor } from "@/lib/deployment/previewSpace";
+import { readWorkerLookupProjection } from "@/lib/deployment/workerLookupProjection";
 import { extractLookupReferenceTargets } from "@/lib/doc/lookupReferences";
 import {
 	type BlueprintDoc,
@@ -22,7 +26,6 @@ import {
 	resolveAppLanguage,
 } from "@/lib/domain/localization";
 import { declaredPlatforms, type Platform } from "@/lib/domain/platforms";
-import { getLookupFixtureData, getLookupManifest } from "@/lib/lookup/service";
 import { viewerTimeZone } from "@/lib/preview/engine/caseDataBindingClient";
 import { previewDataRefusalSubject } from "@/lib/preview/engine/dataRefusal";
 import { FormEvaluationInputError } from "@/lib/preview/engine/evaluateForm";
@@ -30,7 +33,10 @@ import {
 	type EvaluationScenario,
 	evaluationScenarioCases,
 } from "@/lib/preview/engine/evaluationScenario";
-import { appReadsPlaces } from "@/lib/preview/engine/expressionCaseReads";
+import {
+	appReadsPlaces,
+	appReadsWorkerGroups,
+} from "@/lib/preview/engine/expressionCaseReads";
 import type { FormEvaluationContext } from "@/lib/preview/engine/formEvaluationTypes";
 import {
 	previewAsMe,
@@ -42,7 +48,6 @@ import {
 	previewAppLanguage,
 	serverPreviewDevice,
 } from "@/lib/preview/engine/previewDevice";
-import { resolveRestoreScope } from "@/lib/preview/engine/restoreScope";
 import { openSearchRunState } from "@/lib/preview/engine/searchRunState";
 import { serverPreviewDataRefusalOf } from "@/lib/preview/engine/serverDataRefusal";
 import {
@@ -147,19 +152,37 @@ export async function loadFormEvaluationContext(
 		ctx.appId && scenario === undefined
 			? await withProjectContext(ctx.projectId, ctx.userId, identity.ownerId)
 			: undefined;
-	const restoreScope =
-		ctx.appId && store
-			? await resolveRestoreScope({
-					appId: ctx.appId,
-					identity,
-					blueprint: doc,
-				})
+	const tableIds = extractLookupReferenceTargets(doc).tableIds;
+	const needsGroups = appReadsWorkerGroups(doc);
+	const scope = { projectId: ctx.projectId, actorId: ctx.userId, role };
+	const workerData =
+		ctx.appId && (tableIds.length || store || needsGroups)
+			? await readWorkerLookupProjection(
+					{
+						scope: {
+							appId: ctx.appId,
+							projectId: ctx.projectId,
+							actorUserId: ctx.userId,
+						},
+						grant: ctx.dataGrant ?? {
+							kind: "architect",
+							authority: lookupAgentScope(ctx),
+						},
+						personaUuid: workerUuidSchema.optional().parse(personaUuid),
+					},
+					tableIds,
+					Boolean(store) || needsGroups,
+				)
 			: undefined;
+	const restoreScope = workerData?.groupScope;
+	const lookup = workerData ?? (await readPreviewLookup(scope, tableIds));
 	if (ctx.appId && store && restoreScope)
 		cases = await store.readDeviceCaseDatabase({
 			appId: ctx.appId,
 			restoreScope,
 		});
+	if (restoreScope && needsGroups)
+		cases = { ...cases, workerGroups: restoreScope.groups };
 	// The places are the organization's, real in a scenario as lookup data
 	// is, and loaded for an app whose forms read them, as Preview loads them.
 	if (ctx.appId && appReadsPlaces(doc))
@@ -171,23 +194,12 @@ export async function loadFormEvaluationContext(
 				identity.personaUuid,
 			),
 		};
-	const tableIds = extractLookupReferenceTargets(doc).tableIds;
-	const scope = { projectId: ctx.projectId, actorId: ctx.userId, role };
-	const manifest = await getLookupManifest(scope);
-	const requested = new Set<string>(tableIds);
-	const bytes = manifest.tables
-		.filter((table) => requested.has(table.id))
-		.reduce((sum, table) => sum + table.dataBytes, 0);
-	if (bytes > 32 * 1024 * 1024)
-		throw new FormEvaluationInputError(
-			"The referenced lookup data exceeds the evaluation size limit.",
-		);
-	const lookup = await getLookupFixtureData(scope, tableIds);
 	const searchResults =
 		form === undefined
 			? undefined
 			: await formSearchResults(doc, form, {
 					appId: ctx.appId ?? undefined,
+					projectId: ctx.projectId,
 					identity,
 					device,
 					cases,
@@ -318,6 +330,7 @@ export async function formSearchResults(
 	form: EvaluatedForm,
 	world: {
 		readonly appId: string | undefined;
+		readonly projectId: string;
 		readonly identity: FormEvaluationContext["identity"];
 		readonly device: FormEvaluationContext["device"];
 		readonly cases: CaseDatabaseSnapshot;
@@ -344,6 +357,7 @@ export async function formSearchResults(
 		doc: { ...doc, caseTypes: doc.caseTypes ?? [] },
 		language: resolveAppLanguage(doc.localization, form.language),
 		appId: world.appId ?? doc.appId,
+		projectId: world.projectId,
 		identity: world.identity,
 		device: world.device,
 		deviceCases: world.cases,

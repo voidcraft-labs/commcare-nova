@@ -70,6 +70,7 @@ import {
 	UNREADABLE_DATETIME_NEXT,
 } from "@/lib/domain/expression/typeChecker";
 import { formTypeLabels } from "@/lib/domain/forms";
+import { questionChoiceReadSentence } from "@/lib/domain/lookupRead";
 import {
 	inPlatform,
 	PLATFORMS,
@@ -90,6 +91,7 @@ import {
 	valueKindPluralPhrase,
 	valueKindsPhrase,
 } from "@/lib/domain/valueKindPhrases";
+import { lookupPathNameSentence } from "@/lib/lookup/pathNames";
 
 // ── Interpolation helpers ──────────────────────────────────────────
 //
@@ -1941,6 +1943,13 @@ const USER_MESSAGE_BY_CODE: Record<
 		e.details?.reservedWord !== undefined
 			? `The export tag for ${q(det(e, "tableName", "this data table"))} contains ${e.details.reservedWord}, which CommCare reads as its own data. You can rename the export tag in Project data, then try again.`
 			: `The export tag for ${q(det(e, "tableName", "this data table"))} is reserved by CommCare. You can rename the export tag in Project data, then try again.`,
+	LOOKUP_PATH_NAME_UNAVAILABLE: (e) =>
+		lookupPathNameSentence({
+			name: e.details?.name,
+			part: e.details?.part,
+			issue: e.details?.issue,
+			readableInWebApps: e.details?.readableInWebApps === "yes",
+		}),
 	LOOKUP_COLUMN_NOT_AVAILABLE: () =>
 		"This setting uses a lookup column that isn't available anymore. Choose another column, or clear the setting.",
 	LOOKUP_COLUMN_TYPE_MISMATCH: (e) =>
@@ -1953,6 +1962,14 @@ const USER_MESSAGE_BY_CODE: Record<
 		const domain = e.details?.managedInDomain;
 		return `The ${q(det(e, "columnLabel", "affected"))} column in ${q(det(e, "tableName", "the data table"))} contains characters Nova can't preserve. ${domain ? unrepresentableManagedRemedy(domain) : "You can remove them or retype the affected values in Project data."}`;
 	},
+	LOOKUP_QUESTION_READ_UNEDITABLE: (e) =>
+		e.details?.problem === "bracket-filter"
+			? questionChoiceReadSentence("bracket-filter")
+			: e.details?.problem === "value-detail"
+				? questionChoiceReadSentence("value-detail")
+				: "This question reads its choices in a way the form editor can't keep. You can choose a column value or a row detail for its choices.",
+	LOOKUP_SELECT_SOURCE_AMBIGUOUS: (e) =>
+		`A choice in ${q(det(e, "tableName", "this data table"))} reads several values in one row. You can choose a position or a detail that matches a single value.`,
 	LOOKUP_SELECT_SOURCE_VALUE_BLANK: (e) =>
 		`A lookup-powered choice list uses ${det(e, "columnLabel", "a column")} for its saved values, but ${det(e, "offendingRowCount", "some")} row(s) in ${det(e, "tableName", "the lookup table")} leave it blank. ${selectSourceRowRemedy(e, "Fill in those rows", "another value column")}`,
 	LOOKUP_SELECT_SOURCE_VALUE_WHITESPACE: (e) =>
@@ -1980,6 +1997,10 @@ const USER_MESSAGE_BY_CODE: Record<
 		const form = e.location.formName ? ` in ${q(e.location.formName)}` : "";
 		return `The question ${q(fieldName(e))}${form} gets its choices from ${table}, which has no rows, so a phone won't open it. ${next}`;
 	},
+	LOOKUP_WORKER_SOURCE_UNAVAILABLE: (e) =>
+		det(e, "separable", "") === "yes"
+			? `“${det(e, "tableName", "This table")}” needs a verified data source for this destination. You can prepare its table in the project space, or create a separate table on its page in Project data.`
+			: `“${det(e, "tableName", "This table")}” needs a verified data source for this destination. You can prepare its table in the project space or refresh worker data in Project data.`,
 	LOOKUP_FIXTURE_EXPORT_TOO_LARGE: () =>
 		"This app references more lookup data than it can bundle at once. Shrink or split the largest lookup tables and try again.",
 	LOOKUP_HQ_PUSH_TOO_LARGE: () =>
@@ -2038,7 +2059,13 @@ const GENERIC_INTERNAL =
  * and logs keep `err.message`; this is the user's voice.
  */
 export function userFacingError(err: ValidationError): string {
-	return (USER_MESSAGE_BY_CODE[err.code] ?? (() => GENERIC_INTERNAL))(err);
+	/* Only the table's own entries render: a code outside it (one retired off
+	 * a historical event log) reads the generic line, never a member every
+	 * object inherits. */
+	const build = Object.hasOwn(USER_MESSAGE_BY_CODE, err.code)
+		? USER_MESSAGE_BY_CODE[err.code]
+		: undefined;
+	return build === undefined ? GENERIC_INTERNAL : build(err);
 }
 
 /** Render a list of findings to their user lines, in order. */

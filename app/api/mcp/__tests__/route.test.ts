@@ -301,6 +301,9 @@ describe("POST /api/mcp (API-key path)", () => {
 			userId: "user-7",
 			scopes: ["nova.read", "nova.write"],
 			authKind: "api-key",
+			// Project data reads lock this key's grant, so the context names
+			// the verified key itself.
+			grant: { kind: "api-key", keyId: "key-1" },
 		});
 	});
 
@@ -628,6 +631,7 @@ it("dispatches each caller to a real SDK tool with its own authenticated context
 							userId,
 							scopes: ["nova.read", "nova.write"],
 							authKind: "api-key",
+							grant: { kind: "api-key", keyId: `key-${userId}` },
 						}),
 					},
 				],

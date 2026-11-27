@@ -73,7 +73,11 @@ import {
 } from "../reading/projectData/lookupTableStore";
 import type { BroughtInTableWrite } from "../reading/projectData/lookupTables";
 import { adoptedMediaFiles } from "../reading/projectData/media";
-import { publishKeptReadingMedia } from "../reading/projectData/mediaStore";
+import {
+	type MediaStaging,
+	projectMediaStaging,
+	publishStagedReadingMedia,
+} from "../reading/projectData/mediaStore";
 import type { ReviewTable } from "../reading/projectData/reviewTypes";
 import {
 	type BringInRoom,
@@ -169,7 +173,9 @@ const MEMBER_KINDS: ReadonlySet<string> = new Set([
  * changes in, the work runs to its end whether or not the tab is there.
  * Where the process has no room for what it reads (`reading/room.ts`), it
  * stops reading, takes nothing, and answers `nova-busy`. Every write comes
- * after `beginWrites`, after which nothing stops it.
+ * after `beginWrites`, after which nothing stops it, but the staging of each
+ * held media file as it is judged: temporary objects no surface lists, which
+ * the publish promotes and the bring-in deletes however it ends.
  */
 export function bringInHqChanges(
 	scope: DeploymentScope,
@@ -179,7 +185,21 @@ export function bringInHqChanges(
 ): Promise<HqChangesOutcome> {
 	return withBringInRoom(
 		"changes-bring-in",
-		(room) => bringInInRoom(scope, target, input, options, room),
+		async (room) => {
+			const staging = projectMediaStaging(scope.projectId);
+			try {
+				return await bringInInRoom(
+					scope,
+					target,
+					input,
+					options,
+					room,
+					staging,
+				);
+			} finally {
+				await staging.discard();
+			}
+		},
 		() => ({
 			kind: "changed",
 			now: { kind: "stop", finding: noRoomFinding() },
@@ -193,6 +213,7 @@ async function bringInInRoom(
 	input: HqChangesBringInInput,
 	options: { readonly onEvent: (event: HqChangesProgress) => void },
 	room: BringInRoom,
+	staging: MediaStaging,
 ): Promise<HqChangesOutcome> {
 	const started = performance.now();
 	/* One count of synchronous pieces for the whole bring-in: the computation's,
@@ -203,7 +224,7 @@ async function bringInInRoom(
 		target,
 		{
 			readingId: input.readingId,
-			keepMedia: true,
+			stageMedia: staging,
 			onEvent: options.onEvent,
 			pieces,
 			cancel: room.signal,
@@ -242,7 +263,7 @@ async function bringInInRoom(
 			target,
 			{
 				readingId: input.readingId,
-				keepMedia: false,
+				stageMedia: null,
 				onEvent: () => {},
 			},
 			"bring-in",
@@ -423,7 +444,7 @@ async function recordReadsTheSame(
 		const again = await computeHqChanges(
 			scope,
 			target,
-			{ readingId: basis.readingId, keepMedia: false, onEvent: () => {} },
+			{ readingId: basis.readingId, stageMedia: null, onEvent: () => {} },
 			"bring-in",
 		);
 		return changedOutcome(again.review);
@@ -523,7 +544,7 @@ async function bringChangesIn(
 			onEvent({ type: "files", done: 0, total: held });
 			try {
 				published = (
-					await publishKeptReadingMedia({
+					await publishStagedReadingMedia({
 						projectId: scope.projectId,
 						actorUserId: scope.actorUserId,
 						plan: toPublish,
@@ -784,6 +805,8 @@ async function takenFor(
 		mode: "hq-upload",
 		access: scope,
 		doc,
+		/* The body names each file by its path; no byte of one is read here. */
+		streamMedia: true,
 		compiledAtSeq: basis.head.seq,
 		heldMediaPaths: exported.heldMediaPaths,
 		attachmentTarget: attachmentUrlTarget(target),

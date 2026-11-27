@@ -181,6 +181,7 @@ const SCOPE_EXEMPT_CODES: ReadonlySet<ValidationErrorCode> = new Set([
 	// carriers and are therefore scope-exempt just like app-wide rules.
 	"LOOKUP_CONTEXT_UNAVAILABLE",
 	"LOOKUP_TABLE_NOT_AVAILABLE",
+	"LOOKUP_PATH_NAME_UNAVAILABLE",
 	"LOOKUP_COLUMN_NOT_AVAILABLE",
 	"LOOKUP_COLUMN_TYPE_MISMATCH",
 ]);

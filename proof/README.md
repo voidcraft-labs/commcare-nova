@@ -2663,8 +2663,9 @@ practice mode before the app (`hq-kept-settings` names one as its practice
 worker, and HQ's build of an app whose practice worker the project space does
 not hold raises `PracticeUserException`); HQ's answers to every read Nova's own reading makes (`app-source.json`,
 `application.json`, `current-version.json`, and, only where the first
-reading asked for them, `project-spaces.json` and `project-spaces-flag.json`,
-`lookup-tables.json`, `fixture-rows-<tag>.json`, `location-types.json`,
+reading asked for them, `project-spaces.json`, `project-spaces-flag.json`,
+`source-factories.json` with the source project flags and working resources it consumed,
+`lookup-tables.json`, a fixture-row answer for each table read, `location-types.json`,
 `locations.json` and `media-reads.json`), so a base keeps only the answers a
 reading uses; `seed.json`, the case seed made from A alone
 (`proof/matrix/seed.py`); and `expected.json`, `{reads, declaration, claimed,
@@ -2693,8 +2694,7 @@ last, `_build_sample_app` (a build of the new app, released): nothing Nova
 reads of an app is a released copy of it, and the unit builds A itself. The
 shapes several bases share are helpers of `proof/matrix/bases/_pages.py`, and
 `lookups.py` and `connect_deliver.py` export the table, select and Connect
-block builders other bases import. The twenty-two, each module's docstring
-saying what it holds:
+block builders other bases import. Each base module’s docstring describes the app it authors.
 
 | Base | What it is |
 | --- | --- |
@@ -2715,6 +2715,9 @@ saying what it holds:
 | `hq-expressions` | each expression Nova's first publish writes another way |
 | `hq-media` | media in every place and shape the first publish reads, videos among them |
 | `hq-lookups` | a form that reads the lookup tables its project space holds |
+| `hq-lookup-aliases` | lookup choices whose table tags coincide with the form’s session and location instances, exercised together on both platforms |
+| `hq-lookup-name-lists` | a case list whose filter and calculated column read a lookup column named `région`, and a menu with a search its variants change |
+| `hq-runtime-name-tables` | tables tagged with every id HQ's form builder holds but `hasOwnProperty`, beside a form reading the worker's places and groups undeclared and a builder-saved form reading each table under its bare tag |
 | `hq-places` | a form that reads the worker's place in its project space's organization |
 | `hq-connect-deliver` | a Connect deliver app, read as Android only, so its first publish turns Web Apps off |
 | `hq-connect-learn` | a Connect learn app |
@@ -7117,3 +7120,37 @@ never merges.
 Code also cites the plan's work items by number: 3 is the Core runner, 4 the
 editor driver, 7 the manifest entries, 10 the corpus ("The corpus"), 11 the
 checks ("What the lane proves"), and 12 the defect rows ("The registers").
+
+
+### Lookup names on worker platforms
+
+The form reader and suite conditions resolve table and column names against their real workers. The
+pinned Core lexer decides names one UTF-16 unit at a time. The complete JDK 17 range list has
+2,792 initial units. Android API 23 has 2,252, all present on Android APIs 29 and 35. All four
+runtimes add the same 372 continuation-only units. The evidence index records each complete range
+list’s digest, the Core revision, the three system images and their fingerprints
+(`proof/android/lookup_names/runtimes.json`).
+
+Run the probe on the same clean Core checkout as `proof/pins.json`, with JDK 17 as `JAVA_HOME`
+and Core’s Guava 31.1-jre jar in the Gradle cache or passed with `--guava`:
+
+```sh
+python3 proof/android/lookup_names/probe.py ../commcare-core --output /tmp/lookup-names-jdk.json
+python3 proof/android/lookup_names/probe.py ../commcare-core --avd nova_decode_api23 --output /tmp/lookup-names-api23.json
+```
+
+Repeat the second command for API 29 and API 35, one device at a time. The probe builds the same
+lexer once per run, records every native range and checks it against Nova’s supported ranges. The
+minimum Android and JVM runs require exact agreement. Later Android versions must retain every
+minimum-version name. Each known fingerprint must reproduce its full recorded digest.
+
+The HQ-authored `hq-lookup-names` app selects original values from both a dotted and a Unicode
+table. Its form condition reads the first matching zone’s dotted column next to a digit. Two variants change that
+single condition to a column where HQ interpolates the period or a table whose quoted instance
+id the suite omits. A third keeps the full column projection over every matching row, the form-condition capability
+tracked by `forms-and-case-writes/form-filter-outside-predicate-parent-host-user-usercase-reads`. A comparison over
+all matching rows can succeed when the first row fails. The native HQ checks in `test_hq_interpolation.py` and
+`test_lookup_workbook.py` exercise the suite declaration builder, actual case-filter interpolation
+and HQ’s table-name validator on Unicode range boundaries. Retained row filenames use lowercase
+ASCII where possible. Every other tag is recorded as its exact sequence of Unicode scalars, so
+case folding and Unicode normalization by a host filesystem cannot change a spelling.

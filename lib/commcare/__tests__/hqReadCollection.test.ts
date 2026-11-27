@@ -19,7 +19,7 @@ type Row = { readonly id: string; readonly value: string };
 function spec(overrides: Partial<HqCollectionSpec<Row>> = {}) {
 	return {
 		label: "lookup table rows",
-		firstUrl: HOST + FIRST,
+		firstUrl: FIRST,
 		maxPages: 10,
 		maxRows: 1_000,
 		maxBytes: 1024 * 1024,

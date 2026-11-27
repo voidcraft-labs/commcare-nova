@@ -5132,12 +5132,24 @@ def _data_binds_and_itext():
         head=f'<vellum:hashtagTransforms>{{"prefixes": {{"#case/": "{case_path}"}}}}</vellum:hashtagTransforms>',
     )
     itemsets = form(
-        data="<s/><t/>",
+        data="<s/><t/><u/>",
         model='<instance id="items" src="jr://fixture/item-list:items"/>',
         body="""<select1 ref="/data/s"><itemset nodeset="instance('items')/items_list/items">
             <label ref="jr:itext(name)"/><value ref="id"/></itemset></select1>
           <select1 ref="/data/t"><itemset nodeset="instance('items')/items_list/items">
             <label ref="name"/><value ref="id"/></itemset></select1>""",
+    )
+    # A lookup choice whose label or value reads two steps down the row (the first select), which the form editor's
+    # lookup widget cannot keep, beside one that reads a field and an attribute of the row (the second).
+    lookup_refs = form(
+        data="<s/><t/><u/>",
+        model='<instance id="items" src="jr://fixture/item-list:items"/>',
+        body="""<select1 ref="/data/s"><itemset nodeset="instance('items')/items_list/items">
+            <label ref="details/name"/><value ref="codes/id"/></itemset></select1>
+          <select1 ref="/data/t"><itemset nodeset="instance('items')/items_list/items">
+            <label ref="name"/><value ref="@code"/></itemset></select1>
+          <select1 ref="/data/u"><itemset nodeset="instance('items')/items_list/items">
+            <label ref="région"/><value ref="@clé"/></itemset></select1>""",
     )
     translations = form(
         data="<q/>",
@@ -5595,6 +5607,15 @@ def _data_binds_and_itext():
                 "select1[2]/itemset[1]/label[1]/@ref",
                 readings=True,
             ),
+        ),
+        "questions/lookup-choice-reference-the-form-editor-cannot-keep": (
+            refused("form", lookup_refs, "xform:select1/itemset/label@ref", "select1[1]/itemset[1]/label[1]/@ref"),
+            accepted("form", lookup_refs, "xform:select1/itemset/label@ref", "select1[2]/itemset[1]/label[1]/@ref"),
+            refused("form", lookup_refs, "xform:select1/itemset/value@ref", "select1[1]/itemset[1]/value[1]/@ref"),
+            accepted("form", lookup_refs, "xform:select1/itemset/value@ref", "select1[2]/itemset[1]/value[1]/@ref"),
+            # one non-ASCII field or attribute step, which the form builder compares with the table's names as text
+            accepted("form", lookup_refs, "xform:select1/itemset/label@ref", "select1[3]/itemset[1]/label[1]/@ref"),
+            accepted("form", lookup_refs, "xform:select1/itemset/value@ref", "select1[3]/itemset[1]/value[1]/@ref"),
         ),
         "questions/markdown-form-differing-from-the-default-text": (
             refused("form", translations, "itext-form:core/markdown", "translation[1]/text[1]/value[2]/@form"),
@@ -6563,8 +6584,14 @@ KNOWN_GAPS = frozenset(
         "application-and-settings/non-empty-custom-assertions-app",
         "case-search/instance-name-containing-casedb-ledgerdb-fixture-or-session",
         "expressions-and-data/commtrack-products-commtrack-programs",
+        "expressions-and-data/lookup-table-instance-undiscovered-in-suite",
         "expressions-and-data/reports-commcare-reports-commcare-reports-commcare-reports",
         "expressions-and-data/tag-containing-casedb-or-ledgerdb",
+        "expressions-and-data/nova-table-tag-colliding-with-the-form-builder-s-ids",
+        "expressions-and-data/tag-has-own-property",
+        "expressions-and-data/tag-proto-read-by-a-form",
+        "expressions-and-data/non-ascii-lookup-name-a-form-reads",
+        "expressions-and-data/non-ascii-lookup-name-in-a-search-option-hq-checks",
         "expressions-and-data/tag-or-field-name-core-s-xpath-lexer-does-not-read-as-a-name-any",
         "forms-and-case-writes/custom-assertions-form-non-empty",
         "forms-and-case-writes/is-release-notes-form-true-with-or-without-enable-release-notes",

@@ -24,6 +24,7 @@ import type { SelectedSourceDocument } from "@/lib/chat/selectedSources";
 
 import {
 	type ColumnType,
+	type Generated,
 	type IsolationLevel,
 	type JSONColumnType,
 	Kysely,
@@ -46,6 +47,7 @@ import type {
 } from "@/lib/domain";
 import type {
 	LookupColumnId,
+	LookupMemberId,
 	LookupRowId,
 	LookupTableId,
 } from "@/lib/domain/lookupIds";
@@ -353,6 +355,9 @@ export interface UserSettingsTable {
 	commcare_api_key: string;
 	commcare_server: string | null;
 	approved_domains: JSONColumnType<{ name: string; displayName: string }[]>;
+	/** A fresh uuid each time the key, user name or server is saved: the
+	 * connection's version, which bindings name in place of the key. */
+	connection_epoch: Generated<string>;
 	updated_at: Timestamp;
 }
 
@@ -458,6 +463,11 @@ export interface LookupProjectStateTable {
 }
 
 export interface LookupTablesTable {
+	worker_access: ColumnType<
+		"all" | "assigned",
+		"all" | "assigned" | undefined,
+		"all" | "assigned"
+	>;
 	project_id: string;
 	id: DefaultedUuidV7Column<LookupTableId>;
 	name: string;
@@ -468,7 +478,8 @@ export interface LookupTablesTable {
 	/** Maintained with child writes under the locked table row. */
 	column_count: number;
 	row_count: ColumnType<number, number | undefined, number>;
-	data_bytes: ColumnType<number, number | undefined, number>;
+	data_bytes: ColumnType<string, number | string | undefined, number | string>;
+	active_generation_id: string | null;
 	created_by: string;
 	updated_by: string;
 	created_at: Timestamp;
@@ -481,6 +492,11 @@ export interface LookupTablesTable {
 	hq_remote_id: string | null;
 	/** The canonical value of CommCare HQ's table at the last refresh, an
 	 * object whose `digest` is 64 lowercase hex digits. */
+	hq_source_observation: JSONColumnType<
+		Readonly<Record<string, unknown>> | null,
+		string | null | undefined,
+		string | null
+	>;
 	hq_canonical: JSONColumnType<
 		Readonly<Record<string, unknown>> | null,
 		string | null,
@@ -504,7 +520,23 @@ export type StoredLookupColumnDataType =
 	| "time"
 	| "datetime";
 
+export interface LookupMembersTable {
+	project_id: string;
+	table_id: LookupTableId;
+	column_id: LookupColumnId | null;
+	id: DefaultedUuidV7Column<LookupMemberId>;
+	wire_name: string;
+	label: string;
+	position: number;
+}
+
 export interface LookupColumnsTable {
+	repeated: ColumnType<boolean, boolean | undefined, boolean>;
+	index_status: ColumnType<
+		"off" | "indexed" | "unobserved",
+		"off" | "indexed" | "unobserved" | undefined,
+		"off" | "indexed" | "unobserved"
+	>;
 	project_id: string;
 	table_id: LookupTableId;
 	id: DefaultedUuidV7Column<LookupColumnId>;
@@ -515,6 +547,10 @@ export interface LookupColumnsTable {
 }
 
 export interface LookupRowsTable {
+	external_bytes: ColumnType<string, never | undefined, never>;
+	hq_row_id: string | null;
+	hq_sort_key: number | null;
+	content: ColumnType<unknown, string | undefined, string>;
 	project_id: string;
 	table_id: LookupTableId;
 	id: DefaultedUuidV7Column<LookupRowId>;
@@ -569,6 +605,11 @@ export interface AppOrganizationStateTable {
 }
 
 export interface AppLocationsTable {
+	hq_observation: ColumnType<
+		string | null,
+		string | null | undefined,
+		string | null
+	>;
 	id: DefaultedUuidV7Column<string>;
 	app_id: string;
 	level_uuid: Uuid;
@@ -1256,6 +1297,7 @@ export interface AuthoringWorkspacesTable {
 }
 
 export interface LookupAuthoringReceiptsTable {
+	required_capability: "edit" | "delete" | null;
 	project_id: string;
 	target_key: string;
 	request_id: string;
@@ -1947,6 +1989,22 @@ export interface AppDatabase {
 	lookup_tables: LookupTablesTable;
 	lookup_columns: LookupColumnsTable;
 	lookup_rows: LookupRowsTable;
+	lookup_members: LookupMembersTable;
+	lookup_project_edit_receipts: {
+		required_capability: "edit" | "delete";
+		project_id: string;
+		actor_id: string;
+		operation_id: string;
+		digest: string;
+		receipt: JSONColumnType<Record<string, unknown>>;
+		created_at: Timestamp;
+	};
+	lookup_member_references: {
+		project_id: string;
+		table_id: LookupTableId;
+		member_id: LookupMemberId;
+		app_id: string;
+	};
 	lookup_table_references: LookupTableReferencesTable;
 	lookup_column_references: LookupColumnReferencesTable;
 	app_organization_state: AppOrganizationStateTable;

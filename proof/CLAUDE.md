@@ -291,6 +291,11 @@ harness keeps, each with its reason.
   HQ's save counter too, which a publish binds its baseline to: the capture
   records the peer's counter around each import and media upload, including
   the extra save when an import prunes an unused media mapping. The HQ side
+  replays each physical media POST in order, comparing the actual mapped file
+  with the submitted ZIP member. An unchanged recorded file is checked by
+  path and SHA-256 after import and sends no POST. An import with multiple
+  uploads names each body and counter in `mediaBatches`; retained one-body
+  sidecars still use `media` and `mediaSaveCounter`. The HQ side
   compares the change in HQ's own counter over the same write
   (`proof/observe/publish.py`, `operations.hold_save_counter`), the facts the
   model rests on held to HQ's views by `proof/hq/test_publish.py`. So does a

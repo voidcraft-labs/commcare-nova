@@ -1,3 +1,5 @@
+import type { ProjectDataGrant } from "@/lib/auth/dataGrant";
+
 /**
  * Shared MCP types.
  *
@@ -36,6 +38,8 @@ export type AuthKind = "oauth" | "api-key";
  * this?" surface.
  */
 export interface ToolContext {
+	/** Present on authenticated requests for operations that outlive one credential check. */
+	grant?: ProjectDataGrant;
 	/** Better Auth user id, from the JWT `sub` claim or the API-key row's `referenceId`. */
 	userId: string;
 	/**

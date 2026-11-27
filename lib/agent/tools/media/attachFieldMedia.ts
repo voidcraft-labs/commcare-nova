@@ -26,8 +26,8 @@
  *
  * The batch is all-or-nothing (`commitMediaBatch`): every attachment must
  * resolve (field exists, slot supported) and every set slot must pass the
- * at-source asset verdict (exists / owned / ready / kind-matched / inside
- * the export ceiling) before the single gated commit; any failure returns
+ * at-source asset verdict (exists / owned / ready / kind-matched / plays
+ * where the app runs) before the single gated commit; any failure returns
  * `{ error }` naming every offending attachment and nothing is written.
  * Two attachments addressing the same (field, slot) apply in order — the
  * later one wins.

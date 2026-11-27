@@ -210,7 +210,7 @@ def test_hqs_upload_view_answers_json_with_its_verdict_and_writes_only_what_it_t
 
 
 def test_owners_take_effect_only_on_a_table_that_is_not_global_and_novas_push_drops_them(hq, core_runner, documents):
-    from casexml.apps.phone.models import OTARestoreCommCareUser
+    from casexml.apps.phone.models import OTARestoreCommCareUser, OTARestoreWebUser
     from corehq.apps.fixtures.fixturegenerators import ItemListsProvider
     from corehq.apps.fixtures.models import LookupTable, LookupTableRow, LookupTableRowOwner, OwnerType
     from corehq.apps.users.models import CommCareUser
@@ -227,23 +227,25 @@ def test_owners_take_effect_only_on_a_table_that_is_not_global_and_novas_push_dr
         )
         provider = ItemListsProvider()
 
-        def served(worker):
+        def served(principal):
             """The rows HQ's restore writes for ``worker``: the global arm for a global table, the owned arm for
             one that is not."""
             if table.is_global:
                 (fixture,) = provider._get_global_items(table, state.domain)
             else:
                 (fixture,), _ = provider.get_user_items_and_count(
-                    {table.id: table}, OTARestoreCommCareUser(state.domain, worker)
+                    {table.id: table}, principal
                 )
             (items,) = list(fixture)
             return len(list(items))
 
+        principals = (OTARestoreCommCareUser(state.domain, owner), OTARestoreCommCareUser(state.domain, other),
+                      OTARestoreWebUser(state.domain, state.web_user))
         assert table.is_global
-        assert (served(owner), served(other)) == (2, 2)
+        assert tuple(map(served, principals)) == (2, 2, 2)
         table.is_global = False
         table.save()
-        assert (served(owner), served(other)) == (1, 0)
+        assert tuple(map(served, principals)) == (1, 0, 0)
 
         table.is_global = True
         table.save()

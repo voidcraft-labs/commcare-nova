@@ -288,7 +288,8 @@ test("native publish consent expires when the dialog closes or its destination c
 	)
 		await reviewDestination(page);
 	await page.getByRole("button", { name: "Upload", exact: true }).click();
-	expect(sent).toHaveLength(2);
+	// The click resolves before the route sees the request.
+	await expect.poll(() => sent.length).toBe(2);
 	expect(sent[1]).toMatchObject({ adopt_resources: [] });
 	await page.getByRole("checkbox", { name: "Clinics (clinics)" }).check();
 	await choose(page, "Publish option", "CommCare HQ app file");
@@ -300,6 +301,7 @@ test("native publish consent expires when the dialog closes or its destination c
 	)
 		await reviewDestination(page);
 	await page.getByRole("button", { name: "Upload", exact: true }).click();
+	await expect.poll(() => sent.length).toBe(3);
 	expect(sent[2]).toMatchObject({ adopt_resources: [] });
 });
 test("native publish lists what changed in CommCare HQ, publishes over each ticked change as it was shown, and lands with the App Preview line", async ({

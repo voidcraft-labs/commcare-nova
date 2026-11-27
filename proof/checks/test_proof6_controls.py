@@ -278,19 +278,24 @@ def _base_reads(base="hq-plain"):
         "source": _answer(directory / "app-source.json"),
         "currentVersion": _answer(directory / "current-version.json"),
     }
+    if (directory / "source-factories.json").is_file():
+        reads["sourceFactoryReads"] = json.loads((directory / "source-factories.json").read_text())
     if (directory / "project-spaces.json").is_file():
         reads["projectSpaces"] = {
             "all": _answer(directory / "project-spaces.json"),
             "flagged": _answer(directory / "project-spaces-flag.json"),
         }
+    from proof.matrix.lane_input import fixture_rows_tag
+
     data = {
         "lookupTables": _answer(directory / "lookup-tables.json"),
         "fixtureRows": {
-            path.stem.removeprefix("fixture-rows-"): _answer(path)
-            for path in sorted(directory.glob("fixture-rows-*.json"))
+            tag: _answer(path)
+            for path in sorted(directory.glob("fixture-rows*.json"))
+            if (tag := fixture_rows_tag(path.name)) is not None
         },
     }
-    for key, name in (("locationTypes", "location-types.json"), ("locations", "locations.json")):
+    for key, name in (("locationTypes", "location-types.json"), ("locations", "locations.json"), ("locationsV1", "locations-v1.json")):
         if (directory / name).is_file():
             data[key] = _answer(directory / name)
     reads["projectData"] = data

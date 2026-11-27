@@ -83,6 +83,7 @@ import {
 	validateResolvedCaseOperationTypeSequence,
 } from "../caseOperationTargets";
 import {
+	CaptureSubmissionRejectedError,
 	CaseNotFoundError,
 	CasePropertiesValidationError,
 	SubmissionRejectedError,
@@ -1165,6 +1166,30 @@ async function resolveOperationProgram(
 }> {
 	const appId = args.appId;
 	const ordinary = args.ordinary;
+	const revisions = program.groupDefaults?.revisions;
+	if (revisions) {
+		// A zero revision can mean no prior writer. Materialize both clock rows
+		// before locking so the first concurrent membership or place edit also waits.
+		await sql`INSERT INTO lookup_project_state(project_id) VALUES (${host.projectId}) ON CONFLICT DO NOTHING`.execute(
+			trx,
+		);
+		await sql`INSERT INTO app_organization_state(app_id) VALUES (${appId}) ON CONFLICT DO NOTHING`.execute(
+			trx,
+		);
+		const current = await sql<{
+			project: string;
+			places: string;
+		}>`SELECT COALESCE((SELECT revision FROM lookup_project_state WHERE project_id=${host.projectId} FOR SHARE),0)::text project,
+   COALESCE((SELECT revision FROM app_organization_state WHERE app_id=${appId} FOR SHARE),0)::text places`.execute(
+			trx,
+		);
+		const [row] = current.rows;
+		if (row.project !== revisions.project || row.places !== revisions.places)
+			throw new CaptureSubmissionRejectedError(
+				"The worker’s groups or places changed. You can reopen the form with their current assignments.",
+			);
+	}
+
 	// Lookup writers take the table FOR UPDATE before changing definitions or
 	// rows. Hold each referenced table in UUID order across every evaluation
 	// phase, so a guard and its value cannot observe different generations.
@@ -1784,9 +1809,11 @@ async function resolveOperationProgram(
 		if (operation.action === "create") {
 			preparedOwner = prepareText(
 				"owner",
-				operation.owner === undefined
-					? host.actingUserId
-					: evaluatedText(bag?.owner),
+				program.groupDefaults?.operations.includes(operation.uuid)
+					? program.groupDefaults.owner
+					: operation.owner === undefined
+						? host.actingUserId
+						: evaluatedText(bag?.owner),
 			);
 		} else if (
 			operation.action === "update" &&

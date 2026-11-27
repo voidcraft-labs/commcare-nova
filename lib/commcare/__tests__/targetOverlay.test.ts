@@ -491,6 +491,34 @@ describe("the whole body and its ownership", () => {
 		expect([translations, add_ons, profile]).not.toContain(undefined);
 	});
 
+	it("turns case sharing off on a target that shares cases where the app shares none, and writes nothing otherwise", () => {
+		const sharing = source({ raw: { case_sharing: true } });
+		const { application: off } = projectApplicationForTarget(
+			application(),
+			sharing,
+			"available",
+			NOVA_FILL,
+		);
+		expect(off.case_sharing).toBe(false);
+		expect(Object.keys(off).at(-1)).toBe("_attachments");
+		const { application: on } = projectApplicationForTarget(
+			application({ case_sharing: true }),
+			sharing,
+			"available",
+			NOVA_FILL,
+		);
+		expect(on.case_sharing).toBe(true);
+		for (const raw of [{}, { case_sharing: false }]) {
+			const { application: body } = projectApplicationForTarget(
+				application(),
+				source({ raw }),
+				"available",
+				NOVA_FILL,
+			);
+			expect(Object.hasOwn(body, "case_sharing")).toBe(false);
+		}
+	});
+
 	it("leaves out each key that equals the target's", () => {
 		const input = application();
 		const { application: first } = projectApplicationForTarget(
@@ -539,7 +567,7 @@ describe("the whole body and its ownership", () => {
 		).toBe(false);
 	});
 
-	it("records what Nova set: the needed add-ons, its two settings and the derived key it sets", () => {
+	it("records what Nova set: the needed add-ons, its settings, case sharing and the derived key it sets", () => {
 		const { ownership } = projectApplicationForTarget(
 			application({ add_ons: { subcases: true, display_conditions: true } }),
 			source({ addOns: { menu_mode: true, calc_xpaths: true } }),
@@ -552,6 +580,7 @@ describe("the whole body and its ownership", () => {
 			profileCustomProperties: ["cc-index-case-search-results"],
 			profileFeatures: ["dependencies"],
 			autoGpsCapture: false,
+			caseSharing: true,
 		});
 		for (const state of ["missing", "not-needed", "unverified"] as const)
 			expect(

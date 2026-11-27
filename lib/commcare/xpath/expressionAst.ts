@@ -97,7 +97,15 @@ export function parseFormExpression(
 		};
 	if (syntax.node === undefined)
 		return { ok: true, expression: undefined, spans: new Map() };
-	const rootNode = syntax.node;
+	return bindFormSyntax(source, scope, syntax.node);
+}
+
+/** Bind an existing syntax tree to the identities of this slot. */
+export function bindFormSyntax(
+	source: string,
+	scope: FormParseScope,
+	rootNode: FormSyntax,
+): FormParseResult {
 	const context = formScopeContext(scope);
 	if (context === undefined)
 		return {
@@ -144,7 +152,7 @@ export function parseFormExpression(
 					if (child.kind !== "relation") collect(child.value, child.path);
 			};
 			collect(scope.current, []);
-			matchFormSyntax(before.node, syntax.node, (oldNode, newNode) => {
+			matchFormSyntax(before.node, rootNode, (oldNode, newNode) => {
 				if (formSyntaxKey(oldNode) !== formSyntaxKey(newNode)) return;
 				const hint = byBounds.get(`${oldNode.from}:${oldNode.to}`);
 				if (hint !== undefined) hints.set(newNode, hint);
@@ -648,11 +656,11 @@ export function parseFormExpression(
 		worker: (slug, source) => formUserProperty(scope, slug, source),
 	};
 	try {
-		let expression = bind(syntax.node, context);
+		let expression = bind(rootNode, context);
 		if (scope.slot.entity === "field" && scope.slot.slot === "default_value")
 			expression = choiceFor(
 				expression,
-				term({ kind: "field", uuid: scope.slot.uuid }, syntax.node),
+				term({ kind: "field", uuid: scope.slot.uuid }, rootNode),
 				context,
 			);
 		const spans = new Map<string, Bounds>();
@@ -666,7 +674,7 @@ export function parseFormExpression(
 			for (const child of expressionChildren(node, path))
 				if (child.kind !== "relation") visit(child.value, child.path, bounds);
 		};
-		visit(expression, [], syntax.node);
+		visit(expression, [], rootNode);
 		return { ok: true, expression, spans };
 	} catch (error) {
 		if (!(error instanceof FormParseRefusal)) throw error;

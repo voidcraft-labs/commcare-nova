@@ -51,7 +51,11 @@ import type { BlueprintDocStore } from "@/lib/doc/provider";
 import type { Mutation } from "@/lib/doc/types";
 import { userFacingErrors } from "@/lib/doc/userFacingErrors";
 import type { CommitOutcome, ConnectConfig, ConnectType } from "@/lib/domain";
-import type { MediaFormatValue, MediaKind } from "@/lib/domain/multimedia";
+import type {
+	AssetKind,
+	MediaFormatValue,
+	MediaKind,
+} from "@/lib/domain/multimedia";
 import {
 	declaredPlatforms,
 	declaresWebApps,
@@ -59,7 +63,6 @@ import {
 } from "@/lib/domain/platforms";
 import type { RequiredAndroidApp } from "@/lib/domain/requiredAndroidApps";
 import type { Event } from "@/lib/log/types";
-import type { ExportBudgetRowView } from "@/lib/media/exportBudget";
 import { EMPTY_AFTER_SUBMIT_STACK } from "@/lib/preview/afterSubmitStack";
 import { effectivePreviewPlatform } from "@/lib/preview/platform";
 import { previewSelectionsTargetOf } from "@/lib/routing/previewSelectionsHistory";
@@ -85,12 +88,16 @@ import type {
 } from "./types";
 
 /**
- * One asset row the session has observed: what the budget check reads, the
+ * One asset row the session has observed: its status, kind and size, the
  * variant its bytes are, which the attach guard, the pickers and Preview's
  * stand-in read, and the content hash and extension every export names the
  * file by, which Preview's list filter reads an image map's path from.
  */
-export type AssetMetaRow = ExportBudgetRowView & {
+export type AssetMetaRow = {
+	/** The wire row's status; only `ready` files are referenced. */
+	status: string;
+	kind: AssetKind;
+	sizeBytes: number;
 	contentHash: string;
 	extension: string;
 	mediaFormat?: MediaFormatValue;
@@ -541,15 +548,14 @@ export interface BuilderSessionState {
 	 *  silent — cancel already cleared the slot. */
 	cancelStagedUpload: (slotKey: string) => void;
 
-	/** Budget-relevant asset metadata observed this session — every
-	 *  library page the builder's pickers load, every upload confirm, and
-	 *  every row the attach budget check fetches lands here, keyed by
-	 *  asset id. The browser's pre-dispatch export-ceiling check
-	 *  (`components/builder/media/useAttachBudget.ts`) resolves the doc's
-	 *  referenced ids against this registry and fetches only the gaps.
-	 *  Advisory data by design: the export boundary re-loads fresh rows
-	 *  server-side, so a stale entry here can only mis-tune the courtesy
-	 *  check, never the enforcement. */
+	/** Asset metadata observed this session — every library page the
+	 *  builder's pickers load, every upload confirm, every file an attach
+	 *  is checked for, and every row the referenced-row reader
+	 *  (`components/builder/media/useReferencedAssetRows.ts`) fetches lands
+	 *  here, keyed by asset id. Advisory data by design: the commit kernel
+	 *  and the export boundary re-load fresh rows server-side, so a stale
+	 *  entry here can only mis-tune a courtesy check, never the
+	 *  enforcement. */
 	assetMeta: Record<string, AssetMetaRow>;
 
 	/** Merge observed asset rows into the registry. Idempotent — a batch

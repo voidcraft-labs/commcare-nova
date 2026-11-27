@@ -435,6 +435,9 @@ const updateAppLocation = (summary: ToolCallSummary): string | null => {
 		...(summary.captureLocation !== undefined
 			? [`Location for every form ${summary.captureLocation ? "on" : "off"}`]
 			: []),
+		...(summary.caseSharing !== undefined
+			? [`Case sharing ${summary.caseSharing ? "on" : "off"}`]
+			: []),
 		...(summary.platforms !== undefined
 			? [UPDATE_APP_PLATFORM_PHRASES[summary.platforms]]
 			: []),

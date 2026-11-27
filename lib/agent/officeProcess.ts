@@ -32,7 +32,7 @@ export class OfficeParser {
 
 	async convert(
 		bytes: Buffer,
-		kind: "docx" | "xlsx",
+		kind: "docx" | "xlsx" | { readonly selectedSheet: string },
 		signal?: AbortSignal,
 	): Promise<OfficeResult> {
 		signal?.throwIfAborted();
@@ -88,7 +88,7 @@ export class OfficeParser {
 
 	private run(
 		bytes: Buffer,
-		kind: "docx" | "xlsx",
+		kind: "docx" | "xlsx" | { readonly selectedSheet: string },
 		signal: AbortSignal,
 	): Promise<OfficeResult> {
 		return new Promise((resolveResult, reject) => {
@@ -101,15 +101,16 @@ export class OfficeParser {
 				[
 					"-c",
 					process.platform === "linux"
-						? 'ulimit -c 0 && ulimit -d "$1" && exec "$2" --disable-wasm-trap-handler --max-old-space-size="$3" "$4" "$5"'
-						: 'ulimit -c 0 && exec "$2" --disable-wasm-trap-handler --max-old-space-size="$3" "$4" "$5"',
+						? 'ulimit -c 0 && ulimit -d "$1" && exec "$2" --disable-wasm-trap-handler --max-old-space-size="$3" "$4" "$5" "$6"'
+						: 'ulimit -c 0 && exec "$2" --disable-wasm-trap-handler --max-old-space-size="$3" "$4" "$5" "$6"',
 					"office-parser",
 					String(this.options.dataKb ?? OFFICE_LIMITS.dataKb),
 					process.execPath,
 					String(this.options.heapMb ?? OFFICE_LIMITS.heapMb),
 					this.options.workerPath ??
 						resolve(process.cwd(), "runtime/office/worker.mjs"),
-					kind,
+					typeof kind === "string" ? kind : "selected-workbook",
+					typeof kind === "string" ? "" : kind.selectedSheet,
 				],
 				{
 					stdio: ["pipe", "pipe", "ignore"],
@@ -179,4 +180,22 @@ export function convertOfficeDocument(
 	signal?: AbortSignal,
 ): Promise<OfficeResult> {
 	return parser.convert(bytes, kind, signal);
+}
+
+/** The same process, archive and queue limits as Office conversion. This mode
+ * returns only the literal cells of a workbook containing the two selected sheets. */
+export async function readSelectedWorkbookGrids(
+	bytes: Buffer,
+	selectedSheet: string,
+	signal?: AbortSignal,
+): Promise<unknown> {
+	if (
+		!selectedSheet ||
+		selectedSheet.length > 31 ||
+		selectedSheet.includes("\0") ||
+		selectedSheet.toLowerCase() === "types"
+	)
+		throw failure();
+	const result = await parser.convert(bytes, { selectedSheet }, signal);
+	return JSON.parse(result.markdown);
 }

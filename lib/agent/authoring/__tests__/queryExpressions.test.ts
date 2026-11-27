@@ -23,6 +23,7 @@ import {
 } from "@/lib/domain/expression/chosenCase";
 import { DISTANCE_UNITS } from "@/lib/domain/expression/distance";
 import type { Expression } from "@/lib/domain/expression/types";
+import { lookupMemberIdSchema } from "@/lib/domain/lookupIds";
 import { webAppsDevice } from "@/lib/preview/engine/__tests__/fixtures/previewDevices";
 import { previewExpressionContext } from "@/lib/preview/engine/expressionContext";
 import {
@@ -52,7 +53,7 @@ const identity = (kind: string, name: string) => {
 	if (knownIds.has(name)) return name;
 	const key = `${kind}/${name}`;
 	let uuid: string;
-	if (kind === "table" || kind === "column") {
+	if (kind === "table" || kind === "column" || kind.startsWith("member/")) {
 		uuid = lookupIds.get(key) ?? uuidv7();
 		lookupIds.set(key, uuid);
 	} else uuid = testUuid(name);
@@ -76,6 +77,10 @@ function bindings(caseType = "Client", tableId?: string): QueryBindings {
 			],
 		}),
 		identity,
+		memberIdentity: (table, column, name) =>
+			lookupMemberIdSchema.parse(
+				identity(`member/${table}/${column ?? ""}`, name),
+			),
 		chosenCaseMenu(name) {
 			return { module: asUuid(identity("module", name)), caseType: "Client" };
 		},
@@ -365,6 +370,10 @@ it("preserves authored values when a read result is submitted back as an edit", 
 		"location('clinic')",
 		"owner-location('district', 'Client')",
 		"table-column('districts', 'name')",
+		"table-column('districts', row-detail('code'))",
+		"lookup('districts', value-at(value-with('name', 'language', 'fr'), 1), table-column('districts', row-detail('code')) = 'north')",
+		"table-column('districts', value-detail(value-at('name', 2), 'language'))",
+		"table-column('districts', value-with(value-at('name', 2), 'language', 'fr'))",
 	];
 	for (const source of values) {
 		const parsed = parseQueryValue(source, scope);

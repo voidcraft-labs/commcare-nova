@@ -83,19 +83,20 @@ const ROWS: readonly LookupFixtureRow[] = [
 		stock: 0,
 		region: "south",
 	}),
-	// Missing clinic_name cell + stored-empty region: both read blank.
+	// A stored-empty region is a missing answer to the region filter.
 	row("018f0000-0000-7000-8000-0000000000a3", {
 		code: "c3",
+		clinic_name: "Cedar Clinic",
 		stock: 9,
 		region: "",
 	}),
 ];
 
-function data(): PreviewLookupData {
+function data(rows: readonly LookupFixtureRow[] = ROWS): PreviewLookupData {
 	return previewLookupData({
 		projectRevision: parseLookupRevision("7"),
 		definitions: [DEFINITION],
-		rowsByTable: new Map([[TABLE, ROWS]]),
+		rowsByTable: new Map([[TABLE, rows]]),
 	});
 }
 
@@ -191,7 +192,11 @@ describe("evaluateLookupChoices", () => {
 				value: "b2",
 				label: "Bario Health Post",
 			},
-			{ key: "018f0000-0000-7000-8000-0000000000a3", value: "c3", label: "" },
+			{
+				key: "018f0000-0000-7000-8000-0000000000a3",
+				value: "c3",
+				label: "Cedar Clinic",
+			},
 		]);
 	});
 
@@ -258,10 +263,58 @@ describe("evaluateLookupChoices", () => {
 
 	it("is-blank matches missing cells and stored-empty cells alike", () => {
 		const choices = evaluateLookupChoices(
-			source(isBlank(term(tableColumn(TABLE, COL_NAME)))),
-			data(),
+			source(isBlank(term(tableColumn(TABLE, COL_REGION)))),
+			data([
+				...ROWS,
+				row("018f0000-0000-7000-8000-0000000000a4", {
+					code: "d4",
+					clinic_name: "Dari Clinic",
+				}),
+			]),
 		);
-		expect(choices.map((c) => c.value)).toEqual(["c3"]);
+		expect(choices.map((c) => c.value)).toEqual(["c3", "d4"]);
+	});
+
+	it("names an unusable assigned label even when the authored filter hides its row", () => {
+		const invalid = row("018f0000-0000-7000-8000-0000000000a4", {
+			code: "d4",
+			region: "west",
+		});
+		expect(() =>
+			evaluateLookupChoices(
+				source(eq(term(tableColumn(TABLE, COL_REGION)), literal("north"))),
+				data([...ROWS, invalid]),
+			),
+		).toThrow(/1 row\(s\) leave that column blank \(row 4 first\)/);
+	});
+
+	it("labels and sorts choices by their text trimmed, as Core builds them from the restored fixture", () => {
+		// commcare-core TreeElementParser.parse trims every element's text, and
+		// ItemSetUtils.buildSelectChoice reads the label off that tree.
+		const padded = [
+			row("018f0000-0000-7000-8000-0000000000b1", {
+				code: "z9",
+				clinic_name: " Zeta Clinic\t",
+			}),
+			row("018f0000-0000-7000-8000-0000000000b2", {
+				code: "a1",
+				clinic_name: "Alpha Clinic",
+			}),
+		];
+		const choices = evaluateLookupChoices(
+			source(),
+			previewLookupData({
+				projectRevision: parseLookupRevision("7"),
+				definitions: [DEFINITION],
+				rowsByTable: new Map([[TABLE, padded]]),
+			}),
+			COL_NAME,
+		);
+		// Untrimmed, " Zeta Clinic" would sort before "Alpha Clinic".
+		expect(choices.map(({ label }) => label)).toEqual([
+			"Alpha Clinic",
+			"Zeta Clinic",
+		]);
 	});
 
 	describe("with a sort column", () => {

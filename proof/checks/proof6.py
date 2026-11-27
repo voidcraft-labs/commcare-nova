@@ -119,6 +119,8 @@ def app_id(document) -> str:
 
 def _answers(reads):
     found = {key: reads[key] for key in ("source", "application", "currentVersion")}
+    if reads.get("sourceFactoryReads"):
+        found["sourceFactoryReads"] = reads["sourceFactoryReads"]
     if reads.get("projectSpaces") is not None:
         found["projectSpaces"] = reads["projectSpaces"]
     return found

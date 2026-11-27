@@ -1,3 +1,4 @@
+import { publishFromSession as publishAppToHq } from "@/lib/deployment/__tests__/publishWithGrant";
 /**
  * Ending a deployment, in real Postgres: who may stop publishing to a project
  * space, what the ending writes and keeps, the fence it raises against a
@@ -38,7 +39,7 @@ import {
 	leftBehindResources,
 	nextPublishAction,
 } from "../resources";
-import { publishAppToHq, refreshDeployment } from "../service";
+import { refreshDeployment } from "../service";
 import {
 	admitAppCreate,
 	applyDeploymentObservation,

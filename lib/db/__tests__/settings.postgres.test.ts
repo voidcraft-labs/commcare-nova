@@ -18,17 +18,19 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
 	decrypt: vi.fn(),
+	encrypt: vi.fn(),
 	discover: vi.fn(),
 }));
 
 vi.mock("@/lib/commcare/encryption", () => ({
 	decrypt: mocks.decrypt,
-	encrypt: vi.fn(),
+	encrypt: mocks.encrypt,
 }));
 vi.mock("@/lib/commcare/client", () => ({
 	discoverAccessibleDomains: mocks.discover,
 }));
 
+import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import { setupAppStateTestDb } from "./appStateTestDb";
 
 const h = setupAppStateTestDb("settings_");
@@ -55,6 +57,17 @@ async function seedSettings(opts: {
 		.execute();
 }
 
+/** The stored connection version. */
+async function readEpoch(): Promise<string> {
+	const row = await h
+		.db()
+		.selectFrom("user_settings")
+		.select("connection_epoch")
+		.where("user_id", "=", "u1")
+		.executeTakeFirstOrThrow();
+	return row.connection_epoch;
+}
+
 /** Read the stored `approved_domains` back (to assert a refresh wrote nothing). */
 async function readDomains(): Promise<unknown> {
 	const row = await h
@@ -68,6 +81,7 @@ async function readDomains(): Promise<unknown> {
 
 beforeEach(() => {
 	mocks.decrypt.mockReset();
+	mocks.encrypt.mockReset();
 	mocks.discover.mockReset();
 	mocks.decrypt.mockResolvedValue("plaintext-key");
 });
@@ -77,6 +91,7 @@ describe("getHqCredentials — decrypt happens ONLY after the target resolves", 
 		await seedSettings({ server: "eu", domains: [PROD] });
 		const { getHqCredentials } = await import("../settings");
 		const r = await getHqCredentials("u1");
+		const epoch = await readEpoch();
 		expect(r).toEqual({
 			ok: true,
 			creds: {
@@ -85,6 +100,12 @@ describe("getHqCredentials — decrypt happens ONLY after the target resolves", 
 				server: "eu",
 			},
 			domain: PROD,
+			connectionDigest: canonicalJsonDigest([
+				"alice@example.com",
+				epoch,
+				"eu",
+				PROD.name,
+			]),
 		});
 		expect(mocks.decrypt).toHaveBeenCalledTimes(1);
 	});
@@ -203,5 +224,57 @@ describe("refreshApprovedDomains — never clobbers stored spaces on a non-succe
 			},
 		});
 		expect(await readDomains()).toEqual([PROD, CRISPR]);
+	});
+});
+
+describe("the connection version a binding names in place of the key", () => {
+	const input = {
+		username: "alice@example.com",
+		apiKey: "plaintext-key",
+		server: "production" as const,
+		approvedDomains: [PROD],
+	};
+
+	it("is new on every save of the key, insert and update alike, and breaks a binding to the old one", async () => {
+		mocks.encrypt.mockResolvedValue("ciphertext-1");
+		const { saveCommCareSettings, getHqCredentials } = await import(
+			"../settings"
+		);
+		await saveCommCareSettings("u1", input);
+		const first = await readEpoch();
+		const bound = await getHqCredentials("u1");
+		await saveCommCareSettings("u1", input);
+		const second = await readEpoch();
+		const rebound = await getHqCredentials("u1");
+		expect(second).not.toBe(first);
+		expect(bound.ok && rebound.ok).toBe(true);
+		if (bound.ok && rebound.ok)
+			expect(rebound.connectionDigest).not.toBe(bound.connectionDigest);
+	});
+
+	it("is not the key: rewriting the stored key alone leaves a binding as it was", async () => {
+		await seedSettings({ domains: [PROD] });
+		const { getHqCredentials } = await import("../settings");
+		const before = await getHqCredentials("u1");
+		await h
+			.db()
+			.updateTable("user_settings")
+			.set({ commcare_api_key: "other-ciphertext" })
+			.where("user_id", "=", "u1")
+			.execute();
+		const after = await getHqCredentials("u1");
+		expect(before.ok && after.ok).toBe(true);
+		if (before.ok && after.ok)
+			expect(after.connectionDigest).toBe(before.connectionDigest);
+	});
+
+	it("survives a refresh of the project spaces", async () => {
+		await seedSettings({ domains: [PROD] });
+		const epoch = await readEpoch();
+		mocks.discover.mockResolvedValue([PROD, CRISPR]);
+		const { refreshApprovedDomains } = await import("../settings");
+		const result = await refreshApprovedDomains("u1");
+		expect(result.ok).toBe(true);
+		expect(await readEpoch()).toBe(epoch);
 	});
 });

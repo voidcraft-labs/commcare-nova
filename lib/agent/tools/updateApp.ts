@@ -1,7 +1,9 @@
 /**
  * SA tool: `updateApp` — set the app's display name and its app settings:
- * whether workers see their saved forms and their incomplete forms, and
- * whether it runs only in Web Apps or only on Android (`runs_only_on`).
+ * whether groups automatically own new cases, whether workers see their
+ * saved forms and their incomplete forms, whether every form requests the
+ * device location, where it runs (`runs_only_on`), and which apps workers
+ * need on Android.
  *
  * A change that adds a platform is checked before it stages, content first
  * and then media, and refused with the gate's own words: private work stages
@@ -49,7 +51,7 @@ import type {
 
 /** The refusal a call that names nothing to change reads. */
 export const UPDATE_APP_EMPTY_INPUT_MESSAGE =
-	"This call named nothing to change, so the app is as it was. update_app sets the display name (name), whether workers see saved forms (show_saved_forms), whether they see incomplete forms (show_incomplete_forms), whether forms request the device location (capture_location), where the app runs (runs_only_on), and which apps workers need on Android (required_android_apps). A call needs at least one change.";
+	"This call named nothing to change, so the app is as it was. update_app sets the display name (name), whether workers see saved forms (show_saved_forms), whether they see incomplete forms (show_incomplete_forms), whether forms request the device location (capture_location), whether a new case goes to the worker's case-sharing group (case_sharing), where the app runs (runs_only_on), and which apps workers need on Android (required_android_apps). A call needs at least one change.";
 
 export const updateAppInputSchema = z
 	.strictObject({
@@ -65,6 +67,12 @@ export const updateAppInputSchema = z
 			.optional()
 			.describe(
 				"Whether every form requests the Android device's location when it opens. False lets each form choose. Connect always requests location. Web Apps leaves the location empty.",
+			),
+		case_sharing: z
+			.boolean()
+			.optional()
+			.describe(
+				"Automatically give a new case to the worker’s one case-sharing group where its form uses the default owner.",
 			),
 		show_saved_forms: z
 			.boolean()
@@ -111,6 +119,11 @@ function changedSettings(
 		input.capture_location !== (current.captureLocation === true)
 	)
 		settings.captureLocation = input.capture_location;
+	if (
+		input.case_sharing !== undefined &&
+		input.case_sharing !== (current.caseSharing ?? false)
+	)
+		settings.caseSharing = input.case_sharing;
 	if (
 		input.show_saved_forms !== undefined &&
 		input.show_saved_forms !== current.showSavedForms
@@ -185,7 +198,7 @@ function declarationAfter(
 
 export const updateAppTool = {
 	description:
-		"Set the app's display name, whether workers see their saved forms and their incomplete forms, whether every form requests the Android device location, where it runs, and which apps workers need on Android. Anything left out keeps its value.",
+		"Set the app's display name, whether groups automatically own new cases, whether workers see their saved forms and their incomplete forms, whether every form requests the Android device location, where it runs, and which apps workers need on Android. Anything left out keeps its value.",
 
 	inputSchema: updateAppInputSchema,
 	async execute(
@@ -246,6 +259,9 @@ export const updateAppTool = {
 				...(platforms !== undefined && { platforms }),
 				...(settings.captureLocation !== undefined && {
 					captureLocation: settings.captureLocation === true,
+				}),
+				...(settings.caseSharing !== undefined && {
+					caseSharing: settings.caseSharing === true,
 				}),
 				...(formListsChanged && {
 					formLists: {

@@ -60,6 +60,12 @@ export interface ToolCallSummary {
 	 */
 	captureLocation?: boolean;
 	/**
+	 * For a call that changed whether a new case goes to the worker's
+	 * case-sharing group: the new value. Absent when it left the setting as
+	 * it was.
+	 */
+	caseSharing?: boolean;
+	/**
 	 * For a call that changed where the app runs: the RESULTING declaration,
 	 * `"both"` or the one platform. Absent when it left the declaration as it
 	 * was.

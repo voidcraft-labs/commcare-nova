@@ -10,8 +10,10 @@ import org.commcare.util.mocks.MockUserDataSandbox;
 import org.commcare.util.screen.EntityScreen;
 import org.commcare.util.screen.EntityScreenContext;
 import org.commcare.util.screen.MultiSelectEntityScreen;
+import org.javarosa.core.model.Constants;
 import org.javarosa.core.model.FormDef;
 import org.javarosa.core.model.FormIndex;
+import org.javarosa.core.model.SelectChoice;
 import org.javarosa.core.model.data.IAnswerData;
 import org.javarosa.core.model.instance.DataInstance;
 import org.javarosa.core.model.instance.ExternalDataInstance;
@@ -245,6 +247,18 @@ final class Evaluate {
                     result.put("path", path);
                     result.put("value", value);
                     result.put("label", FormRun.text(prompt::getQuestionText));
+                    if (prompt.getControlType() == Constants.CONTROL_SELECT_ONE
+                            || prompt.getControlType() == Constants.CONTROL_SELECT_MULTI) {
+                        // The choices Core offered, as a worker reads them, before the answer picks one.
+                        JSONArray choices = new JSONArray();
+                        for (SelectChoice choice : prompt.getSelectChoices()) {
+                            JSONObject c = new JSONObject();
+                            c.put("value", choice.getValue());
+                            c.put("text", FormRun.text(() -> prompt.getSelectChoiceText(choice)));
+                            choices.put(c);
+                        }
+                        result.put("choices", choices);
+                    }
                     try {
                         IAnswerData data = Answers.answerData(prompt, value);
                         int code = controller.answerQuestion(prompt.getIndex(), data);

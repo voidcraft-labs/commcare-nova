@@ -771,6 +771,7 @@ describe("adoptedAppBaselineWrite", () => {
 			profileFeatures: ["dependencies"],
 			profileCustomProperties: [],
 			autoGpsCapture: true,
+			caseSharing: true,
 		});
 	});
 
@@ -785,6 +786,7 @@ describe("adoptedAppBaselineWrite", () => {
 			profileFeatures: ["dependencies"],
 			profileCustomProperties: [],
 			autoGpsCapture: true,
+			caseSharing: true,
 		});
 	});
 

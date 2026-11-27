@@ -69,8 +69,7 @@ import type { Expression } from "@/lib/domain/expression";
 import { unhandledKindMessage } from "@/lib/domain/expression/errors";
 import { caseQueryReadingFor } from "@/lib/domain/expression/temporalType";
 import { XML_ELEMENT_NAME_PATTERN } from "@/lib/domain/expression/types";
-import { CANONICAL_UUID_PATTERN } from "@/lib/domain/uuid";
-import { MAX_LOCATIONS_PER_APP } from "@/lib/organization/schema";
+import { CANONICAL_UUID_PATTERN, uuidSchema } from "@/lib/domain/uuid";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import {
 	type CaseListSortChoice,
@@ -1315,10 +1314,11 @@ export async function loadCaseDatabaseSnapshotAction(
 			loadBlueprint: true,
 		});
 		if (context.kind !== "ready") return context;
-		const snapshot = await readCaseDatabaseSnapshot(context.store, {
+		const cases = await readCaseDatabaseSnapshot(context.store, {
 			appId,
 			restoreScope: context.restoreScope,
 		});
+		const snapshot = { ...cases, workerGroups: context.restoreScope.groups };
 		if (!includePlaces) return { kind: "data", snapshot };
 		return {
 			kind: "data",
@@ -1707,11 +1707,31 @@ export async function loadFilterPreviewAction(args: {
 		const boundIdentity = previewAsMe(session.user, undefined, projectSpace);
 		if (!boundIdentity) return { kind: "unauthenticated" };
 		const lookupTableSchemas = await loadLookupTableSchemas(
-			scope,
+			{
+				...scope,
+				worker: {
+					scope: {
+						appId: args.appId,
+						projectId,
+						actorUserId: identity.actorUserId,
+					},
+					grant: { kind: "session", sessionId: session.session.id },
+				},
+			},
 			collectConfigLookupTableIds(parsedConfig.data),
 		);
 		const excludedLookupData = await loadExpressionLookupData(
-			scope,
+			{
+				...scope,
+				worker: {
+					scope: {
+						appId: args.appId,
+						projectId,
+						actorUserId: identity.actorUserId,
+					},
+					grant: { kind: "session", sessionId: session.session.id },
+				},
+			},
 			args.excludedOwnerIdsExpression,
 		);
 		/* The builder's sample is the author's view of stored data, read with
@@ -1876,13 +1896,11 @@ function normalizeSubmissionWireMutation(
 }
 
 /** The place ids a submission says its entry opened with, checked as the
- * untrusted Server Action JSON they are: absent, or the canonical UUIDs of at
- * most as many places as an app holds. */
+ * untrusted Server Action JSON they are: absent, or the canonical UUIDs carried by the entry. */
 function submittedPlaceIds(value: unknown): readonly string[] | undefined {
 	if (value === undefined) return undefined;
 	if (
 		Array.isArray(value) &&
-		value.length <= MAX_LOCATIONS_PER_APP &&
 		value.every(
 			(id) => typeof id === "string" && CANONICAL_UUID_PATTERN.test(id),
 		)
@@ -1910,6 +1928,7 @@ export async function submitFormAction(
 	/** The device Preview runs on (`previewDevice.ts`), plain JSON: a case
 	 *  operation writing a session context value writes the platform's. */
 	device?: PreviewDevice,
+	entryGroupOwner?: string,
 ): Promise<SubmissionResult> {
 	try {
 		const entryPlaceIds = submittedPlaceIds(workerPlaceIds);
@@ -2048,11 +2067,23 @@ export async function submitFormAction(
 			blueprintDigest: expectedBlueprintDigest,
 			identity,
 			device: admitted.device,
-			lookupScope: scope,
+			lookupScope: {
+				...scope,
+				worker: {
+					scope: {
+						appId,
+						projectId: scope.projectId,
+						actorUserId: identity.actorUserId,
+					},
+					grant: { kind: "session", sessionId: session.session.id },
+					personaUuid: uuidSchema.optional().parse(identity.personaUuid),
+				},
+			},
 			mutation: normalizedMutation,
 			receiptMutation: wireMutation,
 			projection,
 			viewerTimeZone,
+			entryGroupOwner,
 			...(entryPlaceIds === undefined ? {} : { workerPlaceIds: entryPlaceIds }),
 		});
 		if (built.captureIntent !== undefined) {

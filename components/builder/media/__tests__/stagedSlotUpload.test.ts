@@ -3,7 +3,7 @@ import { testMediaAssetId } from "@/__tests__/helpers/uuid";
 import { createBuilderSessionStore } from "@/lib/session/store";
 import type { MediaAssetView } from "../mediaClient";
 import { uploadToStagedSlot } from "../stagedSlotUpload";
-import type { AttachBudgetVerdict } from "../useAttachBudget";
+import type { AttachGuardVerdict } from "../useAttachGuard";
 
 const file = new File(["photo"], "photo.png", { type: "image/png" });
 const asset: MediaAssetView = {
@@ -32,21 +32,21 @@ function setup(buildUnfinished = false, canEdit = true) {
 	stores.push(session);
 	const onReady = vi.fn();
 	const onRetained = vi.fn();
-	const checkAttachBudget = vi
-		.fn<(asset: MediaAssetView) => Promise<AttachBudgetVerdict>>()
+	const checkAttach = vi
+		.fn<(asset: MediaAssetView) => Promise<AttachGuardVerdict>>()
 		.mockResolvedValue({ ok: true });
 	return {
 		session,
 		onReady,
 		onRetained,
-		checkAttachBudget,
+		checkAttach,
 		upload: () => {
 			const task = uploadToStagedSlot({
 				session,
 				slotKey: "field:image",
 				kind: "image",
 				file,
-				checkAttachBudget,
+				checkAttach,
 				onReady,
 				onRetained,
 			});
@@ -97,13 +97,13 @@ it.each([true, false])(
 		if (locked) {
 			expect(model.onRetained).toHaveBeenCalledOnce();
 			expect(model.onReady).not.toHaveBeenCalled();
-			expect(model.checkAttachBudget).not.toHaveBeenCalled();
+			expect(model.checkAttach).not.toHaveBeenCalled();
 			model.session.getState().markBuildFinished();
 			expect(model.onReady).not.toHaveBeenCalled();
 		} else {
 			expect(model.onReady).toHaveBeenCalledWith(asset);
 			expect(model.onRetained).not.toHaveBeenCalled();
-			expect(model.checkAttachBudget).toHaveBeenCalledWith(asset);
+			expect(model.checkAttach).toHaveBeenCalledWith(asset);
 		}
 	},
 );
@@ -136,11 +136,11 @@ it("rechecks attachment availability after the budget check and keeps the confir
 	vi.spyOn(globalThis, "fetch").mockResolvedValue(
 		Response.json({ deduplicated: true, asset }),
 	);
-	const budget = Promise.withResolvers<AttachBudgetVerdict>();
+	const budget = Promise.withResolvers<AttachGuardVerdict>();
 	const reachedBudget = Promise.withResolvers<void>();
 	settle.push(() => budget.resolve({ ok: true }));
 	const model = setup();
-	model.checkAttachBudget.mockImplementation(() => {
+	model.checkAttach.mockImplementation(() => {
 		reachedBudget.resolve();
 		return budget.promise;
 	});
@@ -180,10 +180,10 @@ it.each([false, true])(
 			Response.json({ deduplicated: true, asset }),
 		);
 		const model = setup();
-		const budget = Promise.withResolvers<AttachBudgetVerdict>();
+		const budget = Promise.withResolvers<AttachGuardVerdict>();
 		const reachedBudget = Promise.withResolvers<void>();
 		settle.push(() => budget.resolve({ ok: true }));
-		model.checkAttachBudget.mockImplementation(() => {
+		model.checkAttach.mockImplementation(() => {
 			reachedBudget.resolve();
 			return budget.promise;
 		});
@@ -223,7 +223,7 @@ it("keeps a rejected attachment on its staged chip without dispatching", async (
 		Response.json({ deduplicated: true, asset }),
 	);
 	const model = setup();
-	model.checkAttachBudget.mockResolvedValue({
+	model.checkAttach.mockResolvedValue({
 		ok: false,
 		error: "This file would exceed the app's media export limit",
 	});

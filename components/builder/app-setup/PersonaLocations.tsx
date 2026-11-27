@@ -23,10 +23,20 @@ import { builderWriteAdmission } from "@/lib/doc/builderWriteAdmission";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useOrganizationRuleInputs } from "@/lib/doc/hooks/useOrganizationCollections";
 import { useLookupCommitState } from "@/lib/doc/lookupCommitContext";
-import type { Persona } from "@/lib/domain";
+import {
+	asUuid,
+	levelHoldsWorkers,
+	organizationLevelsOf,
+	type Persona,
+} from "@/lib/domain";
+import { readPlaceRuleIssuesAction } from "@/lib/organization/actions";
 import { locationChoiceLabel } from "@/lib/organization/locationLabels";
-import { personaAssignmentIssue } from "@/lib/organization/ownerTargetVerdicts";
+import {
+	personaAssignmentIssue,
+	placeRuleRequest,
+} from "@/lib/organization/ownerTargetVerdicts";
 import type { StoredLocation } from "@/lib/organization/types";
+import type { PlaceSearch } from "@/lib/organization/usePlacePage";
 import { useCanEdit } from "@/lib/session/hooks";
 import { useRemovedRowFocus } from "@/lib/ui/hooks/useRemovedRowFocus";
 import { PERSONA_LOCATION_PAGE_SIZE } from "./organizationUi";
@@ -38,7 +48,8 @@ import {
 
 export function PersonaLocations({
 	persona,
-	locations,
+	locations: loaded,
+	remote,
 	loading,
 	error,
 	warning,
@@ -46,6 +57,7 @@ export function PersonaLocations({
 	reload,
 }: {
 	persona: Persona;
+	remote?: PlaceSearch;
 	/** Every place in the app, archived included. */
 	locations: readonly StoredLocation[];
 	loading: boolean;
@@ -54,6 +66,24 @@ export function PersonaLocations({
 	refreshing?: boolean;
 	reload?: () => void;
 }) {
+	const [picked, setPicked] = useState<{
+		revision: string;
+		rows: StoredLocation[];
+	}>({ revision: "", rows: [] });
+	const locations = useMemo(
+		() =>
+			remote && picked.revision === remote.revision
+				? [
+						...loaded,
+						...picked.rows.filter(
+							(row) => !loaded.some((item) => item.id === row.id),
+						),
+					]
+				: loaded,
+		[loaded, picked, remote],
+	);
+	const [ruleError, setRuleError] = useState<string>();
+	const [checking, setChecking] = useState(false);
 	const canEdit = useCanEdit();
 	const lookupCommitState = useLookupCommitState();
 	const canWrite = builderWriteAdmission({ canEdit, lookupCommitState }).ok;
@@ -63,6 +93,7 @@ export function PersonaLocations({
 	const inputs = useMemo(
 		() => ({
 			doc,
+			paged: !!remote,
 			persona,
 			locations,
 			loading,
@@ -73,6 +104,7 @@ export function PersonaLocations({
 			requestedPage,
 		}),
 		[
+			remote,
 			doc,
 			persona,
 			locations,
@@ -94,10 +126,64 @@ export function PersonaLocations({
 		emptyMessage,
 	} = useMemo(() => personaLocationEditor(inputs), [inputs]);
 	const rowFocus = useRemovedRowFocus(assigned.length);
-	const changeAssignment = (change: PersonaLocationChange) => {
+	const changeAssignment = async (
+		change: PersonaLocationChange,
+		selected?: StoredLocation,
+	) => {
 		if (!canWrite) return;
-		const planned = planPersonaLocationChange(inputs, change);
+		const planned = planPersonaLocationChange(
+			selected ? { ...inputs, locations: [...locations, selected] } : inputs,
+			change,
+		);
 		if (planned === undefined) return;
+		if (remote) {
+			if (checking) return;
+			setChecking(true);
+			setRuleError(undefined);
+			try {
+				const [primary, ...more] = planned.ids.map(asUuid);
+				const candidate = {
+					...persona,
+					locations: primary
+						? { primaryUuid: primary, additionalUuids: more }
+						: undefined,
+				};
+				const result = await readPlaceRuleIssuesAction(
+					remote.appId,
+					placeRuleRequest(
+						{
+							...doc,
+							personas: { ...doc.personas, [persona.uuid]: candidate },
+						},
+						remote.revision,
+					),
+				);
+				const issue = result.success
+					? (result.data.assignment ??
+						Object.values(result.data.fixed)[0] ??
+						Object.values(result.data.reverse)[0])
+					: result.message;
+				if (issue) {
+					setRuleError(issue);
+					return;
+				}
+				if (selected)
+					setPicked((old) => ({
+						revision: remote.revision,
+						rows: [
+							...(old.revision === remote.revision ? old.rows : []),
+							selected,
+						],
+					}));
+			} catch {
+				setRuleError(
+					"Nova couldn’t check these places. Try the assignment again.",
+				);
+				return;
+			} finally {
+				setChecking(false);
+			}
+		}
 		if (planned.removedIndex !== undefined)
 			rowFocus.onRemoved(planned.removedIndex);
 		const result = mutations.setPersonaLocations(persona.uuid, planned.ids);
@@ -118,6 +204,11 @@ export function PersonaLocations({
 				Where they work
 			</h4>
 
+			{ruleError && (
+				<p role="alert" className="text-[12px] text-nova-red">
+					{ruleError}
+				</p>
+			)}
 			{error !== undefined ? (
 				<p role="alert" className="text-[13px] leading-relaxed text-nova-red">
 					Places could not be loaded: {error}{" "}
@@ -188,7 +279,7 @@ export function PersonaLocations({
 														<Button
 															type="button"
 															variant="ghost"
-															disabled={!canWrite}
+															disabled={!canWrite || checking}
 															className="shrink-0"
 															onClick={() => {
 																changeAssignment({ kind: "main", id });
@@ -208,7 +299,11 @@ export function PersonaLocations({
 																: removalIssueId
 														}
 														className="shrink-0"
-														disabled={!canWrite || removalIssue !== undefined}
+														disabled={
+															!canWrite ||
+															checking ||
+															removalIssue !== undefined
+														}
 														onClick={() => {
 															changeAssignment({ kind: "remove", id });
 														}}
@@ -275,23 +370,39 @@ export function PersonaLocations({
 						</div>
 					)}
 
-					{canEdit && authoritative && available.length > 0 && (
+					{canEdit && authoritative && (available.length > 0 || !!remote) && (
 						<LocationChoiceSelect
-							disabled={!canWrite}
+							disabled={!canWrite || checking}
+							remote={
+								remote && {
+									...remote,
+									activeOnly: true,
+									levelIds: Object.values(organizationLevelsOf(doc))
+										.filter(levelHoldsWorkers)
+										.map((level) => level.uuid),
+								}
+							}
+							onSelectRow={(row) => {
+								void changeAssignment({ kind: "add", id: row.id }, row);
+							}}
 							locations={available}
 							value=""
 							onValueChange={(value) => {
-								changeAssignment({ kind: "add", id: value });
+								if (!remote) void changeAssignment({ kind: "add", id: value });
 							}}
 							ariaLabel="Add a place"
 							placeholder="Choose a place"
 							triggerRef={rowFocus.addRef}
 							className="w-full"
 							issueFor={(location) =>
-								personaAssignmentIssue(doc, locations, persona.uuid, [
-									...assigned,
-									location.id,
-								])
+								remote
+									? assigned.includes(location.id)
+										? "Already assigned"
+										: undefined
+									: personaAssignmentIssue(doc, locations, persona.uuid, [
+											...assigned,
+											location.id,
+										])
 							}
 							triggerContent={
 								<span className="flex items-center gap-2 text-[13px] text-nova-violet-bright">

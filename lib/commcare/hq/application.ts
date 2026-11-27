@@ -22,10 +22,10 @@ import { NO_ENTRIES } from "@/lib/domain/records";
 import { log } from "@/lib/logger";
 import { HQ_APPLICATION_MAX_BYTES } from "./bounds";
 import {
-	baseUrl,
 	type CommCareApiError,
 	type CommCareCredentials,
 	HQ_MALFORMED_ANSWER,
+	hqDomainPath,
 	INVALID_DOMAIN_SLUG,
 	isHqCount,
 	isValidDomainSlug,
@@ -90,7 +90,7 @@ export async function readHqApplication(
 		return INVALID_DOMAIN_SLUG;
 	const result = await readHqJson(
 		creds,
-		`${baseUrl(creds)}/a/${domain}/api/application/v1/${encodeURIComponent(appId)}/`,
+		`${hqDomainPath(domain)}/api/application/v1/${encodeURIComponent(appId)}/`,
 		"application",
 		{
 			keepRefusedBody: true,

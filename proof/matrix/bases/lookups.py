@@ -99,6 +99,34 @@ def make_tables(authoring, tables):
                 )
 
 
+def changes_lookup_data(change):
+    """The variant edits a real HQ table as well as its app. Read both again in its fork."""
+    change.changes_lookup_data = True
+    return change
+
+
+def qualify_districts(authoring):
+    """Two ordered names per district, with a language property and a stable row code."""
+    from corehq.apps.fixtures.models import Field, LookupTable, LookupTableRow
+
+    domain = authoring.state.domain
+    with authoring.step("variant:district-values", b"row_code/name/lang"):
+        table = LookupTable.objects.get(domain=domain, tag="districts")
+        table.item_attributes = ["row_code"]
+        for field in table.fields:
+            if field.name == "name":
+                field.properties = ["lang"]
+        table.save()
+        for row in LookupTableRow.objects.filter(domain=domain, table=table):
+            label = row.fields["name"][0].value
+            row.item_attributes = {"row_code": row.fields["id"][0].value}
+            row.fields["name"] = [
+                Field(value=label, properties={"lang": "en"}),
+                Field(value="Lieu " + label, properties={"lang": "fr"}),
+            ]
+            row.save()
+
+
 def declare_instance(xform, instance_id, src):
     """The secondary instance ``instance_id`` from ``src`` declared in the form's model after its data instance,
     after every instance declared before it, as HQ's form builder writes one."""
@@ -109,11 +137,12 @@ def declare_instance(xform, instance_id, src):
     instances[-1].addnext(etree.Element(f"{{{xform.ns['x']}}}instance", id=instance_id, src=src))
 
 
-def lookup_select(xform, name, label, tag, *, label_field="name", value_field="id", condition=None):
+def lookup_select(xform, name, label, tag, *, label_field="name", value_field="id", condition=None, instance_id=None):
     """A select ``name`` whose choices are the rows of the table ``tag``, written as HQ's form builder writes
     one: ``XFormBuilder``'s question (its data node, its ``xsd:string`` bind and its label's itext), its control a
     ``select1`` holding an ``itemset`` over ``instance('item-list:<tag>')/<tag>_list/<tag>`` (filtered by
-    ``condition`` where given), whose ``label`` and ``value`` name the table's fields."""
+    ``condition`` where given), whose ``label`` and ``value`` name the table's fields. A
+    supplied ``instance_id`` names the form's local declaration for the same fixture source."""
     from lxml import etree
 
     xform.new_question(name, label, "string")
@@ -121,7 +150,8 @@ def lookup_select(xform, name, label, tag, *, label_field="name", value_field="i
     # namespace is theirs once the source is written out, so the control is found, and the itemset made, so too.
     control = xform._etree.xpath(f'./h:body/input[@ref="/data/{name}"]', namespaces=xform.ns)[0]
     control.tag = "select1"
-    nodeset = f"instance('item-list:{tag}')/{tag}_list/{tag}"
+    source_id = f"item-list:{tag}" if instance_id is None else instance_id
+    nodeset = f"instance('{source_id}')/{tag}_list/{tag}"
     if condition is not None:
         nodeset = f"{nodeset}[{condition}]"
     itemset = etree.SubElement(control, "itemset", nodeset=nodeset)

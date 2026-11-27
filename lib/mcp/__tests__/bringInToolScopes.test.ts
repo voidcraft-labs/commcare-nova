@@ -151,6 +151,15 @@ const TOOLS = [
 		},
 	},
 	{
+		name: "inspect_lookup_source",
+		args: {
+			project_id: PROJECT,
+			table_id: TABLE,
+			operation: "worker",
+			worker_username: "ana",
+		},
+	},
+	{
 		name: "refresh_managed_data",
 		args: { project_id: PROJECT, table_id: TABLE },
 	},
@@ -256,6 +265,7 @@ it("gives every tool that can answer with CommCare HQ's content the import scope
 	expect([...new Set(IMPORT_TOOLS.map(({ name }) => name))].sort()).toEqual([
 		"bring_in_hq_app",
 		"bring_in_hq_changes",
+		"inspect_lookup_source",
 		"list_hq_apps",
 		"read_hq_app",
 		"read_hq_changes",

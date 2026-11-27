@@ -10,6 +10,10 @@
  */
 
 import type { HqMediaMapItem, HqMediaType } from "@/lib/commcare/hq/appSource";
+import {
+	type HqFileMediaType,
+	KIND_OF_MEDIA_TYPE,
+} from "@/lib/commcare/hq/mediaType";
 import type {
 	MediaRecipients,
 	ReaderMediaIndex,
@@ -24,7 +28,6 @@ import {
 	ASSET_SIZE_CAPS_BYTES,
 	type AssetKind,
 	type AssetMimeType,
-	MAX_MEDIA_EXPORT_ASSETS,
 	type MediaAssetId,
 	type MediaFormatKey,
 	type MediaKind,
@@ -33,7 +36,6 @@ import {
 import { PLATFORMS, type Platform } from "@/lib/domain/platforms";
 import { NO_ENTRIES, ownRecordValue } from "@/lib/domain/records";
 import { log } from "@/lib/logger";
-import { exportBudgetExcess } from "@/lib/media/exportBudget";
 import type {
 	ValidatedMediaMetadata,
 	ValidationFailureReason,
@@ -43,6 +45,7 @@ import {
 	type Finding,
 	type HqPlace,
 } from "@/lib/publish/hqFindings";
+import type { StagedObject } from "@/lib/storage/media";
 import type { AdoptedMediaFile } from "../../adoption";
 import { provisionalReadingMediaId } from "../mediaIds";
 import { manifestFinding } from "./findings";
@@ -139,32 +142,9 @@ export function hqMediaReferencesOf(
 // Which files
 // ---------------------------------------------------------------------------
 
-/** A file of CommCare HQ's that is no picture, sound or video. */
-type HqFileMediaType = Exclude<HqMediaType, "CommCareMultimedia">;
-
-const KIND_OF_MEDIA_TYPE: Readonly<Record<HqFileMediaType, MediaKind>> = {
-	CommCareImage: "image",
-	CommCareAudio: "audio",
-	CommCareVideo: "video",
-};
-
 interface FileUse {
 	/** Only source itext that no runtime draws names this file. Test its availability, without adopting its bytes. */
 	readonly availabilityOnly?: true;
-}
-
-/** A single source or a pair of HQ reads takes at most as many distinct file requests as a full export. */
-export function mediaReadLimit(files: readonly FileUse[]): Finding | null {
-	if (files.length <= MAX_MEDIA_EXPORT_ASSETS) return null;
-	return circumstanceFinding("too-large", { kind: "app" }, {});
-}
-
-function fileCountLimit(files: readonly FileUse[]): Finding | null {
-	if (files.length <= MAX_MEDIA_EXPORT_ASSETS) return null;
-	const count = files.filter((file) => !file.availabilityOnly).length;
-	return count > MAX_MEDIA_EXPORT_ASSETS
-		? fileCountFinding(count)
-		: mediaReadLimit(files);
 }
 
 export interface HqMediaFile extends FileUse {
@@ -247,12 +227,6 @@ const ENTRY = {
 	video: "expressions-and-data/video-av1-mov-avi-ogg-theora-h-263-3gp",
 } as const;
 
-/**
- * The files the app's references name, and what the source alone says of the
- * references: a map key outside `jr://file/`, a reference with no entry or no
- * file, an entry of a type no slot can play, a sound slot naming a file CommCare
- * HQ filed as video, and an app with more files than Nova takes.
- */
 /** The most cases one tallied log line names beside its count. */
 const LOGGED_SAMPLES = 5;
 
@@ -283,6 +257,12 @@ function loggedOnce(): {
 	};
 }
 
+/**
+ * The files the app's references name, however many, and what the source
+ * alone says of the references: a map key outside `jr://file/`, a reference
+ * with no entry or no file, an entry of a type no slot can play, and a sound
+ * slot naming a file CommCare HQ filed as video.
+ */
 export function planHqMedia(input: {
 	readonly references: readonly HqMediaReference[];
 	/** Published Nova assets take no HQ file read. Their slots still belong to the app Android verifies. */
@@ -417,8 +397,6 @@ export function planHqMedia(input: {
 				references: file.references,
 			};
 		});
-	const countLimit = fileCountLimit(planned);
-	if (countLimit) findings.push(countLimit);
 	return {
 		files: planned,
 		findings: distinct(findings),
@@ -879,54 +857,8 @@ function verdictOf(
 }
 
 // ---------------------------------------------------------------------------
-// The budget
+// The limit of one file
 // ---------------------------------------------------------------------------
-
-function fileCountFinding(count: number): Finding {
-	return manifestFinding(
-		ENTRY.overLimit,
-		{ kind: "app" },
-		`${count} media files (Nova takes ${MAX_MEDIA_EXPORT_ASSETS} in one app)`,
-	);
-}
-
-/**
- * The app over Nova's media budget: more files than Nova takes, known from the
- * source, or the files held so far, one per distinct content, past the bytes
- * Nova takes. Null where neither.
- */
-export function mediaBudgetFinding(
-	plan: { readonly files: readonly (FileUse & { readonly key: string })[] },
-	verdicts: Readonly<Record<string, HqMediaVerdict>>,
-): Finding | null {
-	const countLimit = fileCountLimit(plan.files);
-	if (countLimit) return countLimit;
-	const rows = new Map<
-		string,
-		{
-			readonly status: "ready";
-			readonly kind: MediaKind;
-			readonly sizeBytes: number;
-		}
-	>();
-	for (const file of plan.files) {
-		const verdict = verdictOf(verdicts, file.key);
-		if (verdict?.kind !== "held") continue;
-		rows.set(verdict.file.contentHash, {
-			status: "ready",
-			kind: verdict.file.kind,
-			sizeBytes: verdict.file.sizeBytes,
-		});
-	}
-	const excess = exportBudgetExcess([...rows.values()]);
-	return excess === null
-		? null
-		: manifestFinding(
-				ENTRY.overLimit,
-				{ kind: "app" },
-				excess.reasons.join(" and "),
-			);
-}
 
 /** The most bytes of a file of each kind Nova reads. */
 export function mediaCapBytes(kind: MediaKind): number {
@@ -952,10 +884,10 @@ export interface ReadingMediaPlan {
 		readonly provisionalId: MediaAssetId;
 	})[];
 	readonly verdicts: Readonly<Record<string, HqMediaVerdict>>;
-	/** In a create: the bytes of each held file, by its content hash (a held verdict's
-	 *  `file.contentHash`), one buffer however many files hold those bytes, from the verdict
-	 *  to the publication. What the media budget counts is exactly what this holds. */
-	readonly kept: ReadonlyMap<string, Buffer>;
+	/** In a create: the object each held content's bytes are staged in under the receiving
+	 *  Project, by its content hash (a held verdict's `file.contentHash`), one however many
+	 *  files hold those bytes, from the verdict to the publication, which deletes it. */
+	readonly staged: ReadonlyMap<string, StagedObject>;
 	/** In a create, after the publish: the asset each held file became, by file key. */
 	readonly published: Readonly<Record<string, MediaAssetId>>;
 }
@@ -1011,7 +943,7 @@ export function readingMediaIndex(input: {
 
 /**
  * `planHqMedia` over the reader's references and the source's map, and one plan
- * file per file it names, with its provisional id, no verdict, nothing kept and
+ * file per file it names, with its provisional id, no verdict, nothing staged and
  * nothing published.
  */
 export function planReadingMedia(input: {
@@ -1055,7 +987,7 @@ export function planReadingMedia(input: {
 				),
 			})),
 			verdicts: NO_ENTRIES,
-			kept: new Map(),
+			staged: new Map(),
 			published: NO_ENTRIES,
 		},
 	};
@@ -1063,8 +995,7 @@ export function planReadingMedia(input: {
 
 /**
  * Every finding of this request's media: what the source says, then what the
- * verdicts say, then the budget. `complete` is false until every file has a
- * verdict, which a request that stopped at the budget never reaches.
+ * verdicts say. `complete` is false until every file has a verdict.
  */
 export function readingMediaFindings(input: {
 	readonly media: HqMediaPlan;
@@ -1078,18 +1009,9 @@ export function readingMediaFindings(input: {
 		verdicts: input.plan.verdicts,
 		runsOn: input.runsOn,
 	});
-	// More files than Nova takes is known from the source, so `media.findings` holds it already.
-	const budget =
-		input.media.files.length > MAX_MEDIA_EXPORT_ASSETS
-			? null
-			: mediaBudgetFinding(input.media, input.plan.verdicts);
 	return {
 		...judged,
-		findings: distinct([
-			...input.media.findings,
-			...judged.findings,
-			...(budget === null ? [] : [budget]),
-		]),
+		findings: distinct([...input.media.findings, ...judged.findings]),
 	};
 }
 

@@ -296,6 +296,32 @@ def _media_held(state, app_id):
     return held
 
 
+def test_unchanged_republish_reads_the_mapped_bytes_without_posting_again(hq, core_runner, captures, native_capture):
+    from proof.observe import publish
+
+    directory = captures / "search-lookup-media" / "minimum"
+    first = native_capture("search-lookup-media", "content.import")
+    second = native_capture("search-lookup-media", "update.import")
+    create, content, _ = _first_publish(directory)
+    assert len(first.media_uploads()) == 1 and not second.media_uploads()
+    checked = {f"jr://file/{path}": value for path, value in second.meta["verifiedMedia"].items()}
+    assert checked
+    with hq_check(_configuration(directory)) as (state, _):
+        app_id, _ = operations.publish(state, [create])
+        lookup, _ = _upload(directory, "content.lookup")
+        operations.upload_lookup_workbook(state, operations.upload_field(lookup, "file-to-upload"), replace=True)
+        operations.apply_upload(state, operations.with_app_id(content, app_id))
+        for body, counter in first.media_uploads():
+            report = publish.upload_media(state, app_id, body, counter=counter)
+            assert report["refused"] is None and {row["path"] for row in report["matched"]} == set(checked)
+        before = operations.save_counter(state, app_id)
+        result = operations.apply_upload(state, operations.with_app_id(second.upload(), app_id))
+        assert result.status == 200 and operations.save_counter(state, app_id) == before + 1
+        publish.hold_media_bytes(state, app_id, checked)
+        with pytest.raises(publish.MediaReportNotMapped, match="different bytes"):
+            publish.hold_media_bytes(state, app_id, {path: "0" * 64 for path in checked})
+
+
 def test_a_captured_media_upload_maps_the_media_as_hqs_own_processing_of_its_zip(hq, core_runner, captures, tmp_path):
     directory = captures / "search-lookup-media" / "minimum"
     configuration = _configuration(directory)

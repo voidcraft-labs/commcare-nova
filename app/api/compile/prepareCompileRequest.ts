@@ -7,6 +7,7 @@ import {
 import { requireSession } from "@/lib/auth-utils";
 import { isCommCareServer } from "@/lib/commcare/servers";
 import { resolveAppAccess } from "@/lib/db/appAccess";
+import { withAppTx } from "@/lib/db/pg";
 import {
 	type DownloadTarget,
 	downloadAttachmentState,
@@ -16,11 +17,13 @@ import { downloadRefusalLines } from "@/lib/deployment/runtimeTarget";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import { userFacingError } from "@/lib/doc/userFacingErrors";
 import type { PersistableDoc } from "@/lib/domain";
+import type { ExportActor } from "@/lib/export/artifacts/access";
 import {
 	type ExportMode,
 	type PreparedExportBoundary,
 	prepareExportBoundary,
 } from "@/lib/export/boundaryValidation";
+import { authorizeAssignmentExport } from "@/lib/export/privateAssignments";
 import type { AttachmentTargetState } from "@/lib/publish/exportAdvisories";
 
 /**
@@ -41,6 +44,8 @@ import type { AttachmentTargetState } from "@/lib/publish/exportAdvisories";
  */
 export type PreparedCompileRequest<M extends "ccz" | "hq-json"> =
 	PreparedExportBoundary & {
+		readonly appId: string;
+		readonly exportActor: () => ExportActor;
 		readonly download: Extract<
 			DownloadTarget,
 			{ format: M extends "ccz" ? "ccz" : "json" }
@@ -88,7 +93,12 @@ export async function prepareCompileRequest<
 	// Membership gate (view) + load the persisted blueprint in one read. An
 	// `AppAccessError` (absent / non-member) maps to 404: the IDOR-safe
 	// not-found posture.
-	const access = await resolveAppAccess(appId, session.user.id, "view");
+	const privateData = (body as { privateData?: unknown })?.privateData === true;
+	const access = await resolveAppAccess(
+		appId,
+		session.user.id,
+		privateData ? "edit" : "view",
+	);
 	const { app } = access;
 
 	// Hydration rebuilds derived in-memory indexes on the already-canonical
@@ -114,6 +124,40 @@ export async function prepareCompileRequest<
 	if (domain !== undefined && (typeof domain !== "string" || domain === "")) {
 		throw new ApiError("Choose a project space by its name.", 400);
 	}
+	const grant = () => ({
+		kind: "session" as const,
+		sessionId: session.session.id,
+	});
+	const assignmentAccess =
+		privateData &&
+		mode === "hq-json" &&
+		typeof server === "string" &&
+		isCommCareServer(server) &&
+		typeof domain === "string"
+			? {
+					scope: {
+						appId,
+						projectId: access.projectId,
+						actorUserId: session.user.id,
+					},
+					grant: grant(),
+					target: { server, domain },
+				}
+			: undefined;
+	if (privateData && !assignmentAccess)
+		throw new ApiError(
+			"Choose a project space for the import file with worker assignments.",
+			400,
+		);
+	if (assignmentAccess)
+		await withAppTx((tx) =>
+			authorizeAssignmentExport(
+				tx,
+				assignmentAccess.scope,
+				assignmentAccess.grant,
+				assignmentAccess.target,
+			),
+		);
 	const download = await resolveDownloadTarget(
 		{
 			appId,
@@ -124,7 +168,10 @@ export async function prepareCompileRequest<
 		{
 			format: mode === "ccz" ? "ccz" : "json",
 			...(server !== undefined && { server }),
-			...(domain !== undefined && { domain }),
+			...(assignmentAccess && {
+				assignmentDestination: assignmentAccess.target,
+			}),
+			...(!privateData && domain !== undefined && { domain }),
 			doc: docWithParent,
 		},
 	);
@@ -139,6 +186,9 @@ export async function prepareCompileRequest<
 	// would otherwise make the media-ON `expandDoc` throw `requireAssetRef`
 	// → opaque 500.
 	const boundary = await prepareExportBoundary({
+		streamMedia: true,
+		archiveActor: () => ({ appId, grant: grant() }),
+		assignmentAccess,
 		mode,
 		access: {
 			projectId: access.projectId,
@@ -152,6 +202,7 @@ export async function prepareCompileRequest<
 		 * space it is made for; the import file is made for none. */
 		...(download.format === "ccz" && {
 			heldMediaPaths: download.mediaPaths,
+			installTarget: download.runtimeTarget,
 		}),
 	});
 	if (!boundary.ok) {
@@ -167,6 +218,11 @@ export async function prepareCompileRequest<
 
 	return {
 		...boundary.prepared,
+		appId,
+		exportActor: () => ({
+			userId: session.user.id,
+			grant: { kind: "session", sessionId: session.session.id },
+		}),
 		download: download as PreparedCompileRequest<M>["download"],
 		attachmentTargetState: downloadAttachmentState(download),
 	};

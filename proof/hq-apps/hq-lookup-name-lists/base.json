@@ -1,0 +1,20 @@
+{
+	"id": "hq-lookup-name-lists",
+	"configuration": {
+		"flags": [
+			"SYNC_SEARCH_CASE_CLAIM"
+		],
+		"namedPrivileges": [
+			"CLOUDCARE",
+			"LOOKUP_TABLES"
+		],
+		"commcareVersion": "2.57.0",
+		"commtrack": false,
+		"syncCasesOnFormEntry": false,
+		"caseSearchEnabled": true
+	},
+	"declaration": "preselected",
+	"exhibits": [
+		"expressions-and-data/tag-or-field-name-with-non-ascii-letters"
+	]
+}

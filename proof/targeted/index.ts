@@ -96,6 +96,7 @@ import { keptValues } from "./documents/keptValues";
 import { labelSort } from "./documents/labelSort";
 import { loadTimeValues } from "./documents/loadTimeValues";
 import { lookupNames } from "./documents/lookupNames";
+import { lookupNonAsciiNames } from "./documents/lookupNonAsciiNames";
 import { lookupReservedTags } from "./documents/lookupReservedTags";
 import { mediaSlots } from "./documents/mediaSlots";
 import {
@@ -121,6 +122,7 @@ import { plainHelp } from "./documents/plainHelp";
 import { platformDeclaration } from "./documents/platformDeclaration";
 import { previewAndroidRenders } from "./documents/previewAndroidRenders";
 import { proseValue } from "./documents/proseValue";
+import { qualifiedLookupValues } from "./documents/qualifiedLookupValues";
 import {
 	registerFromCaseList,
 	registerFromCaseListWebApps,
@@ -271,6 +273,8 @@ export const TARGETED_DOCUMENTS: readonly (() => CorpusDocument)[] = [
 	caseTypeNames,
 	choiceValues,
 	lookupNames,
+	qualifiedLookupValues,
+	lookupNonAsciiNames,
 	searchFieldNames,
 	caseWriteNames,
 	connectDeliverHyphenIds,

@@ -1,15 +1,16 @@
-import { type NextRequest, NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
 import { handleApiError } from "@/lib/apiError";
 import { expandDoc } from "@/lib/commcare/expander";
 import {
-	buildHqJsonExportArchive,
 	hqImportFileGuide,
+	streamHqJsonExportArchive,
 } from "@/lib/commcare/multimedia/hqJsonExportArchive";
 import {
 	encodeProjectSpaceCompatibilityReport,
 	PROJECT_SPACE_COMPATIBILITY_REPORT_HEADER,
 	projectSpaceCompatibilityForDownload,
 } from "@/lib/commcare/projectSpaceCompatibility";
+import { compileDownloadResponse } from "@/lib/export/artifacts/response";
 import {
 	EXPORT_ADVISORY_HEADER,
 	encodeExportAdvisories,
@@ -47,6 +48,10 @@ import { prepareCompileRequest } from "../prepareCompileRequest";
  */
 export async function POST(req: NextRequest) {
 	try {
+		const prepared = await prepareCompileRequest(req, {
+			boundaryErrorVerb: "export",
+			mode: "hq-json",
+		});
 		const {
 			doc,
 			assets,
@@ -57,10 +62,7 @@ export async function POST(req: NextRequest) {
 			lookupWorkbook,
 			managedLookupTables,
 			managedLookupWorkbooks,
-		} = await prepareCompileRequest(req, {
-			boundaryErrorVerb: "export",
-			mode: "hq-json",
-		});
+		} = prepared;
 
 		// Only a media-bearing app passes the manifest to `expandDoc`; a
 		// media-free app expands media-OFF so its JSON never depends on an
@@ -98,11 +100,12 @@ export async function POST(req: NextRequest) {
 			assets,
 			lookupWorkbook,
 			managedLookupWorkbooks,
+			extraWorkbooks: prepared.streamedWorkbooks,
 			managedLookupTables,
 			attachmentTarget,
 			lookupNaming,
 		});
-		const archive = buildHqJsonExportArchive(
+		const archive = streamHqJsonExportArchive(
 			doc.appName,
 			doc,
 			hqJson,
@@ -110,12 +113,20 @@ export async function POST(req: NextRequest) {
 			lookupWorkbook,
 			managedLookupWorkbooks,
 			renderManualImportGuide(guide),
+			prepared.streamedWorkbooks,
 		);
 		// The archive is the artifact the person hands to HQ, and HQ's importer
 		// owns its version slots. The blueprint's `mutation_seq` rides
 		// out-of-band in the `X-Compiled-At-Seq` response header so the export
 		// still names its document version without perturbing the body.
-		return new NextResponse(new Uint8Array(archive), {
+		return await compileDownloadResponse({
+			source: archive,
+			filename: `${appName}.zip`,
+			prepared,
+			download: prepared.download,
+			appId: prepared.appId,
+			actor: prepared.exportActor,
+			signal: req.signal,
 			headers: {
 				"Content-Type": "application/zip",
 				"Content-Disposition": `attachment; filename="${appName}.zip"`,

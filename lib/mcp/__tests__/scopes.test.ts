@@ -25,6 +25,7 @@ it("preserves every issued credential scope name", () => {
 		hqImport: "nova.hq.import",
 		projectsRead: "nova.projects.read",
 		projectsWrite: "nova.projects.write",
+		projectDataExport: "nova.projects.data.export",
 	});
 });
 it.each(Object.values(SCOPES))(

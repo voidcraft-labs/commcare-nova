@@ -47,8 +47,17 @@ def lookups(session):
         wide = _read(exports / "columns.xlsx")
         long_tag = _read(exports / "long-tag.xlsx")
         padding = _read(exports / "padding.xlsx")
-        for name in ["lookup-app", "lookup-reversed"]:
+        from corehq.apps.fixtures.upload.workbook import get_workbook
+        rich_book = get_workbook(str(exports / "lookup-rich.xlsx"))
+        (rich_table,) = rich_book.iter_tables(DOMAIN)
+        rich_rows = list(rich_book.iter_rows(rich_table, {}))
+        rich = {
+            "attributes": rich_table.item_attributes,
+            "fields": [(field.name, field.properties, field.is_indexed) for field in rich_table.fields],
+            "rows": [{"attributes": row.item_attributes, "label": [(item.value, item.properties) for item in row.fields["label"]]} for row in rich_rows],
+        }
+        for name in ["lookup-app", "lookup-reversed", "lookup-rich"]:
             app = import_source((exports / f"{name}.json").read_bytes(), DOMAIN)
             (exports / f"{name}.hq.xml").write_bytes(regenerate_form(app.get_module(0).get_form(0), DOMAIN))
     session_reads(session, "lookup", "targeted-instance-reads", DOMAIN, module=0, forms=(0,))
-    return {"corpus": corpus, "wide": wide, "longTag": long_tag, "padding": padding}
+    return {"corpus": corpus, "wide": wide, "longTag": long_tag, "padding": padding, "rich": rich}

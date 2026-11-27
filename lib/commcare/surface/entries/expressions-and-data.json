@@ -549,10 +549,9 @@
 			"xform:model/instance@src"
 		],
 		"valueClass": "user-groups-fixture",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: typed reference to the case-sharing groups fixture. The class takes the instance whose source is `jr://fixture/user-groups`, its declaration and every read of it; the lookup, location and other instance rows hold the rest of these keys",
-		"subject": "case-sharing",
-		"owner": "settings-nova-comes-to-own",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: typed reference to the case-sharing groups fixture. The class takes the instance whose source is `jr://fixture/user-groups`, its declaration and every read of it; the lookup, location and other instance rows hold the rest of these keys",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -4616,7 +4615,7 @@
 			"media-code:corehq/apps/hqmedia/tasks.py::process_bulk_upload_zip"
 		],
 		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: import-sized media: HQ imposes no size cap, so the caps govern Nova uploads only",
+		"dispositionCell": "**HELD-NEW**: import-sized media: HQ imposes no size cap, so the caps govern Nova uploads only. An app's media total no longer bounds a reading (every export streams its files); one imported file over Nova's per-kind cap still stops it",
 		"subject": "media-files",
 		"owner": "project-data-at-hq-size",
 		"platforms": {
@@ -4894,10 +4893,9 @@
 			"lookup-code:corehq/apps/fixtures/utils.py::clean_fixture_field_name"
 		],
 		"valueClass": "holding-a-period",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: a name HQ's table page accepts and Core reads, which HQ's build rewrites or refuses where a filter, a display condition or a required condition reads it: an unquoted `.` there is the current case (`xpath.py::dot_interpolate`)",
-		"subject": "lookup-tables",
-		"owner": "project-data-at-hq-size",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the Project table and its columns retain their spelling. Forms read dotted names through their declared fixtures. A suite condition may read a dotted column where HQ preserves every period.",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -4918,7 +4916,7 @@
 		"id": "expressions-and-data/tag-equal-to-an-instance-name-commcare-owns",
 		"area": "expressions-and-data",
 		"section": "Lookup tables",
-		"item": "`tag` equal to `commcaresession`, `locations`, `results`, `input`, `search_selected_cases` or a `selected_cases` instance name",
+		"item": "`tag` equal to `commcaresession`, `registry`, `groups`, `reports`, `locations`, `results`, `search-input`, `case-search-fixture`, `input`, `search_selected_cases` or a `selected_cases` instance name, on a table CommCare HQ manages",
 		"surfaceKeys": [
 			"lookup-model:LookupTable.tag",
 			"lookup-model:TypeField.name",
@@ -4928,10 +4926,9 @@
 			"lookup-code:corehq/apps/fixtures/utils.py::clean_fixture_field_name"
 		],
 		"valueClass": "reserved-instance-name",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: a table whose instance id in a form differs from its tag, as the form builder makes it (`form.js::addInstanceIfNotExists`)",
-		"subject": "lookup-tables",
-		"owner": "project-data-at-hq-size",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the Project table keeps its tag, and Nova never writes a table CommCare HQ manages. A form Nova writes binds each read to its declared fixture source under `item-list:<tag>` where the tag coincides with a runtime instance, and reads the runtime instance under its own id; HQ's form builder keeps both in a project space holding the table (proof 4 on `targeted-lookup-runtime-name-tables`), and Nova reads an HQ form's read by its declaration, never by the bare id (`hq-runtime-name-tables`). A table Nova manages can't take one of the ten ids HQ's form builder holds (`lib/lookup/constants.ts::FORM_BUILDER_COLLIDING_TAGS`), since a forms made in CommCare HQ in that project space would lose what they read at their next save there: refused when it is made or renamed, taken over or published (`expressions-and-data/nova-table-tag-colliding-with-the-form-builder-s-ids`). `hasOwnProperty` is refused (`expressions-and-data/tag-has-own-property`), and a form's read of `__proto__` (`expressions-and-data/tag-proto-read-by-a-form`).",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -4943,7 +4940,85 @@
 			}
 		},
 		"emission": {
-			"cell": "verbatim in the workbook, the fixture and every read",
+			"cell": "the table tag in the workbook and fixture source, the allocated id at each form read",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/nova-table-tag-colliding-with-the-form-builder-s-ids",
+		"area": "expressions-and-data",
+		"section": "Lookup tables",
+		"item": "a table Nova manages tagged `commcaresession`, `registry`, `groups`, `reports`, `locations`, `results`, `search-input`, `selected_cases` or `case-search-fixture`",
+		"surfaceKeys": ["lookup-model:LookupTable.tag"],
+		"valueClass": "nova-table-form-builder-colliding-tag",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: not HQ-editable: HQ's form designer hands its form builder the session, a registry's cases and every table of the project space under its bare tag, the builder indexes them by id and records each among the instances it knows, so a table Nova put there under `commcaresession`, `registry` or an instance id HQ's build gives an undeclared read (`groups`, `reports`, `locations`, `results`, `search-input`, `selected_cases`, `case-search-fixture`) takes that source's place in every form made in CommCare HQ there at its next save: the form loses its `#case/` references and is refused, reads nothing for a registry case, or reads the table in place of the runtime instance (`proof/editors/test_project_space_table_tags.py`; the same names in another case, or with a character added, keep the form)",
+		"subject": "lookup-tables",
+		"reasons": [
+			{
+				"kind": "not-hq-editable",
+				"named": "HQ's form designer hands its form builder the session, a registry's cases and every table of the project space under its bare tag, the builder indexes them by id and records each among the instances it knows, so a table Nova put there under `commcaresession`, `registry` or an instance id HQ's build gives an undeclared read (`groups`, `reports`, `locations`, `results`, `search-input`, `selected_cases`, `case-search-fixture`) takes that source's place in every form made in CommCare HQ there at its next save: the form loses its `#case/` references and is refused, reads nothing for a registry case, or reads the table in place of the runtime instance (`proof/editors/test_project_space_table_tags.py`; the same names in another case, or with a character added, keep the form)"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "— (Nova's tag schema refuses making or renaming a table to one, taking one over and publishing one)",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/tag-has-own-property",
+		"area": "expressions-and-data",
+		"section": "Lookup tables",
+		"item": "`tag` equal to `hasOwnProperty`",
+		"surfaceKeys": ["lookup-model:LookupTable.tag"],
+		"valueClass": "form-builder-has-own-property-tag",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: not HQ-editable: HQ's form designer hands its form builder every table of the project space under its bare tag (`views/formdesigner.py::get_form_data_schema`), and the builder records each in a plain object on which it then calls `hasOwnProperty` (`form.js::updateKnownInstances`), so with a table tagged `hasOwnProperty` and any table after it no form in the project space opens there (`t2.hasOwnProperty is not a function`; `proof/editors/test_project_space_table_tags.py`, control `targeted-lookup-tag-hasownproperty`)",
+		"subject": "lookup-tables",
+		"reasons": [
+			{
+				"kind": "not-hq-editable",
+				"named": "HQ's form designer hands its form builder every table of the project space under its bare tag (`views/formdesigner.py::get_form_data_schema`), and the builder records each in a plain object on which it then calls `hasOwnProperty` (`form.js::updateKnownInstances`), so with a table tagged `hasOwnProperty` and any table after it no form in the project space opens there (`t2.hasOwnProperty is not a function`; `proof/editors/test_project_space_table_tags.py`, control `targeted-lookup-tag-hasownproperty`)"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "— (Nova's own tag schema refuses it too)",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/tag-proto-read-by-a-form",
+		"area": "expressions-and-data",
+		"section": "Lookup tables",
+		"item": "`tag` equal to `__proto__`, read by a form",
+		"surfaceKeys": ["lookup-model:LookupTable.tag"],
+		"valueClass": "form-builder-proto-tag-in-a-form",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: not HQ-editable: HQ's form builder keeps a form's instances in a plain object keyed by id, so a form's declaration of a table tagged `__proto__` sets that object's prototype and is dropped on a save, and HQ's build then refuses the form (`Instance: __proto__ Does not exists`; proof 4, control `targeted-lookup-tag-proto-read-by-a-form`). A case list, a calculated column and a display condition read it in the suite, which the builder never sees: HQ builds them and Formplayer and Web Apps run them",
+		"subject": "lookup-tables",
+		"reasons": [
+			{
+				"kind": "not-hq-editable",
+				"named": "HQ's form builder keeps a form's instances in a plain object keyed by id, so a form's declaration of a table tagged `__proto__` sets that object's prototype and is dropped on a save, and HQ's build then refuses the form (`Instance: __proto__ Does not exists`; proof 4, control `targeted-lookup-tag-proto-read-by-a-form`). A case list, a calculated column and a display condition read it in the suite, which the builder never sees: HQ builds them and Formplayer and Web Apps run them"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
 			"markers": []
 		},
 		"gates": []
@@ -4962,10 +5037,9 @@
 			"lookup-code:corehq/apps/fixtures/utils.py::clean_fixture_field_name"
 		],
 		"valueClass": "non-ascii-name",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: HQ's grammar over every XML name (`fixtures/utils.py::is_identifier_invalid`), which needs a name token proven on each runtime's Unicode tables; the row below refuses a name Core's XPath cannot read where an expression reads it",
-		"subject": "lookup-tables",
-		"owner": "project-data-at-hq-size",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: Project data retains the XML spelling. A field used by an expression must be readable on every worker platform the app runs on. Unused fields keep their names and values. A select's choices show and save columns of such names, form logic reads them with no `vellum:` copy of the expression (HQ's form builder keeps an expression it cannot parse as written), and a case list reads them. A condition HQ checks with its own XPath reader refuses them (`expressions-and-data/non-ascii-lookup-name-in-a-condition-hq-checks`), and no form reads a table whose tag holds them (`expressions-and-data/non-ascii-lookup-name-a-form-reads`).",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -5012,6 +5086,142 @@
 		"gates": []
 	},
 	{
+		"id": "expressions-and-data/lookup-table-instance-undiscovered-in-suite",
+		"area": "expressions-and-data",
+		"section": "Lookup tables",
+		"item": "a suite expression reads a lookup table whose instance id HQ’s suite builder does not discover",
+		"surfaceKeys": ["lookup-model:LookupTable.tag"],
+		"valueClass": "suite-omits-lookup-instance",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: broken at runtime: HQ’s suite builder omits the fixture declaration for a tag outside its instance scanner’s grammar, including a dotted tag. The worker cannot resolve the instance.",
+		"subject": "lookup-tables",
+		"reasons": [
+			{
+				"kind": "broken-at-runtime",
+				"named": "HQ’s suite builder omits the fixture declaration for a tag outside its instance scanner’s grammar, including a dotted tag. The worker cannot resolve the instance."
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/non-ascii-lookup-name-in-a-condition-hq-checks",
+		"area": "expressions-and-data",
+		"section": "Lookup tables",
+		"item": "a menu or form display condition reading a lookup tag or column whose name holds anything but unaccented letters, digits, `_`, `.` and `-`",
+		"surfaceKeys": [
+			"lookup-model:LookupTable.tag",
+			"lookup-model:TypeField.name"
+		],
+		"valueClass": "hq-checked-condition-non-ascii-name",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: not HQ-buildable: HQ's build validation checks a menu's and a form's display condition with js-xpath (`helpers/validators.py`: `module filter has xpath error`, `form filter has xpath error`; `xpath_validator`), whose names are unaccented letters, digits, `_`, `.` and `-` (`xpath.jisonlex`: `NCName`), so HQ will not build the app",
+		"subject": "lookup-tables",
+		"reasons": [
+			{
+				"kind": "not-hq-buildable",
+				"named": "HQ's build validation checks a menu's and a form's display condition with js-xpath (`helpers/validators.py`: `module filter has xpath error`, `form filter has xpath error`; `xpath_validator`), whose names are unaccented letters, digits, `_`, `.` and `-` (`xpath.jisonlex`: `NCName`), so HQ will not build the app"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/non-ascii-lookup-name-in-a-search-option-hq-checks",
+		"area": "expressions-and-data",
+		"section": "Lookup tables",
+		"item": "a search button display condition or excluded-owners expression reading a lookup tag or column whose name holds anything but unaccented letters, digits, `_`, `.` and `-`",
+		"surfaceKeys": [
+			"lookup-model:LookupTable.tag",
+			"lookup-model:TypeField.name"
+		],
+		"valueClass": "search-option-non-ascii-name",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: not HQ-editable: HQ's Search options page checks these two expressions with js-xpath when it is saved (`views/modules.py::_check_xpath`), whose names are unaccented letters, digits, `_`, `.` and `-` (`xpath.jisonlex`: `NCName`), so a person cannot save the page in HQ; HQ's build does not check them",
+		"subject": "lookup-tables",
+		"reasons": [
+			{
+				"kind": "not-hq-editable",
+				"named": "HQ's Search options page checks these two expressions with js-xpath when it is saved (`views/modules.py::_check_xpath`), whose names are unaccented letters, digits, `_`, `.` and `-` (`xpath.jisonlex`: `NCName`), so a person cannot save the page in HQ; HQ's build does not check them"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/non-ascii-lookup-name-a-form-reads",
+		"area": "expressions-and-data",
+		"section": "Lookup tables",
+		"item": "a form reading a lookup table (a select's choices or form logic) whose tag holds anything but unaccented letters, digits, `_`, `.` and `-`",
+		"surfaceKeys": ["lookup-model:LookupTable.tag"],
+		"valueClass": "form-builder-non-ascii-tag",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: not HQ-editable: HQ's form builder reads a form's expressions with js-xpath (`xpath.jisonlex`: `NCName`, unaccented names) and drops the declaration of an instance whose reads it cannot lex; HQ's validation then refuses the form (proof 4 on a select and a calculation over a table tagged `ζωνες`, with no `vellum:` copy of either: \"Instance: ζωνες Does not exists\", Core `XFormParser.verifyItemsetBindings`). A column of such a name is kept as written, in a select's choices and in form logic",
+		"subject": "lookup-tables",
+		"reasons": [
+			{
+				"kind": "not-hq-editable",
+				"named": "HQ's form builder reads a form's expressions with js-xpath (`xpath.jisonlex`: `NCName`, unaccented names) and drops the declaration of an instance whose reads it cannot lex; HQ's validation then refuses the form (proof 4 on a select and a calculation over a table tagged `ζωνες`, with no `vellum:` copy of either: \"Instance: ζωνες Does not exists\", Core `XFormParser.verifyItemsetBindings`)"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/dotted-column-interpolated-in-suite",
+		"area": "expressions-and-data",
+		"section": "Lookup tables",
+		"item": "a suite condition reads a lookup column whose unquoted period HQ interprets as the selected case",
+		"surfaceKeys": ["lookup-model:TypeField.name"],
+		"valueClass": "suite-interpolates-column",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: not HQ-buildable: HQ’s interpolation treats an unquoted period between non-digits as the current case. Without a case HQ refuses the condition. With a case it changes the path the worker reads.",
+		"subject": "lookup-tables",
+		"reasons": [
+			{
+				"kind": "not-hq-buildable",
+				"named": "HQ’s interpolation treats an unquoted period between non-digits as the current case. Without a case HQ refuses the condition. With a case it changes the path the worker reads."
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
 		"id": "expressions-and-data/tag-types",
 		"area": "expressions-and-data",
 		"section": "Lookup tables",
@@ -5019,7 +5229,7 @@
 		"surfaceKeys": ["lookup-model:LookupTable.tag"],
 		"valueClass": "types",
 		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: a table that can be referenced but not adopted: a workbook's `types` sheet holds every table's definition (`fixtures/upload/workbook.py`), so no push can carry it (Nova refuses it today, `lib/export/boundaryValidation.ts::lookupHqReservedTagFindings`), though HQ's table editor accepts the tag",
+		"dispositionCell": "**HELD-NEW**: a table that can be referenced but not adopted: a workbook's `types` sheet holds every table's definition (`fixtures/upload/workbook.py`), so no workbook can carry it (Nova refuses it, `lib/export/boundaryFindings.ts::lookupHqReservedTagFindings`, and a reading raises this entry, `lib/deployment/reading/projectData/lookupTables.ts::lookupTableFindings`), though HQ's table editor accepts the tag; the JSON resource carrier that would publish it is planned (`lib/deployment/lookupJsonPlan.ts`) but writes nothing yet",
 		"subject": "lookup-tables",
 		"owner": "project-data-at-hq-size",
 		"platforms": {
@@ -5079,7 +5289,7 @@
 		],
 		"valueClass": "field-properties",
 		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `LookupColumn.properties` + multi-valued cells",
+		"dispositionCell": "**HELD-NEW**: held in Project data as a column's value details (`LookupColumn.properties`) and repeated text columns with ordered occurrences (`lib/lookup`), read from CommCare HQ's row details (`lib/commcare/hq/lookupSource.ts::readSelectedHqLookupRows`), edited in the rich table editor and the shared tools, and written to the device fixture and to a workbook wherever HQ's workbook reader keeps every occurrence (`lib/commcare/lookup/workbookRows.ts`); it moves once an HQ-authored base with properties and repeated values passes proofs 1 to 6 and a native walk shows the worker's choices",
 		"subject": "lookup-tables",
 		"owner": "project-data-at-hq-size",
 		"platforms": {
@@ -5110,7 +5320,7 @@
 		],
 		"valueClass": "row-attributes",
 		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `LookupTable.rowAttributes`",
+		"dispositionCell": "**HELD-NEW**: held as a table's row details (`LookupTableDefinition.attributes`, every row's attribute text kept exactly), read from CommCare HQ's row details, edited in Project data and the shared tools, and written to the fixture and the workbook's `property:` columns; it moves once an HQ-authored base with row attributes passes proofs 1 to 6 and a native walk",
 		"subject": "lookup-tables",
 		"owner": "project-data-at-hq-size",
 		"platforms": {
@@ -5147,7 +5357,7 @@
 			"lookup-workbook:location"
 		],
 		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `LookupTable.ownership`; the owners themselves are the project space's users, groups and locations",
+		"dispositionCell": "**HELD-NEW**: held as a table's assigned rows (`workerAccess: \"assigned\"`, `lib/lookup/rowAssignments.ts` follows `LookupTableRowManager.iter_by_user`: the worker, a group, or a place on the primary place's path), checked against a fresh worker restore or a selected-table workbook before a transfer, and written to the workbook's owner columns for a destination whose principals are bound; the owners themselves are the project space's users, groups and locations. It moves once an HQ-authored base with owned rows passes proofs 1 to 6 and native walks of two workers with disjoint assignments",
 		"subject": "lookup-tables",
 		"owner": "project-data-at-hq-size",
 		"platforms": {
@@ -5179,7 +5389,7 @@
 		],
 		"valueClass": "field-indexed",
 		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `LookupColumn.indexed`",
+		"dispositionCell": "**HELD-NEW**: held per column as indexed, not indexed, or not shown to Nova (`LookupColumn.index`: an API-key read never shows it; a verified global restore's schema or a selected-table workbook does), written to the workbook's `is_indexed?` column, and a publish that would have to guess it stops for a prepared destination table or a separate table; it moves once an HQ-authored base with an indexed field passes proofs 1 to 6 and a native walk",
 		"subject": "lookup-tables",
 		"owner": "project-data-at-hq-size",
 		"platforms": {
@@ -5257,7 +5467,7 @@
 		],
 		"valueClass": "cell-absence",
 		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: the two cell states a device tells apart: no element (zero values) and an empty element (an empty string, or a field absent from the row, which HQ writes the same way, `fixturegenerators.py::to_xml`)",
+		"dispositionCell": "**HELD-NEW**: the two cell states a device tells apart: no element (zero values) and an empty element (an empty string, or a field absent from the row, which HQ writes the same way, `fixturegenerators.py::to_xml`). Project data keeps an absent field, an empty list and an empty string apart (`lib/lookup/rowContent.ts`), the reading takes a zero-occurrence field from its row detail, and the workbook refuses a row HQ's reader would not reconstruct; it moves once an HQ-authored base with each state passes proofs 1 to 6 and a native walk counts the elements",
 		"subject": "lookup-tables",
 		"owner": "project-data-at-hq-size",
 		"platforms": {

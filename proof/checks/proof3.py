@@ -1398,9 +1398,10 @@ def verified_caption_renames(document, name, records, local_files, differences):
     matched = {row["path"] for row in upload.get("matched") or () if row.get("class") == "CommCareImage"}
     wanted = matched.intersection(row.after for row in candidates if row.artifact == f"{FORMPLAYER}@B")
     pushed = {}
-    if captured and captured.media and wanted and not upload.get("refused"):
-        with zipfile.ZipFile(io.BytesIO(upload_field(captured.media.upload(), "bulk_upload_file"))) as archive:
-            pushed = {entry: archive.read(entry) for entry in archive.namelist() if MEDIA_ROOT + entry in wanted}
+    if captured and wanted and not upload.get("refused"):
+        for request, _ in captured.media_uploads():
+            with zipfile.ZipFile(io.BytesIO(upload_field(request.upload(), "bulk_upload_file"))) as archive:
+                pushed.update((entry, archive.read(entry)) for entry in archive.namelist() if MEDIA_ROOT + entry in wanted)
     verified = set()
     for difference in candidates:
         digest, extension = originals.get(difference.before), extensions.get(difference.before)

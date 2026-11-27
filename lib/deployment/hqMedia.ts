@@ -7,9 +7,10 @@
 import { z } from "zod";
 import { isGeneratedMemberPath } from "@/lib/commcare/cczMembers";
 import type { HqMediaMapItem, HqMediaType } from "@/lib/commcare/hq/appSource";
+import { matchesHqMediaKind } from "@/lib/commcare/hq/mediaType";
 import type { AssetManifest } from "@/lib/commcare/multimedia/assetWirePath";
 import { xmlTextIssue } from "@/lib/commcare/xmlText";
-import type { AssetKind, IconRef } from "@/lib/domain";
+import type { IconRef, MediaKind } from "@/lib/domain";
 import {
 	NO_ENTRIES,
 	ownRecordValue,
@@ -118,7 +119,8 @@ export interface PublishedMediaFile {
 	readonly assetId: IconRef;
 	/** The SHA-256 of the file's bytes, as `media_assets.content_hash` holds it. */
 	readonly contentHash: string;
-	readonly kind: AssetKind;
+	readonly sizeBytes?: number;
+	readonly kind: MediaKind;
 }
 
 /**
@@ -133,6 +135,7 @@ export function publishedMediaFiles(
 		wirePath: asset.wirePath,
 		assetId: asset.assetId,
 		contentHash: asset.contentHash,
+		...(asset.byteSource && { sizeBytes: asset.byteSource.size }),
 		kind: asset.kind,
 	}));
 }
@@ -272,6 +275,8 @@ export function hqMediaStandings(input: {
 		if (item.unreadable) return { ...file, hq: null, standing: "replaced" };
 		if (item.multimediaId === null || item.mediaType === null)
 			return { ...file, hq: null, standing: "absent" };
+		if (!matchesHqMediaKind(item.mediaType, file.kind))
+			return { ...file, hq: null, standing: "replaced" };
 		const hq = { mediaType: item.mediaType, multimediaId: item.multimediaId };
 		const recorded = input.record?.[file.wirePath];
 		return {

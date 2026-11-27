@@ -17,16 +17,17 @@ import {
 	type SlotConstraint,
 	tableLookup,
 } from "@/lib/domain/expression";
+import { readColumnId } from "@/lib/domain/lookupRead";
 import {
 	useEditorErrorsAt,
 	usePredicateEditContext,
 	WithLookupTableScope,
 } from "../../editorContext";
 import type { ExpressionEditContext } from "../../expressionEditorSchemas";
+import { LookupValuePicker } from "../../LookupValuePicker";
 import {
-	type EditorLookupColumnDecl,
 	type EditorLookupTableDecl,
-	lookupColumnDisplayLabel,
+	editorLookupReads,
 } from "../../lookupTablePresentation";
 import { appendKindSlot, type EditorPath } from "../../path";
 import { InlineError } from "../../primitives/CardShell";
@@ -35,8 +36,8 @@ import { PredicateFocusBoundary } from "../ChildPredicateEditor";
 function firstResultColumn(
 	table: EditorLookupTableDecl,
 	constraint: SlotConstraint,
-): EditorLookupColumnDecl | undefined {
-	return table.columns.find(
+) {
+	return editorLookupReads(table).find(
 		(column) =>
 			constraint.accepts === "any" || acceptsType(constraint, column.dataType),
 	);
@@ -75,9 +76,6 @@ export function TableLookupCard({
 	const columnSelectId = useId();
 	const tables = ctx.lookupTables;
 	const table = tables.find((candidate) => candidate.id === value.tableId);
-	const resultColumn = table?.columns.find(
-		(column) => column.id === value.resultColumnId,
-	);
 	const eligibleTables = tables.filter(
 		(candidate) =>
 			candidate.id === value.tableId ||
@@ -86,7 +84,7 @@ export function TableLookupCard({
 	const eligibleColumns =
 		table?.columns.filter(
 			(column) =>
-				column.id === value.resultColumnId ||
+				column.id === readColumnId(value.resultColumnId) ||
 				constraint.accepts === "any" ||
 				acceptsType(constraint, column.dataType),
 		) ?? [];
@@ -103,12 +101,6 @@ export function TableLookupCard({
 		const nextColumn = firstResultColumn(nextTable, constraint);
 		if (nextColumn === undefined) return;
 		onChange(tableLookup(nextTable.id, nextColumn.id, matchAll()));
-	};
-
-	const selectColumn = (nextId: string | null) => {
-		const nextColumn = table?.columns.find((column) => column.id === nextId);
-		if (table === undefined || nextColumn === undefined) return;
-		onChange(tableLookup(table.id, nextColumn.id, value.where));
 	};
 
 	return (
@@ -144,39 +136,25 @@ export function TableLookupCard({
 				</div>
 
 				<div className="space-y-1.5">
-					<label
-						htmlFor={columnSelectId}
-						className="text-[13px] font-medium text-nova-text-secondary"
-					>
-						Value column
-					</label>
-					<Select
-						value={value.resultColumnId}
-						onValueChange={selectColumn}
-						disabled={table === undefined}
-					>
-						<SelectTrigger
+					{table && (
+						<LookupValuePicker
 							id={columnSelectId}
-							aria-label="Lookup result column"
-							aria-invalid={
-								resultColumn === undefined || columnErrors.length > 0
+							label="Value column"
+							table={{
+								...table,
+								columns: eligibleColumns,
+								attributes:
+									constraint.accepts === "any" ||
+									acceptsType(constraint, "text")
+										? table.attributes
+										: [],
+							}}
+							value={value.resultColumnId}
+							onChange={(read) =>
+								onChange(tableLookup(table.id, read, value.where))
 							}
-							className="h-11 w-full border-white/[0.06] bg-nova-deep/50 px-3 text-sm dark:bg-nova-deep/50"
-						>
-							<SelectValue>
-								{resultColumn === undefined
-									? "A column that is no longer available"
-									: lookupColumnDisplayLabel(resultColumn)}
-							</SelectValue>
-						</SelectTrigger>
-						<SelectContent>
-							{eligibleColumns.map((column) => (
-								<SelectItem key={column.id} value={column.id}>
-									{lookupColumnDisplayLabel(column)}
-								</SelectItem>
-							))}
-						</SelectContent>
-					</Select>
+						/>
+					)}
 					<InlineError errors={columnErrors} />
 				</div>
 			</div>

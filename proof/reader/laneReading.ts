@@ -42,6 +42,7 @@ import {
 	type ReaderLookupCatalog,
 	type ReaderMediaResolution,
 	readHqApp,
+	readHqLookupTagsSteps,
 } from "@/lib/commcare/reader";
 import { serializeClaimLog } from "@/lib/commcare/reader/accounting";
 import { matchingResolver } from "@/lib/commcare/reader/identity";
@@ -65,7 +66,13 @@ import {
 	firstPublishChangePlaces,
 } from "@/lib/deployment/reading/firstPublishChanges";
 import { type Gathered, gatherFromHq } from "@/lib/deployment/reading/gather";
+import { Pieces } from "@/lib/deployment/reading/pieces";
+import { boundAsItStands } from "@/lib/deployment/reading/projectData/lookupTables";
 import type { ReadingProjectSide } from "@/lib/deployment/reading/projectData/read";
+import {
+	mayUseProjectFactory,
+	sourceFactoryReads,
+} from "@/lib/deployment/reading/projectData/read";
 import {
 	EMPTY_TARGET_IDENTITY,
 	observedTargetIdentity,
@@ -130,6 +137,7 @@ export interface LaneReadInput {
 	readonly currentVersion: RetainedHqAnswer;
 	/** HQ's two project space lists, whole and filtered by the flag. Asked for only where the
 	 *  source holds a write saved only if changed. */
+	readonly sourceFactoryReads?: Readonly<Record<string, RetainedHqAnswer>>;
 	readonly projectSpaces?: {
 		readonly all: RetainedHqAnswer;
 		readonly flagged: RetainedHqAnswer;
@@ -137,8 +145,11 @@ export interface LaneReadInput {
 	/** Required for `identity: "mint"`: HQ's own project data answers, and its files. */
 	readonly projectData?: {
 		readonly lookupTables: RetainedHqAnswer;
+		readonly lookupDefinitions?: Readonly<Record<string, RetainedHqAnswer>>;
+		readonly fixtureDetails?: Readonly<Record<string, RetainedHqAnswer>>;
 		readonly fixtureRows: Readonly<Record<string, RetainedHqAnswer>>;
 		readonly locationTypes?: RetainedHqAnswer;
+		readonly locationsV1?: RetainedHqAnswer;
 		readonly locations?: RetainedHqAnswer;
 		/** One a mapped path: HQ's answer to the file's read, and its bytes where HQ gave them. */
 		readonly media: readonly {
@@ -292,6 +303,20 @@ export function noRetainedAnswer(path: string, base: string): string {
 	return `Nova's reader asked CommCare HQ for ${path} while it read ${base}, and the lane holds no answer for that request. The retained answers are every request Nova's client makes of an app; either the client now asks for something new, which the lane must read and keep (proof/matrix/retain.py), or it built an address HQ does not give.`;
 }
 
+/** A reading that asked for a request the lane holds no answer for: its
+ * message is `noRetainedAnswer`'s, and `path` the request. A base the lane
+ * made is set aside by it until the round authors it again; any other
+ * reading stops on it. */
+export class LaneAnswerMissing extends Error {
+	constructor(
+		readonly path: string,
+		readonly base: string,
+	) {
+		super(noRetainedAnswer(path, base));
+		this.name = "LaneAnswerMissing";
+	}
+}
+
 const MINT_WITHOUT_PROJECT_DATA =
 	"A first reading of an app CommCare HQ holds needs HQ's project data answers (projectData), since the reading asks HQ for its lookup tables before the reader runs. Look at whoever built this LaneReadInput: the lane's records or proof/hq-apps/<base>/.";
 
@@ -369,36 +394,35 @@ function bornRowId(tableId: string, hqRowId: string): LookupRowId {
  * `deployment/managedData.ts`), as it does after a real bring-in.
  */
 function bornLookup(gathered: Gathered): LookupFixtureDataSnapshot {
-	const { origin, tables } = gathered.fetched.data.gathered;
-	const born = new Set<string>();
-	const definitions = gathered.lookup.definitions.map((definition) => {
-		if (definition.hq !== undefined) return definition;
-		born.add(definition.id);
-		const read = tables.find(
-			(table) => table.binding?.tableId === definition.id,
-		)?.read;
-		if (read === undefined)
-			throw new Error(
-				`The reading's lookup data holds a table (${definition.id}) that no table CommCare HQ listed is bound to, which readingLookupSnapshot never gives. Look at lib/deployment/reading/projectData/lookupTables.ts.`,
-			);
-		return {
-			...definition,
-			hq: {
-				server: origin.server,
-				domain: origin.domain,
-				remoteId: read.table.id,
-				managedBy: "commcare-hq" as const,
-				broughtInAt: LANE_BROUGHT_IN_AT,
-				takenOverAt: null,
-				takenOverBy: null,
-				refreshedAt: LANE_BROUGHT_IN_AT,
-				goneColumnIds: [],
-			},
-		};
-	});
+	// The production birth projection already carries custody, including for
+	// ordinary global data. Only rows materialized from the reading acquire
+	// Nova row identities. Reused Project rows keep theirs.
+	const born = new Set(
+		gathered.fetched.data.gathered.tables.flatMap((table) =>
+			table.binding &&
+			table.standing &&
+			!boundAsItStands(table.standing, table.choice)
+				? [table.binding.tableId]
+				: [],
+		),
+	);
+
 	return {
 		...gathered.lookup,
-		definitions,
+		/* The production projection stamps the reading's clock. A lane birth
+		 * stamps its fixed day, so the same answers give the same document. */
+		definitions: gathered.lookup.definitions.map((definition) =>
+			born.has(definition.id) && definition.hq !== undefined
+				? {
+						...definition,
+						hq: {
+							...definition.hq,
+							broughtInAt: LANE_BROUGHT_IN_AT,
+							refreshedAt: LANE_BROUGHT_IN_AT,
+						},
+					}
+				: definition,
+		),
 		rowsByTable: new Map(
 			[...gathered.lookup.rowsByTable].map(([tableId, rows]) => [
 				tableId,
@@ -492,7 +516,7 @@ async function firstReading(
 		},
 		readingId: LANE_READING_ID,
 		appId: input.appId,
-		keepMedia: false,
+		stageMedia: null,
 		onEvent: () => {},
 		creds,
 		project: EMPTY_PROJECT,
@@ -849,6 +873,12 @@ function lookupCatalogOf(
 						tableId: table.id,
 						column: (name) =>
 							table.columns.find((column) => column.wireName === name)?.id,
+						attribute: (name) =>
+							table.attributes?.find((member) => member.wireName === name)?.id,
+						property: (columnId, name) =>
+							table.columns
+								.find((column) => column.id === columnId)
+								?.properties?.find((member) => member.wireName === name)?.id,
 					};
 		},
 		definitions: new Map(definitions.map((table) => [table.id, table])),
@@ -912,7 +942,33 @@ async function readBack(
 		knownCaseTypes: knownCaseTypesOf(doc),
 		knownLanguageCodes: knownLanguageCodesOf(doc),
 	};
-	const outcome = readHqApp(readerInput, { claims: input.claims });
+	const discovery = sourceFactoryReads({
+		creds,
+		domain: LANE_TARGET.domain,
+		working: reading,
+		source,
+	});
+	if (mayUseProjectFactory(source))
+		await new Pieces().steps(
+			readHqLookupTagsSteps({
+				...readerInput,
+				observeFactory: (kind, id, form) =>
+					discovery.observe(source, kind, id, form),
+				observeSuiteDetail: (details, id) =>
+					discovery.observeDetail(source, details, id),
+			}),
+		);
+	const factories = await discovery.read();
+	if (factories.kind === "failed")
+		return account(atApp(hqReadCircumstance(factories.failure)));
+	const outcome = readHqApp(
+		{
+			...readerInput,
+			sourceProjectFactories: factories.facts,
+			suiteDetails: await discovery.readDetails(),
+		},
+		{ claims: input.claims },
+	);
 	const claims =
 		input.claims === "full"
 			? serializeClaimLog(outcome.claims)
@@ -985,7 +1041,7 @@ export async function readForLane(input: LaneReadInput): Promise<LaneReading> {
 		);
 	} catch (error) {
 		if (error instanceof RetainedAnswerMissing)
-			throw new Error(noRetainedAnswer(error.path, input.appId));
+			throw new LaneAnswerMissing(error.path, input.appId);
 		throw error;
 	}
 }

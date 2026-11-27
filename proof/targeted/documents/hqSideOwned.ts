@@ -12,6 +12,9 @@
  *   (`views/settings.py::edit_commcare_settings`, through
  *   `views/apps.py::edit_app_attr`), which adds location capture to every
  *   form's meta block (`xform.py::XForm._add_meta_2`);
+ * - "Case Sharing" on, on the same page, which HQ's build answers with a
+ *   demo `user-groups` fixture in the suite (`suite_xml/sections/fixtures.py`),
+ *   so the configurations grant it (`CASE_SHARING_GROUPS`);
  * - one required Android app, CommCare Reminders, on the app settings page
  *   (`views/settings.py::edit_commcare_profile`, the profile feature
  *   `dependencies`), which HQ keeps only under App Dependencies, so the
@@ -21,7 +24,7 @@
  * Both are settings Nova writes on every publish, so its next publish reads
  * each as a change made in HQ, stops (`hq_changed`), and goes through only
  * with the person's confirmed discard (`republish: "discards"`), writing
- * Nova's values back: location off, no required apps. Proofs 2 and 3 hold
+ * Nova's values back: location off, case sharing off, no required apps. Proofs 2 and 3 hold
  * the differences that discard makes, and only them, to its statement
  * (`proof/checks/discards.py`); `proof/checks/test_hq_side.py` holds HQ's
  * own value of each after the republish.
@@ -73,9 +76,9 @@ export function hqSideOwned() {
 		expected: {
 			intent: [answerHeld("note-held", form, "/data/note", "seen")],
 		},
-		privileges: ["APP_DEPENDENCIES"],
+		privileges: ["APP_DEPENDENCIES", "CASE_SHARING_GROUPS"],
 		hqSide: {
-			appAttributes: { auto_gps_capture: true },
+			appAttributes: { auto_gps_capture: true, case_sharing: true },
 			profileFeatures: { dependencies: ["org.commcare.dalvik.reminders"] },
 			republish: "discards",
 		},

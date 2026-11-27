@@ -17,7 +17,8 @@ import {
 	formLinkProjectionContext,
 } from "../../formLinkProjection";
 import { rethrowWorkStop } from "../../workMeter";
-import type { FormSyntax } from "../../xpath/formSyntax";
+import { type FormSyntax, literalInstanceId } from "../../xpath/formSyntax";
+import { instanceForRead } from "../../xpath/instanceSources";
 import { sameJson } from "../jsonCursor";
 import type { PendingExpression } from "../pendingExpressions";
 import { readFormSyntax } from "../syntaxRead";
@@ -38,7 +39,13 @@ import {
 	siblingCaseRow,
 } from "./folds";
 import type { ExpressionReadEnv } from "./index";
-import { lookupTypes, preparedSource, slotForm } from "./readExpression";
+import { nativeInstancePaths } from "./nativeInstancePaths";
+import {
+	instanceSourcesOf,
+	lookupTypes,
+	preparedSource,
+	slotForm,
+} from "./readExpression";
 
 export interface ScannedReads {
 	readonly caseProperties: readonly {
@@ -69,10 +76,9 @@ const CSQL_RELATION_FUNCTIONS: ReadonlySet<string> = new Set([
 	"subcase-exists",
 	"subcase-count",
 ]);
-const TABLE_ID = "item-list:";
 
 /** Every node of a syntax tree, in document order. */
-function nodesOf(root: FormSyntax): FormSyntax[] {
+function nodesOf(root: FormSyntax, includePredicates = true): FormSyntax[] {
 	const found: FormSyntax[] = [];
 	const visit = (node: FormSyntax): void => {
 		found.push(node);
@@ -88,7 +94,7 @@ function nodesOf(root: FormSyntax): FormSyntax[] {
 				return;
 			case "filter":
 				visit(node.base);
-				visit(node.where);
+				if (includePredicates) visit(node.where);
 				return;
 			case "binary":
 				visit(node.left);
@@ -383,7 +389,13 @@ export function scanReads(
 	const scanner = readsScanner(doc, env);
 	for (const registration of pending) {
 		const prepared = preparedSource(doc, registration);
-		if (prepared.ok) scanner.scan(prepared.syntax, registration.ref, true);
+		if (prepared.ok)
+			scanner.scan(
+				prepared.syntax,
+				registration.ref,
+				true,
+				instanceSourcesOf(doc, registration, env),
+			);
 	}
 	return scanner.finish();
 }
@@ -452,6 +464,7 @@ function readsScanner(
 		syntax: FormSyntax,
 		ref: PendingExpression["ref"],
 		ownRow: boolean,
+		sources?: ReadonlyMap<string, string>,
 	) => void;
 	readonly finish: () => ScannedReads;
 } {
@@ -567,10 +580,21 @@ function readsScanner(
 	// The instance ids each form's expressions read, so a declaration of a
 	// table is a read only where an expression of its form reads its id.
 	const readIds = new Map<Uuid, Set<string>>();
+	const noteLocationProperty = (path: NonNullable<ReturnType<typeof flat>>) => {
+		const [data, slug] = path.steps;
+		if (
+			data?.name === "location_data" &&
+			!data.attribute &&
+			slug &&
+			!slug.attribute
+		)
+			slugs.add(slug.name);
+	};
 	const scan = (
 		syntax: FormSyntax,
 		ref: PendingExpression["ref"],
 		ownRow: boolean,
+		sources?: ReadonlyMap<string, string>,
 	): void => {
 		const context = slotContext(doc, ref, lookupTypes(env));
 		const row =
@@ -582,8 +606,9 @@ function readsScanner(
 			moduleUuid === undefined ? undefined : doc.modules[moduleUuid]?.caseType;
 		const reachable =
 			form === undefined ? [] : [...caseTypeHopMap(doc, moduleType).entries()];
-		notePresence(rowType ?? moduleType, syntax);
-		const nodes = nodesOf(syntax);
+		const native = nativeInstancePaths(syntax, sources);
+		notePresence(rowType ?? moduleType, native.syntax);
+		const nodes = nodesOf(native.syntax);
 		const inPredicate = new Set<FormSyntax>();
 		const innerStep = partsOfPaths(nodes);
 		for (const node of nodes) {
@@ -593,35 +618,39 @@ function readsScanner(
 			// own row.
 			if (at.kind === "filter")
 				for (const inside of nodesOf(at.where)) inPredicate.add(core(inside));
-			if (at.kind === "call" && at.name === "instance") {
-				const id = at.args[0];
-				if (id?.kind === "string") {
-					if (form !== undefined) {
-						const read = readIds.get(form) ?? new Set<string>();
-						readIds.set(form, read);
-						read.add(id.value);
-					}
-					if (id.value.startsWith(TABLE_ID))
-						tags.add(id.value.slice(TABLE_ID.length));
+			const id = literalInstanceId(at);
+			if (id !== undefined) {
+				const localId = native.localIds.get(id.from) ?? id.value;
+				if (form !== undefined && sources !== undefined) {
+					const read = readIds.get(form) ?? new Set<string>();
+					readIds.set(form, read);
+					read.add(localId);
 				}
+				const bound = instanceForRead(localId, sources);
+				if (bound?.kind === "table") tags.add(bound.tag);
 			}
 			if (inner) continue;
 			noteWalk(rowType ?? moduleType, at);
 			const path = flat(at, true);
 			if (path === undefined) continue;
 			if (path.root === undefined) {
-				const [data, slug] = path.steps;
-				if (
-					data?.name === "location_data" &&
-					!data.attribute &&
-					slug !== undefined &&
-					!slug.attribute
-				)
-					slugs.add(slug.name);
+				if (row?.kind === "location" && !inPredicate.has(at))
+					noteLocationProperty(path);
 				continue;
 			}
 			const instance = instanceId(path);
 			if (instance === "locations") {
+				const location = path.steps[1];
+				if (
+					path.steps[0]?.name === "locations" &&
+					location?.name === "location"
+				)
+					for (const where of location.where)
+						for (const candidate of nodesOf(where, false)) {
+							const relative = flat(candidate);
+							if (relative?.root === undefined && relative)
+								noteLocationProperty(relative);
+						}
 				const index = path.steps.findIndex(
 					(step) => step.name === "location_data" && !step.attribute,
 				);

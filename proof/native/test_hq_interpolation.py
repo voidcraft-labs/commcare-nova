@@ -233,3 +233,86 @@ def test_hq_interpolates_novas_hq_print_into_its_suite_print(native):
             "eulxml's XPath parser reads both. One admitted document; no app build, Core, or served reader.",
         },
     )
+
+
+def test_hq_suite_lookup_discovery_and_column_interpolation_have_distinct_boundaries(
+    native,
+):
+    from corehq.apps.app_manager.exceptions import CaseXPathValidationError
+    from corehq.apps.app_manager.models import Module
+    from corehq.apps.app_manager.suite_xml.post_process.instances import (
+        get_all_instances_referenced_in_xpaths,
+    )
+    from corehq.apps.app_manager.suite_xml.sections.entries import EntriesHelper
+    from corehq.apps.app_manager.xpath import interpolate_xpath
+    from corehq.apps.app_manager.xpath_validator import validate_xpath
+    import pytest
+
+    from proof.checks import lookup_parity
+
+    module = Module.new_module("Visits", "en")
+    results = []
+    # The last element names each part HQ's own check of a form's display condition (js-xpath, unaccented names)
+    # refuses; that refusal stands in place of the suite's for the part it names.
+    tag_part, field_part = "lookup-model:LookupTable.tag", "lookup-model:TypeField.name"
+    for tag, field, preserved, discovered, unchecked in [
+        ("meeting", "site.id", False, True, ()),
+        ("meeting", "a.1", True, True, ()),
+        ("meeting", "a1.b", True, True, ()),
+        ("meeting", "a.١", True, True, (field_part,)),
+        ("a.1", "id", True, False, ()),
+        ("a\N{COMBINING GREEK YPOGEGRAMMENI}", "id", True, False, (tag_part,)),
+        ("ζωνες", "région", True, True, (tag_part, field_part)),
+    ]:
+        expression = f"instance('item-list:{tag}')/{tag}_list/{tag}/{field}"
+        module.case_details.short.filter = expression
+        case_filter = EntriesHelper.get_filter_xpath(module)
+        # A menu listing cases interpolates against the current case. The same unquoted
+        # period is a validation error in an expression with no case (e.g. module_filter).
+        if preserved:
+            assert case_filter == f"[{expression}]"
+            assert interpolate_xpath(expression) == expression
+        else:
+            assert (
+                case_filter == f"[{expression.replace('site.id', 'sitecurrent()id')}]"
+            )
+            with pytest.raises(CaseXPathValidationError):
+                interpolate_xpath(expression)
+        assert interpolate_xpath(expression, interpolate_dots=False) == expression
+        # This is the producer of actual suite instance declarations. All names in this
+        # check are generic fixture ids, whose factory does not access an application.
+        instances, unknown = get_all_instances_referenced_in_xpaths(None, [case_filter])
+        assert {(i.id, i.src) for i in instances} == (
+            {(f"item-list:{tag}", f"jr://fixture/item-list:{tag}")}
+            if discovered
+            else set()
+        )
+        assert not unknown
+        def source(condition):
+            return {"modules": [{"forms": [{"form_filter": condition}]}]}
+        classified = list(lookup_parity.changed_form_condition_refusals(source("true()"), source(expression)))
+        where = "/modules/0/forms/0/form_filter"
+        if unchecked:
+            assert not validate_xpath(expression, allow_case_hashtags=True).is_valid
+            expected = [(part, where, lookup_parity.HQ_CHECKED_NAME) for part in unchecked]
+        else:
+            assert validate_xpath(expression, allow_case_hashtags=True).is_valid
+            expected = [] if discovered and preserved else [(
+                field_part if discovered else tag_part,
+                where,
+                lookup_parity.INTERPOLATED_COLUMN if discovered else lookup_parity.OMITTED_INSTANCE,
+            )]
+        assert classified == expected
+        results.append(
+            {
+                "tag": tag,
+                "field": field,
+                "caseFilter": case_filter,
+                "declared": discovered,
+            }
+        )
+    write_evidence(
+        native.family("expression"),
+        "hq-suite-lookup-names",
+        {"hqCommit": hq_commit(), "caseFilters": results},
+    )

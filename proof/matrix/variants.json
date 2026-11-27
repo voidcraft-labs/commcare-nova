@@ -20985,15 +20985,17 @@
 		"id": "hq-expressions/user-groups-read",
 		"base": "hq-expressions",
 		"entry": "expressions-and-data/groups-jr-fixture-user-groups",
-		"standing": "not-yet",
-		"place": {
-			"kind": "question",
-			"menu": 0,
-			"form": 0,
-			"menuName": "Checks",
-			"formName": "Survey",
-			"path": "language"
-		},
+		"holds": [
+			{
+				"key": ["field", { "$xmlns": [0, 0] }, ["language"]],
+				"pointer": "/calculate",
+				"value": {
+					"kind": "project",
+					"of": { "kind": "worker-groups", "where": [] },
+					"value": { "kind": "worker-group-field", "field": "id" }
+				}
+			}
+		],
 		"change": {
 			"op": "named",
 			"name": "user_groups_read"
@@ -21405,6 +21407,144 @@
 		"holds": []
 	},
 	{
+		"id": "hq-lookup-names/all-matching-zone-codes-in-form-condition",
+		"base": "hq-lookup-names",
+		"entry": "forms-and-case-writes/form-filter-outside-predicate-parent-host-user-usercase-reads",
+		"standing": "not-yet",
+		"place": {
+			"kind": "form",
+			"menu": 0,
+			"form": 0,
+			"menuName": "Visit",
+			"name": "Survey"
+		},
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/0/forms/0/form_filter",
+			"value": "instance('item-list:zones')/zones_list/zones[code = 'upland']/code.1 = 'on'"
+		}
+	},
+	{
+		"id": "hq-lookup-names/dotted-field-in-form-condition",
+		"base": "hq-lookup-names",
+		"entry": "expressions-and-data/dotted-column-interpolated-in-suite",
+		"standing": "fix-in-hq",
+		"place": {
+			"kind": "form",
+			"menu": 0,
+			"form": 0,
+			"menuName": "Visit",
+			"name": "Survey"
+		},
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/0/forms/0/form_filter",
+			"value": "instance('item-list:zones')/zones_list/zones[code = 'upland'][1]/zone.name = 'Upper zone'"
+		}
+	},
+	{
+		"id": "hq-lookup-names/dotted-table-in-form-condition",
+		"base": "hq-lookup-names",
+		"entry": "expressions-and-data/lookup-table-instance-undiscovered-in-suite",
+		"standing": "fix-in-hq",
+		"place": {
+			"kind": "form",
+			"menu": 0,
+			"form": 0,
+			"menuName": "Visit",
+			"name": "Survey"
+		},
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/0/forms/0/form_filter",
+			"value": "instance('item-list:meeting.1')/meeting.1_list/meeting.1[label.1 = 'Library'][1]/label.1 = 'Library'"
+		}
+	},
+	{
+		"id": "hq-lookup-names/non-ascii-column-in-form-condition",
+		"base": "hq-lookup-names",
+		"entry": "expressions-and-data/non-ascii-lookup-name-in-a-condition-hq-checks",
+		"standing": "fix-in-hq",
+		"place": {
+			"kind": "form",
+			"menu": 0,
+			"form": 0,
+			"menuName": "Visit",
+			"name": "Survey"
+		},
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/0/forms/0/form_filter",
+			"value": "instance('item-list:zones')/zones_list/zones[code = 'upland'][1]/région = 'Upland'"
+		}
+	},
+	{
+		"id": "hq-lookup-name-lists/non-ascii-column-in-menu-condition",
+		"base": "hq-lookup-name-lists",
+		"entry": "expressions-and-data/non-ascii-lookup-name-in-a-condition-hq-checks",
+		"standing": "fix-in-hq",
+		"place": {
+			"kind": "menu",
+			"menu": 0,
+			"name": "Sites"
+		},
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/0/module_filter",
+			"value": "instance('item-list:zones')/zones_list/zones[code = 'upland'][1]/région = 'Upland'"
+		}
+	},
+	{
+		"id": "hq-lookup-name-lists/non-ascii-column-in-search-button-condition",
+		"base": "hq-lookup-name-lists",
+		"entry": "expressions-and-data/non-ascii-lookup-name-in-a-search-option-hq-checks",
+		"standing": "fix-in-hq",
+		"place": {
+			"kind": "search",
+			"menu": 1,
+			"name": "Site search"
+		},
+		"change": {
+			"op": "named",
+			"name": "search_button_condition_reading_region"
+		},
+		"hqNeverServes": {
+			"raised": "MatrixChangeRefused"
+		}
+	},
+	{
+		"id": "hq-lookup-name-lists/table-tagged-has-own-property",
+		"base": "hq-lookup-name-lists",
+		"entry": "expressions-and-data/tag-has-own-property",
+		"standing": "fix-in-hq",
+		"place": {
+			"kind": "lookup-table",
+			"tag": "hasOwnProperty"
+		},
+		"change": {
+			"op": "named",
+			"name": "has_own_property_table"
+		}
+	},
+	{
+		"id": "hq-lookup-name-lists/table-tagged-proto-read-by-a-form",
+		"base": "hq-lookup-name-lists",
+		"entry": "expressions-and-data/tag-proto-read-by-a-form",
+		"standing": "fix-in-hq",
+		"place": {
+			"kind": "question",
+			"menu": 0,
+			"form": 1,
+			"menuName": "Sites",
+			"formName": "Followup Form",
+			"path": "note"
+		},
+		"change": {
+			"op": "named",
+			"name": "proto_table_read_by_a_form"
+		}
+	},
+	{
 		"id": "hq-lookups/choice-name-on-a-lookup-select",
 		"base": "hq-lookups",
 		"entry": "expressions-and-data/jr-choice-name-on-a-lookup-itemset-select",
@@ -21450,7 +21590,29 @@
 		"id": "hq-lookups/itemset-attribute-ref",
 		"base": "hq-lookups",
 		"entry": "questions/itemset-refs-to-attr-or-property-qualified-fields",
-		"standing": "not-yet",
+		"change": {
+			"op": "named",
+			"name": "itemset_attribute_ref"
+		},
+		"holds": [
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["district"]
+				],
+				"pointer": "/optionsSource/labelColumnId/where/equals",
+				"value": "fr"
+			}
+		]
+	},
+	{
+		"id": "hq-lookups/itemset-property-as-label",
+		"base": "hq-lookups",
+		"entry": "questions/lookup-choice-reference-the-form-editor-cannot-keep",
+		"standing": "fix-in-hq",
 		"place": {
 			"kind": "question",
 			"menu": 0,
@@ -21461,7 +21623,7 @@
 		},
 		"change": {
 			"op": "named",
-			"name": "itemset_attribute_ref"
+			"name": "itemset_property_as_label"
 		}
 	},
 	{
@@ -26894,10 +27056,9 @@
 		"id": "hq-new-app/case-sharing",
 		"base": "hq-new-app",
 		"entry": "application-and-settings/39-hq-case-sharing",
-		"standing": "not-yet",
-		"place": {
-			"kind": "app"
-		},
+		"holds": [
+			{ "key": ["app"], "pointer": "/appSettings/caseSharing", "value": true }
+		],
 		"change": {
 			"op": "set-json",
 			"pointer": "/case_sharing",
@@ -27571,18 +27732,6 @@
 		"change": {
 			"op": "named",
 			"name": "child_case_in_a_shared_multi_select_menu"
-		},
-		"second": {
-			"entry": "application-and-settings/39-hq-case-sharing",
-			"standing": "not-yet",
-			"place": {
-				"kind": "app"
-			},
-			"change": {
-				"op": "set-json",
-				"pointer": "/case_sharing",
-				"value": true
-			}
 		}
 	},
 	{
@@ -33962,43 +34111,32 @@
 		"id": "hq-search/choice-labels-from-an-attribute",
 		"base": "hq-search",
 		"entry": "case-search/itemset-refs-to-item-attributes-attr-or-property-qualified",
-		"standing": "not-yet",
-		"place": {
-			"kind": "search",
-			"menu": 0,
-			"name": "Clients"
-		},
 		"change": {
-			"op": "set-json",
-			"pointer": "/modules/0/search_config/properties/5",
-			"value": {
-				"name": "district",
-				"label": {
-					"en": "District"
-				},
-				"hint": {},
-				"input_": "select1",
-				"itemset": {
-					"instance_id": "item-list:districts",
-					"nodeset": "instance('item-list:districts')/districts_list/districts",
-					"value": "id",
-					"sort": "name",
-					"label": "@name",
-					"doc_type": "Itemset"
-				},
-				"hidden": false,
-				"allow_blank_value": false,
-				"exclude": false,
-				"required": {
-					"test": null,
-					"text": {},
-					"doc_type": "Assertion"
-				},
-				"validations": [],
-				"is_group": false,
-				"doc_type": "CaseSearchProperty"
+			"op": "named",
+			"name": "district_choice_details"
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/searchInputs/5/options/labelColumnId/where/equals",
+				"value": "fr"
+			},
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/searchInputs/5/options/sortColumnId/where/equals",
+				"value": "en"
 			}
-		}
+		]
 	},
 	{
 		"id": "hq-search/choices-filtered-by-an-ordered-text",

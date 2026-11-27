@@ -13,10 +13,12 @@ import { Icon } from "@iconify/react/offline";
 import tablerFilter from "@iconify-icons/tabler/filter";
 import { useCallback, useId, useMemo, useState } from "react";
 import { useBuilderLookupCatalog } from "@/components/builder/lookup/catalogContext";
+import { LookupChoiceNameOption } from "@/components/builder/lookup/LookupChoiceNameOption";
 import { RejectionInline } from "@/components/builder/RejectionNotice";
 import { firstComparisonDefault } from "@/components/builder/shared/cards/comparisonSeed";
 import { editorAxesOf } from "@/components/builder/shared/editorAxes";
 import type { EditorFormFieldDecl } from "@/components/builder/shared/formFieldPresentation";
+import { LookupValuePicker } from "@/components/builder/shared/LookupValuePicker";
 import { PredicateWorkbench } from "@/components/builder/shared/PredicateWorkbench";
 import { Button } from "@/components/shadcn/button";
 import { Label } from "@/components/shadcn/label";
@@ -29,6 +31,7 @@ import {
 } from "@/components/shadcn/select";
 import { lookupFilterEligibleFormFields } from "@/lib/doc/formFieldEntries";
 import { useEffectiveCaseTypes } from "@/lib/doc/hooks/useCaseTypes";
+import { useDeclaredPlatforms } from "@/lib/doc/hooks/useDeclaredPlatforms";
 import { useExpressionSlotContext } from "@/lib/doc/hooks/useExpressionSlotContext";
 import { useFormFieldEntries } from "@/lib/doc/hooks/useFormFieldEntries";
 import { useUserProperties } from "@/lib/doc/hooks/useUserCollections";
@@ -68,6 +71,7 @@ export function OptionsSourceEditor<
 	const labelColumnSelectId = useId();
 	const canEdit = useCanEdit();
 	const catalog = useBuilderLookupCatalog();
+	const platforms = useDeclaredPlatforms();
 	const formContext = useSelectedFormContext();
 	const formUuid = formContext?.form.uuid;
 	const entries = useFormFieldEntries(formUuid ?? field.uuid);
@@ -77,7 +81,7 @@ export function OptionsSourceEditor<
 	const [draft, setDraft] = useState<SourceDraft | null>(null);
 	const [rejection, setRejection] = useState<string | null>(null);
 
-	const tables = catalog.kind === "ready" ? catalog.tables : [];
+	const tables = catalog.kind === "ready" ? catalog.definitions : [];
 	const tablesById =
 		catalog.kind === "ready"
 			? catalog.byId
@@ -218,9 +222,15 @@ export function OptionsSourceEditor<
 							</SelectItem>
 						) : null}
 						{tables.map((candidate) => (
-							<SelectItem key={candidate.id} value={candidate.id} wrap>
-								{candidate.name}
-							</SelectItem>
+							<LookupChoiceNameOption
+								key={candidate.id}
+								value={candidate.id}
+								name={candidate.tag}
+								label={candidate.name}
+								part="tag"
+								slot="lookup_options_source"
+								platforms={platforms}
+							/>
 						))}
 					</SelectContent>
 				</Select>
@@ -325,108 +335,26 @@ export function OptionsSourceEditor<
 				) : null
 			) : (
 				<>
-					<div>
-						<Label htmlFor={valueColumnSelectId} className="text-[13px]">
-							Value that gets saved
-						</Label>
-						<Select
-							value={active.valueColumnId ?? null}
-							disabled={!canEdit}
-							onValueChange={(next) => {
-								const column = table.columns.find(
-									(candidate) => candidate.id === next,
-								);
-								if (column === undefined) {
-									setRejection(
-										"That column is no longer available. Choose another column.",
-									);
-									return;
-								}
-								writeLookup({
-									...active,
-									valueColumnId: column.id,
-								});
-							}}
-						>
-							<SelectTrigger
-								id={valueColumnSelectId}
-								wrapValue
-								className="mt-1 min-h-11 w-full"
-							>
-								<SelectValue placeholder="Choose a column">
-									{(selected) =>
-										/* A render function replaces the placeholder entirely, so
-										 * the unchosen case has to be handled here: a column
-										 * nobody has picked yet is not a column that went
-										 * missing. */
-										selected === null || selected === undefined
-											? "Choose a column"
-											: (table.columns.find((column) => column.id === selected)
-													?.label ?? "A column that is no longer available")
-									}
-								</SelectValue>
-							</SelectTrigger>
-							<SelectContent>
-								{table.columns.map((column) => (
-									<SelectItem key={column.id} value={column.id} wrap>
-										{column.label}
-									</SelectItem>
-								))}
-							</SelectContent>
-						</Select>
-					</div>
-
-					<div>
-						<Label htmlFor={labelColumnSelectId} className="text-[13px]">
-							Value people see
-						</Label>
-						<Select
-							value={active.labelColumnId ?? null}
-							disabled={!canEdit}
-							onValueChange={(next) => {
-								const column = table.columns.find(
-									(candidate) => candidate.id === next,
-								);
-								if (column === undefined) {
-									setRejection(
-										"That column is no longer available. Choose another column.",
-									);
-									return;
-								}
-								writeLookup({
-									...active,
-									labelColumnId: column.id,
-								});
-							}}
-						>
-							<SelectTrigger
-								id={labelColumnSelectId}
-								wrapValue
-								className="mt-1 min-h-11 w-full"
-							>
-								<SelectValue placeholder="Choose a column">
-									{(selected) =>
-										/* A render function replaces the placeholder entirely, so
-										 * the unchosen case has to be handled here: a column
-										 * nobody has picked yet is not a column that went
-										 * missing. */
-										selected === null || selected === undefined
-											? "Choose a column"
-											: (table.columns.find((column) => column.id === selected)
-													?.label ?? "A column that is no longer available")
-									}
-								</SelectValue>
-							</SelectTrigger>
-							<SelectContent>
-								{table.columns.map((column) => (
-									<SelectItem key={column.id} value={column.id} wrap>
-										{column.label}
-									</SelectItem>
-								))}
-							</SelectContent>
-						</Select>
-					</div>
-
+					<LookupValuePicker
+						questionChoice
+						id={valueColumnSelectId}
+						label="Value that gets saved"
+						table={table}
+						value={active.valueColumnId}
+						disabled={!canEdit}
+						names={{ slot: "lookup_options_source", platforms }}
+						onChange={(read) => writeLookup({ ...active, valueColumnId: read })}
+					/>
+					<LookupValuePicker
+						questionChoice
+						id={labelColumnSelectId}
+						label="Value people see"
+						table={table}
+						value={active.labelColumnId}
+						disabled={!canEdit}
+						names={{ slot: "lookup_options_source", platforms }}
+						onChange={(read) => writeLookup({ ...active, labelColumnId: read })}
+					/>
 					<div className="space-y-3 rounded-lg border border-nova-border bg-nova-elevated p-3">
 						<p className="flex items-start gap-2 text-[13px] font-medium text-nova-text">
 							<Icon

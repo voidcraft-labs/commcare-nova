@@ -1,6 +1,6 @@
 /**
  * The rules of a lookup table CommCare HQ manages that need no store: the
- * caps a candidate table is judged against, a column's label, and what
+ * bounds of one inline copy, a column's label, and what
  * `lib/lookup` reads of the canonical value `lib/deployment` stores for the
  * table's last refresh.
  *
@@ -13,14 +13,16 @@ import { z } from "zod";
 import type { LookupColumnId } from "@/lib/domain/lookupIds";
 import {
 	LOOKUP_MAX_CELL_BYTES,
+	LOOKUP_MAX_CHANGE_BYTES,
 	LOOKUP_MAX_COLUMN_LABEL_LENGTH,
 	LOOKUP_MAX_COLUMNS,
 	LOOKUP_MAX_ROW_BYTES,
 	LOOKUP_MAX_ROWS,
-	LOOKUP_MAX_TABLE_BYTES,
 } from "./constants";
-import { formatLookupBytes, formatLookupBytesOverCap } from "./format";
+import { formatLookupBytesOverCap } from "./format";
+import type { NamedLookupRowContent } from "./rowContent";
 import { utf8ByteLength } from "./schema";
+import { lookupSourceFactsSchema } from "./source";
 import type { LookupHqOrigin, LookupManifestHqOrigin } from "./types";
 
 /** What Postgres measured of a table's candidate rows. */
@@ -31,6 +33,21 @@ export interface LookupRowsMeasure {
 
 /** CommCare HQ's columns and rows of one table, as a copy takes them. */
 export interface ManagedLookupContent {
+	readonly attributes?: readonly string[];
+	readonly fieldDetails?: Readonly<
+		Record<
+			string,
+			{
+				readonly repeated: boolean;
+				readonly properties: readonly string[];
+				readonly index: "off" | "indexed" | "unobserved";
+			}
+		>
+	>;
+	readonly rowDetails?: readonly (NamedLookupRowContent & {
+		readonly remoteId: string;
+		readonly sortKey?: number;
+	})[];
 	/** CommCare HQ's field names in its order; each passes `lookupWireNameSchema`. */
 	readonly fields: readonly string[];
 	/** Rows in CommCare HQ's order: field name to the cell's string. */
@@ -39,6 +56,7 @@ export interface ManagedLookupContent {
 
 /** What lib/lookup reads of the stored state. */
 export const managedCanonicalSchema = z.looseObject({
+	source: lookupSourceFactsSchema.optional(),
 	digest: z.string().regex(/^[0-9a-f]{64}$/),
 	fields: z.array(z.looseObject({ name: z.string() })),
 });
@@ -48,29 +66,27 @@ function count(value: number): string {
 }
 
 /**
- * Each cap of the table below that the content is over, as that cap's phrase
- * without the tag and its colon, in the table's order; empty where it is
- * within all five. Pure.
+ * Each bound of one inline copy the content is past, as a phrase, in this
+ * order; empty where one transaction can write the copy. Pure.
  *
- * Rows, columns and cells are counted here; a row's and the table's stored
- * size are Postgres's measure (`managed.ts::measureLookupRows`), never a
- * guess. A cell of a field the definition does not name is not counted: no
- * device receives it.
+ * None of these is a limit on a table. A copy past one of them is read in
+ * pages into a staged generation by a Project data refresh
+ * (`lib/deployment/managedInventory.ts`), which stores a large value outside
+ * its row and holds any number of rows and columns. Rows, columns and cells
+ * are counted here; a row's and the copy's stored size are Postgres's measure
+ * (`managed.ts::measureLookupRows`), never a guess. A cell of a field the
+ * definition does not name is not counted: no device receives it.
  */
-export function lookupCapExcess(
+export function lookupInlineCopyExcess(
 	content: ManagedLookupContent,
 	measured: LookupRowsMeasure,
 ): readonly string[] {
 	const phrases: string[] = [];
 	if (content.rows.length > LOOKUP_MAX_ROWS) {
-		phrases.push(
-			`${count(content.rows.length)} rows (Nova takes ${count(LOOKUP_MAX_ROWS)})`,
-		);
+		phrases.push(`${count(content.rows.length)} rows`);
 	}
 	if (content.fields.length > LOOKUP_MAX_COLUMNS) {
-		phrases.push(
-			`${count(content.fields.length)} columns (Nova takes ${count(LOOKUP_MAX_COLUMNS)})`,
-		);
+		phrases.push(`${count(content.fields.length)} columns`);
 	}
 	let largestCellBytes = 0;
 	for (const row of content.rows) {
@@ -81,39 +97,37 @@ export function lookupCapExcess(
 		}
 	}
 	if (largestCellBytes > LOOKUP_MAX_CELL_BYTES) {
-		phrases.push(
-			`a value of ${formatLookupBytesOverCap(largestCellBytes)} (Nova takes ${formatLookupBytes(LOOKUP_MAX_CELL_BYTES)} in one cell)`,
-		);
+		phrases.push(`a value of ${formatLookupBytesOverCap(largestCellBytes)}`);
 	}
 	if (measured.largestRowBytes > LOOKUP_MAX_ROW_BYTES) {
 		phrases.push(
-			`a row of ${formatLookupBytesOverCap(measured.largestRowBytes)} (Nova takes ${formatLookupBytes(LOOKUP_MAX_ROW_BYTES)} in one row)`,
+			`a row of ${formatLookupBytesOverCap(measured.largestRowBytes)}`,
 		);
 	}
-	if (measured.dataBytes > LOOKUP_MAX_TABLE_BYTES) {
-		phrases.push(
-			`${formatLookupBytesOverCap(measured.dataBytes)} of rows (Nova takes ${formatLookupBytes(LOOKUP_MAX_TABLE_BYTES)} in one table)`,
-		);
+	if (measured.dataBytes > LOOKUP_MAX_CHANGE_BYTES) {
+		phrases.push(`${formatLookupBytesOverCap(measured.dataBytes)} of rows`);
 	}
 	return phrases;
 }
 
-/** The sentence a writer of a managed copy refuses with when the table is over a cap. */
-export function managedLookupCapRefusal(
+/**
+ * The sentence a writer of a managed copy refuses with when one inline copy
+ * cannot carry the table. `phrases` are `lookupInlineCopyExcess`'s.
+ */
+export function managedLookupInlineCopyRefusal(
 	tag: string,
 	phrases: readonly string[],
 ): string {
-	return `The lookup table ${tag} has ${phrases.join(" and ")} in CommCare HQ, so Nova can't hold a copy of it.`;
+	return `The lookup table ${tag} has ${phrases.join(" and ")} in CommCare HQ, more than Nova copies in one read, so nothing was written. Nova reads a table this size in pages when you refresh it from Project data.`;
 }
 
 /**
  * A column's label for a field of CommCare HQ's: the name's first 120
  * characters. The wire name carries the whole name; a label longer than 120
- * would fail `lookup_columns`' label check. A field name is ASCII, so a
- * character is a code unit.
+ * would fail `lookup_columns`' label check. PostgreSQL counts Unicode scalars.
  */
 export function columnLabelFor(name: string): string {
-	return name.slice(0, LOOKUP_MAX_COLUMN_LABEL_LENGTH);
+	return [...name].slice(0, LOOKUP_MAX_COLUMN_LABEL_LENGTH).join("");
 }
 
 /** The origin columns of a stored table, as every reader selects them. */
@@ -152,7 +166,9 @@ export function lookupManifestHqOriginOf(
 	) {
 		partOfAnOrigin();
 	}
+	const { source } = managedCanonicalSchema.parse(table.hq_canonical);
 	return {
+		...(source === undefined ? {} : { source }),
 		server: table.hq_server,
 		domain: table.hq_domain,
 		remoteId: table.hq_remote_id,

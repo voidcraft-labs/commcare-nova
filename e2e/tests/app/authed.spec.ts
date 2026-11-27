@@ -5538,6 +5538,189 @@ test.describe("authenticated builder", () => {
 	 * makes the state model the right unit for Vitest; it does not make the
 	 * composition around it verify itself.
 	 */
+	test("edit ordered lookup values and their individual details", {
+		tag: "@seed:workspace",
+	}, async ({ scenario, page }) => {
+		const seed = seedFor(scenario, "workspace");
+		await openBuilder(page, seed.caseWorkspace.routes.projectData);
+		await page.getByRole("button", { name: "New data table" }).click();
+		const dialog = page.getByRole("dialog");
+		await dialog.getByLabel("Table name").fill("Clinic names");
+		await dialog.getByLabel("Name people see").fill("Names");
+		await dialog
+			.getByRole("checkbox", { name: "Allow several values per row" })
+			.check();
+		await dialog.getByRole("button", { name: "Add value detail" }).click();
+		await dialog.getByLabel("Name for value detail 1").fill("Language");
+		await dialog.getByRole("button", { name: "Add row detail" }).click();
+		await dialog.getByLabel("Name for row detail 1").fill("District");
+		await dialog.getByRole("button", { name: "Create table" }).click();
+		await expect(
+			page.getByRole("heading", { name: "Clinic names", level: 1 }),
+		).toBeVisible();
+		await page.getByRole("button", { name: "Add row", exact: true }).click();
+		await page.getByLabel("District", { exact: true }).fill("007");
+		await page.getByRole("button", { name: "Add value", exact: true }).click();
+		await page.getByLabel("Names, value 1", { exact: true }).fill(" Hill ");
+		await page.getByLabel("Language", { exact: true }).fill("en");
+		await page.getByRole("button", { name: "Add value", exact: true }).click();
+		const second = page.getByRole("group", { name: "Value 2", exact: true });
+		await second.getByLabel("Names, value 2", { exact: true }).fill(" Hill ");
+		await second.getByLabel("Language", { exact: true }).fill("fr");
+		await second.getByRole("button", { name: "Move value 2 up" }).click();
+		await page.getByRole("button", { name: "Save row", exact: true }).click();
+		await expect(page.getByText("Saved.", { exact: true })).toBeVisible();
+		await reloadBuilder(page);
+		await page
+			.getByRole("button", { name: /^Open row / })
+			.first()
+			.click();
+		await expect(page.getByLabel("District", { exact: true })).toHaveValue(
+			"007",
+		);
+		await expect(
+			page
+				.getByRole("group", { name: "Value 1", exact: true })
+				.getByLabel("Language"),
+		).toHaveValue("fr");
+		await expect(
+			page.getByLabel("Names, value 1", { exact: true }),
+		).toHaveValue(" Hill ");
+		await expect(
+			page
+				.getByRole("group", { name: "Value 2", exact: true })
+				.getByLabel("Language"),
+		).toHaveValue("en");
+		await expect(
+			page.getByRole("button", { name: "Add rows from a file" }),
+		).toBeVisible();
+		await expect(
+			page.getByRole("button", { name: "Replace rows from CSV" }),
+		).toHaveCount(0);
+		await page.getByRole("button", { name: "Add rows from a file" }).click();
+		const extra = Array.from({ length: 30 }, (_, n) => ({
+			cells: [],
+			content: {
+				attributes: [{ name: "district", text: `District ${n + 1}` }],
+				occurrences: [
+					{
+						name: "names",
+						values: [
+							{
+								text: "Clinic",
+								properties: [
+									{ name: "language", text: n === 29 ? "Last dialect" : "en" },
+								],
+							},
+						],
+					},
+				],
+			},
+		}));
+		const addFile = page.getByRole("dialog", { name: "Add rows from a file" });
+		await addFile.getByLabel("Rows file").setInputFiles({
+			name: "directory.json",
+			mimeType: "application/json",
+			buffer: Buffer.from(JSON.stringify(extra)),
+		});
+		await addFile
+			.getByRole("button", { name: "Add rows", exact: true })
+			.click();
+		await expect(addFile).toHaveCount(0);
+		await expect(
+			page.getByText("Rows 1–25 of 31", { exact: true }),
+		).toBeVisible();
+		await page
+			.getByRole("navigation", { name: "Rows, by page" })
+			.getByRole("button", { name: "Next" })
+			.click();
+		await expect(
+			page.getByText("Rows 26–31 of 31", { exact: true }),
+		).toBeVisible();
+		const search = page.getByRole("searchbox", { name: "Find a row" });
+		await search.fill("Last dialect");
+		await expect(
+			page.getByText("1 row matching", { exact: true }),
+		).toBeVisible();
+		await page
+			.getByRole("button", { name: /^Open row at position 31$/ })
+			.click();
+		await expect(
+			page.getByText("Position 31 of 31", { exact: true }),
+		).toBeVisible();
+		await expect(page.getByLabel("District", { exact: true })).toHaveValue(
+			"District 30",
+		);
+	});
+
+	test("import long text and change one Unicode span without changing the rest of the row", {
+		tag: "@seed:workspace",
+	}, async ({ scenario, page }) => {
+		const seed = seedFor(scenario, "workspace");
+		await openBuilder(page, seed.caseWorkspace.routes.projectData);
+		await page
+			.getByRole("button", {
+				name: new RegExp(`^${CASE_WORKSPACE_SEED.lookupTableName}`),
+			})
+			.click();
+		await page
+			.getByRole("button", { name: "Open row chc", exact: true })
+			.click();
+		await page
+			.getByRole("button", { name: "Edit a single value or import text" })
+			.click();
+		await page
+			.getByRole("button", { name: "Open text editor" })
+			.first()
+			.click();
+		const contents = `A🌱${"z".repeat(8192)}preserved section${"n".repeat(70000)}`;
+		await page.getByLabel("Or use a UTF-8 text file").setInputFiles({
+			name: "referral.txt",
+			mimeType: "text/plain",
+			buffer: Buffer.from(contents, "utf8"),
+		});
+		await page.getByRole("button", { name: "Save replacement" }).click();
+		await expect(
+			page.getByText("Open this row to read its values in parts."),
+		).toBeVisible();
+		await page
+			.getByRole("button", { name: "Open text editor" })
+			.first()
+			.click();
+		const current = page.getByLabel("Text in this part");
+		await expect(current).toHaveValue(/^A🌱z/);
+		const firstPart = await current.inputValue();
+		await current.fill(firstPart.replace("🌱", "🐝🐝"));
+		await page.getByRole("button", { name: "Save replacement" }).click();
+		await expect(current).toHaveCount(0);
+		await reloadBuilder(page);
+		// The long code now reads in parts, so the row is named by its place: the
+		// seed puts "dh" before "chc".
+		await page
+			.getByRole("button", { name: "Open row at position 2", exact: true })
+			.click();
+		await page
+			.getByRole("button", { name: "Open text editor" })
+			.first()
+			.click();
+		await expect(current).toHaveValue(/^A🐝🐝z/);
+		await page.getByRole("button", { name: "Next part", exact: true }).click();
+		await expect(current).toHaveValue(/preserved section/);
+		await page
+			.getByRole("button", { name: "Back to row", exact: true })
+			.click();
+		await page.getByRole("combobox", { name: "Column or row detail" }).click();
+		await page
+			.getByRole("option", {
+				name: CASE_WORKSPACE_SEED.lookupLabelColumnLabel,
+				exact: true,
+			})
+			.click();
+		await expect(
+			page.getByText("Community health centre", { exact: true }),
+		).toBeVisible();
+	});
+
 	test("a select can be pointed at a shared data table's column", {
 		tag: "@seed:workspace",
 	}, async ({ scenario, page, browser, baseURL }) => {
@@ -5581,7 +5764,7 @@ test.describe("authenticated builder", () => {
 			}),
 		).toBeVisible();
 		await expect(
-			page.getByText("This table has its columns but no rows yet.", {
+			page.getByText("This table has no rows yet.", {
 				exact: false,
 			}),
 		).toBeVisible();
@@ -5623,6 +5806,55 @@ test.describe("authenticated builder", () => {
 			}),
 		).toBeVisible();
 		await expect(page.getByText("District hospital")).toBeVisible();
+
+		// A refusal keeps the author's spelling and offers a correction. The
+		// tag "locations" is one CommCare HQ's form builder holds for itself and
+		// is refused; "Locations" can coexist with the app's Places.
+		await page.setViewportSize({ width: 500, height: 780 });
+		await page.getByRole("button", { name: "Edit export tag" }).click();
+		const exportTag = page.getByRole("textbox", { name: "Export tag" });
+		const saveTag = page.getByRole("button", { name: "Save export tag" });
+		await exportTag.fill("office_casedb");
+		await exportTag.press("Tab");
+		await expect(saveTag).toBeFocused();
+		await saveTag.press("Enter");
+		await expect(
+			page.getByRole("alert").filter({ hasText: "case_db" }),
+		).toBeVisible();
+		await expect(exportTag).toHaveValue("office_casedb");
+		await expect(
+			page.getByText(`Export tag: ${CASE_WORKSPACE_SEED.lookupTableTag}`, {
+				exact: true,
+			}),
+		).toBeVisible();
+		await exportTag.fill("locations");
+		await saveTag.click();
+		await expect(
+			page.getByRole("alert").filter({ hasText: "locations_table" }),
+		).toBeVisible();
+		await exportTag.fill("Locations");
+		await saveTag.click();
+		await expect(
+			page.getByText("Export tag: Locations", { exact: true }),
+		).toBeVisible();
+		await page.setViewportSize({ width: 1280, height: 900 });
+		await page
+			.getByRole("columnheader", {
+				name: CASE_WORKSPACE_SEED.lookupValueColumnLabel,
+				exact: false,
+			})
+			.getByRole("button")
+			.click();
+		await page
+			.getByRole("textbox", { name: "Column name in exports and CSV" })
+			.fill("cód.2");
+		await page.getByRole("button", { name: "Save export name" }).click();
+		await expect(
+			page.getByRole("status").filter({ hasText: "Export name saved." }),
+		).toBeVisible();
+		await page
+			.getByRole("button", { name: "Close properties", exact: true })
+			.click();
 
 		// Ordering is an ordinary, revision-fenced table edit. Exercise both
 		// directions and restore the seed order so retries remain independent.
@@ -5857,6 +6089,9 @@ test.describe("authenticated builder", () => {
 			}),
 		).toBeVisible();
 		await findRow.fill("");
+		await expect(
+			page.getByRole("status").filter({ hasText: /row(?:s)? matching/ }),
+		).toHaveCount(0);
 
 		// A rapid repeated gesture creates exactly one row, and the returned row
 		// is selected/revealed immediately instead of being stranded off-page.
@@ -5916,12 +6151,17 @@ test.describe("authenticated builder", () => {
 		await expect(savedValue).toBeVisible({ timeout: 20_000 });
 		await expect(shownValue).toBeVisible();
 		await expect(source).toHaveText(CASE_WORKSPACE_SEED.lookupTableName);
-		await expect(savedValue).toHaveText("Choose a column");
-		await expect(shownValue).toHaveText("Choose a column");
+		await expect(savedValue).toHaveText("Choose a value");
+		await expect(shownValue).toHaveText("Choose a value");
 		const useTable = page.getByRole("button", { name: "Use this table" });
 		await expect(useTable).toBeDisabled();
 
 		await savedValue.click();
+		const unselectable = page.getByRole("option", {
+			name: /Last verified.*最近确认/,
+		});
+		await expect(unselectable).toBeDisabled();
+
 		await page
 			.getByRole("option", {
 				name: CASE_WORKSPACE_SEED.lookupValueColumnLabel,
@@ -5951,6 +6191,57 @@ test.describe("authenticated builder", () => {
 		await useTable.click();
 		await expect(useTable).toBeHidden({ timeout: 20_000 });
 		await expect(source).toHaveText(CASE_WORKSPACE_SEED.lookupTableName);
+
+		// Author a question condition against the same table, save, and open
+		// the question again. Both names are shown as ordinary labels, with
+		// the exact, portable spellings available in the expression.
+		await page.getByRole("button", { name: "Show when", exact: true }).click();
+		const condition = page.locator('[data-field-id="relevant"]').visible();
+		const editor = condition.locator('.cm-content[contenteditable="true"]');
+		await expect(editor).toBeFocused();
+		await page.keyboard.insertText(
+			"count(instance('item-list:Locations')/Locations_list/Locations[cód.2 = 'dh']) > 0",
+		);
+		const [savedCondition] = await Promise.all([
+			page.waitForResponse(
+				(response) =>
+					response.request().method() === "PUT" &&
+					new URL(response.url()).pathname ===
+						`/api/apps/${seed.caseWorkspace.appId}` &&
+					(response.request().postData() ?? "").includes('"relevant"'),
+			),
+			editor.press("ControlOrMeta+Enter"),
+		]);
+		expect(savedCondition.ok()).toBe(true);
+		await expect(page.getByText(/^Saved /)).toBeVisible();
+		await reloadBuilder(page);
+		await expect(source).toHaveText(CASE_WORKSPACE_SEED.lookupTableName);
+		await expect(savedValue).toHaveText(
+			CASE_WORKSPACE_SEED.lookupValueColumnLabel,
+		);
+		await expect(shownValue).toHaveText(
+			CASE_WORKSPACE_SEED.lookupLabelColumnLabel,
+		);
+		await expect(
+			condition.locator('[data-ref-raw*="item-list:Locations"]'),
+		).toHaveText(CASE_WORKSPACE_SEED.lookupTableName);
+		await expect(condition.locator('[data-ref-raw="cód.2"]')).toHaveText(
+			CASE_WORKSPACE_SEED.lookupValueColumnLabel,
+		);
+
+		// Reopen by keyboard and change the condition around the identity chips.
+		const savedRule = condition.getByRole("button");
+		await savedRule.focus();
+		await savedRule.press("Enter");
+		await expect(editor).toBeFocused();
+		await editor.press("ControlOrMeta+End");
+		await editor.press("Backspace");
+		await page.keyboard.insertText("1");
+		await editor.press("ControlOrMeta+Enter");
+		await expect(savedRule).toContainText("> 1");
+		await expect(savedRule.locator('[data-ref-raw="cód.2"]')).toHaveText(
+			CASE_WORKSPACE_SEED.lookupValueColumnLabel,
+		);
 
 		// 5. Switching back stages a fresh, complete inline source too. There is
 		// no dormant lookup receiver and no retained inline fallback.

@@ -1,3 +1,4 @@
+import { lookupReadSteps } from "@/lib/commcare/lookup/read";
 import { caseOptionsNodeset, fieldTakesCaseChoices } from "../caseOptions";
 import { caseTypeHopMap } from "../caseTypeDepths";
 /**
@@ -1947,7 +1948,7 @@ function buildLookupItemset(
 				"label",
 				{
 					xpath: {
-						ref: w.context([w.step(table.wireNameFor(source.labelColumnId))]),
+						ref: w.context(lookupReadSteps(table, source.labelColumnId)),
 					},
 				},
 				context,
@@ -1956,7 +1957,7 @@ function buildLookupItemset(
 				"value",
 				{
 					xpath: {
-						ref: w.context([w.step(table.wireNameFor(source.valueColumnId))]),
+						ref: w.context(lookupReadSteps(table, source.valueColumnId)),
 					},
 				},
 				context,

@@ -129,7 +129,16 @@ const RULES: readonly ForbiddenImportRule[] = [
 	{
 		what: "the lookup authoring service (external writer)",
 		matches: (s) => s.includes("lookup/agentService"),
-		allowedFiles: ["getLookupTables.ts", "lookupTables.ts"],
+		// workerGroups.ts takes only the agent scope check, inside the
+		// transaction that locks the caller's data grant.
+		allowedFiles: ["getLookupTables.ts", "lookupTables.ts", "workerGroups.ts"],
+	},
+	{
+		what: "the worker group service (external writer)",
+		matches: (s) =>
+			s.includes("lookup/workerGroups") ||
+			s.includes("deployment/workerGroupBinding"),
+		allowedFiles: ["workerGroups.ts"],
 	},
 	{
 		what: "the lookup row service (external reader)",

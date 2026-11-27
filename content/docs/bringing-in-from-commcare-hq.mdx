@@ -53,7 +53,7 @@ here or later in App settings.
 
 **Lookup tables** and **Places**: the tables and places the app reads come in as
 copies that CommCare HQ keeps managing. [Project data](/docs/project-data) and
-[Organization](/docs/organization) say what that means.
+[Organization](/docs/organization) say what that means. Nova also checks the levels, parent places and external IDs against a second reading of the same places. If the lists changed during the reading, the review can be run again after the change finishes.
 
 If your Project already has a lookup table by the same name, Nova asks which one
 this app should use and says what each answer does to your other apps.
@@ -84,6 +84,17 @@ Each reason has one of three labels.
 - **Something to change in CommCare HQ.** Once this is changed in CommCare HQ,
   you can check again and Nova will read the app afresh.
 
+If a form gives a table the same local name that CommCare HQ uses to fill in case
+data or submission details, Nova shows which name is shared. Giving the table
+a distinct name inside that form and updating its references keeps the table
+itself in place. Nova also names a source whose reference prevents CommCare HQ
+from building the app. After updating the source and its references there, you
+can check again.
+
+When a case list column gets its table from another part of the app, Nova checks
+which table each route to that screen gives the worker. If Nova can’t confirm
+the table on every route, it shows you the affected column.
+
 Under the list Nova says: When you check again, Nova may find more to name.
 
 Nova can't bring in an app whose case list column, filter, display condition or
@@ -110,10 +121,17 @@ Nova keeps no copy of the list. **Copy the list** lets you take it with you, and
 
 Nova doesn't bring in part of an app.
 
-Nova reads only so much of an app's lookup tables: a table holding more data
-than Nova reads for one table is listed under **Nova can't hold this yet**, and
-an app whose tables together hold more lookup data than Nova brings in is too.
-That limit is Nova's, not the app's.
+Where a lookup table holds more than Nova reads at once while bringing in an
+app, the app comes in with the table's columns, and the table's page in Project
+data offers **Refresh**, which reads its rows in pages. Until then Nova has no
+copy of its rows to show or preview.
+
+The tables Nova does read while bringing in an app still have to fit what Nova
+carries in one app. An app whose tables together hold more lookup data than
+that is listed under **Nova can't hold this yet**, and so is a table already in
+your Project, managed in the same project space, that would keep more than 250
+columns once the columns your apps read are added. Those limits are Nova's, not
+the app's.
 
 Nova also gives each app only so much checking for its size. An app that takes
 more checking than that is listed under **Nova can't hold this yet** as an app

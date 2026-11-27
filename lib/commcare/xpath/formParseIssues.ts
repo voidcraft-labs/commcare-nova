@@ -10,7 +10,6 @@ export type FormParseIssueCode =
 	| "variable"
 	| "instance-unknown"
 	| "instance-argument"
-	| "groups-held"
 	| "form-root"
 	| "unknown-field"
 	| "ambiguous-field"

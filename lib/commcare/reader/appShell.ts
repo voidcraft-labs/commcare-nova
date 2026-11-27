@@ -122,7 +122,6 @@ const ACCOUNTED: readonly AccountedKeys[] = [
 	["vellum-case-management", ["vellum_case_management"]],
 	["comment-app", ["comment"]],
 	["smart-lang-display", ["smart_lang_display"]],
-	["39-hq-case-sharing", ["case_sharing"]],
 	["46-hq-use-grid-menus", ["use_grid_menus"]],
 	["47-hq-grid-form-menus-none-all-some", ["grid_form_menus"]],
 	["51-hq-persistent-menu", ["persistent_menu"]],
@@ -223,6 +222,7 @@ const CLAIMS = defineClaims("appShell", {
 		`${A}/attachments-entry-for-a-form-no-longer-in-the-app`,
 		key("_attachments"),
 	),
+	caseSharing: take(`${A}/39-hq-case-sharing`, key("case_sharing")),
 	cloudcareEnabled: take(
 		`${A}/40-hq-cloudcare-enabled`,
 		key("cloudcare_enabled"),
@@ -1327,6 +1327,15 @@ export function readApplication(ctx: ReadContext): void {
 		});
 	const languages = readLanguages(ctx);
 	const attachments = readAttachments(ctx);
+	const sharing = app.take(
+		"case_sharing",
+		CLAIMS.caseSharing,
+		(value) => value === true,
+	);
+	if (sharing.value)
+		ctx.writeDraft(() => {
+			ctx.draft.appSettings.caseSharing = true;
+		});
 	const cloudcare = app.take(
 		"cloudcare_enabled",
 		CLAIMS.cloudcareEnabled,

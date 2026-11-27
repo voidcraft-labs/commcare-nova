@@ -1,4 +1,5 @@
 /** The one persisted expression vocabulary. Contextual admission belongs to profiles/check. */
+
 import { z } from "zod";
 import {
 	AUTHORED_CASE_PROPERTY_NAME_PATTERN,
@@ -10,12 +11,8 @@ import {
 	persistableJsonNumberSchema,
 	persistableJsonPositiveNumberSchema,
 } from "../jsonNumber";
-import {
-	type LookupColumnId,
-	type LookupTableId,
-	lookupColumnIdSchema,
-	lookupTableIdSchema,
-} from "../lookupIds";
+import { type LookupTableId, lookupTableIdSchema } from "../lookupIds";
+import { type LookupRead, lookupReadSchema } from "../lookupRead";
 import { isStandardCaseListProperty } from "../standardCaseProperties";
 import { type Uuid, uuidSchema } from "../uuid";
 import {
@@ -319,7 +316,7 @@ export const repeatRowTermSchema = z
 export const tableColumnTermSchema = z.strictObject({
 	kind: z.literal("table-column"),
 	tableId: lookupTableIdSchema,
-	columnId: lookupColumnIdSchema,
+	columnId: lookupReadSchema,
 });
 export type TableColumnTerm = z.infer<typeof tableColumnTermSchema>;
 /** The CommCare HQ address of the file a capture question (image, audio,
@@ -404,6 +401,18 @@ export const locationFieldTermSchema = z.strictObject({
 	field: locationRowFieldSchema,
 });
 export type LocationFieldTerm = z.infer<typeof locationFieldTermSchema>;
+export const workerGroupFieldSchema = z.union([
+	z.enum(["id", "name"]),
+	z.strictObject({
+		detail: z.enum(["key", "value"]),
+		key: z.string().optional(),
+	}),
+]);
+export const workerGroupTermSchema = z.strictObject({
+	kind: z.literal("worker-group-field"),
+	field: workerGroupFieldSchema,
+});
+export type WorkerGroupField = z.infer<typeof workerGroupFieldSchema>;
 export type Term =
 	| PropertyRef
 	| FormCasePropertyRef
@@ -425,7 +434,8 @@ export type Term =
 	| SessionDatumTerm
 	| RepeatRowTerm
 	| LocationLevelTerm
-	| LocationFieldTerm;
+	| LocationFieldTerm
+	| z.infer<typeof workerGroupTermSchema>;
 export const termSchema: z.ZodType<Term> = z.union([
 	propertyRefSchema,
 	formCasePropertyRefSchema,
@@ -448,6 +458,7 @@ export const termSchema: z.ZodType<Term> = z.union([
 	repeatRowTermSchema,
 	locationLevelTermSchema,
 	locationFieldTermSchema,
+	workerGroupTermSchema,
 ]);
 export const itextUnitSchema = z.union([
 	z.strictObject({
@@ -620,7 +631,7 @@ export type ValueArm =
 	| {
 			kind: "table-lookup";
 			tableId: LookupTableId;
-			resultColumnId: LookupColumnId;
+			resultColumnId: LookupRead;
 			where: Expression;
 	  }
 	| {
@@ -657,6 +668,7 @@ export type InstanceArm =
 	| { kind: "cases"; source: "casedb" | "search-results"; where: Expression[] }
 	| { kind: "table-rows"; tableId: LookupTableId; where: Expression[] }
 	| { kind: "locations"; where: Expression[] }
+	| { kind: "worker-groups"; where: Expression[] }
 	| { kind: "selected-cases"; module: Uuid }
 	| { kind: "project"; of: Expression; value: Term };
 export type Expression = ConditionArm | ValueArm | InstanceArm;
@@ -713,6 +725,7 @@ const INSTANCE_KINDS = new Set<string>([
 	"cases",
 	"table-rows",
 	"locations",
+	"worker-groups",
 	"selected-cases",
 	"project",
 ]);
@@ -738,6 +751,7 @@ const TERM_KINDS = new Set<string>([
 	"repeat-row",
 	"location-level",
 	"location-field",
+	"worker-group-field",
 ]);
 function hasKind(value: unknown): value is { kind: string } {
 	return (
@@ -829,7 +843,7 @@ export const unownedSchema = z.strictObject({ kind: z.literal("unowned") });
 export const tableLookupExpressionSchema = z.strictObject({
 	kind: z.literal("table-lookup"),
 	tableId: lookupTableIdSchema,
-	resultColumnId: lookupColumnIdSchema,
+	resultColumnId: lookupReadSchema,
 	where: E,
 });
 const conditionSchemas = [
@@ -1017,6 +1031,7 @@ const instanceSchemas = [
 		where: z.array(E),
 	}),
 	z.strictObject({ kind: z.literal("locations"), where: z.array(E) }),
+	z.strictObject({ kind: z.literal("worker-groups"), where: z.array(E) }),
 	z.strictObject({ kind: z.literal("selected-cases"), module: uuidSchema }),
 	z.strictObject({
 		kind: z.literal("project"),
@@ -1029,6 +1044,7 @@ const instanceSchemas = [
 					"case-index",
 					"table-column",
 					"location-field",
+					"worker-group-field",
 				].includes(v.kind),
 			"Project one value from the selected row.",
 		),

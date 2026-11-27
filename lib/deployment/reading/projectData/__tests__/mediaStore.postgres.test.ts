@@ -1,11 +1,12 @@
 /**
- * Publishing a create's held media files to the Project's library: real
+ * Publishing a create's staged media files to the Project's library: real
  * Postgres, the real content lock and metadata transactions, and the bucket
- * replaced at its module, as the MCP upload's suite replaces it.
+ * replaced at its module by objects held in the test.
  *
- * A file in Files twice, a duplicate row on a retry, bytes held past their
- * use and a file added for a person who may no longer add one are what these
- * cases catch.
+ * A file in Files twice, a duplicate row on a retry, a staged object left
+ * behind once its file is published, a publication from anything but the
+ * staged generation and a file added for a person who may no longer add one
+ * are what these cases catch.
  */
 
 import { readFileSync } from "node:fs";
@@ -15,7 +16,13 @@ import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
 import type { MediaKind } from "@/lib/domain/multimedia";
 import { MediaPublishPermissionError } from "@/lib/media/publishReadyMedia";
 import { validateSniffedMediaBytes } from "@/lib/media/validate";
-import { deleteAsset, uploadAssetBytes } from "@/lib/storage/media";
+import {
+	copyAssetObjectIfAbsent,
+	deleteAsset,
+	deleteAssetGeneration,
+	type StagedObject,
+	uploadAssetBytes,
+} from "@/lib/storage/media";
 import { provisionalReadingMediaId } from "../../mediaIds";
 import {
 	type HqMediaVerdict,
@@ -24,12 +31,14 @@ import {
 } from "../media";
 import {
 	BRING_IN_MEDIA_PUBLISH_CONCURRENCY,
-	publishKeptReadingMedia,
+	publishStagedReadingMedia,
 } from "../mediaStore";
 
 vi.mock("@/lib/storage/media", () => ({
 	uploadAssetBytes: vi.fn(),
 	deleteAsset: vi.fn(),
+	copyAssetObjectIfAbsent: vi.fn(),
+	deleteAssetGeneration: vi.fn(),
 }));
 
 const h = setupAppStateTestDb("bring_in_media_", { authSchema: "migrated" });
@@ -47,25 +56,40 @@ const JPG = fixture("pattern.jpg");
 const GIF = fixture("pattern.gif");
 const MP3 = fixture("tone.mp3");
 
-const objects = new Map<string, Buffer>();
-let uploading = 0;
-let mostUploading = 0;
+/** The bucket: each object's bytes and generation, by key. */
+const objects = new Map<string, { bytes: Buffer; generation: string }>();
+let copying = 0;
+let mostCopying = 0;
 beforeEach(() => {
 	objects.clear();
-	uploading = 0;
-	mostUploading = 0;
-	vi.mocked(uploadAssetBytes)
+	copying = 0;
+	mostCopying = 0;
+	vi.mocked(uploadAssetBytes).mockReset();
+	vi.mocked(copyAssetObjectIfAbsent)
 		.mockReset()
-		.mockImplementation(async ({ gcsObjectKey, bytes }) => {
-			uploading += 1;
-			mostUploading = Math.max(mostUploading, uploading);
+		.mockImplementation(async (input) => {
+			copying += 1;
+			mostCopying = Math.max(mostCopying, copying);
 			try {
 				// Yield, so publications that overlap are seen overlapping.
 				await new Promise<void>((resolve) => setImmediate(resolve));
-				objects.set(gcsObjectKey, Buffer.from(bytes));
+				const source = objects.get(input.sourceGcsObjectKey);
+				if (source?.generation !== input.sourceGeneration)
+					throw new Error("No object stands at that staged generation.");
+				expect(source.bytes.byteLength).toBe(input.expectedSize);
+				objects.set(input.destinationGcsObjectKey, {
+					bytes: Buffer.from(source.bytes),
+					generation: "1",
+				});
+				return { destinationGeneration: "1", replay: false };
 			} finally {
-				uploading -= 1;
+				copying -= 1;
 			}
+		});
+	vi.mocked(deleteAssetGeneration)
+		.mockReset()
+		.mockImplementation(async (key, generation) => {
+			if (objects.get(key)?.generation === generation) objects.delete(key);
 		});
 	vi.mocked(deleteAsset)
 		.mockReset()
@@ -74,12 +98,18 @@ beforeEach(() => {
 		});
 });
 
-/** A create's plan after judging: each file held with its bytes kept by their content, or given the verdict named. */
+/** The keys of the bucket's staged objects still there. */
+function stagedLeft(): string[] {
+	return [...objects.keys()].filter((key) => key.startsWith("pending/"));
+}
+
+/** A create's plan after judging: each file held with its bytes staged once by their content,
+ *  or given the verdict named. */
 async function judgedPlan(
 	files: readonly (readonly [string, MediaKind, Buffer | HqMediaVerdict])[],
 ): Promise<ReadingMediaPlan> {
 	const verdicts: Record<string, HqMediaVerdict> = {};
-	const kept = new Map<string, Buffer>();
+	const staged = new Map<string, StagedObject>();
 	const planned = [];
 	for (const [id, kind, held] of files) {
 		const mediaType =
@@ -107,9 +137,13 @@ async function judgedPlan(
 			throw new Error(`The fixture for ${id} is not a file the gate takes.`);
 		const file = judgedMediaFile(paths, kind, judged.validated);
 		verdicts[key] = { kind: "held", file };
-		kept.set(file.contentHash, held);
+		if (staged.has(file.contentHash)) continue;
+		const gcsObjectKey = `pending/${PROJECT}/${id}${file.extension}`;
+		const generation = String(objects.size + 1);
+		objects.set(gcsObjectKey, { bytes: held, generation });
+		staged.set(file.contentHash, { gcsObjectKey, generation, checksum: "c" });
 	}
-	return { files: planned, verdicts, kept, published: {} };
+	return { files: planned, verdicts, staged, published: {} };
 }
 
 async function rows() {
@@ -122,7 +156,7 @@ async function rows() {
 }
 function publish(plan: ReadingMediaPlan, actorUserId = ACTOR) {
 	const progress: (readonly [number, number])[] = [];
-	const answer = publishKeptReadingMedia({
+	const answer = publishStagedReadingMedia({
 		projectId: PROJECT,
 		actorUserId,
 		plan,
@@ -143,16 +177,19 @@ it("publishes each held file once, as a ready row with the judged facts and its 
 	]);
 	const { answer, progress } = publish(plan);
 	const done = await answer;
-	expect(mostUploading).toBeLessThanOrEqual(BRING_IN_MEDIA_PUBLISH_CONCURRENCY);
-	expect(uploadAssetBytes).toHaveBeenCalledTimes(4);
+	expect(mostCopying).toBeLessThanOrEqual(BRING_IN_MEDIA_PUBLISH_CONCURRENCY);
+	expect(copyAssetObjectIfAbsent).toHaveBeenCalledTimes(4);
+	expect(uploadAssetBytes).not.toHaveBeenCalled();
 	expect(Object.keys(done.published).sort()).toEqual([
 		"CommCareAudio/d",
 		"CommCareImage/a",
 		"CommCareImage/b",
 		"CommCareImage/c",
 	]);
-	expect(done.kept.size).toBe(0);
-	expect(plan.kept.size).toBe(4);
+	expect(done.staged.size).toBe(0);
+	expect(plan.staged.size).toBe(4);
+	/* Each staged object leaves once its content is published, and the content key holds it. */
+	expect(stagedLeft()).toEqual([]);
 	expect(progress.map(([count]) => count)).toEqual([1, 2, 3, 4]);
 	expect(progress.every(([, total]) => total === 4)).toBe(true);
 	const stored = await rows();
@@ -190,7 +227,7 @@ it("publishes two files with the same bytes once, and records the one asset unde
 		["one", "image", PNG],
 		["two", "image", PNG],
 	]);
-	expect(plan.kept.size).toBe(1);
+	expect(plan.staged.size).toBe(1);
 	const { answer, progress } = publish(plan);
 	const done = await answer;
 	expect(done.published["CommCareImage/one"]).toBe(
@@ -198,9 +235,10 @@ it("publishes two files with the same bytes once, and records the one asset unde
 	);
 	/* One publication, which recorded both keys at once. */
 	expect(progress).toEqual([[2, 2]]);
-	expect(done.kept.size).toBe(0);
+	expect(done.staged.size).toBe(0);
 	expect(await rows()).toHaveLength(1);
-	expect(uploadAssetBytes).toHaveBeenCalledTimes(1);
+	expect(copyAssetObjectIfAbsent).toHaveBeenCalledTimes(1);
+	expect(stagedLeft()).toEqual([]);
 });
 
 it("answers the Project's own file for bytes it already holds, and a second run uploads and inserts nothing", async () => {
@@ -211,7 +249,7 @@ it("answers the Project's own file for bytes it already holds, and a second run 
 		"co-member",
 	).answer;
 	const existing = first.published["CommCareImage/a"];
-	vi.mocked(uploadAssetBytes).mockClear();
+	vi.mocked(copyAssetObjectIfAbsent).mockClear();
 	const again = await publish(
 		await judgedPlan([
 			["a", "image", PNG],
@@ -222,7 +260,9 @@ it("answers the Project's own file for bytes it already holds, and a second run 
 		"CommCareImage/a": existing,
 		"CommCareImage/copy": existing,
 	});
-	expect(uploadAssetBytes).not.toHaveBeenCalled();
+	expect(copyAssetObjectIfAbsent).not.toHaveBeenCalled();
+	/* The second run's staged object is deleted though nothing was copied from it. */
+	expect(stagedLeft()).toEqual([]);
 	const stored = await rows();
 	expect(stored).toHaveLength(1);
 	expect(stored[0]?.owner).toBe("co-member");
@@ -234,7 +274,7 @@ it("refuses a person who may not add media, and adds nothing", async () => {
 	await expect(failed).rejects.toBeInstanceOf(MediaPublishPermissionError);
 	await expect(failed).rejects.toMatchObject({ reason: "cannot-edit" });
 	expect(await rows()).toEqual([]);
-	expect(uploadAssetBytes).not.toHaveBeenCalled();
+	expect(copyAssetObjectIfAbsent).not.toHaveBeenCalled();
 });
 
 it("rejects on a storage failure, and the next run finds what was published by its bytes", async () => {
@@ -247,11 +287,12 @@ it("rejects on a storage failure, and the next run finds what was published by i
 	const failing = plan.verdicts["CommCareImage/b"];
 	if (failing?.kind !== "held") throw new Error("b is held");
 	const failingKey = `projects/${PROJECT}/${failing.file.contentHash}${failing.file.extension}`;
-	const working = vi.mocked(uploadAssetBytes).getMockImplementation();
-	vi.mocked(uploadAssetBytes).mockImplementation(async (input) => {
-		if (input.gcsObjectKey === failingKey)
+	const working = vi.mocked(copyAssetObjectIfAbsent).getMockImplementation();
+	if (working === undefined) throw new Error("no bucket");
+	vi.mocked(copyAssetObjectIfAbsent).mockImplementation(async (input) => {
+		if (input.destinationGcsObjectKey === failingKey)
 			throw new Error("the bucket did not answer");
-		await working?.(input);
+		return working(input);
 	});
 	await expect(publish(plan).answer).rejects.toThrow(
 		"the bucket did not answer",
@@ -260,10 +301,8 @@ it("rejects on a storage failure, and the next run finds what was published by i
 	expect(after.map((row) => row.original_filename)).not.toContain("b.jpg");
 	const publishedBefore = after.map((row) => row.content_hash);
 
-	vi.mocked(uploadAssetBytes).mockImplementation(async (input) =>
-		working?.(input),
-	);
-	vi.mocked(uploadAssetBytes).mockClear();
+	vi.mocked(copyAssetObjectIfAbsent).mockImplementation(working);
+	vi.mocked(copyAssetObjectIfAbsent).mockClear();
 	const retried = await publish(plan).answer;
 	expect(Object.keys(retried.published).sort()).toEqual([
 		"CommCareImage/a",
@@ -271,8 +310,8 @@ it("rejects on a storage failure, and the next run finds what was published by i
 		"CommCareImage/c",
 	]);
 	const uploadedAgain = vi
-		.mocked(uploadAssetBytes)
-		.mock.calls.map(([input]) => input.gcsObjectKey);
+		.mocked(copyAssetObjectIfAbsent)
+		.mock.calls.map(([input]) => input.destinationGcsObjectKey);
 	for (const hash of publishedBefore)
 		expect(uploadedAgain.some((key) => key.includes(hash))).toBe(false);
 	expect(await rows()).toHaveLength(3);

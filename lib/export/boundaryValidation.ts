@@ -1,3 +1,5 @@
+import { ApiError } from "@/lib/apiError";
+import { requiresLookupProjection } from "@/lib/lookup/source";
 /**
  * The Nova export boundary shared by every artifact and HQ-upload surface.
  *
@@ -27,6 +29,7 @@ import { evaluateBoundary } from "@/lib/commcare/validator/gate";
 import type { AttachmentUrlTarget } from "@/lib/commcare/xform/captureUrlNode";
 import type { ProjectAccess } from "@/lib/db/appAccess";
 import { loadAssetsByIds, type MediaAssetRecord } from "@/lib/db/mediaAssets";
+import type { DestinationOwnerAccess } from "@/lib/deployment/destinationRowOwners";
 import {
 	extractLookupReferenceTargets,
 	type LookupReferenceExtractorRegistry,
@@ -59,6 +62,11 @@ import {
 	type ManagedLookupTable,
 	type ManagedLookupWorkbook,
 } from "./boundaryFindings";
+import {
+	type AssignmentWitness,
+	installLookupWitness,
+	readAssignmentCarriers,
+} from "./privateAssignments";
 
 export {
 	EXPORT_MODES,
@@ -73,8 +81,27 @@ export type AvailableLookupValidationContext = Extract<
 	{ readonly kind: "available" }
 >;
 
+import {
+	planLargeWorkbooks,
+	type StreamLookupWorkbook,
+} from "@/lib/commcare/lookup/archiveWorkbooks";
+import { describeLookupCarrierAlternative } from "@/lib/commcare/lookup/carrier";
+import { prepareArchiveTables } from "@/lib/deployment/prepareArchiveTables";
+import type {
+	ArchiveLookupAccess,
+	StreamingLookupTable,
+} from "@/lib/lookup/archiveRows";
+
 export interface PrepareExportBoundaryInput {
 	readonly mode: ExportMode;
+	readonly installTarget?: { server: string; domain: string; appId: string };
+	readonly streamMedia?: boolean;
+	readonly archiveActor?: () => Pick<
+		ArchiveLookupAccess,
+		"appId" | "grant" | "recheck"
+	>;
+	readonly assignmentAccess?: DestinationOwnerAccess;
+	readonly beforeLookupRead?: () => Promise<void>;
 	/** Authorized Project identity and role from the app access gate. */
 	readonly access: ProjectAccess;
 	/** Hydrated blueprint from the same app load as `compiledAtSeq`. */
@@ -117,7 +144,10 @@ export interface PrepareExportBoundaryInput {
  * must be the bytes that were validated.
  */
 export interface PreparedExportBoundary {
+	readonly streamedTables?: readonly StreamingLookupTable[];
+	readonly streamedWorkbooks?: readonly StreamLookupWorkbook[];
 	readonly mode: ExportMode;
+	readonly assignmentWitness?: AssignmentWitness;
 	readonly doc: BlueprintDoc;
 	readonly compiledAtSeq: number;
 	readonly assets: Awaited<ReturnType<typeof resolveMediaManifest>>;
@@ -198,15 +228,18 @@ export interface ExportBoundaryReads {
 		doc: BlueprintDoc,
 		projectId: string,
 		heldPaths?: ReadonlyMap<MediaAssetId, string>,
+		streamMedia?: boolean,
 	) => Promise<Awaited<ReturnType<typeof resolveMediaManifest>>>;
 }
 
 const PRODUCTION_READS: ExportBoundaryReads = {
-	lookupFixtureData: (scope, tableIds) => getLookupFixtureData(scope, tableIds),
+	lookupFixtureData: (scope, tableIds) =>
+		getLookupFixtureData(scope, tableIds, "export"),
 	mediaRows: (ids, projectId) => loadAssetsByIds(ids, projectId),
-	mediaManifest: (doc, projectId, heldPaths) =>
+	mediaManifest: (doc, projectId, heldPaths, streamMedia) =>
 		resolveMediaManifest(doc, projectId, {
-			withBytes: true,
+			withBytes: !streamMedia,
+			streamBytes: streamMedia,
 			...(heldPaths !== undefined && { heldPaths }),
 		}),
 };
@@ -238,6 +271,7 @@ async function collectViolationsWithRegistry(
 	lookupReferenceExtractors: LookupReferenceExtractorRegistry,
 	rowFindings: readonly ValidationError[] = [],
 	reads: ExportBoundaryReads = PRODUCTION_READS,
+	streamMedia = false,
 ): Promise<ValidationError[]> {
 	const ids = [...collectAssetRefs(doc)];
 	const { realIds, builtinSlugs } = partitionAssetRefs(ids);
@@ -246,7 +280,7 @@ async function collectViolationsWithRegistry(
 	 * references, so waiting until after rows load would leave an unbounded
 	 * allocation ahead of the aggregate budget verdict. */
 	const exportableRefCount = realIds.length + builtinSlugs.length;
-	if (exportableRefCount > MAX_MEDIA_EXPORT_ASSETS) {
+	if (!streamMedia && exportableRefCount > MAX_MEDIA_EXPORT_ASSETS) {
 		return [
 			validationError(
 				"MEDIA_EXPORT_TOO_LARGE",
@@ -268,7 +302,7 @@ async function collectViolationsWithRegistry(
 		lookupContext,
 		lookupReferenceExtractors,
 	);
-	const budgetError = exportBudgetError(rows);
+	const budgetError = streamMedia ? null : exportBudgetError(rows);
 	return [
 		...errors,
 		...rowFindings,
@@ -328,10 +362,54 @@ async function prepareWithRegistry(
 	 * intentionally throws through this function; it is not a document
 	 * finding and must stop the export rather than masquerade as unavailable
 	 * context. */
-	const fixtureData = await reads.lookupFixtureData(
+	if (lookupTargets.tableIds.length) await input.beforeLookupRead?.();
+	const genericData = await reads.lookupFixtureData(
 		scope,
 		lookupTargets.tableIds,
 	);
+	const restoreIds =
+		input.mode === "ccz" && input.installTarget
+			? genericData.definitions
+					.filter(
+						(t) =>
+							t.workerAccess === "assigned" ||
+							t.hq?.source?.distribution === "assigned" ||
+							requiresLookupProjection(t.hq),
+					)
+					.map((t) => t.id)
+			: [];
+	let restoreWitness: AssignmentWitness | undefined;
+	if (restoreIds.length && input.installTarget) {
+		const actor = input.archiveActor?.();
+		if (!actor)
+			throw new ApiError(
+				"This installation needs a current connection to its project space.",
+				403,
+			);
+		const { server, domain, appId: targetAppId } = input.installTarget;
+		const target = { server, domain };
+		const restore = await installLookupWitness(
+			{
+				scope: {
+					appId: actor.appId,
+					projectId: scope.projectId,
+					actorUserId: scope.actorId,
+				},
+				grant: actor.grant,
+				target,
+			},
+			targetAppId,
+			restoreIds,
+		);
+		restoreWitness = { target, tables: [], restore };
+	}
+	const assignment =
+		input.assignmentAccess &&
+		(input.assignmentAccess.purpose !== "publish" ||
+			genericData.definitions.some((t) => t.workerAccess === "assigned"))
+			? await readAssignmentCarriers(input.assignmentAccess, genericData)
+			: undefined;
+	const fixtureData = assignment?.snapshot ?? genericData;
 	const lookupSnapshot: LookupFixtureDataSnapshot = fixtureData;
 	if (lookupSnapshot.projectId !== input.access.projectId) {
 		throw new Error(
@@ -339,6 +417,46 @@ async function prepareWithRegistry(
 		);
 	}
 	const lookupContext = availableLookupContext(lookupSnapshot);
+	const actor = lookupSnapshot.streamedTables?.size
+		? input.archiveActor?.()
+		: undefined;
+	const streamed = await prepareArchiveTables(
+		input.doc,
+		lookupSnapshot,
+		actor && {
+			...actor,
+			projectId: scope.projectId,
+			actorUserId: scope.actorId,
+			documentRevision: input.compiledAtSeq,
+			projectRevision: lookupSnapshot.projectRevision,
+		},
+		input.mode === "hq-upload",
+	);
+	if (streamed.issues.length) return { ok: false, violations: streamed.issues };
+	const workbookPlan =
+		input.mode === "ccz"
+			? { files: [], alternatives: [] }
+			: await planLargeWorkbooks([...streamed.tables.values()]);
+	if (workbookPlan.alternatives.length)
+		return {
+			ok: false,
+			violations: workbookPlan.alternatives.map((item) =>
+				validationError(
+					"LOOKUP_WORKER_SOURCE_UNAVAILABLE",
+					"app",
+					describeLookupCarrierAlternative(
+						item.table.definition.name,
+						item.carrier,
+					),
+					{},
+					{
+						tableId: item.table.definition.id,
+						tableName: item.table.definition.name,
+						delivery: item.carrier.kind,
+					},
+				),
+			),
+		};
 
 	/* The mode's carrier and its row and mode verdicts, over this one
 	 * snapshot. The selection findings are read only once the document's own
@@ -347,6 +465,8 @@ async function prepareWithRegistry(
 		doc: input.doc,
 		mode: input.mode,
 		fixtureData,
+		assignments: assignment?.owners,
+		restoreTableIds: new Set(restoreIds),
 		...(input.lookupTarget !== undefined && {
 			lookupTarget: input.lookupTarget,
 		}),
@@ -369,6 +489,7 @@ async function prepareWithRegistry(
 		registry,
 		carrier.rowFindings,
 		reads,
+		input.streamMedia,
 	);
 	if (violations.length > 0) {
 		return { ok: false, violations };
@@ -384,12 +505,22 @@ async function prepareWithRegistry(
 		input.doc,
 		input.access.projectId,
 		input.heldMediaPaths,
+		...(input.streamMedia === undefined ? [] : [input.streamMedia]),
 	);
 
 	return {
 		ok: true,
 		prepared: {
 			mode: input.mode,
+			...((assignment || restoreWitness) && {
+				assignmentWitness: assignment?.witness ?? restoreWitness,
+			}),
+			...(streamed.tables.size > 0 && {
+				streamedTables: [...streamed.tables.values()],
+			}),
+			...(workbookPlan.files.length > 0 && {
+				streamedWorkbooks: workbookPlan.files,
+			}),
 			doc: input.doc,
 			compiledAtSeq: input.compiledAtSeq,
 			assets,

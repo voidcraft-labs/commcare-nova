@@ -152,6 +152,8 @@ speaks for and supersedes every live mapping of those kinds it did not name; a
 did not name may simply not have been reached yet. Only a `complete` push folds
 the rung.
 
+Each selected lookup workbook binds its exact wire audience, rows and definition revisions, current publish grant, target and encrypted connection. Immediately before sending, the same transaction that records the open write checks these facts under the membership, lookup Project and table locks. Assigned rows also bind their confirmed recipient identities. An already observed file on retry uses the same check without opening another write. Changed inputs require a new publish. Lookup writers and group assignment writers use the open workbook hold for the affected tables. A settled or expired hold releases them.
+
 `incomplete` is a refusal, not a rung: it has no position on the ladder,
 and `deploymentHasReached` answers `false` for every target while a
 deployment sits there. It carries `resumePhase`, and the state a retry
@@ -377,6 +379,10 @@ detected: the adoption and discard confirmations carry `LOOKUP_DISCARD_NOTE`,
 and a push of an unchanged definition that the re-list shows under a new id
 lands with the made-again warning.
 
+The place inventory pairs authenticated v2 rows with v1 rows from the same server and domain by durable location ID. It verifies their modification, coordinates, parent and level, display name, site code and JSON metadata and retries the complete read once across an observed simultaneous change. The v1 external ID, nullable source name, exact decimal coordinates and original numeric lexemes remain distinct. The worker receives HQ's string projection for modeled information. Unknown dictionary insertion order blocks a formula that would read that value. The ordinary place inventory and the protected place workbook each charge their reads and delivery budgets.
+
+An active mapping follows the destination's own ID after a source recode. The target receives parent-first batches with per-row results, read-back and resource mappings. An identical retry omits the v2 write. Each actual batch is guarded by the expected organization revision. Existing destination-only information survives. A destination external ID requires HQ's native organization workbook, as v2 omits that field. A publish validates the workbook shape before sending any batch, stages the place with its destination metadata intact, and records the observed ID and requested ID against the newly read destination mapping. An editor with the live export grant can then prepare the destination-bound private file. The next publish verifies the saved v1 ID by durable target ID and applies the remaining metadata before sending app content. The origin is only refreshed.
+
 `organization` reads the target's levels and places and plans the push
 (`locationResourcePlan.ts`). It carries the same ownership refusal keyed on site
 code, and a SECOND refusal that is peculiar to places: CommCare HQ will not hold
@@ -499,6 +505,13 @@ The ledger records who and when (`adopted_at`
 `store.ts::writeResourceMapping` so the failure names the call rather than the
 constraint). Once recorded, the decision stands: later publishes read the
 mapping rather than asking again.
+
+A workbook receipt binds each destination table's current ID, visibility,
+fields, attributes and ordered rows to the intended file. A successful sibling
+keeps its mapping after a partial upload. A failed read-back can mark an old
+mapped ID unread. A new ID earns its first mapping only after verification.
+On a retry, an existing unrelated table under the same tag needs an explicit
+ownership decision before Nova sends another workbook.
 
 A lookup table's standing is the Project's (`lookupResourcePlan.ts`), and
 two arms beside the deployment's own mapping account for the table CommCare
@@ -731,8 +744,8 @@ form media lists even though neither client draws it. A mapped file used only
 there takes an availability check at the same bounded HQ transport, with a
 one-byte limit. A successful file response requires no asset validation,
 storage, or Project media budget. A held slot naming the same file makes the
-one read a full file check. At most 500 distinct media files are read across
-both sides of a changes review. The first publish removes these unshown form
+one read a full file check. Every distinct media file either side of a changes
+review names is read, however many there are. The first publish removes these unshown form
 references (`unshown-form-media-removed`); a path another slot keeps remains
 in its media list. `unused-media-entries-removed` counts only map entries
 already unused in the source app.
@@ -750,22 +763,43 @@ no download verdict supplies no evidence of a failed download. An already
 installed app or a local archive can reach a screen that a fresh install of the
 HQ release cannot.
 
-A reading's lookup rows are bounded per table (`HQ_LOOKUP_TABLE_ROWS_MAX_BYTES`,
-past which the table is a caps finding, "more data than Nova reads for one
-table") and per request (`HQ_LOOKUP_ROWS_REQUEST_MAX_BYTES`: each table is read
-at most as far as what remains, and a request its tables pass answers
-`lookup-data-too-large`). A create keeps one buffer per distinct content of the
-files it holds, the very entry the media budget counts, and the read's own bytes
-rather than a copy (`projectData/mediaStore.ts`); it publishes each content
-once and records the asset under every file key that holds it. The process
+A bring-in lists the remote lookup definitions first. The reader registers the active
+question and Search choices and parses the expression slots to discover their tables.
+A form joins each local instance id to its declared source. A suite reference or an
+undeclared XForm lookup uses HQ's `item-list:<tag>` factory. Only these exact tags
+can request rows or enter the local Project read. An unreferenced declaration still
+checks against the definition list because a worker loads it on opening the form.
+A review of changes uses the union of the baseline and current source's reads.
+
+A reading's inline lookup rows are bounded per table
+(`HQ_LOOKUP_INLINE_READ_MAX_ROWS`, `HQ_LOOKUP_TABLE_ROWS_MAX_BYTES`) and per
+request (`HQ_LOOKUP_ROWS_REQUEST_MAX_BYTES`: each table is read at most as far as
+what remains). Neither is a limit on what Nova holds: a table past either comes
+in as its confirmed definition with no row snapshot, and a Project data refresh
+reads it in pages (`managedInventory.ts`). Two lookup stops remain until
+managed generations stream into the archive: the tables read inline together
+are held to what one `.ccz` carries (`lookupFixtureBudgetFinding`, over
+`MAX_LOOKUP_FIXTURE_ROWS` / `_CELLS` / `_BYTES`, the same budget the export
+boundary applies), and a `same-managed` table that would keep more than
+`LOOKUP_MAX_COLUMNS` columns stops (`sameManagedColumnCapFinding`). No count or
+total of media files stops a reading: the only media bound is the per-kind cap
+on one file. A create (and a bring-in of HQ changes) stages
+each distinct held content once, as it judges it, in a create-only object under
+`pending/<projectId>/` (`projectData/mediaStore.ts::projectMediaStaging`), and
+lets its bytes go, so what it holds at once is the files in flight. It publishes
+each content once by copying exactly the staged generation to its content key
+(`lib/media/publishReadyMedia.ts`), records the asset under every file key that
+holds it and deletes the staged object; whatever it staged and did not publish is
+deleted when it ends, and the bucket's `pending/` lifecycle rule reaps what a
+crash leaves. No surface lists a staged object. The process
 meters what bring-ins hold at once (`reading/room.ts` over
 `lib/commcare/hq/memoryMeter.ts`): each read, create, changes review and
 changes bring-in runs under a lease, charged for what it keeps as it keeps it
 (every body CommCare HQ sends as it is read, by what it is kept as; a source
 taken into a reading, `room.ts::holdReading`, at the measured rate of what the
 reading builds, and a changes review's two readings once per request, one reading of the
-larger source and a measured second rate over the smaller, `room.ts::holdChangesReadings`), and given back what it lets go (a media file judged and not
-kept, `mediaStore.ts`, `hqMediaSettle.ts`) and the rest when it settles,
+larger source and a measured second rate over the smaller, `room.ts::holdChangesReadings`), and given back what it lets go (a media file judged and staged
+or dropped, `mediaStore.ts`, `hqMediaSettle.ts`) and the rest when it settles,
 however it settles. A charge that would take the process past its bound stops
 that request partway: its signal aborts, its reads stop and no further request
 goes out, it writes nothing, and it answers `nova-busy`. Every write comes after
@@ -1504,13 +1538,24 @@ upload, bound to the save counter the import acknowledged, and that read is
 the new baseline only when the counter proves what the import left. A failed
 read or an extra save gives an `unread` drift baseline and a warning
 that the publish landed. An extra save with a verified source at the acknowledged
-version retains that source for the target's kept settings. After the media upload
-settles, the publish records the id CommCare HQ reported for each path
-(`store.ts::recordDeploymentMediaFiles`, while both its source digest and the
-active mapping's token for this publish still match), else the id preflight found by
-content, else what the record held: an upload that failed, timed out or
-reported errors earns no entry, and an app that publishes no file records
-none. When a later publish already holds the app mapping by the time this
+version retains that source for the target's kept settings. Before any HQ write, direct publication checks each Project file's full
+SHA-256 and length from a pinned GCS generation. It sends the same
+generation on upload. A file already on the destination is accounted for by
+its class and the mapped ID Nova recorded, never by a fresh read of its bytes:
+CommCare HQ keys a file document by the hash of its bytes and never replaces the
+attachment of one it holds (`hqmedia/models.py::CommCareMultimedia.get_by_data`,
+`attach_data`), so a path that still names the recorded ID is reused and sent
+nothing (`mediaReceipt.ts::prepareMediaBatch`). Only a path whose ID moved or
+that Nova holds no record for is settled by its bytes, before the publish and
+again per batch after the import (`hqMediaSettle.ts::verifyHqMediaBatch`); a
+batch Nova cannot account for is not sent, and the publish lands with its media
+warning and records no media for it. Once the media job settles, Nova reads the current app map and the mapped file,
+compares the job's exact ID where supplied, and records only a matching
+media class, length and digest. These reads use the connected account at
+the selected server. The HQ file URL alone grants no access to Nova's
+private downloads. An incomplete batch keeps each verified receipt and a
+retry rechecks the destination before sending another file.
+When a later publish already holds the app mapping by the time this
 import records its response, the older publish skips its media upload and
 reports that to the caller. After the last source and file reads, assembling the app and admitting the write, the publisher reads HQ's working save counter immediately before each physical import POST. HQ may throttle before running its view. Every resend checks the same reviewed counter again after the requested wait, within the original deadline. A different or unavailable counter settles the unsent hold and asks for a new comparison. A first admission can restore a suspended released entry only under an uninterrupted claim without a competing write. The first claim uses its resource row ID until a later acquisition mints an explicit claim generation. HQ's import has no conditional update against that counter. An extra save after the final observation still leaves the accepted import's baseline unconfirmed. The second read, where Project data went, also compares the file ids at
 the published paths (`hqMedia.ts::mediaMovedBetween`) and settles each one that
@@ -2292,6 +2337,31 @@ and the builder and MCP say each outcome in one text
 (`lib/publish/managedData.ts::managedTableOutcomeLines` and
 `managedPlacesOutcomeLines`).
 
+Two more table actions live beside them, each a service the Builder's Server
+Action and MCP call alike. **Use the table from CommCare HQ**
+(`managedData.ts::reviewUseHqTable` / `takeHqTableForLookupTable`, MCP's
+`set_lookup_table_management` with `source_domain`) is for a table made in Nova
+that a publish put in a project space: its sources are the Project's live
+`lookup-table` mappings of the table under its current tag (the rows
+`store.ts::readSiblingLookupMappings` reads for a push), one per HQ table. The
+review reads that table with the actor's connection and binds the table's two
+revisions, its readers, every live mapping's `push_token` and CommCare HQ's
+table's digest; the write needs the Project's `delete`, reads the mappings again
+`FOR SHARE` under the Project state and the table's lock, and takes CommCare
+HQ's table through the copy's `adopt` arm. The next publish to that project
+space then leaves the table out and supersedes its mapping, so two apps sharing
+the table never hold independent authority over it. A drift stop on a plain
+table names the action last (`preflight.ts::takeOfferFor`,
+`USE_HQ_TABLE_OFFERED`), beside the existing discard. **Create a separate
+table** (`separateTable.ts`, MCP's `separate_lookup_table`) needs `edit`: under
+the Project state and the old table's row `FOR SHARE` it compares the reviewed
+revisions and readers, creates the new table and rebinds each chosen app's
+table, column and detail ids through `lib/db/apps.ts::appendSyntheticBatchInTransaction`
+(a `blueprint-migration` reload boundary for open builders), all in one
+transaction. The export boundary's stop for Nova's complete copy of another
+project space's table, whose indexes CommCare HQ never showed, names it
+(`boundaryFindings.ts::separableCopy`).
+
 **The Builder splits the work: the dialog publishes, the section manages.**
 App setup's Publishing section (`components/builder/app-setup/
 PublishingSection.tsx`) is the durable home of the records — one full
@@ -2586,3 +2656,23 @@ and requires a successful fresh read before writing. A private genesis starts
 without a prior setting. A private edit and each historical deployment
 comparison apply the converted owning app choice to their own source snapshot.
 The original source and ownership still establish the comparison's HQ standing.
+
+### Selected lookup source observations
+
+An editor may inspect an assigned table's source separately from a worker's fixture. The Project, table, remote table identity, server, domain, current membership and original credential grant are resolved on the server. A role change, consent revocation or key replacement invalidates the observation. `managedLookupObservation.ts` stores an editor's checked selected-workbook receipt in `lookup_tables.hq_source_observation`. It contains the observation time, exact source and content digests, row identities and resolved principals. Its authorized history has no authority to distribute rows.
+
+Global transfer obtains a full authenticated restore and independent details for every candidate. It compares cardinality, ordered device projection, complete canonical content and the locally reviewed ordered row identities, then stamps the observed index flags while holding the transfer lock. An assigned or incomplete table remains managed at its source. The server retains a verified reference when an inline read exceeds its capacity. An unreadable inventory has no count and its historical rows never enter a device projection.
+
+Promoting a verified generation reconciles the current HQ field, row-attribute and value-property definitions through the same identity and reference governance as inline refresh. An admin transferring a complete global generation rechecks its exact active generation, original source grant, ordered administrative digest and two complete native fixture observations. Transfer binds index flags from those fixtures, materializes stable editable rows and lexical value slots under the table lock, and rechecks the grant before changing custody. The previous generation retires in the same transaction.
+
+
+### Lookup workbooks, media receipts and device downloads
+
+A direct workbook publish compares the actual target definition and ordered
+row content with its admitted Project snapshot. Paged tables have the same
+canonical row spelling as the ordinary workbook. The verified parts of a
+multi-workbook publish remain in the destination ledger through a retry.
+For media batches, the status job and the authenticated target file digest
+establish completion separately for each mapped path. A named device archive
+may reference an assigned table only at its verified installation target.
+The device reads its private rows when the worker authenticates to HQ.
