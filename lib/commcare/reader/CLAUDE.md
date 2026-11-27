@@ -1067,7 +1067,8 @@ A change that holds one removes its line.
   for its own-case rule). HQ's build appends Case Management's block after every authored node, and a
   device and HQ's server apply both blocks, so the later row stands where it is present; Nova keeps one
   write of each property of the own case and lets no other change close it, and no one change prints
-  both blocks. A close-only block whose `update` holds a row is read as a close operation, never as the
+  both blocks. A basic follow-up whose managed block only records the timestamp can keep a
+  separate close-only block under a close condition. A block whose `update` holds a row is read as a close operation, never as the
   own close, which the emitter writes with no `update` (`saveToCase.ts::readSaveToCaseBlocks`); an
   empty `update` beside the close, which no runtime acts on and HQ's form builder drops, is outside
   Nova's block shape alone.

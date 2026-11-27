@@ -1853,6 +1853,31 @@ function targetsOwnCase(
 		: CASE_LOADING_FORM_TYPES.has(ctx.form.type) && target.kind === "session";
 }
 
+/** The managed basic follow-up's empty block only records its timestamp.
+ * Its submitted case does not reopen or change a property if the separate
+ * authored close has already run. */
+function closeBesideEmptyBasicFollowup(
+	ctx: OperationRuleContext,
+	own: Extract<CaseOperation, { action: "own" }>,
+	operation: CaseOperation,
+	count: number,
+): boolean {
+	return (
+		ctx.form.type === "followup" &&
+		count === 2 &&
+		own.placement?.kind === "basic" &&
+		own.placement.slot === "own" &&
+		!ownCaseOperationHasEffects(own) &&
+		operation.action === "close" &&
+		operation.target.kind === "session" &&
+		operation.placement?.kind === "save-to-case" &&
+		operation.closeCondition !== undefined &&
+		operation.condition === undefined &&
+		operation.forEach === undefined &&
+		!operation.writes?.length
+	);
+}
+
 /**
  * The own arm's effects mean the same wherever its block runs, because no
  * other operation writes what it writes on the form's own case
@@ -1888,7 +1913,10 @@ function ownCaseIndependenceFindings(
 	for (const operation of operations) {
 		if (operation.action === "own") continue;
 		if (!targetsOwnCase(ctx, operation.target, own.uuid)) continue;
-		if (operation.action === "close" || operation.closeAfter === true) {
+		if (
+			(operation.action === "close" || operation.closeAfter === true) &&
+			!closeBesideEmptyBasicFollowup(ctx, own, operation, operations.length)
+		) {
 			errors.push(
 				opError(
 					ctx,

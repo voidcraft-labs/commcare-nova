@@ -32237,19 +32237,33 @@
 	{
 		"id": "hq-new-app/save-to-case-close-only-condition",
 		"base": "hq-new-app",
-		"entry": "questions/a-savetocase-change-of-the-form-s-own-case-beside-the-form-s-own-change-of-it",
-		"standing": "not-yet",
-		"place": {
-			"kind": "form",
-			"menu": 0,
-			"form": 1,
-			"menuName": "Case List",
-			"name": "Followup Form"
-		},
+		"entry": "questions/a-close-only-savetocase-block-with-a-close-condition",
 		"change": {
 			"op": "named",
 			"name": "save_to_case_close_only_condition"
-		}
+		},
+		"holds": [
+			{
+				"key": ["form", { "$xmlns": [0, 1] }],
+				"pointer": "/caseOperations/0/action",
+				"value": "own"
+			},
+			{
+				"key": ["form", { "$xmlns": [0, 1] }],
+				"pointer": "/caseOperations/1/action",
+				"value": "close"
+			},
+			{
+				"key": ["form", { "$xmlns": [0, 1] }],
+				"pointer": "/caseOperations/1/target/kind",
+				"value": "session"
+			},
+			{
+				"key": ["form", { "$xmlns": [0, 1] }],
+				"pointer": "/caseOperations/1/closeCondition/kind",
+				"value": "gt"
+			}
+		]
 	},
 	{
 		"id": "hq-new-app/save-to-case-other-type",

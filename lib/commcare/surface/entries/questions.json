@@ -4126,7 +4126,7 @@
 		],
 		"valueClass": "savetocase-close-only",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: a close condition on the close leaf. A false condition leaves a childless transaction, which contributes HQ history without changing the case before sync.",
+		"dispositionCell": "**HELD**: a close condition on the close leaf. A false condition leaves a childless transaction, which contributes HQ history without changing the case before sync. The separate close can target the selected case of a basic follow-up when its managed change only records the timestamp.",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",

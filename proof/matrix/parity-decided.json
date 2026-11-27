@@ -458,6 +458,7 @@
 		"hq-new-app/recipients",
 		"hq-new-app/requires-referral",
 		"hq-new-app/save-to-case-another-case-close-condition",
+		"hq-new-app/save-to-case-close-only-condition",
 		"hq-new-app/smart-lang-display",
 		"hq-new-app/vellum-case-management-off"
 	],
