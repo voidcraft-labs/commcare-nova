@@ -40216,6 +40216,47 @@
 	{
 		"id": "hq-search/choices-read-from-open-cases",
 		"base": "hq-search",
+		"entry": "case-search/case-itemset-without-an-editor-source",
+		"standing": "fix-in-hq",
+		"place": {
+			"kind": "search",
+			"menu": 0,
+			"name": "Clients"
+		},
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/0/search_config/properties/5",
+			"value": {
+				"name": "district",
+				"label": {
+					"en": "District"
+				},
+				"hint": {},
+				"input_": "select1",
+				"itemset": {
+					"nodeset": "instance('casedb')/casedb/case[@case_type = 'client'][@status = 'open']",
+					"value": "case_name",
+					"sort": "case_name",
+					"label": "case_name",
+					"doc_type": "Itemset"
+				},
+				"hidden": false,
+				"allow_blank_value": false,
+				"exclude": false,
+				"required": {
+					"test": null,
+					"text": {},
+					"doc_type": "Assertion"
+				},
+				"validations": [],
+				"is_group": false,
+				"doc_type": "CaseSearchProperty"
+			}
+		}
+	},
+	{
+		"id": "hq-search/choices-read-from-open-cases-with-an-empty-editor-source",
+		"base": "hq-search",
 		"entry": "case-search/itemset-nodeset-other-than-a-table-s-item-list",
 		"standing": "not-yet",
 		"place": {
@@ -40238,7 +40279,8 @@
 					"value": "case_name",
 					"sort": "case_name",
 					"label": "case_name",
-					"doc_type": "Itemset"
+					"doc_type": "Itemset",
+					"instance_id": ""
 				},
 				"hidden": false,
 				"allow_blank_value": false,

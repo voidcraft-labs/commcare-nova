@@ -3209,6 +3209,33 @@
 		"gates": []
 	},
 	{
+		"id": "case-search/case-itemset-without-an-editor-source",
+		"area": "case-search",
+		"section": "Case search",
+		"subsection": "Search prompts",
+		"item": "Case Search choices read restored cases without the itemset source used by the Case List editor",
+		"surfaceKeys": ["schema:Itemset.nodeset"],
+		"valueClass": "case-itemset-without-an-editor-source",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: not HQ-editable: the Case List editor tries to read the missing itemset instance_id and throws before the editor can open or save",
+		"subject": "search-fields",
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": [],
+		"reasons": [
+			{
+				"kind": "not-hq-editable",
+				"named": "the Case List editor tries to read the missing itemset instance_id and throws before the editor can open or save"
+			}
+		]
+	},
+	{
 		"id": "case-search/itemset-nodeset-other-than-a-table-s-item-list",
 		"area": "case-search",
 		"section": "Case search",
