@@ -397,6 +397,9 @@ function ordinarySourcePaths(ctx: ReadContext) {
 const localImagePath =
 	/^jr:\/\/file\/commcare\/image\/[A-Za-z0-9_][A-Za-z0-9_.-]*(?:\/[A-Za-z0-9_][A-Za-z0-9_.-]*)*$/;
 
+const localAudioPath =
+	/^jr:\/\/file\/commcare\/audio\/[A-Za-z0-9_][A-Za-z0-9_.-]*(?:\/[A-Za-z0-9_][A-Za-z0-9_.-]*)*$/;
+
 function mappedNavigationFile(
 	ctx: ReadContext,
 	path: string,
@@ -456,15 +459,8 @@ function noOrdinaryCarrier(ctx: ReadContext, path: string): boolean {
 
 function menuAudioOnlyInMediaMap(ctx: ReadContext, path: string): boolean {
 	return (
-		/^jr:\/\/file\/commcare\/audio\/[A-Za-z0-9_][A-Za-z0-9_.-]*(?:\/[A-Za-z0-9_][A-Za-z0-9_.-]*)*$/.test(
-			path,
-		) &&
-		ctx.input.source.multimediaMap?.some(
-			(item) =>
-				item.path === path &&
-				item.mediaType === "CommCareAudio" &&
-				item.multimediaId !== null,
-		) === true &&
+		localAudioPath.test(path) &&
+		mappedNavigationFile(ctx, path, "audioLabel") &&
 		noOrdinaryCarrier(ctx, path)
 	);
 }
@@ -605,7 +601,10 @@ export function accountNavigationMediaOverride(
 		override.role === "icon" &&
 		localImagePath.test(override.path);
 	const otherLanguageCarrier =
-		override.carrierClass === "Module" &&
+		(localMenuIcon ||
+			(override.carrierClass === "Module" &&
+				override.role === "audioLabel" &&
+				localAudioPath.test(override.path))) &&
 		menuMediaPackagedByAnotherLanguage(
 			ctx,
 			override.path,
