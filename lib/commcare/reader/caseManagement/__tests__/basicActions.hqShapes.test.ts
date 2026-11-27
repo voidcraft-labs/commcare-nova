@@ -703,7 +703,7 @@ describe("CommCare HQ's spellings of a basic form's case actions", () => {
 					string,
 					unknown
 				>;
-				update.aⅣ = { question_path: "/data/other" };
+				update.aЖ = { question_path: "/data/other" };
 			},
 		});
 		expect(codes(reading)).toContain(NON_ASCII);
@@ -727,7 +727,7 @@ describe("CommCare HQ's spellings of a basic form's case actions", () => {
 			at("actions/update_case", "schema:FormActions.update_case"),
 			{
 				...at("actions/update_case/update", "schema:UpdateCaseAction.update"),
-				at: "/modules/0/forms/0/actions/update_case/update/aⅣ",
+				at: "/modules/0/forms/0/actions/update_case/update/aЖ",
 			},
 		]);
 	});
@@ -1477,7 +1477,7 @@ describe("one cause, one finding, at a basic form's case actions", () => {
 	it.each([
 		["n名字", `${F}/basic-update-key-with-an-unaddressable-uncased-letter`],
 		["estado_é", `${F}/basic-update-key-with-an-accented-latin-name`],
-		["aⅣ", `${F}/update-key-holding-a-non-ascii-core-name-character`],
+		["aⅣ", `${F}/basic-update-key-with-a-roman-numeral`],
 		["größe", `${F}/basic-update-key-with-an-accented-latin-name`],
 		[
 			"note½",
