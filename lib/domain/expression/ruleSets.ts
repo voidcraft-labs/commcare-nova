@@ -463,8 +463,8 @@ export function searchSessionTextOrder(
 	);
 }
 
-/** A Search starting value can compare two raw session identities numerically. */
-export function searchDefaultSessionPairOrder(
+/** A Search expression can compare two raw session identities numerically. */
+export function searchSessionIdentityPairOrder(
 	kind: ComparisonKind,
 	left: Expression,
 	right: Expression,

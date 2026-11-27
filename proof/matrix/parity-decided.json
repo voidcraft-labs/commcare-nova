@@ -783,6 +783,7 @@
 		"hq-search/owner-exclusion-on-an-ordered-device-id",
 		"hq-search/owner-exclusion-on-an-ordered-text",
 		"hq-search/owner-exclusion-on-an-ordered-worker-id",
+		"hq-search/owner-exclusion-orders-two-session-values",
 		"hq-search/owner-exclusion-twice",
 		"hq-search/owner-exclusion-using-a-less-than-device-id-comparison",
 		"hq-search/quote-guard-only-with-no-message",

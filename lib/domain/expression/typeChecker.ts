@@ -100,7 +100,7 @@ import {
 	sameTypeRestoredThreshold,
 	searchChoiceColumnLengthOrder,
 	searchChoiceColumnOrder,
-	searchDefaultSessionPairOrder,
+	searchSessionIdentityPairOrder,
 	searchSessionTextOrder,
 	TEXT_SHAPED_TYPES,
 	TIME_ORDERING_MESSAGE,
@@ -4375,8 +4375,7 @@ function checkComparison(
 				ctx.slot.slot === "excluded_owner_ids" ||
 				ctx.slot.slot === "search_button_display_condition") &&
 			(searchSessionTextOrder(kind, left, right) ||
-				(ctx.profile.searchTextDefault === true &&
-					searchDefaultSessionPairOrder(kind, left, right)))
+				searchSessionIdentityPairOrder(kind, left, right))
 		)
 			return;
 		// A Search choice filter orders its own text values by device numeric coercion.

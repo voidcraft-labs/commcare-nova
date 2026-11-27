@@ -5902,7 +5902,7 @@ def worker_name_order_in_shared_owner_exclusion(use, manifest):
     case_details = module.get("case_details")
     short = case_details.get("short") if isinstance(case_details, dict) else None
     restriction = short.get("filter") if isinstance(short, dict) else None
-    if not isinstance(restriction, str) or not _orders_worker_identity(tree(raw)):
+    if not isinstance(restriction, str) or not _orders_worker_identity(tree(raw), pair=True):
         return False
     clause = tree(f"{raw} = '' or not(selected({raw}, @owner_id))")
     filters = tree(restriction)

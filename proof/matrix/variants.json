@@ -41005,6 +41005,22 @@
 	{
 		"id": "hq-search/button-orders-one-session-value-against-another",
 		"base": "hq-search",
+		"entry": "case-search/search-button-display-condition-lifting-into-predicate",
+		"change": {
+			"op": "named",
+			"name": "search_button_orders_two_session_values"
+		},
+		"holds": [
+			{
+				"key": ["module", { "$menu": 0 }],
+				"pointer": "/caseSearchConfig/searchButtonDisplayCondition/right/term",
+				"value": { "kind": "session-context", "field": "userid" }
+			}
+		]
+	},
+	{
+		"id": "hq-search/button-orders-device-against-app-version",
+		"base": "hq-search",
 		"entry": "case-search/search-button-display-condition-outside-predicate",
 		"standing": "not-yet",
 		"place": {
@@ -41014,7 +41030,7 @@
 		},
 		"change": {
 			"op": "named",
-			"name": "search_button_orders_two_session_values"
+			"name": "search_button_orders_device_against_app_version"
 		}
 	},
 	{
@@ -45230,6 +45246,22 @@
 	{
 		"id": "hq-search/owner-exclusion-orders-two-session-values",
 		"base": "hq-search",
+		"entry": "case-search/blacklisted-owner-ids-expression-lifting-into-valueexpression",
+		"change": {
+			"op": "named",
+			"name": "owner_exclusion_orders_two_session_values"
+		},
+		"holds": [
+			{
+				"key": ["module", { "$menu": 1 }],
+				"pointer": "/caseSearchConfig/excludedOwnerIds/cond/right/term",
+				"value": { "kind": "session-context", "field": "userid" }
+			}
+		]
+	},
+	{
+		"id": "hq-search/owner-exclusion-orders-device-against-app-version",
+		"base": "hq-search",
 		"entry": "case-search/blacklisted-owner-ids-expression-outside-valueexpression",
 		"standing": "not-yet",
 		"place": {
@@ -45239,7 +45271,7 @@
 		},
 		"change": {
 			"op": "named",
-			"name": "owner_exclusion_orders_two_session_values"
+			"name": "owner_exclusion_orders_device_against_app_version"
 		}
 	},
 	{

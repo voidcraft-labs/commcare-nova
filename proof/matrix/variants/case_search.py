@@ -327,6 +327,12 @@ def search_button_orders_two_session_values(authoring, app_id):
                                               right=f"{SESSION}/context/userid")
 
 
+def search_button_orders_device_against_app_version(authoring, app_id):
+    """The application version is outside the worker-identity comparison class."""
+    _search_button_orders_worker_with_session(authoring, app_id, "deviceid", operator="<",
+                                              right=f"{SESSION}/context/appversion")
+
+
 def _search_button_orders_worker_with_session(authoring, app_id, field, operator=">", right="'m'"):
     _set_each(
         authoring,
@@ -361,6 +367,12 @@ def owner_exclusion_orders_two_session_values(authoring, app_id):
     """Two dynamic session operands are a separate carrier."""
     _owner_exclusion_on_order(authoring, app_id, "deviceid", comparison="<",
                               right=f"{SESSION}/context/userid")
+
+
+def owner_exclusion_orders_device_against_app_version(authoring, app_id):
+    """The application version is outside the worker-identity comparison class."""
+    _owner_exclusion_on_order(authoring, app_id, "deviceid", comparison="<",
+                              right=f"{SESSION}/context/appversion")
 
 
 def _owner_exclusion_on_order(authoring, app_id, field, *, comparison=">", right="'m'"):

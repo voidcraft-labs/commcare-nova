@@ -16,7 +16,7 @@ import {
 } from "@/lib/domain/expression/formStructure";
 import {
 	readsSearchRequiredCaseQuery,
-	searchDefaultSessionPairOrder,
+	searchSessionIdentityPairOrder,
 	searchSessionTextOrder,
 } from "@/lib/domain/expression/ruleSets";
 import type {
@@ -2110,7 +2110,7 @@ export const SLOT_ENTRIES: Readonly<Record<RegisteredSlotName, SlotRow>> = {
 									expression.left,
 									expression.right,
 								) ||
-									searchDefaultSessionPairOrder(
+									searchSessionIdentityPairOrder(
 										expression.kind,
 										expression.left,
 										expression.right,

@@ -41,6 +41,7 @@ def test_owner_exclusion_compares_worker_text_as_a_number_in_search(
         ("worker-id", ordered.replace("/username", "/userid"), "b", "a"),
         ("device-id", ordered.replace("/username", "/deviceid"), "b", "a"),
         ("device-id-below", ordered.replace("/username", "/deviceid").replace(" > ", " < "), "b", "a"),
+        ("session-pair", f"if({SESSION}/context/deviceid < {SESSION}/context/userid, 'a', 'b')", "b", "a"),
         ("coerced", coerced, "b", "a"),
         ("opposite-owner", "'a'", "a", "b"),
     ):

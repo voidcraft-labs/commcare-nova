@@ -1125,7 +1125,7 @@
 		],
 		"valueClass": "lifts-into-predicate",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: `caseSearchConfig.searchButtonDisplayCondition`, including typed counts of cases on the device and a numeric comparison of the worker name or ID when the case list loads that session value",
+		"dispositionCell": "**HELD**: `caseSearchConfig.searchButtonDisplayCondition`, including typed counts of cases on the device and numeric comparisons of the worker name, user ID, or device ID when the case list loads their session values",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
@@ -1216,7 +1216,7 @@
 		],
 		"valueClass": "value-expression-with-list-clause-alone",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: `caseSearchConfig.excludedOwnerIds`, which Nova applies to the device list as well (`nodesetFilter.ts::emitExcludedOwnerFilterExpression` writes that clause), but for a list that reads a Search answer alone, which a list read before any search sees blank, so Nova writes no clause (`excludedOwnerClauseWritten`)",
+		"dispositionCell": "**HELD**: `caseSearchConfig.excludedOwnerIds`, which Nova applies to the device list as well (`nodesetFilter.ts::emitExcludedOwnerFilterExpression` writes that clause), but for a list that reads a Search answer alone, which a list read before any search sees blank, so Nova writes no clause (`excludedOwnerClauseWritten`). A rule can compare two raw session identities numerically",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
