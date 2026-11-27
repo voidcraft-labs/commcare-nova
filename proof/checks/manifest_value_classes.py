@@ -14496,17 +14496,16 @@ def large_maximum_on_android_only_app(use, manifest):
     value = _basic_multi_select_maximum(use)
     if value is None:
         return None
-    return 101 < value <= 2_147_483_647 and _json(use).app.doc.get("cloudcare_enabled") is False
+    app = _json(use).nearest("Application", "LinkedApplication") or {}
+    return 101 < value <= 2_147_483_647 and app.get("cloudcare_enabled") is False
 
 
 def max_select_value_above_100(use, manifest):
+    """Above 500 is outside every supported topology. Retained parity judges smaller values by their full form."""
     value = _basic_multi_select_maximum(use)
     if value is None:
         return None
-    if not 101 < value <= 2_147_483_647 or large_maximum_on_android_only_app(use, manifest):
-        return False
-    held = _bounded_flat_form(use, followup=True)
-    return held if held is None else not held
+    return 500 < value <= 2_147_483_647 and not large_maximum_on_android_only_app(use, manifest)
 
 
 def multi_select_maximum_exceeds_java_int(use, manifest):

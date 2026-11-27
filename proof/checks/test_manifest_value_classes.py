@@ -245,8 +245,9 @@ def _bounded_flat_close_shapes():
                 followup(body=read_only.replace(b" = 'followup'", b" != 'followup'")),
                 key,
                 where,
+                standing=manifest_usage.HELD,
             ),
-            accepted("app", app(500), key, where),
+            accepted("app", app(500), key, where, standing=manifest_usage.HELD),
         ),
         "menus-and-case-lists/detail-max-select-value-above-101-on-android-only-app": (
             refused("app", followup(102, web_apps=False), key, where),
@@ -258,10 +259,33 @@ def _bounded_flat_close_shapes():
         ),
         "menus-and-case-lists/detail-max-select-value-for-flat-close": (
             refused("app", app(), key, where),
-            accepted("app", app(102), key, where),
+            accepted("app", app(102), key, where, standing=manifest_usage.HELD),
             *(accepted("app", body, key, where, standing=manifest_usage.HELD) for body in unsupported),
         ),
     }
+
+
+
+def test_retained_parity_reads_the_form_before_judging_a_large_followup():
+    from proof.checks import parity
+
+    supported = deepcopy(_bounded_flat_close_shapes()[parity.FLAT_FOLLOWUP_MAXIMUM][1].source)
+    baseline = deepcopy(supported)
+    baseline["modules"][0]["case_details"]["short"]["max_select_value"] = 100
+    unsupported = deepcopy(supported)
+    unsupported["_attachments"]["close.xml"] = unsupported["_attachments"]["close.xml"].replace(
+        " = 'followup'", " != 'followup'",
+    )
+    for source, entry, standing in (
+        (supported, parity.FLAT_FOLLOWUP_MAXIMUM, manifest_usage.HELD),
+        (unsupported, parity.OTHER_LARGE_MAXIMUM, manifest_usage.HELD_NEW),
+    ):
+        uses = [
+            (use.use.where, use.standing)
+            for use in parity.added_uses(baseline, source, entries=(entry,))
+            if any(row.id == entry for row in use.entries)
+        ]
+        assert uses == [("/modules/0/case_details/short/max_select_value", standing)]
 
 
 def test_a_configured_project_search_uses_an_endpoint_datum_and_owns_its_parameter_row(manifest):
@@ -8237,13 +8261,20 @@ def _held_new():
         "menus-and-case-lists/detail-max-select-value-above-100": (
             refused(
                 "app",
-                columns(multi_select=True, max_select_value=150),
+                columns(multi_select=True, max_select_value=501),
                 "schema:Detail.max_select_value",
                 f"{short}/max_select_value",
             ),
             accepted(
                 "app",
                 columns(multi_select=True, max_select_value=99),
+                "schema:Detail.max_select_value",
+                f"{short}/max_select_value",
+            ),
+            # The follow-up must be read separately before judging a 500-case maximum.
+            accepted(
+                "app",
+                columns(multi_select=True, max_select_value=500),
                 "schema:Detail.max_select_value",
                 f"{short}/max_select_value",
             ),

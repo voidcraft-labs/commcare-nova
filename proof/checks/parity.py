@@ -73,6 +73,7 @@ from proof.checks.manifest_value_classes import (
     bounded_flat_followup_maximum,
     bare_fingerprint_query_without_supplier,
     guarded_fingerprint_query_without_supplier,
+    large_maximum_on_android_only_app,
     HQ_CASE_RESERVED_WORDS,
     case_itemset_survey_readiness,
     default_filter_index_fallback,
@@ -1006,6 +1007,7 @@ DIRECT_HOST_TEXT_FILTER = "menus-and-case-lists/detail-filter-matching-the-direc
 FLAT_CLOSE_MAXIMUM = "menus-and-case-lists/detail-max-select-value-for-flat-close"
 FLAT_FOLLOWUP_MAXIMUM = "menus-and-case-lists/detail-max-select-value-for-flat-followup"
 OTHER_101_MAXIMUM = "menus-and-case-lists/detail-max-select-value-101-outside-flat-close"
+OTHER_LARGE_MAXIMUM = "menus-and-case-lists/detail-max-select-value-above-100"
 ORDINARY_LIST_MAXIMUM = "menus-and-case-lists/detail-max-select-value-on-a-multi-select-basic-list"
 SEARCH_INDEX_FALLBACK = "case-search/default-filter-resets-order-with-index-fallback"
 
@@ -1070,19 +1072,23 @@ def added_uses(base_source: dict, variant_source: dict, *, entries=()) -> list[D
                 if use.key == "schema:Detail.filter" and direct_host_text_filter(use, held)
             )
 
-        if {FLAT_CLOSE_MAXIMUM, FLAT_FOLLOWUP_MAXIMUM, OTHER_101_MAXIMUM}.intersection(entries):
+        if {FLAT_CLOSE_MAXIMUM, FLAT_FOLLOWUP_MAXIMUM, OTHER_101_MAXIMUM, OTHER_LARGE_MAXIMUM}.intersection(entries):
             by_id = _entries_by_id(held)
             for use in found.uses:
-                if use.key != "schema:Detail.max_select_value" or _basic_multi_select_maximum(use) != 101:
+                if use.key != "schema:Detail.max_select_value":
+                    continue
+                maximum = _basic_multi_select_maximum(use)
+                if maximum is None or not 101 <= maximum <= 500 or large_maximum_on_android_only_app(use, held):
                     continue
                 close = bounded_flat_close_maximum(use, held)
                 followup = bounded_flat_followup_maximum(use, held)
+                other = OTHER_101_MAXIMUM if maximum == 101 else OTHER_LARGE_MAXIMUM
                 if close is True and FLAT_CLOSE_MAXIMUM in entries:
                     decided.append(Decided(use, manifest_usage.HELD, (by_id[FLAT_CLOSE_MAXIMUM],)))
                 if followup is True and FLAT_FOLLOWUP_MAXIMUM in entries:
                     decided.append(Decided(use, manifest_usage.HELD, (by_id[FLAT_FOLLOWUP_MAXIMUM],)))
-                if close is False and followup is False and OTHER_101_MAXIMUM in entries:
-                    decided.append(Decided(use, manifest_usage.HELD_NEW, (by_id[OTHER_101_MAXIMUM],)))
+                if close is False and followup is False and other in entries:
+                    decided.append(Decided(use, manifest_usage.HELD_NEW, (by_id[other],)))
 
         for entry_id in PARENT_PROMPT_SHAPES.keys() & set(entries):
             entry = _entries_by_id(held)[entry_id]
