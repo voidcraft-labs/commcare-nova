@@ -8170,7 +8170,7 @@ def _held_new():
                 "schema:CaseTileGroupConfig.index_identifier",
                 f"{short}/case_tile_group/index_identifier",
             ),
-            accepted(
+            refused(
                 "app",
                 tile("parent/*"),
                 "schema:CaseTileGroupConfig.index_identifier",
@@ -8180,7 +8180,7 @@ def _held_new():
         "menus-and-case-lists/case-tile-group-identifier-outside-an-xml-element-name": (
             refused(
                 "app",
-                tile("parent/*"),
+                tile("parent/@case_type"),
                 "schema:CaseTileGroupConfig.index_identifier",
                 f"{short}/case_tile_group/index_identifier",
             ),

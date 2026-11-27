@@ -706,12 +706,11 @@ function customGroupIndexRefusal(identifier: string) {
 		return T.groupIdentifierStartsWithHyphen;
 	if (/^[A-Za-z_][A-Za-z0-9_.-]* [A-Za-z_][A-Za-z0-9_.-]*$/.test(identifier))
 		return T.groupIdentifierHasInteriorSpace;
-	const steps = identifier.split("/");
+	const [index, child, ...rest] = identifier.split("/");
 	if (
-		steps.length === 2 &&
-		steps.every(
-			(step) => caseTileGroupingIdentifierSchema.safeParse(step).success,
-		)
+		rest.length === 0 &&
+		caseTileGroupingIdentifierSchema.safeParse(index).success &&
+		(child === "*" || caseTileGroupingIdentifierSchema.safeParse(child).success)
 	)
 		return T.groupIdentifierTraversesScalar;
 	return T.groupIdentifierOutside;

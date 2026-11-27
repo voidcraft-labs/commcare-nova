@@ -4095,7 +4095,7 @@
 		"area": "menus-and-case-lists",
 		"section": "Case list and case detail",
 		"subsection": "Detail screens",
-		"item": "A custom tile groups by two plain path steps, such as `parent/parent`",
+		"item": "A custom tile groups by a child of a scalar case index, such as `parent/parent` or `parent/*`",
 		"surfaceKeys": ["schema:CaseTileGroupConfig.index_identifier"],
 		"valueClass": "grouping-path-through-scalar-index",
 		"disposition": "REFUSED",

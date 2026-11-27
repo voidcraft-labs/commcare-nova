@@ -1278,6 +1278,10 @@ def tile_grouped_by_a_wildcard_index(authoring, app_id):
     _tile_grouped_by_index(authoring, app_id, "parent/*", with_body=True)
 
 
+def tile_grouped_by_an_index_attribute(authoring, app_id):
+    _tile_grouped_by_index(authoring, app_id, "parent/@case_type", with_body=True)
+
+
 def _tile_grouped_by_index(authoring, app_id, identifier, *, with_body):
     header = {
         "model": "case",

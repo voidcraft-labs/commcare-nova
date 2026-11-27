@@ -273,7 +273,11 @@ describe("tiles", () => {
 		["-my-parent", "case-tile-group-identifier-starts-with-a-hyphen"],
 		["my parent", "case-tile-group-identifier-with-interior-space"],
 		["parent/parent", "case-tile-group-path-through-a-scalar-index"],
-		["parent/*", "case-tile-group-identifier-outside-an-xml-element-name"],
+		["parent/*", "case-tile-group-path-through-a-scalar-index"],
+		[
+			"parent/@case_type",
+			"case-tile-group-identifier-outside-an-xml-element-name",
+		],
 	])(
 		"refuses tile grouping by %s under its exact finding",
 		async (identifier, entry) => {

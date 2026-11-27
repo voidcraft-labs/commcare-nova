@@ -470,7 +470,7 @@ def test_web_apps_rejects_tile_group_paths_through_a_scalar_index(
 
     document = webapps_documents[GROUP_FILTER]
     database = casedata.database_of_restore((document.root / "restore.xml").read_bytes())
-    for position, identifier in enumerate(("parent", "parent/parent")):
+    for position, identifier in enumerate(("parent", "parent/parent", "parent/*")):
         with webapps_hq.project(document, "maximum") as project:
             if identifier != "parent":
                 posted = _edit_tile_group_identifier(project, editor_driver, identifier)
@@ -494,7 +494,7 @@ def test_web_apps_rejects_tile_group_paths_through_a_scalar_index(
         else:
             assert "list" not in screen
             [refusal] = [response for response in native if response.get("status") == "error"]
-            assert "Logic references index/parent/parent" in refusal["exception"]
+            assert f"Logic references index/{identifier}" in refusal["exception"]
             assert refusal["exception"] in screen["alerts"]
 
 

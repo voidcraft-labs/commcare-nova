@@ -14411,7 +14411,8 @@ def tile_group_index_has_interior_space(use, manifest):
 
 def _tile_group_index_has_two_steps(identifier):
     steps = identifier.split("/")
-    return len(steps) == 2 and all(TILE_GROUP_CONNECTION.fullmatch(step) for step in steps)
+    return (len(steps) == 2 and TILE_GROUP_CONNECTION.fullmatch(steps[0]) is not None
+            and (steps[1] == "*" or TILE_GROUP_CONNECTION.fullmatch(steps[1]) is not None))
 
 
 def tile_group_index_traverses_scalar(use, manifest):
