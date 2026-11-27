@@ -13,6 +13,7 @@ import { workerIdentityGuidance, workerPlaceGuidance } from "./workerIdentity";
 
 const fields = () =>
 	fieldKinds
+		.filter((kind) => kind !== "case_change")
 		.map((kind) => {
 			const description =
 				kind === "repeat"

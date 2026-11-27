@@ -479,7 +479,7 @@ test("a team installs its selected language and sees its own default in Preview"
 	expect((await created).status()).toBe(200);
 	const edit = installations.getByRole("article");
 	const en = edit.getByRole("switch", { name: /English/ });
-	const spanish = edit.getByRole("switch", { name: /Español/ });
+	const spanish = edit.getByRole("switch", { name: /^Spanish\b/ });
 	if (!(await spanish.isChecked())) {
 		const changed = nextSave(page, appId);
 		await spanish.click();
@@ -495,7 +495,10 @@ test("a team installs its selected language and sees its own default in Preview"
 	await page.getByRole("button", { name: "Preview", exact: true }).click();
 	await page.getByRole("button", { name: /^Worker language:/ }).click();
 	await page
-		.getByRole("menuitemradio", { name: "Outreach", exact: true })
+		.getByRole("menuitemradio", {
+			name: "Profile 1 · Outreach (Español / Spanish)",
+			exact: true,
+		})
 		.click();
 	await expect(
 		page.getByRole("button", { name: "Worker language: Spanish" }),

@@ -96,7 +96,7 @@ it.each([
 	["a%2Fb", false],
 	["plain%", true],
 	["plain=", true],
-	["a/b", true],
+	["a/b", false],
 	["district#north", false],
 ] as const)(
 	"matches only a native link that selects its physical profile %s",
