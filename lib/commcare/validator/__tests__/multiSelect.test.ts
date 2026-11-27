@@ -274,9 +274,13 @@ function linkExpressionDoc(options: {
 }
 
 describe("multi-select absolute validation", () => {
-	it.each(["close", "followup"] as const)(
-		"allows 101 for a bounded %s form",
-		(type) => {
+	it.each([
+		["close", 101],
+		["followup", 101],
+		["followup", 500],
+	] as const)(
+		"allows a bounded %s form to choose %s cases",
+		(type, maximum) => {
 			const doc = buildDoc({
 				appSettings: { ...NEW_APP_SETTINGS, runsOnlyOn: "web-apps" },
 				caseTypes: [{ name: "patient", properties: [] }],
@@ -284,7 +288,7 @@ describe("multi-select absolute validation", () => {
 					{
 						name: "Patients",
 						caseType: "patient",
-						caseListConfig: multipleConfig(101),
+						caseListConfig: multipleConfig(maximum),
 						forms: [
 							{
 								name: "Close selected cases",
@@ -309,6 +313,16 @@ describe("multi-select absolute validation", () => {
 			expectAdmittedDoc(doc);
 			const [module] = doc.moduleOrder;
 			const [form] = doc.formOrder[module];
+			if (type === "close") {
+				const larger = produce(doc, (draft) => {
+					const selection = draft.modules[module].caseListConfig?.selection;
+					if (!selection) throw new Error("Expected several-case selection.");
+					selection.maximum = 102;
+				});
+				expect(codes(larger)).toContain(
+					"MULTI_SELECT_LARGE_BATCH_REQUIRES_FLAT_CLOSE",
+				);
+			}
 			const changed = produce(doc, (draft) => {
 				draft.forms[form].postSubmit = "module";
 			});

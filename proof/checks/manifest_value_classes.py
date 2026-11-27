@@ -14166,8 +14166,10 @@ def _bounded_answer_condition(expression, nodeset, plain_answers, *, allow_alway
 def _bounded_flat_form(use, *, followup):
     """One ordinary unconditional own-case close supplies a manually or automatically chosen 101-case datum."""
     value = _basic_multi_select_maximum(use)
-    if value != 101:
-        return value if value is None else False
+    if value is None:
+        return None
+    if not 101 <= value <= (500 if followup else 101):
+        return False
     at = _json(use)
     app = at.app
     modules = app.modules
@@ -14255,7 +14257,12 @@ def bounded_flat_followup_maximum(use, manifest):
 
 def max_select_value_above_100(use, manifest):
     value = _basic_multi_select_maximum(use)
-    return value if value is None else 101 < value <= 2_147_483_647
+    if value is None:
+        return None
+    if not 101 < value <= 2_147_483_647:
+        return False
+    held = _bounded_flat_form(use, followup=True)
+    return held if held is None else not held
 
 
 def multi_select_maximum_exceeds_java_int(use, manifest):

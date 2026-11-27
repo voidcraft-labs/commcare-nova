@@ -1,6 +1,10 @@
 import { menuEmittedAdvanced } from "./advancedEntryDatums";
 import type { BlueprintDoc } from "./blueprint";
-import { BOUNDED_FLAT_CLOSE_MAXIMUM } from "./caseSelectionLimits";
+import {
+	BOUNDED_FLAT_CLOSE_MAXIMUM,
+	BOUNDED_FLAT_FOLLOWUP_MAXIMUM,
+	STANDARD_CASE_SELECTION_MAXIMUM,
+} from "./caseSelectionLimits";
 import type { Expression } from "./expression/types";
 import { effectivePostSubmit } from "./postSubmit";
 import { expressionSlotValues } from "./referenceSlots";
@@ -132,7 +136,11 @@ export function boundedFlatSelectionForm(
 			return undefined;
 	}
 
-	return { caseType: menu.caseType, selection };
+	const maximum =
+		owner.type === "close"
+			? BOUNDED_FLAT_CLOSE_MAXIMUM
+			: BOUNDED_FLAT_FOLLOWUP_MAXIMUM;
+	return { caseType: menu.caseType, selection, maximum };
 }
 
 /** Only the higher authored limit routes through the bounded worker path. */
@@ -142,7 +150,9 @@ export function authoredBoundedFlatSelection(
 	form: Uuid | undefined,
 ) {
 	const profile = form && boundedFlatSelectionForm(doc, module, form);
-	return profile?.selection.maximum === BOUNDED_FLAT_CLOSE_MAXIMUM
+	return profile &&
+		profile.selection.maximum > STANDARD_CASE_SELECTION_MAXIMUM &&
+		profile.selection.maximum <= profile.maximum
 		? profile
 		: undefined;
 }

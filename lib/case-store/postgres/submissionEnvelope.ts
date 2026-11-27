@@ -1291,7 +1291,9 @@ function validatedSelectedCaseIds(
 	const caseIds = ordinary.caseIds;
 	const maximum = ordinary.selection.maximum;
 	const selectedRecordBudget = args.boundedFlatClose
-		? FLAT_CLOSE_SELECTED_RECORDS
+		? ordinary.kind === "close"
+			? FLAT_CLOSE_CASE_EFFECTS
+			: FLAT_CLOSE_SELECTED_RECORDS
 		: MAX_SELECTED_CASES;
 	if (
 		!Number.isInteger(maximum) ||
@@ -1420,7 +1422,7 @@ function flatCloseSelectionOf(
 		args.captureIntent ||
 		args.connect ||
 		args.webActivity ||
-		caseIds.length > FLAT_CLOSE_CASE_EFFECTS
+		(ordinary.kind === "close" && caseIds.length > FLAT_CLOSE_CASE_EFFECTS)
 	)
 		throw new CaptureSubmissionRejectedError(
 			"This form could not use the selected records together.",

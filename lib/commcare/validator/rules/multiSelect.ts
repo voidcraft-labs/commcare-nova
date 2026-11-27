@@ -104,7 +104,7 @@ export function multiSelectTopology(
 			validationError(
 				"MULTI_SELECT_LARGE_BATCH_REQUIRES_FLAT_CLOSE",
 				"module",
-				"A single Web Apps list can choose 101 records when its only form closes them or collects plain text answers without changing them. Use a limit of 100 for this list.",
+				"A single Web Apps list can choose up to 101 records to close them, or up to 500 to collect text answers without changing any records. Use a limit of 100 for other workflows.",
 				{ moduleUuid, moduleName: module.name },
 			),
 		);

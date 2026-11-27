@@ -12351,6 +12351,27 @@
 		]
 	},
 	{
+		"id": "hq-bounded-flat-close/large-selection-of-five-hundred-with-no-case-writes",
+		"base": "hq-bounded-flat-close",
+		"entry": "menus-and-case-lists/detail-max-select-value-for-flat-followup",
+		"change": {
+			"op": "named",
+			"name": "limit_500_read_only_followup"
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/selection/maximum",
+				"value": 500
+			}
+		]
+	},
+	{
 		"id": "hq-case-lists/multi-select-above-a-hundred",
 		"base": "hq-case-lists",
 		"entry": "menus-and-case-lists/detail-max-select-value-above-100",

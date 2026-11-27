@@ -41,7 +41,7 @@ import {
 	readCasePropertyNameSchema,
 } from "./casePropertyName";
 import type { CasePropertyDataType } from "./casePropertyTypes";
-import { BOUNDED_FLAT_CLOSE_MAXIMUM } from "./caseSelectionLimits";
+import { BOUNDED_FLAT_FOLLOWUP_MAXIMUM } from "./caseSelectionLimits";
 import { COMMCARE_DATE_PATTERN_REGEX } from "./commCareDatePattern";
 import { detailTabSpans, detailTabsSchema } from "./detailTabSchema";
 import { entryPointSchema } from "./entryPoints";
@@ -3464,7 +3464,9 @@ export type CaseTileLayout = z.infer<typeof caseTileLayoutSchema>;
  */
 export const caseSelectionSchema = z.strictObject({
 	kind: z.literal("multiple"),
-	maximum: persistableJsonPositiveIntegerSchema.max(BOUNDED_FLAT_CLOSE_MAXIMUM),
+	maximum: persistableJsonPositiveIntegerSchema.max(
+		BOUNDED_FLAT_FOLLOWUP_MAXIMUM,
+	),
 	autoSelect: z.literal(true).optional(),
 });
 export type CaseSelection = z.infer<typeof caseSelectionSchema>;

@@ -171,7 +171,7 @@ describe("caseListConfigSchema — canonical shape", () => {
 		},
 	);
 
-	it.each([0, 102, 1.5, -0])(
+	it.each([0, 501, 1.5, -0])(
 		"rejects a noncanonical multiple-selection maximum (%s)",
 		(maximum) => {
 			expect(

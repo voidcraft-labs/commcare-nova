@@ -371,6 +371,11 @@ def limit_101_with_compound_visibility(authoring, app_id):
     ops.set_form_source(authoring, app_id, 0, 0, compound_visibility, what="show an answer for either of two values")
 
 
+def limit_500_read_only_followup(authoring, app_id):
+    limit_101_with_two_visible_questions(authoring, app_id)
+    ops.set_json(authoring, app_id, "/modules/0/case_details/short/max_select_value", 500)
+
+
 def multi_select_above_a_hundred(authoring, app_id):
     """Patients' list choosing up to 500 patients."""
     _set_each(

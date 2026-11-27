@@ -1,5 +1,9 @@
 import { authoredBoundedFlatSelection } from "@/lib/domain/boundedFlatClose";
-import { BOUNDED_FLAT_CLOSE_MAXIMUM } from "@/lib/domain/caseSelectionLimits";
+import {
+	BOUNDED_FLAT_CLOSE_MAXIMUM,
+	BOUNDED_FLAT_FOLLOWUP_MAXIMUM,
+	STANDARD_CASE_SELECTION_MAXIMUM,
+} from "@/lib/domain/caseSelectionLimits";
 import { bindCalculationText } from "./calculationText";
 import { mappingIdentityAt } from "./mappingIdentity";
 /**
@@ -1808,7 +1812,14 @@ export function settleFlatCloseSelectionLimits(
 					? D.maxSelectFlatClose
 					: D.maxSelectFlatFollowup;
 			short.take("max_select_value", claim, Number).value;
-		} else short.refuse("max_select_value", D.maxSelect101Elsewhere);
+		} else {
+			short.refuse(
+				"max_select_value",
+				short.peek("max_select_value") === BOUNDED_FLAT_CLOSE_MAXIMUM
+					? D.maxSelect101Elsewhere
+					: D.maxSelectAbove,
+			);
+		}
 	}
 	deferredFlatCloseLimits.delete(ctx);
 }
@@ -1867,7 +1878,8 @@ function readSelection(
 		return { ok: false };
 	}
 	if (
-		max === BOUNDED_FLAT_CLOSE_MAXIMUM &&
+		max > STANDARD_CASE_SELECTION_MAXIMUM &&
+		max <= BOUNDED_FLAT_FOLLOWUP_MAXIMUM &&
 		module.docType === "Module" &&
 		ctx.facts.webAppsOnInHq
 	) {

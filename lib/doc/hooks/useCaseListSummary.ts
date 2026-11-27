@@ -25,10 +25,7 @@ import {
 } from "@/lib/doc/hooks/useBlueprintDoc";
 import type { Uuid } from "@/lib/doc/types";
 import { boundedFlatSelectionForm } from "@/lib/domain/boundedFlatClose";
-import {
-	BOUNDED_FLAT_CLOSE_MAXIMUM,
-	STANDARD_CASE_SELECTION_MAXIMUM,
-} from "@/lib/domain/caseSelectionLimits";
+import { STANDARD_CASE_SELECTION_MAXIMUM } from "@/lib/domain/caseSelectionLimits";
 
 /**
  * Compact summary returned by `useCaseListSummary`. Every entry is
@@ -67,8 +64,7 @@ export function useCaseListSummary(moduleUuid: Uuid): CaseListSummary {
 export function useCaseSelectionMaximumOffer(moduleUuid: Uuid): number {
 	return useBlueprintDoc((doc) => {
 		const form = doc.formOrder[moduleUuid]?.[0];
-		return form && boundedFlatSelectionForm(doc, moduleUuid, form)
-			? BOUNDED_FLAT_CLOSE_MAXIMUM
-			: STANDARD_CASE_SELECTION_MAXIMUM;
+		const profile = form && boundedFlatSelectionForm(doc, moduleUuid, form);
+		return profile ? profile.maximum : STANDARD_CASE_SELECTION_MAXIMUM;
 	});
 }
