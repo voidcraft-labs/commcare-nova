@@ -667,8 +667,8 @@ def test_search_lookup_filter_orders_text_as_numbers(
         ("text-column-right", "name > id", ["10"]),
         ("two-numbers", "number(name) > number(id)", ["10"]),
         ("text-column-below", "name < id", ["2"]),
-        ("text-column-below-or-equal", "name <= id", ["2", "10"]),
-        ("text-column-above-or-equal", "name >= id", ["2", "10"]),
+        ("text-column-below-or-equal", "name <= id", ["2"]),
+        ("text-column-above-or-equal", "name >= id", ["10"]),
     ):
         with webapps_hq.authored_project(document, "A", configure=enable_address_search) as project:
             authoring = Authoring(project.unit, {}, document.id, operation=project.unit.operation)
@@ -683,9 +683,9 @@ def test_search_lookup_filter_orders_text_as_numbers(
                         row.fields["id"] = [Field(value=["2", "10"][index], properties={})]
                         names = ["10", "2"]
                         if label == "text-column-below-or-equal":
-                            names = ["2", "10"]
+                            names = ["2", "11"]
                         if label == "text-column-above-or-equal":
-                            names = ["2", "10"]
+                            names = ["1", "10"]
                         row.fields["name"] = [Field(value=names[index], properties={})]
                     else:
                         row.fields["name"] = [Field(value=str(2 * index), properties={})]
