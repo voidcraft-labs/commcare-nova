@@ -309,6 +309,10 @@ const generatedMenuAudioOnlyInMediaMap = refuse(
 	"application-and-settings/translations-generated-menu-audio-only-in-media-map",
 	"schema:Application.translations",
 );
+const generatedMenuAudioOutsideInstallation = refuse(
+	"application-and-settings/translations-generated-menu-audio-outside-installation-languages",
+	"schema:Application.translations",
+);
 const generatedMenuIconOutsideInstallation = refuse(
 	"application-and-settings/translations-generated-menu-icon-outside-installation-languages",
 	"schema:Application.translations",
@@ -324,6 +328,7 @@ defineClaims("menus.navMedia", {
 	generatedMenuIconOnlyInMediaMap,
 	generatedMenuAudioOnlyInMediaMap,
 	generatedMenuIconOutsideInstallation,
+	generatedMenuAudioOutsideInstallation,
 	generatedMediaNoEffect,
 });
 const acceptedOverrides = new WeakMap<
@@ -466,17 +471,18 @@ function menuAudioOnlyInMediaMap(ctx: ReadContext, path: string): boolean {
 }
 
 /** The narrow named-package failure witnessed on Android. The translated
- * menu icon is active in the chosen language. The only ordinary image files
- * at that path are on basic form tiles in the languages HQ excluded. */
-function menuIconOutsideInstallation(
+ * menu file is requested in the chosen language. The only ordinary carriers
+ * for that path are basic forms in languages HQ excluded. */
+function menuFileOutsideInstallation(
 	ctx: ReadContext,
 	path: string,
 	code: string,
 	place: HqPlace,
+	role: "icon" | "audioLabel",
 ): boolean {
 	const source = ctx.input.source;
 	if (
-		!mappedNavigationFile(ctx, path, "icon") ||
+		!mappedNavigationFile(ctx, path, role) ||
 		!("menu" in place) ||
 		!source.buildProfiles.some(
 			(profile) =>
@@ -488,13 +494,14 @@ function menuIconOutsideInstallation(
 		return false;
 	const modules = source.raw.modules;
 	if (!Array.isArray(modules)) return false;
+	const key = role === "icon" ? "media_image" : "media_audio";
 	const selected = modules[place.menu];
+	if (!isJsonObject(selected) || selected[FOR_ALL[key]] === true) return false;
+	const selectedFiles = selected[key];
 	if (
-		!isJsonObject(selected) ||
-		selected.use_default_image_for_all === true ||
-		!isJsonObject(selected.media_image) ||
-		typeof selected.media_image[code] !== "string" ||
-		!selected.media_image[code]
+		!isJsonObject(selectedFiles) ||
+		typeof selectedFiles[code] !== "string" ||
+		!selectedFiles[code]
 	)
 		return false;
 	if (
@@ -513,17 +520,17 @@ function menuIconOutsideInstallation(
 		if (mentionsPath(menu, path) || !Array.isArray(forms)) return false;
 		for (const form of forms) {
 			if (!isJsonObject(form)) return false;
-			const { media_image: images, ...other } = form;
+			const { [key]: files, ...other } = form;
 			if (mentionsPath(other, path)) return false;
-			if (!mentionsPath(images, path)) continue;
+			if (!mentionsPath(files, path)) continue;
 			if (
 				menu.doc_type !== "Module" ||
 				form.doc_type !== "Form" ||
-				form.use_default_image_for_all === true ||
-				!isJsonObject(images)
+				form[FOR_ALL[key]] === true ||
+				!isJsonObject(files)
 			)
 				return false;
-			for (const [language, value] of Object.entries(images)) {
+			for (const [language, value] of Object.entries(files)) {
 				if (!mentionsPath(value, path)) continue;
 				if (
 					value !== path ||
@@ -600,11 +607,12 @@ export function accountNavigationMediaOverride(
 		override.carrierClass === "Module" &&
 		override.role === "icon" &&
 		localImagePath.test(override.path);
+	const localMenuAudio =
+		override.carrierClass === "Module" &&
+		override.role === "audioLabel" &&
+		localAudioPath.test(override.path);
 	const otherLanguageCarrier =
-		(localMenuIcon ||
-			(override.carrierClass === "Module" &&
-				override.role === "audioLabel" &&
-				localAudioPath.test(override.path))) &&
+		(localMenuIcon || localMenuAudio) &&
 		menuMediaPackagedByAnotherLanguage(
 			ctx,
 			override.path,
@@ -624,22 +632,21 @@ export function accountNavigationMediaOverride(
 			noOrdinaryCarrier(ctx, override.path)
 		)
 			claim = generatedMenuIconOnlyInMediaMap;
-		else if (
-			override.carrierClass === "Module" &&
-			override.role === "audioLabel" &&
-			menuAudioOnlyInMediaMap(ctx, override.path)
-		)
+		else if (localMenuAudio && menuAudioOnlyInMediaMap(ctx, override.path))
 			claim = generatedMenuAudioOnlyInMediaMap;
 		else if (
-			localMenuIcon &&
-			menuIconOutsideInstallation(
+			(localMenuIcon || localMenuAudio) &&
+			menuFileOutsideInstallation(
 				ctx,
 				override.path,
 				held.language,
 				override.place,
+				override.role,
 			)
 		)
-			claim = generatedMenuIconOutsideInstallation;
+			claim = localMenuIcon
+				? generatedMenuIconOutsideInstallation
+				: generatedMenuAudioOutsideInstallation;
 		held.json.refuse(held.key, claim, { name: held.key });
 		return true;
 	}

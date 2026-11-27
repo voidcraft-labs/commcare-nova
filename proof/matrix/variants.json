@@ -25887,12 +25887,23 @@
 	{
 		"id": "hq-media/translation-overrides-menu-audio-with-carrier-excluded-from-one-installation",
 		"base": "hq-media",
+		"entry": "application-and-settings/translations-generated-menu-audio-outside-installation-languages",
+		"standing": "fix-in-hq",
+		"place": { "kind": "app" },
+		"change": {
+			"op": "named",
+			"name": "menu_audio_override_with_a_carrier_excluded_from_one_installation"
+		}
+	},
+	{
+		"id": "hq-media/translation-overrides-menu-audio-with-carrier-excluded-from-two-language-installation",
+		"base": "hq-media",
 		"entry": "application-and-settings/translations-generated-navigation-file-not-packaged",
 		"standing": "not-yet",
 		"place": { "kind": "app" },
 		"change": {
 			"op": "named",
-			"name": "menu_audio_override_with_a_carrier_excluded_from_one_installation"
+			"name": "menu_audio_override_with_a_carrier_excluded_from_a_two_language_installation"
 		}
 	},
 	{

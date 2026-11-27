@@ -2040,6 +2040,26 @@
 		"gates": []
 	},
 	{
+		"id": "application-and-settings/translations-generated-menu-audio-outside-installation-languages",
+		"area": "application-and-settings",
+		"section": "Application",
+		"item": "A translated menu recording whose only ordinary form carrier is outside a named single-language installation",
+		"surfaceKeys": ["schema:Application.translations"],
+		"valueClass": "generated-menu-audio-outside-installation-languages",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: HQ’s named installation keeps the translated menu’s recording address but leaves the file out.",
+		"subject": "translation-overrides",
+		"reasons": [
+			{
+				"kind": "broken-at-runtime",
+				"named": "The release with both languages includes the file. HQ keeps the address in the installation that shows the translated menu and omits the recording carried only by the excluded language."
+			}
+		],
+		"platforms": { "kind": "none", "cell": "—" },
+		"emission": { "cell": "—", "markers": [] },
+		"gates": []
+	},
+	{
 		"id": "application-and-settings/translations-generated-menu-audio-only-in-media-map",
 		"area": "application-and-settings",
 		"section": "Application",

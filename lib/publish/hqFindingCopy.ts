@@ -588,6 +588,8 @@ export const FIX_IN_HQ_ENTRY_SENTENCES: Readonly<Record<string, string>> = {
 		"A follow-up saves free text to the property this whole-number question starts from. A word saved there can stop the form from opening. In CommCare HQ, you can store the free text in a different property or change where the number starts.",
 	"forms-and-case-writes/basic-update-key-with-an-accented-latin-name":
 		"The form builder marks this question’s accented Case Property name as an error. You can choose a property with unaccented letters in CommCare HQ. If existing cases use the accented property, move those values before switching the mapping.",
+	"application-and-settings/translations-generated-menu-audio-outside-installation-languages":
+		"A translated menu title uses a recording that a named installation leaves out. You can include the language that supplies the recording, or attach it in a language the installation already includes.",
 	"application-and-settings/translations-generated-menu-icon-outside-installation-languages":
 		"A translated menu icon uses a file that a named installation leaves out. You can include the language that supplies the file in that installation, or attach the icon in the language the installation already includes.",
 	"application-and-settings/translations-generated-menu-icon-only-in-media-map":

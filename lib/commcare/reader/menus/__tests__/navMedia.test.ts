@@ -762,7 +762,10 @@ describe("an override of a generated media key in `translations`", () => {
 	it.each([
 		[["en", "es"], undefined],
 		[["es"], undefined],
-		[["en"], "translations-generated-navigation-file-not-packaged"],
+		[
+			["en"],
+			"translations-generated-menu-audio-outside-installation-languages",
+		],
 	] as const)(
 		"keeps the Spanish form carrier for an English menu recording in %j",
 		async (languages, entry) => {

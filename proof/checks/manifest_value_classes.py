@@ -2671,7 +2671,51 @@ def generated_menu_icon_outside_installation_languages(use, manifest):
     return _generated_menu_icon_with_no_package_file(use, mapped=True, profile_only=True)
 
 
-def _only_foreign_form_icons(app, code, codes, path):
+def generated_menu_audio_outside_installation_languages(use, manifest):
+    """HQ's named one-language package omits a foreign form's recording."""
+    at = _json(use)
+    if at is None or at.key != "translations" or not isinstance(at.value, dict):
+        return None
+    document = at.app.doc
+    codes = document.get("langs") or []
+    profiles = document.get("build_profiles") or {}
+    media = document.get("multimedia_map") or {}
+    if not isinstance(codes, list) or not isinstance(profiles, dict) or not isinstance(media, dict):
+        return None
+    single_languages = {
+        code for code in codes
+        if any(isinstance(profile, dict) and profile.get("langs") == [code]
+               and not profile.get("practice_mobile_worker_id") for profile in profiles.values())
+    }
+    if not single_languages:
+        return False
+    modules = document.get("modules") or []
+    for index, menu in enumerate(modules):
+        if not isinstance(menu, dict) or menu.get("doc_type") != "Module" or menu.get("use_default_audio_for_all") is True:
+            continue
+        audio = menu.get("media_audio") or {}
+        if not isinstance(audio, dict):
+            continue
+        for code in single_languages:
+            table = at.value.get(code)
+            path = table.get(f"modules.m{index}.audio") if isinstance(table, dict) else None
+            if not audio.get(code) or not isinstance(path, str) or not re.fullmatch(
+                r"jr://file/commcare/audio/[A-Za-z0-9_][A-Za-z0-9_.-]*(?:/[A-Za-z0-9_][A-Za-z0-9_.-]*)*", path,
+            ):
+                continue
+            mapped = media.get(path)
+            if not isinstance(mapped, dict) or mapped.get("media_type") != "CommCareAudio" or not isinstance(mapped.get("multimedia_id"), str) or not re.fullmatch(r"[A-Za-z0-9_-]+", mapped["multimedia_id"]):
+                continue
+            if any(form.get("doc_type") != "ShadowForm" and form.get("unique_id") not in at.app.forms
+                   for module in modules if isinstance(module, dict)
+                   for form in module.get("forms", ()) if isinstance(form, dict)):
+                return None
+            if _only_foreign_form_media(at.app, code, codes, path, key="media_audio"):
+                return True
+    return False
+
+
+def _only_foreign_form_media(app, code, codes, path, key="media_image"):
     """Conservatively subtract the ordinary form tiles that HQ demonstrably omits."""
     body = app.doc
     if any(path in json.dumps(value) for key, value in body.items()
@@ -2686,15 +2730,15 @@ def _only_foreign_form_icons(app, code, codes, path):
         for form in module["forms"]:
             if not isinstance(form, dict):
                 return False
-            if any(path in json.dumps(value) for key, value in form.items() if key != "media_image"):
+            if any(path in json.dumps(value) for field, value in form.items() if field != key):
                 return False
-            images = form.get("media_image")
-            if path not in json.dumps(images):
+            files = form.get(key)
+            if path not in json.dumps(files):
                 continue
             if (module.get("doc_type") != "Module" or form.get("doc_type") != "Form"
-                    or form.get("use_default_image_for_all") is True or not isinstance(images, dict)):
+                    or form.get(f"use_default_{key.removeprefix('media_')}_for_all") is True or not isinstance(files, dict)):
                 return False
-            for language, value in images.items():
+            for language, value in files.items():
                 if path not in json.dumps(value):
                     continue
                 if value != path or language == code or language not in codes:
@@ -2763,7 +2807,7 @@ def _generated_menu_icon_with_no_package_file(use, *, mapped, profile_only=False
                             isinstance(profile, dict) and profile.get("langs") == [code]
                             and not profile.get("practice_mobile_worker_id")
                             for profile in profiles.values()
-                        ) and _only_foreign_form_icons(at.app, code, codes, path)):
+                        ) and _only_foreign_form_media(at.app, code, codes, path)):
                     return True
                 continue
             # Leave a source with another possible carrier to its own check.
@@ -14960,6 +15004,7 @@ VALUE_CLASSES = {
     "application-and-settings/translations-generated-menu-icon-without-mapping": generated_menu_icon_without_mapping,
     "application-and-settings/translations-generated-menu-icon-only-in-media-map": generated_menu_icon_only_in_media_map,
     "application-and-settings/translations-generated-menu-audio-only-in-media-map": generated_menu_audio_only_in_media_map,
+    "application-and-settings/translations-generated-menu-audio-outside-installation-languages": generated_menu_audio_outside_installation_languages,
     "application-and-settings/translations-generated-menu-icon-outside-installation-languages": generated_menu_icon_outside_installation_languages,
     "application-and-settings/translations-key-that-is-no-locale-record-under-its-own-name": (
         translation_key_not_its_own
