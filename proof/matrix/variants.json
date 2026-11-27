@@ -39156,7 +39156,7 @@
 		}
 	},
 	{
-		"id": "hq-questions/save-to-case-retype-keyed-unguarded",
+		"id": "hq-questions/save-to-case-update-under-earlier-type",
 		"base": "hq-questions",
 		"entry": "questions/a-savetocase-change-of-a-case-s-type-another-change-of-the-form-may-read-as-its-earlier-type",
 		"standing": "not-yet",
@@ -39169,7 +39169,7 @@
 		},
 		"change": {
 			"op": "named",
-			"name": "save_to_case_retype_keyed_unguarded"
+			"name": "save_to_case_update_under_earlier_type"
 		}
 	},
 	{

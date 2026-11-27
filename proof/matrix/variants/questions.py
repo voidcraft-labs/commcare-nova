@@ -3316,17 +3316,22 @@ def save_to_case_retype_keyed(authoring, app_id):
     )
 
 
-def save_to_case_retype_keyed_unguarded(authoring, app_id):
-    """Changing the type of an already keyed case is still outside Nova's stable key model."""
-    guard_node = TYPE_CHANGE_DATA.index('<nova_guard_again_retype ')
-    data = TYPE_CHANGE_DATA[:guard_node] + "</nova_operations>"
-    guard_binds = TYPE_CHANGE_MODEL.index(
-        '<bind nodeset="/data/nova_operations/nova_guard_again_retype/case/update/case_type"'
+def save_to_case_update_under_earlier_type(authoring, app_id):
+    """The final update still names a patient after the same case becomes a visit."""
+    later_data, later_binds = _block(
+        "later", "patient", "<update><kept/></update>",
+        "current()/../../../mk/case/@case_id",
+        [("update/kept", 'calculate="/data/full_name"')],
     )
-    model = TYPE_CHANGE_MODEL[:guard_binds]
+    data = RETYPE_CONVERTS_DATA.removesuffix("</nova_operations>") + later_data + "</nova_operations>"
+    # Both earlier writes are Text, so only the final update's case type differs.
+    model = RETYPE_CONVERTS_MODEL.replace(
+        'mk/case/update/kept" calculate="/data/visit_date"',
+        'mk/case/update/kept" calculate="/data/full_name"',
+    )
     _edit(
-        authoring, app_id, "save-to-case-retype-keyed-unguarded",
-        lambda text: _transplanted(text, data, model, TYPE_CHANGE_BODY),
+        authoring, app_id, "save-to-case-update-under-earlier-type",
+        lambda text: _transplanted(text, data, model + later_binds, RETYPE_CONVERTS_BODY),
     )
 
 
