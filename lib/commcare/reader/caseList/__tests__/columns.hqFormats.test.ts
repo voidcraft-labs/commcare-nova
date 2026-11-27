@@ -1267,8 +1267,8 @@ describe("a detail's callout and tabs", () => {
 	);
 
 	it.each([
-		["1 + 2", "lookup-extra-with-a-fixed-integer-sum"],
-		["2147483646 + 1", "lookup-extra-with-a-fixed-integer-sum"],
+		["1 + 2", undefined],
+		["2147483646 + 1", undefined],
 		["2147483647 + 1", "lookup-enabled-lookup-action"],
 		["1.0 + 2", "lookup-enabled-lookup-action"],
 		["1+2", "lookup-enabled-lookup-action"],
@@ -1287,10 +1287,24 @@ describe("a detail's callout and tabs", () => {
 				});
 			});
 			expect(closedCodes(reading)).toEqual(finding ? [`${M}${finding}`] : []);
-			if (finding === undefined)
+			if (value === "'3'") {
 				expect(listOf(reading).deviceLookup?.extras).toEqual([
 					{ name: "mode", value: "3" },
 				]);
+			} else if (finding === undefined) {
+				const [left, right] = value.split(" + ").map(Number);
+				expect(listOf(reading).deviceLookup?.extras).toEqual([
+					{
+						name: "mode",
+						expression: {
+							kind: "arith",
+							op: "+",
+							left: { kind: "term", term: { kind: "literal", value: left } },
+							right: { kind: "term", term: { kind: "literal", value: right } },
+						},
+					},
+				]);
+			}
 		},
 	);
 

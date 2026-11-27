@@ -138,6 +138,24 @@ config.columns = [
 ];
 config.listColumnOrder = [nameId, dobId];
 config.detailColumnOrder = [dobId, nameId];
+if (scenario === "lookup-sum") {
+	config.deviceLookup = {
+		action: "org.nova.proof.CASE_LOOKUP",
+		label: "Find a client",
+		extras: [
+			{
+				name: "visit_limit",
+				expression: {
+					kind: "arith",
+					op: "+",
+					left: { kind: "term", term: { kind: "literal", value: 1 } },
+					right: { kind: "term", term: { kind: "literal", value: 2 } },
+				},
+			},
+		],
+		responses: ["first"],
+	};
+}
 if (scenario === "choice-labels-and-values") {
 	caseTypes[0]?.properties.push({
 		name: "village",

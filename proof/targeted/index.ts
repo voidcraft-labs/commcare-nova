@@ -29,6 +29,7 @@ import {
 	caseListDeviceLookup,
 	caseListDeviceLookupCount,
 	caseListDeviceLookupProperty,
+	caseListDeviceLookupSum,
 	caseListDeviceLookupWording,
 } from "./documents/caseListDeviceLookup";
 import { caseListIconAction } from "./documents/caseListIconAction";
@@ -243,6 +244,7 @@ export const TARGETED_DOCUMENTS: readonly (() => CorpusDocument)[] = [
 	caseListDeviceLookup,
 	caseListDeviceLookupCount,
 	caseListDeviceLookupProperty,
+	caseListDeviceLookupSum,
 	caseListDeviceLookupWording,
 	caseListIconAction,
 	closeConditions,

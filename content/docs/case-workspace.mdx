@@ -74,6 +74,10 @@ returned, including keys outside the worker’s case list. The value is blank
 when there is no identification response and zero when the companion
 returns an empty result. Browser Preview leaves the value blank.
 
+A lookup value can be fixed text, a worker value, or the sum of two whole numbers.
+Android sends the sum as text. Devices using the legacy reporting-domain setting
+send the calculation as written, such as `1 + 2`.
+
 You can open the companion when the list first appears or let workers open
 it when they need it. The worker’s device needs the companion installed,
 and the project space needs to support Android case lookup. In browser

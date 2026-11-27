@@ -7,9 +7,14 @@ import type { WireExpr } from "../../xpath/wire/tree";
 
 /** Values the companion receives before the worker chooses a case. */
 export function deviceLookupExtraWire(extra: DeviceLookupExtra): WireExpr {
-	return "value" in extra
-		? w.str(extra.value)
-		: sessionContextPath(extra.expression.term.field);
+	if ("value" in extra) return w.str(extra.value);
+	const expression = extra.expression;
+	if (expression.kind === "term")
+		return sessionContextPath(expression.term.field);
+	return w.add(
+		w.num(expression.left.term.value),
+		w.num(expression.right.term.value),
+	);
 }
 
 export function lookupConfidenceLocaleId(moduleIndex: number): string {
