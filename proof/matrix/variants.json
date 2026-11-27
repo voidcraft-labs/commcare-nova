@@ -42411,17 +42411,18 @@
 	{
 		"id": "hq-search/owner-exclusion-on-an-ordered-text",
 		"base": "hq-search",
-		"entry": "case-search/blacklisted-owner-ids-expression-outside-valueexpression",
-		"standing": "not-yet",
-		"place": {
-			"kind": "search",
-			"menu": 1,
-			"name": "Active clients"
-		},
+		"entry": "case-search/blacklisted-owner-ids-expression-lifting-into-valueexpression",
 		"change": {
 			"op": "named",
 			"name": "owner_exclusion_on_an_ordered_text"
-		}
+		},
+		"holds": [
+			{
+				"key": ["module", { "$menu": 1 }],
+				"pointer": "/caseSearchConfig/excludedOwnerIds/cond/left/term",
+				"value": { "kind": "session-context", "field": "username" }
+			}
+		]
 	},
 	{
 		"id": "hq-search/owner-exclusion-the-list-applies",

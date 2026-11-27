@@ -5664,6 +5664,12 @@ def worker_name_order_in_text_default(use, manifest):
     raw = prompt.get("default_value")
     if not isinstance(raw, str):
         return False
+    return _orders_worker_name(tree(raw))
+
+
+def _orders_worker_name(node):
+    from proof.checks.xpath_tree import tree
+
     username = tree("instance('commcaresession')/session/context/username")
 
     def contains_order(node):
@@ -5684,7 +5690,33 @@ def worker_name_order_in_text_default(use, manifest):
                     return True
         return any(contains_order(child) for child in node)
 
-    return contains_order(tree(raw))
+    return contains_order(node)
+
+
+
+def worker_name_order_in_shared_owner_exclusion(use, manifest):
+    """A Search and its case list use the same typed owner expression."""
+    from proof.checks.xpath_tree import tree
+
+    at, config = _search(use)
+    if config is None:
+        return False
+    module = at.nearest(*MODULES)
+    raw = config.get("blacklisted_owner_ids_expression")
+    if module is None or not isinstance(raw, str):
+        return False
+    case_details = module.get("case_details")
+    short = case_details.get("short") if isinstance(case_details, dict) else None
+    restriction = short.get("filter") if isinstance(short, dict) else None
+    if not isinstance(restriction, str) or not _orders_worker_name(tree(raw)):
+        return False
+    clause = tree(f"{raw} = '' or not(selected({raw}, @owner_id))")
+    filters = tree(restriction)
+    return clause is not None and (
+        clause == filters or (
+            filters is not None and filters[0] == "AND" and filters[1][-1] == clause
+        )
+    )
 
 
 def manual_address_with_saved_text(use, manifest):
