@@ -3605,7 +3605,9 @@ const storedSearchFilterOrderSchema = z
 	.array(
 		z.union([
 			searchRequestOrderTermSchema,
-			searchFilterResetTermSchema,
+			searchFilterResetTermSchema.extend({
+				savedSuffix: z.literal("obsolete").optional(),
+			}),
 			discardedSearchOrderTermSchema,
 		]),
 	)
@@ -3617,7 +3619,12 @@ const storedSearchFilterOrderSchema = z
 				(term) =>
 					term.comparison !== "indexed-fallback" &&
 					term.comparison !== "discarded",
-			),
+			) ||
+			(order.length === 2 &&
+				order[0].comparison === "date" &&
+				order[0].direction === "descending" &&
+				order[1].comparison === "indexed-fallback" &&
+				order[1].savedSuffix === "obsolete"),
 		{ error: "Give the automatic comparison or saved order its own filter." },
 	);
 export type SearchFilterOrder = z.infer<typeof storedSearchFilterOrderSchema>;

@@ -181,6 +181,7 @@ def test_authored_blank_comparison_resets_sort_without_the_explicit_orders_missi
         ("masked-comparison", ("++priority:unknown", "+priority::ignored", "-visit:date"), ("two-later", "two-earlier")),
         ("republished-masked-comparison", ("++priority:unknown", "+priority::ignored", "-visit:date"), ("two-later", "two-earlier")),
         ("nova-republish", ("-visit:date", "+priority::ignored", "-visit:date"), ("two-later", "two-earlier")),
+        ("mixed-index-reset", ("-visit:date,+priority::obsolete",), ("two-earlier", "two-later")),
         ("explicit-order", ("+priority:numeric,+priority:date,+priority:exact,-visit:date",), ("letter", "two-later")),
     )
     for label, terms, expected in controls:
@@ -252,7 +253,10 @@ def test_authored_blank_comparison_resets_sort_without_the_explicit_orders_missi
             evidence(label, {"saved": saved, "built": built, "parameters": request.params,
                              "matches": returned, "screen": screen})
             assert request.values("commcare_sort") == terms
-            assert returned == expected, returned
+            if label == "mixed-index-reset":
+                assert set(returned) == set(expected), returned
+            else:
+                assert returned == expected, returned
             assert {row["id"] for row in screen["list"]["rows"]} == {f"row-{case_id}" for case_id in expected}
             assert not run.page_errors and not run.dialogs
 

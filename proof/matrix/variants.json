@@ -41348,9 +41348,7 @@
 	{
 		"id": "hq-search/default-order-mixes-an-index-reset-with-another-property",
 		"base": "hq-search",
-		"entry": "case-search/default-properties-entry-keyed-commcare-sort-x-commcare-custom",
-		"standing": "not-yet",
-		"place": { "kind": "search", "menu": 1, "name": "Active clients" },
+		"entry": "case-search/default-filter-resets-order-with-index-fallback",
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/1/search_config/default_properties/-",
@@ -41358,6 +41356,50 @@
 				"property": "commcare_sort",
 				"doc_type": "DefaultCaseSearchProperty",
 				"defaultValue": "'-visit:date,+priority::obsolete'"
+			}
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 1
+					}
+				],
+				"pointer": "/caseListConfig/searchFilters/0/order",
+				"value": [
+					{
+						"property": "visit",
+						"direction": "descending",
+						"comparison": "date"
+					},
+					{
+						"property": "priority",
+						"direction": "ascending",
+						"comparison": "indexed-fallback",
+						"savedSuffix": "obsolete"
+					}
+				]
+			}
+		]
+	},
+	{
+		"id": "hq-search/default-order-mixes-two-index-resets",
+		"base": "hq-search",
+		"entry": "case-search/default-properties-entry-keyed-commcare-sort-x-commcare-custom",
+		"standing": "not-yet",
+		"place": {
+			"kind": "search",
+			"menu": 1,
+			"name": "Active clients"
+		},
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/1/search_config/default_properties/-",
+			"value": {
+				"property": "commcare_sort",
+				"doc_type": "DefaultCaseSearchProperty",
+				"defaultValue": "'-visit:date,+priority::obsolete,+visit::ignored'"
 			}
 		}
 	},

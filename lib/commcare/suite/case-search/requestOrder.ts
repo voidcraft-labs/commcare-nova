@@ -211,7 +211,7 @@ export function requestOrderText(order: SearchFilterOrder): string {
 			if (term.comparison === "discarded")
 				return `${term.savedDirectionSigns}${term.property}:${term.savedComparison}`;
 			if (term.comparison === "indexed-fallback")
-				return `+${term.property}::ignored`;
+				return `+${term.property}::${term.savedSuffix ?? "ignored"}`;
 			return (
 				(term.implicitDirection
 					? ""
@@ -230,17 +230,39 @@ export function requestOrderText(order: SearchFilterOrder): string {
 export function readIndexResetOrderText(
 	text: string,
 ): SearchFilterOrder | undefined {
-	const [signedProperty, blank, suffix, ...extra] = text.split(":");
+	const [prefix, reset, ...remaining] = text.split(",");
+	if (
+		remaining.length ||
+		(reset !== undefined && !reset.endsWith("::obsolete"))
+	)
+		return undefined;
+	const [signedProperty, blank, suffix, ...extra] = (reset ?? prefix).split(
+		":",
+	);
 	if (
 		!signedProperty?.startsWith("+") ||
 		blank !== "" ||
-		suffix !== "ignored" ||
+		suffix !== (reset === undefined ? "ignored" : "obsolete") ||
 		extra.length
 	)
 		return undefined;
 	const property = signedProperty.slice(1);
 	if (!indexedResetProperty(property)) return undefined;
-	return [{ property, comparison: "indexed-fallback", direction: "ascending" }];
+	const fallback = {
+		property,
+		comparison: "indexed-fallback",
+		direction: "ascending",
+	} as const;
+	if (reset === undefined) return [fallback];
+	const earlier = readRequestOrderText(prefix);
+	if (
+		earlier?.order.length !== 1 ||
+		earlier.order[0].comparison !== "date" ||
+		earlier.order[0].direction !== "descending" ||
+		requestOrderText(earlier.order) !== prefix
+	)
+		return undefined;
+	return [earlier.order[0], { ...fallback, savedSuffix: "obsolete" }];
 }
 
 /** The signed spelling of a literal order that an independently verified later reset discards. */

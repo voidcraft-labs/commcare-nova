@@ -76,6 +76,17 @@ export function SearchResultOrder({
 	fallbackProperties?: readonly string[];
 	onChange: (next: SearchFilterOrder) => void;
 }) {
+	const mixed = order.find(
+		(term) =>
+			term.comparison === "indexed-fallback" && term.savedSuffix === "obsolete",
+	);
+	if (mixed)
+		return (
+			<p className="text-xs text-nova-text-secondary">
+				The saved index fallback orders by {mixed.property} and replaces the
+				earlier order in this filter.
+			</p>
+		);
 	const saved = order.find((term) => term.comparison === "discarded");
 	if (saved)
 		return (
