@@ -1,6 +1,6 @@
 import { getAuthDb } from "@/lib/auth/db";
 import type { AppTestScope } from "@/lib/db/appTests";
-import { previewProjectSpaceFor } from "@/lib/deployment/previewSpace";
+import { previewDeploymentAnswerFor } from "@/lib/deployment/previewSpace";
 import {
 	hydratePersistedBlueprint,
 	toPersistableDoc,
@@ -92,13 +92,14 @@ export async function captureAppTestSnapshot(
 				...(additionalUuids.length ? { additionalUuids } : {}),
 			};
 	}
+	const destination = await previewDeploymentAnswerFor(scope);
 	return {
 		purpose: input.purpose,
 		blueprint: toPersistableDoc(doc),
 		user,
-		projectSpace: await previewProjectSpaceFor({
-			...scope,
-			actorUserId: scope.actorUserId,
+		projectSpace: destination?.projectSpace ?? null,
+		...(destination?.targetFacts?.androidAppLabels !== undefined && {
+			androidAppLabels: destination.targetFacts.androidAppLabels,
 		}),
 		lookup: {
 			projectRevision: lookup.projectRevision,

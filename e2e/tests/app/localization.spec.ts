@@ -165,6 +165,30 @@ test(
 		const peerGuard = await attachErrorGuard(peer, baseURL);
 		try {
 			await openBuilder(peer, `${setupPath}?lang=spa`);
+			// The first language is the runtime default. Moving the source below
+			// Spanish must preserve both tabs' active lens and saved text.
+			const moveEnglish = peer.getByRole("button", {
+				name: "Move English later",
+			});
+			await moveEnglish.focus();
+			const moved = nextSave(peer, appId);
+			await moveEnglish.press("Enter");
+			expect((await moved).status()).toBe(200);
+			const spanishCard = page.getByRole("article").filter({
+				has: page.getByRole("button", { name: /Español.*Spanish/ }),
+			});
+			await expect(
+				spanishCard.getByText("Default", { exact: true }),
+			).toBeVisible();
+			await expect(draft).toHaveValue("Trabajador [[NOVA_REF_1]]");
+			const restoreDefault = nextSave(peer, appId);
+			await peer
+				.getByRole("button", { name: "Make default", exact: true })
+				.click();
+			expect((await restoreDefault).status()).toBe(200);
+			await expect(
+				spanishCard.getByText("Default", { exact: true }),
+			).toHaveCount(0);
 			await draft.fill("Borrador [[NOVA_REF_1]]");
 			const peerHint = peer
 				.getByRole("article")
@@ -279,3 +303,124 @@ test(
 		).toBeVisible();
 	},
 );
+
+test("a project language keeps its code, manual text and writing direction through reload and Preview", {
+	tag: "@seed:localization",
+}, async ({ scenario, page }) => {
+	const appId = seedFor(scenario, "localization").localizationAppId;
+	if (!appId) throw new Error("Missing language app for this attempt");
+	const setupPath = `/build/${appId}/setup/languages`;
+	await page.setViewportSize({ width: 390, height: 844 });
+	await openBuilder(page, setupPath);
+	await page.getByRole("button", { name: "Add language", exact: true }).click();
+	const dialog = page.getByRole("dialog");
+	await dialog
+		.getByRole("button", { name: "Use a project language code" })
+		.click();
+	const input = dialog.getByRole("textbox", { name: "Project language code" });
+	const add = dialog.getByRole("button", { name: "Add language", exact: true });
+	await input.fill("en");
+	await add.focus();
+	await add.press("Enter");
+	await expect(dialog.getByRole("alert")).toHaveText(
+		"This app already has a language with that code",
+	);
+	await expect(input).toHaveValue("en");
+	await input.fill("qaa");
+	const added = nextSave(page, appId);
+	await add.click();
+	expect((await added).status()).toBe(200);
+	await expect(
+		page.getByRole("heading", { name: "qaa phrases" }),
+	).toBeVisible();
+	await expect(page).toHaveURL(
+		(url) => url.searchParams.get("lang") === "project:qaa",
+	);
+	const flipped = nextSave(page, appId);
+	await page.getByRole("button", { name: "Use right-to-left text" }).click();
+	expect((await flipped).status()).toBe(200);
+	const label = page.getByRole("article").filter({ hasText: "Field label" });
+	const draft = label.getByRole("textbox", {
+		name: "Reference-safe translation",
+	});
+	await expect(draft).toHaveCSS("direction", "rtl");
+	await draft.fill("اسم العميل");
+	const translated = nextSave(page, appId);
+	await label.getByRole("button", { name: "Save translation" }).click();
+	expect((await translated).status()).toBe(200);
+	await reloadBuilder(page);
+	await expect(draft).toHaveValue("اسم العميل");
+	await expect(draft).toHaveCSS("direction", "rtl");
+	const response = await page.request.get(`/api/apps/${appId}`);
+	expect(response.status()).toBe(200);
+	const { blueprint } = snapshotSchema.parse(await response.json());
+	expect(blueprint.localization?.wireCodes).toEqual({
+		eng: "en",
+		"project:qaa": "qaa",
+	});
+	expect(blueprint.localization?.rtlProjectLanguages).toEqual({
+		"project:qaa": true,
+	});
+	await openBuilder(
+		page,
+		`/build/${appId}/${LOCALIZATION_SEED.fieldUuid}?lang=project%3Aqaa`,
+	);
+	await page.setViewportSize({ width: 1280, height: 860 });
+	await page
+		.getByRole("button", { name: "Form settings", exact: true })
+		.click();
+	const settings = page
+		.getByRole("dialog")
+		.filter({ hasText: "Form settings" });
+	await settings.getByText("Worker wording", { exact: true }).click();
+	const submit = settings.getByRole("textbox", {
+		name: "Submit button",
+		exact: true,
+	});
+	await submit.fill("إنهاء الزيارة");
+	const wordingSaved = nextSave(page, appId);
+	await submit.press("Tab");
+	expect((await wordingSaved).status()).toBe(200);
+	await page.keyboard.press("Escape");
+	await expect(settings).toHaveCount(0);
+	await page.getByRole("button", { name: "Preview", exact: true }).click();
+	const answer = page.getByRole("textbox", { name: /اسم العميل$/ });
+	await expect(answer).toBeVisible();
+	await expect(answer).toHaveCSS("direction", "rtl");
+	await expect(
+		page.getByRole("button", { name: "إنهاء الزيارة", exact: true }),
+	).toBeVisible();
+	await page.getByRole("button", { name: "Back to edit", exact: true }).click();
+	await openBuilder(page, setupPath);
+	const phraseSearch = page.getByRole("textbox", { name: "Search phrases" });
+	await phraseSearch.fill("Submit button");
+	const buttonPhrase = page
+		.getByRole("article")
+		.filter({ hasText: "Submit button" });
+	const ownWording = buttonPhrase.getByRole("textbox");
+	await ownWording.fill("Complete the visit");
+	const originalSaved = nextSave(page, appId);
+	await buttonPhrase.getByRole("button", { name: "Save translation" }).click();
+	expect((await originalSaved).status()).toBe(200);
+	await openBuilder(page, `${setupPath}?lang=project%3Aqaa`);
+	await phraseSearch.fill("Submit button");
+	await expect(
+		buttonPhrase.getByText("Complete the visit", { exact: true }),
+	).toBeVisible();
+	await expect(ownWording).toHaveValue("إنهاء الزيارة");
+	await expect(buttonPhrase.getByText("Ready", { exact: true })).toBeVisible();
+	await openBuilder(
+		page,
+		`/build/${appId}/${LOCALIZATION_SEED.fieldUuid}?lang=project%3Aqaa`,
+	);
+	await page
+		.getByRole("button", { name: "Form settings", exact: true })
+		.click();
+	await settings.getByText("Worker wording", { exact: true }).click();
+	const restored = nextSave(page, appId);
+	await settings
+		.getByRole("button", { name: "Use default wording", exact: true })
+		.click();
+	expect((await restored).status()).toBe(200);
+	await expect(submit).toHaveValue("Submit");
+});

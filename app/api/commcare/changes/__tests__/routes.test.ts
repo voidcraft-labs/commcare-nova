@@ -166,7 +166,14 @@ const REVIEWS: readonly [string, HqChangesReview][] = [
 			counts: { notYet: 1, never: 0, fixInHq: 0 },
 		},
 	],
-	["held", { kind: "held", reason: "languages-reordered", runs: null }],
+	[
+		"held",
+		{
+			kind: "held",
+			reason: "runs-elsewhere",
+			runs: { app: ["android", "web-apps"], hq: ["android"] },
+		},
+	],
 	[
 		"unavailable",
 		{

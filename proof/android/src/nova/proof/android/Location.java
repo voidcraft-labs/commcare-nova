@@ -64,6 +64,7 @@ final class Location {
                 Sensors.answer(activity, Screens.permissionRequest);
                 settle(activity);
             }
+            found.put("beforeFix", Screens.orNull(value(node)));
             JSONArray readings = new JSONArray();
             for (int i = 0; i < fixes.length(); i++) {
                 JSONArray fix = fixes.getJSONArray(i);

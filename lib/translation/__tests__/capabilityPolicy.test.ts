@@ -85,6 +85,20 @@ describe("automatic translation launch policy", () => {
 		).toBe(true);
 	});
 
+	it("keeps project codes manual even when the same spelling names a launch language", () => {
+		const project = { kind: "project", language: "eng" } as const;
+		expect(automaticTranslationLaunchLanguage(project)).toBeUndefined();
+		for (const [source, target] of [
+			[project, identity("spa")],
+			[identity("spa"), project],
+		]) {
+			expect(automaticTranslationCapability(source, target)).toMatchObject({
+				status: "not-evaluated",
+				explanation: expect.stringContaining("by hand"),
+			});
+		}
+	});
+
 	it("keeps unlisted source or target languages manual and copy only", () => {
 		expect(automaticTranslationLaunchLanguage(identity("zul"))).toBeUndefined();
 		expect(

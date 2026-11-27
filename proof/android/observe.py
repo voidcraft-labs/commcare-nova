@@ -242,9 +242,20 @@ def app(
     return _read(served, blobs, label, "app", {"archive": archive}, options, delivered=delivered, sent=sent)
 
 
+def automatic_location(served, blobs, archive, fix, label):
+    """Open the exported form, observe its metadata before a fix, then give Android one device fix."""
+    return _read(served, blobs, label, "location", {"archive": archive},
+                 {"command": "m0-f0", "node": "/data/meta/location", "fixes": [fix]})
+
+
 def installs(served, blobs, *, label: str, first: bytes, second: bytes) -> dict:
     """``first`` then ``second`` installed on one device."""
     return _read(served, blobs, label, "installs", {"first": first, "second": second}, {})
+
+
+def required_apps(served, blobs, archive: bytes, installed: list[str], label: str) -> dict:
+    """The destination or dialog when the worker presses Start on this phone."""
+    return _read(served, blobs, label, "required-apps", {"archive": archive}, {"installed": installed})
 
 
 def profile_identity(archive: bytes) -> dict:

@@ -1,5 +1,7 @@
-import type { Draft } from "immer";
+import { current, type Draft } from "immer";
 import { deepEqual } from "@/lib/doc/deepEqual";
+import { spliceAfter } from "@/lib/doc/mutations/sequence";
+import { rebaseSourceLanguage } from "@/lib/doc/sourceLanguage";
 import type { BlueprintDoc, Mutation } from "@/lib/doc/types";
 import {
 	type AppLocalization,
@@ -7,7 +9,11 @@ import {
 	effectiveAppLocalization,
 	languageTag,
 } from "@/lib/domain";
-import { translationSourceFingerprintsEqual } from "@/lib/domain/localization";
+import {
+	editableLanguageEntries,
+	reboundLanguageCodes,
+	translationSourceFingerprintsEqual,
+} from "@/lib/domain/localization";
 
 /**
  * App-level mutations: name, connect mode, case-type catalog, logo, app
@@ -36,6 +42,10 @@ export function applyAppMutation(
 				| "relabelSourceLanguage"
 				| "addLanguage"
 				| "removeLanguage"
+				| "moveLanguage"
+				| "rebindLanguageCodes"
+				| "rebaseSourceLanguage"
+				| "setProjectLanguageDirection"
 				| "setDefaultLanguage"
 				| "setTranslation"
 				| "reviewTranslation"
@@ -67,12 +77,24 @@ export function applyAppMutation(
 		case "setAppSettings":
 			// Each named key replaces its value; a key the patch leaves out
 			// keeps the document's.
+			if (mut.settings.captureLocation === true)
+				draft.appSettings.captureLocation = true;
+			else if (mut.settings.captureLocation === false)
+				delete draft.appSettings.captureLocation;
 			if (mut.settings.showSavedForms !== undefined) {
 				draft.appSettings.showSavedForms = mut.settings.showSavedForms;
 			}
 			if (mut.settings.showIncompleteForms !== undefined) {
 				draft.appSettings.showIncompleteForms =
 					mut.settings.showIncompleteForms;
+			}
+			if (mut.settings.requiredAndroidApps !== undefined) {
+				if (mut.settings.requiredAndroidApps.length === 0)
+					delete draft.appSettings.requiredAndroidApps;
+				else
+					draft.appSettings.requiredAndroidApps = [
+						...mut.settings.requiredAndroidApps,
+					];
 			}
 			// `null` clears the declaration to Web Apps and Android, the
 			// absent key; a value narrows the app to one platform.
@@ -89,6 +111,9 @@ export function applyAppMutation(
 				defaultLanguage: tag,
 				languageOrder: [tag],
 				translations: {},
+				...(draft.localization?.generatedSourceWording && {
+					generatedSourceWording: draft.localization.generatedSourceWording,
+				}),
 				wireCodes: { [tag]: mut.wireCode },
 			};
 			return;
@@ -121,21 +146,67 @@ export function applyAppMutation(
 			);
 			delete localization.translations[mut.code];
 			delete localization.wireCodes[mut.code];
+			if (localization.rtlProjectLanguages) {
+				delete localization.rtlProjectLanguages[mut.code];
+				if (!Object.keys(localization.rtlProjectLanguages).length)
+					delete localization.rtlProjectLanguages;
+			}
 			return;
 		}
-		case "setDefaultLanguage": {
+		case "rebindLanguageCodes": {
+			const codes = effectiveAppLocalization(draft.localization).wireCodes;
+			const rebound = reboundLanguageCodes(
+				new Map(Object.entries(codes)),
+				mut.changes,
+			);
+			if (rebound)
+				materializeLocalization(draft).wireCodes = Object.fromEntries(rebound);
+			return;
+		}
+		case "rebaseSourceLanguage": {
+			if (
+				effectiveAppLocalization(draft.localization).sourceLanguage === mut.from
+			)
+				rebaseSourceLanguage(draft, current(draft), mut.to, "saved-document");
+			return;
+		}
+		case "setProjectLanguageDirection": {
+			const localization = draft.localization;
+			if (
+				!localization?.languageOrder.includes(mut.code) ||
+				!mut.code.startsWith("project:")
+			)
+				return;
+			if (mut.direction === "rtl") {
+				localization.rtlProjectLanguages ??= {};
+				localization.rtlProjectLanguages[mut.code] = true;
+			} else if (localization.rtlProjectLanguages) {
+				delete localization.rtlProjectLanguages[mut.code];
+				if (!Object.keys(localization.rtlProjectLanguages).length)
+					delete localization.rtlProjectLanguages;
+			}
+			return;
+		}
+		case "setDefaultLanguage":
+		case "moveLanguage": {
 			const localization = materializeLocalization(draft);
 			if (!localization.languageOrder.includes(mut.code)) return;
-			localization.defaultLanguage = mut.code;
-			localization.languageOrder = [
+			const after = mut.kind === "setDefaultLanguage" ? null : mut.after;
+			localization.languageOrder = spliceAfter(
+				localization.languageOrder,
 				mut.code,
-				...localization.languageOrder.filter((code) => code !== mut.code),
-			];
+				after,
+			);
+			localization.defaultLanguage = localization.languageOrder[0];
 			return;
 		}
 		case "setTranslation": {
 			const localization = materializeLocalization(draft);
-			const translations = localization.translations[mut.language];
+			const translations = editableLanguageEntries(
+				localization,
+				mut.language,
+				mut.entry !== null,
+			);
 			if (translations === undefined) return;
 			if (mut.entry === null) delete translations[mut.unitId];
 			else translations[mut.unitId] = structuredClone(mut.entry);
@@ -143,7 +214,11 @@ export function applyAppMutation(
 		}
 		case "reviewTranslation": {
 			const localization = materializeLocalization(draft);
-			const entry = localization.translations[mut.language]?.[mut.unitId];
+			const translations =
+				mut.language === localization.sourceLanguage
+					? localization.generatedSourceWording
+					: localization.translations[mut.language];
+			const entry = translations?.[mut.unitId];
 			if (
 				entry === undefined ||
 				!translationSourceFingerprintsEqual(
@@ -157,7 +232,6 @@ export function applyAppMutation(
 			// Translation maps are normalized null-prototype records. A stored
 			// entry may remain a frozen shared value until this exact key is
 			// replaced, so never mutate its nested fields in place.
-			const translations = localization.translations[mut.language];
 			if (translations === undefined) return;
 			translations[mut.unitId] = {
 				value: structuredClone(mut.value),

@@ -5,7 +5,7 @@ import tablerCheck from "@iconify-icons/tabler/check";
 import tablerPlus from "@iconify-icons/tabler/plus";
 import tablerSearch from "@iconify-icons/tabler/search";
 import tablerTrash from "@iconify-icons/tabler/trash";
-import { useEffect, useMemo, useState } from "react";
+import { type ReactNode, useEffect, useId, useMemo, useState } from "react";
 import {
 	AlertDialog,
 	AlertDialogAction,
@@ -52,11 +52,15 @@ import {
 import type { Mutation } from "@/lib/doc/types";
 import {
 	type AppLanguageIdentity,
+	type EffectiveAppLocalization,
 	fieldRegistry,
+	hasGeneratedWording,
 	type LanguageDirection,
 	type LanguageTag,
 	type LocalizedTranslationUnit,
 	type LocalizedValue,
+	languageTag,
+	languageWireCodeSchema,
 	type ProseTemplate,
 	parseLanguageTag,
 	type TranslationCoverageDiagnosticCode,
@@ -70,6 +74,7 @@ import {
 } from "@/lib/domain/languageRegistry";
 import type { LanguageRegistrySearch } from "@/lib/domain/languageRegistry/load";
 import { useNavigate } from "@/lib/routing/hooks";
+import { useCanEdit } from "@/lib/session/hooks";
 import { automaticTranslationCapability } from "@/lib/translation/capabilityPolicy";
 import { cn } from "@/lib/utils";
 import {
@@ -136,6 +141,7 @@ const ROLE_LABELS: Readonly<Record<TranslationUnitRole, string>> = {
 	"search-screen-title": "Search screen title",
 	"search-screen-subtitle": "Search screen subtitle",
 	"search-runtime-validation-message": "Search validation message",
+	"generated-wording": "Worker wording",
 	"case-property-option-label": "Case property option label",
 };
 
@@ -188,9 +194,10 @@ interface LanguageDisplay {
 function languageDisplay(
 	tag: LanguageTag,
 	resolver: LanguageRegistrySearch | undefined,
+	localization?: EffectiveAppLocalization,
 ): LanguageDisplay {
 	const identity = parseLanguageTag(tag);
-	const direction = languageDirection(identity);
+	const direction = languageDirection(identity, localization);
 	return {
 		tag,
 		identity,
@@ -229,6 +236,7 @@ function LanguageName({
 
 export function LanguagesSection() {
 	const languageState = useBuilderLanguage();
+	const canEdit = useCanEdit();
 	const {
 		localization,
 		selectedTag,
@@ -249,7 +257,7 @@ export function LanguagesSection() {
 	const needsResolver = localization.languageOrder.some(
 		(tag) =>
 			languageDisplayLabel(tag) === undefined ||
-			languageEnglishName(tag) === undefined,
+			(!tag.startsWith("project:") && languageEnglishName(tag) === undefined),
 	);
 	const resolver = useLanguageRegistrySearch(needsResolver).data;
 	const displays = useMemo(
@@ -257,16 +265,17 @@ export function LanguagesSection() {
 			new Map(
 				localization.languageOrder.map((tag) => [
 					tag,
-					languageDisplay(tag, resolver),
+					languageDisplay(tag, resolver, localization),
 				]),
 			),
-		[localization.languageOrder, resolver],
+		[localization, resolver],
 	);
 	const selectedDisplay =
-		displays.get(selectedTag) ?? languageDisplay(selectedTag, resolver);
+		displays.get(selectedTag) ??
+		languageDisplay(selectedTag, resolver, localization);
 	const sourceDisplay =
 		displays.get(localization.sourceLanguage) ??
-		languageDisplay(localization.sourceLanguage, resolver);
+		languageDisplay(localization.sourceLanguage, resolver, localization);
 	const sourceName =
 		sourceDisplay.englishName ?? sourceDisplay.label ?? "the source language";
 	const selectedName =
@@ -308,15 +317,15 @@ export function LanguagesSection() {
 				</h2>
 				<p className="text-sm leading-relaxed text-nova-text-secondary">
 					Add the languages your workers speak, then translate everything they
-					see in one place. Anything you haven't translated yet shows the
-					original text, so your app always works.
+					see in one place. Workers start in the first language on this list.
 				</p>
 			</header>
 
 			<div>
 				<div className="grid gap-3 @xl:grid-cols-2">
-					{localization.languageOrder.map((tag) => {
-						const display = displays.get(tag) ?? languageDisplay(tag, resolver);
+					{localization.languageOrder.map((tag, index) => {
+						const display =
+							displays.get(tag) ?? languageDisplay(tag, resolver, localization);
 						const units = unitsForLanguage(tag);
 						const counts = coverageCounts(units);
 						const source = tag === localization.sourceLanguage;
@@ -390,46 +399,111 @@ export function LanguagesSection() {
 										)}
 									</div>
 								)}
-								<div className="mt-4 flex flex-wrap gap-2">
-									{source && localization.languageOrder.length === 1 && (
-										<ChangeLanguageDialog currentTag={tag} onCommit={commit} />
-									)}
-									{tag !== localization.defaultLanguage && (
-										<Button
-											type="button"
-											variant="ghost"
-											onClick={() =>
-												commit([{ kind: "setDefaultLanguage", code: tag }])
-											}
-										>
-											Make default
-										</Button>
-									)}
-									{!source && tag !== localization.defaultLanguage && (
-										<RemoveLanguageDialog
-											display={display}
-											onRemove={() => {
-												if (commit([{ kind: "removeLanguage", code: tag }])) {
-													languageState.selectLanguage(
-														localization.defaultLanguage,
-													);
+								{canEdit && (
+									<div className="mt-4 flex flex-wrap gap-2">
+										{display.identity.kind === "project" && (
+											<Button
+												type="button"
+												variant="ghost"
+												onClick={() =>
+													commit([
+														{
+															kind: "setProjectLanguageDirection",
+															code: tag,
+															direction:
+																display.direction === "rtl" ? "ltr" : "rtl",
+														},
+													])
 												}
-											}}
-										/>
-									)}
-								</div>
+											>
+												{display.direction === "rtl"
+													? "Use left-to-right text"
+													: "Use right-to-left text"}
+											</Button>
+										)}
+										{source && localization.languageOrder.length === 1 && (
+											<ChangeLanguageDialog
+												currentTag={tag}
+												onCommit={commit}
+											/>
+										)}
+										{index > 1 && (
+											<Button
+												type="button"
+												variant="ghost"
+												aria-label={`Move ${languageName(display)} earlier`}
+												onClick={() =>
+													commit([
+														{
+															kind: "moveLanguage",
+															code: tag,
+															after: localization.languageOrder[index - 2],
+														},
+													])
+												}
+											>
+												Move earlier
+											</Button>
+										)}
+										{index + 1 < localization.languageOrder.length && (
+											<Button
+												type="button"
+												variant="ghost"
+												aria-label={`Move ${languageName(display)} later`}
+												onClick={() =>
+													commit([
+														{
+															kind: "moveLanguage",
+															code: tag,
+															after: localization.languageOrder[index + 1],
+														},
+													])
+												}
+											>
+												Move later
+											</Button>
+										)}
+										{tag !== localization.defaultLanguage && (
+											<Button
+												type="button"
+												variant="ghost"
+												onClick={() =>
+													commit([{ kind: "setDefaultLanguage", code: tag }])
+												}
+											>
+												Make default
+											</Button>
+										)}
+										{!source && tag !== localization.defaultLanguage && (
+											<RemoveLanguageDialog
+												display={display}
+												onRemove={() => {
+													if (commit([{ kind: "removeLanguage", code: tag }])) {
+														languageState.selectLanguage(
+															localization.defaultLanguage,
+														);
+													}
+												}}
+											/>
+										)}
+									</div>
+								)}
 							</article>
 						);
 					})}
 				</div>
-				<AddLanguageDialog
-					unitsForLanguage={unitsForLanguage}
-					languages={localization.languageOrder.map(
-						(tag) => displays.get(tag) ?? languageDisplay(tag, resolver),
-					)}
-					onCommit={commit}
-					onAdded={languageState.selectLanguage}
-				/>
+				{canEdit && (
+					<AddLanguageDialog
+						unitsForLanguage={unitsForLanguage}
+						languages={localization.languageOrder.map(
+							(tag) =>
+								displays.get(tag) ??
+								languageDisplay(tag, resolver, localization),
+						)}
+						onCommit={commit}
+						onAdded={languageState.selectLanguage}
+					/>
+				)}
 			</div>
 
 			{coverageDiagnostics.length > 0 && (
@@ -546,7 +620,11 @@ export function LanguagesSection() {
 									? undefined
 									: languageName(
 											displays.get(unit.filledFrom) ??
-												languageDisplay(unit.filledFrom, resolver),
+												languageDisplay(
+													unit.filledFrom,
+													resolver,
+													localization,
+												),
 										)
 							}
 						/>
@@ -598,6 +676,62 @@ function RegistryLoadFallback({
 	);
 }
 
+function languagePickerSelection(
+	choice: LanguagePickerChoice,
+	projectCode: string | null,
+) {
+	if (projectCode === null) return resolvedLanguageSelection(choice);
+	const parsed = languageWireCodeSchema.safeParse(projectCode);
+	if (!parsed.success) return undefined;
+	const identity = { kind: "project", language: parsed.data } as const;
+	return { identity, tag: languageTag(identity) };
+}
+
+function LanguageIdentityPicker({
+	code,
+	onCodeChange,
+	children,
+}: {
+	readonly code: string | null;
+	readonly onCodeChange: (code: string | null) => void;
+	readonly children: ReactNode;
+}) {
+	const id = useId();
+	return (
+		<>
+			{code === null ? (
+				children
+			) : (
+				<Field>
+					<FieldLabel htmlFor={id}>Project language code</FieldLabel>
+					<Input
+						id={id}
+						value={code}
+						onChange={(event) => onCodeChange(event.target.value)}
+						aria-invalid={
+							Boolean(code) && !languageWireCodeSchema.safeParse(code).success
+						}
+						aria-describedby={`${id}-hint`}
+					/>
+					<p id={`${id}-hint`} className="text-xs text-nova-text-muted">
+						Use two or three lowercase letters, with an optional hyphen and
+						lowercase suffix. Your app keeps this code for its translations.
+					</p>
+				</Field>
+			)}
+			<Button
+				type="button"
+				variant="ghost"
+				onClick={() => onCodeChange(code === null ? "" : null)}
+			>
+				{code === null
+					? "Use a project language code"
+					: "Choose from the language list"}
+			</Button>
+		</>
+	);
+}
+
 function AddLanguageDialog({
 	unitsForLanguage,
 	languages,
@@ -618,6 +752,7 @@ function AddLanguageDialog({
 		EMPTY_LANGUAGE_CHOICE,
 	);
 	const [pickerQuery, setPickerQuery] = useState("");
+	const [projectCode, setProjectCode] = useState<string | null>(null);
 	const [copyFrom, setCopyFrom] = useState<LanguageTag | undefined>(
 		languages[0]?.tag,
 	);
@@ -636,22 +771,23 @@ function AddLanguageDialog({
 	}, [copyFrom, copySourceTag]);
 
 	const data = registry.data;
-	const selection = resolvedLanguageSelection(choice);
+	const selection = languagePickerSelection(choice, projectCode);
 	const duplicate =
-		data !== undefined && selection !== undefined
+		projectCode === null && data !== undefined && selection !== undefined
 			? duplicateLanguageRefusal(data, selection, existingTags)
 			: undefined;
 
 	const reset = () => {
 		setChoice(EMPTY_LANGUAGE_CHOICE);
 		setPickerQuery("");
+		setProjectCode(null);
 		setCopyFrom(languages[0]?.tag);
 		setError(undefined);
 	};
 
 	const add = () => {
 		if (
-			data === undefined ||
+			(data === undefined && projectCode === null) ||
 			selection === undefined ||
 			duplicate !== undefined
 		) {
@@ -661,13 +797,19 @@ function AddLanguageDialog({
 			setError("Choose a language to copy text from");
 			return;
 		}
+		const held = heldLanguageWireCodes(docApi.getState());
+		if (
+			selection.identity.kind === "project" &&
+			held.has(selection.identity.language)
+		) {
+			setError("This app already has a language with that code");
+			return;
+		}
 		const mutations: Mutation[] = [
-			addLanguageMutation(
-				heldLanguageWireCodes(docApi.getState()),
-				selection.identity,
-			),
+			addLanguageMutation(held, selection.identity),
 		];
 		for (const unit of unitsForLanguage(copySource.tag)) {
+			if (unit.generated && unit.explicit === undefined) continue;
 			mutations.push({
 				kind: "setTranslation",
 				language: selection.tag,
@@ -717,13 +859,19 @@ function AddLanguageDialog({
 					</DialogDescription>
 				</DialogHeader>
 				<DialogBody className="space-y-4">
-					{data === undefined ? (
-						<RegistryLoadFallback
-							failed={registry.failed}
-							onRetry={registry.retry}
-						/>
-					) : (
-						<>
+					<LanguageIdentityPicker
+						code={projectCode}
+						onCodeChange={(code) => {
+							setProjectCode(code);
+							setError(undefined);
+						}}
+					>
+						{data === undefined ? (
+							<RegistryLoadFallback
+								failed={registry.failed}
+								onRetry={registry.retry}
+							/>
+						) : (
 							<LanguagePickerFields
 								data={data}
 								choice={choice}
@@ -736,62 +884,55 @@ function AddLanguageDialog({
 								existingTags={existingTags}
 								idPrefix="add-language"
 							/>
-							<Field>
-								<FieldLabel htmlFor="add-language-copy-from">
-									Copy text from
-								</FieldLabel>
-								<Select
-									key={copySourceTag ?? "no-copy-source"}
-									value={copySource?.tag ?? null}
-									onValueChange={(value: string | null) =>
-										value !== null && setCopyFrom(value)
-									}
-								>
-									<SelectTrigger id="add-language-copy-from" className="w-full">
-										<SelectValue>
-											{copySource === undefined ? (
-												"No source language"
-											) : (
-												<bdi dir={copySource.direction}>
-													{copySource.label ??
-														data.resolvedLanguageDisplayLabel(
-															copySource.identity,
-														)}
-												</bdi>
-											)}
-										</SelectValue>
-									</SelectTrigger>
-									<SelectContent>
-										{languages.map((language) => {
-											const label =
-												language.label ??
-												data.resolvedLanguageDisplayLabel(language.identity);
-											const englishName =
-												language.englishName ??
-												data.resolvedLanguageEnglishName(language.identity);
-											return (
-												<SelectItem
-													key={language.tag}
-													value={language.tag}
-													wrap
-												>
-													<span className="flex min-w-0 flex-col">
-														<bdi dir={language.direction}>{label}</bdi>
-														{englishName !== undefined &&
-															englishName !== label && (
-																<span className="text-xs text-nova-text-muted">
-																	{englishName}
-																</span>
-															)}
+						)}
+					</LanguageIdentityPicker>
+					<Field>
+						<FieldLabel htmlFor="add-language-copy-from">
+							Copy text from
+						</FieldLabel>
+						<Select
+							key={copySourceTag ?? "no-copy-source"}
+							value={copySource?.tag ?? null}
+							onValueChange={(value: string | null) =>
+								value !== null && setCopyFrom(value)
+							}
+						>
+							<SelectTrigger id="add-language-copy-from" className="w-full">
+								<SelectValue>
+									{copySource === undefined ? (
+										"No source language"
+									) : (
+										<bdi dir={copySource.direction}>
+											{copySource.label ??
+												data?.resolvedLanguageDisplayLabel(copySource.identity)}
+										</bdi>
+									)}
+								</SelectValue>
+							</SelectTrigger>
+							<SelectContent>
+								{languages.map((language) => {
+									const label =
+										language.label ??
+										data?.resolvedLanguageDisplayLabel(language.identity);
+									const englishName =
+										language.englishName ??
+										data?.resolvedLanguageEnglishName(language.identity);
+									return (
+										<SelectItem key={language.tag} value={language.tag} wrap>
+											<span className="flex min-w-0 flex-col">
+												<bdi dir={language.direction}>{label}</bdi>
+												{englishName !== undefined && englishName !== label && (
+													<span className="text-xs text-nova-text-muted">
+														{englishName}
 													</span>
-												</SelectItem>
-											);
-										})}
-									</SelectContent>
-								</Select>
-							</Field>
-						</>
-					)}
+												)}
+											</span>
+										</SelectItem>
+									);
+								})}
+							</SelectContent>
+						</Select>
+					</Field>
 					{error !== undefined && (
 						<p role="alert" className="text-sm text-nova-rose">
 							{error}
@@ -803,7 +944,7 @@ function AddLanguageDialog({
 						type="button"
 						onClick={add}
 						disabled={
-							data === undefined ||
+							(data === undefined && projectCode === null) ||
 							selection === undefined ||
 							duplicate !== undefined
 						}
@@ -828,31 +969,43 @@ function ChangeLanguageDialog({
 	/* A missing draft follows the current document value, so an untouched
 	 * dialog stays live when a multiplayer peer relabels the language. */
 	const [draftChoice, setDraftChoice] = useState<LanguagePickerChoice>();
+	const [chosenProjectCode, setProjectCode] = useState<string | null>();
 	const [draftQuery, setDraftQuery] = useState<string>();
 
 	const data = registry.data;
 	const currentIdentity = parseLanguageTag(currentTag);
-	const currentChoice: LanguagePickerChoice = {
-		language: currentIdentity.language,
-		...(currentIdentity.script !== undefined && {
-			script: currentIdentity.script,
-		}),
-		...(currentIdentity.region !== undefined && {
-			region: currentIdentity.region,
-		}),
-	};
+	const projectCode =
+		chosenProjectCode === undefined
+			? currentIdentity.kind === "project"
+				? currentIdentity.language
+				: null
+			: chosenProjectCode;
+	const currentChoice: LanguagePickerChoice =
+		currentIdentity.kind === "project"
+			? EMPTY_LANGUAGE_CHOICE
+			: {
+					language: currentIdentity.language,
+					...(currentIdentity.script !== undefined && {
+						script: currentIdentity.script,
+					}),
+					...(currentIdentity.region !== undefined && {
+						region: currentIdentity.region,
+					}),
+				};
 	const choice = draftChoice ?? currentChoice;
 	const currentLabel =
 		languageDisplayLabel(currentIdentity) ??
 		data?.resolvedLanguageDisplayLabel(currentIdentity) ??
 		"";
-	const query = draftQuery ?? currentLabel;
-	const selection = resolvedLanguageSelection(choice);
+	const query =
+		draftQuery ?? (currentIdentity.kind === "project" ? "" : currentLabel);
+	const selection = languagePickerSelection(choice, projectCode);
 
 	const setDialogOpen = (nextOpen: boolean) => {
 		setOpen(nextOpen);
 		setDraftChoice(undefined);
 		setDraftQuery(undefined);
+		setProjectCode(undefined);
 	};
 	const save = () => {
 		if (selection === undefined) return;
@@ -877,30 +1030,38 @@ function ChangeLanguageDialog({
 					</DialogDescription>
 				</DialogHeader>
 				<DialogBody className="space-y-4">
-					{data === undefined ? (
-						<RegistryLoadFallback
-							failed={registry.failed}
-							onRetry={registry.retry}
-						/>
-					) : (
-						<LanguagePickerFields
-							data={data}
-							choice={choice}
-							onChoiceChange={setDraftChoice}
-							query={query}
-							onQueryChange={setDraftQuery}
-							// Relabel replaces the sole language, so nothing counts as a
-							// duplicate; re-saving the current identity is a quiet no-op.
-							existingTags={[]}
-							idPrefix="change-language"
-						/>
-					)}
+					<LanguageIdentityPicker
+						code={projectCode}
+						onCodeChange={setProjectCode}
+					>
+						{data === undefined ? (
+							<RegistryLoadFallback
+								failed={registry.failed}
+								onRetry={registry.retry}
+							/>
+						) : (
+							<LanguagePickerFields
+								data={data}
+								choice={choice}
+								onChoiceChange={setDraftChoice}
+								query={query}
+								onQueryChange={setDraftQuery}
+								// Relabel replaces the sole language, so nothing counts as a
+								// duplicate; re-saving the current identity is a quiet no-op.
+								existingTags={[]}
+								idPrefix="change-language"
+							/>
+						)}
+					</LanguageIdentityPicker>
 				</DialogBody>
 				<DialogFooter showCloseButton>
 					<Button
 						type="button"
 						onClick={save}
-						disabled={data === undefined || selection === undefined}
+						disabled={
+							(data === undefined && projectCode === null) ||
+							selection === undefined
+						}
 					>
 						Save language
 					</Button>
@@ -963,6 +1124,9 @@ function TranslationUnitRow({
 	 * blank (`unit.filledFrom`). */
 	readonly filledFromName?: string;
 }) {
+	const generated = hasGeneratedWording(unit);
+	const canEdit = useCanEdit();
+	const editable = canEdit && (!isSource || generated);
 	const { inline } = useBlueprintMutations();
 	const navigate = useNavigate();
 	const editor = useTranslationUnitEditor(unit.id);
@@ -978,14 +1142,13 @@ function TranslationUnitRow({
 		unit.filledFrom === undefined || filledFrom === undefined
 			? undefined
 			: projectValue(filledFrom.effective);
-	const { direction, sourceLanguage } = useBuilderLanguage();
+	const { direction, sourceDirection } = useBuilderLanguage();
 	const initial = unit.explicit?.value ?? unit.effective;
 	const [draft, setDraft] = useState<LocalizedValue>(() =>
 		structuredClone(initial),
 	);
 	const [draftValid, setDraftValid] = useState(true);
 	const [error, setError] = useState<string>();
-	const sourceDirection = languageDirection(sourceLanguage);
 	const changed = JSON.stringify(draft) !== JSON.stringify(initial);
 	const save = () => {
 		if (!draftValid) return;
@@ -1055,7 +1218,10 @@ function TranslationUnitRow({
 	};
 
 	return (
-		<article className="rounded-xl border border-nova-border bg-white/[0.025] p-4">
+		<article
+			id={unit.id}
+			className="rounded-xl border border-nova-border bg-white/[0.025] p-4"
+		>
 			<div className="flex flex-wrap items-start justify-between gap-3">
 				<div className="min-w-0">
 					<p className="break-words text-sm font-medium text-nova-text">
@@ -1075,31 +1241,47 @@ function TranslationUnitRow({
 					<Button type="button" variant="ghost" onClick={openOwner}>
 						Open in Builder
 					</Button>
-					{!isSource && (
+					{editable && (
 						<Badge variant={STATUS_VARIANTS[unit.status]}>
 							{STATUS_LABELS[unit.status]}
 						</Badge>
 					)}
 				</div>
 			</div>
-			<div className={`mt-4 grid gap-4 ${isSource ? "" : "@xl:grid-cols-2"}`}>
+			<div className={`mt-4 grid gap-4 ${editable ? "@xl:grid-cols-2" : ""}`}>
 				<div>
 					<p className="mb-1.5 text-xs font-medium text-nova-text-secondary">
-						Source
+						{isSource && generated ? "Default wording" : "Source"}
 					</p>
 					<div
 						dir={sourceDirection}
 						className="min-h-11 whitespace-pre-wrap rounded-lg border border-nova-border bg-black/10 px-3.5 py-2.5 text-sm leading-relaxed text-nova-text-secondary"
 					>
-						{projectValue(unit.source) || (
-							<span className="italic text-nova-text-muted">Empty</span>
+						{projectValue(
+							(isSource ? unit.defaultText : undefined) ?? unit.source,
+						) || (
+							<span className="italic text-nova-text-muted">
+								{unit.generated?.role === "promptValidation"
+									? "This field has no check yet."
+									: "Empty"}
+							</span>
 						)}
 					</div>
 				</div>
-				{!isSource && (
+				{!canEdit && (!isSource || generated) && (
 					<div dir={direction}>
 						<p className="mb-1.5 text-xs font-medium text-nova-text-secondary">
-							Translation
+							Worker wording
+						</p>
+						<p className="whitespace-pre-wrap text-sm text-nova-text">
+							{projectValue(unit.effective)}
+						</p>
+					</div>
+				)}
+				{editable && (
+					<div dir={direction}>
+						<p className="mb-1.5 text-xs font-medium text-nova-text-secondary">
+							{generated ? "Worker wording" : "Translation"}
 						</p>
 						{typeof draft === "string" ? (
 							<Textarea
@@ -1117,6 +1299,12 @@ function TranslationUnitRow({
 								placeholder={filledText}
 							/>
 						)}
+						{unit.status === "out-of-date" && (
+							<p className="mt-1.5 text-xs text-nova-text-muted">
+								Workers currently see “{projectValue(unit.effective)}”. Your
+								earlier translation is here to review.
+							</p>
+						)}
 						{filledText !== undefined && filledFromName !== undefined && (
 							<p className="mt-1.5 text-xs text-nova-text-muted">
 								Workers see the {filledFromName} text here until this is
@@ -1130,7 +1318,7 @@ function TranslationUnitRow({
 									variant="ghost-destructive"
 									onClick={clear}
 								>
-									Use the original text
+									{generated ? "Use default wording" : "Use the original text"}
 								</Button>
 							)}
 							{unit.explicit !== undefined &&

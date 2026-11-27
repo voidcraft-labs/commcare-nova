@@ -34,7 +34,8 @@ export function LanguageSelector() {
 	const needsResolver = state.languages.some(
 		({ identity }) =>
 			languageDisplayLabel(identity) === undefined ||
-			languageEnglishName(identity) === undefined,
+			(identity.kind !== "project" &&
+				languageEnglishName(identity) === undefined),
 	);
 	const resolver = useLanguageRegistrySearch(needsResolver).data;
 

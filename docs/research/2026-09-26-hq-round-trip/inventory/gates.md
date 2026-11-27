@@ -112,7 +112,7 @@ Publish also checks gates outside the app-building flags above: `VIEW_FORM_ATTAC
 | `practice_mobile_workers` | TARGET-OWNED · target value | n/a | none |
 | `commcare_logo_uploader` | TARGET-OWNED · HELD / HELD-NEW (Application logos) | n/a | not a publish precondition: publish writes no logo (defect 14) and says HQ's builds carry the app's logos only where the plan has this privilege and the person uploaded them in HQ (HQ's build drops the profile logo properties without it, and a plan downgrade archives the logos, `archived_media`) |
 | `build_profiles` | TARGET-OWNED · `build_profiles` target value | n/a | none |
-| `app_dependencies` | TARGET-OWNED · HELD-NEW (Settings and profile, `features.dependencies`) | n/a | confirmed at publish (HQ drops the content without it) |
+| `app_dependencies` | TARGET-OWNED · HELD (Settings and profile, `features.dependencies`) | n/a | confirmed at publish (HQ drops the content without it) |
 | `phone_apk_heartbeat` | TARGET-OWNED · no document content | n/a | none |
 | `form_link_workflow` | TARGET-OWNED · HELD (Form fields) | n/a | editor gate, confirmed at publish |
 | `custom_icon_badges` | TARGET-OWNED · HELD-NEW (badges) | n/a | editor gate, confirmed at publish |

@@ -61,6 +61,12 @@ export const createFormInputSchema = moduleAddressSchema
 			.describe(
 				'Where the user goes after submitting: "app_home", "firstMenu" (the app\'s first menu, which lists its modules; in Web Apps the same screen as "app_home"), "module" (this module\'s first screen), "parentMenu" (the parent module, with its selection kept) or "previous" (the preceding selection or task shown by the resolved navigation result). Omit for the default: "app_home" for registration/survey, and for followup/close the first the module offers of "previous", "module", "firstMenu". A module offers "previous" unless it or its parent selects several cases, its forms read the search, or it is off the menu; "module" unless its parent selects several cases or it is off the menu; "parentMenu" when its parent neither selects several cases nor is off the menu. A destination the module does not offer is refused. A form that is its menu\'s registration from the case list returns to the results after submit, or goes to "firstMenu" when that is set, which a menu choosing several cases requires.',
 			),
+		capture_location: z
+			.boolean()
+			.optional()
+			.describe(
+				"Request the phone’s location when this form opens on Android, even when other forms do not. Omit to use the app setting.",
+			),
 		plain_text: z
 			.boolean()
 			.nullable()
@@ -100,6 +106,7 @@ export const createFormTool = {
 			type,
 			purpose,
 			post_submit,
+			capture_location,
 			plain_text,
 			case_list_registration,
 		} = input;
@@ -161,6 +168,7 @@ export const createFormTool = {
 				...(post_submit && {
 					postSubmit: post_submit as PostSubmitDestination,
 				}),
+				...(capture_location === true && { captureLocation: true }),
 				...(plain_text === true && { plainText: true }),
 			});
 			// The registration from the case list is the module's slot, set on

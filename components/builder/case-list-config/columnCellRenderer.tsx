@@ -134,7 +134,7 @@ function renderPreviewValue(
 			<SimpleTooltip content={value.text}>
 				<ProjectMediaImage
 					assetId={value.assetId}
-					alt={value.text}
+					alt={value.alt ?? value.text}
 					className="inline-block size-5 rounded-sm object-cover"
 				/>
 			</SimpleTooltip>

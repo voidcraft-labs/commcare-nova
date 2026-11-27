@@ -301,6 +301,18 @@ export const PLATFORM_CELLS: Readonly<
 	"expressions-and-data/upper-case@android": stated("case-conversion"),
 	"expressions-and-data/regex@android": stated("text-pattern"),
 	"expressions-and-data/replace@android": stated("text-pattern"),
+	/* An ordinary app's and a form's location request: the builder's note
+	 * says forms sent from Web Apps carry no location. */
+	"application-and-settings/45p-hq-auto-gps-capture-on-an-app-that-is-not-a-connect-app@web-apps":
+		stated("connect-location-capture"),
+	"forms-and-case-writes/auto-gps-capture-form@web-apps": stated(
+		"connect-location-capture",
+	),
+	/* The apps a worker needs on Android: the builder's note says workers
+	 * can still open the app in a browser. */
+	"application-and-settings/31-features-dependencies@web-apps": stated(
+		"required-android-apps",
+	),
 	"questions/label-image-audio-video-same-asset-every-language@web-apps":
 		statedInDocs,
 	"questions/label-image-audio-video-same-asset-every-language@android":

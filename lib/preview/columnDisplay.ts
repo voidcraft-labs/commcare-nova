@@ -45,6 +45,12 @@ export type CalculatedTemporalType = "date" | "datetime";
 export type ColumnDisplayContext = {
 	/** Worker platform labels; omitted by authoring callers. */
 	readonly language?: LanguageTag;
+	/** Per-output option text and screen-reader descriptions. */
+	readonly columnProperties?: ReadonlyMap<Column["uuid"], CaseProperty>;
+	readonly imageDescription?: (
+		column: Column["uuid"],
+		value: string,
+	) => string | undefined;
 	readonly caseProperties: readonly CaseProperty[];
 	/** The catalog entry of the property each column read through a relation
 	 *  shows, from the case type its walk reaches, by column. Absent or
@@ -145,6 +151,7 @@ export function projectColumnDisplay(
 				column.mapping,
 				columnProperty(column, context),
 				context.projectProse,
+				(value) => context.imageDescription?.(column.uuid, value),
 			);
 		case "calculated":
 			return projectCalculatedValue(
@@ -160,6 +167,8 @@ function columnProperty(
 	column: PropertyColumn,
 	context: ColumnDisplayContext,
 ): CaseProperty | undefined {
+	const projected = context.columnProperties?.get(column.uuid);
+	if (projected) return projected;
 	if (column.via !== undefined)
 		return context.relatedProperties?.get(column.uuid);
 	return context.caseProperties.find(
@@ -355,6 +364,7 @@ function projectImageMappedValue(
 	mapping: Extract<Column, { kind: "image-map" }>["mapping"],
 	property: CaseProperty | undefined,
 	projectProse: ProseProjector,
+	description: (value: string) => string | undefined,
 ): PreviewFormattedValue {
 	const selected = selectedTokens(source);
 	if (selected === undefined) return unsupportedStoredValue();
@@ -368,6 +378,7 @@ function projectImageMappedValue(
 				kind: "image",
 				text: option ? projectProse(option.label) : match.value,
 				assetId: match.assetId,
+				alt: description(match.value),
 			};
 }
 
@@ -536,6 +547,7 @@ export type PreviewFormattedValue =
 	  }
 	| {
 			readonly kind: "image";
+			readonly alt?: string;
 			readonly text: string;
 			readonly assetId: Extract<
 				Column,

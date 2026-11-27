@@ -15,6 +15,23 @@
 		}
 	},
 	{
+		"id": "hq-advanced/auto-capture-location",
+		"base": "hq-advanced",
+		"entry": "forms-and-case-writes/auto-gps-capture-form",
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/1/forms/0/auto_gps_capture",
+			"value": true
+		},
+		"holds": [
+			{
+				"key": ["form", { "$xmlns": [1, 0] }],
+				"pointer": "/captureLocation",
+				"value": true
+			}
+		]
+	},
+	{
 		"id": "hq-advanced/auto-select-case",
 		"base": "hq-advanced",
 		"entry": "menus-and-case-lists/auto-select-case-on-an-advanced-module",
@@ -15680,6 +15697,23 @@
 		}
 	},
 	{
+		"id": "hq-case-lists/worker-words-for-one-generated-title",
+		"base": "hq-case-lists",
+		"entry": "application-and-settings/translations-generated-wording",
+		"change": {
+			"op": "set-json",
+			"pointer": "/translations/en/cchq.case",
+			"value": "Client details"
+		},
+		"holds": [
+			{
+				"key": "app",
+				"pointer": "/localization/generatedSourceWording/tu1:9:generated3:app9:caseTitle/value",
+				"value": "Client details"
+			}
+		]
+	},
+	{
 		"id": "hq-case-management/child-case-in-a-multi-select-menu",
 		"base": "hq-case-management",
 		"entry": "forms-and-case-writes/subcases-on-such-a-form-in-an-app-that-does-not-share-cases-or",
@@ -21023,14 +21057,29 @@
 		"id": "hq-kept-settings/android-app-dependencies",
 		"base": "hq-kept-settings",
 		"entry": "application-and-settings/31-features-dependencies",
-		"standing": "not-yet",
-		"place": {
-			"kind": "app"
-		},
+		"holds": [
+			{
+				"key": "app",
+				"pointer": "/appSettings/requiredAndroidApps",
+				"value": ["simprints-id", "commcare-reminders"]
+			}
+		],
 		"change": {
 			"op": "set-json",
 			"pointer": "/profile/features/dependencies",
-			"value": ["org.commcare.dalvik.reminders"]
+			"value": ["com.simprints.id", "org.commcare.dalvik.reminders"]
+		}
+	},
+	{
+		"id": "hq-kept-settings/duplicate-android-requirement",
+		"base": "hq-kept-settings",
+		"entry": "application-and-settings/repeated-android-app-dependency",
+		"standing": "fix-in-hq",
+		"place": { "kind": "app" },
+		"change": {
+			"op": "set-json",
+			"pointer": "/profile/features/dependencies",
+			"value": ["org.rdtoolkit", "org.rdtoolkit"]
 		}
 	},
 	{
@@ -27018,14 +27067,65 @@
 		"id": "hq-new-app/language-outside-the-registry",
 		"base": "hq-new-app",
 		"entry": "application-and-settings/langs-code-nova-s-language-registry-cannot-name",
-		"standing": "not-yet",
+		"change": {
+			"op": "set-json",
+			"pointer": "/langs",
+			"value": ["en", "qaa"]
+		},
+		"holds": [
+			{
+				"key": "app",
+				"pointer": "/localization/languageOrder",
+				"value": ["eng", "project:qaa"]
+			},
+			{
+				"key": "app",
+				"pointer": "/localization/wireCodes",
+				"value": {
+					"eng": "en",
+					"project:qaa": "qaa"
+				}
+			}
+		]
+	},
+	{
+		"id": "hq-new-app/language-alias-before-canonical-code",
+		"base": "hq-new-app",
+		"entry": "application-and-settings/langs-code-nova-s-language-registry-cannot-name",
+		"change": {
+			"op": "set-json",
+			"pointer": "/langs",
+			"value": ["eng", "en", "qaa"]
+		},
+		"holds": [
+			{
+				"key": "app",
+				"pointer": "/localization/languageOrder",
+				"value": ["project:eng", "eng", "project:qaa"]
+			},
+			{
+				"key": "app",
+				"pointer": "/localization/wireCodes",
+				"value": {
+					"project:eng": "eng",
+					"eng": "en",
+					"project:qaa": "qaa"
+				}
+			}
+		]
+	},
+	{
+		"id": "hq-new-app/language-code-repeated",
+		"base": "hq-new-app",
+		"entry": "application-and-settings/a-non-empty-langs-code-outside-that-grammar-or-repeated",
+		"standing": "fix-in-hq",
 		"place": {
 			"kind": "languages"
 		},
 		"change": {
 			"op": "set-json",
 			"pointer": "/langs",
-			"value": ["en", "qaa"]
+			"value": ["en", "qaa", "qaa"]
 		}
 	},
 	{
@@ -27390,19 +27490,35 @@
 		"id": "hq-plain/auto-capture-location",
 		"base": "hq-plain",
 		"entry": "forms-and-case-writes/auto-gps-capture-form",
-		"standing": "not-yet",
-		"place": {
-			"kind": "form",
-			"menu": 0,
-			"form": 1,
-			"menuName": "Households",
-			"name": "Followup Form"
-		},
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/0/forms/1/auto_gps_capture",
 			"value": true
-		}
+		},
+		"holds": [
+			{
+				"key": ["form", { "$xmlns": [0, 1] }],
+				"pointer": "/captureLocation",
+				"value": true
+			}
+		]
+	},
+	{
+		"id": "hq-plain/auto-capture-location-every-form",
+		"base": "hq-plain",
+		"entry": "application-and-settings/45p-hq-auto-gps-capture-on-an-app-that-is-not-a-connect-app",
+		"change": {
+			"op": "set-json",
+			"pointer": "/auto_gps_capture",
+			"value": true
+		},
+		"holds": [
+			{
+				"key": "app",
+				"pointer": "/appSettings/captureLocation",
+				"value": true
+			}
+		]
 	},
 	{
 		"id": "hq-plain/auto-select-on-a-multi-select-list",

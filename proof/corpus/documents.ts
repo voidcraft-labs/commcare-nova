@@ -246,8 +246,8 @@ export interface TargetedEdit {
  *   by key (`views/settings.py::edit_commcare_profile`), beside the settings
  *   A holds: a choice as its text, a switch as `true` or `false`;
  * - `profileFeatures`: on the same page, each profile feature's value by
- *   key, such as the worker activity level `credentials`, beside the
- *   features A holds.
+ *   key, such as the worker activity level `credentials`, or the list of
+ *   required Android apps `dependencies`, beside the features A holds.
  *
  * and then the saves a person makes to the app's content, each through the
  * view a person's save reaches (`HqSideContentSaves`).
@@ -370,7 +370,9 @@ export interface HqSideSaveKinds extends HqSideContentSaves {
 	};
 	readonly addOns?: Readonly<Record<string, boolean>>;
 	readonly profileProperties?: Readonly<Record<string, string | boolean>>;
-	readonly profileFeatures?: Readonly<Record<string, string>>;
+	readonly profileFeatures?: Readonly<
+		Record<string, string | readonly string[]>
+	>;
 }
 
 /** A form of the app CommCare HQ holds, by its menu's place and its own place in that menu, from 0. */

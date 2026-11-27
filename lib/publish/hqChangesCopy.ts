@@ -250,6 +250,15 @@ export function whereHqKeepsLines(changes: {
 	return lines;
 }
 
+/**
+ * The line a review says where CommCare HQ no longer lists the Android apps
+ * the app needs because the project space lost App Dependencies
+ * (`androidAppDependencies.ts::androidRequirementsPrivilegeLost`). Nova keeps
+ * them, since no one chose to remove them.
+ */
+export const ANDROID_APPS_PRIVILEGE_LOST_LINE =
+	"CommCare HQ no longer lists the Android apps workers need, as it does when a project space loses App Dependencies. Nova keeps them in the app, since no one chose to remove them.";
+
 /** The panel's lead over what the next publish changes, each line the register's own sentence. */
 export const NEXT_PUBLISH_LEAD =
 	"Nova writes a few things its own way, so your next publish changes these in CommCare HQ:";
@@ -439,13 +448,18 @@ export function hqChangesHeldLine(
 		readonly hq: readonly Platform[];
 	} | null,
 	requiresReview = false,
+	translation?: import("./hqChangesKinds").HqSourceTranslationRecovery,
 ): string {
 	const next = requiresReview
 		? " and check again."
 		: " and check again, or publish over the change.";
 	switch (reason) {
-		case "languages-reordered":
-			return `The language this app's own text is written in changed in CommCare HQ, and Nova can't bring that in. You can put the app's languages and its name in each language back as they were in CommCare HQ${next}`;
+		case "stale-source-translation": {
+			const phrase = translation
+				? `“${translation.breadcrumb.join(" › ")}” in ${translation.languageName}`
+				: "a phrase in the new source language";
+			return `CommCare HQ now uses ${translation?.languageName ?? "another language"} for the original wording. In Languages, you can keep, replace or clear the out-of-date translation of ${phrase}, then check again.`;
+		}
 		case "runs-elsewhere": {
 			const where =
 				runs === null

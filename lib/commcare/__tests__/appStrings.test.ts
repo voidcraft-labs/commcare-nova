@@ -177,9 +177,13 @@ function partsTable(
 		languages: Object.fromEntries(
 			Object.entries(parts.tables)
 				.filter(([dir]) => dir !== "default")
-				.map(([code, table]) => [code, Object.fromEntries(table)]),
+				.map(([code, table]) => [
+					code,
+					Object.fromEntries([...parts.tables.default, ...table]),
+				]),
 		),
 		units: parts.appStringUnits,
+		wordingUnits: parts.wordingUnits,
 	};
 }
 
