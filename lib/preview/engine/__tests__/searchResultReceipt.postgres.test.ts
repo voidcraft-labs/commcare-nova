@@ -537,9 +537,7 @@ async function testStandaloneDetails(branch: (typeof detailVariants)[number]) {
 				caseListConfig: {
 					columns: [...ordinaryList.columns, column],
 					listColumnOrder: [...ordinaryList.listColumnOrder, columnUuid],
-					detailColumnOrder: onList
-						? ordinaryList.detailColumnOrder
-						: [columnUuid, ...ordinaryList.detailColumnOrder],
+					detailColumnOrder: [columnUuid, ...ordinaryList.detailColumnOrder],
 					searchInputs: [
 						simpleSearchInputDef(
 							inputUuid,
