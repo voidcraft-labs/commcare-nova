@@ -9,6 +9,7 @@ import {
 	prop,
 } from "@/lib/domain/expression";
 import { targetedDocument, targetedUuid } from "../build";
+import { restoreXml } from "../restore";
 
 const id = "targeted-sorted-case-choices";
 const uuid = (name: string) => targetedUuid(id, name);
@@ -30,6 +31,7 @@ export function sortedCaseChoices() {
 		],
 		modules: [
 			{
+				uuid: uuid("directory"),
 				name: "Directory",
 				forms: [
 					{
@@ -88,12 +90,64 @@ export function sortedCaseChoices() {
 		id,
 		rows: ["questions, itemset sort reference"],
 		doc,
-		expected: { intent: [] },
+		files: {
+			"intent-restore.xml": restoreXml({
+				cases: [
+					{
+						id: "north-late",
+						type: "clinic",
+						name: "Alpha label",
+						properties: { region: "north", rank: "2" },
+					},
+					{
+						id: "north-tie-first",
+						type: "clinic",
+						name: "Zulu label",
+						properties: { region: "north", rank: "10" },
+					},
+					{
+						id: "south",
+						type: "clinic",
+						name: "South only",
+						properties: { region: "south", rank: "0" },
+					},
+				],
+			}),
+		},
+		expected: {
+			intent: [
+				{
+					id: "typed-choice-order",
+					export: "local",
+					form: uuid("choose"),
+					restore: "intent-restore.xml",
+					request: {
+						answers: [
+							{ path: "/data/region", value: "north" },
+							{ path: "/data/sorted", value: "north-tie-first" },
+						],
+						expressions: ["/data/sorted"],
+					},
+					expect: [
+						{
+							pointer: "/answers/1/choices",
+							value: [
+								{ value: "north-tie-first", text: "Zulu label" },
+								{ value: "north-late", text: "Alpha label" },
+							],
+						},
+						{ pointer: "/answers/1/result", value: "ok" },
+						{ pointer: "/values/0/value", value: "north-tie-first" },
+					],
+				},
+			],
+		},
 	});
 }
 
 export function caseChoiceReopen() {
 	const id = "targeted-case-choice-reopen";
+	const uuid = (name: string) => targetedUuid(id, name);
 	const doc = buildDoc({
 		appId: id,
 		appName: "Clinic choice recovery",
@@ -105,15 +159,16 @@ export function caseChoiceReopen() {
 		],
 		modules: [
 			{
+				uuid: uuid("directory"),
 				name: "Directory",
 				forms: [
 					{
 						name: "Resume a clinic choice",
-						uuid: targetedUuid(id, "choose"),
+						uuid: uuid("choose"),
 						type: "survey",
 						fields: [
 							f({
-								uuid: targetedUuid(id, "clinic"),
+								uuid: uuid("clinic"),
 								kind: "single_select",
 								id: "clinic",
 								label: "Clinic",
@@ -131,10 +186,52 @@ export function caseChoiceReopen() {
 			},
 		],
 	});
+	const before = {
+		restore: "before-restore.xml",
+		choice: "old-clinic",
+		label: "Original clinic",
+	};
+	const after = {
+		restore: "after-restore.xml",
+		choice: "new-clinic",
+		label: "Replacement clinic",
+	};
+	const restore = (eligible: string) =>
+		restoreXml({
+			cases: [before, after].map(({ choice, label }) => ({
+				id: choice,
+				type: "clinic",
+				name: label,
+				properties: { region: choice === eligible ? "north" : "south" },
+			})),
+		});
 	return targetedDocument({
 		id,
 		rows: ["questions, queried choices after incomplete form reopen"],
 		doc,
-		expected: { intent: [] },
+		files: {
+			[before.restore]: restore(before.choice),
+			[after.restore]: restore(after.choice),
+		},
+		expected: {
+			intent: [before, after].map(({ restore, choice, label }) => ({
+				id: choice,
+				export: "local",
+				form: uuid("choose"),
+				restore,
+				request: {
+					answers: [{ path: "/data/clinic", value: choice }],
+					expressions: ["/data/clinic"],
+				},
+				expect: [
+					{
+						pointer: "/answers/0/choices",
+						value: [{ value: choice, text: label }],
+					},
+					{ pointer: "/answers/0/result", value: "ok" },
+					{ pointer: "/values/0/value", value: choice },
+				],
+			})),
+		},
 	});
 }
