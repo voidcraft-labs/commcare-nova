@@ -8836,7 +8836,7 @@
 	{
 		"id": "hq-case-lists/filter-reading-the-host",
 		"base": "hq-case-lists",
-		"entry": "menus-and-case-lists/detail-filter-value-lifts-into-predicate",
+		"entry": "menus-and-case-lists/detail-filter-matching-the-direct-hosts-text",
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/0/case_details/short/filter",

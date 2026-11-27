@@ -3201,7 +3201,34 @@
 		"surfaceKeys": ["schema:Detail.filter"],
 		"valueClass": "lifts-into-predicate",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: `caseListConfig.filter`, including a direct host text equality on a device list",
+		"dispositionCell": "**HELD**: `caseListConfig.filter`",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "`filter` (dot-interpolated XPath)",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "menus-and-case-lists/detail-filter-matching-the-direct-hosts-text",
+		"area": "menus-and-case-lists",
+		"section": "Case list and case detail",
+		"subsection": "Detail screens",
+		"item": "`Detail.filter`, direct host property equals nonblank text on a device list",
+		"surfaceKeys": ["schema:Detail.filter"],
+		"valueClass": "direct-host-text-equality",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: a reached property in `caseListConfig.filter`",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",

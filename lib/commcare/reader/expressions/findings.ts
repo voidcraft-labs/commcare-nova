@@ -6,8 +6,10 @@
  * tables answer members, never a string, so an id cannot be answered without
  * being registered and held to the manifest by `claimsBindManifest.test.ts`.
  */
+
 import type { BlueprintDoc } from "@/lib/domain/blueprint";
 import { AUTHORED_CASE_PROPERTY_NAME_PATTERN } from "@/lib/domain/casePropertyName";
+import { directHostTextEquality } from "@/lib/domain/expression/directHostTextEquality";
 import {
 	formFieldPath,
 	formStructure,
@@ -1385,6 +1387,10 @@ export const EXPRESSION_CLAIMS = defineClaims("expressions", {
 		"menus-and-case-lists/tab-display-condition-outside-its-case-scope",
 		"schema:DetailTab.relevant",
 	),
+	"detail-filter-matching-the-direct-hosts-text": take(
+		"menus-and-case-lists/detail-filter-matching-the-direct-hosts-text",
+		"schema:Detail.filter",
+	),
 	"detail-filter-value-lifts-into-predicate": take(
 		"menus-and-case-lists/detail-filter-value-lifts-into-predicate",
 		"schema:Detail.filter",
@@ -1976,10 +1982,13 @@ export const SLOT_ENTRIES: Readonly<Record<RegisteredSlotName, SlotRow>> = {
 		C["tab-condition"].entry,
 		C["tab-condition-outside-scope"].entry,
 	),
-	case_list_filter: fixed(
-		C["detail-filter-value-lifts-into-predicate"].entry,
-		C["detail-filter-value-outside-predicate"].entry,
-	),
+	case_list_filter: {
+		held: (_doc, _ref, bound) =>
+			directHostTextEquality(bound) !== undefined
+				? C["detail-filter-matching-the-direct-hosts-text"].entry
+				: C["detail-filter-value-lifts-into-predicate"].entry,
+		refused: () => C["detail-filter-value-outside-predicate"].entry,
+	},
 	case_list_mapping_condition: {
 		held: (doc, ref) => {
 			if (ref.entity !== "module" || ref.slot !== "case_list_mapping_condition")

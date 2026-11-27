@@ -74,6 +74,7 @@ from proof.checks.manifest_value_classes import (
     HQ_CASE_RESERVED_WORDS,
     case_itemset_survey_readiness,
     default_filter_index_fallback,
+    direct_host_text_filter,
     direct_parent_date_prompt_key,
     direct_parent_text_prompt_key,
     extended_open_index_to_first_choice,
@@ -877,6 +878,7 @@ def _forms_variant_uses(found, held, entries):
         yield from _bare_lookup_count_uses(found, held, by_id[BARE_LOOKUP_COUNT])
 
 
+DIRECT_HOST_TEXT_FILTER = "menus-and-case-lists/detail-filter-matching-the-direct-hosts-text"
 FLAT_CLOSE_MAXIMUM = "menus-and-case-lists/detail-max-select-value-for-flat-close"
 OTHER_101_MAXIMUM = "menus-and-case-lists/detail-max-select-value-101-outside-flat-close"
 SEARCH_INDEX_FALLBACK = "case-search/default-filter-resets-order-with-index-fallback"
@@ -922,6 +924,14 @@ def added_uses(base_source: dict, variant_source: dict, *, entries=()) -> list[D
         decided.extend(_forms_variant_uses(found, held, entries))
         if SEARCH_CHECK_NO_MESSAGE in entries:
             decided.extend(_empty_search_check_messages(found, held))
+
+        if DIRECT_HOST_TEXT_FILTER in entries:
+            row = _entries_by_id(held)[DIRECT_HOST_TEXT_FILTER]
+            decided.extend(
+                Decided(use, manifest_usage.HELD, (row,))
+                for use in found.uses
+                if use.key == "schema:Detail.filter" and direct_host_text_filter(use, held)
+            )
 
         if FLAT_CLOSE_MAXIMUM in entries or OTHER_101_MAXIMUM in entries:
             by_id = _entries_by_id(held)

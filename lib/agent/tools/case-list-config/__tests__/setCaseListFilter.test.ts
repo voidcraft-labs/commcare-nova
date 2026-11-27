@@ -9,7 +9,15 @@ import {
 	simpleSearchInputDef,
 } from "@/lib/domain";
 import type { Expression } from "@/lib/domain/expression";
-import { and, eq, literal, matchAll, prop } from "@/lib/domain/expression";
+import {
+	ancestorPath,
+	and,
+	eq,
+	literal,
+	matchAll,
+	prop,
+	relationStep,
+} from "@/lib/domain/expression";
 import { setCaseListFilterTool } from "../setCaseListFilter";
 import { MOD_A, makeCaseListDoc, makeCaseListFixture } from "./fixtures";
 
@@ -82,6 +90,45 @@ describe("setCaseListFilter", () => {
 		// Turning search on later projects the list's current condition.
 		expect(mod.caseListConfig).toHaveProperty("filter", after);
 		expect(mod.caseListConfig).not.toHaveProperty("searchCondition");
+	});
+
+	it("keeps a direct host text condition on the device list and rejects it for online search", async () => {
+		const h = fixtureWithConfig();
+		const filter = eq(
+			{
+				...prop("patient", "village", ancestorPath(relationStep("host"))),
+				readReached: true,
+			},
+			literal("north"),
+		);
+		const saved = await h.runTool(setCaseListFilterTool, {
+			moduleUuid: MOD_A,
+			surface: "list",
+			filter,
+		});
+		expect(saved.result).toMatchObject({ ok: true, kind: "eq" });
+		const before = h.currentDoc();
+		expect(before.modules[MOD_A]).not.toHaveProperty("caseSearchConfig");
+		expect(before.modules[MOD_A].caseListConfig).toHaveProperty(
+			"filter",
+			filter,
+		);
+		expect(before.modules[MOD_A].caseListConfig).not.toHaveProperty(
+			"searchCondition",
+		);
+
+		const rejected = await h.runTool(setCaseListFilterTool, {
+			moduleUuid: MOD_A,
+			surface: "search",
+			filter,
+		});
+		expect(rejected.mutations).toEqual([]);
+		expect(rejected.result).toMatchObject({
+			error: expect.stringContaining(
+				"can't read whichever record a link reaches",
+			),
+		});
+		expect(h.currentDoc()).toEqual(before);
 	});
 
 	it("rejects a third value for the built-in case status", async () => {
