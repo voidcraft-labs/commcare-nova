@@ -63,7 +63,7 @@ def _stored_address_default(project):
 
 def _address_default_database(document):
     database = casedata.document_case_database(document)
-    (original,) = database.cases
+    original = next(case for case in database.cases if case.case_type == "client")
     properties = dict(original.properties)
     properties.update(client_name="Amina", last_visit="2025-12-01")
     return replace(database, cases=(replace(original, name="Amina", properties=tuple(properties.items())),))
