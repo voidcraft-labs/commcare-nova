@@ -463,6 +463,37 @@ def test_tile_connection_survives_editor_grouping_and_selection(
     assert [question["label"] for question in opened["form"]["questions"]] == [f"Grouping target {riverside}"]
 
 
+def test_tile_group_expression_in_the_connection_name_has_no_parent_value(
+    hq, core_runner, formplayer_runner, editor_driver, webapps_documents, evidence
+):
+    import json
+
+    document = webapps_documents[GROUP_FILTER]
+    database = casedata.database_of_restore((document.root / "restore.xml").read_bytes())
+    observed = {}
+    with webapps_hq.project(document, "maximum") as project:
+        for identifier in ("parent", "parent/parent"):
+            posted = _edit_tile_group_identifier(project, editor_driver, identifier)
+            assert json.loads(posted["case_tile_group"])["index_identifier"] == identifier
+            with project.released(formplayer_runner, database=database, label=f"group-{len(observed)}") as release:
+                run = Session(release, editor_driver).run([
+                    *steps.open_app("Grouped visits"), *steps.choose("Visits"), steps.SCREEN,
+                ])
+            assert run.page_errors == []
+            listing = run.screens[0]["list"]
+            assert listing["tiles"] is True
+            observed[identifier] = [_card(row) for row in listing["rows"]]
+
+    assert [identity for identity, _ in observed["parent"]] == [
+        "row-targeted-ada-visit", "row-targeted-ben-visit", "row-targeted-eve-visit",
+    ]
+    [(identity, cells)] = observed["parent/parent"]
+    assert identity == "row-targeted-ada-visit"
+    assert cells[0] == "Nurse Amani"
+    assert set(cells[1:]) >= {"Ada", "Ben", "Cal", "Dot", "Eve"}
+    evidence("tile-grouping-nested-locator", observed)
+
+
 def _to_visits(scenario):
     return steps.path(steps.open_app(f"Tile {scenario}"), steps.choose("Visits"), steps.choose("Record visit"))
 
