@@ -445,11 +445,16 @@ export function holdChangeMoves(
 	if (change.from === null) return false;
 	if (change.target.target === "case-operation") {
 		const from =
-			change.from.kind === "basic" && change.from.slot === "own"
+			typeof change.from === "object" &&
+			change.from.kind === "basic" &&
+			change.from.slot === "own"
 				? change.from.externalIdCalendarDayField
 				: undefined;
 		const to =
-			change.to?.kind === "basic" && change.to.slot === "own"
+			change.to !== null &&
+			typeof change.to === "object" &&
+			change.to.kind === "basic" &&
+			change.to.slot === "own"
 				? change.to.externalIdCalendarDayField
 				: undefined;
 		// A physical move cannot introduce a new retained question or erase
