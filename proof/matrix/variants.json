@@ -24213,6 +24213,34 @@
 	{
 		"id": "hq-lookups/itemset-filters-available-cases-by-survey-readiness",
 		"base": "hq-lookups",
+		"entry": "questions/itemset-over-casedb-in-nova-s-case-choices-shape",
+		"change": {
+			"op": "named",
+			"name": "itemset_filters_available_cases_by_survey_readiness"
+		},
+		"holds": [
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["district"]
+				],
+				"pointer": "/optionsSource",
+				"value": {
+					"kind": "available-cases",
+					"propertyMatch": {
+						"property": "survey_ready",
+						"text": "yes"
+					}
+				}
+			}
+		]
+	},
+	{
+		"id": "hq-lookups/itemset-filters-available-cases-by-multiple-values",
+		"base": "hq-lookups",
 		"entry": "questions/itemset-over-casedb-or-another-instance-advanced-data-source",
 		"standing": "not-yet",
 		"place": {
@@ -24225,7 +24253,7 @@
 		},
 		"change": {
 			"op": "named",
-			"name": "itemset_filters_available_cases_by_survey_readiness"
+			"name": "itemset_filters_available_cases_by_multiple_values"
 		}
 	},
 	{

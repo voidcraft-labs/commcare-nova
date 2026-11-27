@@ -2425,6 +2425,15 @@ def itemset_over_closed_cases(authoring, app_id):
 
 def itemset_filters_available_cases_by_survey_readiness(authoring, app_id):
     """Vellum's advanced data source filters the worker's cases by a property shared across case types."""
+    return _filter_available_cases_in_vellum(authoring, app_id, "survey_ready = 'yes'")
+
+
+def itemset_filters_available_cases_by_multiple_values(authoring, app_id):
+    """A compound cross-type filter is a separate advanced data source."""
+    return _filter_available_cases_in_vellum(authoring, app_id, "survey_ready = 'yes' or survey_ready = 'pending'")
+
+
+def _filter_available_cases_in_vellum(authoring, app_id, predicate):
     itemset_over_cases(authoring, app_id)
     with authoring.step("variant:enable-advanced-itemsets"):
         body, content_type = ops.form_body([("advanced_itemsets", "on")])
@@ -2432,7 +2441,7 @@ def itemset_filters_available_cases_by_survey_readiness(authoring, app_id):
     run = ops.builder_save(authoring, app_id, 0, 0, edit={
         "way": "itemset-query",
         "path": "/data/district",
-        "value": "instance('casedb')/casedb/case[survey_ready = 'yes']",
+        "value": f"instance('casedb')/casedb/case[{predicate}]",
     })
     assert not run.question_errors(), run.question_errors()
     return run

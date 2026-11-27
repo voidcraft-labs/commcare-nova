@@ -6,6 +6,7 @@ import {
 	type Expression,
 } from "../expression/types";
 import { lookupOptionsSourceSchema } from "../lookupCarriers";
+import { CASE_NODE_ATTRIBUTE_PROPERTIES } from "../standardCaseProperties";
 import { type SelectOption, selectOptionSchema } from "./base";
 
 export const inlineOptionsSourceSchema = z.strictObject({
@@ -30,9 +31,26 @@ export const caseOptionsSourceSchema = z.strictObject({
 export type CaseOptionsSource = z.infer<typeof caseOptionsSourceSchema>;
 z.globalRegistry.add(caseOptionsSourceSchema, { id: "CaseOptionsSource" });
 
+export const availableCasePropertyMatchSchema = z.strictObject({
+	property: authoredCasePropertyNameSchema.refine(
+		(property) => !CASE_NODE_ATTRIBUTE_PROPERTIES.has(property),
+		"Use a case property to filter the restored records.",
+	),
+	text: z
+		.string()
+		.min(1)
+		.refine(
+			(text) =>
+				!/[^\u0020-\ud7ff\ue000-\ufffd\u{10000}-\u{10ffff}]/u.test(text) &&
+				!(text.includes("'") && text.includes('"')),
+			"Enter text that can be carried as one value.",
+		),
+});
+
 /** Names and opaque IDs from the worker's whole restored case database. */
 export const availableCasesOptionsSourceSchema = z.strictObject({
 	kind: z.literal("available-cases"),
+	propertyMatch: availableCasePropertyMatchSchema.optional(),
 	status: z
 		.enum(["open", "closed"])
 		.optional()

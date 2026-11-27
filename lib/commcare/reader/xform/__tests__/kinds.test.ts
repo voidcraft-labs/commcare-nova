@@ -1185,6 +1185,28 @@ describe("a select whose choices are the worker's cases, read whole", () => {
 		},
 	);
 
+	it("holds an exact text filter across all restored case types", async () => {
+		const { atQuestion, outcome } = await questionFindings(undefined, {
+			allCases: true,
+			xml: (xml) =>
+				xml.replace(
+					'/casedb/case"',
+					'/casedb/case[survey_ready = &apos;yes&apos;]"',
+				),
+		});
+		expect(atQuestion).toEqual([]);
+		if (outcome.kind !== "read") throw new Error("Expected a read form.");
+		const field = Object.values(outcome.draft.doc.fields).find(
+			(one) => one.id === "clinic",
+		);
+		expect(field).toMatchObject({
+			optionsSource: {
+				kind: "available-cases",
+				propertyMatch: { property: "survey_ready", text: "yes" },
+			},
+		});
+	});
+
 	it("retains the placed finding for an unknown status filter", async () => {
 		const { atQuestion } = await questionFindings(undefined, {
 			allCases: true,

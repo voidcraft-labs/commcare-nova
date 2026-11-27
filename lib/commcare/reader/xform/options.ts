@@ -14,7 +14,10 @@ import {
 
 import type { Element } from "domhandler";
 import { isTag } from "domhandler";
-import type { AvailableCasesOptionsSource } from "@/lib/domain/fields";
+import {
+	type AvailableCasesOptionsSource,
+	availableCasePropertyMatchSchema,
+} from "@/lib/domain/fields";
 import { instanceScanRead } from "@/lib/domain/hqInstanceRead";
 import { questionChoiceReadIssue } from "@/lib/domain/lookupRead";
 import { selectOptionValueProblemAmong } from "@/lib/domain/selectOptionValue";
@@ -48,7 +51,7 @@ export interface CaseChoicesProposal {
 	readonly sortProperty?: string;
 	readonly select: "select1" | "select";
 	readonly caseType?: string;
-	readonly status?: AvailableCasesOptionsSource["status"];
+	readonly available?: AvailableCasesOptionsSource;
 	readonly labelProperty: string;
 	/** Whether the nodeset holds a filter, registered for the expression stage, which claims
 	 *  the nodeset with it. */
@@ -537,30 +540,25 @@ function readItemset(
 		chain.predicates.length <= 2 &&
 		singleAttribute(valueRef) === "case_id"
 	) {
-		const status =
-			chain.predicates.length === 1
-				? (["open", "closed"] as const).find((value) =>
-						sameTree(nodeset, availableCasesNodeset(value)),
-					)
-				: undefined;
-		if (chain.predicates.length === 0 || status !== undefined) {
+		const available = availableCaseFilters(chain.predicates);
+		if (
+			available !== undefined &&
+			sameTree(nodeset, availableCasesNodeset(available))
+		) {
 			if (
 				select !== "select1" ||
 				sort !== undefined ||
 				singleName(labelRef) !== "case_name"
 			)
 				return other();
-			field.field.optionsSource = {
-				kind: "available-cases",
-				...(status !== undefined && { status }),
-			};
+			field.field.optionsSource = available;
 			return {
 				itemset,
 				label,
 				value,
 				select,
 				labelProperty: "case_name",
-				status,
+				available,
 				filtered: false,
 			};
 		}
@@ -608,6 +606,45 @@ function readItemset(
 		};
 	}
 	return other();
+}
+
+function availableCaseFilters(
+	predicates: readonly FormSyntax[],
+): AvailableCasesOptionsSource | undefined {
+	const source: AvailableCasesOptionsSource = { kind: "available-cases" };
+	for (const predicate of predicates) {
+		if (
+			predicate.kind !== "binary" ||
+			predicate.op !== "=" ||
+			predicate.right.kind !== "string"
+		)
+			return undefined;
+		const { left, right } = predicate;
+		if (
+			left.kind === "axis" &&
+			left.axis === "attribute" &&
+			left.value.kind === "name" &&
+			left.value.name === "status" &&
+			(right.value === "open" || right.value === "closed") &&
+			source.status === undefined
+		) {
+			source.status = right.value;
+			continue;
+		}
+		if (
+			left.kind !== "name" ||
+			left.wildcard ||
+			source.propertyMatch !== undefined
+		)
+			return undefined;
+		const match = availableCasePropertyMatchSchema.safeParse({
+			property: left.name,
+			text: right.value,
+		});
+		if (!match.success) return undefined;
+		source.propertyMatch = match.data;
+	}
+	return source;
 }
 
 /** `@case_type = '<type>'`, the first predicate Nova writes on a case choices itemset. */
