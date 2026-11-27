@@ -76,6 +76,15 @@ describe("standalone Search result-detail text", () => {
 		expect(readResultDetailText(direct)).toBeUndefined();
 		expect(
 			readResultDetailText(`concat('Answer: ', ${direct})`, "short"),
+		).toEqual({
+			inputName: "village",
+			prefix: "Answer: ",
+			suffix: "",
+			localText: "",
+			onList: true,
+		});
+		expect(
+			readResultDetailText(`concat('Answer: ', ${direct}, ${direct})`, "short"),
 		).toBeUndefined();
 		expect(
 			readResultDetailText(

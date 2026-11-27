@@ -20,6 +20,8 @@ import {
 	plainColumn,
 } from "@/lib/domain/modules";
 import { proseText } from "@/lib/domain/prose";
+import { serializeXml } from "../../../serializeXml";
+import { buildShortDetail } from "../../../suite/case-list/shortDetail";
 import { DERIVED_WIRE_IDENTITY } from "../../../wireIdentity";
 import { namingFromHqPages } from "../../__tests__/hqPageNames";
 import { assembleDocument } from "../../assemble";
@@ -1211,6 +1213,32 @@ describe("a detail's callout and tabs", () => {
 			extras: [{ name: "mode", value: `Worker's "visit"` }],
 			responses: ["first", "second"],
 		});
+	});
+
+	it("writes the lookup evaluation control as Android’s unquoted token", async () => {
+		const reading = await readDetails((short) => {
+			Object.assign(short, {
+				lookup_enabled: true,
+				lookup_action: "org.nova.proof.CASE_LOOKUP",
+				lookup_name: "Find a visit",
+				lookup_extras: [
+					{ key: "mode", value: "1 + 2" },
+					{ key: "force_xpath_parsing", value: "yes" },
+				],
+				lookup_responses: [{ key: "first" }],
+			});
+		});
+		expect(closedCodes(reading)).toEqual([]);
+		const lookup = listOf(reading).deviceLookup;
+		expect(lookup?.evaluateExtras).toBe(true);
+		expect(lookup?.extras.map((extra) => extra.name)).toEqual(["mode"]);
+		const doc = reading.ctx.doc;
+		if (!doc) throw new Error("The lookup did not settle.");
+		const module = doc.modules[doc.moduleOrder[0]];
+		const detail = buildShortDetail({ doc, module, moduleIndex: 0 });
+		expect(serializeXml(detail.element)).toContain(
+			'<extra key="force_xpath_parsing" value="yes"',
+		);
 	});
 
 	it("brings in a lookup image through the Project media index", async () => {
