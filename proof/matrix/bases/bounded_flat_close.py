@@ -11,7 +11,9 @@ from proof.matrix.registry import Base
 def _source(name):
     from corehq.apps.app_manager.xform_builder import XFormBuilder
 
-    return XFormBuilder(name).tostring(xml_declaration=True).decode("utf-8")
+    xform = XFormBuilder(name)
+    xform.new_question("ready", None, None, calculate="'yes'")
+    return xform.tostring(xml_declaration=True).decode("utf-8")
 
 
 def build(authoring):
@@ -22,7 +24,7 @@ def build(authoring):
     _pages.turn_web_apps_on(authoring, app_id)
     _pages.new_case_module(authoring, app_id, name="Records", case_type="record")
     _pages.delete_form(authoring, app_id, 0, 0)
-    ops.upload_form_source(authoring, app_id, 0, 0, _source, "empty case close form")
+    ops.upload_form_source(authoring, app_id, 0, 0, _source, "case close with a constant Hidden Value")
     ops.set_json(authoring, app_id, "/modules/0/forms/0/requires", "case")
     ops.set_json(authoring, app_id, "/modules/0/forms/0/actions/close_case/condition/type", "always")
     _pages.save_form_attributes(
