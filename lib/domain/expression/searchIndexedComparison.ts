@@ -60,6 +60,15 @@ export function searchIndexedComparison(
 			? right.term.value
 			: undefined;
 	if (equality) {
+		// HQ sends an integer literal unchanged to the exact text index of a
+		// custom date. A legacy value can be "3" without being a calendar day.
+		if (
+			leftType === "date" &&
+			rightType === "int" &&
+			typeof value === "number" &&
+			canonicalIntegerText(String(value)) !== undefined
+		)
+			return "exact-text";
 		if (rightType !== "text") return;
 		if (leftType === "datetime") return "exact-text";
 		if (!STORED_TEXT_EQUALITY_TYPES.has(leftType)) return;
