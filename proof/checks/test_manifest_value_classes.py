@@ -9097,8 +9097,19 @@ def _lookup_count_shapes():
     guarded_source = _form(data="<count/>", model=(
         f'<bind nodeset="/data/count" calculate="if(count({path}) = 0, &apos;No result&apos;, string({path}[1]))"/>'
     ))
+    guarded_second_source = guarded_source.replace(
+        b"fingerprintquery[1]", b"fingerprintquery[2]",
+    )
     site = "bind[1]/@calculate"
     return {
+        "expressions-and-data/guarded-fingerprint-query-without-a-supplier": (
+            refused("app", survey(guarded_source), key, site, readings=True, uses=2, authored=True),
+            refused("app", survey(guarded_second_source), key, site, readings=True, uses=2, authored=True),
+            replace(
+                accepted("app", survey(raw), key, site, readings=True, authored=True),
+                standing=manifest_usage.REFUSED,
+            ),
+        ),
         "expressions-and-data/bare-fingerprint-query-without-a-supplier": (
             refused("app", survey(raw), key, site, readings=True, authored=True),
             accepted("app", survey(guarded_source), key, site, readings=True, uses=2, authored=True),
