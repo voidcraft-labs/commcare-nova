@@ -13497,6 +13497,19 @@ def prompt_key_outside_nova_s_name_grammar(use, manifest):
     return not _authored_property_name(name)
 
 
+def auto_select_on_a_single_basic_list(use, manifest):
+    """The Detail editor only keeps automatic selection when its short case list selects several cases."""
+    at = _json(use)
+    if at is not None and at.key == "auto_select" and at.scope[-1][0] == "Detail":
+        module, pair = at.nearest(*MODULES), at.nearest("DetailPair")
+        return (module is not None and module.get("doc_type") in (None, "Module") and bool(module.get("case_type"))
+                and pair is not None and module.get("case_details") is pair and pair.get("short") is at.owner
+                and at.value is True and at.owner.get("multi_select") is not True)
+    # A runtime datum alone cannot identify the Basic list: HQ also emits an
+    # automatic single datum for Advanced loads from a lookup fixture.
+    return None
+
+
 def _basic_multi_select_maximum(use):
     """The source maximum on a basic menu's short list that actually selects several cases."""
 
@@ -14729,6 +14742,7 @@ VALUE_CLASSES = {
     "menus-and-case-lists/lookup-display-results-lookup-field-header-lookup-field-template": (
         lookup_with_result_column
     ),
+    "menus-and-case-lists/detail-auto-select-true-on-a-single-select-basic-list": auto_select_on_a_single_basic_list,
     "menus-and-case-lists/detail-max-select-value-above-100": max_select_value_above_100,
     "menus-and-case-lists/detail-max-select-value-above-2147483647": multi_select_maximum_exceeds_java_int,
     "menus-and-case-lists/case-tile-group-identifier-starts-with-a-hyphen": tile_group_index_starts_with_hyphen,

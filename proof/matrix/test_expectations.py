@@ -27,8 +27,8 @@ each failing by base with what is missing:
 4. every HELD entry the base exhibits whose claim sits in the app's JSON under
    a case list or a case detail has a ``caseList`` expectation naming it, run
    on the local archive alone, and the base is read under a declaration that
-   includes Android. The unrestated Visits list filter in the Web Apps-only
-   Search base instead has a hand-written Web Apps worker expectation;
+   includes Android. Two Web Apps-only shapes use their own native list
+   observations: the unstated Visits filter and the 101-case flat close;
 5. every first-publish id of the base whose entry holds a ``proof3`` row in
    ``proof/first-publish-changes.json`` has a ``<id>:before`` expectation run
    on A alone and an ``<id>:after`` one run on B and the archive, whose values
@@ -66,6 +66,8 @@ PROOF = Path(__file__).resolve().parents[1]
 ENTRIES = PROOF.parent / "lib" / "commcare" / "surface" / "entries"
 FIRST_PUBLISH_CHANGES = PROOF / "first-publish-changes.json"
 WEB_APPS_SEARCH_FILTER = PROOF / "webapps" / "fixtures" / "web-apps-search-filter.json"
+BOUNDED_CLOSE_CASE_LIST = PROOF / "formplayer" / "fixtures" / "bounded-flat-close-case-list.json"
+BOUNDED_CLOSE_MAXIMUM = "menus-and-case-lists/detail-max-select-value-for-flat-close"
 UNRESTATED_SEARCH_FILTER = "case-search/case-list-filter-clause-the-search-does-not-restate"
 CASE_XMLNS = "http://commcarehq.org/case/transaction/v2"
 XFORMS = "http://www.w3.org/2002/xforms"
@@ -387,6 +389,29 @@ def _web_apps_search_filter_problems(app, listed):
     return []
 
 
+def _web_apps_bounded_close_problems(app, listed):
+    """Tie Formplayer's case-list witness to the exact held source and limit."""
+    try:
+        witness = json.loads(BOUNDED_CLOSE_CASE_LIST.read_text(encoding="utf-8"))
+        source = "/modules/0/case_details/short/max_select_value"
+        (claim,) = listed
+        if not (claim["where"] == witness["source"] == source
+                and witness["entry"] == BOUNDED_CLOSE_MAXIMUM and witness["platform"] == "web-apps"):
+            raise ValueError("the witness must name the held Web Apps case list")
+        (menu,) = app["modules"]
+        (form,) = menu["forms"]
+        detail = menu["case_details"]["short"]
+        if not (menu["name"]["en"] == witness["menu"] and form["name"]["en"] == witness["form"]
+                and detail["multi_select"] is True and detail["auto_select"] is True
+                and detail["max_select_value"] == witness["selectedCount"] == 101
+                and witness["overflowCount"] == witness["selectedCount"] + 1
+                and 0 < witness["pageSize"] < witness["selectedCount"]):
+            raise ValueError("the witness must exercise the saved automatic list below and above its maximum")
+    except (KeyError, OSError, TypeError, ValueError) as error:
+        return [f"the Web Apps bounded case list witness is invalid ({error})"]
+    return []
+
+
 def _problems(base, claim_log, held, proof3):
     directory = HQ_APPS / base.id
     hand = HAND / base.id
@@ -521,6 +546,9 @@ def _problems(base, claim_log, held, proof3):
         if listed:
             if base.id == "hq-search" and entry == UNRESTATED_SEARCH_FILTER and runs_only_on == "web-apps":
                 problems.extend(_web_apps_search_filter_problems(app, listed))
+                continue
+            if base.id == "hq-bounded-flat-close" and entry == BOUNDED_CLOSE_MAXIMUM and runs_only_on == "web-apps":
+                problems.extend(_web_apps_bounded_close_problems(app, listed))
                 continue
             case_lists = [
                 expectation

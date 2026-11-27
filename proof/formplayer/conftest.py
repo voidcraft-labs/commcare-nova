@@ -28,6 +28,7 @@ DOCUMENTS = (
     "case-operation-key",
     "case-operation-query",
     "case-operation-sequence",
+    "hq-bounded-flat-close",
     "hq-case-management",
     "hq-empty-search",
     "hq-project-database-search",
