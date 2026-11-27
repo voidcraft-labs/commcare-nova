@@ -22,6 +22,11 @@ export function isLookupEvaluateExtrasControl(value: unknown): boolean {
 	);
 }
 
+/** Android checks this control as the unquoted token `yes`. */
+export function lookupEvaluateExtrasWire(): WireExpr {
+	return w.context([w.step(lookupEvaluateExtrasControl.value)]);
+}
+
 /** Values the companion receives before the worker chooses a case. */
 export function deviceLookupExtraWire(extra: DeviceLookupExtra): WireExpr {
 	if ("value" in extra) return w.str(extra.value);

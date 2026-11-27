@@ -7,6 +7,7 @@ import {
 	deviceLookupExtraWire,
 	lookupCaseKeyWire,
 	lookupEvaluateExtrasControl,
+	lookupEvaluateExtrasWire,
 } from "../suite/case-list/deviceLookup";
 
 // lib/commcare/hqJson/caseList.ts
@@ -1728,9 +1729,7 @@ export function projectCaseListForHq(
 				? [
 						{
 							key: lookupEvaluateExtrasControl.key,
-							value: hqXPath(
-								w.context([w.step(lookupEvaluateExtrasControl.value)]),
-							),
+							value: hqXPath(lookupEvaluateExtrasWire()),
 						},
 					]
 				: []),

@@ -151,6 +151,7 @@ import {
 	lookupConfidenceColumn,
 	lookupConfidenceLocaleId,
 	lookupEvaluateExtrasControl,
+	lookupEvaluateExtrasWire,
 } from "./deviceLookup";
 import { buildNamedTileFields } from "./namedTile";
 import { withDetailLoadBehavior } from "./optimizations";
@@ -712,7 +713,16 @@ function buildDetailShell(
 						),
 					),
 					...(deviceLookup.evaluateExtras === true
-						? [el("extra", lookupEvaluateExtrasControl)]
+						? [
+								xel(
+									"extra",
+									{
+										attributes: { key: lookupEvaluateExtrasControl.key },
+										xpath: { value: lookupEvaluateExtrasWire() },
+									},
+									wire,
+								),
+							]
 						: []),
 					...deviceLookup.responses.map((key) => el("response", { key })),
 					...(deviceLookup.resultHeading === undefined
