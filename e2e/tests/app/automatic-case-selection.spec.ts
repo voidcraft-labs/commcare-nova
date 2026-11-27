@@ -73,7 +73,11 @@ test("closes 101 records from manual pages and automatic selection in the signed
 			await page.getByRole("button", { name: "Preview", exact: true }).click();
 			const preview = page.locator("main[data-preview-scroll-container]");
 			await preview.getByRole("button", { name: /^Member records/ }).click();
+			const close = preview.getByRole("button", {
+				name: "Close these records",
+			});
 			if (!autoSelect) {
+				await close.click();
 				const chooseShown = preview.getByRole("button", {
 					name: "Choose all cases shown",
 				});
@@ -89,12 +93,12 @@ test("closes 101 records from manual pages and automatic selection in the signed
 					.getByRole("button", { name: "Continue", exact: true })
 					.click();
 			}
-			await expect(
-				preview.getByRole("heading", { name: "101 cases selected" }),
-			).toBeVisible();
-			await preview
-				.getByRole("button", { name: "Close these records" })
-				.click();
+			if (autoSelect) {
+				await expect(
+					preview.getByRole("heading", { name: "101 cases selected" }),
+				).toBeVisible();
+				await close.click();
+			}
 			const submit = preview.getByRole("button", {
 				name: "Submit",
 				exact: true,

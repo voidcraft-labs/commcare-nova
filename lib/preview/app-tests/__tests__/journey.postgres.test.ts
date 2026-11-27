@@ -5740,14 +5740,21 @@ it.each([false, true])(
 			return current.observation;
 		};
 		try {
-			const menu = await step({ kind: "menu", moduleUuid });
-			if (!automatic) {
-				expect(menu).toMatchObject({ screen: "records" });
-				await step({ kind: "select", caseIds: ordered });
-			}
-			expect(await step({ kind: "form", formUuid })).toMatchObject({
-				screen: "form",
+			expect(await step({ kind: "menu", moduleUuid })).toMatchObject({
+				screen: "menu",
 			});
+			if (automatic) {
+				expect(await step({ kind: "form", formUuid })).toMatchObject({
+					screen: "form",
+				});
+			} else {
+				expect(await step({ kind: "form", formUuid })).toMatchObject({
+					screen: "records",
+				});
+				expect(await step({ kind: "select", caseIds: ordered })).toMatchObject({
+					screen: "form",
+				});
+			}
 			expect(await step({ kind: "submit" })).toMatchObject({
 				savedInTest: true,
 				effects: { primaryCaseIds: ordered },
