@@ -18,11 +18,12 @@ SOUTH = "ordered-default-south"
 NORTH = "ordered-default-north"
 
 
-def ordered_default_variant():
-    return next(
-        row for row in registry.load_variants()
-        if row.id == "hq-search/starting-value-of-an-ordered-text"
-    )
+def ordered_default_variant(field="username"):
+    variant = {
+        "username": "starting-value-of-an-ordered-text",
+        "userid": "starting-value-ordering-a-worker-id",
+    }[field]
+    return next(row for row in registry.load_variants() if row.id == f"hq-search/{variant}")
 
 
 def save_ordered_default(project, variant, expression):

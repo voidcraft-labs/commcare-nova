@@ -38,6 +38,7 @@ def test_owner_exclusion_compares_worker_text_as_a_number_in_search(
     coerced = f"if(number({username}) > number('m'), 'a', 'b')"
     for label, owners, excluded, visible in (
         ("retained", ordered, "b", "a"),
+        ("worker-id", ordered.replace("/username", "/userid"), "b", "a"),
         ("coerced", coerced, "b", "a"),
         ("opposite-owner", "'a'", "a", "b"),
     ):

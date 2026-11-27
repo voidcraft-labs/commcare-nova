@@ -362,47 +362,51 @@ describe("a search's settings", () => {
 		);
 	});
 
-	it("preserves the worker-name comparison in the shared owner exclusion", async () => {
-		const workerRule =
-			"if(instance('commcaresession')/session/context/username > 'm', 'a', 'b')";
-		const reading = await readLists(
-			doc({ excludedOwnerIds: term(literal("abc")) }),
-			{
-				edit: (app) => {
-					const menu = app.modules[0] as {
-						case_details: { short: { filter?: unknown } };
-						search_config: { blacklisted_owner_ids_expression?: unknown };
-					};
-					const swap = (text: unknown) =>
-						typeof text === "string"
-							? text.replaceAll("'abc'", workerRule)
-							: text;
-					menu.case_details.short.filter = swap(menu.case_details.short.filter);
-					menu.search_config.blacklisted_owner_ids_expression = swap(
-						menu.search_config.blacklisted_owner_ids_expression,
-					);
+	it.each(["username", "userid"])(
+		"preserves %s in the shared owner exclusion",
+		async (field) => {
+			const workerRule = `if(instance('commcaresession')/session/context/${field} > 'm', 'a', 'b')`;
+			const reading = await readLists(
+				doc({ excludedOwnerIds: term(literal("abc")) }),
+				{
+					edit: (app) => {
+						const menu = app.modules[0] as {
+							case_details: { short: { filter?: unknown } };
+							search_config: { blacklisted_owner_ids_expression?: unknown };
+						};
+						const swap = (text: unknown) =>
+							typeof text === "string"
+								? text.replaceAll("'abc'", workerRule)
+								: text;
+						menu.case_details.short.filter = swap(
+							menu.case_details.short.filter,
+						);
+						menu.search_config.blacklisted_owner_ids_expression = swap(
+							menu.search_config.blacklisted_owner_ids_expression,
+						);
+					},
 				},
-			},
-		);
-		expect(closedCodes(reading)).toEqual([]);
-		expect(searchOf(reading)?.excludedOwnerIds).toMatchObject({
-			kind: "if",
-			cond: {
-				kind: "gt",
-				left: {
-					kind: "term",
-					term: { kind: "session-context", field: "username" },
+			);
+			expect(closedCodes(reading)).toEqual([]);
+			expect(searchOf(reading)?.excludedOwnerIds).toMatchObject({
+				kind: "if",
+				cond: {
+					kind: "gt",
+					left: {
+						kind: "term",
+						term: { kind: "session-context", field },
+					},
 				},
-			},
-		});
-	});
+			});
+		},
+	);
 
 	it("reads the list filter's owner clause of a refused exclusion as that refusal's, one finding", async () => {
 		// An exclusion over an ordered comparison of text, which Nova's value vocabulary does not
 		// hold: the search's refusal is the one cause, and the clause Nova's print would write for
 		// a held exclusion is no difference of the list's.
 		const outside =
-			"if(instance('commcaresession')/session/context/userid > 'm', 'a', 'b')";
+			"if(instance('commcaresession')/session/context/deviceid > 'm', 'a', 'b')";
 		const reading = await readLists(
 			doc({ excludedOwnerIds: term(literal("abc")) }),
 			{

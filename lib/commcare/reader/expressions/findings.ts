@@ -16,7 +16,7 @@ import {
 } from "@/lib/domain/expression/formStructure";
 import {
 	readsRestoredCaseTypeQuery,
-	searchUsernameTextOrder,
+	searchWorkerTextOrder,
 } from "@/lib/domain/expression/ruleSets";
 import type {
 	CheckError,
@@ -2097,7 +2097,7 @@ export const SLOT_ENTRIES: Readonly<Record<RegisteredSlotName, SlotRow>> = {
 						visitExpression(expression) {
 							if (
 								expression.kind === "gt" &&
-								searchUsernameTextOrder(
+								searchWorkerTextOrder(
 									expression.kind,
 									expression.left,
 									expression.right,
