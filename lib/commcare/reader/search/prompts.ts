@@ -257,6 +257,10 @@ export const PROMPT_CLAIMS = defineClaims("search.prompts", {
 		`${S}itemset-without-the-item-list-its-instance-id-names`,
 		"schema:Itemset.instance_id",
 	),
+	caseItemsetMissingEditorSource: refuse(
+		`${S}case-itemset-without-an-editor-source`,
+		"schema:Itemset.nodeset",
+	),
 	itemsetElsewhere: refuse(
 		`${S}itemset-nodeset-other-than-a-table-s-item-list`,
 		"schema:Itemset.nodeset",
@@ -512,6 +516,27 @@ function itemsetSource(
 	)
 		return { tag: item, undiscovered: true };
 	return filter === undefined ? { tag: item } : { tag: item, filter };
+}
+
+function isCaseRowsItemsetWithoutEditorSource(
+	itemset: Record<string, unknown>,
+) {
+	if (Object.hasOwn(itemset, "instance_id")) return false;
+	let node = parse(itemset.nodeset);
+	while (node?.kind === "filter") node = node.base;
+	if (
+		node?.kind !== "child" ||
+		node.step.kind !== "name" ||
+		node.step.name !== "case"
+	)
+		return false;
+	const root = node.left;
+	return (
+		root?.kind === "child" &&
+		root.step.kind === "name" &&
+		root.step.name === "casedb" &&
+		literalInstanceId(root.left)?.value === "casedb"
+	);
 }
 
 /**
@@ -1597,7 +1622,13 @@ function readPrompt(
 				} else if (source === undefined) {
 					// A nodeset that reads elsewhere than a table's item list: HQ builds it, and Nova's
 					// choices are a table's item list.
-					const raised = refuseWith("nodeset", P.itemsetElsewhere, cursor);
+					const raised = refuseWith(
+						"nodeset",
+						isCaseRowsItemsetWithoutEditorSource(itemset)
+							? P.caseItemsetMissingEditorSource
+							: P.itemsetElsewhere,
+						cursor,
+					);
 					cover(cursor, ITEMSET_KEYS, raised);
 					cover(prompt, ["input_"], raised);
 				} else if (
