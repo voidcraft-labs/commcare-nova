@@ -97,6 +97,58 @@ def _basic_auto_select_shapes():
     )
 
 
+def _basic_root_datetime_owner_shapes():
+    question_path = "schema:ConditionalCaseUpdate.question_path"
+    update_path = "/modules/0/forms/0/actions/update_case/update"
+
+    def source(answer_type, prop="owner_id", mode="always"):
+        update = {
+            "doc_type": "UpdateCaseAction",
+            "condition": ALWAYS,
+            "update": {prop: {**_update("/data/q"), "update_mode": mode}},
+        }
+        form = _form(
+            data="<q/>",
+            model=f'<bind nodeset="/data/q" type="xsd:{answer_type}"/>',
+            body='<input ref="/data/q"/>',
+        )
+        return _with_forms(_app([_module([_form_json("case", update_case=update)])]), f=form)
+
+    return (
+        refused("app", source("dateTime"), question_path, f"{update_path}/owner_id/question_path"),
+        accepted("app", source("string"), question_path, f"{update_path}/owner_id/question_path"),
+        accepted("app", source("dateTime", "category"), question_path, f"{update_path}/category/question_path"),
+        accepted("app", source("dateTime", mode="edit"), question_path, f"{update_path}/owner_id/question_path"),
+    )
+
+
+def _root_advanced_inline_search_shapes():
+    key, where = "schema:AdvancedModule", "/modules/0"
+
+    def source(*, inline=True, prompts=True, manual=True, **placement):
+        load = _load("load_patient_0")
+        if not manual:
+            load["auto_select"] = {"doc_type": "AutoSelectCase", "mode": "usercase"}
+        return _advanced_app(
+            [load],
+            search_config={
+                "doc_type": "CaseSearchConfig",
+                "inline_search": inline,
+                "auto_launch": True,
+                "properties": [_prompt("patient_name")] if prompts else [],
+            },
+            **placement,
+        )
+
+    return (
+        refused("app", source(), key, where),
+        accepted("app", source(inline=False), key, where),
+        accepted("app", source(prompts=False), key, where),
+        accepted("app", source(manual=False), key, where),
+        accepted("app", source(root_module_id="other-menu"), key, where),
+    )
+
+
 def _direct_host_text_filter_shapes():
     key = "schema:Detail.filter"
     where = "/case_details/short/filter"
@@ -9273,6 +9325,8 @@ def test_standalone_result_detail_positive_classifier(manifest, prompt, guarded,
 
 
 SHAPES = {
+    "menus-and-case-lists/advanced-inline-search-without-entry-query": _root_advanced_inline_search_shapes(),
+    "forms-and-case-writes/basic-case-owner-written-from-a-datetime-answer": _basic_root_datetime_owner_shapes(),
     "menus-and-case-lists/detail-auto-select-true-on-a-single-select-basic-list": _basic_auto_select_shapes(),
     **_bounded_flat_close_shapes(),
     **_direct_host_text_filter_shapes(),
