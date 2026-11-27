@@ -1884,7 +1884,8 @@ function decideGeneratedKeys(
 			const build = source.build_langs;
 			// A dormant canonical locale does not supply the live legacy heading
 			// in either language. Drop both stored copies when moving the live
-			// English override so the Spanish locale still falls back to it.
+			// English override. The ordinary labels still supply the same text in
+			// the Spanish locale and in each profile's default table.
 			const ordinaryCopies = copies.every(
 				(copy) =>
 					typeof copy.value === "string" &&
@@ -1899,9 +1900,6 @@ function decideGeneratedKeys(
 				build.length === 2 &&
 				build[0] === "en" &&
 				build[1] === "es" &&
-				(source.build_profiles === undefined ||
-					(isJsonObject(source.build_profiles) &&
-						Object.keys(source.build_profiles).length === 0)) &&
 				(stored.get(held.key)?.length ?? 0) === 1 &&
 				(copies.length === 1 || copies.length === 2) &&
 				copies.some((copy) => copy.language === "en") &&

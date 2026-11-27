@@ -26184,12 +26184,28 @@
 	{
 		"id": "hq-search/translation-competes-with-a-legacy-heading-and-a-named-installation",
 		"base": "hq-search",
+		"entry": "application-and-settings/translations-generated-wording",
+		"change": {
+			"op": "named",
+			"name": "a_legacy_search_group_competes_with_a_named_installation"
+		},
+		"holds": [
+			{
+				"key": ["module", { "$menu": 0 }],
+				"pointer": "/caseListConfig/searchInputGroups/0/label",
+				"value": "Local details"
+			}
+		]
+	},
+	{
+		"id": "hq-search/translation-overrides-a-positional-legacy-search-group-heading",
+		"base": "hq-search",
 		"entry": "application-and-settings/translations-generated-key-anything-else",
 		"standing": "not-yet",
 		"place": { "kind": "app" },
 		"change": {
 			"op": "named",
-			"name": "a_legacy_search_group_competes_with_a_named_installation"
+			"name": "a_search_group_uses_a_positional_legacy_heading"
 		}
 	},
 	{

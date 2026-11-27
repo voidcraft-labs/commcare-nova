@@ -457,14 +457,14 @@ it("rekeys only a unique live legacy Search heading and records both source posi
 		spanish: { doc_type: "BuildProfile", name: "Spanish", langs: ["es"] },
 	};
 	const separateInstallation = await read();
-	if (separateInstallation.kind !== "account")
-		throw Error("The named installation has a different fallback palette");
-	expect(separateInstallation.findings).toContainEqual(
-		expect.objectContaining({
-			code: "application-and-settings/translations-generated-key-anything-else",
-			detail: { name: oldKey },
-		}),
+	if (separateInstallation.kind !== "read")
+		throw Error(JSON.stringify(separateInstallation.findings));
+	expect(expandDoc(separateInstallation.draft.doc).translations?.en[currentKey]).toBe(
+		"Find a client",
 	);
+	expect(
+		expandDoc(separateInstallation.draft.doc).translations?.es?.[currentKey],
+	).toBeUndefined();
 	delete body.build_profiles;
 	body.translations = { en: { [oldKey]: "Find a client" } };
 

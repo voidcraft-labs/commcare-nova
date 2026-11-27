@@ -14,23 +14,27 @@ OLD = "search_property.m0.g"
 CANONICAL = "search_property.m0.group_header_0"
 
 
-@pytest.mark.parametrize("spanish_override", [False, True], ids=["english-only", "english-and-spanish"])
+@pytest.mark.parametrize(
+    ("variant_name", "spanish_override", "profile"),
+    [
+        ("translation_competes_with_a_legacy_heading_in_two_languages", False, None),
+        ("a_legacy_search_group_competes_with_a_second_language_override", True, None),
+        ("a_legacy_search_group_competes_with_a_named_installation", True, "spanish"),
+    ],
+    ids=["english-only", "english-and-spanish", "named-spanish-installation"],
+)
 def test_bilingual_legacy_search_group_uses_the_same_words_after_rekey(
-    hq, webapps_documents, evidence, spanish_override,
+    hq, webapps_documents, evidence, variant_name, spanish_override, profile,
 ):
     document = webapps_documents["hq-search"]
     with webapps_hq.authored_project(document, "A", configure=enable_address_search) as project:
         authoring = Authoring(project.unit, {}, document.id, operation=project.unit.operation)
         app_id = project.app_id
-        variant = registry.named_change(
-            "a_legacy_search_group_competes_with_a_second_language_override" if spanish_override
-            else "translation_competes_with_a_legacy_heading_in_two_languages"
-        )
-        variant(authoring, app_id)
+        registry.named_change(variant_name)(authoring, app_id)
 
         def observe():
             app = operations.held_app(project.unit, app_id)
-            suite = etree.fromstring(app.create_suite())
+            suite = etree.fromstring(app.create_suite(build_profile_id=profile))
             active, = [
                 key for key in suite.xpath("//group/display/text/locale/@id")
                 if key in {OLD, CANONICAL}
@@ -39,6 +43,8 @@ def test_bilingual_legacy_search_group_uses_the_same_words_after_rekey(
                 code: parse_app_strings(app.create_app_strings(code))
                 for code in ["en", "es", "default"]
             }
+            if profile is not None:
+                tables["profile-default"] = parse_app_strings(app.create_app_strings("default", build_profile_id=profile))
             return {
                 "key": active,
                 "stored": app.translations,

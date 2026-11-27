@@ -256,6 +256,11 @@ def a_legacy_search_group_competes_with_a_named_installation(authoring, app_id):
     })
 
 
+def a_search_group_uses_a_positional_legacy_heading(authoring, app_id):
+    """The saved position identifies a different slot from its actual row."""
+    _translation_overrides_a_search_group_heading(authoring, app_id, "group_header_8")
+
+
 def translation_duplicates_a_saved_legacy_search_group_heading(authoring, app_id):
     """The live heading and its dormant current key store the same wording."""
     translation_overrides_a_saved_legacy_search_group_heading(authoring, app_id)
