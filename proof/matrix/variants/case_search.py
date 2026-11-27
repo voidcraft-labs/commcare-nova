@@ -301,6 +301,16 @@ def list_first_in_web_apps(authoring, app_id):
     _set_each(authoring, app_id, ("/cloudcare_enabled", True), ("/modules/0/search_config/auto_launch", False))
 
 
+def search_button_orders_worker_name_with_session(authoring, app_id):
+    """Clients' short list loads the worker session its Search action reads."""
+    _set_each(
+        authoring,
+        app_id,
+        ("/modules/0/case_details/short/filter", f"@owner_id = {SESSION}/context/userid"),
+        ("/modules/0/search_config/search_button_display_condition", f"{SESSION}/context/username > 'm'"),
+    )
+
+
 def owner_exclusion_on_an_ordered_text(authoring, app_id):
     """Active clients' owner list chosen by ordering the worker's name against text, its case list's filter holding
     Nova's clause for the list."""

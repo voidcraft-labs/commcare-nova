@@ -1125,7 +1125,7 @@
 		],
 		"valueClass": "lifts-into-predicate",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: `caseSearchConfig.searchButtonDisplayCondition`, including typed counts of cases on the device",
+		"dispositionCell": "**HELD**: `caseSearchConfig.searchButtonDisplayCondition`, including typed counts of cases on the device and a numeric comparison of the worker name when the case list loads that session value",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",

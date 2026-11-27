@@ -39106,8 +39106,8 @@
 	{
 		"id": "hq-search/button-shown-on-an-ordered-text",
 		"base": "hq-search",
-		"entry": "case-search/search-button-display-condition-outside-predicate",
-		"standing": "not-yet",
+		"entry": "case-search/search-button-display-condition-reading-what-the-case-list-does-not-load",
+		"standing": "fix-in-hq",
 		"place": {
 			"kind": "search",
 			"menu": 0,
@@ -39118,6 +39118,38 @@
 			"pointer": "/modules/0/search_config/search_button_display_condition",
 			"value": "instance('commcaresession')/session/context/username > 'm'"
 		}
+	},
+	{
+		"id": "hq-search/button-compares-a-worker-id-with-text",
+		"base": "hq-search",
+		"entry": "case-search/search-button-display-condition-outside-predicate",
+		"standing": "not-yet",
+		"place": {
+			"kind": "search",
+			"menu": 0,
+			"name": "Clients"
+		},
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/0/search_config/search_button_display_condition",
+			"value": "instance('commcaresession')/session/context/userid > 'm'"
+		}
+	},
+	{
+		"id": "hq-search/button-orders-the-worker-name-when-the-list-loads-it",
+		"base": "hq-search",
+		"entry": "case-search/search-button-display-condition-lifting-into-predicate",
+		"change": {
+			"op": "named",
+			"name": "search_button_orders_worker_name_with_session"
+		},
+		"holds": [
+			{
+				"key": ["module", { "$menu": 0 }],
+				"pointer": "/caseSearchConfig/searchButtonDisplayCondition/left/term",
+				"value": { "kind": "session-context", "field": "username" }
+			}
+		]
 	},
 	{
 		"id": "hq-search/checkbox-field",

@@ -12,6 +12,7 @@ import {
 	concat,
 	dateLiteral,
 	eq,
+	gt,
 	gte,
 	input,
 	literal,
@@ -484,34 +485,39 @@ describe("a search's settings", () => {
 	// (`post_process/instances.py::_get_all_xpaths_for_entry`), so a session read over a list whose
 	// selection and forms read no session stops the list on the device: the reading refuses it.
 	// Over a list whose filter reads the session, the same condition is held.
-	it("refuses a Search button condition reading what its case list does not load", async () => {
-		const condition = neq(sessionContext("username"), literal("guest"));
-		const refused = await readLists(
-			patients([plainColumn(uuid(1), "case_name", "Name")], {
-				searchInputs: [field],
-				search: { searchButtonDisplayCondition: condition },
-			}),
-		);
-		expect(closedCodes(refused)).toContain(
-			"case-search/search-button-display-condition-reading-what-the-case-list-does-not-load",
-		);
-		const held = await readLists(
-			patients([plainColumn(uuid(1), "case_name", "Name")], {
-				searchInputs: [field],
-				list: {
-					filter: eq(
-						term(prop("patient", "owner_id")),
-						term(sessionContext("userid")),
-					),
-				},
-				search: { searchButtonDisplayCondition: condition },
-			}),
-		);
-		expect(codes(held)).toEqual([]);
-		expect(searchOf(held)).toMatchObject({
-			searchButtonDisplayCondition: condition,
-		});
-	});
+	it.each([
+		neq(sessionContext("username"), literal("guest")),
+		gt(sessionContext("username"), literal("m")),
+	])(
+		"requires a Search action’s worker session to be loaded by its list ($kind)",
+		async (condition) => {
+			const refused = await readLists(
+				patients([plainColumn(uuid(1), "case_name", "Name")], {
+					searchInputs: [field],
+					search: { searchButtonDisplayCondition: condition },
+				}),
+			);
+			expect(closedCodes(refused)).toContain(
+				"case-search/search-button-display-condition-reading-what-the-case-list-does-not-load",
+			);
+			const held = await readLists(
+				patients([plainColumn(uuid(1), "case_name", "Name")], {
+					searchInputs: [field],
+					list: {
+						filter: eq(
+							term(prop("patient", "owner_id")),
+							term(sessionContext("userid")),
+						),
+					},
+					search: { searchButtonDisplayCondition: condition },
+				}),
+			);
+			expect(codes(held)).toEqual([]);
+			expect(searchOf(held)).toMatchObject({
+				searchButtonDisplayCondition: condition,
+			});
+		},
+	);
 
 	// HQ's page keeps the text an author types, so a session value Nova reads inside its guard
 	// (`if(count(P) > 0, P, '')`, `absent-session-value-guard`) may be read bare. The expression
