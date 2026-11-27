@@ -11,6 +11,7 @@
 		"hq-advanced/computed-datum",
 		"hq-advanced/disabled-schedule-on-a-gone-question",
 		"hq-advanced/first-load-indexed",
+		"hq-advanced/first-load-writes-through-parent",
 		"hq-advanced/form-condition-reading-the-case-on-the-first-menu",
 		"hq-advanced/form-visit-schedule",
 		"hq-advanced/household-chosen-by-expression-from-an-earlier-choice",

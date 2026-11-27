@@ -5806,14 +5806,36 @@
 		"gates": []
 	},
 	{
+		"id": "forms-and-case-writes/loadupdateaction-first-load-writes-through-a-declared-parent-or-host",
+		"area": "forms-and-case-writes",
+		"section": "Advanced form actions",
+		"item": "A first manually selected ordinary case saves a property through its declared parent or host path",
+		"surfaceKeys": ["schema:LoadUpdateAction.case_properties"],
+		"valueClass": "first-load-write-through-a-declared-parent-or-host",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: a linked write starts from the case chosen by the first Advanced load. Each parent or host connection has a declared destination type. The form opening fixes the reached case and submission verifies its identity and authority.",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": { "reading": "runs" },
+			"android": { "reading": "runs" }
+		},
+		"emission": {
+			"cell": "`case_properties` under the original Advanced load",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
 		"id": "forms-and-case-writes/loadupdateaction-case-properties-key-with-on-a-load-with-no-case",
 		"area": "forms-and-case-writes",
 		"section": "Advanced form actions",
-		"item": "`LoadUpdateAction.case_properties` key with `/`, on a load with no `case_index` other than the form's own (the first load of a chain, the worker's record's), or through an index segment other than `parent` and `host`",
+		"item": "`LoadUpdateAction.case_properties` key with `/`, on an automatically selected load or the worker’s record, or through an index segment other than `parent` and `host`",
 		"surfaceKeys": ["schema:LoadUpdateAction.case_properties"],
 		"valueClass": "index-key-on-another-load",
 		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: a write to the case an index of the loaded case reaches: HQ's build writes it into a block of that case, one `index/<segment>` a step from the load's own case (`xform.py::XForm._add_case_updates`, `get_case_parent_id_xpath`), and HQ's page refuses `/` only on a load chosen under another (`advanced/case_properties.js`, \"Parent property references not allowed for subcases\"), while Nova writes through an index only on the form's own case and only through `parent` or `host` (`CASE_WRITE_VIA_INVALID`)",
+		"dispositionCell": "**HELD-NEW**: a write to the case an index of the loaded case reaches: HQ's build writes it into a block of that case, one `index/<segment>` a step from the load's own case (`xform.py::XForm._add_case_updates`, `get_case_parent_id_xpath`), and HQ's page refuses `/` only on a load chosen under another (`advanced/case_properties.js`, \"Parent property references not allowed for subcases\"), while Nova writes through a declared `parent` or `host` on the earlier manually selected case and checks the connected record when it submits (`CASE_WRITE_VIA_INVALID`)",
 		"subject": "form-case-management",
 		"owner": "forms-and-case-management",
 		"platforms": {
