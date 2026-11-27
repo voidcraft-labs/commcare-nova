@@ -11381,6 +11381,13 @@
 				"commcare-core/src/main/java/org/javarosa/xform/parse/XFormParser.java::typeMappings"
 			]
 		},
+		"jr-type:intent": {
+			"hqControl": "input",
+			"hqQuestion": "AndroidIntent",
+			"source": [
+				"commcare-hq/corehq/apps/app_manager/xform.py::VELLUM_TYPES.AndroidIntent"
+			]
+		},
 		"jr-type:listItem": {
 			"datatypes": [
 				"DATATYPE_CHOICE"

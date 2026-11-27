@@ -12,7 +12,9 @@ Keys:
   label holds parses as a custom function and fails at evaluation.
 - ``jr-type:<type>``: each ``type`` a bind may name, from
   ``XFormParser.typeMappings`` (reflection over Core's compiled classes), with
-  the ``Constants.DATATYPE_*`` it maps to.
+  the ``Constants.DATATYPE_*`` it maps to. HQ also reads its Android app
+  question's bind marker from ``xform.py::VELLUM_TYPES``. Where Core's type
+  table has no mapping for it, the item records the HQ question and control.
 - ``jr-control:<element>``: each body element ``XFormParser`` handles
   (``groupLevelHandlers``, ``topLevelHandlers``), with where it is accepted,
   the parse method its handler calls and the control constants it passes
@@ -109,11 +111,25 @@ FORM_ENTRY = "corehq/apps/cloudcare/static/cloudcare/js/form_entry"
 # questions that reach it.
 READ_ON = ("holders", "controls", "datatypes")
 FORM_ENTRY_TEMPLATES = "corehq/apps/cloudcare/templates/cloudcare/partials/form_entry"
+HQ_XFORM = "corehq/apps/app_manager/xform.py"
 
 
 def extract(sources: Sources) -> list[Item]:
     read = parsers(sources)
     return [*javarosa(sources), *read, *hq_suite_attributes(sources, {one.key for one in read}), *appearances(sources)]
+
+
+def hq_android_callout_type(sources: Sources) -> Item:
+    path = sources.hq / HQ_XFORM
+    definitions = pyast.module_constants(pyast.parse(path)).get("VELLUM_TYPES")
+    definition = definitions.get("AndroidIntent") if isinstance(definitions, dict) else None
+    if (not isinstance(definition, dict) or not isinstance(definition.get("type"), str)
+            or not isinstance(definition.get("tag"), str)):
+        raise SurfaceError(f"HQ's AndroidIntent definition in {path} supplies no bind type or control.")
+    return item(
+        f"jr-type:{name(definition['type'])}", f"{sources.relative(path)}::VELLUM_TYPES.AndroidIntent",
+        hqQuestion="AndroidIntent", hqControl=definition["tag"],
+    )
 
 
 def javarosa(sources: Sources, core: Path | None = None, android: Path | None = None) -> list[Item]:
@@ -132,6 +148,9 @@ def javarosa(sources: Sources, core: Path | None = None, android: Path | None = 
     ]
     for type_name, datatypes in sorted(read["types"].items()):
         items.append(item(f"jr-type:{name(type_name)}", f"{parse_source}::typeMappings", datatypes=datatypes))
+    callout = hq_android_callout_type(sources)
+    if not any(one.key == callout.key for one in items):
+        items.append(callout)
     android = {}
     for registration in read["android"]:
         if registration["registers"] in ("registerHandler", "registerActionHandler") and registration["key"] is None:
