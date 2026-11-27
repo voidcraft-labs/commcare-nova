@@ -83,6 +83,18 @@ def test_inline_results_own_row_reads_on_the_signed_worker_route(
     assert taken["keep"]["rows"] == ["served"], taken
     assert taken["without"]["rows"] == ["missing"], taken
     assert taken["no-match"]["rows"] == [], taken
+    shown = ["Name", "Found in", "Recorded village"]
+    for state in taken.values():
+        assert state["results"]["headers"] == shown, state
+    keep = taken["keep"]
+    assert keep["results"]["entities"][0]["data"] == ["served", "primary-value", "primary-value"], keep
+    detail, = keep["details"]["details"]
+    assert detail["headers"] == shown and detail["details"] == ["served", "primary-value", "primary-value"], detail
+    without = taken["without"]
+    assert without["results"]["entities"][0]["data"] == ["missing", "", ""], without
+    detail, = without["details"]["details"]
+    assert detail["headers"] == ["Name"] and detail["details"] == ["missing"], detail
+    assert "details" not in taken["no-match"], taken["no-match"]
 
 
 @pytest.mark.parametrize("route", ["retained", "parent-first", "ordinary-casedb"])
