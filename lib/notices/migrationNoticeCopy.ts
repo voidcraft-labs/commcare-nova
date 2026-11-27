@@ -356,6 +356,8 @@ export const PLATFORM_CAUSE_WORDS: Readonly<Record<string, string>> = {
 	"connect-app": "CommCare Connect",
 	"auto-select-confirm":
 		"lists that choose their one record by themselves before a confirmation screen",
+	"advanced-index-name-requires-android":
+		"forms that write connection names with non-ASCII characters",
 	"answer-name-requires-android":
 		"answers whose IDs Web Apps reads as instructions",
 };
