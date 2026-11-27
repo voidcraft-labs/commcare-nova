@@ -463,6 +463,41 @@ def test_tile_connection_survives_editor_grouping_and_selection(
     assert [question["label"] for question in opened["form"]["questions"]] == [f"Grouping target {riverside}"]
 
 
+def test_web_apps_rejects_tile_group_paths_through_a_scalar_index(
+    hq, core_runner, formplayer_runner, editor_driver, webapps_documents, evidence
+):
+    import json
+
+    document = webapps_documents[GROUP_FILTER]
+    database = casedata.database_of_restore((document.root / "restore.xml").read_bytes())
+    for position, identifier in enumerate(("parent", "parent/parent")):
+        with webapps_hq.project(document, "maximum") as project:
+            if identifier != "parent":
+                posted = _edit_tile_group_identifier(project, editor_driver, identifier)
+                assert json.loads(posted["case_tile_group"])["index_identifier"] == identifier
+            with project.released(formplayer_runner, database=database) as release:
+                run = Session(release, editor_driver).run([
+                    *steps.open_app("Grouped visits"), *steps.choose("Visits"), steps.SCREEN,
+                ])
+        screen = run.screens[0]
+        native = [reply.json() for reply in run.answered("navigate_menu")]
+        evidence(f"tile-grouping-locator-{position}", {
+            "identifier": identifier, "screen": screen, "native": native, "pageErrors": run.page_errors,
+        })
+        assert run.page_errors == []
+        if identifier == "parent":
+            listing = screen["list"]
+            assert listing["tiles"] is True
+            assert [row["id"] for row in listing["rows"]] == [
+                "row-targeted-ada-visit", "row-targeted-ben-visit", "row-targeted-eve-visit",
+            ]
+        else:
+            assert "list" not in screen
+            [refusal] = [response for response in native if response.get("status") == "error"]
+            assert "Logic references index/parent/parent" in refusal["exception"]
+            assert refusal["exception"] in screen["alerts"]
+
+
 def _to_visits(scenario):
     return steps.path(steps.open_app(f"Tile {scenario}"), steps.choose("Visits"), steps.choose("Record visit"))
 

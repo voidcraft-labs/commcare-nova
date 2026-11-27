@@ -13384,6 +13384,22 @@ def tile_group_index_has_interior_space(use, manifest):
     return isinstance(identifier, str) and TILE_GROUP_CONNECTION_WITH_INTERIOR_SPACE.fullmatch(identifier) is not None
 
 
+def _tile_group_index_has_two_steps(identifier):
+    steps = identifier.split("/")
+    return len(steps) == 2 and all(TILE_GROUP_CONNECTION.fullmatch(step) for step in steps)
+
+
+def tile_group_index_traverses_scalar(use, manifest):
+    """The following name is read on a leaf in Core's case index tree."""
+    at, tile = _custom_short_tile_group(use)
+    if at is None:
+        return None
+    if tile is None:
+        return False
+    identifier = tile[0].get("index_identifier")
+    return isinstance(identifier, str) and _tile_group_index_has_two_steps(identifier)
+
+
 def tile_group_identifier_outside_supported_connections(use, manifest):
     """Residual unsupported names. An empty name disables grouping."""
     at, tile = _custom_short_tile_group(use)
@@ -13395,6 +13411,7 @@ def tile_group_identifier_outside_supported_connections(use, manifest):
     return (isinstance(identifier, str) and identifier != ""
             and TILE_GROUP_CONNECTION.fullmatch(identifier) is None
             and TILE_GROUP_CONNECTION_WITH_INTERIOR_SPACE.fullmatch(identifier) is None
+            and not _tile_group_index_has_two_steps(identifier)
             and not _tile_group_index_starts_with_hyphen(identifier))
 
 
@@ -14321,6 +14338,7 @@ VALUE_CLASSES = {
     "menus-and-case-lists/detail-max-select-value-above-2147483647": multi_select_maximum_exceeds_java_int,
     "menus-and-case-lists/case-tile-group-identifier-starts-with-a-hyphen": tile_group_index_starts_with_hyphen,
     "menus-and-case-lists/case-tile-group-identifier-with-interior-space": tile_group_index_has_interior_space,
+    "menus-and-case-lists/case-tile-group-path-through-a-scalar-index": tile_group_index_traverses_scalar,
     "menus-and-case-lists/case-tile-group-identifier-outside-an-xml-element-name": (
         tile_group_identifier_outside_supported_connections
     ),

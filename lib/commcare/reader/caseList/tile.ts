@@ -124,6 +124,10 @@ export const TILE_CLAIMS = defineClaims("caseList.tile", {
 		`${A}case-tile-group-identifier-with-interior-space`,
 		"schema:CaseTileGroupConfig.index_identifier",
 	),
+	groupIdentifierTraversesScalar: refuse(
+		`${A}case-tile-group-path-through-a-scalar-index`,
+		"schema:CaseTileGroupConfig.index_identifier",
+	),
 	groupIdentifierOutside: refuse(
 		`${A}case-tile-group-identifier-outside-an-xml-element-name`,
 		"schema:CaseTileGroupConfig.index_identifier",
@@ -664,18 +668,9 @@ export function readTile(
 				T.group,
 			);
 			if (!validIdentifier) {
-				const claim =
-					!named &&
-					identifier.startsWith("-") &&
-					caseTileGroupingIdentifierSchema.safeParse(identifier.slice(1))
-						.success
-						? T.groupIdentifierStartsWithHyphen
-						: !named &&
-								/^[A-Za-z_][A-Za-z0-9_.-]* [A-Za-z_][A-Za-z0-9_.-]*$/.test(
-									identifier,
-								)
-							? T.groupIdentifierHasInteriorSpace
-							: T.groupIdentifierOutside;
+				const claim = named
+					? T.groupIdentifierOutside
+					: customGroupIndexRefusal(identifier);
 				cursor.refuse("index_identifier", claim, { name: identifier });
 				claimRestUnderFinding(
 					ctx,
@@ -701,6 +696,25 @@ export function readTile(
 		detailCells,
 		...(named && slots.size === NAMED_TILE_SLOTS.length && { slots }),
 	};
+}
+
+function customGroupIndexRefusal(identifier: string) {
+	if (
+		identifier.startsWith("-") &&
+		caseTileGroupingIdentifierSchema.safeParse(identifier.slice(1)).success
+	)
+		return T.groupIdentifierStartsWithHyphen;
+	if (/^[A-Za-z_][A-Za-z0-9_.-]* [A-Za-z_][A-Za-z0-9_.-]*$/.test(identifier))
+		return T.groupIdentifierHasInteriorSpace;
+	const steps = identifier.split("/");
+	if (
+		steps.length === 2 &&
+		steps.every(
+			(step) => caseTileGroupingIdentifierSchema.safeParse(step).success,
+		)
+	)
+		return T.groupIdentifierTraversesScalar;
+	return T.groupIdentifierOutside;
 }
 
 /**

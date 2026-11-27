@@ -8007,10 +8007,36 @@ def _held_new():
                 f"{short}/case_tile_group/index_identifier",
             ),
         ),
+        "menus-and-case-lists/case-tile-group-path-through-a-scalar-index": (
+            refused(
+                "app",
+                tile("parent/parent"),
+                "schema:CaseTileGroupConfig.index_identifier",
+                f"{short}/case_tile_group/index_identifier",
+            ),
+            accepted(
+                "app",
+                tile("parent"),
+                "schema:CaseTileGroupConfig.index_identifier",
+                f"{short}/case_tile_group/index_identifier",
+            ),
+            accepted(
+                "app",
+                tile("parent/*"),
+                "schema:CaseTileGroupConfig.index_identifier",
+                f"{short}/case_tile_group/index_identifier",
+            ),
+        ),
         "menus-and-case-lists/case-tile-group-identifier-outside-an-xml-element-name": (
             refused(
                 "app",
-                tile("my/group"),
+                tile("parent/*"),
+                "schema:CaseTileGroupConfig.index_identifier",
+                f"{short}/case_tile_group/index_identifier",
+            ),
+            accepted(
+                "app",
+                tile("parent/parent"),
                 "schema:CaseTileGroupConfig.index_identifier",
                 f"{short}/case_tile_group/index_identifier",
             ),
@@ -8028,7 +8054,7 @@ def _held_new():
             ),
             accepted(
                 "app",
-                tile("my/group", template=None),
+                tile("parent/*", template=None),
                 "schema:CaseTileGroupConfig.index_identifier",
                 f"{short}/case_tile_group/index_identifier",
             ),
