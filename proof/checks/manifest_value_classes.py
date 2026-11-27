@@ -13682,7 +13682,7 @@ def _index_is_xml_name(name):
 
 def _writer_unavailable_source(at, index):
     """HQ writes this child connection in the initial primary instance. Repeat templates can be absent."""
-    form = at.nearest("AdvancedForm", "ShadowForm")
+    form = at.nearest("AdvancedForm")
     action = at.nearest("AdvancedOpenCaseAction")
     if action is None or form is None or action.get("repeat_context") not in (None, ""):
         return False

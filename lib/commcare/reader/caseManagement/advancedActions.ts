@@ -2516,6 +2516,7 @@ function readOrdinaryAdvancedActions(
 					// before Formplayer serializes it as ASCII. A repeat template is omitted.
 					const rootWriter =
 						nameProblem === "one-platform" &&
+						form.docType === "AdvancedForm" &&
 						(open.repeat_context == null || open.repeat_context === "") &&
 						conditionType(openStored) === "always" &&
 						(index.relationship === undefined ||

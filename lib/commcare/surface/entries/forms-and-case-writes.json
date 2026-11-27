@@ -6898,7 +6898,7 @@
 		"id": "forms-and-case-writes/root-open-index-unavailable-on-either-worker",
 		"area": "forms-and-case-writes",
 		"section": "Advanced form actions",
-		"item": "a non-ASCII child connection from a top-level Advanced open action that always runs to an existing load, whose XML name only the Web Apps lexer can address",
+		"item": "a child connection from an Advanced form's top-level open action that always runs to an existing load, with a non-ASCII XML name only the Web Apps lexer can address",
 		"surfaceKeys": [
 			"schema:AdvancedOpenCaseAction.case_indices",
 			"schema:CaseIndex.tag",
