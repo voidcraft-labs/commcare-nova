@@ -537,20 +537,29 @@ function readsOwnRootLabel(
 		f.form.openingAssignments?.filter(
 			({ field: target }) => target === source.field,
 		) ?? [];
-	const loadedFromOwnRecord =
+	const first = starting[0];
+	const choices = formCaseSelections(f.doc, f.formUuid);
+	const loadedFromSelectedRecord =
 		passive &&
 		f.form.type === "followup" &&
 		starting.length === 1 &&
-		starting[0].source.kind === "own" &&
-		starting[0].via === undefined &&
-		isAdvancedOwnLabelProperty(starting[0].property);
+		first !== undefined &&
+		first.via === undefined &&
+		isAdvancedOwnLabelProperty(first.property) &&
+		(first.source.kind === "own" ||
+			(first.source.kind === "selection" &&
+				choices.length === 2 &&
+				ownFormSelectionIndex(f.doc, f.formUuid) === 1 &&
+				choices[0].uuid === first.source.selection &&
+				choices[0].source.kind === "choose" &&
+				choices[1].source.kind === "choose"));
 	return (
 		field?.kind === "label" &&
 		(passive ||
 			(f.form.type !== "close" &&
 				caseWriteLabelSavesEmpty(field.askForConfirmation, field.banner))) &&
 		field.default_value === undefined &&
-		(starting.length === 0 || loadedFromOwnRecord) &&
+		(starting.length === 0 || loadedFromSelectedRecord) &&
 		f.doc.fieldOrder[f.formUuid]?.includes(source.field) === true &&
 		f.submittedChildren.get(f.formUuid)?.includes(source.field) === true
 	);

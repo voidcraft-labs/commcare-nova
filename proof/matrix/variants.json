@@ -2104,6 +2104,37 @@
 	{
 		"id": "hq-advanced/load-writes-a-label-preloaded-from-an-earlier-case",
 		"base": "hq-advanced",
+		"entry": "forms-and-case-writes/an-advanced-follow-up-update-from-its-root-passive-label",
+		"change": {
+			"op": "named",
+			"name": "load_writes_a_label_preloaded_from_an_earlier_case"
+		},
+		"holds": [
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [1, 0]
+					}
+				],
+				"pointer": "/openingAssignments/0/source/kind",
+				"value": "selection"
+			},
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [1, 0]
+					}
+				],
+				"pointer": "/openingAssignments/0/property",
+				"value": "village"
+			}
+		]
+	},
+	{
+		"id": "hq-advanced/load-writes-a-label-preloaded-from-two-cases",
+		"base": "hq-advanced",
 		"entry": "forms-and-case-writes/an-advanced-load-s-update-or-preload-or-an-open-action-s-name-or",
 		"standing": "not-yet",
 		"place": {
@@ -2115,7 +2146,7 @@
 		},
 		"change": {
 			"op": "named",
-			"name": "load_writes_a_label_preloaded_from_an_earlier_case"
+			"name": "load_writes_a_label_preloaded_from_two_cases"
 		}
 	},
 	{

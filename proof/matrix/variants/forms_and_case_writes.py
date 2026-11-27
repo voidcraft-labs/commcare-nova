@@ -457,6 +457,11 @@ def load_writes_a_label_preloaded_from_an_earlier_case(authoring, app_id):
     ops.set_json(authoring, app_id, f"{_VISIT_LOADS}/0/preload/~1data~1seen_label", "village")
 
 
+def load_writes_a_label_preloaded_from_two_cases(authoring, app_id):
+    load_writes_a_label_preloaded_from_an_earlier_case(authoring, app_id)
+    ops.set_json(authoring, app_id, f"{_VISIT_LOADS}/1/preload/~1data~1seen_label", "notes")
+
+
 def load_writes_a_label_and_closes(authoring, app_id):
     """The chosen member's load saves a label and closes the member on that same arm."""
     load_writes_a_label(authoring, app_id)
