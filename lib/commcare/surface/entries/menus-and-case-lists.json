@@ -6331,7 +6331,7 @@
 		"item": "Plain Details text displays one optional submitted Search prompt in Web Apps",
 		"valueClass": "standalone-search-result-detail-text",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: a plain Details-only field displays the submitted text of one Text, Date, or Date range prompt, with an explicit ordinary-case fallback and empty text if the worker left the prompt unanswered.",
+		"dispositionCell": "**HELD**: a plain Details-only field displays the submitted text of one Text, Date, Date range, Barcode, or single-choice prompt, with an explicit ordinary-case fallback and empty text if the worker left the prompt unanswered.",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / UNAVAILABLE",
@@ -6378,10 +6378,10 @@
 		"surfaceKeys": ["schema:DetailColumn.field"],
 		"subject": "case-list-columns",
 		"gates": [],
-		"item": "Standalone Search Details reads a prompt other than an offered Text, Date, or Date range prompt",
+		"item": "Standalone Search Details reads a hidden or unsupported prompt",
 		"valueClass": "standalone-search-result-detail-without-its-offered-prompt",
 		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: the calculation needs the identity of an offered Text, Date, or Date range prompt and a plain Details field in a standalone Search that opens its prompts first.",
+		"dispositionCell": "**HELD-NEW**: the calculation needs a visible supported prompt and a plain Details field in a standalone Search that opens its prompts first.",
 		"owner": "case-list-and-detail",
 		"platforms": {
 			"kind": "not-applicable",

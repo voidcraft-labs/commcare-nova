@@ -7461,7 +7461,14 @@ def standalone_result_detail_text(use, manifest):
     name, search = source
     prompts = [prompt for prompt in search.get("properties", ())
                if isinstance(prompt, dict) and prompt.get("name") == name and not prompt.get("hidden")]
-    return len(prompts) == 1 and not prompts[0].get("appearance") and prompts[0].get("input_") in (None, "", "text", "date", "daterange")
+    if len(prompts) != 1:
+        return False
+    prompt = prompts[0]
+    widget, appearance = prompt.get("input_"), prompt.get("appearance")
+    return (
+        not appearance and widget in (None, "", "text", "date", "daterange", "select1")
+        or appearance == "barcode_scan" and widget in (None, "", "text")
+    )
 
 
 def _standalone_result_list_text(use, *, web_apps):

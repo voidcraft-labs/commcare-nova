@@ -19,15 +19,14 @@ export function submittedSearchResultDetailAnswers(
 			"inputUuid" in column ? [column.inputUuid] : [],
 		),
 	);
-	const ranges = searchInputs.filter(
+	const referencedPrompts = searchInputs.filter(
 		(input) =>
 			(input.kind === "simple" || input.kind === "advanced") &&
-			input.type === "date-range" &&
 			referencedInputs.has(input.uuid),
 	);
 	const submitted =
-		ranges.length > 0 && !defaultSearch
-			? withSearchInputExpressionValues(ranges, values)
+		referencedPrompts.length > 0 && !defaultSearch
+			? withSearchInputExpressionValues(referencedPrompts, values)
 			: values;
 	return new Map(
 		columns.flatMap((column) =>

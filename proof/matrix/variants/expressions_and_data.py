@@ -437,8 +437,19 @@ def standalone_search_detail_with_date_range_prompt(authoring, app_id):
 
 
 def standalone_search_detail_with_barcode_prompt(authoring, app_id):
-    """An offered barcode remains outside the supported Details inputs."""
+    """The submitted Web Apps barcode value is plain text."""
     _optional_search_detail(authoring, app_id, "client_code")
+
+
+def standalone_search_detail_with_choice_prompt(authoring, app_id):
+    """The calculation sees the selected lookup value, not its rendered label."""
+    _optional_search_detail(authoring, app_id, "district")
+
+
+def standalone_search_detail_with_hidden_prompt(authoring, app_id):
+    """A hidden request value does not become a visible submitted answer."""
+    _optional_search_detail(authoring, app_id, "village")
+    ops.set_json(authoring, app_id, "/modules/0/search_config/properties/1/hidden", True)
 
 
 # Expressions --------------------------------------------------------------------------------------------------------

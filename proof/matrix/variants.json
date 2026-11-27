@@ -46704,12 +46704,46 @@
 	{
 		"id": "hq-search/standalone-search-detail-with-barcode-prompt",
 		"base": "hq-search",
+		"entry": "menus-and-case-lists/standalone-search-result-detail-text",
+		"declaration": { "runsOnlyOn": "web-apps", "splitDatetime": false },
+		"change": {
+			"op": "named",
+			"name": "standalone_search_detail_with_barcode_prompt"
+		},
+		"holds": [
+			{
+				"key": ["module", { "$menu": 0 }],
+				"pointer": "/caseListConfig/columns/2/searchResultDetail/prefix",
+				"value": "Entered ["
+			}
+		]
+	},
+	{
+		"id": "hq-search/standalone-search-detail-with-choice-prompt",
+		"base": "hq-search",
+		"entry": "menus-and-case-lists/standalone-search-result-detail-text",
+		"declaration": { "runsOnlyOn": "web-apps", "splitDatetime": false },
+		"change": {
+			"op": "named",
+			"name": "standalone_search_detail_with_choice_prompt"
+		},
+		"holds": [
+			{
+				"key": ["module", { "$menu": 0 }],
+				"pointer": "/caseListConfig/columns/2/searchResultDetail/prefix",
+				"value": "Entered ["
+			}
+		]
+	},
+	{
+		"id": "hq-search/standalone-search-detail-with-hidden-prompt",
+		"base": "hq-search",
 		"entry": "menus-and-case-lists/standalone-search-result-detail-without-its-offered-prompt",
 		"standing": "not-yet",
 		"place": { "kind": "case-detail", "menu": 0, "name": "Clients" },
 		"change": {
 			"op": "named",
-			"name": "standalone_search_detail_with_barcode_prompt"
+			"name": "standalone_search_detail_with_hidden_prompt"
 		}
 	},
 	{

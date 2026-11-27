@@ -948,6 +948,7 @@ export async function loadCasesAction(
 					listColumns,
 					answers,
 					args.defaultSearch === true,
+					module?.caseListConfig?.searchInputs,
 				),
 			);
 			return {
