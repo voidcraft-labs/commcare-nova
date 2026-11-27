@@ -89,6 +89,7 @@ import {
 	ATTRIBUTE_PROPERTIES,
 	calculatedAttributeField,
 } from "./attributeColumns";
+import { readInlineResultProperty } from "./inlineResultProperty";
 import { literalText } from "./literalText";
 import { claimRestOfRefusedColumn } from "./refusedWhole";
 import { readResultDetailText } from "./resultDetailText";
@@ -118,6 +119,14 @@ export const COLUMN_CLAIMS = defineClaims("caseList.columns", {
 	fieldCalculated: take(
 		`${A}usexpathexpression-field-xpath-lifting-into-valueexpression`,
 		"schema:DetailColumn.useXpathExpression",
+	),
+	inlineResultOwnProperty: take(
+		`${A}inline-search-result-own-text-property`,
+		"schema:DetailColumn.field",
+	),
+	inlineResultOwnPropertyUnavailable: refuse(
+		`${A}usexpathexpression-field-xpath-outside-valueexpression`,
+		"schema:DetailColumn.field",
 	),
 	searchResultDetail: take(
 		`${A}standalone-search-result-detail-text`,
@@ -1415,6 +1424,7 @@ export interface ColumnOptions {
 	 *  (`helpers/validators.py::ModuleBaseValidator.validate_detail_columns`). */
 	readonly searchInstancesRead: boolean;
 	readonly standaloneResultDetailText?: boolean;
+	readonly inlineResultProperty?: boolean;
 	/** The walk a column's indices name from the menu's case type, each step typed as Nova types
 	 *  it (`parent` by the catalog's parent, any other index by the type the app links it to), and
 	 *  the type it reaches; undefined where a step reaches no type. */
@@ -1938,6 +1948,31 @@ function readColumn(
 				},
 			},
 		);
+	}
+	const inlineResultProperty =
+		field.xpath &&
+		screen === "short" &&
+		format === "plain" &&
+		options.inlineResultProperty &&
+		!options.inTile &&
+		!options.dataRows &&
+		!options.fixtureRow &&
+		loadBehavior === undefined
+			? readInlineResultProperty(field.text)
+			: undefined;
+	if (inlineResultProperty && module.module.caseType !== undefined) {
+		column.take("useXpathExpression", C.fieldCalculated, Boolean).value;
+		column.take("format", C.plain, String).value;
+		return proposal({
+			kind: "calculated",
+			...base,
+			expression: term({
+				kind: "prop",
+				caseType: module.module.caseType,
+				property: inlineResultProperty,
+			}),
+			inlineResultProperty: true,
+		});
 	}
 	const resultDetailText =
 		field.xpath &&

@@ -1747,6 +1747,15 @@ export async function createSmokeBuilders(
 					case_type: seed.caseType,
 					case_name: seed.match.caseName,
 					status: "open",
+					properties: { note: seed.match.note },
+				},
+			});
+			await caseStore.insert({
+				appId,
+				row: {
+					case_type: seed.caseType,
+					case_name: seed.missing.caseName,
+					status: "open",
 					properties: {},
 				},
 			});

@@ -164,6 +164,10 @@ import {
 import { escapeRegex } from "../../xml";
 import { columnPropertyPath, hqColumnFieldText, normalizeSpace } from "../wire";
 import { fixtureRowFieldName } from "./fixtureRowField";
+import {
+	inlineResultPropertyWire,
+	ownInlineResultProperty,
+} from "./inlineResultProperty";
 import { hqMappingKeyIsExpression, keyAsVariable } from "./keyVariable";
 import { CASE_MAP_FORMATS } from "./mapLayers";
 import {
@@ -1780,17 +1784,21 @@ function buildCalculatedField(args: {
 	// refs both thread the root through to the relation-walk anchor
 	// builders in `lib/commcare/xpath/wire/fromExpression.ts`.
 	const resultDetailText = ctx.resultDetailText?.(column);
-	const calcXpath = resultDetailText
-		? resultDetailTextWire(resultDetailText)
-		: toWire(column.expression, {
-				target: "suite",
-				root: instanceRootFor(ctx),
-				types: ctx.expressions({
-					slot: "case_list_column_expression",
-					member: { columnUuid: column.uuid },
-				}),
-				bindings: lookupTermContext(ctx),
-			});
+	const inlineProperty = ownInlineResultProperty(column, ctx.caseType);
+	const calcXpath =
+		inlineProperty !== undefined
+			? inlineResultPropertyWire(inlineProperty)
+			: resultDetailText
+				? resultDetailTextWire(resultDetailText)
+				: toWire(column.expression, {
+						target: "suite",
+						root: instanceRootFor(ctx),
+						types: ctx.expressions({
+							slot: "case_list_column_expression",
+							member: { columnUuid: column.uuid },
+						}),
+						bindings: lookupTermContext(ctx),
+					});
 	if (column.texts !== undefined && !hidden) {
 		const source = translatedDistanceProperty(column);
 		const headerId = source

@@ -8970,6 +8970,25 @@ def _android_callout_shapes():
 
 
 
+@pytest.mark.parametrize(("position", "inline", "own_id", "expected"), [
+    ("short", True, True, True),
+    ("short", False, True, False),
+    ("long", True, True, False),
+    ("short", True, False, False),
+])
+def test_inline_result_own_text_property_positive_classifier(manifest, position, inline, own_id, expected):
+    identity = "current()/@case_id" if own_id else "@case_id"
+    source = ("instance('results:inline')/results/case[not(commcare_is_related_case = true())]"
+              f"[@case_id = {identity}]/village")
+    menu = _search_module(auto_launch=True, inline_search=inline, properties=[_prompt("village")])
+    menu["case_details"] = {
+        "doc_type": "DetailPair",
+        position: {"doc_type": "Detail", "columns": [_column(source, useXpathExpression=True)]},
+    }
+    field, = _app_uses(_app([menu]), manifest, "schema:DetailColumn.field")
+    assert classes.inline_search_result_own_text_property(field, manifest) is expected
+
+
 def _standalone_result_detail_app(prompt, guarded=True):
     path = f"instance('search-input:results')/input/field[@name = '{prompt}']"
     text = f"if(count({path}) > 0, string({path}), '')" if guarded else f"string({path})"

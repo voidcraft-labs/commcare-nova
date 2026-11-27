@@ -263,14 +263,18 @@ function caseCalculation(
 		},
 	});
 }
+type CaseListCalculationScope = "record" | "completed-search";
+
 function runtimeCalculatedColumns(
 	config: CaseListConfig | undefined,
 	locale?: CaseListOrderLocale,
+	scope: CaseListCalculationScope = "record",
 ) {
 	if (!config) return undefined;
 	const columns = config.columns.filter(
 		(column): column is Extract<Column, { kind: "calculated" }> =>
 			column.kind === "calculated" &&
+			(!column.inlineResultProperty || scope === "completed-search") &&
 			caseListColumnRuns(column, config) &&
 			!columnReadsDetailTabRow(config, column),
 	);
@@ -453,7 +457,11 @@ export function runningCaseSelectionQuery(
 ) {
 	return {
 		...caseReadCore(args, runningCasePredicate(args).predicate),
-		sort: buildCaseStoreSortKeys(args.order, args.caseType),
+		sort: buildCaseStoreSortKeys(
+			args.order,
+			args.caseType,
+			args.searchPopulation?.request ? "completed-search" : "record",
+		),
 	};
 }
 
@@ -644,8 +652,16 @@ export async function readCases(
 			...(args.datumOrder
 				? { datumOrder: true as const }
 				: {
-						sort: buildCaseStoreSortKeys(args.order, args.caseType),
-						calculated: runtimeCalculatedColumns(args.caseListConfig),
+						sort: buildCaseStoreSortKeys(
+							args.order,
+							args.caseType,
+							"completed-search",
+						),
+						calculated: runtimeCalculatedColumns(
+							args.caseListConfig,
+							undefined,
+							"completed-search",
+						),
 						related: runtimeRelatedReads(args.caseListConfig, args.caseType),
 					}),
 			offset: page?.offset,
@@ -1348,6 +1364,7 @@ export interface CaseStoreOrder {
 function buildCaseStoreSortKeys(
 	order: CaseStoreOrder | undefined,
 	caseType: string,
+	scope: CaseListCalculationScope = "record",
 ): CaseStoreSortKey[] {
 	const stablePageTieBreaker: CaseStoreSortKey = {
 		kind: "expression",
@@ -1357,6 +1374,18 @@ function buildCaseStoreSortKeys(
 		blanks: "first",
 	};
 	if (order === undefined) return [stablePageTieBreaker];
+	const unavailableIds = new Set<string>(
+		scope === "record"
+			? order.plan.fields.flatMap(({ column }) =>
+					column.kind === "calculated" && column.inlineResultProperty
+						? [column.uuid]
+						: [],
+				)
+			: [],
+	);
+	const available = order.plan.fields.filter(
+		({ column }) => !unavailableIds.has(column.uuid),
+	);
 	const rules = [
 		...order.plan.calculations.map((calc) => ({
 			rule: {
@@ -1367,7 +1396,7 @@ function buildCaseStoreSortKeys(
 			key: { kind: "independent-calculation", sort: calc.sort } as const,
 			comparator: calc.comparator,
 		})),
-		...order.plan.fields.flatMap((field) =>
+		...available.flatMap((field) =>
 			field.rule === undefined || field.key === undefined
 				? []
 				: [{ rule: field.rule, key: field.key, comparator: field.comparator }],
@@ -1379,7 +1408,7 @@ function buildCaseStoreSortKeys(
 		})),
 	].sort((a, b) => a.rule.order - b.rule.order);
 	const columns = new Map<string, Column>(
-		order.plan.fields.map((field) => [field.column.uuid, field.column]),
+		available.map(({ column }) => [column.uuid, column]),
 	);
 	const listOrder = rules.flatMap(({ rule, key, comparator }) =>
 		sortKeysForRule(
@@ -1393,6 +1422,7 @@ function buildCaseStoreSortKeys(
 		),
 	);
 	const picked = (order.choice?.picks ?? []).flatMap((pick) => {
+		if (unavailableIds.has(pick.column)) return [];
 		const alone = caseListSingleFieldOrder(
 			order.plan,
 			pick.column,

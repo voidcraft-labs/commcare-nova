@@ -75,6 +75,7 @@ from proof.checks.manifest_value_classes import (
     direct_parent_date_prompt_key,
     direct_parent_text_prompt_key,
     extended_open_index_to_first_choice,
+    inline_search_result_own_text_property,
     itemset_literal_row_index,
     long_itext_role,
     save_to_case_before_optional_own_update,
@@ -96,7 +97,10 @@ HQ_BUILD_REASON = "not-hq-buildable"
 DIRECT_PARENT_PROMPT = "case-search/prompt-key-matching-a-direct-parent-property"
 LATER_OWNER_ON_FRESH_CREATE = "questions/savetocase-guarded-owner-after-fresh-create"
 UNICODE_PRIMARY_ROOT = "questions/answer-root-with-a-non-ascii-name"
-STANDALONE_RESULT_DETAIL = "menus-and-case-lists/standalone-search-result-detail-text"
+SEARCH_DETAIL_PROJECTIONS = {
+    "menus-and-case-lists/standalone-search-result-detail-text": standalone_result_detail_text,
+    "menus-and-case-lists/inline-search-result-own-text-property": inline_search_result_own_text_property,
+}
 PARENT_USER_WRITE = "forms-and-case-writes/update-key-through-a-typed-user-index"
 CONDITIONAL_WORKER_UPDATE = "questions/savetocase-update-case-id-xpath"
 REPEATED_WORKER_UPDATE = "questions/savetocase-inside-a-repeat"
@@ -933,14 +937,15 @@ def added_uses(base_source: dict, variant_source: dict, *, entries=()) -> list[D
                 if use.key in ("schema:DefaultCaseSearchProperty.property", "schema:DefaultCaseSearchProperty.defaultValue")
                 and default_filter_index_fallback(use, held)
             )
-        if STANDALONE_RESULT_DETAIL in entries:
-            entry = _entries_by_id(held)[STANDALONE_RESULT_DETAIL]
+        for entry_id in SEARCH_DETAIL_PROJECTIONS.keys() & set(entries):
+            entry = _entries_by_id(held)[entry_id]
+            classifier = SEARCH_DETAIL_PROJECTIONS[entry_id]
             # The same field key also names arbitrary ordinary calculations.
-            # Require this affirmative result-detail shape for its own row.
+            # Each Search shape supplies independent evidence for its own row.
             decided.extend(
                 Decided(use, manifest_usage.HELD, (entry,))
                 for use in found.uses
-                if use.key == "schema:DetailColumn.field" and standalone_result_detail_text(use, held)
+                if use.key == "schema:DetailColumn.field" and classifier(use, held)
             )
 
         if UNMATCHED_ADDRESS_TOPIC in entries:
@@ -1035,8 +1040,8 @@ def _projects(decided: Decided, record: Record, held) -> tuple[bool, bool]:
         return record.standing == "fix-in-hq", refused
     if standing == manifest_usage.HELD_NEW:
         return record.standing == "not-yet", record.entry in resting
-    exact = PARENT_PROMPT_SHAPES.keys() | {
-        STANDALONE_RESULT_DETAIL, UNICODE_PRIMARY_ROOT, UNMATCHED_ADDRESS_TOPIC, SEARCH_INDEX_FALLBACK,
+    exact = PARENT_PROMPT_SHAPES.keys() | SEARCH_DETAIL_PROJECTIONS.keys() | {
+        UNICODE_PRIMARY_ROOT, UNMATCHED_ADDRESS_TOPIC, SEARCH_INDEX_FALLBACK,
     }
     if standing == manifest_usage.HELD and len(resting) == 1 and resting <= exact:
         return record.standing == "held", record.entry in resting
