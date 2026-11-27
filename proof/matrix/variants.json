@@ -22937,6 +22937,24 @@
 		]
 	},
 	{
+		"id": "hq-expressions/fingerprint-query-second-result",
+		"base": "hq-expressions",
+		"entry": "expressions-and-data/session-data-fingerprintquery",
+		"standing": "not-yet",
+		"place": {
+			"kind": "question",
+			"menu": 0,
+			"form": 0,
+			"menuName": "Checks",
+			"formName": "Survey",
+			"path": "language"
+		},
+		"change": {
+			"op": "named",
+			"name": "fingerprint_query_second_result"
+		}
+	},
+	{
 		"id": "hq-expressions/here-in-a-form",
 		"base": "hq-expressions",
 		"entry": "expressions-and-data/here-in-a-form",

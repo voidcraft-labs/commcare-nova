@@ -173,6 +173,13 @@ def fingerprint_query_guarded(authoring, app_id):
               "fingerprint-query-guarded")
 
 
+def fingerprint_query_second_result(authoring, app_id):
+    """The saved guard requests a different result position."""
+    read = f"{SESSION}/data/fingerprintquery"
+    _language(authoring, app_id, f"if(count({read}) = 0, 'No lookup result', string({read}[2]))",
+              "fingerprint-query-second-result")
+
+
 def window_width_in_form_logic(authoring, app_id):
     """A read of ``session/context/window_width`` in a calculation."""
     _language(authoring, app_id, f"{SESSION}/context/window_width", "window-width-in-form-logic")
