@@ -12388,8 +12388,8 @@
 	{
 		"id": "hq-case-lists/multi-select-above-a-hundred",
 		"base": "hq-case-lists",
-		"entry": "menus-and-case-lists/detail-max-select-value-above-100",
-		"standing": "not-yet",
+		"entry": "menus-and-case-lists/detail-max-select-value-above-101-on-android-only-app",
+		"standing": "fix-in-hq",
 		"place": {
 			"kind": "case-list",
 			"menu": 0,
@@ -12398,6 +12398,21 @@
 		"change": {
 			"op": "named",
 			"name": "multi_select_above_a_hundred"
+		}
+	},
+	{
+		"id": "hq-bounded-flat-close/large-selection-outside-the-no-write-limit",
+		"base": "hq-bounded-flat-close",
+		"entry": "menus-and-case-lists/detail-max-select-value-above-100",
+		"standing": "not-yet",
+		"place": {
+			"kind": "case-list",
+			"menu": 0,
+			"name": "Records"
+		},
+		"change": {
+			"op": "named",
+			"name": "multi_select_web_apps_above_read_only_limit"
 		}
 	},
 	{

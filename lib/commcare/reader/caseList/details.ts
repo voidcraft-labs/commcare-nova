@@ -198,6 +198,10 @@ export const DETAIL_CLAIMS = defineClaims("caseList.details", {
 		`${A}detail-max-select-value-101-outside-flat-close`,
 		"schema:Detail.max_select_value",
 	),
+	maxSelectAboveAndroidOnly: refuse(
+		`${A}detail-max-select-value-above-101-on-android-only-app`,
+		"schema:Detail.max_select_value",
+	),
 	maxSelectAbove: refuse(
 		`${A}detail-max-select-value-above-100`,
 		"schema:Detail.max_select_value",
@@ -1875,6 +1879,16 @@ function readSelection(
 	// Core's SessionDatumParser parses the suite attribute as a signed Java integer.
 	if (max > 2_147_483_647) {
 		short.refuse("max_select_value", D.maxSelectOutsideRuntime);
+		return { ok: false };
+	}
+	// A multiple-case datum selects a different Core session state on Android.
+	// A higher integer changes the Web Apps screen limit, never that state.
+	if (
+		max > BOUNDED_FLAT_CLOSE_MAXIMUM &&
+		module.docType === "Module" &&
+		ctx.input.source.raw.cloudcare_enabled === false
+	) {
+		short.refuse("max_select_value", D.maxSelectAboveAndroidOnly);
 		return { ok: false };
 	}
 	if (

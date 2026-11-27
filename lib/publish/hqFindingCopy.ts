@@ -592,6 +592,10 @@ export const FIX_IN_HQ_ENTRY_SENTENCES: Readonly<Record<string, string>> = {
 		"A follow-up saves free text to the property this whole-number question starts from. A word saved there can stop the form from opening. In CommCare HQ, you can store the free text in a different property or change where the number starts.",
 	"menus-and-case-lists/standalone-search-result-list-answer-without-web-apps":
 		"Android keeps the Search results without the answers that produced them. Remove this calculated column in CommCare HQ, or use this feature in a Web Apps-only app.",
+	"menus-and-case-lists/detail-max-select-value-above-101-on-android-only-app":
+		"Android cannot open the form from this several-case list. In CommCare HQ’s Case List settings, you can let workers choose one case at a time, or open the workflow in Web Apps if they need to choose several.",
+	"menus-and-case-lists/case-tile-group-path-through-a-scalar-index":
+		"A case tile’s group tries to read inside a case connection. Choose the connection itself in CommCare HQ’s Case List settings, save, then bring the app in again.",
 	"forms-and-case-writes/basic-update-key-with-an-accented-latin-name":
 		"The form builder marks this question’s accented Case Property name as an error. You can choose a property with unaccented letters in CommCare HQ. If existing cases use the accented property, move those values before switching the mapping.",
 	"application-and-settings/translations-generated-menu-audio-outside-installation-languages":

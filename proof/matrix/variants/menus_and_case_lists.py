@@ -386,6 +386,11 @@ def multi_select_above_a_hundred(authoring, app_id):
     )
 
 
+def multi_select_web_apps_above_read_only_limit(authoring, app_id):
+    limit_101_with_two_visible_questions(authoring, app_id)
+    ops.set_json(authoring, app_id, "/modules/0/case_details/short/max_select_value", 501)
+
+
 def multi_select_exceeds_runtime_integer(authoring, app_id):
     """Patients' list holds the first maximum outside Core's signed integer range."""
     _set_each(

@@ -81,6 +81,7 @@
 	"hq-assigned-lookups": [],
 	"hq-bounded-flat-close": [
 		"hq-bounded-flat-close/large-selection-of-five-hundred-with-no-case-writes",
+		"hq-bounded-flat-close/large-selection-outside-the-no-write-limit",
 		"hq-bounded-flat-close/large-selection-with-a-required-text-answer",
 		"hq-bounded-flat-close/large-selection-with-compound-visibility",
 		"hq-bounded-flat-close/large-selection-with-conditional-visibility",

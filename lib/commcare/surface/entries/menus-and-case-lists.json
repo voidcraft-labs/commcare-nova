@@ -3639,6 +3639,33 @@
 		"gates": []
 	},
 	{
+		"id": "menus-and-case-lists/detail-max-select-value-above-101-on-android-only-app",
+		"area": "menus-and-case-lists",
+		"section": "Case list and case detail",
+		"subsection": "Detail screens",
+		"item": "`Detail.max_select_value` from 102 through 2,147,483,647 on a several-case list in an Android-only app",
+		"surfaceKeys": ["schema:Detail.max_select_value"],
+		"valueClass": "large-several-case-limit-with-web-apps-off",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: Android stays at the home screen before the several-case selection. The saved integer does not change what the session asks Android to open.",
+		"subject": "case-list-setup",
+		"reasons": [
+			{
+				"kind": "broken-at-runtime",
+				"named": "Core emits a several-case datum and sets the session state to SELECTED_ENTITIES. Android cannot advance that session state to a form."
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
 		"id": "menus-and-case-lists/detail-max-select-value-above-2147483647",
 		"area": "menus-and-case-lists",
 		"section": "Case list and case detail",

@@ -648,13 +648,25 @@ describe("CommCare HQ's column formats", () => {
 	] as const)(
 		"distinguishes the Nova limit from Core's integer limit at %s",
 		async (maximum, entry) => {
-			const read = await readDetails((short) => {
+			const read = await readDetails((short, _long, app) => {
+				Object.assign(app, { cloudcare_enabled: true });
 				Object.assign(short, { multi_select: true, max_select_value: maximum });
 			}, false);
 			assembleDocument(read.ctx);
 			expect(closedCodes(read)).toContain(`${M}${entry}`);
 		},
 	);
+
+	it("identifies an Android-only several-case list with a valid large HQ limit", async () => {
+		const read = await readDetails((short, _long, app) => {
+			Object.assign(app, { cloudcare_enabled: false });
+			Object.assign(short, { multi_select: true, max_select_value: 500 });
+		}, false);
+		assembleDocument(read.ctx);
+		expect(closedCodes(read)).toContain(
+			`${M}detail-max-select-value-above-101-on-android-only-app`,
+		);
+	});
 
 	it.each([
 		["close", false],

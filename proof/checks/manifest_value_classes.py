@@ -14295,11 +14295,19 @@ def bounded_flat_close_maximum(use, manifest):
 def bounded_flat_followup_maximum(use, manifest):
     return _bounded_flat_form(use, followup=True)
 
+def large_maximum_on_android_only_app(use, manifest):
+    """The several-case datum stalls Android independently of its parsed signed-integer limit."""
+    value = _basic_multi_select_maximum(use)
+    if value is None:
+        return None
+    return 101 < value <= 2_147_483_647 and _json(use).app.doc.get("cloudcare_enabled") is False
+
+
 def max_select_value_above_100(use, manifest):
     value = _basic_multi_select_maximum(use)
     if value is None:
         return None
-    if not 101 < value <= 2_147_483_647:
+    if not 101 < value <= 2_147_483_647 or large_maximum_on_android_only_app(use, manifest):
         return False
     held = _bounded_flat_form(use, followup=True)
     return held if held is None else not held
@@ -15474,6 +15482,7 @@ VALUE_CLASSES = {
     ),
     "menus-and-case-lists/detail-auto-select-true-on-a-single-select-basic-list": auto_select_on_a_single_basic_list,
     "menus-and-case-lists/detail-max-select-value-above-100": max_select_value_above_100,
+    "menus-and-case-lists/detail-max-select-value-above-101-on-android-only-app": large_maximum_on_android_only_app,
     "menus-and-case-lists/detail-max-select-value-above-2147483647": multi_select_maximum_exceeds_java_int,
     "menus-and-case-lists/case-tile-group-identifier-starts-with-a-hyphen": tile_group_index_starts_with_hyphen,
     "menus-and-case-lists/case-tile-group-identifier-with-interior-space": tile_group_index_has_interior_space,
