@@ -1895,6 +1895,8 @@ export interface BoundSlot {
 	readonly candidate: Expression;
 	/** `S` of the method: HQ's text as a runtime reads it. */
 	readonly source: FormSyntax;
+	/** The source spelling after adding explicit Core numeric coercions, where certified. */
+	readonly comparisonSource?: FormSyntax;
 	/** The fold sites the bind used, as `foldId:from:to` of the source,
 	 *  outermost first. */
 	readonly foldSites: readonly string[];
@@ -1969,6 +1971,93 @@ function catalogNeedsNameDiagnostics(env: ExpressionReadEnv): boolean {
 		diagnosticCatalogs.set(env.lookup, needed);
 	}
 	return needed;
+}
+
+/** A direct text answer ordered against text in a root Hidden Value's
+ * calculation. Core coerces each side with exactly the `number()` function.
+ * Keep the reference, the comparison and both authored branches. */
+function explicitTextOrder(
+	doc: BlueprintDoc,
+	pending: PendingExpression,
+	expression: Expression,
+	source: FormSyntax,
+):
+	| { readonly candidate: Expression; readonly comparisonSource: FormSyntax }
+	| undefined {
+	const ref = pending.ref;
+	if (
+		ref.entity !== "field" ||
+		ref.slot !== "calculate" ||
+		pending.mode.target !== "xform" ||
+		doc.fields[ref.uuid]?.kind !== "hidden" ||
+		expression.kind !== "if" ||
+		expression.cond.kind !== "lt" ||
+		source.kind !== "call" ||
+		source.name !== "if" ||
+		source.args.length !== 3
+	)
+		return undefined;
+	const { left, right } = expression.cond;
+	const [condition, then, otherwise] = source.args;
+	if (
+		condition.kind !== "binary" ||
+		condition.op !== "<" ||
+		condition.left.kind !== "child" ||
+		condition.left.descendant ||
+		condition.left.step.kind !== "name" ||
+		condition.left.left?.kind !== "child" ||
+		condition.left.left.descendant ||
+		condition.left.left.left !== undefined ||
+		condition.left.left.step.kind !== "name" ||
+		condition.right.kind !== "string" ||
+		then.kind !== "string" ||
+		otherwise.kind !== "string" ||
+		left.kind !== "term" ||
+		left.term.kind !== "field" ||
+		left.term.filters !== undefined ||
+		doc.fields[left.term.uuid]?.kind !== "text" ||
+		right.kind !== "term" ||
+		right.term.kind !== "literal" ||
+		typeof right.term.value !== "string"
+	)
+		return undefined;
+	const form = formOfField(doc, ref.uuid);
+	if (
+		form === undefined ||
+		doc.fieldParent[ref.uuid] !== form ||
+		doc.fieldParent[left.term.uuid] !== form
+	)
+		return undefined;
+	const numeric = (operand: Expression): Expression => ({
+		kind: "call",
+		fn: "number",
+		args: [operand],
+	});
+	const numericSource = (operand: FormSyntax): FormSyntax => ({
+		kind: "call",
+		name: "number",
+		args: [operand],
+		from: operand.from,
+		to: operand.to,
+	});
+	return {
+		candidate: {
+			...expression,
+			cond: { ...expression.cond, left: numeric(left), right: numeric(right) },
+		},
+		comparisonSource: {
+			...source,
+			args: [
+				{
+					...condition,
+					left: numericSource(condition.left),
+					right: numericSource(condition.right),
+				},
+				then,
+				otherwise,
+			],
+		},
+	};
 }
 
 /** Bind `pending.text` against `doc` with every fold on but the `withdrawn`
@@ -2070,10 +2159,17 @@ export function bindSlot(
 	const context = holdsUntypedTemporalLiteral(parsed.expression)
 		? slotContext(doc, pending.ref, lookupTypes(env))
 		: undefined;
+	const explicit = explicitTextOrder(
+		doc,
+		pending,
+		parsed.expression,
+		prepared.syntax,
+	);
 	const candidate =
-		context === undefined
+		explicit?.candidate ??
+		(context === undefined
 			? parsed.expression
-			: typedWhereRequired(parsed.expression, context);
+			: typedWhereRequired(parsed.expression, context));
 	// A name of plain ASCII letters can still be one a slot refuses (a form's
 	// read of a table tagged __proto__, which HQ's form builder drops).
 	if (env.lookup.size > 0 && catalogNeedsNameDiagnostics(env)) {
@@ -2091,6 +2187,9 @@ export function bindSlot(
 		bound: {
 			candidate,
 			source: prepared.syntax,
+			...(explicit !== undefined && {
+				comparisonSource: explicit.comparisonSource,
+			}),
 			foldSites,
 			spans: sites.spans,
 			...(sites.listedCaseInQuery && { listedCaseInQuery: true }),
@@ -2118,7 +2217,11 @@ export function judgeSlot(
 		env,
 		context?.ruleSet ?? "form",
 	);
-	const difference = firstDifference(source, print, compare);
+	const difference = firstDifference(
+		bound.comparisonSource ?? source,
+		print,
+		compare,
+	);
 	if (difference === undefined)
 		return { kind: "bound", candidate, source, print, equal: true, foldSites };
 	let withdraw: string | undefined;

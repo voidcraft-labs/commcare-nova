@@ -23014,6 +23014,30 @@
 	{
 		"id": "hq-expressions/text-ordered-comparison",
 		"base": "hq-expressions",
+		"entry": "questions/bind-calculate-on-a-hidden-value",
+		"change": { "op": "named", "name": "text_ordered_comparison" },
+		"holds": [
+			{
+				"key": ["field", { "$xmlns": [0, 0] }, ["language"]],
+				"pointer": "/calculate/cond/left/fn",
+				"value": "number"
+			},
+			{
+				"key": ["field", { "$xmlns": [0, 0] }, ["language"]],
+				"pointer": "/calculate/cond/right",
+				"value": {
+					"kind": "call",
+					"fn": "number",
+					"args": [
+						{ "kind": "term", "term": { "kind": "literal", "value": "m" } }
+					]
+				}
+			}
+		]
+	},
+	{
+		"id": "hq-expressions/text-ordered-against-another-answer",
+		"base": "hq-expressions",
 		"entry": "expressions-and-data/a-form-expression-outside-what-nova-types",
 		"standing": "not-yet",
 		"place": {
@@ -23026,7 +23050,7 @@
 		},
 		"change": {
 			"op": "named",
-			"name": "text_ordered_comparison"
+			"name": "text_ordered_against_another_answer"
 		}
 	},
 	{

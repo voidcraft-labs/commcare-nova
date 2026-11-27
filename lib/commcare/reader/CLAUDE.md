@@ -469,6 +469,14 @@ while the slots' other
 untyped properties stay text (a `date-add` of two of them), the try is made again with each of
 those at the first type its own position admits, typing only the property tried.
 
+**A Hidden Value that orders a direct text answer against a text literal.** A root calculation
+of the form `if(answer < 'text', 'early', 'late')` becomes the same comparison with `number()`
+around each operand. Core's ordered comparison and `number()` call the same conversion, and
+Preview shares its conversion between both paths. The parsed reader binds the answer to the
+same field UUID and keeps the literal and both branches. The independent XML comparison
+requires the matching root text input and Hidden Value. Form conditions, other operand shapes,
+and record and Search expressions keep their existing rules.
+
 **Where a literal spelled as a date or a date and time is typed.** A typed date or date-and-time
 literal prints the text the untyped literal of that text prints, so which one a record slot holds
 is decided by the position it stands in, never by the print, one rule for the reader and the

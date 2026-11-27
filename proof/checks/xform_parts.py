@@ -55,6 +55,7 @@ import hashlib
 import xml.etree.ElementTree as ElementTree
 
 from proof.checks import xpath_tree
+from proof.rules.hidden_text_number_order import rewritten as explicit_text_orders
 from proof.checks.differences import pointer_token
 from proof.rules import _xpath
 
@@ -197,6 +198,7 @@ class _Parts:
         # The app's languages, or None where the caller names none (every translation is then one of them).
         self.languages = languages
         self.root_name = DATA
+        self.text_orders = {}
         # What reads each itext id: the node and the role, from the body and the binds.
         self.texts: dict[str, list[tuple[tuple[str, ...], str]]] = {}
         # Each itext text, ``(id, lang, form, value element)``, placed once what reads it is known (``_texts``).
@@ -536,6 +538,10 @@ def _parsed(text: str, languages=None):
                 order.append(named if named is not None else local(child.tag))
         found.add(None, (":body", "order()"), (":body", "order()"), tuple(order))
     _texts(found)
+    found.text_orders = {
+        f"/{DATA}/{pointer_token(target.rpartition('/')[2])}/:bind/@calculate": spelling
+        for target, _, spelling in explicit_text_orders(root)
+    }
     return found
 
 
@@ -596,6 +602,7 @@ def compare(before: str | None, after: str | None, languages=None):
             instances = (first.instances, second.instances)
             if first.root_name == second.root_name and _expression(path) and (
                 xpath_tree.same(a[at][1], b[at][1], instances=instances, context=_context(at, first.root_name))
+                or (at in first.text_orders and first.text_orders[at] == second.text_orders.get(at))
                 or (path.endswith("/:control/itemset/@nodeset")
                     and xpath_tree.fixture_itemset_ordinal_spelling(a[at][1], b[at][1], instances))
             ):

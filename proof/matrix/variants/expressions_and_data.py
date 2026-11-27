@@ -431,6 +431,11 @@ def text_ordered_comparison(authoring, app_id):
     _language(authoring, app_id, "if(/data/code < 'm', 'early', 'late')", "text-ordered-comparison")
 
 
+def text_ordered_against_another_answer(authoring, app_id):
+    """The two operands are separate authored answers, outside the bounded text-literal read."""
+    _language(authoring, app_id, "if(/data/code < /data/code_again, 'early', 'late')", "two-answers-ordered-as-numbers")
+
+
 def choice_name_on_a_lookup_select(authoring, app_id):
     """``farmer_name`` shown where ``jr:choice-name`` of ``crop``, a select whose choices come from a table, is
     ``Maize``."""
