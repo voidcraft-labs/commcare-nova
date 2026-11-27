@@ -200,7 +200,7 @@ def open_visitor_with_nko_digit_index(authoring, app_id):
 
 
 def open_visitor_with_web_only_index(authoring, app_id):
-    """The Web Apps lexer accepts a letter the oldest supported Android lexer cannot read."""
+    """HQ saves a top-level child index which the Web Apps writer and Android lexer cannot carry."""
     _open_visitor_with_index(authoring, app_id, "აprobe")
 
 
@@ -829,6 +829,12 @@ def open_in_a_repeat(authoring, app_id):
         _VISIT_OPENS,
         [_open("open_member_0", "member", "/data/visits/visitor", [_index("load_household0")], "/data/visits")],
     )
+
+
+def open_in_repeat_with_web_only_index(authoring, app_id):
+    """Put the one-worker index inside the authored Visits repeat, outside the initial instance writer proof."""
+    open_in_a_repeat(authoring, app_id)
+    ops.set_json(authoring, app_id, f"{_VISIT_OPENS}/0/case_indices/0/reference_id", "აprobe")
 
 
 def member_registered_in_an_advanced_form(authoring, app_id):

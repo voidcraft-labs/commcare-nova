@@ -44,7 +44,9 @@ import {
 	unowned,
 } from "@/lib/domain/expression/builders";
 import { implicitFormSelectionId } from "@/lib/domain/formEntryCases";
+import { isPortableName } from "@/lib/domain/portableName";
 import { NO_ENTRIES, recordFromEntries } from "@/lib/domain/records";
+import { submittedElementNameNeedsAndroid } from "@/lib/domain/submittedAnswerName";
 import {
 	circumstanceFinding,
 	type Finding,
@@ -580,6 +582,10 @@ export const ADVANCED_CLAIMS = defineClaims("caseManagement.advancedActions", {
 	),
 	openIndexUnaddressable: refuse(
 		`${F}/index-identifier-unaddressable-in-worker-xpath`,
+		"schema:AdvancedOpenCaseAction.case_indices",
+	),
+	rootOpenIndexWebOnly: refuse(
+		`${F}/root-open-index-unavailable-on-either-worker`,
 		"schema:AdvancedOpenCaseAction.case_indices",
 	),
 	openIndexName: refuse(
@@ -2506,10 +2512,25 @@ function readOrdinaryAdvancedActions(
 				if (namesOpen) afterOpenIndex = true;
 				const nameProblem = advancedCaseIndexNameProblem(identifier);
 				if (nameProblem) {
+					// A top-level creation puts the index element in the primary instance
+					// before Formplayer serializes it as ASCII. A repeat template is omitted.
+					const rootWriter =
+						nameProblem === "one-platform" &&
+						form.docType === "AdvancedForm" &&
+						(open.repeat_context == null || open.repeat_context === "") &&
+						conditionType(openStored) === "always" &&
+						(index.relationship === undefined ||
+							index.relationship === "child") &&
+						indexTag !== "" &&
+						loadIndex !== undefined &&
+						submittedElementNameNeedsAndroid(identifier) &&
+						isPortableName(identifier, ["web-apps"]);
 					const claim = {
 						"invalid-xml": ADVANCED_CLAIMS.openIndexInvalidXml,
 						unaddressable: ADVANCED_CLAIMS.openIndexUnaddressable,
-						"one-platform": ADVANCED_CLAIMS.openIndexName,
+						"one-platform": rootWriter
+							? ADVANCED_CLAIMS.rootOpenIndexWebOnly
+							: ADVANCED_CLAIMS.openIndexName,
 					}[nameProblem];
 					I.refuseWhole(claim, { name: identifier });
 					r.ok = false;

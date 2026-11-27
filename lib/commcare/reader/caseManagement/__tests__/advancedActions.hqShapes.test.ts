@@ -709,6 +709,100 @@ describe("an advanced form's loads and open actions", () => {
 		},
 	);
 
+	it.each([undefined, "web-apps", "android"] as const)(
+		"offers the runtime reason for the top-level connection with platform %s",
+		async (runsOnlyOn) => {
+			const { doc } = memberFollowup();
+			if (runsOnlyOn !== undefined) doc.appSettings.runsOnlyOn = runsOnlyOn;
+			const reading = await readCases(doc, {
+				edit: (app) => {
+					const actions = actionsOf(app);
+					const parent = actions.load_update_cases[0] as { case_tag: string };
+					actions.open_cases = [
+						{
+							doc_type: "AdvancedOpenCaseAction",
+							case_tag: "open_new_member",
+							case_type: "member",
+							name_update: { question_path: "/data/age" },
+							repeat_context: "",
+							open_condition: { type: "always" },
+							close_condition: { type: "never" },
+							case_indices: [
+								{
+									doc_type: "CaseIndex",
+									tag: parent.case_tag,
+									reference_id: "აprobe",
+									relationship: "child",
+								},
+							],
+						},
+					];
+				},
+			});
+			expect(reading.whole).toMatchObject({ kind: "account" });
+			expect(reading.findings).toContainEqual(
+				expect.objectContaining({
+					code: `${F}/root-open-index-unavailable-on-either-worker`,
+					standing: "fix-in-hq",
+					detail: { name: "აprobe" },
+				}),
+			);
+		},
+	);
+
+	it.each([undefined, "web-apps", "android"] as const)(
+		"refuses writing the Web-lexical Georgian connection with platform %s",
+		async (runsOnlyOn) => {
+			const { doc } = registration([kid]);
+			if (runsOnlyOn !== undefined) doc.appSettings.runsOnlyOn = runsOnlyOn;
+			const reading = await readCases(doc, {
+				edit: (app) => {
+					const opened = actionsOf(app).open_cases[1] as {
+						case_indices: { reference_id: string }[];
+					};
+					opened.case_indices[0].reference_id = "აprobe";
+				},
+			});
+			expect(findingCodes(reading)).toContain(
+				`${F}/index-identifier-outside-an-xml-element-name`,
+			);
+
+			const baseline = await readCases(doc);
+			if (baseline.whole?.kind !== "read")
+				throw new Error(JSON.stringify(findingCodes(baseline)));
+			const held = baseline.whole.draft.doc;
+			const declared = produce(held, (draft) => {
+				if (runsOnlyOn === undefined) delete draft.appSettings.runsOnlyOn;
+				else draft.appSettings.runsOnlyOn = runsOnlyOn;
+			});
+			const form = formNamed(declared, "Under test");
+			const indexed = form.caseOperations?.find(
+				(operation) => operation.links?.length,
+			);
+			if (!indexed?.links)
+				throw new Error("Expected an open operation with a connection");
+			const verdict = mutationCommitVerdict(
+				declared,
+				updateCaseOperationMutations(declared, form.uuid, {
+					...indexed,
+					links: indexed.links.map((link) => ({
+						...link,
+						identifier: "აprobe",
+					})),
+				}),
+				LOOKUP_CONTEXT_UNAVAILABLE,
+			);
+			if (verdict.ok)
+				throw new Error("The writer must be supported on the declared worker");
+			expect(verdict.findings).toContainEqual(
+				expect.objectContaining({
+					code: "CASE_OPERATION_LINK_INVALID",
+					details: expect.objectContaining({ linkIdentifier: "აprobe" }),
+				}),
+			);
+		},
+	);
+
 	it("refuses an index whose relationship a question chooses under the entry its shape is, each once", async () => {
 		const { doc } = registration([kid]);
 		for (const [question, entry] of [

@@ -6895,10 +6895,35 @@
 		"gates": []
 	},
 	{
+		"id": "forms-and-case-writes/root-open-index-unavailable-on-either-worker",
+		"area": "forms-and-case-writes",
+		"section": "Advanced form actions",
+		"item": "a child connection from an Advanced form's top-level open action that always runs to an existing load, with a non-ASCII XML name only the Web Apps lexer can address",
+		"surfaceKeys": [
+			"schema:AdvancedOpenCaseAction.case_indices",
+			"schema:CaseIndex.tag",
+			"schema:CaseIndex.reference_id",
+			"schema:CaseIndex.relationship"
+		],
+		"valueClass": "root-open-action-index-writer-unavailable",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: Web Apps cannot open the form because Formplayer decodes the primary instance as ASCII. Android cannot read the name in the generated XPath.",
+		"subject": "advanced-forms",
+		"reasons": [
+			{
+				"kind": "broken-at-runtime",
+				"named": "Web Apps cannot open this form. Android cannot read this connection name. Use an ASCII connection name in CommCare HQ."
+			}
+		],
+		"platforms": { "kind": "none", "cell": "—" },
+		"emission": { "cell": "—", "markers": [] },
+		"gates": []
+	},
+	{
 		"id": "forms-and-case-writes/index-identifier-outside-an-xml-element-name",
 		"area": "forms-and-case-writes",
 		"section": "Advanced form actions",
-		"item": "an `AdvancedOpenCaseAction.case_indices[].reference_id` that is a valid XML local name addressable on only one pinned worker",
+		"item": "an `AdvancedOpenCaseAction.case_indices[].reference_id` addressable on only one pinned worker outside the verified top-level child connection writer",
 		"surfaceKeys": [
 			"schema:AdvancedOpenCaseAction.case_indices",
 			"schema:CaseIndex.tag",
@@ -6907,7 +6932,7 @@
 		],
 		"valueClass": "open-action-index-name-outside-xml-name",
 		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: no shared worker spelling. Nova has yet to prove platform-specific Advanced authoring and first publish.",
+		"dispositionCell": "**HELD-NEW**: a valid XML local name that has no shared worker spelling, whose connection may be introduced later by a repeat or another open action outside the verified writer shape.",
 		"subject": "advanced-forms",
 		"owner": "forms-and-case-management",
 		"platforms": {

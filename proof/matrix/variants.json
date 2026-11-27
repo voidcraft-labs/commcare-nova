@@ -2381,6 +2381,20 @@
 	{
 		"id": "hq-advanced/open-index-named-with-a-web-only-letter",
 		"base": "hq-advanced",
+		"entry": "forms-and-case-writes/root-open-index-unavailable-on-either-worker",
+		"standing": "fix-in-hq",
+		"place": {
+			"kind": "form",
+			"menu": 1,
+			"form": 0,
+			"menuName": "Member visits",
+			"name": "Untitled Form"
+		},
+		"change": { "op": "named", "name": "open_visitor_with_web_only_index" }
+	},
+	{
+		"id": "hq-advanced/open-repeat-index-named-with-a-web-only-letter",
+		"base": "hq-advanced",
 		"entry": "forms-and-case-writes/index-identifier-outside-an-xml-element-name",
 		"standing": "not-yet",
 		"place": {
@@ -2390,7 +2404,7 @@
 			"menuName": "Member visits",
 			"name": "Untitled Form"
 		},
-		"change": { "op": "named", "name": "open_visitor_with_web_only_index" }
+		"change": { "op": "named", "name": "open_in_repeat_with_web_only_index" }
 	},
 	{
 		"id": "hq-advanced/open-index-named-with-a-decomposed-accent",
