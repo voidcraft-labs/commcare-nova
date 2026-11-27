@@ -5,8 +5,10 @@ import {
 	type SearchInputDef,
 	searchInputDefault,
 	searchInputLookupSortColumnId,
+	splitMultiSelectSearchAnswer,
 	type Uuid,
 } from "@/lib/domain";
+import type { QuestionMessage } from "@/lib/preview/displayMessages";
 import { PreviewDataRefusal } from "@/lib/preview/engine/dataRefusal";
 import type { PreviewSearchSessionValues } from "@/lib/preview/engine/identity";
 import {
@@ -47,6 +49,45 @@ export interface SearchRunState {
 	readonly submittedHidden: SearchInputValues;
 	readonly hasSubmitted: boolean;
 	readonly touched: ReadonlySet<string>;
+}
+
+/** A pick or clear updates only the fields linked by identity to this picker.
+ * Android has no picker, and saved unmatched topics have no source identity. */
+export function applySearchAddressMessage(
+	previous: SearchInputValues,
+	inputs: readonly SearchInputDef[],
+	source: Uuid,
+	message: QuestionMessage,
+	choices: ReadonlyMap<Uuid, readonly LookupChoice[]> | undefined,
+	rules: Pick<PreviewPlatformRules, "searchAddressPicker">,
+): SearchInputValues {
+	if (!rules.searchAddressPicker) return previous;
+	const next = new Map(previous);
+	for (const input of inputs) {
+		if (input.kind === "hidden" || input.kind === "address") continue;
+		const receiver = input.addressReceiver;
+		if (receiver?.kind !== "address" || receiver.source !== source) continue;
+		const part = receiver.parts.find((key) => message?.[key] !== undefined);
+		const received = part === undefined ? undefined : message?.[part];
+		if (input.type === "multi-select") {
+			const matches = choices
+				?.get(input.uuid)
+				?.filter((choice) => choice.label.trim() === received);
+			if (matches?.length !== 1) continue;
+			const selected = matches[0].value;
+			const answers = splitMultiSelectSearchAnswer(next.get(input.name) ?? "");
+			if (!answers.includes(selected))
+				next.set(
+					input.name,
+					joinMultiSelectSearchAnswer([...answers, selected]),
+				);
+			continue;
+		}
+		if (input.type !== "text") continue;
+		if (received) next.set(input.name, received);
+		else next.delete(input.name);
+	}
+	return next;
 }
 
 /** Draft commands own search answers independently of their React adapter. */

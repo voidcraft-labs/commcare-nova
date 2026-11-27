@@ -119,6 +119,7 @@ import {
 	androidStartingRangeLabel,
 	webSearchRangeDraft,
 } from "@/lib/preview/engine/searchRangeAnswer";
+import { applySearchAddressMessage } from "@/lib/preview/engine/searchRunState";
 import {
 	effectivePreviewPlatform,
 	type PreviewPlatformRules,
@@ -657,41 +658,16 @@ export function SearchInputForm({
 		// Web Apps emits nothing when the worker types after selecting an
 		// address. A pick and an explicit clear publish one update.
 		if (message === undefined) return;
-		setDraft((previous) => {
-			const next = new Map(previous);
-			for (const input of searchInputs) {
-				if (input.kind === "hidden" || input.kind === "address") continue;
-				const receiver = input.addressReceiver;
-				if (receiver?.kind !== "address" || receiver.source !== source.uuid)
-					continue;
-				const part = receiver.parts.find((key) => message?.[key] !== undefined);
-				const received = part === undefined ? undefined : message?.[part];
-				if (input.type === "multi-select") {
-					const choices =
-						choicesRead.kind === "read"
-							? choicesRead.value.get(input.uuid)
-							: undefined;
-					const matches = choices?.filter(
-						(choice) => choice.label.trim() === received,
-					);
-					if (matches?.length !== 1) continue;
-					const selected = matches[0].value;
-					const answers = splitMultiSelectSearchAnswer(
-						next.get(input.name) ?? "",
-					);
-					if (!answers.includes(selected))
-						next.set(
-							input.name,
-							joinMultiSelectSearchAnswer([...answers, selected]),
-						);
-					continue;
-				}
-				if (input.type !== "text") continue;
-				if (received) next.set(input.name, received);
-				else next.delete(input.name);
-			}
-			return next;
-		});
+		setDraft((previous) =>
+			applySearchAddressMessage(
+				previous,
+				searchInputs,
+				source.uuid,
+				message,
+				choicesRead.kind === "read" ? choicesRead.value : undefined,
+				platformRules,
+			),
+		);
 	};
 	const submit = async (candidate: SearchInputValues, quiet = false) => {
 		if (onSubmit === undefined || awaitingWorker) return;

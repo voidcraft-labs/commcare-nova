@@ -86,6 +86,7 @@ import {
 	webSearchRangeDraft,
 } from "../engine/searchRangeAnswer";
 import {
+	applySearchAddressMessage,
 	drawnSearchInputs,
 	searchInputAnswerKeys,
 } from "../engine/searchRunState";
@@ -1151,6 +1152,73 @@ export const PLATFORM_MODEL_CHECKS = {
 		expect(searchInputAnswerKeys([source, receiver])).toEqual(
 			new Set(["city"]),
 		);
+	},
+	"search-unmatched-address-topic": (on: Platform) => {
+		const picker = {
+			kind: "address",
+			type: "address",
+			uuid: testUuid("unmatched-topic-picker"),
+			name: "home",
+			label: "Address",
+		} as const;
+		const village = {
+			...simpleSearchInputDef(
+				testUuid("unmatched-topic-village"),
+				"village",
+				"Village",
+				"text",
+				"village",
+			),
+			addressReceiver: { kind: "unsubscribed-topic", topic: "home||city" },
+		} as const;
+		const city = simpleSearchInputDef(
+			testUuid("unmatched-topic-active-city"),
+			"city",
+			"City",
+			"text",
+			"city",
+			{
+				addressReceiver: {
+					kind: "address",
+					source: picker.uuid,
+					parts: ["city"],
+				},
+			},
+		);
+		const inputs = [picker, village, city];
+		const rules = previewPlatformRules(on);
+		const entered = new Map([
+			["village", "Hand-entered village"],
+			["city", "Hand-entered city"],
+		]);
+		const picked = applySearchAddressMessage(
+			entered,
+			inputs,
+			picker.uuid,
+			{ city: "Example Town" },
+			undefined,
+			rules,
+		);
+		const cleared = applySearchAddressMessage(
+			picked,
+			inputs,
+			picker.uuid,
+			null,
+			undefined,
+			rules,
+		);
+		expect(searchInputAnswerKeys(inputs)).toEqual(new Set(["village", "city"]));
+		expect(picked.get("village")).toBe("Hand-entered village");
+		expect(cleared.get("village")).toBe("Hand-entered village");
+		if (on === "web-apps") {
+			expect(drawnSearchInputs(inputs, rules)).toEqual(inputs);
+			expect(picked.get("city")).toBe("Example Town");
+			expect(cleared.has("city")).toBe(false);
+		} else {
+			expect(drawnSearchInputs(inputs, rules)).toEqual([village, city]);
+			expect(picked).toEqual(entered);
+			expect(cleared).toEqual(entered);
+		}
 	},
 	"hidden-search-field-android": () => {
 		const hidden = hiddenSearchInputDef(

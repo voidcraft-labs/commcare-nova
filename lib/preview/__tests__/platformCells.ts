@@ -377,6 +377,10 @@ export const PLATFORM_CELLS: Readonly<
 	"case-search/address-picker-receiver-on-a-search-screen@android": model(
 		"search-address-picker-android",
 	),
+	"case-search/address-receiver-on-an-unmatched-topic-without-a-component@web-apps":
+		model("search-unmatched-address-topic"),
+	"case-search/address-receiver-on-an-unmatched-topic-without-a-component@android":
+		model("search-unmatched-address-topic"),
 	"case-search/search-on-clear@android": model("desktop-search-on-clear"),
 	"case-search/default-value-on-a-date-range-input@android": model(
 		"starting-dates-android",
