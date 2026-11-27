@@ -5477,16 +5477,21 @@ def _ordinary_sort_text(text):
 
 def _index_fallback_text(text):
     terms = (text or "").split(",")
-    if len(terms) == 2:
+    if len(terms) not in (1, 2, 3):
+        return False
+    if len(terms) > 1:
         if not re.fullmatch(r"-[A-Za-z][A-Za-z0-9_-]*:date", terms[0]) or not _ordinary_sort_text(terms[0]):
             return False
-        match = re.fullmatch(r"\+([A-Za-z][A-Za-z0-9_-]*)::obsolete", terms[1])
+        terms = terms[1:]
+        first_suffix = "obsolete"
     else:
-        match = re.fullmatch(r"\+([A-Za-z][A-Za-z0-9_-]*)::ignored", text or "")
-    if match is None:
-        return False
-    key = match.group(1)
-    return key not in SERVER_ORDER_RECORD_KEYS and searchable_order_key(key)
+        first_suffix = "ignored"
+    for index, term in enumerate(terms):
+        suffix = first_suffix if index == 0 else "ignored"
+        match = re.fullmatch(rf"\+([A-Za-z][A-Za-z0-9_-]*)::{suffix}", term)
+        if match is None or match.group(1) in SERVER_ORDER_RECORD_KEYS or not searchable_order_key(match.group(1)):
+            return False
+    return True
 
 
 def _discarded_order_comparison(text):

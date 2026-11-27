@@ -62,6 +62,11 @@ export function nativeSearchFilters(
 	];
 	const resets = order.filter((term) => term.comparison === "indexed-fallback");
 	const resetPosition = searchOrderResetPosition(filters);
+	const resetRows = filters.filter(
+		(row) =>
+			"order" in row &&
+			row.order.some((term) => term.comparison === "indexed-fallback"),
+	);
 	const invalidDiscarded = filters.some(
 		(filter, index) =>
 			"order" in filter &&
@@ -82,8 +87,8 @@ export function nativeSearchFilters(
 
 	if (
 		resets.length > 0 &&
-		(resets.length !== 1 ||
-			!indexedResetProperty(resets[0].property) ||
+		(resetRows.length !== 1 ||
+			resets.some((term) => !indexedResetProperty(term.property)) ||
 			!moduleAllowsSearchIndexFallback(mod) ||
 			emittedModuleKind(doc, moduleUuid) !== "basic")
 	) {
@@ -91,7 +96,7 @@ export function nativeSearchFilters(
 			validationError(
 				"CASE_SEARCH_FILTER_INVALID",
 				"module",
-				"Keep one index fallback in a Search that opens on results for one record type. Choose a different comparison if the search also uses prompts, related records or a dedicated order.",
+				"Keep index fallbacks together in one order for a Search that opens on results for one record type. Choose a different comparison if the search also uses prompts, related records or a dedicated order.",
 				{ moduleUuid, moduleName: mod.name },
 				{ reason: "index-fallback-order" },
 			),

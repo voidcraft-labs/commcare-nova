@@ -738,6 +738,7 @@
 		"hq-search/default-filter-reset-masks-an-unknown-comparison",
 		"hq-search/default-filter-resets-earlier-sort",
 		"hq-search/default-order-mixes-an-index-reset-with-another-property",
+		"hq-search/default-order-mixes-two-index-resets",
 		"hq-search/default-filter-sorting-by-a-repeated-direction",
 		"hq-search/default-filter-sorting-by-a-saved-status",
 		"hq-search/default-filter-sorting-by-an-unknown-comparison",

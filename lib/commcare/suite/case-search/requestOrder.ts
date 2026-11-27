@@ -230,30 +230,29 @@ export function requestOrderText(order: SearchFilterOrder): string {
 export function readIndexResetOrderText(
 	text: string,
 ): SearchFilterOrder | undefined {
-	const [prefix, reset, ...remaining] = text.split(",");
-	if (
-		remaining.length ||
-		(reset !== undefined && !reset.endsWith("::obsolete"))
-	)
-		return undefined;
-	const [signedProperty, blank, suffix, ...extra] = (reset ?? prefix).split(
-		":",
-	);
-	if (
-		!signedProperty?.startsWith("+") ||
-		blank !== "" ||
-		suffix !== (reset === undefined ? "ignored" : "obsolete") ||
-		extra.length
-	)
-		return undefined;
-	const property = signedProperty.slice(1);
-	if (!indexedResetProperty(property)) return undefined;
-	const fallback = {
-		property,
-		comparison: "indexed-fallback",
-		direction: "ascending",
-	} as const;
-	if (reset === undefined) return [fallback];
+	const [prefix, ...resets] = text.split(",");
+	if (resets.length > 2) return;
+	const single = resets.length === 0;
+	const terms: SearchFilterOrder = [];
+	for (const [index, value] of (single ? [prefix] : resets).entries()) {
+		const [signedProperty, blank, suffix, ...extra] = value.split(":");
+		if (
+			!signedProperty?.startsWith("+") ||
+			blank !== "" ||
+			suffix !== (single || index === 1 ? "ignored" : "obsolete") ||
+			extra.length
+		)
+			return;
+		const property = signedProperty.slice(1);
+		if (!indexedResetProperty(property)) return;
+		terms.push({
+			property,
+			comparison: "indexed-fallback",
+			direction: "ascending",
+			...(suffix === "obsolete" && { savedSuffix: suffix }),
+		});
+	}
+	if (single) return terms;
 	const earlier = readRequestOrderText(prefix);
 	if (
 		earlier?.order.length !== 1 ||
@@ -261,8 +260,8 @@ export function readIndexResetOrderText(
 		earlier.order[0].direction !== "descending" ||
 		requestOrderText(earlier.order) !== prefix
 	)
-		return undefined;
-	return [earlier.order[0], { ...fallback, savedSuffix: "obsolete" }];
+		return;
+	return [earlier.order[0], ...terms];
 }
 
 /** The signed spelling of a literal order that an independently verified later reset discards. */
