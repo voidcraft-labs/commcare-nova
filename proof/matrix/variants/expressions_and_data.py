@@ -430,6 +430,11 @@ def standalone_search_detail_with_date_range_prompt(authoring, app_id):
     _optional_search_detail(authoring, app_id, "last_visit")
 
 
+def standalone_search_detail_with_barcode_prompt(authoring, app_id):
+    """An offered barcode remains outside the supported Details inputs."""
+    _optional_search_detail(authoring, app_id, "client_code")
+
+
 # Expressions --------------------------------------------------------------------------------------------------------
 
 
