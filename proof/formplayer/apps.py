@@ -134,7 +134,7 @@ def saved_page(published: Published, driver, page, target=None):
     return saved
 
 
-def saved_profile(published: Published, properties: dict):
+def saved_profile(published: Published, properties: dict | None = None, *, custom_properties: dict | None = None):
     """The profile settings ``properties`` saved through HQ's own settings view
     (``views/settings.py::edit_commcare_profile``, the request HQ's App Settings page posts with a person's
     changed values), decorators and all. Call it inside a fork of the unit, which puts the app back."""
@@ -144,14 +144,17 @@ def saved_profile(published: Published, properties: dict):
 
     unit = published.unit
     path = reverse("edit_commcare_profile", args=[unit.domain, published.app_id])
-    body = json.dumps({"properties": properties}).encode("utf-8")
+    settings = {"properties": properties or {}}
+    if custom_properties is not None:
+        settings["custom_properties"] = custom_properties
+    body = json.dumps(settings).encode("utf-8")
     with unit.operation("formplayer:settings-save", body):
         request = hq_requests.raw_post(unit, path, body, "application/json")
         match = resolve(path)
         response = match.func(request, *match.args, **match.kwargs)
     if response.status_code != 200 or json.loads(response.content).get("status") != "ok":
         raise SaveRefused(
-            f"HQ's edit_commcare_profile answered {response.status_code} {response.content[:400]!r} for {properties}."
+            f"HQ's edit_commcare_profile answered {response.status_code} {response.content[:400]!r} for {settings}."
         )
 
 

@@ -42,6 +42,7 @@ DOCUMENTS = (
     "targeted-media-slots",
     "prompt-checkboxes",
     "targeted-worker-messages",
+    "targeted-form-behavior-pragmas",
     "targeted-repeat-invitations",
     "targeted-capture-widgets",
     "targeted-face-photo",

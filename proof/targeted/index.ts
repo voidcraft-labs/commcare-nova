@@ -68,6 +68,7 @@ import {
 	expressionRenames,
 } from "./documents/expressionRenames";
 import { facePhoto } from "./documents/facePhoto";
+import { formBehaviorPragmas } from "./documents/formBehaviorPragmas";
 import { formLinkCarriedCase } from "./documents/formLinkCarriedCase";
 import { formLinkChain } from "./documents/formLinkChain";
 import { formLinkHiddenTarget } from "./documents/formLinkHiddenTarget";
@@ -236,6 +237,7 @@ export const TARGETED_DOCUMENTS: readonly (() => CorpusDocument)[] = [
 	validatedBarcodeSecret,
 	workerMessages,
 	webFormActivity,
+	formBehaviorPragmas,
 	labelSort,
 	calculationTextNames,
 	customTile,

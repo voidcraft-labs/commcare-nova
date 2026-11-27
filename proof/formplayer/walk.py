@@ -38,6 +38,8 @@ it as the client does (``submission``: every question the client holds valid,
 with the answer Formplayer last handed it, and ``prevalidated`` only where it
 holds every one valid), and records Formplayer's answer, the submission HQ
 received and the screen Formplayer's end of form navigation names next.
+When Formplayer submits during navigation, the walk records the native
+success and the submission HQ received without pretending a form opened.
 Where the app declares no Web Apps (``Walk.web_apps`` false) the walk
 answers a date and time question as Core's session does, and nothing holds
 the client's placeholder.
@@ -790,6 +792,12 @@ class Walk:
             record(request, response)
             return response
 
+        def received():
+            return [
+                {"path": sent.path, "instance": sent.instance.decode("utf-8"), "files": len(sent.files)}
+                for sent in self.hq.submissions[submissions_from:]
+            ]
+
         try:
             response = navigate()
             for _ in range(MAX_SCREENS):
@@ -956,16 +964,20 @@ class Walk:
                             "submitted": sent,
                             "submit": submitted,
                             "asked": self.hq.asked[asked_from:],
-                            "submissions": [
-                                {"path": sent.path, "instance": sent.instance.decode("utf-8"), "files": len(sent.files)}
-                                for sent in self.hq.submissions[submissions_from:]
-                            ],
+                            "submissions": received(),
                         }
                     )
                     end = "submitted" if submitted.get("status") == "success" else "submit-refused"
                     break
                 else:
-                    end = "notification"
+                    # MenuController can return a SubmitResponseBean directly.
+                    # A successful HTTP response or no form tree alone proves
+                    # nothing. Require a successful submission and HQ's receipt.
+                    if isinstance(response, dict) and response.get("status") == "success" and (instances := received()):
+                        steps.append({"submit": response, "submissions": instances})
+                        end = "submitted"
+                    else:
+                        end = "notification"
                     break
             else:
                 # A safety net, never a run's end: no app the lane walks comes near it.

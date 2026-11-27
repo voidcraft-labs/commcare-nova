@@ -43,6 +43,7 @@ DOCUMENTS = (
     "prompt-period-fallback",
     "search-hidden-link",
     "search-remote-defaults",
+    "targeted-form-behavior-pragmas",
     "targeted-repeat-invitations",
     "targeted-form-link-hidden-target",
     "targeted-forms-in-menu-above-one-case",
