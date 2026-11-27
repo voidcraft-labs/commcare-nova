@@ -9076,7 +9076,9 @@ def _standalone_result_detail_app(prompt, guarded=True):
     path = f"instance('search-input:results')/input/field[@name = '{prompt}']"
     text = f"if(count({path}) > 0, string({path}), '')" if guarded else f"string({path})"
     expr = f"if(count(current()/../../results) > 0, concat('Entered [', {text}, ']'), 'Unsearched case')"
-    module = _search_module(auto_launch=True, properties=[_prompt("village"), _prompt("district", input_="date")])
+    module = _search_module(auto_launch=True, properties=[
+        _prompt("village"), _prompt("district", input_="date"), _prompt("window", input_="date-range"),
+    ])
     module["case_details"] = {
         "doc_type": "DetailPair",
         "long": {"doc_type": "Detail", "columns": [_column(expr, useXpathExpression=True)]},
@@ -9089,7 +9091,7 @@ def _standalone_result_detail_shapes():
     field = "/case_details/long/columns/0/field"
     return {
         "menus-and-case-lists/standalone-search-result-detail-without-its-offered-prompt": (
-            refused("app", _standalone_result_detail_app("district"), key, field),
+            refused("app", _standalone_result_detail_app("window"), key, field),
             accepted("app", _standalone_result_detail_app("not_offered"), key, field),
             accepted("app", _standalone_result_detail_app("village"), key, field),
             accepted("app", _standalone_result_detail_app("village", guarded=False), key, field),
@@ -9099,6 +9101,8 @@ def _standalone_result_detail_shapes():
 
 @pytest.mark.parametrize(("prompt", "guarded", "expected"), [
     ("village", True, True),
+    ("district", True, True),
+    ("window", True, False),
     ("not_offered", True, False),
     ("village", False, False),
 ])

@@ -7379,7 +7379,7 @@ def standalone_result_detail_text(use, manifest):
     name, search = source
     prompts = [prompt for prompt in search.get("properties", ())
                if isinstance(prompt, dict) and prompt.get("name") == name and not prompt.get("hidden")]
-    return len(prompts) == 1 and not prompts[0].get("appearance") and prompts[0].get("input_") in (None, "", "text")
+    return len(prompts) == 1 and not prompts[0].get("appearance") and prompts[0].get("input_") in (None, "", "text", "date")
 
 
 def standalone_result_list_text(use, manifest):

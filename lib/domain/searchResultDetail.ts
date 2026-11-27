@@ -89,7 +89,7 @@ export function resolveSearchResultDetailRoute(
 	);
 	if (
 		(prompt?.kind !== "simple" && prompt?.kind !== "advanced") ||
-		prompt.type !== "text" ||
+		(prompt.type !== "text" && (onList || prompt.type !== "date")) ||
 		prompt.hidden ||
 		searchInputRequestKey(prompt) !== prompt.name ||
 		!canPrint(branch.prefix) ||

@@ -425,6 +425,11 @@ def standalone_search_detail_with_date_prompt(authoring, app_id):
     _optional_search_detail(authoring, app_id, "dob")
 
 
+def standalone_search_detail_with_date_range_prompt(authoring, app_id):
+    """The same guarded detail addresses a date range, outside the scalar slot."""
+    _optional_search_detail(authoring, app_id, "last_visit")
+
+
 # Expressions --------------------------------------------------------------------------------------------------------
 
 
