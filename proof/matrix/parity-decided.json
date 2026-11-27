@@ -768,6 +768,7 @@
 		"hq-search/search-widened-to-its-own-type",
 		"hq-search/second-validation",
 		"hq-search/slider-field",
+		"hq-search/standalone-search-detail-with-date-prompt",
 		"hq-search/standalone-search-detail-with-wrong-prompt",
 		"hq-search/starting-value-of-an-ordered-text",
 		"hq-search/three-link-date-field-named-by-a-parent-path",

@@ -7126,8 +7126,8 @@ def inline_search_result_own_text_property(use, manifest):
     return canonical is not None and _shape(tree) == _shape(canonical)
 
 
-def _standalone_result_detail_prompt(use):
-    """One long-only text column with native roster and optional-node guards."""
+def _standalone_result_detail_branch(use):
+    """One long-only, plain column with the exact standalone Results guard."""
     at, detail, kind, module = _detail_of(use)
     if kind != "long" or at.key != "field" or not at.owner.get("useXpathExpression"):
         return None
@@ -7143,15 +7143,17 @@ def _standalone_result_detail_prompt(use):
         or search.get("case_search_endpoint_id")
     ):
         return None
-    source = at.value
-    if not isinstance(source, str) or not any(
-        spelling in source
-        for spelling in ("instance('search-input:results')", 'instance("search-input:results")')
-    ):
-        return None
-    outer = _call_of(expression_tree(source), "if", 3)
+    outer = _call_of(expression_tree(at.value), "if", 3) if isinstance(at.value, str) else None
     if outer is None or outer[0] != expression_tree("count(current()/../../results) > 0"):
         return None
+    return outer, search
+
+
+def _standalone_result_detail_prompt(use):
+    branch = _standalone_result_detail_branch(use)
+    if branch is None:
+        return None
+    outer, search = branch
     concat = _call_of(outer[1], "concat", 3)
     if concat is None or not all(isinstance(leaf, list) and leaf[0] == "text"
                                  for leaf in (concat[0], concat[2], outer[2])):
@@ -7192,8 +7194,24 @@ def standalone_result_detail_text(use, manifest):
     return len(prompts) == 1 and not prompts[0].get("appearance") and prompts[0].get("input_") in (None, "", "text")
 
 
+def standalone_result_detail_fixed_text(use, manifest):
+    branch = _standalone_result_detail_branch(use)
+    if branch is None:
+        return False
+    outer, search = branch
+    if all(isinstance(leaf, list) and leaf[0] == "text" for leaf in outer[1:]):
+        return True
+    source = _standalone_result_detail_prompt(use)
+    if source is None:
+        return False
+    name, _ = source
+    return not any(isinstance(prompt, dict) and prompt.get("name") == name for prompt in search.get("properties", ()))
+
+
 def standalone_result_detail_without_prompt(use, manifest):
-    return _standalone_result_detail_prompt(use) is not None and not standalone_result_detail_text(use, manifest)
+    return (_standalone_result_detail_prompt(use) is not None
+            and not standalone_result_detail_text(use, manifest)
+            and not standalone_result_detail_fixed_text(use, manifest))
 
 
 def _short_lookup(use):

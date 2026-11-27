@@ -467,252 +467,263 @@ it("opens a form on the same search response that supplied Results", async () =>
 	});
 });
 
-it("uses the originating offered Search page when restoring a standalone case Detail", async () => {
-	const actor = ACTOR;
-	const appId = "search-detail-restored-app";
-	const sessionId = "search-detail-restored-session";
-	auth.sessionId = sessionId;
-	await h.seedProjectMember(actor, PROJECT, "owner");
-	await sql`INSERT INTO auth_session (id, token, "userId", "expiresAt", "createdAt", "updatedAt")
+it.each(["submitted answer", "fixed text"] as const)(
+	"uses the originating Search page to restore a standalone Detail with %s",
+	async (branch) => {
+		const fixed = branch === "fixed text";
+		const actor = ACTOR;
+		const appId = "search-detail-restored-app";
+		const sessionId = "search-detail-restored-session";
+		auth.sessionId = sessionId;
+		await h.seedProjectMember(actor, PROJECT, "owner");
+		await sql`INSERT INTO auth_session (id, token, "userId", "expiresAt", "createdAt", "updatedAt")
 		VALUES (${sessionId}, ${sessionId}, ${actor}, now()+interval '1 hour', now(), now())`.execute(
-		h.db(),
-	);
-	const inputUuid = testUuid("standalone-detail-name");
-	const columnUuid = testUuid("standalone-detail-column");
-	const column = {
-		...calculatedColumn(
-			columnUuid,
-			"Entered name",
-			term(literal("local row")),
-			{
-				notOnList: true,
-				visibleInList: false,
-			},
-		),
-		searchResultDetail: { inputUuid, prefix: "entered=[", suffix: "]" },
-	};
-	const ordinaryList = caseListConfig([{ field: "case_name", header: "Name" }]);
-	const fixture = buildDoc({
-		appId,
-		caseTypes: [{ name: "patient", properties: [] }],
-		modules: [
-			{
-				name: "Patients",
-				caseType: "patient",
-				caseListMenuItem: {},
-				caseSearchConfig: {},
-				caseListConfig: {
-					columns: [...ordinaryList.columns, column],
-					listColumnOrder: [...ordinaryList.listColumnOrder, columnUuid],
-					detailColumnOrder: [columnUuid, ...ordinaryList.detailColumnOrder],
-					searchInputs: [
-						simpleSearchInputDef(
-							inputUuid,
-							"name",
-							"Name",
-							"text",
-							"case_name",
-						),
+			h.db(),
+		);
+		const inputUuid = testUuid("standalone-detail-name");
+		const columnUuid = testUuid("standalone-detail-column");
+		const column = {
+			...calculatedColumn(
+				columnUuid,
+				"Entered name",
+				term(literal("local row")),
+				{
+					notOnList: true,
+					visibleInList: false,
+				},
+			),
+			searchResultDetail: fixed
+				? { text: "entered=[]" }
+				: { inputUuid, prefix: "entered=[", suffix: "]" },
+		};
+		const ordinaryList = caseListConfig([
+			{ field: "case_name", header: "Name" },
+		]);
+		const fixture = buildDoc({
+			appId,
+			caseTypes: [{ name: "patient", properties: [] }],
+			modules: [
+				{
+					name: "Patients",
+					caseType: "patient",
+					caseListMenuItem: {},
+					caseSearchConfig: {},
+					caseListConfig: {
+						columns: [...ordinaryList.columns, column],
+						listColumnOrder: [...ordinaryList.listColumnOrder, columnUuid],
+						detailColumnOrder: [columnUuid, ...ordinaryList.detailColumnOrder],
+						searchInputs: [
+							simpleSearchInputDef(
+								inputUuid,
+								"name",
+								"Name",
+								"text",
+								"case_name",
+							),
+						],
+					},
+					forms: [
+						{
+							name: "Visit",
+							type: "followup",
+							fields: [f({ id: "note", kind: "text" })],
+						},
 					],
 				},
-				forms: [
-					{
-						name: "Visit",
-						type: "followup",
-						fields: [f({ id: "note", kind: "text" })],
-					},
-				],
-			},
-		],
-	});
-	const doc = {
-		...fixture,
-		appSettings: { ...fixture.appSettings, runsOnlyOn: "web-apps" as const },
-		localization: {
-			sourceLanguage: "eng" as const,
-			defaultLanguage: "eng" as const,
-			languageOrder: ["eng", "spa"] as ("eng" | "spa")[],
-			wireCodes: { eng: "en", spa: "es" },
-			translations: { spa: {} },
-		},
-	};
-	await h.seedAppWithBlueprint(doc, {
-		id: appId,
-		owner: actor,
-		projectId: PROJECT,
-	});
-	const store = await withProjectContext(PROJECT, actor, actor);
-	await store.applySchemaChange({
-		appId,
-		caseType: "patient",
-		caseTypeSchemas: buildCaseTypeMap(doc),
-	});
-	for (const caseId of ["one", "two"]) {
-		await store.insert({
-			appId,
-			row: {
-				case_id: caseId,
-				case_type: "patient",
-				case_name: "Asha",
-				properties: {},
-			},
+			],
 		});
-	}
-	const saved = await setPreviewSearchSettings(
-		{ appId, projectId: PROJECT },
-		actor,
-		LOCAL,
-		"0",
-		{
-			maximum: 500,
-			propertyMatchers: { ignoredText: [], fuzzyProperties: [] },
-		},
-	);
-	if (saved.kind !== "saved")
-		throw new Error("Search settings were not saved.");
-	const revision = resolvePreviewSearchFacts(saved.catalog, LOCAL).revision;
-	const moduleUuid = doc.moduleOrder[0];
-	const config = doc.modules[moduleUuid].caseListConfig;
-	const device = {
-		...webAppsDevice(),
-		searchConfiguration: { target: LOCAL, revision },
-	};
-	const request = {
-		appId,
-		caseType: "patient",
-		moduleUuid,
-		blueprint: toRscSerializableDoc(doc),
-		caseListConfig: config,
-		device,
-		search: true,
-		page: { offset: 0, limit: 1 },
-	};
-	const run = async (inputValues: Record<string, string>) => {
-		const submission = crypto.randomUUID();
-		const previewRun = crypto.randomUUID();
-		const runScope = { previewRun };
-		const results = await loadCasesAction({
-			...request,
-			...runScope,
-			searchSubmission: submission,
-			inputValues,
-		});
-		expect(results).toMatchObject({ kind: "rows", searchMatchCount: 2 });
-		if (results.kind !== "rows" || !results.resultReceipt || !results.rows[0])
-			throw new Error("The Results page did not offer a signed case.");
-		expect(results.rows[0].calculated[columnUuid]).toBe("local row");
-		return {
-			chosen: results.rows[0].case_id,
-			opening: { ...runScope, submission, receipt: results.resultReceipt },
+		const doc = {
+			...fixture,
+			appSettings: { ...fixture.appSettings, runsOnlyOn: "web-apps" as const },
+			localization: {
+				sourceLanguage: "eng" as const,
+				defaultLanguage: "eng" as const,
+				languageOrder: ["eng", "spa"] as ("eng" | "spa")[],
+				wireCodes: { eng: "en", spa: "es" },
+				translations: { spa: {} },
+			},
 		};
-	};
-	const answered = await run({ name: "Asha" });
-	const unanswered = await run({});
-	const reopen = (
-		caseId: string,
-		opening?: typeof answered.opening,
-		options: { includeHeld?: boolean; wireLanguage?: string } = {},
-	) =>
-		loadCaseDataAction(
+		await h.seedAppWithBlueprint(doc, {
+			id: appId,
+			owner: actor,
+			projectId: PROJECT,
+		});
+		const store = await withProjectContext(PROJECT, actor, actor);
+		await store.applySchemaChange({
 			appId,
-			"patient",
-			caseId,
-			0,
-			config,
-			undefined,
-			undefined,
-			options.includeHeld,
-			undefined,
-			true,
-			undefined,
-			request.blueprint,
-			moduleUuid,
-			false,
-			null,
-			{ ...device, appLanguage: options.wireLanguage ?? device.appLanguage },
-			{ name: "edited draft" },
-			undefined,
-			undefined,
-			opening,
+			caseType: "patient",
+			caseTypeSchemas: buildCaseTypeMap(doc),
+		});
+		for (const caseId of ["one", "two"]) {
+			await store.insert({
+				appId,
+				row: {
+					case_id: caseId,
+					case_type: "patient",
+					case_name: "Asha",
+					properties: {},
+				},
+			});
+		}
+		const saved = await setPreviewSearchSettings(
+			{ appId, projectId: PROJECT },
+			actor,
+			LOCAL,
+			"0",
+			{
+				maximum: 500,
+				propertyMatchers: { ignoredText: [], fuzzyProperties: [] },
+			},
 		);
-	expect(await reopen(answered.chosen, answered.opening)).toMatchObject({
-		kind: "row",
-		row: { calculated: { [columnUuid]: "entered=[Asha]" } },
-	});
+		if (saved.kind !== "saved")
+			throw new Error("Search settings were not saved.");
+		const revision = resolvePreviewSearchFacts(saved.catalog, LOCAL).revision;
+		const moduleUuid = doc.moduleOrder[0];
+		const config = doc.modules[moduleUuid].caseListConfig;
+		const device = {
+			...webAppsDevice(),
+			searchConfiguration: { target: LOCAL, revision },
+		};
+		const request = {
+			appId,
+			caseType: "patient",
+			moduleUuid,
+			blueprint: toRscSerializableDoc(doc),
+			caseListConfig: config,
+			device,
+			search: true,
+			page: { offset: 0, limit: 1 },
+		};
+		const run = async (inputValues: Record<string, string>) => {
+			const submission = crypto.randomUUID();
+			const previewRun = crypto.randomUUID();
+			const runScope = { previewRun };
+			const results = await loadCasesAction({
+				...request,
+				...runScope,
+				searchSubmission: submission,
+				inputValues,
+			});
+			expect(results).toMatchObject({ kind: "rows", searchMatchCount: 2 });
+			if (results.kind !== "rows" || !results.resultReceipt || !results.rows[0])
+				throw new Error("The Results page did not offer a signed case.");
+			expect(results.rows[0].calculated[columnUuid]).toBe("local row");
+			return {
+				chosen: results.rows[0].case_id,
+				opening: { ...runScope, submission, receipt: results.resultReceipt },
+			};
+		};
+		const answered = await run({ name: "Asha" });
+		const unanswered = await run({});
+		const reopen = (
+			caseId: string,
+			opening?: typeof answered.opening,
+			options: { includeHeld?: boolean; wireLanguage?: string } = {},
+		) =>
+			loadCaseDataAction(
+				appId,
+				"patient",
+				caseId,
+				0,
+				config,
+				undefined,
+				undefined,
+				options.includeHeld,
+				undefined,
+				true,
+				undefined,
+				request.blueprint,
+				moduleUuid,
+				false,
+				null,
+				{ ...device, appLanguage: options.wireLanguage ?? device.appLanguage },
+				{ name: "edited draft" },
+				undefined,
+				undefined,
+				opening,
+			);
+		expect(await reopen(answered.chosen, answered.opening)).toMatchObject({
+			kind: "row",
+			row: {
+				calculated: { [columnUuid]: fixed ? "entered=[]" : "entered=[Asha]" },
+			},
+		});
 
-	expect(
-		await reopen(answered.chosen, answered.opening, { wireLanguage: "es" }),
-	).toMatchObject({
-		kind: "row",
-		row: { calculated: { [columnUuid]: "entered=[Asha]" } },
-	});
-	expect(await reopen(unanswered.chosen, unanswered.opening)).toMatchObject({
-		kind: "row",
-		row: { calculated: { [columnUuid]: "entered=[]" } },
-	});
-	expect(
-		await reopen(answered.chosen, {
-			...answered.opening,
-			previewRun: unanswered.opening.previewRun,
-		}),
-	).toMatchObject({ kind: "error" });
-	expect(await reopen(answered.chosen)).toMatchObject({
-		kind: "row",
-		row: { calculated: { [columnUuid]: "local row" } },
-	});
-	expect(
-		await reopen(answered.chosen === "one" ? "two" : "one", answered.opening),
-	).toMatchObject({
-		kind: "error",
-	});
-	expect(
-		await reopen(answered.chosen, {
-			...answered.opening,
-			submission: unanswered.opening.submission,
-		}),
-	).toMatchObject({
-		kind: "error",
-	});
-	const countReceipts = async () =>
-		(
-			await sql<{
-				count: number;
-			}>`SELECT COUNT(*)::int AS count FROM form_opening_data
+		expect(
+			await reopen(answered.chosen, answered.opening, { wireLanguage: "es" }),
+		).toMatchObject({
+			kind: "row",
+			row: {
+				calculated: { [columnUuid]: fixed ? "entered=[]" : "entered=[Asha]" },
+			},
+		});
+		expect(await reopen(unanswered.chosen, unanswered.opening)).toMatchObject({
+			kind: "row",
+			row: { calculated: { [columnUuid]: "entered=[]" } },
+		});
+		expect(
+			await reopen(answered.chosen, {
+				...answered.opening,
+				previewRun: unanswered.opening.previewRun,
+			}),
+		).toMatchObject({ kind: "error" });
+		expect(await reopen(answered.chosen)).toMatchObject({
+			kind: "row",
+			row: { calculated: { [columnUuid]: "local row" } },
+		});
+		expect(
+			await reopen(answered.chosen === "one" ? "two" : "one", answered.opening),
+		).toMatchObject({
+			kind: "error",
+		});
+		expect(
+			await reopen(answered.chosen, {
+				...answered.opening,
+				submission: unanswered.opening.submission,
+			}),
+		).toMatchObject({
+			kind: "error",
+		});
+		const countReceipts = async () =>
+			(
+				await sql<{
+					count: number;
+				}>`SELECT COUNT(*)::int AS count FROM form_opening_data
 			WHERE session_id = ${sessionId}`.execute(h.db())
-		).rows[0].count;
-	const beforeEmpty = await countReceipts();
-	expect(
-		await loadCasesAction({
+			).rows[0].count;
+		const beforeEmpty = await countReceipts();
+		expect(
+			await loadCasesAction({
+				...request,
+				previewRun: answered.opening.previewRun,
+				searchSubmission: crypto.randomUUID(),
+				inputValues: {
+					name: { value: "crafted non-text" },
+				} as unknown as Record<string, string>,
+			}),
+		).toMatchObject({ kind: "invalid-search", repair: "inputs" });
+		expect(await countReceipts()).toBe(beforeEmpty);
+
+		const empty = await loadCasesAction({
 			...request,
 			previewRun: answered.opening.previewRun,
 			searchSubmission: crypto.randomUUID(),
-			inputValues: { name: { value: "crafted non-text" } } as unknown as Record<
-				string,
-				string
-			>,
-		}),
-	).toMatchObject({ kind: "invalid-search", repair: "inputs" });
-	expect(await countReceipts()).toBe(beforeEmpty);
+			inputValues: { name: "Nobody on this page" },
+		});
+		expect(empty).toMatchObject({ kind: "empty" });
+		expect(empty).not.toHaveProperty("resultReceipt");
+		expect(await countReceipts()).toBe(beforeEmpty);
 
-	const empty = await loadCasesAction({
-		...request,
-		previewRun: answered.opening.previewRun,
-		searchSubmission: crypto.randomUUID(),
-		inputValues: { name: "Nobody on this page" },
-	});
-	expect(empty).toMatchObject({ kind: "empty" });
-	expect(empty).not.toHaveProperty("resultReceipt");
-	expect(await countReceipts()).toBe(beforeEmpty);
-
-	await sql`INSERT INTO parked_case_values
+		await sql`INSERT INTO parked_case_values
 		(app_id, case_id, case_type, property, original_value, reason)
 		VALUES (${appId}, ${answered.chosen}, 'patient', 'old_value', '"held"'::jsonb, 'fixture hold')`.execute(
-		h.db(),
-	);
-	expect(
-		await reopen(answered.chosen, undefined, { includeHeld: true }),
-	).toMatchObject({ kind: "row" });
-	expect(
-		await reopen(answered.chosen, answered.opening, { includeHeld: true }),
-	).toEqual({ kind: "missing" });
-});
+			h.db(),
+		);
+		expect(
+			await reopen(answered.chosen, undefined, { includeHeld: true }),
+		).toMatchObject({ kind: "row" });
+		expect(
+			await reopen(answered.chosen, answered.opening, { includeHeld: true }),
+		).toEqual({ kind: "missing" });
+	},
+);

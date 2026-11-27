@@ -76,8 +76,8 @@ describe("Search result Detail text", () => {
 				},
 				column,
 				branch,
-			)?.inputName,
-		).toBe("renamed");
+			),
+		).toMatchObject({ inputName: "renamed" });
 	});
 	it("withholds ordinary list, inline and both-platform cases", () => {
 		expect(

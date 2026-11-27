@@ -413,6 +413,11 @@ def standalone_search_detail_with_wrong_prompt(authoring, app_id):
     _optional_search_detail(authoring, app_id, "not_offered")
 
 
+def standalone_search_detail_with_date_prompt(authoring, app_id):
+    """The guarded detail addresses an offered date prompt rather than plain text."""
+    _optional_search_detail(authoring, app_id, "dob")
+
+
 # Expressions --------------------------------------------------------------------------------------------------------
 
 

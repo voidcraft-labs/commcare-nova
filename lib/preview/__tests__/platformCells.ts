@@ -563,6 +563,8 @@ export const PLATFORM_CELLS: Readonly<
 		stated("details-tile"),
 	"menus-and-case-lists/standalone-search-result-detail-text@android":
 		structural("search-result-detail-text"),
+	"menus-and-case-lists/standalone-search-result-detail-fixed-text@android":
+		structural("search-result-detail-text"),
 	"menus-and-case-lists/inline-search-result-own-text-property@android":
 		structural("forms-read-search"),
 	"menus-and-case-lists/invisible-or-address-column-in-a-custom-tile@android":

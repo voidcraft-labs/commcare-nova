@@ -52,7 +52,27 @@ export function readResultDetailText(
 	});
 	if (!hqSeesSources) return;
 	const outer = call(parsed.node, "if", 3);
-	const concat = ungroup(outer?.[1]);
+	const localText = literalText(ungroup(outer?.[2]));
+	if (localText === undefined) return;
+	const text = literalText(ungroup(outer?.[1]));
+	const recovered =
+		text === undefined
+			? readPrompt(outer?.[1], localText)
+			: { text, localText };
+	if (!recovered) return;
+	const printed = readFormSyntax(
+		serializeWire(resultDetailTextWire(recovered), {
+			target: "hq-json",
+			interpolation: "none",
+		}).text,
+	);
+	return printed.ok && printed.node && sameSyntax(parsed.node, printed.node)
+		? recovered
+		: undefined;
+}
+
+function readPrompt(node: FormSyntax | undefined, localText: string) {
+	const concat = ungroup(node);
 	if (concat?.kind !== "call" || concat.name !== "concat") return;
 	// The writer splits literals when HQ's lexical instance scanner would
 	// mistake one for XPath. The one optional read still separates the
@@ -67,22 +87,7 @@ export function readResultDetailText(
 		test?.kind === "binary" ? literalText(ungroup(test.right)) : undefined;
 	const prefix = literalArgumentsText(concat.args.slice(0, answerAt));
 	const suffix = literalArgumentsText(concat.args.slice(answerAt + 1));
-	const localText = literalText(ungroup(outer?.[2]));
-	if (
-		inputName === undefined ||
-		prefix === undefined ||
-		suffix === undefined ||
-		localText === undefined
-	)
+	if (inputName === undefined || prefix === undefined || suffix === undefined)
 		return;
-	const recovered = { inputName, prefix, suffix, localText };
-	const printed = readFormSyntax(
-		serializeWire(resultDetailTextWire(recovered), {
-			target: "hq-json",
-			interpolation: "none",
-		}).text,
-	);
-	return printed.ok && printed.node && sameSyntax(parsed.node, printed.node)
-		? recovered
-		: undefined;
+	return { inputName, prefix, suffix, localText };
 }
