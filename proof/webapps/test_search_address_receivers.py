@@ -69,32 +69,29 @@ def _rebuild_reviewed_receivers(project):
     from proof.hq.conftest import nova_shaped_upload
     from proof.hq.seams import also_granted, api_rate_limits
     from proof.matrix.author import Authoring, READER
-    from proof.matrix.retain import app_reads, run_bundle
+    from proof.matrix.registry import BASES
+    from proof.matrix.retain import app_reads, project_data_reads, reading_input, run_bundle
 
     unit, app_id = project.unit, project.app_id
     document = project.document
+    base = next(base for base in BASES if base.id == document.id)
     author = Authoring(unit, {document.id: document}, document.id, operation=unit.operation)
     with unit.committing(), also_granted(privileges.API_ACCESS), api_rate_limits(unit):
         with author.step("search-receiver:api-user"):
             credential = operations.seed_api_user(unit, READER)
 
-        def read(label, stored, **options):
-            answers = app_reads(author, app_id, credential)
-            (answer,) = run_bundle([{
-                "id": label,
-                "mode": "read-back",
-                "input": {
-                    "appId": stored["doc"]["appId"], "identity": "match", "claims": "full",
-                    "document": stored, "application": answers["application"].retained(),
-                    "source": answers["source"].retained(), "currentVersion": answers["currentVersion"].retained(),
-                },
-                **options,
-            }])
-            assert answer["kind"] == "read", answer
-            return answer
-
         original = document.document
-        review = read("unmatched-search-topic-a", original, expected=original["doc"], reviewChanges=True)["review"]
+        answers = app_reads(author, app_id, credential)
+        project_data, media = project_data_reads(author, app_id, credential)
+        (incoming,) = run_bundle([{
+            "id": "unmatched-search-topic-a",
+            "mode": "first-read",
+            "input": reading_input(answers, project_data, media, base, claims="full"),
+            "expected": original["doc"],
+            "reviewChanges": True,
+        }])
+        assert incoming["kind"] == "read", incoming
+        review = incoming["review"]
         assert review["kind"] == "changes", review
         application = review["application"]
         fields = application["modules"][0]["search_config"]["properties"]
@@ -105,7 +102,18 @@ def _rebuild_reviewed_receivers(project):
         assert result.status == 200, result.response
 
         target = {**original, "doc": review["target"]}
-        reread = read("unmatched-search-topic-b", target, expected=target["doc"])
+        answers = app_reads(author, app_id, credential)
+        (reread,) = run_bundle([{
+            "id": "unmatched-search-topic-b",
+            "mode": "read-back",
+            "input": {
+                "appId": target["doc"]["appId"], "identity": "match", "claims": "full",
+                "document": target, "application": answers["application"].retained(),
+                "source": answers["source"].retained(), "currentVersion": answers["currentVersion"].retained(),
+            },
+            "expected": target["doc"],
+        }])
+        assert reread["kind"] == "read", reread
         assert reread["differences"] == [], reread["differences"]
         return aliases
 
