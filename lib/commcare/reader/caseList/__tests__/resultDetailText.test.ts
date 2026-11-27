@@ -206,10 +206,8 @@ describe("standalone Search result-detail text", () => {
 					suffix: "]",
 				});
 			} else {
-				expect(closedCodes(outcome)).toContain(
-					"menus-and-case-lists/standalone-search-result-detail-without-its-offered-prompt",
-				);
-				expect(calculated.searchResultDetail).toBeUndefined();
+				expect(calculated.searchResultDetail).toEqual({ text: "entered=[]" });
+				expect(closedCodes(outcome)).toEqual([]);
 			}
 		},
 	);

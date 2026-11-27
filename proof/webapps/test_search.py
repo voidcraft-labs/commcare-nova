@@ -1318,3 +1318,51 @@ def test_a_saved_search_group_and_prompt_can_share_one_generated_locale(
     assert not run.page_errors and not run.dialogs
     assert labels == [prop_label, "Case details"]
     assert prompts == ([] if hidden_member else ["Name"]) + ["Record name", prop_label]
+
+
+def test_standalone_search_detail_with_a_missing_prompt_keeps_fixed_text(
+    hq, formplayer_runner, editor_driver, webapps_documents,
+):
+    from proof.hq import operations
+    from proof.matrix import ops, registry
+    from proof.matrix.authoring import Authoring
+    from proof.matrix.variants.expressions_and_data import _calculated_column
+    from proof.observe.search_address import enable_address_search
+
+    document = webapps_documents["hq-search"]
+    data = casedata.document_case_database(document)
+    client = next(case for case in data.cases if case.case_type == "client")
+    client = dataclasses.replace(client, name="Fixed detail witness",
+                                 properties=(("village", "north"), ("last_visit", "2025-01-01")))
+    data = dataclasses.replace(data, cases=(client,))
+    for label in ("original", "fixed"):
+        with webapps_hq.authored_project(document, "A", configure=enable_address_search) as project:
+            authoring = Authoring(project.unit, {}, document.id, operation=project.unit.operation)
+            if label == "original":
+                registry.named_change("standalone_search_detail_with_wrong_prompt")(authoring, project.app_id)
+            else:
+                app = operations.held_app(project.unit, project.app_id)
+                app.cloudcare_enabled = True
+                app.save()
+                ops.set_json(
+                    authoring, project.app_id, "/modules/0/case_details/long/columns/-",
+                    _calculated_column(
+                        "Submitted village",
+                        "if(count(current()/../../results) > 0, 'Entered []', 'Unsearched case')",
+                    ),
+                )
+            with project.released(
+                formplayer_runner, database=data, driver=editor_driver,
+                saves=((pages.CASE_LIST, project.module_id(0)),), label=label,
+            ) as release:
+                run = Session(release, editor_driver).run([
+                    *steps.open_app("Client search"), *steps.choose("Clients"), *steps.choose("Followup Form"),
+                    *steps.type_prompt(0, "Fixed detail witness"), *steps.run_search(),
+                    *steps.click(f"#menu-region [id='row-{client.case_id}']"),
+                    {"until": "webapps/detail", "arg": {"selections": ["0", None]}},
+                    steps.SCREEN,
+                ])
+                assert not run.page_errors, (label, run.page_errors)
+                assert {"header": "Submitted village", "value": "Entered []"} in run.screens[-1]["detail"]["rows"], (
+                    label, run.screens,
+                )

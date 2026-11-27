@@ -44083,19 +44083,32 @@
 		]
 	},
 	{
-		"id": "hq-search/standalone-search-detail-with-wrong-prompt",
+		"id": "hq-search/standalone-search-detail-with-date-prompt",
 		"base": "hq-search",
 		"entry": "menus-and-case-lists/standalone-search-result-detail-without-its-offered-prompt",
 		"standing": "not-yet",
-		"place": {
-			"kind": "case-detail",
-			"menu": 0,
-			"name": "Clients"
-		},
+		"place": { "kind": "case-detail", "menu": 0, "name": "Clients" },
+		"change": {
+			"op": "named",
+			"name": "standalone_search_detail_with_date_prompt"
+		}
+	},
+	{
+		"id": "hq-search/standalone-search-detail-with-wrong-prompt",
+		"base": "hq-search",
+		"entry": "menus-and-case-lists/standalone-search-result-detail-fixed-text",
+		"declaration": { "runsOnlyOn": "web-apps", "splitDatetime": false },
 		"change": {
 			"op": "named",
 			"name": "standalone_search_detail_with_wrong_prompt"
-		}
+		},
+		"holds": [
+			{
+				"key": ["module", { "$menu": 0 }],
+				"pointer": "/caseListConfig/columns/2/searchResultDetail/text",
+				"value": "Entered []"
+			}
+		]
 	},
 	{
 		"id": "hq-search/search-input-in-the-results-detail",

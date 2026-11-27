@@ -73,6 +73,10 @@ export function CalculatedColumnCard({
 	const appSettings = useAppSettings();
 	const module = useModule(ctx.moduleUuid);
 	const searchResult = value.searchResultDetail;
+	const searchPrompt =
+		searchResult && "inputUuid" in searchResult ? searchResult : undefined;
+	const resultText =
+		searchResult && "text" in searchResult ? searchResult.text : undefined;
 	const detailColumn =
 		value.visibleInList === false
 			? { ...value, notOnList: true as const }
@@ -82,12 +86,17 @@ export function CalculatedColumnCard({
 			module &&
 			resolveSearchResultDetailText({ appSettings }, module, detailColumn, {
 				inputUuid: prompt.uuid,
-				prefix: searchResult?.prefix ?? "",
-				suffix: searchResult?.suffix ?? "",
+				prefix: searchPrompt?.prefix ?? "",
+				suffix: searchPrompt?.suffix ?? "",
 			}),
 	);
+	const canSetResultText =
+		module &&
+		resolveSearchResultDetailText({ appSettings }, module, detailColumn, {
+			text: resultText ?? "",
+		}) !== undefined;
 	const selectedPrompt = offered.find(
-		(prompt) => prompt.uuid === searchResult?.inputUuid,
+		(prompt) => prompt.uuid === searchPrompt?.inputUuid,
 	);
 	const localText =
 		value.expression.kind === "term" &&
@@ -196,15 +205,27 @@ export function CalculatedColumnCard({
 					</Button>
 				</div>
 			)}
-			{(offered.length > 0 || searchResult !== undefined) && (
+			{(offered.length > 0 ||
+				canSetResultText ||
+				searchResult !== undefined) && (
 				<div className="space-y-3">
 					<div className={INSPECTOR_LABEL_CLS}>Submitted Search answer</div>
 					<Select
-						value={searchResult?.inputUuid ?? "none"}
+						value={
+							searchPrompt?.inputUuid ??
+							(resultText === undefined ? "none" : "text")
+						}
 						onValueChange={(inputUuid) => {
 							if (inputUuid === "none") {
 								const { searchResultDetail: _branch, ...ordinary } = value;
 								onChange(ordinary);
+								return;
+							}
+							if (inputUuid === "text") {
+								onChange({
+									...detailColumn,
+									searchResultDetail: { text: resultText ?? "" },
+								});
 								return;
 							}
 							const prompt = offered.find((item) => item.uuid === inputUuid);
@@ -213,17 +234,23 @@ export function CalculatedColumnCard({
 									...detailColumn,
 									searchResultDetail: {
 										inputUuid: prompt.uuid,
-										prefix: searchResult?.prefix ?? "",
-										suffix: searchResult?.suffix ?? "",
+										prefix: searchPrompt?.prefix ?? "",
+										suffix: searchPrompt?.suffix ?? "",
 									},
 								});
 						}}
 					>
 						<SelectTrigger aria-label="Submitted Search answer">
-							<SelectValue>{selectedPrompt?.label ?? "None"}</SelectValue>
+							<SelectValue>
+								{selectedPrompt?.label ??
+									(resultText === undefined ? "None" : "Fixed text")}
+							</SelectValue>
 						</SelectTrigger>
 						<SelectContent>
 							<SelectItem value="none">None</SelectItem>
+							{canSetResultText && (
+								<SelectItem value="text">Fixed text</SelectItem>
+							)}
 							{offered.map((prompt) => (
 								<SelectItem key={prompt.uuid} value={prompt.uuid}>
 									{prompt.label}
@@ -233,26 +260,39 @@ export function CalculatedColumnCard({
 					</Select>
 					{searchResult && (
 						<div className="space-y-2">
-							<BlurCommitTextInput
-								ariaLabel="Text before the answer"
-								value={searchResult.prefix}
-								onCommit={(prefix) =>
-									onChange({
-										...value,
-										searchResultDetail: { ...searchResult, prefix },
-									})
-								}
-							/>
-							<BlurCommitTextInput
-								ariaLabel="Text after the answer"
-								value={searchResult.suffix}
-								onCommit={(suffix) =>
-									onChange({
-										...value,
-										searchResultDetail: { ...searchResult, suffix },
-									})
-								}
-							/>
+							{resultText !== undefined && (
+								<BlurCommitTextInput
+									ariaLabel="Text on Search results"
+									value={resultText}
+									onCommit={(text) =>
+										onChange({ ...value, searchResultDetail: { text } })
+									}
+								/>
+							)}
+							{searchPrompt && (
+								<>
+									<BlurCommitTextInput
+										ariaLabel="Text before the answer"
+										value={searchPrompt.prefix}
+										onCommit={(prefix) =>
+											onChange({
+												...value,
+												searchResultDetail: { ...searchPrompt, prefix },
+											})
+										}
+									/>
+									<BlurCommitTextInput
+										ariaLabel="Text after the answer"
+										value={searchPrompt.suffix}
+										onCommit={(suffix) =>
+											onChange({
+												...value,
+												searchResultDetail: { ...searchPrompt, suffix },
+											})
+										}
+									/>
+								</>
+							)}
 							<BlurCommitTextInput
 								ariaLabel="Text outside Search results"
 								value={localText ?? ""}

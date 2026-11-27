@@ -467,7 +467,14 @@ it("opens a form on the same search response that supplied Results", async () =>
 	});
 });
 
-it("uses the originating offered Search page when restoring a standalone case Detail", async () => {
+const detailVariants = ["submitted answer", "fixed text"] as const;
+it.each(detailVariants)(
+	"restores standalone Details with %s",
+	testStandaloneDetails,
+);
+
+async function testStandaloneDetails(branch: (typeof detailVariants)[number]) {
+	const fixed = branch === "fixed text";
 	const actor = ACTOR;
 	const appId = "search-detail-restored-app";
 	const sessionId = "search-detail-restored-session";
@@ -489,7 +496,9 @@ it("uses the originating offered Search page when restoring a standalone case De
 				visibleInList: false,
 			},
 		),
-		searchResultDetail: { inputUuid, prefix: "entered=[", suffix: "]" },
+		searchResultDetail: fixed
+			? { text: "entered=[]" }
+			: { inputUuid, prefix: "entered=[", suffix: "]" },
 	};
 	const ordinaryList = caseListConfig([{ field: "case_name", header: "Name" }]);
 	const fixture = buildDoc({
@@ -637,14 +646,18 @@ it("uses the originating offered Search page when restoring a standalone case De
 		);
 	expect(await reopen(answered.chosen, answered.opening)).toMatchObject({
 		kind: "row",
-		row: { calculated: { [columnUuid]: "entered=[Asha]" } },
+		row: {
+			calculated: { [columnUuid]: fixed ? "entered=[]" : "entered=[Asha]" },
+		},
 	});
 
 	expect(
 		await reopen(answered.chosen, answered.opening, { wireLanguage: "es" }),
 	).toMatchObject({
 		kind: "row",
-		row: { calculated: { [columnUuid]: "entered=[Asha]" } },
+		row: {
+			calculated: { [columnUuid]: fixed ? "entered=[]" : "entered=[Asha]" },
+		},
 	});
 	expect(await reopen(unanswered.chosen, unanswered.opening)).toMatchObject({
 		kind: "row",
@@ -686,10 +699,9 @@ it("uses the originating offered Search page when restoring a standalone case De
 			...request,
 			previewRun: answered.opening.previewRun,
 			searchSubmission: crypto.randomUUID(),
-			inputValues: { name: { value: "crafted non-text" } } as unknown as Record<
-				string,
-				string
-			>,
+			inputValues: {
+				name: { value: "crafted non-text" },
+			} as unknown as Record<string, string>,
 		}),
 	).toMatchObject({ kind: "invalid-search", repair: "inputs" });
 	expect(await countReceipts()).toBe(beforeEmpty);
@@ -715,4 +727,4 @@ it("uses the originating offered Search page when restoring a standalone case De
 	expect(
 		await reopen(answered.chosen, answered.opening, { includeHeld: true }),
 	).toEqual({ kind: "missing" });
-});
+}

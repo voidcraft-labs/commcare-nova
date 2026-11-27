@@ -52,6 +52,7 @@ describe("Search result Detail text", () => {
 	it("binds the stable prompt ID against its current wire name", () => {
 		expect(resolveSearchResultDetailText(web, module, column, branch)).toEqual({
 			inputName: "marker",
+			inputUuid: prompt,
 			prefix: "entered=[",
 			suffix: "]",
 			localText: "local row",
@@ -76,8 +77,8 @@ describe("Search result Detail text", () => {
 				},
 				column,
 				branch,
-			)?.inputName,
-		).toBe("renamed");
+			),
+		).toMatchObject({ inputName: "renamed" });
 	});
 	it("withholds ordinary list, inline and both-platform cases", () => {
 		expect(

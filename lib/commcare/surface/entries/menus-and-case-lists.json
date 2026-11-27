@@ -6269,6 +6269,29 @@
 		}
 	},
 	{
+		"id": "menus-and-case-lists/standalone-search-result-detail-fixed-text",
+		"area": "menus-and-case-lists",
+		"section": "Case list and case detail",
+		"subsection": "Column formats",
+		"surfaceKeys": ["schema:DetailColumn.field"],
+		"gates": [],
+		"slotChanges": [],
+		"item": "Plain Details text differs between standalone Search results and ordinary cases",
+		"valueClass": "standalone-search-result-detail-fixed-text",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: both branches hold fixed text. A guard on a prompt absent from the Search contributes empty text.",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / UNAVAILABLE",
+			"webApps": { "reading": "runs" },
+			"android": { "reading": "unavailable" }
+		},
+		"emission": {
+			"cell": "Web Apps Details branch with a result roster guard",
+			"markers": []
+		}
+	},
+	{
 		"id": "menus-and-case-lists/standalone-search-result-detail-without-its-offered-prompt",
 		"area": "menus-and-case-lists",
 		"section": "Case list and case detail",
@@ -6276,7 +6299,7 @@
 		"surfaceKeys": ["schema:DetailColumn.field"],
 		"subject": "case-list-columns",
 		"gates": [],
-		"item": "Standalone Search Details reads a prompt the same Search does not offer",
+		"item": "Standalone Search Details reads a prompt whose submitted value is not plain text",
 		"valueClass": "standalone-search-result-detail-without-its-offered-prompt",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: the calculation needs the identity of an offered text prompt and a plain Details field in a standalone Search that opens its prompts first.",

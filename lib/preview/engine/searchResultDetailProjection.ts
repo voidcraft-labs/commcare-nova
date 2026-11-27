@@ -11,10 +11,16 @@ export function submittedSearchResultDetailAnswers(
 	defaultSearch: boolean,
 ): ReadonlyMap<Uuid, string | null> {
 	return new Map(
-		columns.map(({ inputUuid, inputName }) => [
-			inputUuid,
-			defaultSearch ? null : values.get(inputName) || null,
-		]),
+		columns.flatMap((column) =>
+			"inputUuid" in column
+				? [
+						[
+							column.inputUuid,
+							defaultSearch ? null : values.get(column.inputName) || null,
+						],
+					]
+				: [],
+		),
 	);
 }
 
@@ -25,13 +31,17 @@ export function searchResultDetailProjection(
 ): Record<string, string> | undefined {
 	if (
 		columns.length === 0 ||
-		columns.some(({ inputUuid }) => !answers.has(inputUuid))
+		columns.some(
+			(column) => "inputUuid" in column && !answers.has(column.inputUuid),
+		)
 	)
 		return;
 	return Object.fromEntries(
-		columns.map(({ columnUuid, inputUuid, prefix, suffix }) => [
-			columnUuid,
-			prefix + (answers.get(inputUuid) ?? "") + suffix,
+		columns.map((column) => [
+			column.columnUuid,
+			"text" in column
+				? column.text
+				: column.prefix + (answers.get(column.inputUuid) ?? "") + column.suffix,
 		]),
 	);
 }

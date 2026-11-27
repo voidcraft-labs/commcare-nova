@@ -88,6 +88,7 @@ from proof.checks.manifest_value_classes import (
     worker_name_order_in_shared_owner_exclusion,
     worker_name_order_in_text_default,
     guarded_owner_after_fresh_create,
+    standalone_result_detail_fixed_text,
     standalone_result_detail_text,
     three_parent_links_text_prompt_key,
     two_parent_links_text_prompt_key,
@@ -106,6 +107,7 @@ DIRECT_PARENT_PROMPT = "case-search/prompt-key-matching-a-direct-parent-property
 LATER_OWNER_ON_FRESH_CREATE = "questions/savetocase-guarded-owner-after-fresh-create"
 UNICODE_PRIMARY_ROOT = "questions/answer-root-with-a-non-ascii-name"
 SEARCH_DETAIL_PROJECTIONS = {
+    "menus-and-case-lists/standalone-search-result-detail-fixed-text": standalone_result_detail_fixed_text,
     "menus-and-case-lists/standalone-search-result-detail-text": standalone_result_detail_text,
     "menus-and-case-lists/inline-search-result-own-text-property": inline_search_result_own_text_property,
 }
