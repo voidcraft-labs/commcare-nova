@@ -161,6 +161,10 @@ export const ADVANCED_CLAIMS = defineClaims("caseManagement.advancedActions", {
 		`${M}/auto-select-case-on-an-advanced-module`,
 		"schema:AdvancedModule.auto_select_case",
 	),
+	advancedInlineSearchNoQuery: refuse(
+		`${M}/advanced-inline-search-without-entry-query`,
+		"schema:AdvancedModule",
+	),
 	kindBlocked: refuse(
 		`${M}/advanced-module-nova-would-write-as-a-basic-one`,
 		"schema:AdvancedModule",
@@ -4215,6 +4219,46 @@ export function claimParentIndicesAgainstSelections(
 	}
 }
 
+/** A root Advanced entry never adds its configured inline Query. A sync
+ * after choosing a case is separate, and a child menu can get the Query
+ * from its parent's entry. */
+export function advancedKindBlockClaim(module: DraftModule) {
+	const search = module.json.peek("search_config");
+	const parent = module.json.peek("parent_select");
+	if (
+		module.docType === "AdvancedModule" &&
+		!module.json.peek("root_module_id") &&
+		(!isJsonObject(parent) || parent.active !== true) &&
+		isJsonObject(search) &&
+		search.inline_search === true &&
+		search.auto_launch === true &&
+		search.default_search !== true &&
+		Array.isArray(search.properties) &&
+		search.properties.some(
+			(prompt) =>
+				isJsonObject(prompt) &&
+				prompt.is_group !== true &&
+				prompt.hidden !== true &&
+				prompt.exclude !== true,
+		) &&
+		module.forms.some((form) => {
+			const actions = form.json.peek("actions");
+			return (
+				isJsonObject(actions) &&
+				Array.isArray(actions.load_update_cases) &&
+				actions.load_update_cases.some(
+					(load) =>
+						isJsonObject(load) &&
+						!load.auto_select &&
+						!load.load_case_from_fixture,
+				)
+			);
+		})
+	)
+		return ADVANCED_CLAIMS.advancedInlineSearchNoQuery;
+	return ADVANCED_CLAIMS.kindBlocked;
+}
+
 /** A menu read with a held kind that Nova would write basic: one finding at the menu. */
 export function settleAdvancedMenu(
 	ctx: ReadContext,
@@ -4227,7 +4271,7 @@ export function settleAdvancedMenu(
 	)
 		return;
 	if (advancedKindBlockers(doc, module.uuid).length > 0)
-		ctx.accounting.finding(ADVANCED_CLAIMS.kindBlocked, module.place);
+		ctx.accounting.finding(advancedKindBlockClaim(module), module.place);
 }
 
 function readExplicitAutoSource(

@@ -43,8 +43,8 @@
 	{
 		"id": "hq-advanced/advanced-menu-whose-forms-read-the-search",
 		"base": "hq-advanced",
-		"entry": "menus-and-case-lists/advanced-module-nova-would-write-as-a-basic-one",
-		"standing": "not-yet",
+		"entry": "menus-and-case-lists/advanced-inline-search-without-entry-query",
+		"standing": "fix-in-hq",
 		"place": {
 			"kind": "menu",
 			"menu": 1,

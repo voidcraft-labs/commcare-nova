@@ -616,6 +616,8 @@ export const FIX_IN_HQ_ENTRY_SENTENCES: Readonly<Record<string, string>> = {
 		"A form here reads a lookup table tagged __proto__. CommCare HQ's form builder drops that table from the form when it saves it, and CommCare HQ then won't build the form. Reading the table from a case list, a column or a display condition instead keeps it working.",
 	"expressions-and-data/non-ascii-lookup-name-a-form-reads":
 		"A form here reads a lookup table whose export tag holds a letter outside unaccented a to z. CommCare HQ's form builder loses that table from the form when it saves, and CommCare HQ then won't build the form. Renaming the tag in CommCare HQ to unaccented letters, digits, _, . and - fixes it.",
+	"menus-and-case-lists/advanced-inline-search-without-entry-query":
+		"Opening this Advanced form skips the Search prompts and opens an ordinary case list. In CommCare HQ, make Search a separate step before opening the form.",
 };
 
 const NOT_YET_ENTRY_SENTENCES: Readonly<Record<string, string>> = {

@@ -201,3 +201,26 @@ def test_the_retained_visits_projection_needs_its_actual_inline_instance(
                 expected_filters += ("ancestor-exists(parent, @case_type='household')",)
             assert request.values("_xpath_query") == expected_filters, screens
             assert not served.hq.failures(), served.hq.failures()
+
+
+def test_retained_advanced_inline_search_uses_a_manual_entry_instead_of_a_query(hq):
+    from lxml import etree
+
+    from proof.matrix import ops
+    from proof.matrix.registry import base
+
+    variant = next(row for row in load_variants() if row.id == "hq-advanced/advanced-menu-whose-forms-read-the-search")
+    with hq_check(Configuration("advanced-inline-search", flags={"CASE_SEARCH_ADVANCED"})) as (state, _):
+        authoring = Authoring(state, {}, variant.base, operation=state.operation)
+        app_id = base(variant.base).build(authoring)
+        ops.set_json(authoring, app_id, variant.change["pointer"], variant.change["value"])
+        app = operations.held_app(state, app_id)
+        menu = app.modules[1]
+        assert not menu.root_module_id
+        assert menu.search_config.inline_search and menu.search_config.auto_launch
+        assert menu.forms[0].requires_case()
+        suite = etree.fromstring(app.create_suite())
+        entry, = suite.xpath("./entry[form=$xmlns]", xmlns=menu.forms[0].xmlns)
+        assert entry.xpath("./session/datum[@nodeset]")
+        assert not entry.xpath("./session/query")
+        assert entry.xpath("./post")

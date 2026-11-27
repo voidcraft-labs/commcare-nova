@@ -3545,6 +3545,31 @@ the tag against its lookup catalog; the app's JSON alone names it and says nothi
 named table and field are left undecided here (None)."""
 
 
+
+def root_advanced_inline_search_without_query(use, manifest):
+    """The root Advanced entry uses manual load datums but does not emit its inline Query."""
+    at = _json(use)
+    module = at.nearest("AdvancedModule") if at is not None else None
+    if not isinstance(module, dict) or module.get("root_module_id"):
+        return False
+    parent = module.get("parent_select")
+    if isinstance(parent, dict) and parent.get("active") is True:
+        return False
+    settings = module.get("search_config")
+    prompts = settings.get("properties") if isinstance(settings, dict) else None
+    if (not isinstance(prompts, list) or settings.get("inline_search") is not True
+            or settings.get("auto_launch") is not True or settings.get("default_search") is True):
+        return False
+    if not any(isinstance(prompt, dict) and not any(prompt.get(key) is True for key in ("is_group", "hidden", "exclude"))
+               for prompt in prompts):
+        return False
+    return any(
+        isinstance(load, dict) and not (load.get("auto_select") or load.get("load_case_from_fixture"))
+        for form in module.get("forms", ()) if isinstance(form, dict)
+        for load in _actions(form).get("load_update_cases", ())
+    )
+
+
 def _opening_ids(form, loads, opens):
     """The session ids an advanced form's entry writes before parent alignment, in HQ's order
     (``EntriesHelper.configure_entry_advanced_form``): each load's ``case_id_<tag>``, each computed datum's id, and
@@ -15344,6 +15369,7 @@ VALUE_CLASSES = {
     "menus-and-case-lists/form-filter-reading-the-case-on-a-screen-that-chooses-no-case-first": (
         form_filter_reads_case_off_a_case_first_screen
     ),
+    "menus-and-case-lists/advanced-inline-search-without-entry-query": root_advanced_inline_search_without_query,
     "menus-and-case-lists/any-module-under-a-training-menu": names_a_training_module,
     "menus-and-case-lists/any-other-module-under-a-shadow-menu": names_a_shadow_module,
     "menus-and-case-lists/child-menu-deeper-than-one-tier-grandchild": grandchild,

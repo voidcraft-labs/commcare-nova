@@ -184,6 +184,26 @@
 		"gates": []
 	},
 	{
+		"id": "menus-and-case-lists/advanced-inline-search-without-entry-query",
+		"area": "menus-and-case-lists",
+		"section": "Module types",
+		"item": "Opening a root Advanced form with prompted inline Search",
+		"surfaceKeys": ["schema:AdvancedModule"],
+		"valueClass": "root-advanced-inline-search-does-not-start",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: CommCare HQ saves the prompted inline Search but its Advanced form entry cannot open it.",
+		"subject": "advanced-menus",
+		"reasons": [
+			{
+				"kind": "broken-at-runtime",
+				"named": "HQ saves the Search settings, then builds the opening entry as ordinary Advanced case selections. The entry never declares the Query that would collect the prompt answers. A post-entry case sync does not supply them."
+			}
+		],
+		"platforms": { "kind": "none", "cell": "—" },
+		"emission": { "cell": "HQ emits Advanced case selections without the prompted Query.", "markers": [] },
+		"gates": []
+	},
+	{
 		"id": "menus-and-case-lists/shadowmodule-shadow-module-version-2",
 		"area": "menus-and-case-lists",
 		"section": "Module types",

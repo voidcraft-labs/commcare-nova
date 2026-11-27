@@ -56,7 +56,7 @@ import {
 	planGeneratedNodes,
 } from "../../xform/generatedNodes";
 import type { Claim } from "../claims";
-import type { DraftApp, DraftForm, ReadContext } from "../context";
+import type { DraftApp, DraftForm, DraftModule, ReadContext } from "../context";
 import { readerDefect } from "../defects";
 import { EXPRESSION_CLAIMS } from "../expressions/findings";
 import { isJsonObject, sameJson } from "../jsonCursor";
@@ -72,6 +72,7 @@ import type { DraftField, ReadXForm } from "../xform";
 import {
 	ADVANCED_CLAIMS,
 	advancedCaseReading,
+	advancedKindBlockClaim,
 	claimParentIndicesAgainstSelections,
 	listFormRulesPlace,
 	readAdvancedActions,
@@ -1142,13 +1143,13 @@ export function* compareEntryFactsSteps(
 	}
 	const raise = (
 		place: DraftForm["place"],
-		menu: number,
+		module: DraftModule,
 		key: keyof HqEntryFacts | keyof HqMenuFacts,
 	) => {
 		if (key === "moduleKind") {
 			if (!ctx.accounting.hasFindingAt(place))
-				ctx.accounting.finding(ADVANCED_CLAIMS.kindBlocked, place);
-		} else differencesOf(ctx).push({ place, menu, key });
+				ctx.accounting.finding(advancedKindBlockClaim(module), place);
+		} else differencesOf(ctx).push({ place, menu: module.index, key });
 	};
 	for (const module of app.modules) {
 		const a = source.menus.get(module.uniqueId);
@@ -1160,7 +1161,7 @@ export function* compareEntryFactsSteps(
 			(ctx.input.source.modules[module.index]?.forms.length ?? 0);
 		if (a !== undefined && b !== undefined && !formRefusedWhole) {
 			const key = menuFactsDifference(a, b);
-			if (key !== undefined) raise(module.place, module.index, key);
+			if (key !== undefined) raise(module.place, module, key);
 		}
 		for (const form of module.forms) {
 			const readId =
@@ -1186,10 +1187,8 @@ export function* compareEntryFactsSteps(
 						menu: module.index,
 						key,
 					});
-			} else if (key === "moduleKind") {
-				if (!ctx.accounting.hasFindingAt(module.place))
-					ctx.accounting.finding(ADVANCED_CLAIMS.kindBlocked, module.place);
-			} else raise(form.place, module.index, key);
+			} else if (key === "moduleKind") raise(module.place, module, key);
+			else raise(form.place, module, key);
 			ctx.facts.entryFactsRefused.push(form.uuid);
 		}
 	}
