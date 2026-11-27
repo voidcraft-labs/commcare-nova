@@ -1,6 +1,6 @@
 """The Android worker compares the retained Basic datetime write as a day."""
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 import pytest
 from lxml import etree
@@ -68,29 +68,36 @@ def test_installed_android_compares_the_direct_external_id_day_before_saving(hq,
             for label, moment, want_leaf, want_external_id in (
                 ("same-day", "2025-04-06T06:24:00.000Z", None, DAY),
                 ("next-day", "2025-04-07T06:24:00.000Z", "2025-04-07", "2025-04-07"),
-                ("clear", "", "", ""),
+                ("untouched", None, None, None),
             ):
                 blobs, sent, stored = Blobs(), [], []
+                before = datetime.now(timezone.utc).replace(second=0, microsecond=0)
                 result = observe.app(
                     served, blobs, label=f"edit-external-id-{label}", archive=archive,
-                    commands=["m0-f3"], questions={QUESTION: [moment]}, delivered=True, sent=sent, stored=stored,
-                    installation_languages=("en",),
+                    commands=["m0-f3"], questions={QUESTION: [moment]} if moment else {},
+                    delivered=True, sent=sent, stored=stored, installation_languages=("en",),
                 )
+                after = datetime.now(timezone.utc).replace(second=0, microsecond=0)
                 walk = blobs.get_json(result["answer"])["walks"]["m0-f3"]
                 assert len(sent) == 1, walk
                 receipt, = stored
                 assert receipt["form"]["normal"], receipt
-                assert (receipt["storedExternalId"] or "") == want_external_id, receipt
                 for submission in (sent[0], receipt["form"]["xml"].encode()):
                     root = etree.fromstring(submission)
                     update = root.find(f"{{{CASE}}}case/{{{CASE}}}update")
                     external = update.find(f"{{{CASE}}}external_id")
-                    if want_leaf is None:
-                        assert external is None
-                    else:
-                        assert external is not None and (external.text or "") == want_leaf
                     instant = update.findtext(f"{{{CASE}}}seen_at")
-                    if moment:
-                        assert datetime.fromisoformat(instant) == datetime.fromisoformat(moment)
+                    selected = datetime.fromisoformat(instant)
+                    if moment is None:
+                        # The native DateTimeWidget always returns its displayed day and time.
+                        # Its Joda clock uses the host wall clock, outside the lane's XPath clock.
+                        assert before <= selected <= after
+                        assert external is not None and external.text == instant[:10]
+                        assert receipt["storedExternalId"] == instant[:10], receipt
                     else:
-                        assert not instant
+                        assert selected == datetime.fromisoformat(moment)
+                        assert receipt["storedExternalId"] == want_external_id, receipt
+                        if want_leaf is None:
+                            assert external is None
+                        else:
+                            assert external is not None and external.text == want_leaf
