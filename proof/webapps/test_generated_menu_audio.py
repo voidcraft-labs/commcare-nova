@@ -16,15 +16,16 @@ def test_a_menu_audio_override_needs_an_ordinary_carrier(hq, webapps_documents, 
     key = "modules.m0.audio"
     path = "jr://file/commcare/audio/data/animal_name.mp3"
     observed = {}
-    with webapps_hq.authored_project(document, "A") as project:
-        author = Authoring(project.unit, {}, document.id, operation=project.unit.operation)
-        registry.named_change("menu_audio_override_with_only_a_map_entry")(author, project.app_id)
-        for carrier in [None, "en", "fr"]:
+    for carrier in [None, "en", "fr"]:
+        with webapps_hq.authored_project(document, "A") as project:
+            author = Authoring(project.unit, {}, document.id, operation=project.unit.operation)
+            registry.named_change("menu_audio_override_with_only_a_map_entry")(author, project.app_id)
             if carrier is not None:
                 ops.set_json(author, project.app_id, "/langs", ["en", "fr"])
                 ops.set_json(author, project.app_id, "/modules/0/forms/0/media_audio", {carrier: path})
             native = operations.held_app(project.unit, project.app_id)
             locale = parse_app_strings(native.create_app_strings("en"))[key]
+            mapped_kind = native.multimedia_map[path].media_type
             media_suite = etree.fromstring(native.create_media_suite())
             packaged = any(
                 location.endswith("/data/animal_name.mp3")
@@ -33,8 +34,9 @@ def test_a_menu_audio_override_needs_an_ordinary_carrier(hq, webapps_documents, 
             observed[str(carrier)] = {
                 "locale": locale,
                 "packaged": packaged,
-                "mapping": native.multimedia_map[path].media_type,
+                "mapping": mapped_kind,
             }
+            assert mapped_kind == "CommCareAudio"
             assert locale == path
             assert packaged == (carrier is not None), observed
     evidence("ordinary-nav-audio-carrier", observed)
