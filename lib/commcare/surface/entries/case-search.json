@@ -247,6 +247,36 @@
 		"gates": []
 	},
 	{
+		"id": "case-search/default-order-with-an-unmapped-comparison",
+		"area": "case-search",
+		"section": "Case search",
+		"subsection": "Search configuration",
+		"item": "one literal `commcare_sort` term on a custom case property with an unmapped comparison, in a basic menu's built-in Search with no other sort or request control",
+		"surfaceKeys": [
+			"schema:DefaultCaseSearchProperty.property",
+			"schema:DefaultCaseSearchProperty.defaultValue"
+		],
+		"valueClass": "single-default-order-with-unmapped-comparison",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: the built-in Search receiver tries to sort on a missing index field and cannot return results",
+		"subject": "search-default-filters",
+		"reasons": [
+			{
+				"kind": "broken-at-runtime",
+				"named": "The built-in Case Search receiver tries to sort on a missing index field and cannot return results."
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
 		"id": "case-search/a-server-order-naming-a-property-nova-reserves",
 		"area": "case-search",
 		"section": "Case search",

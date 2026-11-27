@@ -4296,6 +4296,29 @@ def _search_and_menus():
             ),
             refused("suite", SEARCH_SUITE, "parser:QueryPromptParser/prompt@key", "prompt[1]/@key"),
         ),
+        "case-search/default-order-with-an-unmapped-comparison": (
+            refused(
+                "app", search(_search_module(default_properties=[_default("commcare_sort", "'++priority:unknown'")])),
+                "schema:DefaultCaseSearchProperty.property", f"{config}/default_properties/0/property",
+            ),
+            *(
+                accepted(
+                    "app", search(_search_module(**setting)),
+                    "schema:DefaultCaseSearchProperty.property", f"{config}/default_properties/0/property",
+                )
+                for setting in (
+                    {"default_properties": [_default("commcare_sort", "'++priority:exact'")]},
+                    {"default_properties": [_default("commcare_sort", "'++priority:phonetic'")]},
+                    {"default_properties": [_default("commcare_sort", "'++priority:unknown'"),
+                                            _default("commcare_sort", "'+priority::ignored'")]},
+                    {"default_properties": [_default("commcare_sort", "'++priority:unknown'")],
+                     "case_search_endpoint_id": 7},
+                    {"default_properties": [_default("commcare_sort", "'++priority:unknown'")],
+                     "custom_sort_properties": [{"doc_type": "CaseSearchCustomSortProperty",
+                                                  "property_name": "priority", "sort_type": "exact"}]},
+                )
+            ),
+        ),
         "case-search/property-names-operators-or-function-names-computed-at-runtime": (
             refused(
                 "app",

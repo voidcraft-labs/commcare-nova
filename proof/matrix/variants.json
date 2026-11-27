@@ -39516,8 +39516,8 @@
 	{
 		"id": "hq-search/default-filter-sorting-by-an-unknown-comparison",
 		"base": "hq-search",
-		"entry": "case-search/default-properties-entry-keyed-commcare-sort-x-commcare-custom",
-		"standing": "not-yet",
+		"entry": "case-search/default-order-with-an-unmapped-comparison",
+		"standing": "fix-in-hq",
 		"place": {
 			"kind": "search",
 			"menu": 1,
@@ -39531,6 +39531,21 @@
 				"doc_type": "DefaultCaseSearchProperty",
 				"defaultValue": "'++priority:unknown'"
 			}
+		}
+	},
+	{
+		"id": "hq-search/default-filter-resets-earlier-sort",
+		"base": "hq-search",
+		"entry": "case-search/default-properties-entry-keyed-commcare-sort-x-commcare-custom",
+		"standing": "not-yet",
+		"place": {
+			"kind": "search",
+			"menu": 1,
+			"name": "Active clients"
+		},
+		"change": {
+			"op": "named",
+			"name": "default_filter_resets_earlier_sort"
 		}
 	},
 	{

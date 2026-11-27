@@ -335,7 +335,7 @@ it.each([
 	],
 	[
 		"'++priority:unknown'",
-		"case-search/default-properties-entry-keyed-commcare-sort-x-commcare-custom",
+		"case-search/default-order-with-an-unmapped-comparison",
 	],
 	[
 		"'--status:exact'",
@@ -359,6 +359,68 @@ it.each([
 		expect(
 			reading.ctx.facts.sameStateRewrites.map((row) => row.register),
 		).not.toContain("search-order-direction-signs-respelled");
+	},
+);
+
+it.each([
+	"later reset",
+	"dedicated order",
+	"external endpoint",
+	"phonetic",
+] as const)(
+	"keeps the existing finding for an unsupported order with %s",
+	async (control) => {
+		const reading = await readLists(patients([], { search: {} }), {
+			edit: (app) => {
+				const config = app.modules[0].search_config;
+				config.default_properties = [
+					{
+						property: "commcare_sort",
+						defaultValue:
+							control === "phonetic"
+								? "'+priority:phonetic'"
+								: "'++priority:unknown'",
+					},
+				];
+				switch (control) {
+					case "later reset":
+						config.default_properties.push({
+							property: "commcare_sort",
+							defaultValue: "'+priority::ignored'",
+						});
+						break;
+					case "dedicated order":
+						config.custom_sort_properties = [
+							{
+								doc_type: "CaseSearchCustomSortProperty",
+								property_name: "priority",
+								sort_type: "exact",
+								direction: "ascending",
+							},
+						];
+						break;
+					case "external endpoint":
+						config.case_search_endpoint_id = 9;
+						config.properties = [
+							{
+								doc_type: "CaseSearchProperty",
+								name: "priority",
+								label: { en: "Priority" },
+							},
+						];
+						break;
+				}
+			},
+		});
+		const findings = closedCodes(reading);
+		expect(findings).toContain(
+			control === "external endpoint"
+				? "unrecognized:schema:DefaultCaseSearchProperty.property"
+				: "case-search/default-properties-entry-keyed-commcare-sort-x-commcare-custom",
+		);
+		expect(findings).not.toContain(
+			"case-search/default-order-with-an-unmapped-comparison",
+		);
 	},
 );
 
