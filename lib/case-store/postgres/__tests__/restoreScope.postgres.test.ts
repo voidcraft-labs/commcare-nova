@@ -205,48 +205,69 @@ describe("the outer scan", () => {
 		await expect(records.count(args)).resolves.toBe(0);
 	});
 
-	it("displays the population count from the worker’s whole restored type", async () => {
-		const list = store();
-		await addCase({ id: "mine-alpha", caseType: "patient", owner: WORKER });
-		await addCase({ id: "mine-beta", caseType: "patient", owner: WORKER });
-		await addCase({ id: "another-worker", caseType: "patient", owner: OTHER });
-		await addCase({ id: "other-type", caseType: "household", owner: WORKER });
-		const args = {
-			reading: CASEDB_READING,
-			appId: APP_ID,
-			caseType: "patient",
-			caseTypeSchemas: schemas,
-			restoreScope: RESTORE,
-			calculated: [
-				{
-					uuid: "restored-count",
-					deviceText: true as const,
-					expression: countOf({
-						kind: "cases",
-						source: "casedb",
-						where: [
-							eq(
-								{ kind: "case-row-type" },
-								{ kind: "case-type", caseType: "patient" },
-							),
-						],
-					}),
-				},
-			],
-			limit: 1,
-		};
-		const first = await list.query(args);
-		const second = await list.query({ ...args, offset: 1 });
-		expect(
-			[...first, ...second].map((row) => [
-				row.case_id,
-				String(row.calculated?.["restored-count"]),
-			]),
-		).toEqual([
-			["mine-alpha", "2"],
-			["mine-beta", "2"],
-		]);
-	});
+	it.each([false, true])(
+		"displays the population count from the worker’s whole restored type (filtered %s)",
+		async (filtered) => {
+			const list = store();
+			await addCase({
+				id: "mine-alpha",
+				caseType: "patient",
+				owner: WORKER,
+				village: "north",
+			});
+			await addCase({ id: "mine-beta", caseType: "patient", owner: WORKER });
+			await addCase({
+				id: "another-worker",
+				caseType: "patient",
+				owner: OTHER,
+				village: "north",
+			});
+			await addCase({
+				id: "other-type",
+				caseType: "household",
+				owner: WORKER,
+				village: "north",
+			});
+			const args = {
+				reading: CASEDB_READING,
+				appId: APP_ID,
+				caseType: "patient",
+				caseTypeSchemas: schemas,
+				restoreScope: RESTORE,
+				calculated: [
+					{
+						uuid: "restored-count",
+						deviceText: true as const,
+						expression: countOf({
+							kind: "cases",
+							source: "casedb",
+							where: [
+								eq(
+									{ kind: "case-row-type" },
+									{ kind: "case-type", caseType: "patient" },
+								),
+								...(filtered
+									? [eq(prop("patient", "village"), literal("north"))]
+									: []),
+							],
+						}),
+					},
+				],
+				limit: 1,
+			};
+			const first = await list.query(args);
+			const second = await list.query({ ...args, offset: 1 });
+			expect(
+				[...first, ...second].map((row) => [
+					row.case_id,
+					String(row.calculated?.["restored-count"]),
+				]),
+			).toEqual([
+				["mine-alpha", filtered ? "1" : "2"],
+				["mine-beta", filtered ? "1" : "2"],
+			]);
+		},
+	);
 
 	it("reads the whole tenant when no restore scope is supplied", async () => {
 		await addCase({ id: "mine", caseType: "patient", owner: WORKER });

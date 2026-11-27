@@ -10,7 +10,10 @@ import {
 	detailColumnRowScope,
 } from "@/lib/domain/expression/detailRowScope";
 import { ordinaryDeviceCaseList } from "@/lib/domain/expression/directHostTextEquality";
-import { countsOwnRestoredType } from "@/lib/domain/expression/ruleSets";
+import {
+	countsOwnRestoredType,
+	restoredColumnCountMatch,
+} from "@/lib/domain/expression/ruleSets";
 import { resolveSearchResultDetailRoute } from "@/lib/domain/searchResultDetail";
 import {
 	inlineResultPropertyColumnSupported,
@@ -179,7 +182,9 @@ export function calculatedColumnTypeCheck(
 			});
 		}
 		if (
-			countsOwnRestoredType(column.expression, mod.caseType) &&
+			(countsOwnRestoredType(column.expression, mod.caseType) ||
+				restoredColumnCountMatch(column.expression, mod.caseType) !==
+					undefined) &&
 			!ordinaryDeviceCaseList(doc, moduleUuid)
 		)
 			errors.push(

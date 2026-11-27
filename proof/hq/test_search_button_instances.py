@@ -261,22 +261,27 @@ def test_first_case_list_row_already_witnesses_its_restored_case_type(hq, core_r
     from proof.observe.build import arrange
 
     case_ns = f"{{{CASE_XMLNS}}}"
-    def restore_of(clients, *other):
+    def restore_of(clients, *other, north=()):
         names = (*clients, *other)
         restored = etree.fromstring(person_cases(SESSION_RESTORE.read_bytes(), names))
         for case in restored.iter(f"{case_ns}case"):
             if case.get("case_id") in clients:
                 case.find(f"{case_ns}create/{case_ns}case_type").text = "client"
+            if case.get("case_id") in north:
+                update = case.find(f"{case_ns}update")
+                if update is None:
+                    update = etree.SubElement(case, f"{case_ns}update")
+                etree.SubElement(update, f"{case_ns}village").text = "north"
         return etree.tostring(restored)
 
-    def visible_rows(name, list_filter, restore, *, count_column=False):
+    def visible_rows(name, list_filter, restore, *, count_column=False, property_filter=""):
         app = _search_app(state.domain, list_filter)
         module = app.modules[0]
         module.search_config = CaseSearch()
         if count_column:
             module.case_details.short.columns.append(DetailColumn(
                 header={"en": "Restored clients"}, format="plain", model="case", useXpathExpression=True,
-                field=COUNT_CASES.removesuffix(" > 1"),
+                field=COUNT_CASES.removesuffix(" > 1")[:-1] + property_filter + ")",
             ))
         app._id = f"list-count-{name}"
         app.version = 1
@@ -312,3 +317,11 @@ def test_first_case_list_row_already_witnesses_its_restored_case_type(hq, core_r
         assert {key: fields[-1] for key, fields in one_with_neighbor.items()} == {"one": "1"}
         two_clients = visible_rows("case-count-two", None, two, count_column=True)
         assert {key: fields[-1] for key, fields in two_clients.items()} == {"one": "2", "two": "2"}
+
+        for north, expected in [(("one", "other"), "1"), (("one", "two", "other"), "2"), (("other",), "0")]:
+            matched = visible_rows(
+                "case-count-with-property-" + expected, None,
+                restore_of(("one", "two"), "other", north=north),
+                count_column=True, property_filter="[village = 'north']",
+            )
+            assert {key: fields[-1] for key, fields in matched.items()} == {"one": expected, "two": expected}

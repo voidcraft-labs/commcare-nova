@@ -83,6 +83,7 @@ import {
 	isDateOrDatetime,
 	isNumeric,
 	isRestoredCaseTypeQuery,
+	isRestoredColumnCaseQuery,
 	isSearchRequiredCaseQuery,
 	isValueStorageAssignable,
 	isWriteAssignable,
@@ -94,6 +95,7 @@ import {
 	readsRestoredCaseTypeQuery,
 	recordPositionVerdict,
 	restoredCasePropertyMatch,
+	restoredColumnCountMatch,
 	sameTypeRestoredThreshold,
 	searchChoiceColumnOrder,
 	searchSessionTextOrder,
@@ -817,21 +819,31 @@ export function checkExpression(
 			);
 	}
 
+	const isDeclaredRestoredText = (
+		caseType: string | undefined,
+		property: string,
+	) =>
+		!Object.hasOwn(STANDARD_CASE_LIST_PROPERTY_DATA_TYPES, property) &&
+		ctx.facts.caseTypes
+			.find((one) => one.name === caseType)
+			?.properties.some(
+				(one) => one.name === property && (one.data_type ?? "text") === "text",
+			) === true;
 	if (
 		slot.slot === "case_list_column_expression" &&
-		readsRestoredCaseTypeQuery(expression)
+		readsRestoredCaseTypeQuery(expression, isRestoredColumnCaseQuery)
 	) {
 		const row = ctx.rows[0];
+		const caseType = row?.kind === "case" ? row.caseType : undefined;
+		const match = restoredColumnCountMatch(expression, caseType);
 		if (
-			!countsOwnRestoredType(
-				expression,
-				row?.kind === "case" ? row.caseType : undefined,
-			)
+			!countsOwnRestoredType(expression, caseType) &&
+			(match === undefined || !isDeclaredRestoredText(caseType, match.property))
 		)
 			errors.push(
 				refusal(
 					"arm-unavailable",
-					"This column can count the cases of its own type on the worker’s device.",
+					"This column can count restored cases of its own type, optionally matching a text property.",
 					"device-column-restored-type-count",
 				),
 			);
@@ -841,20 +853,12 @@ export function checkExpression(
 		walkExpression(expression, {
 			visitExpression(node, path) {
 				const match = restoredCasePropertyMatch(node);
-				const caseType = ctx.facts.caseTypes.find(
-					(one) => one.name === match?.caseType,
-				);
-				const isDeclaredText = (property: string) =>
-					!Object.hasOwn(STANDARD_CASE_LIST_PROPERTY_DATA_TYPES, property) &&
-					caseType?.properties.some(
-						(one) =>
-							one.name === property && (one.data_type ?? "text") === "text",
-					) === true;
+
 				if (
 					match !== undefined &&
-					(!isDeclaredText(match.property) ||
+					(!isDeclaredRestoredText(match.caseType, match.property) ||
 						(match.match.kind === "property" &&
-							!isDeclaredText(match.match.value)))
+							!isDeclaredRestoredText(match.caseType, match.match.value)))
 				)
 					errors.push({
 						path,
@@ -1299,10 +1303,11 @@ function admission(
 		const restoredQuery =
 			ctx.slot.slot === "search_input_required_when"
 				? isSearchRequiredCaseQuery
-				: ctx.slot.slot === "case_list_filter" ||
-						ctx.slot.slot === "case_list_column_expression"
-					? isRestoredCaseTypeQuery
-					: undefined;
+				: ctx.slot.slot === "case_list_column_expression"
+					? isRestoredColumnCaseQuery
+					: ctx.slot.slot === "case_list_filter"
+						? isRestoredCaseTypeQuery
+						: undefined;
 		if (
 			restoredQuery !== undefined &&
 			(restoredQuery(expression) ||

@@ -301,6 +301,7 @@ function whereVisible<QB>(
 export function restoredTypeRows(
 	ctx: RelationPathContextSource,
 	caseType: string,
+	match?: { property: string; value: string },
 ) {
 	const alias = "restored_type_case";
 	const rows = ctx.db
@@ -308,7 +309,9 @@ export function restoredTypeRows(
 		.where(`${alias}.app_id`, "=", ctx.appId)
 		.where(`${alias}.project_id`, "=", ctx.projectId)
 		.where(`${alias}.case_type`, "=", caseType);
-	return whereVisible(ctx, rows, alias);
+	if (match === undefined) return whereVisible(ctx, rows, alias);
+	const property = sql<string>`coalesce(${sql.ref(`${alias}.properties`)} ->> ${match.property}, '')`;
+	return whereVisible(ctx, rows.where(property, "=", match.value), alias);
 }
 
 /** Unresolved kept values make the whole case invisible to the worker. */
