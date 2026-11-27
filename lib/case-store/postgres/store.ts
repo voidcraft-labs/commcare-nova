@@ -2697,6 +2697,7 @@ export class PostgresCaseStore implements CaseStore {
 			origin?: "existing-record";
 			caseId?: string;
 			ownerId?: string;
+			keepNameText?: true;
 			parentRelationship?: CaseIndicesTable["relationship"];
 			parentIdentifier?: string;
 			caseIdTaken?: () => never;
@@ -2731,11 +2732,9 @@ export class PostgresCaseStore implements CaseStore {
 			...args.row,
 			index_history_complete: args.origin !== "existing-record",
 			cleared_index_identifiers: [],
-			case_name: normalizedCaseScalar(
-				"case_name",
-				args.row.case_name,
-				"reject",
-			),
+			case_name: args.keepNameText
+				? args.row.case_name
+				: normalizedCaseScalar("case_name", args.row.case_name, "reject"),
 			...(args.row.external_id === null || args.row.external_id === undefined
 				? { external_id: null }
 				: {
@@ -2953,6 +2952,7 @@ export class PostgresCaseStore implements CaseStore {
 					},
 					...(a.caseId === undefined ? {} : { caseId: a.caseId }),
 					...(a.ownerId === undefined ? {} : { ownerId: a.ownerId }),
+					...(a.keepNameText && { keepNameText: true as const }),
 					...(a.seed.parentRelationship === undefined
 						? {}
 						: { parentRelationship: a.seed.parentRelationship }),

@@ -172,6 +172,7 @@ export interface SubmissionEnvelopeHost {
 			};
 			caseId?: string;
 			ownerId?: string;
+			keepNameText?: true;
 			/** Inserts `caseId` only if no row holds it, deciding in the insert
 			 * itself; a taken id writes nothing and calls this, which throws. */
 			caseIdTaken?: () => never;
@@ -2542,8 +2543,9 @@ async function resolveOperationProgram(
 			facet: "name" | "rename" | "owner",
 			raw: string,
 			blank: "allow" | "reject" = "reject",
+			keepText = false,
 		): string => {
-			const prepared = prepareCaseScalarTextValue(raw, blank);
+			const prepared = prepareCaseScalarTextValue(raw, blank, keepText);
 			if (!prepared.ok) {
 				throw new SubmissionRejectedError({
 					kind: "text-value",
@@ -2559,7 +2561,12 @@ async function resolveOperationProgram(
 			// The wire always emits the create's `case_name` node; an
 			// absent name expression calculates blank and the trailing
 			// guard rejects it — same rejection here.
-			preparedName = prepareText("name", evaluatedText(bag?.name));
+			preparedName = prepareText(
+				"name",
+				evaluatedText(bag?.name),
+				"reject",
+				operation.keepNameText,
+			);
 		}
 		// An owner saved only when changed (`CaseFacetOnlyIfChanged`) is
 		// compared with the case's `owner_id` leaf, which a case holds as an
@@ -3442,6 +3449,8 @@ async function applyCreateEffect(
 				: { locationId: scalars.location_id }),
 			properties: patch,
 		},
+		...(operation.action === "create" &&
+			operation.keepNameText && { keepNameText: true as const }),
 		caseId: entry.caseId,
 		...(entry.preparedOwner === undefined
 			? {}

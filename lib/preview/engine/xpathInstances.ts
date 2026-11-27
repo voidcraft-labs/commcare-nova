@@ -21,6 +21,7 @@ import {
 	orderedOrganizationLevels,
 	type Uuid,
 } from "@/lib/domain";
+import { normalizeCaseScalarTextValue } from "@/lib/domain/caseScalarText";
 import {
 	entryDatumSupplies,
 	loadedSearchModules,
@@ -464,7 +465,13 @@ function caseElement(
 		},
 		attributeTemplates: CASE_ATTRIBUTE_TEMPLATES,
 		children: [
-			{ name: "case_name", value: row.case_name },
+			{
+				name: "case_name",
+				value:
+					row.case_name === null
+						? undefined
+						: normalizeCaseScalarTextValue(row.case_name),
+			},
 			{ name: "date_opened", value: caseDateValue(row.opened_on) },
 			{
 				name: "last_modified",

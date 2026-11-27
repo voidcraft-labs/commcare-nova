@@ -697,6 +697,36 @@ function validateOperation(
 
 	if (operation.action === "create" && operation.typeChoice !== undefined)
 		validateCreateTypeChoice(ctx, operation, errors);
+	if (operation.action === "create" && operation.keepNameText) {
+		const name =
+			operation.name?.kind === "term" ? operation.name.term : undefined;
+		if (
+			ctx.form.type !== "survey" ||
+			ctx.module.caseType ||
+			menuEmittedAdvanced(ctx.doc, ctx.moduleUuid) ||
+			operation.target.kind !== "new" ||
+			operation.target.idFrom !== undefined ||
+			operation.target.expr !== undefined ||
+			operation.forEach !== undefined ||
+			operation.typeCalculation !== undefined ||
+			operation.typeChoice !== undefined ||
+			operation.links?.length ||
+			name?.kind !== "field" ||
+			name.filters !== undefined ||
+			name.role !== undefined ||
+			!ctx.doc.fieldOrder[ctx.formUuid]?.includes(name.uuid) ||
+			ctx.fields.get(name.uuid)?.kind !== "text"
+		)
+			errors.push(
+				opError(
+					ctx,
+					operation,
+					"CASE_OPERATION_TARGET_INVALID",
+					"The unchanged case name needs a Text question at the top level of a standalone Survey.",
+				),
+			);
+	}
+
 	// A retype of the worker's record is refused as a facet it can't carry
 	// (`workerRecordFindings`), so no retype plan is asked of it.
 	if (operation.retype !== undefined && !workerRecord) {
