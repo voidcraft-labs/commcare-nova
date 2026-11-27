@@ -418,10 +418,6 @@ describe("an advanced form's loads and open actions", () => {
 						action: "own",
 						name: read("name"),
 					},
-					{
-						...kid,
-						links: [{ ...(kid.links ?? [])[0], identifier }],
-					},
 				],
 				configure: (built) => {
 					built.modules[MEMBERS] = {
@@ -498,6 +494,81 @@ describe("an advanced form's loads and open actions", () => {
 		},
 	);
 
+	it("gates the authored Unicode write on Android and keeps ASCII producer names on both platforms", () => {
+		const { doc, formUuid } = registration([kid]);
+		const edit = (before: BlueprintDoc, identifier: string) => {
+			const operation: CaseOperation = {
+				...kid,
+				links: kid.links?.map((link) => ({ ...link, identifier })),
+			};
+			return mutationCommitVerdict(
+				before,
+				updateCaseOperationMutations(before, formUuid, operation),
+				LOOKUP_CONTEXT_UNAVAILABLE,
+			);
+		};
+		expect(edit(doc, "my.parent").ok).toBe(true);
+		const blocked = edit(doc, "Ωprobe");
+		if (blocked.ok) throw new Error("Web Apps cannot open this producer");
+		expect(blocked.findings).toContainEqual(
+			expect.objectContaining({
+				code: "PLATFORM_FEATURE_UNAVAILABLE",
+				details: expect.objectContaining({
+					feature: "advanced-index-name-requires-android",
+				}),
+			}),
+		);
+		const android = produce(doc, (draft) => {
+			draft.appSettings.runsOnlyOn = "android";
+		});
+		expect(edit(android, "Ωprobe").ok).toBe(true);
+	});
+
+	it("offers Android only for the Unicode producer and gates changes to its deployment platform", async () => {
+		const { doc } = registration([kid]);
+		const reading = await readCases(doc, {
+			edit: (app) => {
+				const opened = actionsOf(app).open_cases[1] as {
+					case_indices: { reference_id: string }[];
+				};
+				opened.case_indices[0].reference_id = "Ωprobe";
+			},
+		});
+		if (reading.whole?.kind !== "read")
+			throw new Error(JSON.stringify(findingCodes(reading)));
+		const { doc: held, declaration } = reading.whole.draft;
+		expect(declaration.kind).toBe("choices");
+		if (declaration.kind !== "choices")
+			throw new Error("Expected the Android deployment choice");
+		expect(declaration.choices.map(({ runsOnlyOn }) => runsOnlyOn)).toEqual([
+			"android",
+		]);
+
+		for (const runsOnlyOn of [undefined, "web-apps", "android"] as const) {
+			const declared = produce(held, (draft) => {
+				if (runsOnlyOn === undefined) delete draft.appSettings.runsOnlyOn;
+				else draft.appSettings.runsOnlyOn = runsOnlyOn;
+			});
+			const verdict = mutationCommitVerdict(
+				declared,
+				[],
+				LOOKUP_CONTEXT_UNAVAILABLE,
+			);
+			if (runsOnlyOn === "android") expect(verdict.ok).toBe(true);
+			else {
+				if (verdict.ok) throw new Error("Web Apps cannot open this producer");
+				expect(verdict.findings).toContainEqual(
+					expect.objectContaining({
+						code: "PLATFORM_FEATURE_UNAVAILABLE",
+						details: expect.objectContaining({
+							feature: "advanced-index-name-requires-android",
+						}),
+					}),
+				);
+			}
+		}
+	});
+
 	it.each([
 		"my-parent",
 		"my.parent",
@@ -513,6 +584,8 @@ describe("an advanced form's loads and open actions", () => {
 		"retains the %s open index through import and advanced Case Management emission",
 		async (identifier) => {
 			const { doc } = registration([kid]);
+			if (/[^\x20-\x7e]/.test(identifier))
+				doc.appSettings.runsOnlyOn = "android";
 			const reading = await readCases(doc, {
 				edit: (app) => {
 					const opens = actionsOf(app).open_cases;
