@@ -4387,8 +4387,16 @@ export function settleAdvancedMenu(
 		doc.modules[module.uuid] === undefined
 	)
 		return;
-	if (advancedKindBlockers(doc, module.uuid).length > 0)
-		ctx.accounting.finding(advancedKindBlockClaim(module), module.place);
+	if (advancedKindBlockers(doc, module.uuid).length === 0) return;
+	const claim = advancedKindBlockClaim(module);
+	if (claim === ADVANCED_CLAIMS.advancedInlineSearchNoQuery) {
+		ctx.accounting.claimEntryClass(
+			{ json: module.json, class: true },
+			claim.entry,
+			"schema:AdvancedModule",
+			module.place,
+		);
+	} else ctx.accounting.finding(claim, module.place);
 }
 
 function readExplicitAutoSource(
