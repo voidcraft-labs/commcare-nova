@@ -2,6 +2,8 @@
 
 from urllib.parse import parse_qs, urlsplit
 
+import pytest
+
 from proof.android import observe
 from proof.matrix.search_ordered_default import (
     COERCED,
@@ -16,6 +18,8 @@ from proof.observe import services
 from proof.observe.record import Blobs
 from proof.observe.search_address import enable_address_search
 from proof.webapps import hq as webapps_hq
+
+pytestmark = pytest.mark.reader("android")
 
 
 def test_installed_search_uses_the_retained_ordered_default(android_documents, hq, android_walk_evidence):
