@@ -27,6 +27,8 @@ ENTERED = "Dyer's cross!ing"
                  id="nested-parent"),
     pytest.param("field-named-by-a-nested-parent-path", "parent/parent/village", "middle-house", "linked",
                  "east west", "east we!st", id="nested-parent-multiple-values"),
+    pytest.param("field-named-by-three-parent-links", "parent/parent/parent/village", "lower-house",
+                 "three-links", VALUE, ENTERED, id="three-parent-links"),
 ])
 def test_hq_editor_and_worker_keep_the_parent_path_search_key(
     hq, core_runner, editor_driver, formplayer_runner, evidence, variant, key, reverse_link_id, expected, value, entered,
@@ -67,6 +69,12 @@ def test_hq_editor_and_worker_keep_the_parent_path_search_key(
         case("wrong-ancestor", "client", value, "middle-other"),
         case("unresolved-second-hop", "client", value, "middle-dangling"),
         case("unlinked", "client", value),
+        case("lower-house", "household", "South", "middle-house"),
+        case("lower-other", "household", "South", "middle-other"),
+        case("lower-dangling", "household", "South", "middle-dangling"),
+        case("three-links", "client", "South", "lower-house"),
+        case("wrong-third-hop", "client", value, "lower-other"),
+        case("unresolved-third-hop", "client", value, "lower-dangling"),
     ))
     configuration = Configuration(
         flags={"CASE_SEARCH_ADVANCED", "CASE_SEARCH_RELATED_LOOKUPS", "FOLLOWUP_FORMS_AS_CASE_LIST_FORM",
@@ -125,6 +133,7 @@ def test_hq_editor_and_worker_keep_the_parent_path_search_key(
             serialized = json.dumps(compiled)
             assert '"parent"' in serialized and json.dumps(reverse_link_id) in serialized
             assert '"middle-dangling"' not in serialized and '"other-house"' not in serialized
+            assert '"lower-other"' not in serialized and '"lower-dangling"' not in serialized
             evidence("parent-path-search", {
                 "editorStatus": saved.save.status, "field": field.to_json(),
                 "workerPromptIds": [display["id"] for display in search["displays"]],
