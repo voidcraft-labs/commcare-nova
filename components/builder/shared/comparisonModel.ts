@@ -5,7 +5,7 @@ import {
 	type Expression,
 	term,
 } from "@/lib/domain/expression";
-import { searchWorkerTextOrder } from "@/lib/domain/expression/ruleSets";
+import { searchSessionTextOrder } from "@/lib/domain/expression/ruleSets";
 import { KIND_BUILDERS } from "./cards/comparisonSeed";
 import {
 	reseedValueForConstraint,
@@ -41,7 +41,7 @@ export function comparesWorkerValueInSearchDefault(
 		ctx.expressionContext.profile.searchTextDefault === true &&
 		left !== undefined &&
 		right !== undefined &&
-		searchWorkerTextOrder(kind, left, right)
+		searchSessionTextOrder(kind, left, right)
 	);
 }
 
