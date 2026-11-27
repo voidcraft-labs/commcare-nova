@@ -18,7 +18,13 @@
  */
 
 import { describe, expect, it } from "vitest";
+import { caseListDeviceLookup } from "../../targeted/documents/caseListDeviceLookup";
 import type { HqSideSaves } from "../documents";
+import {
+	capturePublish,
+	documentVerdict,
+	minimumConfiguration,
+} from "../publish";
 import { type PeerHolding, TargetPeer } from "../targetPeer";
 
 const HELD_CUSTOM = {
@@ -145,5 +151,39 @@ describe("a person's app settings save on the capture's peer", () => {
 			features: { credentials: "3MON_ACTIVE" },
 			custom_properties: kept,
 		});
+	});
+});
+
+it("keeps the lookup image on an enabled short detail and prunes it after removal", async () => {
+	const source = caseListDeviceLookup();
+	const document = {
+		id: source.id,
+		doc: source.doc,
+		media: source.media,
+		compiledAtSeq: 1,
+	};
+	const changed = structuredClone(document.doc);
+	const list = changed.modules[changed.moduleOrder[0]]?.caseListConfig;
+	expect(list?.deviceLookup?.icon).toBeDefined();
+	if (list) delete list.deviceLookup;
+	const capture = await capturePublish({
+		create: document,
+		updates: [
+			{ name: "kept", document },
+			{ name: "removed", document: { ...document, doc: changed } },
+		],
+		configuration: minimumConfiguration([documentVerdict(document)]),
+	});
+	if (capture.status !== "sent")
+		throw new Error("Could not publish the lookup");
+	expect(capture.updates.kept).toMatchObject({
+		status: "sent",
+		saveCounter: { before: 3, after: 4 },
+		mediaUploads: [],
+	});
+	expect(capture.updates.removed).toMatchObject({
+		status: "sent",
+		saveCounter: { before: 3, after: 5 },
+		mediaUploads: [],
 	});
 });

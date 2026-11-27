@@ -577,6 +577,14 @@ function importedMediaPaths(source: Json): Set<string> {
 			module.case_details?.long,
 		]) {
 			if (!detail) continue;
+			// ModuleMediaMixin.all_media keeps only enabled lookup images on
+			// displayed short details. These case details are always displayed.
+			if (
+				detail.display === "short" &&
+				detail.lookup_enabled &&
+				detail.lookup_image
+			)
+				paths.add(detail.lookup_image);
 			for (const column of detail.columns) {
 				if (column.format !== "enum-image") continue;
 				// Nova writes the same asset in each app language.
