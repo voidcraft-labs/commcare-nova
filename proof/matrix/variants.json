@@ -19097,10 +19097,26 @@
 		]
 	},
 	{
-		"id": "hq-case-management/members-written-as-number-and-text",
+		"id": "hq-case-management/members-written-as-number-and-datetime-day",
 		"base": "hq-case-management",
 		"entry": "forms-and-case-writes/any-other-mixed-writer-pair",
 		"standing": "not-yet",
+		"place": { "kind": "menu", "menu": 0, "name": "Households" },
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/0/forms/3/actions/update_case/update/members",
+			"value": {
+				"question_path": "/data/seen_at",
+				"update_mode": "always",
+				"doc_type": "ConditionalCaseUpdate"
+			}
+		}
+	},
+	{
+		"id": "hq-case-management/members-written-as-number-and-text",
+		"base": "hq-case-management",
+		"entry": "forms-and-case-writes/whole-number-starting-answer-from-free-text",
+		"standing": "fix-in-hq",
 		"place": {
 			"kind": "menu",
 			"menu": 0,

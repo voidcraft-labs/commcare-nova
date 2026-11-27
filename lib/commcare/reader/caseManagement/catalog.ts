@@ -17,6 +17,7 @@ import {
 	type Uuid,
 } from "@/lib/domain";
 import type { BlueprintDoc } from "@/lib/domain/blueprint";
+import { formCaseWriteViews } from "@/lib/domain/caseWriteViews";
 import { casePropertyShowsOptionLabels } from "@/lib/domain/caseListOrder";
 import {
 	CaseRelationCatalog,
@@ -24,13 +25,15 @@ import {
 } from "@/lib/domain/caseRelations";
 import { columnPropertyCaseType } from "@/lib/domain/columnRelation";
 import {
-	concreteCasePropertyWriterTypes,
 	effectiveCaseTypes,
 	materializableCaseTypes,
 } from "@/lib/domain/effectiveCaseTypes";
 import { slotContext } from "@/lib/domain/expression/context";
 import { formStructure } from "@/lib/domain/expression/formStructure";
-import { hiddenWriterVerdicts } from "@/lib/domain/expression/inference";
+import {
+	hiddenWriterVerdicts,
+	inferExpressionTypes,
+} from "@/lib/domain/expression/inference";
 import { resolveRelationDestination } from "@/lib/domain/expression/relationDestination";
 import { agreedStorageType } from "@/lib/domain/expression/ruleSets";
 import {
@@ -750,7 +753,31 @@ function reportedPairs(ctx: ReadContext): Set<string> {
 
 const WRITER_CLAIMS = defineClaims("caseManagement.catalog", {
 	otherPair: refuse(`forms-and-case-writes/any-other-mixed-writer-pair`, null),
+	wholeNumberPreloadFromText: refuse(
+		`forms-and-case-writes/whole-number-starting-answer-from-free-text`,
+		null,
+	),
 });
+
+/** The free-text destinations written directly by a visible follow-up answer. */
+function ownFreeTextDestinations(doc: BlueprintDoc): ReadonlySet<string> {
+	const destinations = new Set<string>();
+	for (const form of Object.values(doc.forms)) {
+		if (form.type !== "followup") continue;
+		for (const [fieldUuid, writes] of formCaseWriteViews(doc, form.uuid)) {
+			const field = doc.fields[fieldUuid];
+			if (field?.kind !== "text" || field.validate !== undefined) continue;
+			for (const write of writes)
+				if (
+					write.destination === "own" &&
+					write.slot === "write" &&
+					!write.link
+				)
+					destinations.add(JSON.stringify([write.caseType, write.property]));
+		}
+	}
+	return destinations;
+}
 
 /**
  * The writers of each property judged over the bound document
@@ -773,10 +800,10 @@ export function settleWriterTypes(
 	app: DraftApp,
 	doc: BlueprintDoc,
 ): void {
-	let opinions: ReturnType<typeof concreteCasePropertyWriterTypes>;
+	let inference: ReturnType<typeof inferExpressionTypes>;
 	let verdicts: ReturnType<typeof hiddenWriterVerdicts>;
 	try {
-		opinions = concreteCasePropertyWriterTypes(doc);
+		inference = inferExpressionTypes(doc);
 		verdicts = hiddenWriterVerdicts(doc);
 	} catch (error) {
 		rethrowWorkStop(error);
@@ -798,11 +825,28 @@ export function settleWriterTypes(
 			name: property,
 		});
 	};
-	for (const [caseType, byProperty] of opinions) {
+	let freeText: ReadonlySet<string> | undefined;
+	for (const [caseType, byProperty] of inference.writerOpinions) {
 		if (NOT_CATALOGUED.has(caseType)) continue;
 		for (const [property, types] of byProperty) {
 			if (types.size < 2 || agreedStorageType(types) !== undefined) continue;
-			finding(caseType, property, WRITER_CLAIMS.otherPair);
+			const cast = inference.propertyTypes.get(caseType)?.get(property)?.castBy;
+			const integerOpeningReadsFreeText =
+				types.size === 2 &&
+				types.has("int") &&
+				types.has("text") &&
+				cast?.type === "int" &&
+				doc.fields[cast.field]?.kind === "int" &&
+				(freeText ??= ownFreeTextDestinations(doc)).has(
+					JSON.stringify([caseType, property]),
+				);
+			finding(
+				caseType,
+				property,
+				integerOpeningReadsFreeText
+					? WRITER_CLAIMS.wholeNumberPreloadFromText
+					: WRITER_CLAIMS.otherPair,
+			);
 		}
 	}
 	for (const verdict of verdicts) {

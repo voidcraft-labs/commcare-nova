@@ -5230,6 +5230,27 @@
 		"gates": []
 	},
 	{
+		"id": "forms-and-case-writes/whole-number-starting-answer-from-free-text",
+		"area": "forms-and-case-writes",
+		"section": "Basic form actions",
+		"subsection": "Case-property typing",
+		"item": "A whole-number question opens on a case property that a follow-up saves as free text",
+		"surfaceKeys": [],
+		"noSurfaceKey": "The conflict joins two case-property writers and an opening assignment.",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: the free-text answer can stop the whole-number form from opening.",
+		"subject": "writer-types",
+		"reasons": [
+			{
+				"kind": "broken-at-runtime",
+				"named": "Signed Formplayer accepts the free-text submission, then stops when its opening assignment casts that text to a whole number. The same form opens when the property holds a whole number."
+			}
+		],
+		"platforms": { "kind": "none", "cell": "—" },
+		"emission": { "cell": "—", "markers": [] },
+		"gates": []
+	},
+	{
 		"id": "forms-and-case-writes/any-other-mixed-writer-pair",
 		"area": "forms-and-case-writes",
 		"section": "Basic form actions",
@@ -5238,7 +5259,7 @@
 		"surfaceKeys": [],
 		"noSurfaceKey": "A relation among the questions, Hidden Values and case changes that write one case property (writers of two other types), which no single surface item holds; each writer's own items are named by the question-type and case-write rows.",
 		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: join `text` for a date and time and a time, whose text HQ's server (`adjust_datetimes`, to UTC) and the device (a time's offset) each keep their own way, and for a property a question opens on through an answer class that casts it, which stops the form on another writer's text (Core's failed cast), a stop Preview also models for stored data. This writer pair would let a valid text submission make the number form stop opening. Numeric storage would also lose text spellings, and only-if-changed writes need the device's comparison for such spellings",
+		"dispositionCell": "**HELD-NEW**: join `text` for a date and time and a time, whose text HQ's server (`adjust_datetimes`, to UTC) and the device (a time's offset) each keep their own way, and for a property a question opens on through an answer class that casts it, which stops the form on another writer's text (Core's failed cast), a stop Preview also models for stored data. A whole-number opening on a property a follow-up saves as unrestricted text has its own runtime refusal. Numeric storage would also lose text spellings, and only-if-changed writes need the device's comparison for such spellings",
 		"subject": "writer-types",
 		"owner": "forms-and-case-management",
 		"platforms": {
