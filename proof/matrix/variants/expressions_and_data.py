@@ -426,7 +426,7 @@ def standalone_search_detail_with_date_prompt(authoring, app_id):
 
 
 def standalone_search_detail_with_date_range_prompt(authoring, app_id):
-    """The same guarded detail addresses a date range, outside the scalar slot."""
+    """The guarded Details value displays the Search submission’s range encoding."""
     _optional_search_detail(authoring, app_id, "last_visit")
 
 

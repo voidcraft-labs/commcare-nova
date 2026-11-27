@@ -45821,13 +45821,19 @@
 	{
 		"id": "hq-search/standalone-search-detail-with-date-range-prompt",
 		"base": "hq-search",
-		"entry": "menus-and-case-lists/standalone-search-result-detail-without-its-offered-prompt",
-		"standing": "not-yet",
-		"place": { "kind": "case-detail", "menu": 0, "name": "Clients" },
+		"entry": "menus-and-case-lists/standalone-search-result-detail-text",
+		"declaration": { "runsOnlyOn": "web-apps", "splitDatetime": false },
 		"change": {
 			"op": "named",
 			"name": "standalone_search_detail_with_date_range_prompt"
-		}
+		},
+		"holds": [
+			{
+				"key": ["module", { "$menu": 0 }],
+				"pointer": "/caseListConfig/columns/2/searchResultDetail/prefix",
+				"value": "Entered ["
+			}
+		]
 	},
 	{
 		"id": "hq-search/standalone-search-detail-with-wrong-prompt",

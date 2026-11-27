@@ -1487,8 +1487,9 @@ def test_an_unguarded_answer_on_a_search_first_result_list(
 
 
 @pytest.mark.parametrize("answer", [True, False], ids=["answered", "unanswered"])
+@pytest.mark.parametrize("calendar", ["date", "date-range"])
 def test_standalone_search_detail_displays_the_submitted_date(
-    hq, formplayer_runner, editor_driver, webapps_documents, evidence, answer,
+    hq, formplayer_runner, editor_driver, webapps_documents, evidence, answer, calendar,
 ):
     from proof.matrix import registry
     from proof.matrix.authoring import Authoring
@@ -1498,8 +1499,11 @@ def test_standalone_search_detail_displays_the_submitted_date(
     data = casedata.document_case_database(document)
     sample = next(case for case in data.cases if case.case_type == "client")
     day = "2025-03-09"
+    date_range = "__range__2025-03-01__2025-03-31"
+    prompt = "last_visit" if calendar == "date-range" else "dob"
+    submitted_value = date_range if calendar == "date-range" else day
     client = dataclasses.replace(sample, name="Date detail witness", properties=(
-        ("village", "north"), ("last_visit", "2025-01-01"), ("dob", day),
+        ("village", "north"), ("last_visit", day), ("dob", day),
     ))
     data = dataclasses.replace(data, cases=(client,))
     date_entry = [
@@ -1512,9 +1516,17 @@ def test_standalone_search_detail_displays_the_submitted_date(
         {"awaitRequest": {"method": "POST", "pathname": steps.NAVIGATE}, "sinceMark": True},
         steps.SETTLE,
     ]
+    if calendar == "date-range":
+        date_entry = [{"eval": """() => {
+            const field = document.querySelector('#query-list-contents input.daterange');
+            if (!field) throw new Error('The Search date range did not open');
+            field.value = '3/1/2025 to 3/31/2025';
+            field.dispatchEvent(new Event('change', {bubbles: true}));
+        }"""}]
     with webapps_hq.authored_project(document, "A", configure=enable_address_search) as project:
         authoring = Authoring(project.unit, {}, document.id, operation=project.unit.operation)
-        registry.named_change("standalone_search_detail_with_date_prompt")(authoring, project.app_id)
+        change = calendar.replace("-", "_")
+        registry.named_change(f"standalone_search_detail_with_{change}_prompt")(authoring, project.app_id)
         with project.released(
             formplayer_runner, database=data, driver=editor_driver,
             saves=((pages.CASE_LIST, project.module_id(0)),), label="standalone-date-detail",
@@ -1527,11 +1539,11 @@ def test_standalone_search_detail_displays_the_submitted_date(
                 steps.SCREEN,
             ])
     requests = _menu_requests(run)
-    submitted = [entry["inputs"].get("dob") for request in requests if request["searched"]
+    submitted = [entry["inputs"].get(prompt) for request in requests if request["searched"]
                  for entry in request["queryData"].values() if isinstance(entry, dict) and entry.get("execute")]
     observed = {"screens": run.screens, "requests": requests, "errors": run.page_errors, "dialogs": run.dialogs}
     evidence("standalone-date-result", observed)
     assert not run.page_errors and not run.dialogs, observed
-    assert submitted == ([day] if answer else [None]), observed
-    expected = f"Entered [{day if answer else ''}]"
+    assert submitted == ([submitted_value] if answer else [None]), observed
+    expected = f"Entered [{submitted_value if answer else ''}]"
     assert {"header": "Submitted village", "value": expected} in run.screens[-1]["detail"]["rows"], observed

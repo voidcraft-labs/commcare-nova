@@ -503,6 +503,7 @@ it("opens a form on the same search response that supplied Results", async () =>
 const detailVariants = [
 	"submitted answer",
 	"submitted date",
+	"submitted date range",
 	"fixed text",
 	"a Results-only answer",
 ] as const;
@@ -513,9 +514,18 @@ it.each(detailVariants)(
 
 async function testStandaloneDetails(branch: (typeof detailVariants)[number]) {
 	const fixed = branch === "fixed text";
-	const date = branch === "submitted date";
+	const range = branch === "submitted date range";
+	const date = range || branch === "submitted date";
 	const inputName = date ? "dob" : "name";
-	const submitted = date ? "2025-03-09" : "Asha";
+	const birthday = "2025-03-09";
+	const submitted = range
+		? "__range__2025-03-01__2025-03-31"
+		: date
+			? birthday
+			: "Asha";
+	const answers: Record<string, string> = range
+		? { "dob:from": "2025-03-01", "dob:to": "2025-03-31" }
+		: { [inputName]: submitted };
 	const onList = branch === "a Results-only answer";
 	const actor = ACTOR;
 	const appId = "search-detail-restored-app";
@@ -569,7 +579,7 @@ async function testStandaloneDetails(branch: (typeof detailVariants)[number]) {
 							inputUuid,
 							inputName,
 							date ? "Born on" : "Name",
-							date ? "date" : "text",
+							range ? "date-range" : date ? "date" : "text",
 							date ? "dob" : "case_name",
 						),
 					],
@@ -613,7 +623,7 @@ async function testStandaloneDetails(branch: (typeof detailVariants)[number]) {
 				case_id: caseId,
 				case_type: "patient",
 				case_name: "Asha",
-				properties: date ? { dob: submitted } : {},
+				properties: date ? { dob: birthday } : {},
 			},
 		});
 	}
@@ -685,7 +695,7 @@ async function testStandaloneDetails(branch: (typeof detailVariants)[number]) {
 			opening: { ...runScope, submission, receipt: results.resultReceipt },
 		};
 	};
-	const answered = await run({ [inputName]: submitted });
+	const answered = await run(answers);
 	const unanswered = await run({});
 	const reopen = (
 		caseId: string,
