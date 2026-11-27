@@ -36,3 +36,9 @@ export function getEntryPointLinkAction(args: unknown) {
 export function getLookupManifestAction(args: unknown) {
 	return post("/publishing/lookup", args);
 }
+export function projectSearchDestinationAction(
+	target: unknown,
+	edit?: unknown,
+) {
+	return post("/publishing/project-search", { target, edit });
+}
