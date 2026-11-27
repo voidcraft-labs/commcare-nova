@@ -628,8 +628,10 @@ export const FIX_IN_HQ_ENTRY_SENTENCES: Readonly<Record<string, string>> = {
 };
 
 const NOT_YET_ENTRY_SENTENCES: Readonly<Record<string, string>> = {
+	"forms-and-case-writes/update-key-whose-index-segments-include-user-each-parent-host-or":
+		"This change follows a case link named user. A direct user link can carry this change when the app declares one ordinary destination case type. You can check the case-opening form and its links in CommCare HQ.",
 	"forms-and-case-writes/index-path-through-a-case-type-the-app-does-not-fix":
-		"This change follows a case link. Nova needs the app to identify one case type for each step in the link before it can carry the change.",
+		"This change follows a case link. You can set one destination case type for each step in the case-opening form or parent case selection in CommCare HQ, then check the app again.",
 	"forms-and-case-writes/loadupdateaction-case-properties-key-with-on-a-load-with-no-case":
 		"This change saves through a link from a loaded record. Nova can carry it when the form starts by choosing the record and the app declares which case type the supported link reaches.",
 	"menus-and-case-lists/lookup-extra-with-a-fixed-integer-sum":

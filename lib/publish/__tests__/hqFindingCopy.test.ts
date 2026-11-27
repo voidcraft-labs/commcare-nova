@@ -426,6 +426,27 @@ describe("findingLine", () => {
 		).toBe(fixInHqSentence("repeats", "breaks-when-run"));
 	});
 
+	it("names the saved key and points to the app's declaration of a direct user link", () => {
+		expect(
+			findingLine({
+				code: "forms-and-case-writes/update-key-whose-index-segments-include-user-each-parent-host-or",
+				standing: "not-yet",
+				subject: "worker-record",
+				place: {
+					kind: "form",
+					menu: 1,
+					form: 0,
+					menuName: "Members",
+					name: "Visit",
+				},
+				detail: { name: "user/status_note" },
+			}),
+		).toEqual({
+			sentence: expect.stringContaining("one ordinary destination case type"),
+			named: "user/status_note",
+		});
+	});
+
 	it("explains that Android can send a lookup calculation as written", () => {
 		expect(
 			findingLine({

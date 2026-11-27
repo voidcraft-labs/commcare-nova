@@ -150,6 +150,20 @@ Nova keeps no copy of the list. **Copy the list** lets you take it with you, and
 
 Nova doesn't bring in part of an app.
 
+### Saves through a case link
+
+When a form saves through a link such as `parent` or `user`, Nova reads the
+destination case type from the app's case-opening actions or parent case
+selections. A type attached to an existing case describes that case's link.
+The form still needs the app to define which case type the link can reach.
+
+For a `parent` link, you can set the parent case selection in CommCare HQ or
+open the linked child from a form on the parent case. For a custom link such
+as `user`, you can define the link and its destination case type in an
+Advanced case-opening action. Use the same reference ID as the save. If the
+destination varies, you can choose the intended case explicitly in the form
+and save directly to it. **Check again** reads the updated setup.
+
 Where a lookup table holds more than Nova reads at once while bringing in an
 app, the app comes in with the table's columns, and the table's page in Project
 data offers **Refresh**, which reads its rows in pages. Until then Nova has no
