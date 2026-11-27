@@ -617,6 +617,7 @@
 		"hq-questions/repeat-group-two-per-row",
 		"hq-questions/required-condition-alone",
 		"hq-questions/required-on-label",
+		"hq-questions/save-to-case-always-owner-aliased-create",
 		"hq-questions/save-to-case-attachment",
 		"hq-questions/save-to-case-block-relevance",
 		"hq-questions/save-to-case-child-link",
