@@ -615,6 +615,56 @@ function appSettingsPatch(
 	return Object.keys(patch).length > 0 ? patch : undefined;
 }
 
+/** Profiles follow the language edits that make their referenced languages available. */
+function diffInstallationProfiles(
+	prev: AppSettings,
+	next: AppSettings,
+): Mutation[] {
+	const mutations: Mutation[] = [];
+	const previousProfiles = prev.installationProfiles ?? {};
+	const nextProfiles = next.installationProfiles ?? {};
+	for (const profile of Object.values(previousProfiles)) {
+		if (!Object.hasOwn(nextProfiles, profile.uuid))
+			mutations.push({
+				kind: "setAppSettings",
+				settings: {
+					installationProfile: { operation: "remove", uuid: profile.uuid },
+				},
+			});
+	}
+	for (const profile of Object.values(nextProfiles)) {
+		const previous = previousProfiles[profile.uuid];
+		if (!previous) {
+			mutations.push({
+				kind: "setAppSettings",
+				settings: { installationProfile: { operation: "add", profile } },
+			});
+		} else if (!deepEqual(previous, profile)) {
+			const patch = {
+				...(previous.name !== profile.name && { name: profile.name }),
+				...(!deepEqual(previous.languages, profile.languages) && {
+					languages: profile.languages,
+				}),
+				...(previous.requiresPracticeWorker !==
+					profile.requiresPracticeWorker && {
+					requiresPracticeWorker: profile.requiresPracticeWorker,
+				}),
+			};
+			mutations.push({
+				kind: "setAppSettings",
+				settings: {
+					installationProfile: {
+						operation: "update",
+						uuid: profile.uuid,
+						patch,
+					},
+				},
+			});
+		}
+	}
+	return mutations;
+}
+
 // ── Parent reverse index ─────────────────────────────────────────────
 //
 // `BlueprintDoc.fieldParent` materializes child → parent, but the diff's
@@ -821,47 +871,6 @@ function* diffGranularSteps(
 				kind: "setAppSettings",
 				settings: { projectSearch: { operation: "remove", uuid: asUuid(key) } },
 			});
-	}
-	const previousProfiles = prev.appSettings.installationProfiles ?? {};
-	const nextProfiles = next.appSettings.installationProfiles ?? {};
-	for (const profile of Object.values(previousProfiles)) {
-		if (!Object.hasOwn(nextProfiles, profile.uuid))
-			appLevel.push({
-				kind: "setAppSettings",
-				settings: {
-					installationProfile: { operation: "remove", uuid: profile.uuid },
-				},
-			});
-	}
-	for (const profile of Object.values(nextProfiles)) {
-		const previous = previousProfiles[profile.uuid];
-		if (!previous) {
-			appLevel.push({
-				kind: "setAppSettings",
-				settings: { installationProfile: { operation: "add", profile } },
-			});
-		} else if (!deepEqual(previous, profile)) {
-			const patch = {
-				...(previous.name !== profile.name && { name: profile.name }),
-				...(!deepEqual(previous.languages, profile.languages) && {
-					languages: profile.languages,
-				}),
-				...(previous.requiresPracticeWorker !==
-					profile.requiresPracticeWorker && {
-					requiresPracticeWorker: profile.requiresPracticeWorker,
-				}),
-			};
-			appLevel.push({
-				kind: "setAppSettings",
-				settings: {
-					installationProfile: {
-						operation: "update",
-						uuid: profile.uuid,
-						patch,
-					},
-				},
-			});
-		}
 	}
 	const settingsPatch = appSettingsPatch(prev.appSettings, next.appSettings);
 	if (settingsPatch !== undefined) {
@@ -1521,8 +1530,23 @@ function* diffGranularSteps(
 			: produce(replayed, (draft) => {
 					applyMutations(draft, admitMutationBatch(residual));
 				});
-	structural.push(...diffLocalization(localizationBase, next));
-	structural.push(...awaitingLanguage);
+	const localization = diffLocalization(localizationBase, next);
+	structural.push(...localization, ...awaitingLanguage);
+	// A source relabel also remaps existing profiles. Diff their settings from
+	// those remapped values, then add or edit profiles after their languages exist.
+	const relabel = localization.find(
+		(mutation) => mutation.kind === "relabelSourceLanguage",
+	);
+	const profileBase =
+		relabel === undefined ||
+		localizationBase.appSettings.installationProfiles === undefined
+			? localizationBase
+			: produce(localizationBase, (draft) => {
+					applyMutations(draft, [relabel]);
+				});
+	structural.push(
+		...diffInstallationProfiles(profileBase.appSettings, next.appSettings),
+	);
 	// Held placements last: no other mutation writes a held slot, and
 	// localization writes none, so `localizationBase` holds what every
 	// mutation before this one leaves held.
