@@ -1048,7 +1048,7 @@ function storedAddressConcat(parts: readonly FormSyntax[]) {
 	const [first, second] = parts;
 	if (first.kind !== "string") return [];
 	if (second.kind === "string") return [[first.value, second.value]];
-	// The exact source comparison still requires a plain worker reference.
+	// The exact source comparison still requires a plain session reference.
 	return SAVED_ADDRESS_WORKER_FIELDS.map((worker) => ({
 		prefix: first.value,
 		worker,

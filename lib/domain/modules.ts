@@ -2154,6 +2154,7 @@ export const SAVED_ADDRESS_WORKER_FIELDS = [
 	"username",
 	"userid",
 	"deviceid",
+	"appversion",
 ] as const;
 
 export const savedSearchAddressDefaultSchema = z.union([

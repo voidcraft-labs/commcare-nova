@@ -269,6 +269,10 @@ it.each([
 		wire: "concat('Old ', instance('commcaresession')/session/context/deviceid)",
 		saved: { prefix: "Old ", worker: "deviceid" },
 	},
+	{
+		wire: "concat('Old ', instance('commcaresession')/session/context/appversion)",
+		saved: { prefix: "Old ", worker: "appversion" },
+	},
 ])(
 	"keeps the saved address $wire through a label edit, both exports and normal HQ readback",
 	async ({ wire, saved }) => {
@@ -473,7 +477,7 @@ it.each(["exclude", "linked", "computed", "blank", "skip", "inline", "clear"])(
 				first(body).receiver_expression = "village-city";
 			if (different === "computed")
 				picker.default_value =
-					"concat('Old ', instance('commcaresession')/session/context/appversion)";
+					"concat('Old ', instance('commcaresession')/session/context/drift)";
 			if (different === "blank") picker.default_value = "''";
 			if (different === "skip") config.default_search = true;
 			if (different === "inline") config.inline_search = true;

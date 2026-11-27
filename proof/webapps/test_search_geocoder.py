@@ -52,6 +52,7 @@ def _geocoder_fields(app, mode):
     "address-picker-with-a-session-derived-default",
     "address-picker-with-a-worker-id-default",
     "address-picker-with-a-device-id-default",
+    "address-picker-with-an-app-version-default",
 ])
 def test_saved_address_default_stays_out_of_signed_web_search(
     hq, formplayer_runner, editor_driver, webapps_documents, evidence, variant_name
