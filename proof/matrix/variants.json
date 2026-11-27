@@ -33929,6 +33929,23 @@
 		}
 	},
 	{
+		"id": "hq-questions/data-root-named-survey-accented",
+		"base": "hq-questions",
+		"declaration": { "runsOnlyOn": "android", "splitDatetime": false },
+		"entry": "questions/answer-root-with-a-non-ascii-name",
+		"holds": [
+			{
+				"key": ["form", { "$xmlns": [0, 0] }],
+				"pointer": "/dataRootName",
+				"value": "survéy"
+			}
+		],
+		"change": {
+			"op": "named",
+			"name": "data_root_named_survey_accented"
+		}
+	},
+	{
 		"id": "hq-questions/data-root-reserved-by-designer",
 		"base": "hq-questions",
 		"entry": "questions/answer-root-that-the-form-designer-reads-as-its-own-element",

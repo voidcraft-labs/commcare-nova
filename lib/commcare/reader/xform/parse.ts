@@ -9,6 +9,7 @@ import type { Document, Element } from "domhandler";
 import { isTag, isText } from "domhandler";
 import { formRootNameSchema } from "@/lib/domain/formAnswerRoot";
 import { FORM_SOURCE_READER_NAMES } from "@/lib/domain/questionId";
+import { submittedElementNameNeedsAndroid } from "@/lib/domain/submittedAnswerName";
 import type { FindingDetail, HqPlace } from "@/lib/publish/hqFindings";
 import surface from "../../surface/surface.json";
 import {
@@ -241,9 +242,13 @@ export function parseXFormSource(
 	}
 	if (holdsNoQuestion(dataRoot, body)) return blank();
 	if (dataRoot.name !== "data")
-		cursor.within({ element: dataRoot }, X.namedRoot, [
-			"xform:model/instance/*",
-		]);
+		cursor.within(
+			{ element: dataRoot },
+			submittedElementNameNeedsAndroid(dataRoot.name)
+				? X.unicodeRoot
+				: X.namedRoot,
+			["xform:model/instance/*"],
+		);
 
 	// Each element of the frame is claimed under the surface key used there: the model is the
 	// element Core's top-level handler dispatches, the main instance and the itext block are

@@ -1094,6 +1094,19 @@ def data_root_named_survey(authoring, app_id):
     )
 
 
+def data_root_named_survey_accented(authoring, app_id):
+    """The Android-only form's exact root, including the accent in every answer path."""
+    ops.set_json(authoring, app_id, "/cloudcare_enabled", False)
+    _change(
+        authoring,
+        app_id,
+        "data-root-named-survey-accented",
+        ("<data xmlns:jrm=", "<survéy xmlns:jrm=", 1),
+        ("</data>", "</survéy>", 1),
+        ("/data/", "/survéy/", None),
+    )
+
+
 def data_root_reserved_by_designer(authoring, app_id):
     _change(authoring, app_id, "data-root-reserved-by-designer",
             ("<data xmlns:jrm=", "<instance xmlns:jrm=", 1),
