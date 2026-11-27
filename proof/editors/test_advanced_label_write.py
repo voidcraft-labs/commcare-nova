@@ -41,14 +41,14 @@ def _restore():
     return etree.tostring(restore)
 
 
-def _authored_label(unit, driver):
+def _authored_label(unit, driver, variant="load_writes_a_label"):
     authoring = Authoring(
         state=unit, documents={}, base=BASE.id, driver=driver, operation=unit.operation,
     )
     app_id = BASE.build(authoring)
     for menu, form in BASE.vellum:
         ops.builder_save(authoring, app_id, menu, form)
-    registry.named_change("load_writes_a_label")(authoring, app_id)
+    registry.named_change(variant)(authoring, app_id)
 
     def held_form():
         return operations.held_app(unit, app_id).get_module(1).get_form(0)
