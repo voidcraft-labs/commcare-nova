@@ -79,7 +79,8 @@ def test_each_positive_reader_has_a_held_value_class(manifest):
         assert entry.disposition == "HELD" and entry.value_class
 
 
-def test_the_retained_dotted_open_index_is_decided_at_its_reference(manifest):
+@pytest.mark.parametrize("identifier", ["my.parent", "éparent"])
+def test_the_retained_extended_open_index_is_decided_at_its_reference(identifier):
     from proof.checks import parity
 
     def source(identifier, *, target="selected_household"):
@@ -88,15 +89,15 @@ def test_the_retained_dotted_open_index_is_decided_at_its_reference(manifest):
         index = _index(target, reference_id=identifier, relationship="child")
         return _advanced_app([parent, later], [_open("open_visit", case_indices=[index])])
 
-    entry = parity.DOTTED_OPEN_INDEX
+    entry = parity.EXTENDED_OPEN_INDEX
     baseline = source("my-parent")
     wanted = [
         item.use.where
-        for item in parity.added_uses(baseline, source("my.parent"), entries=(entry,))
+        for item in parity.added_uses(baseline, source(identifier), entries=(entry,))
         if any(resting.id == entry for resting in item.entries)
     ]
     assert wanted == ["/modules/0/forms/0/actions/open_cases/0/case_indices/0/reference_id"]
-    for control in [source("my.parent", target="selected_member"), source("my/parent"), baseline]:
+    for control in [source(identifier, target="selected_member"), source("my/parent"), source("აparent"), baseline]:
         assert not any(
             resting.id == entry
             for item in parity.added_uses(baseline, control, entries=(entry,))
