@@ -66,7 +66,7 @@ def _fields(screen):
     return {q["binding"]: q for q in questions(screen["tree"])}
 
 
-def _submit(served, web, screen, answers, expected):
+def _submit(served, web, screen, answers, writes_expected, stored_expected):
     from corehq.form_processor.models import CommCareCase
 
     sent = len(served.hq.submissions)
@@ -78,9 +78,9 @@ def _submit(served, web, screen, answers, expected):
         item.text for node in root.iter(f"{CASE_NS}case") if node.get("case_id") == HOUSEHOLD
         for item in node.findall(f"{CASE_NS}update/{CASE_NS}members")
     ]
-    assert writes == [expected], etree.tostring(root)
+    assert writes == writes_expected, etree.tostring(root)
     case = CommCareCase.objects.get_case(HOUSEHOLD, served.domain)
-    assert case.get_case_property("members") == expected
+    assert case.get_case_property("members") == stored_expected
     return writes
 
 
@@ -98,7 +98,11 @@ def test_case_management_preserves_mixed_writers_and_reopens_the_number(hq, form
                 fields = _fields(screen)
                 assert fields["/data/members"]["datatype"] == "int", fields
                 observed["originalStartingAnswer"] = fields["/data/members"].get("answer")
-                observed["numberWrite"] = _submit(served, web, screen, {fields["/data/members"]["ix"]: "8"}, "8")
+                observed["numberWrite"] = _submit(
+                    served, web, screen, {fields["/data/members"]["ix"]: "8"}, ["8"], "8",
+                )
+                reopened = _open(apps.web(formplayer_runner, served), "Followup Form")
+                assert _fields(reopened)["/data/members"]["answer"] == 8
             for value in ("7", "007", "7.5", "several"):
                 with served.run(f"text-write-{value}"):
                     web = apps.web(formplayer_runner, served)
@@ -111,15 +115,22 @@ def test_case_management_preserves_mixed_writers_and_reopens_the_number(hq, form
                         fields["/data/visit_note"]["ix"]: value,
                         fields["/data/new_member"]["ix"]: "New member",
                         fields["/data/member_left"]["ix"]: "2",
-                    }, value)
+                    }, [value], value)
                     # Reopen from a fresh restore after HQ commits the text.
                     web = apps.web(formplayer_runner, served)
                     next_screen = _open(web, "Followup Form")
-                    if screen_kind(next_screen) == "form":
+                    if value in ("7", "007"):
                         question = _fields(next_screen)["/data/members"]
-                        observed[value] = {"datatype": question["datatype"], "answer": question.get("answer")}
+                        assert question["datatype"] == "int" and question["answer"] == 7, question
+                        observed[value] = {"answer": question["answer"]}
+                        if value == "007":
+                            # The typed question shows 7, but the numeric comparison in
+                            # the only-if-changed write must leave the stored 007 alone.
+                            observed[value]["unchangedWrites"] = _submit(served, web, next_screen, {}, [], value)
                     else:
-                        observed[value] = {"kind": screen_kind(next_screen), "error": next_screen.get("error")}
-    assert observed["originalStartingAnswer"] in (3, "3"), observed
-    assert observed["7"].get("answer") in (7, "7"), observed
+                        assert screen_kind(next_screen) == "notification" and next_screen.get("status") == "error", next_screen
+                        fault = next_screen["exception"]
+                        assert "members" in fault and f"Invalid cast of data [{value}] to type Integer" in fault, fault
+                        observed[value] = {"openingError": fault}
+    assert observed["originalStartingAnswer"] == 3, observed
     evidence("mixed-members", observed)
