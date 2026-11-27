@@ -7198,7 +7198,6 @@
 		"disposition": "HELD",
 		"dispositionCell": "**HELD**: the required case name allows only child or extension, the link names the first selected case, and the app uses worker ownership",
 		"slotChanges": [],
-		"subject": "advanced-forms",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
