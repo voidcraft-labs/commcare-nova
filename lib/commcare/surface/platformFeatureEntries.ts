@@ -324,6 +324,7 @@ export const PLATFORM_FEATURE_ENTRIES = {
 	],
 	"search-field-checks": [
 		"case-search/required-test-text",
+		"case-search/required-condition-counts-restored-cases",
 		"case-search/validations-0-test-text",
 		"case-search/a-required-or-validation-test-with-no-message-in-any-language",
 	],
