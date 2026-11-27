@@ -191,6 +191,7 @@ import {
 	evaluatePreviewSearchExpression,
 	type PreviewSearchEnvironment,
 	parseExcludedOwnerIds,
+	searchRequirementsReadRestoredCases,
 } from "./searchExpressionEvaluation";
 import {
 	searchFindsNothing,
@@ -662,13 +663,25 @@ async function prepareRunningCaseRead(
 		 * condition or check stays unjudged here: the server holds no Java
 		 * Pattern engine, so Preview's Search screen enforces those in its
 		 * XPath worker, the way it alone enforces lookup-bearing ones. */
+		const checksReadCases =
+			rules.searchFieldChecks &&
+			searchRequirementsReadRestoredCases(args.caseListConfig.searchInputs);
+		const validationEnvironment = requireEnvironment();
+		const searchCases = checksReadCases
+			? await store.readDeviceCaseDatabase({
+					appId: args.appId,
+					restoreScope: context.restoreScope,
+				})
+			: undefined;
 		const runtimeErrors = searchInputSubmissionErrors(
 			rules,
 			args.caseListConfig,
 			args.caseType,
 			inputValues,
 			searchSession,
-			requireEnvironment(),
+			searchCases === undefined
+				? validationEnvironment
+				: { ...validationEnvironment, caseDatabase: searchCases },
 		);
 		const firstError = runtimeErrors.values().next().value;
 		if (firstError !== undefined) {

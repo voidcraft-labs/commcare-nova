@@ -41,6 +41,7 @@ import {
 	ancestorPath,
 	count,
 	type Expression,
+	eq,
 	isRelationPath,
 	type RelationPath,
 	relationStep,
@@ -90,7 +91,17 @@ function deviceCaseCountAvailable(
 	);
 }
 
+function typeRows(caseType: string): ExpressionOfKind<"cases"> {
+	return {
+		kind: "cases",
+		source: "casedb",
+		where: [eq({ kind: "case-row-type" }, { kind: "case-type", caseType })],
+	};
+}
+
 export function hasCountableRelation(ctx: ExpressionEditContext): boolean {
+	if (ctx.expressionContext.slot.slot === "search_input_required_when")
+		return ctx.caseTypes.length > 0;
 	const current = ctx.caseTypes.find(
 		(caseType) => caseType.name === ctx.currentCaseType,
 	);
@@ -114,6 +125,12 @@ export function hasCountableRelation(ctx: ExpressionEditContext): boolean {
 export function countDefault(
 	ctx: ExpressionEditContext,
 ): ExpressionOfKind<"count"> {
+	if (ctx.expressionContext.slot.slot === "search_input_required_when") {
+		const caseType =
+			ctx.caseTypes.find((type) => type.name === ctx.currentCaseType) ??
+			ctx.caseTypes[0];
+		if (caseType !== undefined) return count(typeRows(caseType.name));
+	}
 	if (deviceCaseCountAvailable(ctx))
 		return {
 			kind: "count",
@@ -168,11 +185,14 @@ function DeviceCountCard({
 	const rows = value.via;
 	const conditionIdentity = useStableListIdentity(rows.where);
 	const kinds = ctx.caseTypes ?? [];
-	const isSearchButton =
-		ctx.expressionContext?.slot.slot === "search_button_display_condition";
-	const tables = isSearchButton ? [] : (ctx.lookupTables ?? []);
+	const slot = ctx.expressionContext?.slot.slot;
+	const isSearchButton = slot === "search_button_display_condition";
+	const singleCaseType = slot === "search_input_required_when";
+	const allCases = isSearchButton || ctx.expressionContext?.profile.caseData;
+	const tables =
+		isSearchButton || singleCaseType ? [] : (ctx.lookupTables ?? []);
 	const options = [
-		...(isSearchButton || ctx.expressionContext?.profile.caseData
+		...(allCases && !singleCaseType
 			? [
 					{
 						id: "all",
@@ -183,28 +203,14 @@ function DeviceCountCard({
 							where: [],
 						},
 					},
-					...kinds.map((type) => ({
-						id: `case:${type.name}`,
-						label: type.name,
-						rows: {
-							kind: "cases" as const,
-							source: "casedb" as const,
-							where: [
-								{
-									kind: "eq" as const,
-									left: {
-										kind: "term" as const,
-										term: { kind: "case-row-type" as const },
-									},
-									right: {
-										kind: "term" as const,
-										term: { kind: "case-type" as const, caseType: type.name },
-									},
-								},
-							],
-						},
-					})),
 				]
+			: []),
+		...(allCases || singleCaseType
+			? kinds.map((type) => ({
+					id: `case:${type.name}`,
+					label: type.name,
+					rows: typeRows(type.name),
+				}))
 			: []),
 		...tables.map((table) => ({
 			id: `table:${table.id}`,
@@ -250,46 +256,50 @@ function DeviceCountCard({
 					))}
 				</SelectContent>
 			</Select>
-			{rows.where.map((condition, index) => (
-				<div key={conditionIdentity.keys[index]}>
-					<PredicateFocusBoundary
-						value={condition}
-						path={[...path, "count", "via", rows.kind, "where", index]}
-						onChange={(next) =>
-							setRows(
-								rows.where.map((old, i) => (index === i ? next : old)),
-								{ kind: "replace" },
-							)
-						}
-					/>
+			{!singleCaseType && (
+				<>
+					{rows.where.map((condition, index) => (
+						<div key={conditionIdentity.keys[index]}>
+							<PredicateFocusBoundary
+								value={condition}
+								path={[...path, "count", "via", rows.kind, "where", index]}
+								onChange={(next) =>
+									setRows(
+										rows.where.map((old, i) => (index === i ? next : old)),
+										{ kind: "replace" },
+									)
+								}
+							/>
+							<Button
+								type="button"
+								variant="ghost"
+								onClick={() =>
+									setRows(
+										rows.where.filter((_, i) => i !== index),
+										{ kind: "splice", index, deleteCount: 1, insertCount: 0 },
+									)
+								}
+							>
+								Remove condition
+							</Button>
+						</div>
+					))}
 					<Button
 						type="button"
 						variant="ghost"
 						onClick={() =>
-							setRows(
-								rows.where.filter((_, i) => i !== index),
-								{ kind: "splice", index, deleteCount: 1, insertCount: 0 },
-							)
+							setRows([...rows.where, { kind: "match-all" }], {
+								kind: "splice",
+								index: rows.where.length,
+								deleteCount: 0,
+								insertCount: 1,
+							})
 						}
 					>
-						Remove condition
+						Add condition
 					</Button>
-				</div>
-			))}
-			<Button
-				type="button"
-				variant="ghost"
-				onClick={() =>
-					setRows([...rows.where, { kind: "match-all" }], {
-						kind: "splice",
-						index: rows.where.length,
-						deleteCount: 0,
-						insertCount: 1,
-					})
-				}
-			>
-				Add condition
-			</Button>
+				</>
+			)}
 		</div>
 	);
 }

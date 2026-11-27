@@ -99,6 +99,7 @@ export function useSearchInputRunState(args: {
 	 *  data it holds covers rather than waiting for data that will not
 	 *  arrive. */
 	readonly lookupLoadFailed?: boolean;
+	readonly waitsForRequiredCases?: boolean;
 }): SearchInputRunState {
 	/* The screen reads what Core's query manager reads as it opens (its
 	 * starting values, hidden values, choice lists, required conditions and
@@ -117,6 +118,7 @@ export function useSearchInputRunState(args: {
 	);
 	const pending =
 		waitingForWorker ||
+		args.waitsForRequiredCases === true ||
 		ranges.pending ||
 		ranges.retry !== undefined ||
 		(args.lookupLoadFailed !== true &&

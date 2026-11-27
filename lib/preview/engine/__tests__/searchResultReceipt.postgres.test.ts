@@ -7,7 +7,7 @@ import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
 import { setPreviewSearchSettings } from "@/lib/deployment/previewSearchSettings";
 import { toRscSerializableDoc } from "@/lib/doc/ownRecords";
 import { calculatedColumn, simpleSearchInputDef } from "@/lib/domain";
-import { literal, term } from "@/lib/domain/expression";
+import { count, eq, gt, literal, term } from "@/lib/domain/expression";
 import { resolvePreviewSearchFacts } from "../../searchSettings";
 import {
 	loadCaseDataAction,
@@ -20,7 +20,7 @@ import {
 	readKeptSearchResultDetail,
 	SearchDetailFrameTooLarge,
 } from "../searchResultReceipt";
-import { webAppsDevice } from "./fixtures/previewDevices";
+import { androidDevice, webAppsDevice } from "./fixtures/previewDevices";
 
 const ACTOR = "search-response-worker";
 const PROJECT = "search-response-project";
@@ -43,6 +43,114 @@ vi.mock("../caseDataBindingTelemetry", async (importOriginal) => ({
 const h = setupAppStateTestDb("preview_search_response_", {
 	authSchema: "migrated",
 	poolMax: 4,
+});
+
+it("checks a Search requirement against the authorized worker restore", async () => {
+	await h.seedProjectMember(ACTOR, PROJECT, "owner");
+	await sql`INSERT INTO auth_session (id, token, "userId", "expiresAt", "createdAt", "updatedAt")
+		VALUES (${auth.sessionId}, ${auth.sessionId}, ${ACTOR}, now()+interval '1 hour', now(), now())`.execute(
+		h.db(),
+	);
+	const required = gt(
+		count({
+			kind: "cases",
+			source: "casedb",
+			where: [
+				eq(
+					{ kind: "case-row-type" },
+					{ kind: "case-type", caseType: "patient" },
+				),
+			],
+		}),
+		literal(0),
+	);
+	const doc = buildDoc({
+		appId: APP,
+		caseTypes: [{ name: "patient", properties: [] }],
+		modules: [
+			{
+				name: "Patients",
+				caseType: "patient",
+				caseListMenuItem: {},
+				caseSearchConfig: {},
+				caseListConfig: {
+					...caseListConfig([{ field: "case_name", header: "Name" }]),
+					searchInputs: [
+						simpleSearchInputDef(
+							testUuid("required-worker-restore-name"),
+							"patient_name",
+							"Patient name",
+							"text",
+							"case_name",
+							{ required: { when: required, message: "Give a patient name." } },
+						),
+					],
+				},
+			},
+		],
+	});
+	await h.seedAppWithBlueprint(doc, {
+		id: APP,
+		owner: ACTOR,
+		projectId: PROJECT,
+	});
+	const store = await withProjectContext(PROJECT, ACTOR, ACTOR);
+	await store.applySchemaChange({
+		appId: APP,
+		caseType: "patient",
+		caseTypeSchemas: buildCaseTypeMap(doc),
+	});
+	const saved = await setPreviewSearchSettings(
+		{ appId: APP, projectId: PROJECT },
+		ACTOR,
+		LOCAL,
+		"0",
+		{
+			maximum: 500,
+			propertyMatchers: { ignoredText: [], fuzzyProperties: [] },
+		},
+	);
+	if (saved.kind !== "saved")
+		throw new Error(`Search settings refused: ${saved.kind}`);
+	const revision = resolvePreviewSearchFacts(saved.catalog, LOCAL).revision;
+	const moduleUuid = doc.moduleOrder[0];
+	const search = (
+		device = webAppsDevice(),
+		inputValues: Record<string, string> = {},
+	) =>
+		loadCasesAction({
+			appId: APP,
+			caseType: "patient",
+			moduleUuid,
+			blueprint: toRscSerializableDoc(doc),
+			caseListConfig: doc.modules[moduleUuid].caseListConfig,
+			search: true,
+			searchSubmission: crypto.randomUUID(),
+			device: { ...device, searchConfiguration: { target: LOCAL, revision } },
+			inputValues,
+			page: { offset: 0, limit: 10 },
+		});
+	const insert = async (caseStore: typeof store, id: string) =>
+		caseStore.insert({
+			appId: APP,
+			row: { case_id: id, case_type: "patient", case_name: id, properties: {} },
+		});
+	const other = await withProjectContext(PROJECT, ACTOR, "other-case-owner");
+	await insert(other, "outside-the-restore");
+	expect(await search()).toMatchObject({ kind: "rows" });
+	await insert(store, "Amina");
+	expect(await search()).toMatchObject({
+		kind: "invalid-search",
+		repair: "inputs",
+		message: "Give a patient name.",
+	});
+	expect(
+		await search(webAppsDevice(), { patient_name: "Amina" }),
+	).toMatchObject({
+		kind: "rows",
+		rows: [{ case_id: "Amina" }],
+	});
+	expect(await search(androidDevice())).toMatchObject({ kind: "rows" });
 });
 
 it("opens a form on the same search response that supplied Results", async () => {

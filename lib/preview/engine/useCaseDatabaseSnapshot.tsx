@@ -34,6 +34,7 @@ import {
 } from "./expressionCaseReads";
 import { moduleFirstMenuCases } from "./frameLanding";
 import { moduleSearchReadsCaseDatabase } from "./searchCsqlRuntime";
+import { searchRequirementsReadRestoredCases } from "./searchExpressionEvaluation";
 import type { CaseDatabaseSnapshot } from "./xpathInstances";
 
 type CaseDatabaseState =
@@ -138,7 +139,10 @@ export function caseDatabaseRequirements(
 		return (
 			(condition !== undefined &&
 				expressionReadsCaseDatabase(condition, doc)) ||
-			moduleSearchReadsCaseDatabase(module)
+			moduleSearchReadsCaseDatabase(module) ||
+			searchRequirementsReadRestoredCases(
+				module.caseListConfig?.searchInputs ?? [],
+			)
 		);
 	});
 	const listActionReference = Object.values(doc.modules).some((module) => {

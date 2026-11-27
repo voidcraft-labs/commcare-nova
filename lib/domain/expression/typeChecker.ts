@@ -81,6 +81,7 @@ import {
 	isAnswerWriteAssignable,
 	isDateOrDatetime,
 	isNumeric,
+	isRestoredCaseTypeQuery,
 	isValueStorageAssignable,
 	isWriteAssignable,
 	literalShape,
@@ -112,6 +113,7 @@ import {
 	type Term,
 	type TermOfKind,
 } from "./types";
+import { walkExpression } from "./walk";
 
 export type ScalarType = CasePropertyDataType | "boolean" | "_any";
 export type ExpressionType =
@@ -788,6 +790,24 @@ export function checkExpression(
 		...csqlFindings(expression, ctx),
 	];
 	const slot = ctx.slot;
+	if (slot.slot === "search_input_required_when") {
+		walkExpression(expression, {
+			visitExpression(node, path) {
+				if (
+					isRestoredCaseTypeQuery(node) &&
+					(path.at(-2) !== "count" || path.at(-1) !== "via")
+				) {
+					errors.push({
+						path,
+						code: "arm-unavailable",
+						message:
+							"You can count the worker’s restored cases in this requirement.",
+						reason: "search-required-cases-count-only",
+					});
+				}
+			},
+		});
+	}
 	if (slot.entity === "module" && slot.slot === "case_detail_tab_rows") {
 		const row = expressionRowScope(expression, ctx);
 		if (
@@ -1204,6 +1224,14 @@ function admission(
 				(expression.kind === "count" &&
 					expression.via.kind === "cases" &&
 					expression.via.source === "casedb"))
+		)
+			return undefined;
+		if (
+			ctx.slot.slot === "search_input_required_when" &&
+			(isRestoredCaseTypeQuery(expression) ||
+				(expression.kind === "count" &&
+					!isRelationPath(expression.via) &&
+					isRestoredCaseTypeQuery(expression.via)))
 		)
 			return undefined;
 		// A server search reads a query of the device's data in a value the

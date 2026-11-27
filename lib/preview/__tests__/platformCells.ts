@@ -402,6 +402,9 @@ export const PLATFORM_CELLS: Readonly<
 	"case-search/required-test-text@android": model(
 		"search-field-checks-android",
 	),
+	"case-search/required-condition-counts-restored-cases@android": model(
+		"search-field-checks-android",
+	),
 	"case-search/validations-0-test-text@android": model(
 		"search-field-checks-android",
 	),

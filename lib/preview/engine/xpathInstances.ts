@@ -1158,6 +1158,8 @@ export function searchScreenXPathInstances(args: {
 	readonly answers: ReadonlyMap<string, string>;
 	readonly lookupData?: PreviewLookupData;
 	readonly sessionData?: Readonly<Record<string, string>>;
+	readonly caseDatabase?: CaseDatabaseSnapshot;
+	readonly caseTypes?: readonly CaseType[];
 }): ReadonlyMap<string, XPathInstance> {
 	return new Map<string, XPathInstance>([
 		[
@@ -1169,6 +1171,14 @@ export function searchScreenXPathInstances(args: {
 			searchInputXPathInstance(args.answers, SEARCH_INPUT_INSTANCE_ID),
 		],
 		["search-input", searchInputXPathInstance(args.answers, "search-input")],
+		...(args.caseDatabase === undefined
+			? []
+			: [
+					[
+						"casedb",
+						caseDatabaseXPathInstance(args.caseDatabase, args.caseTypes),
+					] as const,
+				]),
 		...lookupXPathInstances(args.lookupData ?? null, {
 			includeFixtureAliases: true,
 		}),

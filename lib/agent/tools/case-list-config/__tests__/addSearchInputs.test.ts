@@ -3,6 +3,7 @@
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
+import { prepareAuthoringInput } from "@/lib/agent/authoring/input";
 import { type BlueprintDoc, plainColumn } from "@/lib/domain";
 import { literal, matchAll, term } from "@/lib/domain/expression";
 import { addSearchInputsTool } from "../addSearchInputs";
@@ -55,6 +56,60 @@ describe("addSearchInputs", () => {
 		if (input?.kind === "simple") {
 			expect(input.property).toBe("case_name");
 		}
+	});
+
+	it("commits a restored-case count in a Search requirement through authoring", async () => {
+		const h = makeCaseListFixture(withCaseList(makeCaseListDoc()));
+		const result = await h.workspace.invoke({
+			toolName: "addSearchInputs",
+			async execute(ctx) {
+				const canonical = await prepareAuthoringInput({
+					toolName: "addSearchInputs",
+					schema: addSearchInputsTool.inputSchema,
+					input: {
+						moduleUuid: MOD_A,
+						searchInputs: [
+							{
+								kind: "simple",
+								name: "name_search",
+								label: "Name",
+								type: "text",
+								property: "case_name",
+								required: { when: "count(cases('patient')) > 0" },
+							},
+						],
+					},
+					ctx,
+				});
+				return addSearchInputsTool.execute(canonical, ctx);
+			},
+		});
+		expect(result).toMatchObject({ kind: "mutate" });
+		expect(
+			h.currentDoc().modules[MOD_A].caseListConfig?.searchInputs[0],
+		).toMatchObject({
+			required: {
+				when: {
+					kind: "gt",
+					left: {
+						kind: "count",
+						via: {
+							kind: "cases",
+							source: "casedb",
+							where: [
+								{
+									kind: "eq",
+									right: {
+										kind: "term",
+										term: { kind: "case-type", caseType: "patient" },
+									},
+								},
+							],
+						},
+					},
+				},
+			},
+		});
 	});
 
 	// A hidden field with no value is HQ's hidden, excluded prompt with no starting value: Web

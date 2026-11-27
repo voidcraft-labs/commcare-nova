@@ -3583,6 +3583,37 @@
 		"gates": []
 	},
 	{
+		"id": "case-search/required-condition-counts-restored-cases",
+		"area": "case-search",
+		"section": "Case search",
+		"subsection": "Search prompts",
+		"item": "A required Search condition that counts the worker’s restored cases of a declared type",
+		"surfaceKeys": [
+			"schema:CaseSearchProperty.required",
+			"schema:Assertion.test",
+			"parser:QueryPromptParser/required@test"
+		],
+		"valueClass": "required-condition-counts-restored-cases",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the condition counts the worker’s restored cases by their declared type. Web Apps requires an answer when the condition holds.",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / IGNORED",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "ignored"
+			}
+		},
+		"emission": {
+			"cell": "Typed case count in the requirement and the device case instance",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
 		"id": "case-search/validations-0-test-text",
 		"area": "case-search",
 		"section": "Case search",

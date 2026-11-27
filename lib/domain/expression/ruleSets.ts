@@ -14,6 +14,8 @@ import {
 	MATCH_MODES,
 	type MatchMode,
 } from "./types";
+import { walkExpression } from "./walk";
+
 export const ANY_TYPE = "_any" as const;
 
 export type ResolvedType = ScalarType;
@@ -214,6 +216,35 @@ export function literalShape(
 		return { type: "datetime", fractionDigits: datetime[1]?.length ?? 0 };
 	if (TIME_SHAPE.test(text)) return { type: "time", fractionDigits: 0 };
 	return undefined;
+}
+
+/** A query of restored cases with a single typed case-type match. */
+export function isRestoredCaseTypeQuery(expression: Expression): boolean {
+	if (
+		expression.kind !== "cases" ||
+		expression.source !== "casedb" ||
+		expression.supplier !== undefined
+	)
+		return false;
+	const filter = expression.where?.[0];
+	return (
+		expression.where?.length === 1 &&
+		filter?.kind === "eq" &&
+		filter.left.kind === "term" &&
+		filter.left.term.kind === "case-row-type" &&
+		filter.right.kind === "term" &&
+		filter.right.term.kind === "case-type"
+	);
+}
+
+export function readsRestoredCaseTypeQuery(expression: Expression): boolean {
+	let reads = false;
+	walkExpression(expression, {
+		visitExpression(node) {
+			if (isRestoredCaseTypeQuery(node)) reads = true;
+		},
+	});
+	return reads;
 }
 
 /** Core numerically orders these text operands when a simple Search prompt

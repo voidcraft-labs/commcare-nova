@@ -82,8 +82,13 @@ import {
 	type Expression,
 	expressionReadsCaseData,
 	expressionReferencesAnySearchInput,
+	isRelationPath,
+	literal,
+	term,
 	valueSchema,
 } from "@/lib/domain/expression";
+import { mapExpressionAst } from "@/lib/domain/expression/mapAst";
+import { isRestoredCaseTypeQuery } from "@/lib/domain/expression/ruleSets";
 import {
 	projectChoiceSearchInput,
 	projectRangeSearchInput,
@@ -577,9 +582,8 @@ export const SA_SEARCH_INPUT_TYPES = SEARCH_INPUT_TYPES;
 /**
  * The Search-screen boundary the commit gate also enforces, said at the
  * tool boundary so the model reads the reason beside its own call. Every
- * slot here evaluates before any case is selected: a case read can never
- * hold. A hidden value additionally fires before anyone types, so it may
- * not read another input either.
+ * slot here evaluates before any case is selected. A requirement can count
+ * restored cases of one type. Hidden values open before anyone answers.
  */
 function refineSearchInputBoundary(
 	input:
@@ -625,13 +629,23 @@ function refineSearchInputBoundary(
 	}
 	if (
 		input.required?.when !== undefined &&
-		expressionReadsCaseData(input.required.when)
+		expressionReadsCaseData(
+			mapExpressionAst(input.required.when, {
+				// Ignore only the checked count while looking for other case reads.
+				mapExpression: (node) =>
+					node.kind === "count" &&
+					!isRelationPath(node.via) &&
+					isRestoredCaseTypeQuery(node.via)
+						? term(literal(0))
+						: undefined,
+			}),
+		)
 	) {
 		ctx.addIssue({
 			code: "custom",
 			path: ["required", "when"],
 			message:
-				"A required condition runs on the Search screen before any case is selected, so it cannot read case properties or relationships. Compare other Search answers (#search/name), fixed values, or worker/session values.",
+				"A Search requirement can count the worker’s restored cases of one type. It can also compare Search answers (#search/name), fixed values, or worker information.",
 		});
 	}
 	if (

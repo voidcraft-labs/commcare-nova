@@ -563,6 +563,15 @@ function expressionChoiceCopy(
 ) {
 	if (
 		schema.kind === "count" &&
+		context.expressionContext.slot.slot === "search_input_required_when"
+	) {
+		return {
+			label: "Count cases on this device",
+			description: "How many of the worker’s cases are of a selected type",
+		};
+	}
+	if (
+		schema.kind === "count" &&
 		context.expressionContext.slot.slot === "search_button_display_condition"
 	) {
 		return {

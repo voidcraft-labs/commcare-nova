@@ -121,6 +121,7 @@ Case search as a whole needs SYNC_SEARCH_CASE_CLAIM plus the target's `CaseSearc
 | `allow_blank_value` on a shown prompt named `owner_id` without `exclude` | **REFUSED**: broken at runtime: a ticked box beside an owner sends the key twice and HQ raises "Multiple values are only supported for simple text and range searches" (`SearchCriteria._validate_multiple_terms`) | — | — |
 | `exclude` | **HELD**: input excluded from filters (value kept in `search-input`) | RUNS / RUNS | `exclude: true`; CASE_SEARCH_ADVANCED |
 | `required {test, text}` | **HELD**: `searchInputs[].required {when, message}` (test lifts into Predicate; else the typed expression model) | RUNS / IGNORED | `required` |
+| A required Search condition that counts the worker’s restored cases of one declared type | **HELD**: `required.when` can count that typed case query. Web Apps uses the count when the worker opens and submits Search | RUNS / IGNORED | `required.test` with the native case instance |
 | `validations[0] {test, text}` | **HELD**: `searchInputs[].validation` (same lifting) | RUNS / IGNORED | `validations[0]` |
 | a Search field's required or validation test holding `#case`, `#parent`, `#host`, or (required) a bare dot | **REFUSED**: not HQ-buildable: `xpath.py::_ensure_no_case_references` raises `CaseXPathValidationError` | — | — |
 | a Search field's required or validation test CommCare HQ builds and Nova's checker refuses in that slot | **HELD-NEW**: a test over more than the field, its siblings, the session and the worker | RUNS / IGNORED | — |
