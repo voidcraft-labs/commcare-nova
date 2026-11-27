@@ -340,6 +340,7 @@ export const REFUSABLE_PLATFORM_FEATURE_IDS = [
 	"case-list-lookup-count",
 	"window-width",
 	"android-app-question",
+	"search-result-detail-text",
 	"raw-grouped-tile-body-field",
 ] as const satisfies readonly PlatformFeatureId[];
 export type RefusablePlatformFeatureId =
@@ -1100,7 +1101,7 @@ export const PLATFORM_FEATURES: Readonly<
 		webApps: { reading: "runs" },
 		android: {
 			reading: "unavailable",
-			note: "Android keeps the results without their submitted prompts",
+			note: "the results carry no submitted prompt answers",
 		},
 		refusal: {
 			what: "shows a submitted Search answer on Details",

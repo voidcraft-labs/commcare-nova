@@ -392,6 +392,8 @@ export const AMBIENT_PLATFORM_ENTRIES = {
 		"The platform declaration's own wire form; Android reads no cloudcare_enabled.",
 	"case-search/auto-launch-false-in-an-app-with-cloudcare-enabled-false":
 		"The wire form of list first in an app that declares Android only, which no Web App reads; `list-first` states list first's readings.",
+	"case-search/address-receiver-on-an-unmatched-topic-without-a-component":
+		"Only an HQ import can supply the saved topic. Nova authors receivers by picker identity.",
 	"expressions-and-data/commcaresession-jr-instance-session":
 		"The session instance itself; each context field's feature states its difference.",
 	"expressions-and-data/lookup-table-rows-in-the-local-archive-suite":
