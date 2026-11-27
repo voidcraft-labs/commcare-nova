@@ -428,14 +428,19 @@ def test_only_a_single_declared_fixture_ordinal_is_its_explicit_position_spellin
     assert _parts(overflow, form(path + "[position() = 2147483647]")) == [
         ("changed", pattern + "/:respelled", at + "/:respelled"),
     ]
-    for expression in ("[(2)]", "[((2.5))]"):
+    for expression in ("[(2)]", "[((2.5))]", "[(1 + 1)]", "[3 - 1]", "[1 * 2]"):
         assert _parts(form(path + expression), after) == [("changed", pattern + "/:respelled", at + "/:respelled")]
-    for expression in ("[(1 + 1)]", "[-2]", "[2147483648]", "[last() - 1]", "[name != ''][2]"):
+    for expression in (
+        "[1 + 2]", "[2 - 4]", "[4 div 2]", "[number('2')]", "[-2]", "[2147483648]", "[last() - 1]", "[name != ''][2]",
+    ):
         assert _parts(form(path + expression), after) == [("changed", pattern, at)]
     assert _parts(before, form(path + "[position() = 1]")) == [("changed", pattern, at)]
     assert _parts(before, form(path + "[position() = 2][name != '']")) == [("changed", pattern, at)]
     cases = "jr://instance/casedb"
-    assert _parts(form(path + "[2]", cases), form(path + "[position() = 2]", cases)) == [("changed", pattern, at)]
+    for expression in ("[2]", "[(1 + 1)]"):
+        assert _parts(form(path + expression, cases), form(path + "[position() = 2]", cases)) == [
+            ("changed", pattern, at),
+        ]
     value = itemset.replace('nodeset="{}"', f'nodeset="{path}"').replace('ref="id"', 'ref="{}"')
     assert _parts(
         form(path + "[2]", control=value), form(path + "[position() = 2]", control=value),
