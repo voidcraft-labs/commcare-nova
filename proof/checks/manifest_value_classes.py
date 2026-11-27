@@ -12011,6 +12011,9 @@ def save_to_case_retype_property_types(use, *, required_date=False):
         root_group = block.getparent()
         if types != ("string", "date") or root_group.getparent() is not form.data_root:
             return None
+        if ([_local(node) for node in _children(prior)] != ["create", "update"]
+                or [_local(node) for node in _children(case)] != ["update"]):
+            return None
         for holder in (root_group, earlier, block):
             bind = form.bind(form.paths[holder])
             if bind is not None and bind.get("relevant"):

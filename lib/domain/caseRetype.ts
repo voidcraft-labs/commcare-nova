@@ -99,7 +99,8 @@ export function planCaseRetype(
 }
 
 /** The sole incompatible property that an unconditional write replaces on
- * this form's own fresh, unkeyed case. The native update writes the date
+ * this form's fresh, unkeyed case created without links. The root questions
+ * write that text and date directly. The native update writes the date
  * and the type together. An optional date would send an explicit empty
  * property that Nova's typed storage cannot preserve. */
 export function requiredDateRetypeOverwrite(
@@ -128,6 +129,7 @@ export function requiredDateRetypeOverwrite(
 		producer.target.idFrom !== undefined ||
 		producer.condition !== undefined ||
 		producer.forEach !== undefined ||
+		producer.links?.length ||
 		producer.writes?.length !== 1
 	)
 		return undefined;
@@ -163,6 +165,7 @@ export function requiredDateRetypeOverwrite(
 		sourceField === undefined ||
 		sourceField.link ||
 		doc.fields[sourceField.field]?.kind !== "text" ||
+		!doc.fieldOrder[formUuid]?.includes(sourceField.field) ||
 		dateField === undefined ||
 		dateField.link ||
 		date?.kind !== "date" ||

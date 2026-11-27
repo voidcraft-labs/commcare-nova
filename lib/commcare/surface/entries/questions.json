@@ -3741,7 +3741,7 @@
 		"surfaceKeys": ["mug:SaveToCase"],
 		"valueClass": "fresh-retype-overwrites-with-required-date",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: the case type and the answer from a visible, required root date question are written together. Android saves the day shown by its untouched ordinary date picker.",
+		"dispositionCell": "**HELD**: a form creates a case without links and writes text from a root question. The form writes the case type and the replacement from a visible, required root date together. Android saves the day shown by its untouched ordinary date picker.",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
