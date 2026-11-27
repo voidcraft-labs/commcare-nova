@@ -6164,7 +6164,7 @@
 					"date_format": "%d/%m/%y",
 					"doc_type": "DetailColumn",
 					"enum": [],
-					"field": "count(instance('casedb')/casedb/case[@case_type = 'patient'][village = district])",
+					"field": "count(instance('casedb')/casedb/case[@case_type = 'patient'][notes = phone])",
 					"format": "plain",
 					"graph_configuration": {
 						"annotations": [],
@@ -6194,7 +6194,7 @@
 					}
 				],
 				"pointer": "/caseListConfig/columns/5/expression/via/where/1/right/term/property",
-				"value": "district"
+				"value": "phone"
 			}
 		]
 	},
@@ -6348,7 +6348,7 @@
 					"date_format": "%d/%m/%y",
 					"doc_type": "DetailColumn",
 					"enum": [],
-					"field": "count(instance('casedb')/casedb/case[@case_type = 'patient'][village != district])",
+					"field": "count(instance('casedb')/casedb/case[@case_type = 'patient'][notes != phone])",
 					"format": "plain",
 					"graph_configuration": {
 						"annotations": [],
