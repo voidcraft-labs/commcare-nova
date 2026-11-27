@@ -45,6 +45,7 @@ import {
 	type CaseProperty,
 	type CaseType,
 	effectiveDataType,
+	isBasicAndroidCasePropertyName,
 } from "@/lib/domain";
 import { humanizeId } from "@/lib/domain/idSlug";
 import {
@@ -170,12 +171,15 @@ export function PropertyPicker({
 	const properties = useMemo<readonly CaseProperty[]>(() => {
 		const available = sourceProperties ?? targetCaseType?.properties;
 		if (available === undefined) return [];
-		const own = filter === undefined ? available : available.filter(filter);
+		const canRead = (property: CaseProperty) =>
+			!isBasicAndroidCasePropertyName(property.name) &&
+			(filter?.(property) ?? true);
+		const own = available.filter(canRead);
 		const extra = extraProperties
 			.map((entry) => entry.property)
 			.filter(
 				(property) =>
-					(filter === undefined || filter(property)) &&
+					canRead(property) &&
 					!own.some((candidate) => candidate.name === property.name),
 			);
 		return extra.length === 0 ? own : [...own, ...extra];

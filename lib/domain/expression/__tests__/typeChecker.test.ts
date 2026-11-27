@@ -520,6 +520,30 @@ describe("conditionVerdict — comparison operators", () => {
 		}
 	});
 
+	it("does not read a case property kept for a Basic Android write", () => {
+		const catalog: CaseType[] = [
+			{
+				name: "patient",
+				properties: ["estado_e", "estado_é"].map((name) => ({
+					name,
+					label: proseText(name),
+					data_type: "text",
+				})),
+			},
+		];
+		const options = { caseTypes: catalog, currentCaseType: "patient" };
+		expect(
+			conditionVerdict(eq(prop("patient", "estado_e"), literal("x")), options)
+				.ok,
+		).toBe(true);
+		const invalid = conditionVerdict(
+			eq(prop("patient", "estado_é"), literal("x")),
+			options,
+		);
+		expect(invalid.ok).toBe(false);
+		if (!invalid.ok) expect(invalid.errors[0]?.code).toBe("unknown-property");
+	});
+
 	it("rejects an unknown property reference", () => {
 		const p = eq(prop("patient", "bogus"), literal("x"));
 		const result = conditionVerdict(p, ctx);

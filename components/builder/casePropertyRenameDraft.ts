@@ -3,6 +3,7 @@ import {
 	CASE_SCALAR_PROPERTY_NAMES,
 	type CaseType,
 	humanizeId,
+	isBasicAndroidCasePropertyName,
 } from "@/lib/domain";
 
 export interface CasePropertyRenameSource {
@@ -63,7 +64,8 @@ export function casePropertyRenameSources(
 ): readonly CasePropertyRenameSource[] {
 	return caseTypes.flatMap((caseType) =>
 		caseType.properties.flatMap((property) =>
-			CASE_SCALAR_PROPERTY_NAMES.has(property.name)
+			CASE_SCALAR_PROPERTY_NAMES.has(property.name) ||
+			isBasicAndroidCasePropertyName(property.name)
 				? []
 				: [
 						{

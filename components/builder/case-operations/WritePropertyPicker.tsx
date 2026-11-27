@@ -36,7 +36,7 @@ import {
 	caseOperationWritePropertyVerdict,
 	isReservedCaseOperationProperty,
 } from "@/lib/doc/identifierVerdicts";
-import { slugifyId } from "@/lib/domain";
+import { isBasicAndroidCasePropertyName, slugifyId } from "@/lib/domain";
 import type { Expression } from "@/lib/domain/expression";
 import { casePropertyLabel, caseTypePhrase } from "./operationSentence";
 import { seedWriteValue, writeSeedUnavailableReason } from "./seeds";
@@ -71,7 +71,9 @@ export function WritePropertyPicker({
 			(candidate) => candidate.name === caseTypeName,
 		);
 		return (caseType?.properties ?? []).filter(
-			(property) => !isReservedCaseOperationProperty(property.name),
+			(property) =>
+				!isBasicAndroidCasePropertyName(property.name) &&
+				!isReservedCaseOperationProperty(property.name),
 		);
 	}, [caseTypes, caseTypeName]);
 	const available = useMemo(() => {

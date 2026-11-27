@@ -4,6 +4,7 @@ import { unusedCasePropertyError } from "@/lib/doc/unusedCaseProperty";
 import {
 	authoredCasePropertyNameSchema,
 	casePropertySchema,
+	caseWritePropertyNameSchema,
 	effectiveCaseTypes,
 	isStandardCaseListProperty,
 	STANDARD_CASE_PROPERTY_DESCRIPTIONS,
@@ -19,7 +20,7 @@ import type { MutationSuccess } from "./shared/toolCallSummary";
 
 const address = {
 	caseType: z.string().min(1),
-	property: authoredCasePropertyNameSchema,
+	property: caseWritePropertyNameSchema,
 };
 
 export const getCasePropertyInputSchema = z.strictObject(address);
@@ -31,6 +32,7 @@ const {
 } = casePropertyInputSchema.shape;
 export const updateCasePropertyInputSchema = z.strictObject({
 	...address,
+	property: authoredCasePropertyNameSchema,
 	updates: z
 		.strictObject(editable)
 		.partial()

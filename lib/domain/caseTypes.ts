@@ -5,6 +5,7 @@
 // (which case types a module can write to), not UI policy.
 
 import type { CaseProperty, CaseType } from "./blueprint";
+import { isBasicAndroidCasePropertyName } from "./casePropertyName";
 import type { CasePropertyDataType } from "./casePropertyTypes";
 import type { FieldKind } from "./fields";
 import type { FormType } from "./forms";
@@ -189,10 +190,12 @@ export function toReachableIndex(
 	const index: ReachableCaseTypeIndex = new Map();
 	for (const t of reachable) {
 		const properties = new Map(
-			t.properties.map((p) => [
-				p.name,
-				{ label: projectProseTemplate(p.label, doc).text },
-			]),
+			t.properties
+				.filter((property) => !isBasicAndroidCasePropertyName(property.name))
+				.map((p) => [
+					p.name,
+					{ label: projectProseTemplate(p.label, doc).text },
+				]),
 		);
 		for (const property of STANDARD_CASE_LIST_PROPERTIES) {
 			if (!properties.has(property))

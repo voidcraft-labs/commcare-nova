@@ -713,6 +713,11 @@ const PLATFORM_BUILDER_COPY = {
 			`${subject} opens another app to answer the question. This needs Android.`,
 		alternative: "let the worker enter the answer directly",
 	},
+	"basic-write-name-requires-android": {
+		lead: (subject) =>
+			`${subject} keeps an accented case property. Web Apps can't open the form that saves it.`,
+		alternative: "remove the accented save and property definition",
+	},
 	"advanced-index-name-requires-android": {
 		lead: (subject) =>
 			`${subject} writes a connection name with non-ASCII characters. Web Apps can't open this form.`,
@@ -2119,6 +2124,9 @@ const USER_MESSAGE_BY_CODE: Record<
 	CASE_OPERATION_RESERVED_PROPERTY: () =>
 		"A case operation writes to a reserved name. Use the operation's matching setting or another property.",
 	CASE_OPERATION_EXPRESSION_TYPE: (e) => {
+		if (e.details?.reason === "basic-accented-write-placement") {
+			return "This accented case property needs a direct text answer on a form that saves to its selected case. You can remove the save before changing where it goes.";
+		}
 		if (e.details?.reason === "datetime-base") {
 			return "A date calculation in this case operation starts from a date and time, but the time would be lost here. Use a whole date or choose another calculation.";
 		}

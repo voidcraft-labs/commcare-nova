@@ -82,7 +82,11 @@ import { updateCaseOperationTool } from "../lib/agent/tools/case-operations/upda
 import { configureProjectSearchTool } from "../lib/agent/tools/case-search-config/configureProjectSearch";
 import { setCaseSearchAdvancedTool } from "../lib/agent/tools/case-search-config/setCaseSearchAdvanced";
 import { setCaseSearchDisplayTool } from "../lib/agent/tools/case-search-config/setCaseSearchDisplay";
-import { updateCasePropertyTool } from "../lib/agent/tools/caseProperties";
+import {
+	getCasePropertyTool,
+	removeCasePropertiesTool,
+	updateCasePropertyTool,
+} from "../lib/agent/tools/caseProperties";
 import { configureConnectTool } from "../lib/agent/tools/configureConnect";
 import { createFormTool } from "../lib/agent/tools/createForm";
 import { createModuleTool } from "../lib/agent/tools/createModule";
@@ -277,6 +281,20 @@ const SCHEMA_TESTS: readonly SchemaTest[] = [
 		schema: setCaseTypeParentTool.inputSchema,
 		prompt:
 			"Use setCaseTypeParent to add the supervisor link from visit to worker.",
+	},
+	{
+		name: "getCaseProperty",
+		description: getCasePropertyTool.description,
+		schema: getCasePropertyTool.inputSchema,
+		prompt:
+			'Use getCaseProperty to look up the existing accented property "estado_é" of the patient record type.',
+	},
+	{
+		name: "removeCaseProperties",
+		description: removeCasePropertiesTool.description,
+		schema: removeCasePropertiesTool.inputSchema,
+		prompt:
+			'Use removeCaseProperties to remove the unused definition of "estado_é" from the patient record type.',
 	},
 	{
 		name: "updateCaseProperty",

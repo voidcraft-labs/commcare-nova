@@ -3531,6 +3531,25 @@
 		"gates": []
 	},
 	{
+		"id": "forms-and-case-writes/basic-update-key-with-an-accented-latin-name",
+		"area": "forms-and-case-writes",
+		"section": "Basic form actions",
+		"item": "an accented Latin-1 property key in a direct Basic update of the one case selected for a follow-up, saved from a root text answer every time",
+		"surfaceKeys": ["schema:UpdateCaseAction.update"],
+		"valueClass": "basic-update-with-accented-latin-name",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: a case write with its exact accented key. Android opens and submits it. Web Apps cannot open the generated form. The stock Case Management editor preserves the write and the ordinary Case List editor rejects the name in a property column.",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "UNAVAILABLE / RUNS",
+			"webApps": { "reading": "unavailable" },
+			"android": { "reading": "runs" }
+		},
+		"emission": { "cell": "the key", "markers": [] },
+		"gates": []
+	},
+	{
 		"id": "forms-and-case-writes/update-key-holding-a-non-ascii-core-name-character",
 		"area": "forms-and-case-writes",
 		"section": "Basic form actions",
@@ -3545,18 +3564,13 @@
 		],
 		"valueClass": "non-ascii-core-name-key",
 		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: non-ASCII property keys, including `estado_é`, whose editing and runtime behavior Nova has yet to prove outside the separately refused basic update class",
+		"dispositionCell": "**HELD-NEW**: other non-ASCII property writes, outside the measured Android Basic direct text write and the separately refused uncased-letter class",
 		"subject": "case-property-names",
 		"owner": "forms-and-case-management",
 		"platforms": {
-			"kind": "each",
-			"cell": "RUNS / RUNS",
-			"webApps": {
-				"reading": "runs"
-			},
-			"android": {
-				"reading": "runs"
-			}
+			"kind": "not-applicable",
+			"cell": "n/a",
+			"note": "The supported Basic Android write has its own row. Other names and placements stay open for their own runtime evidence."
 		},
 		"emission": {
 			"cell": "the key",

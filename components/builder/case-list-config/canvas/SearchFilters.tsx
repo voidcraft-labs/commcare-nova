@@ -23,6 +23,7 @@ import type {
 	UserProperty,
 	Uuid,
 } from "@/lib/domain";
+import { isBasicAndroidCasePropertyName } from "@/lib/domain/casePropertyName";
 import { literal, term } from "@/lib/domain/expression";
 import { isOrdinaryCaseSearchConfig } from "@/lib/domain/modules";
 import {
@@ -69,7 +70,10 @@ export function SearchFilters({
 	for (const type of caseTypes) {
 		if (!requestedTypes.includes(type.name)) continue;
 		for (const property of type.properties)
-			if (!propertyOptions.has(property.name))
+			if (
+				!isBasicAndroidCasePropertyName(property.name) &&
+				!propertyOptions.has(property.name)
+			)
 				propertyOptions.set(property.name, {
 					value: property.name,
 					label: projectProse(property.label) || property.name,
@@ -142,6 +146,7 @@ export function SearchFilters({
 			});
 		}
 		for (const property of type.properties) {
+			if (isBasicAndroidCasePropertyName(property.name)) continue;
 			const label = projectProse(property.label) || property.name;
 			if (!ancestors.length && ["case_id", "owner_id"].includes(property.name))
 				continue;

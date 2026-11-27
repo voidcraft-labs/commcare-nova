@@ -221,6 +221,7 @@ export const PLATFORM_FEATURE_IDS = [
 	"answer-name-requires-android",
 	"answer-root-name-requires-android",
 	"advanced-index-name-requires-android",
+	"basic-write-name-requires-android",
 	"web-apps-form-behavior",
 	"case-list-android-lookup",
 	"case-list-icon-actions",
@@ -322,6 +323,7 @@ export const REFUSABLE_PLATFORM_FEATURE_IDS = [
 	"answer-name-requires-android",
 	"answer-root-name-requires-android",
 	"advanced-index-name-requires-android",
+	"basic-write-name-requires-android",
 	"case-list-icon-actions",
 	"case-list-here",
 	"worker-distance",
@@ -388,6 +390,22 @@ export const PLATFORM_FEATURES: Readonly<
 			what: "writes a connection name with non-ASCII characters",
 			why: "Web Apps cannot open a form that writes this connection name.",
 			alternative: "use a connection name with ASCII characters",
+		},
+	},
+	"basic-write-name-requires-android": {
+		label: "Basic case writes with accented property names",
+		channel: "structure",
+		webApps: {
+			reading: "unavailable",
+			note: "it cannot open a form that writes this case property",
+			remedy: "Use an ASCII case property name.",
+		},
+		android: { reading: "runs" },
+		refusal: {
+			what: "keeps a Basic case property with an accented name",
+			why: "Web Apps cannot open a form that writes this case property.",
+			alternative:
+				"remove the accented property or keep Android as the app's platform",
 		},
 	},
 	"datetime-question": {
