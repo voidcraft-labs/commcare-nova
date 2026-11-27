@@ -518,7 +518,16 @@ export function caseWriteLabelSavesEmpty(
 
 /** The earlier record in a two-choice entry can supply one passive label. */
 function earlierManualLabelSource(f: CaseSlotFacts, selection: Uuid): boolean {
-	const choices = formCaseSelections(f.doc, f.formUuid);
+	const choices = explicitFormCaseSelections(f.doc, f.formUuid);
+	if (choices === undefined) {
+		const chain = advancedLoadChain(f.doc, f.formUuid);
+		const first = chain[0];
+		return (
+			chain.length === 2 &&
+			first !== undefined &&
+			implicitFormSelectionId(f.formUuid, first.moduleUuid) === selection
+		);
+	}
 	return (
 		choices.length === 2 &&
 		ownFormSelectionIndex(f.doc, f.formUuid) === 1 &&
