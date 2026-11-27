@@ -41,18 +41,32 @@ const storedCaseMatchText = z
 		"Enter text that can be carried as one value.",
 	);
 
-export const availableCasePropertyMatchSchema = z.strictObject({
-	property: authoredCasePropertyNameSchema.refine(
-		(property) => !CASE_NODE_ATTRIBUTE_PROPERTIES.has(property),
-		"Use a case property to filter the restored records.",
-	),
-	text: storedCaseMatchText,
-	alternateText: storedCaseMatchText
-		.optional()
-		.describe(
-			"Also offer records whose same property has this exact stored value.",
-		),
-});
+const storedCaseMatchProperty = authoredCasePropertyNameSchema.refine(
+	(property) => !CASE_NODE_ATTRIBUTE_PROPERTIES.has(property),
+	"Use a case property to filter the restored records.",
+);
+
+export const availableCasePropertyMatchSchema = z
+	.strictObject({
+		property: storedCaseMatchProperty,
+		text: storedCaseMatchText,
+		alternateText: storedCaseMatchText
+			.optional()
+			.describe("Also offer records with this exact stored value."),
+		alternateProperty: storedCaseMatchProperty
+			.optional()
+			.describe("Use this different property for the alternate stored value."),
+	})
+	.refine(
+		(match) =>
+			match.alternateProperty === undefined ||
+			(match.alternateText !== undefined &&
+				match.alternateProperty !== match.property),
+		{
+			path: ["alternateProperty"],
+			message: "Choose a different property and enter its stored value.",
+		},
+	);
 
 /** Names and opaque IDs from the worker's whole restored case database. */
 export const availableCasesOptionsSourceSchema = z.strictObject({

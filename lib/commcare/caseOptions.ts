@@ -33,12 +33,19 @@ export function availableCasesNodeset(
 		predicates.push(w.eq(w.context([w.attr("status")]), w.str(source.status)));
 	const match = source.propertyMatch;
 	if (match !== undefined) {
-		const property = w.context([casePropertyStep(match.property)]);
-		const equals = w.eq(property, w.str(match.text));
+		const matches = (property: string, text: string) =>
+			w.eq(w.context([casePropertyStep(property)]), w.str(text));
+		const equals = matches(match.property, match.text);
 		predicates.push(
 			match.alternateText === undefined
 				? equals
-				: w.or(equals, w.eq(property, w.str(match.alternateText))),
+				: w.or(
+						equals,
+						matches(
+							match.alternateProperty ?? match.property,
+							match.alternateText,
+						),
+					),
 		);
 	}
 	return deviceCasesNodeset(predicates);

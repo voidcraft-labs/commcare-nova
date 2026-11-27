@@ -2865,8 +2865,9 @@ lookup filters. It dry-runs `toWire` to reject unsupported relation shapes befor
 source. Core's ItemSetUtils::populateDynamicChoices evaluates the nodeset in the
 question context and the label/value in each candidate context; CaseInstanceTreeElement
 reads local case storage. A single-select `available-cases` source uses the
-bare worker casedb or one `@status` predicate for `open` or `closed`, with exact case IDs and
-names in both paths. The native case-choice family checks CCZ and HQ-regenerated
+worker casedb with an optional `@status` predicate and an exact comparison on
+one stored property. A second alternative can compare a different property of
+the same candidate. The itemset keeps exact case IDs and names. The native case-choice family checks CCZ and HQ-regenerated
 forms with duplicate names, changed earlier answers and final-only attendance effects.
 
 Vellum's `src/itemset.js::Itemset.itemsetData.validationFunc` requires the

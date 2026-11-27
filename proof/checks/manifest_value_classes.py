@@ -12175,6 +12175,7 @@ def case_itemset_survey_readiness(use):
             and expression_tree(itemset.get("nodeset") or "") in (
                 expression_tree("instance('casedb')/casedb/case[survey_ready = 'yes']"),
                 expression_tree("instance('casedb')/casedb/case[survey_ready = 'yes' or survey_ready = 'pending']"),
+                expression_tree("instance('casedb')/casedb/case[survey_ready = 'yes' or survey_phase = 'pending']"),
             ))
 
 

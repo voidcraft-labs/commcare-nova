@@ -20,7 +20,7 @@ import type { MutationSuccess } from "./shared/toolCallSummary";
 export const setFieldOptionsSourceInputSchema = fieldAddressSchema
 	.extend({
 		source: projectedOptionsSourceSchema.describe(
-			"The complete replacement choice source. Use kind inline with at least one option, kind lookup with the table and its value/label columns, or kind cases with caseType, labelProperty (default case_name), and optional sortProperty and filter. A single-select can use kind available-cases for restored cases across all types, labeled by name. Set status to open or closed to show only cases with that status. Replacing one kind discards the previous source. Use propertyMatch with a case property name and its exact stored text to narrow choices across case types.",
+			"The complete replacement choice source. Use kind inline with at least one option, kind lookup with the table and its value/label columns, or kind cases with caseType, labelProperty (default case_name), and optional sortProperty and filter. A single-select can use kind available-cases for restored cases across all types, labeled by name. Set status to open or closed to show only cases with that status. Replacing one kind discards the previous source. Use propertyMatch with a case property name and its exact stored text to narrow choices across case types. Set alternateText for a second accepted value and alternateProperty to match it against a different property.",
 		),
 	})
 	.strict();

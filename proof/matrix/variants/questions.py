@@ -2491,6 +2491,11 @@ def itemset_filters_available_cases_by_multiple_properties(authoring, app_id):
     return _filter_available_cases_in_vellum(authoring, app_id, "survey_ready = 'yes' or survey_phase = 'pending'")
 
 
+def itemset_requires_multiple_available_case_properties(authoring, app_id):
+    """A conjunction remains outside the restored case source's alternate matches."""
+    return _filter_available_cases_in_vellum(authoring, app_id, "survey_ready = 'yes' and survey_phase = 'pending'")
+
+
 def _filter_available_cases_in_vellum(authoring, app_id, predicate):
     itemset_over_cases(authoring, app_id)
     with authoring.step("variant:enable-advanced-itemsets"):

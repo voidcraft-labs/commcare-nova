@@ -666,11 +666,15 @@ function availableCaseFilters(
 				: undefined;
 		const first = availableCaseTextEquality(either?.left ?? predicate);
 		const other = either && availableCaseTextEquality(either.right);
-		if (!first || (either && (!other || other.property !== first.property)))
-			return undefined;
+		if (!first || (either && !other)) return undefined;
 		const match = availableCasePropertyMatchSchema.safeParse({
 			...first,
-			...(other && { alternateText: other.text }),
+			...(other && {
+				alternateText: other.text,
+				...(other.property !== first.property && {
+					alternateProperty: other.property,
+				}),
+			}),
 		});
 		if (!match.success) return undefined;
 		source.propertyMatch = match.data;

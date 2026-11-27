@@ -2275,6 +2275,7 @@ export const NON_REFERENCE_FIELD_PATHS: Readonly<
 	// A filter across the worker's whole restore names a wire property key
 	// shared by any number of case types. It has no single catalog identity.
 	"optionsSource.propertyMatch.property": "config",
+	"optionsSource.propertyMatch.alternateProperty": "config",
 	"optionsSource.propertyMatch.text": "data-literal",
 	"optionsSource.propertyMatch.alternateText": "data-literal",
 	"optionsSource.options[].uuid": "identity",

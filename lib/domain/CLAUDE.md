@@ -731,7 +731,10 @@ candidate's position is counted within the declared type.
 An `{ kind: "available-cases" }` source on a single select offers the entire
 already authorized restored case database in device order, including retained
 types outside the active catalog. Optional `status: open` or `status: closed`
-keeps only cases with that status in the same authorized snapshot. It displays
+keeps only cases with that status in the same authorized snapshot. An optional
+`propertyMatch` offers a row when its stored text equals the configured value.
+A second alternative can address the same property or a different property in
+that same row. It displays
 `case_name` and saves the opaque
 `case_id`. Operations using that ID check the target against their own type.
 

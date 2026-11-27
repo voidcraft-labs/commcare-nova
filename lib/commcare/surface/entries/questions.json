@@ -3252,7 +3252,7 @@
 		],
 		"valueClass": "case-choices",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: `optionsSource: cases` or `available-cases` with optional `status` and an exact match on one stored case property across restored case types",
+		"dispositionCell": "**HELD**: `optionsSource: cases` or `available-cases` with optional `status` and one or two alternative exact property matches across restored case types",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",

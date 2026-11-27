@@ -589,13 +589,18 @@ function AvailableCasePropertyMatchEditor({
 	const [alternateText, setAlternateText] = useState(
 		value?.alternateText ?? "",
 	);
+	const [alternateProperty, setAlternateProperty] = useState(
+		value?.alternateProperty ?? "",
+	);
 	const propertyId = useId();
 	const valueId = useId();
+	const alternatePropertyId = useId();
 	const alternateValueId = useId();
 	const match = availableCasePropertyMatchSchema.safeParse({
 		property,
 		text,
 		...(alternateText !== "" && { alternateText }),
+		...(alternateProperty !== "" && { alternateProperty }),
 	});
 	return (
 		<div className="space-y-2">
@@ -613,6 +618,13 @@ function AvailableCasePropertyMatchEditor({
 				disabled={!canEdit}
 				onChange={(event) => setText(event.currentTarget.value)}
 			/>
+			<Label htmlFor={alternatePropertyId}>Other property (optional)</Label>
+			<Input
+				id={alternatePropertyId}
+				value={alternateProperty}
+				disabled={!canEdit}
+				onChange={(event) => setAlternateProperty(event.currentTarget.value)}
+			/>
 			<Label htmlFor={alternateValueId}>Or another stored value</Label>
 			<Input
 				id={alternateValueId}
@@ -629,7 +641,8 @@ function AvailableCasePropertyMatchEditor({
 						!match.success ||
 						(value?.property === property &&
 							value?.text === text &&
-							(value.alternateText ?? "") === alternateText)
+							(value.alternateText ?? "") === alternateText &&
+							(value.alternateProperty ?? "") === alternateProperty)
 					}
 					onClick={() => {
 						if (match.success) onChange(match.data);

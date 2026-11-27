@@ -363,6 +363,7 @@
 		"hq-lookups/itemset-filter-overflow-row-index",
 		"hq-lookups/itemset-filter-position-of-scalar",
 		"hq-lookups/itemset-filter-zero-row-index",
+		"hq-lookups/itemset-filters-available-cases-by-multiple-properties",
 		"hq-lookups/itemset-filters-available-cases-by-multiple-values",
 		"hq-lookups/itemset-filters-available-cases-by-survey-readiness",
 		"hq-lookups/itemset-property-as-label",
