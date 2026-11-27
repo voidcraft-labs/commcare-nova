@@ -3692,7 +3692,7 @@
 		"surfaceKeys": ["mug:SaveToCase"],
 		"valueClass": "case-type-not-the-type-of-the-case-it-reaches",
 		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: a change that names its case by a type the case does not hold: neither a device nor CommCare HQ's server reads a block's `vellum:case_type`, so an update or close changes the case it reaches whatever its type (a `case_type` row it carries gives the case the type the row names), and both keep a link's `case_type` as written (Core's `CaseXmlParser.indexCase`, HQ's `update_strategy.py::_apply_index_action` into `CommCareCaseIndex.referenced_type`), so the link records a type its case does not hold; Nova types a change and a link by the type of the case it reaches (`lib/doc/caseOperationOrder.ts::caseOperationTargetTypeOrderViolations`, `CASE_OPERATION_TARGET_TYPE_MISMATCH` reason `declared-type`)",
+		"dispositionCell": "**HELD-NEW**: a change that names its case by a type the case does not hold: neither a device nor CommCare HQ's server reads a block's `vellum:case_type`, so an update or close changes the case it reaches whatever its type (a `case_type` row it carries gives the case the type the row names), and both keep a link's `case_type` as written (Core's `CaseXmlParser.indexCase`, HQ's `update_strategy.py::_apply_index_action` into `CommCareCaseIndex.referenced_type`), so the link records a type its case does not hold; Nova types a change and a link by the type of the case it reaches (`lib/doc/caseOperationOrder.ts::caseOperationTargetTypeOrderViolations`, `CASE_OPERATION_TARGET_TYPE_MISMATCH` reason `declared-type`). A root update that only sets properties on a basic follow-up's selected case carries the editor label separately.",
 		"subject": "save-to-case",
 		"owner": "forms-and-case-management",
 		"platforms": {
@@ -3923,7 +3923,7 @@
 		],
 		"valueClass": "savetocase-update",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: `caseOperations[] {action: update, target: expression}` or a direct update of the worker's record. A form can keep separate single-occurrence worker updates when their direct property writes are disjoint. When a worker update has its own condition, the block is submitted only when that condition holds.",
+		"dispositionCell": "**HELD**: `caseOperations[] {action: update, target: expression}` or a direct update of the worker's record. A form can keep separate single-occurrence worker updates when their direct property writes are disjoint. When a worker update has its own condition, the block is submitted only when that condition holds. A direct root update in a basic follow-up uses the selected case's type and keeps a different original Vellum type label in its saved block.",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",

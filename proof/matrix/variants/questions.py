@@ -3088,6 +3088,17 @@ def save_to_case_other_type(authoring, app_id):
     )
 
 
+def save_to_case_close_other_type(authoring, app_id):
+    """A contradictory editor type label on a close is outside the update-only case."""
+    _followup(
+        authoring,
+        app_id,
+        "save-to-case-close-other-type",
+        _block("again", "household", "<close/>", MENU_CASE,
+               [("close", 'relevant="today() &gt; date(&apos;2020-01-01&apos;)"')]),
+    )
+
+
 # Changes of several Save to Case blocks, each as Nova's own export writes them for hq-questions' questions
 # (``full_name``, ``visit_date``, ``members/member_name``): the blocks' data, their binds and setvalues, and their
 # group in the body.

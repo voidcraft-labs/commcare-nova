@@ -11,7 +11,10 @@
 // or builder control carries one.
 
 import { z } from "zod";
-import { XML_ELEMENT_NAME_PATTERN } from "./expression/types";
+import {
+	caseTypeNameSchema,
+	XML_ELEMENT_NAME_PATTERN,
+} from "./expression/types";
 import { uuidSchema } from "./uuid";
 
 /**
@@ -68,6 +71,9 @@ export const saveToCasePlacementSchema = z.strictObject({
 	/** Element names from that scope (the form root, or the repeat's row) to the
 	 *  element that carries `vellum:role="SaveToCase"`, every segment. */
 	path: z.tuple([xmlNameSchema], xmlNameSchema),
+	/** Vellum's saved case type label when a direct update targets a selected
+	 * case of a different, proven type. It never types the submitted update. */
+	editorCaseType: caseTypeNameSchema.max(255).optional(),
 });
 export type SaveToCasePlacement = z.infer<typeof saveToCasePlacementSchema>;
 
@@ -102,6 +108,7 @@ export function sameCasePlacement(a: CasePlacement, b: CasePlacement): boolean {
 			return (
 				b.kind === "save-to-case" &&
 				a.repeat === b.repeat &&
+				a.editorCaseType === b.editorCaseType &&
 				a.path.length === b.path.length &&
 				a.path.every((segment, i) => segment === b.path[i])
 			);
@@ -112,6 +119,7 @@ export function sameCasePlacement(a: CasePlacement, b: CasePlacement): boolean {
  *  cutover's blocker `own-close-in-repeat`), so its block holds no `repeat`. */
 export const ownClosePlacementSchema = saveToCasePlacementSchema.omit({
 	repeat: true,
+	editorCaseType: true,
 });
 export type OwnClosePlacement = z.infer<typeof ownClosePlacementSchema>;
 

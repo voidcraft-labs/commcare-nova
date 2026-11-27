@@ -32407,6 +32407,27 @@
 	{
 		"id": "hq-new-app/save-to-case-other-type",
 		"base": "hq-new-app",
+		"entry": "questions/savetocase-update-case-id-xpath",
+		"change": {
+			"op": "named",
+			"name": "save_to_case_other_type"
+		},
+		"holds": [
+			{
+				"key": ["form", { "$xmlns": [0, 1] }],
+				"pointer": "/caseOperations/1/caseType",
+				"value": "case"
+			},
+			{
+				"key": ["form", { "$xmlns": [0, 1] }],
+				"pointer": "/caseOperations/1/placement/editorCaseType",
+				"value": "household"
+			}
+		]
+	},
+	{
+		"id": "hq-new-app/save-to-case-close-other-type",
+		"base": "hq-new-app",
 		"entry": "questions/a-savetocase-change-whose-case-type-is-not-the-type-of-the-case-it-reaches",
 		"standing": "not-yet",
 		"place": {
@@ -32419,7 +32440,7 @@
 		},
 		"change": {
 			"op": "named",
-			"name": "save_to_case_other_type"
+			"name": "save_to_case_close_other_type"
 		}
 	},
 	{

@@ -1954,7 +1954,11 @@ export function buildCaseOperations(
 		// guard that ran while its operation did not would fail the submission.
 		const caseBlock = saveToCaseBlock(
 			site.name,
-			computedType ? "" : caseType,
+			computedType
+				? ""
+				: operation.placement?.kind === "save-to-case"
+					? (operation.placement.editorCaseType ?? caseType)
+					: caseType,
 			caseChildren,
 		);
 		if (site.authoredPath !== undefined) {

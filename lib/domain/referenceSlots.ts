@@ -2405,6 +2405,7 @@ export const NON_REFERENCE_FORM_PATHS: Readonly<
 	"caseOperations[].placement.slot": "discriminator",
 	"caseOperations[].placement.index": "config",
 	"caseOperations[].placement.path": "wire-token",
+	"caseOperations[].placement.editorCaseType": "wire-token",
 	// An advanced action's tag is the element name HQ writes its block at
 	// (`case_<tag>`); `row` is a flag.
 	"caseOperations[].placement.tag": "wire-token",

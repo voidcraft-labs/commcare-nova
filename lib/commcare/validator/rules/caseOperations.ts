@@ -674,6 +674,39 @@ function validateOperation(
 	priorCreates: ReadonlyMap<Uuid, CaseOperation>,
 	errors: ValidationError[],
 ): void {
+	const editorCaseType =
+		operation.placement?.kind === "save-to-case"
+			? operation.placement.editorCaseType
+			: undefined;
+	if (
+		editorCaseType !== undefined &&
+		(operation.action !== "update" ||
+			ctx.form.type !== "followup" ||
+			caseSelectionCardinality(ctx.module) !== "single" ||
+			menuEmittedAdvanced(ctx.doc, ctx.moduleUuid) ||
+			operation.target.kind !== "session" ||
+			operation.caseType !== ctx.module.caseType ||
+			operation.forEach !== undefined ||
+			operation.condition !== undefined ||
+			operation.retype !== undefined ||
+			operation.owner !== undefined ||
+			operation.rename !== undefined ||
+			operation.closeAfter === true ||
+			(operation.links?.length ?? 0) > 0 ||
+			!operation.writes?.length ||
+			operation.writes.some((write) => write.via !== undefined) ||
+			RESERVED_CASE_OPERATION_TYPES.has(editorCaseType) ||
+			RESERVED_CASE_OPERATION_TYPES.has(operation.caseType))
+	)
+		errors.push(
+			opError(
+				ctx,
+				operation,
+				"CASE_OPERATION_TARGET_TYPE_MISMATCH",
+				"This saved case type label belongs to a direct update of the case this form opens. Keep that target when editing the change.",
+				{ reason: "declared-type" satisfies TargetTypeMismatchReason },
+			),
+		);
 	if (operation.action === "own") {
 		validateOwnOperation(ctx, operation, errors);
 		return;

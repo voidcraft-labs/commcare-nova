@@ -801,6 +801,7 @@ export interface ProposedBlock {
 	readonly id: string;
 	readonly action: "own" | "create" | "update" | "close";
 	readonly caseType: string;
+	readonly editorCaseType?: string;
 	readonly block: ReadSaveToCaseBlock;
 	/** The segments its path's wrappers say, then `block`. */
 	readonly segments: readonly SaveToCaseBlockSegment[];
@@ -2807,12 +2808,47 @@ export function readSaveToCaseBlocks(
 			});
 			continue;
 		}
-		if (read.proposal.kind === "create")
+		const proposal = read.proposal;
+		if (proposal.kind === "create")
 			earlierCreates.set(
 				`/${root}/${[...block.path, "case", "@case_id"].join("/")}`,
 				true,
 			);
-		proposed.push({ read: read.proposal });
+		// The selected case ID decides where an update-only block lands.
+		// Vellum's type label remains in the editor. The write uses the type
+		// of the case chosen by the basic entry.
+		const selectedType = module.module.caseType;
+		const selectedDirectUpdate =
+			selectedType !== undefined &&
+			selectedType !== proposal.caseType &&
+			!RESERVED_CASE_OPERATION_TYPES.has(selectedType) &&
+			!RESERVED_CASE_OPERATION_TYPES.has(proposal.caseType) &&
+			module.json.peek("doc_type") === "Module" &&
+			form.form.type === "followup" &&
+			!isMultiSelectMenu({
+				case_details: module.json.peek("case_details"),
+				search_config: module.json.peek("search_config"),
+			}) &&
+			proposal.kind === "update" &&
+			proposal.target.kind === "session" &&
+			block.repeat === null &&
+			block.authoredScopeLength === undefined &&
+			proposal.condition === undefined &&
+			proposal.retype === undefined &&
+			proposal.owner === undefined &&
+			proposal.rename === undefined &&
+			!proposal.closes &&
+			proposal.links.length === 0 &&
+			proposal.writes.length > 0;
+		proposed.push({
+			read: selectedDirectUpdate
+				? {
+						...proposal,
+						caseType: selectedType,
+						editorCaseType: proposal.caseType,
+					}
+				: proposal,
+		});
 	}
 	// Guards: each belongs to an operation proposed in its scope; the guard of
 	// a block that is a finding is covered by that finding, at its place.
@@ -2903,6 +2939,7 @@ export function readSaveToCaseBlocks(
 			? proposed.find(({ read }) => {
 					if (
 						read.kind === "create" ||
+						read.editorCaseType !== undefined ||
 						read.caseType !== menuType ||
 						read.target.kind !== "session" ||
 						read.block.repeat !== null ||
@@ -4046,6 +4083,9 @@ function operationOf(
 		kind: "save-to-case" as const,
 		...(repeat !== undefined && { repeat }),
 		path,
+		...(one.editorCaseType !== undefined && {
+			editorCaseType: one.editorCaseType,
+		}),
 	};
 	const writes: CaseOperationWrite[] = [];
 	for (const write of one.writes) {

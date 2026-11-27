@@ -1022,6 +1022,10 @@ A change that holds one removes its line.
   reason `declared-type`, a violation that is not `retyped`). Neither runtime reads a block's
   `vellum:case_type`, and both keep a link's `case_type` as written; Nova types a change by the
   case it reaches.
+  A direct property-only root update in a basic follow-up can keep its generated Save to
+  Case block when its editor label differs from the selected case type. The submitted
+  case ID still names the selected case. The operation uses that case's type and stores
+  the original editor label as part of its held placement, so re-emission preserves it.
 - **A Save to Case `case_type` row that gives a case a type holding one of the earlier type's
   properties as another type**: one finding at the block under
   `questions/a-savetocase-change-of-a-case-s-type-to-a-type-that-holds-one-of-its-properties-as-another-type`
