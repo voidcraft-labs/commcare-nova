@@ -139,6 +139,9 @@ it("keeps the exact ID set when an App Test form opens after its answer changes"
 
 it.each(["guarded", "repeated"] as const)(
 	"submits a %s worker record update through an isolated App Test journey",
+	// Each outcome completes a separately persisted journey, including its
+	// real PostgreSQL opening, submission, and cleanup.
+	{ timeout: 15_000 },
 	async (scopeKind) => {
 		const repeated = scopeKind === "repeated";
 		const members = testUuid("app-test-worker-members");
