@@ -5629,13 +5629,25 @@ def _canonical_address_default(raw):
     from proof.checks.xpath_tree import tree
 
     parsed = tree(raw) if isinstance(raw, str) else None
-    if not parsed or parsed[0] != "str":
+    if not parsed:
         return False
-    text = parsed[1]
-    return bool(
-        text.strip() and raw == f"'{text}'"
-        and not any(char in ("'", "\ufeff", "\ufffe", "\uffff") or category(char) in ("Cc", "Cs") for char in text)
-    )
+    if parsed[0] == "str":
+        pieces = (parsed,)
+    elif parsed[:2] == ("call", "concat") and len(parsed[2]) == 2:
+        pieces = parsed[2]
+    else:
+        return False
+    if not all(
+        node[0] == "str" and node[1].strip()
+        and not any(
+            char in ("'", "\ufeff", "\ufffe", "\uffff") or category(char) in ("Cc", "Cs")
+            for char in node[1]
+        ) for node in pieces
+    ):
+        return False
+    literals = [f"'{node[1]}'" for node in pieces]
+    expected = literals[0] if len(literals) == 1 else f"concat({', '.join(literals)})"
+    return raw == expected
 
 
 def worker_name_order_in_text_default(use, manifest):
@@ -5676,7 +5688,7 @@ def worker_name_order_in_text_default(use, manifest):
 
 
 def manual_address_with_saved_text(use, manifest):
-    """The stored literal survives for the ungrouped manual picker with no active subscription."""
+    """The stored text survives for the ungrouped manual picker with no active subscription."""
     if use.key == "prompt-input:address":
         prompt = _suite_search_child(use, "prompt", "input")
         if prompt is not None:

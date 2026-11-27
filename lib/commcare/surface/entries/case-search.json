@@ -2579,14 +2579,14 @@
 		"area": "case-search",
 		"section": "Case search",
 		"subsection": "Search prompts",
-		"item": "A manual, ungrouped Search address picker with one saved literal and no connected fields",
+		"item": "A manual, ungrouped Search address picker with saved text and no connected fields",
 		"surfaceKeys": [
 			"schema:CaseSearchProperty.default_value",
 			"parser:QueryPromptParser/prompt@default"
 		],
 		"valueClass": "stored-text-on-a-manual-address-picker",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: keeps the text on the saved app. Web Apps opens the picker blank and leaves the address out of the request. Android leaves out the field and the value.",
+		"dispositionCell": "**HELD**: keeps one text literal or a join of two fixed nonblank text pieces on the saved app. Web Apps opens the picker blank and leaves the address out of the request. Android leaves out the field and the value.",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",

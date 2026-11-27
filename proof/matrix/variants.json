@@ -38904,6 +38904,36 @@
 	{
 		"id": "hq-search/address-picker-with-a-calculated-default",
 		"base": "hq-search",
+		"entry": "case-search/address-picker-with-a-saved-text-default",
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/0/search_config/properties/1",
+			"value": {
+				"doc_type": "CaseSearchProperty",
+				"name": "village",
+				"label": {
+					"en": "Village"
+				},
+				"appearance": "address",
+				"default_value": "concat('Old ', 'address')"
+			}
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/searchInputs/1/savedDefault",
+				"value": ["Old ", "address"]
+			}
+		]
+	},
+	{
+		"id": "hq-search/address-picker-with-a-session-derived-default",
+		"base": "hq-search",
 		"entry": "case-search/appearance-address-geocoder-broadcast-emitted-input-address",
 		"standing": "not-yet",
 		"place": {
@@ -38921,7 +38951,7 @@
 					"en": "Village"
 				},
 				"appearance": "address",
-				"default_value": "concat('Old ', 'address')"
+				"default_value": "concat('Old ', instance('commcaresession')/session/context/username)"
 			}
 		}
 	},

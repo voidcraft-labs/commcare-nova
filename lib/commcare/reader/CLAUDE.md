@@ -1102,9 +1102,10 @@ A form whose root questions are all qualifying Question Lists reads them as sect
 Ordinary forms are identified by their namespace. A shadow's external identity uses its real aligned form id because every command sharing the parent's questions has the same effective namespace. Match `shadow_parent_form_id` within this source's scrubbed ids before resolving its ordinary parent. Only the parent supplies an XForm, question identities, case blocks and writes. Read a shadow's `extra_actions.load_update_cases` in its stored sequence and resolve each repeated tag against the parent. On publish, derive or look up the target parent id independently from the entry's own id. On read-back, align both real ids even after names or menu positions change.
 
 
-An ordinary Search address picker keeps a canonical single-quoted saved text
-default only on the manual Search flow, without a group, exclusion,
-automatic clear, or an address subscription. The Reader takes the exact
+An ordinary Search address picker keeps a canonical single-quoted text
+default or the concatenation of two fixed nonblank text pieces. The picker
+uses the manual Search flow, without a group, exclusion, automatic clear,
+or an address subscription. The Reader takes the exact
 `CaseSearchProperty.default_value` leaf without registering a pending
 expression. HQ keeps the setting. Web Apps opens Mapbox blank and leaves
 the address out of the manual request, and Android leaves the picker and its

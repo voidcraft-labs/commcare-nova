@@ -23,6 +23,7 @@ import {
 	DEFAULT_SEARCH_MODE_KIND,
 	isParentPathSearchProperty,
 	MAX_PARENT_PATH_SEARCH_LINKS,
+	type SavedSearchAddressDefault,
 	SEARCH_ADDRESS_PARTS,
 	SEARCH_INPUT_NAME_PATTERN,
 	SEARCH_INPUT_REQUIRED_DEFAULT_MESSAGE,
@@ -49,12 +50,14 @@ import {
 	lookupReadPath,
 } from "../../lookup/readPath";
 import { isReservedSearchInputName } from "../../suite/case-search/reservedInputNames";
+import { savedAddressDefaultWire } from "../../suite/case-search/savedAddressDefault";
 import {
 	type FormSyntax,
 	literalInstanceId,
 	needsInstanceDeclaration,
 } from "../../xpath/formSyntax";
 import { scannedInstances } from "../../xpath/instanceSources";
+import { serializeWire } from "../../xpath/wire/serialize";
 import { withCandidate } from "../candidate";
 import {
 	appCodes,
@@ -899,8 +902,8 @@ function readStoredAddressDefaults(
 	config: JsonCursor,
 	prompts: readonly JsonCursor[],
 	projectService: boolean,
-): ReadonlyMap<JsonCursor, string> {
-	const defaults = new Map<JsonCursor, string>();
+): ReadonlyMap<JsonCursor, SavedSearchAddressDefault> {
+	const defaults = new Map<JsonCursor, SavedSearchAddressDefault>();
 	if (
 		projectService ||
 		config.peek("auto_launch") !== true ||
@@ -927,13 +930,23 @@ function readStoredAddressDefaults(
 		)
 			continue;
 		const parsed = readFormSyntax(stored);
+		if (!parsed.ok || !parsed.node) continue;
+		const node = parsed.node;
+		const candidate =
+			node.kind === "string"
+				? node.value
+				: node.kind === "call" && node.name === "concat"
+					? node.args.map((arg) =>
+							arg.kind === "string" ? arg.value : undefined,
+						)
+					: undefined;
+		const saved = savedSearchAddressDefaultSchema.safeParse(candidate);
 		if (
-			parsed.ok &&
-			parsed.node?.kind === "string" &&
-			savedSearchAddressDefaultSchema.safeParse(parsed.node.value).success &&
-			stored === `'${parsed.node.value}'`
+			saved.success &&
+			serializeWire(savedAddressDefaultWire(saved.data), { target: "suite" })
+				.text === stored
 		)
-			defaults.set(prompt, parsed.node.value);
+			defaults.set(prompt, saved.data);
 	}
 	return defaults;
 }
@@ -1042,7 +1055,7 @@ function readPrompt(
 	group: Uuid | undefined,
 	suiteSources: ReadonlyMap<string, string>,
 	projectService: boolean,
-	storedAddressDefault: string | undefined,
+	storedAddressDefault: SavedSearchAddressDefault | undefined,
 	addressSources: ReadonlySet<string>,
 	savedPublisherNames: ReadonlySet<string>,
 	receiverDuplicate: boolean,
