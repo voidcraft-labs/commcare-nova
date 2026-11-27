@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
+import type { InstallationReviewState } from "@/lib/deployment/targetIdentity";
 import type { DriftReference } from "@/lib/publish/driftReference";
 import * as copy from "@/lib/publish/hqChangesCopy";
 import {
@@ -35,6 +37,7 @@ import {
 	hqChangesMovedLine,
 	hqChangesPublishingStoppedLine,
 	hqChangesUnavailableLine,
+	installationDescription,
 	keptChangedInHqLine,
 	LISTS_COPIED_LINE,
 	LISTS_NOT_COPIED_LINE,
@@ -538,6 +541,34 @@ describe("the other strings", () => {
 
 const REFERENCES = [PUBLISHED, BROUGHT_IN, CHANGES_BROUGHT_IN] as const;
 
+const PRACTICE_READY: InstallationReviewState = {
+	name: "Clinic practice",
+	languages: ["fra", "eng"],
+	requiresPracticeWorker: true,
+	key: "clinic",
+	worker: "practice-worker",
+};
+const PRACTICE_AWAITING_WORKER: InstallationReviewState = {
+	name: "",
+	languages: ["project:tkl"],
+	requiresPracticeWorker: true,
+};
+const FIELD_INSTALLATION: InstallationReviewState = {
+	name: "Field teams",
+	languages: ["fra", "project:tkl"],
+	languageNames: ["French", "Field team language"],
+	requiresPracticeWorker: false,
+};
+const INSTALLATION_UUID = testUuid("review-installation");
+const CASE_SEARCH_UUID = testUuid("review-case-search");
+const PROJECT_SEARCH = {
+	searchUuid: CASE_SEARCH_UUID,
+	name: "Available visits",
+	id: 7,
+	parameters: ["district"],
+	results: [{ name: "case_id", type: "text" }],
+} as const;
+
 /**
  * Every function this file exports, each called over its arms. A new
  * function export fails the completeness check until it is listed here.
@@ -573,6 +604,10 @@ const SAMPLED: Readonly<Record<string, () => readonly string[]>> = {
 		),
 	],
 	caseTypesLine: () => [caseTypesLine(["a"]), caseTypesLine(["a", "b"])],
+	installationDescription: () =>
+		[PRACTICE_READY, PRACTICE_AWAITING_WORKER, FIELD_INSTALLATION].map(
+			installationDescription,
+		),
 	nothingToBringInLine: () =>
 		(["unchanged", "reads-the-same", "already-here"] as const).map((reason) =>
 			nothingToBringInLine(reason, "x"),
@@ -615,12 +650,55 @@ const SAMPLED: Readonly<Record<string, () => readonly string[]>> = {
 			keyedPrefixes: ["A"],
 			mediaPaths: 1,
 			columnFields: ["A"],
+			installationProfiles: [
+				{ uuid: INSTALLATION_UUID, before: null, after: PRACTICE_READY },
+			],
+			searchConnections: [
+				{
+					searchUuid: CASE_SEARCH_UUID,
+					name: PROJECT_SEARCH.name,
+					before: null,
+					after: PROJECT_SEARCH.id,
+				},
+			],
+			projectSearches: [
+				{ menu: "Visits", before: null, after: PROJECT_SEARCH },
+			],
 		}),
 		...whereHqKeepsLines({
 			formIds: ["A", "B"],
 			keyedPrefixes: ["A", "B"],
 			mediaPaths: 2,
 			columnFields: ["A", "B"],
+			installationProfiles: [
+				{
+					uuid: INSTALLATION_UUID,
+					before: PRACTICE_READY,
+					after: PRACTICE_AWAITING_WORKER,
+					localBefore: FIELD_INSTALLATION,
+				},
+				{
+					uuid: testUuid("review-removed-installation"),
+					before: FIELD_INSTALLATION,
+					after: null,
+					remainsRemoved: true,
+				},
+			],
+			searchConnections: [
+				{
+					searchUuid: CASE_SEARCH_UUID,
+					name: PROJECT_SEARCH.name,
+					before: PROJECT_SEARCH.id,
+					after: null,
+				},
+			],
+			projectSearches: [
+				{
+					menu: "Visits",
+					before: { ...PROJECT_SEARCH, id: null, parameters: [] },
+					after: null,
+				},
+			],
 		}),
 	],
 };
