@@ -1,0 +1,56 @@
+name: S7 slice
+# Throwaway diagnostic workflow. It exists only on s7/ci/* branches and never ships.
+on:
+  push:
+    branches: ['s7/ci/**']
+permissions:
+  contents: read
+jobs:
+  slice:
+    name: ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        include: [{"name": "bounded-answers", "cmd": "npm run test:smoke -- e2e/tests/app/automatic-case-selection.spec.ts --grep 'submits a bounded 101-record selection' --retries=0 || { find e2e/test-results -name error-context.md -print -exec cat {} \\; ; exit 1; }", "playwright": true}]
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          package-manager-cache: false
+      - name: Install pinned npm
+        run: |
+          npm_version="$(node -p "require('./package.json').devEngines.packageManager.version")"
+          cd "$RUNNER_TEMP"
+          for attempt in 1 2 3; do
+            if npm install --global "npm@$npm_version" --ignore-scripts; then break; fi
+            if [ "$attempt" = 3 ]; then exit 1; fi
+          done
+      - name: Cache npm downloads
+        uses: actions/cache@v6
+        with:
+          path: ~/.npm
+          key: npm-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: npm-${{ runner.os }}-
+      - run: npm ci
+      - uses: ./.github/actions/pull-test-image
+      - name: Cache Playwright browsers
+        if: matrix.playwright
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-shell-webkit-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: playwright-shell-webkit-${{ runner.os }}-
+      - name: Install Playwright
+        if: matrix.playwright
+        run: |
+          sudo sed -i -e 's|mirror+file:/etc/apt/apt-mirrors.txt|https://archive.ubuntu.com/ubuntu/|g' -e 's|http://azure\.archive\.ubuntu\.com/ubuntu|https://archive.ubuntu.com/ubuntu|g' /etc/apt/sources.list.d/ubuntu.sources
+          npx playwright install --with-deps --only-shell chromium webkit
+      - name: Run
+        env:
+          SLICE_CMD: ${{ matrix.cmd }}
+        run: bash -eo pipefail -c "$SLICE_CMD"
