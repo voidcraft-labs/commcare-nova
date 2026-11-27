@@ -21,14 +21,14 @@ from proof.webapps import hq as webapps_hq
 pytestmark = pytest.mark.reader("android")
 
 
+@pytest.mark.parametrize("source", ["text", "worker-id"])
 def test_installed_search_sends_the_owner_the_worker_comparison_selects(
-    android_documents, hq, android_walk_evidence,
+    android_documents, hq, android_walk_evidence, source,
 ):
-    from proof.matrix.variants.case_search import owner_exclusion_on_an_ordered_text
+    from proof.matrix import registry
 
     document = android_documents["hq-search"]
-    variant = next(one for one in load_variants() if one.id == "hq-search/owner-exclusion-on-an-ordered-text")
-    assert variant.change["name"] == owner_exclusion_on_an_ordered_text.__name__
+    variant = next(one for one in load_variants() if one.id == f"hq-search/owner-exclusion-on-an-ordered-{source}")
     seed = casedata.document_case_database(document)
     client = next(case for case in seed.cases if case.case_type == "client")
     clients = tuple(
@@ -38,7 +38,7 @@ def test_installed_search_sends_the_owner_the_worker_comparison_selects(
     )
     with webapps_hq.authored_project(document, "A", configure=enable_address_search) as project:
         author = Authoring(project.unit, {}, document.id, operation=project.unit.operation)
-        owner_exclusion_on_an_ordered_text(author, project.app_id)
+        registry.named_change(variant.change["name"])(author, project.app_id)
         app = operations.held_app(project.unit, project.app_id)
         expected = app.modules[1].search_config.blacklisted_owner_ids_expression
         with project.released(services.formplayer(), database=replace(seed, cases=clients)) as release:

@@ -303,11 +303,20 @@ def list_first_in_web_apps(authoring, app_id):
 
 def search_button_orders_worker_name_with_session(authoring, app_id):
     """Clients' short list loads the worker session its Search action reads."""
+    _search_button_orders_worker_with_session(authoring, app_id, "username")
+
+
+def search_button_orders_worker_id_with_session(authoring, app_id):
+    """The declared worker session also supplies the worker ID."""
+    _search_button_orders_worker_with_session(authoring, app_id, "userid")
+
+
+def _search_button_orders_worker_with_session(authoring, app_id, field):
     _set_each(
         authoring,
         app_id,
         ("/modules/0/case_details/short/filter", f"@owner_id = {SESSION}/context/userid"),
-        ("/modules/0/search_config/search_button_display_condition", f"{SESSION}/context/username > 'm'"),
+        ("/modules/0/search_config/search_button_display_condition", f"{SESSION}/context/{field} > 'm'"),
     )
 
 
@@ -320,6 +329,11 @@ def owner_exclusion_on_an_ordered_text(authoring, app_id):
 def owner_exclusion_on_an_ordered_worker_id(authoring, app_id):
     """Active clients' owner rule comparing the worker ID with arbitrary text."""
     _owner_exclusion_on_order(authoring, app_id, "userid")
+
+
+def owner_exclusion_on_an_ordered_device_id(authoring, app_id):
+    """The owner rule compares a device identifier instead of the worker identity."""
+    _owner_exclusion_on_order(authoring, app_id, "deviceid")
 
 
 def _owner_exclusion_on_order(authoring, app_id, field):
