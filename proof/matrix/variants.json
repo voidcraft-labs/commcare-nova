@@ -45136,6 +45136,22 @@
 	{
 		"id": "hq-search/address-receiver-with-an-extra-hyphen-segment",
 		"base": "hq-search",
+		"entry": "case-search/address-receiver-with-an-unused-suffix",
+		"change": {
+			"op": "named",
+			"name": "address_picker_receiver_with_extra_hyphen"
+		},
+		"holds": [
+			{
+				"key": ["module", { "$menu": 0 }],
+				"pointer": "/caseListConfig/searchInputs/2/addressReceiver/parts",
+				"value": ["city"]
+			}
+		]
+	},
+	{
+		"id": "hq-search/address-receiver-with-an-unknown-component",
+		"base": "hq-search",
 		"entry": "case-search/receiver-expression",
 		"standing": "not-yet",
 		"place": {
@@ -45145,7 +45161,7 @@
 		},
 		"change": {
 			"op": "named",
-			"name": "address_picker_receiver_with_extra_hyphen"
+			"name": "address_picker_receiver_with_unknown_component"
 		}
 	},
 	{
