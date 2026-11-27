@@ -361,6 +361,16 @@ def limit_101_with_conditional_visibility(authoring, app_id):
     ops.set_form_source(authoring, app_id, 0, 0, conditional_visibility, what="show one answer conditionally")
 
 
+def limit_101_with_compound_visibility(authoring, app_id):
+    limit_101_with_two_visible_questions(authoring, app_id)
+
+    def compound_visibility(root, _form):
+        (bind,) = root.xpath("//*[local-name()='bind'][@nodeset='/data/recommendation']")
+        bind.set("relevant", "/data/outcome = 'followup' or /data/outcome = 'complete'")
+
+    ops.set_form_source(authoring, app_id, 0, 0, compound_visibility, what="show an answer for either of two values")
+
+
 def multi_select_above_a_hundred(authoring, app_id):
     """Patients' list choosing up to 500 patients."""
     _set_each(

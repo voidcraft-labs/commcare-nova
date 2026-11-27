@@ -3538,7 +3538,7 @@
 		"surfaceKeys": ["schema:Detail.max_select_value"],
 		"valueClass": "101-on-a-web-apps-flat-followup-without-writes",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: `selection.maximum` of 101 for the bounded Web Apps follow-up. The form leaves the selected records unchanged. A plain Text answer can be optional, always required, or required by checking another Text answer against fixed text.",
+		"dispositionCell": "**HELD**: `selection.maximum` of 101 for the bounded Web Apps follow-up. The form leaves the selected records unchanged. A plain Text answer can be optional or required. One always-visible Text answer can control whether another Text question appears by comparing its answer with fixed text.",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",

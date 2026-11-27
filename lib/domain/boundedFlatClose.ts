@@ -6,18 +6,27 @@ import { effectivePostSubmit } from "./postSubmit";
 import { expressionSlotValues } from "./referenceSlots";
 import type { Uuid } from "./uuid";
 
-/** One plain Text answer can make another answer required without reading a selected record. */
-function localRequiredCondition(
+/** An answer can depend on another root Text answer without reading the selected cases. */
+function localTextCondition(
 	doc: BlueprintDoc,
 	form: Uuid,
 	field: Uuid,
 	expression: Expression,
+	slot: "required" | "relevant",
 ): boolean {
-	if (expression.kind === "match-all") return true;
-	if (expression.kind === "term")
-		return expression.term.kind === "literal" && expression.term.value === true;
+	if (slot === "required") {
+		if (expression.kind === "match-all") return true;
+		if (expression.kind === "term")
+			return (
+				expression.term.kind === "literal" && expression.term.value === true
+			);
+	}
 	if (expression.kind !== "eq") return false;
 	const { left, right } = expression;
+	const source =
+		left.kind === "term" && left.term.kind === "field"
+			? doc.fields[left.term.uuid]
+			: undefined;
 	return (
 		left.kind === "term" &&
 		left.term.kind === "field" &&
@@ -25,7 +34,8 @@ function localRequiredCondition(
 		left.term.filters === undefined &&
 		left.term.role === undefined &&
 		doc.fieldParent[left.term.uuid] === form &&
-		doc.fields[left.term.uuid]?.kind === "text" &&
+		source?.kind === "text" &&
+		(slot === "required" || source.relevant === undefined) &&
 		right.kind === "term" &&
 		right.term.kind === "literal" &&
 		typeof right.term.value === "string"
@@ -110,8 +120,8 @@ export function boundedFlatSelectionForm(
 			field?.kind !== "text" ||
 			slots.some(
 				({ ref, expression }) =>
-					ref.slot !== "required" ||
-					!localRequiredCondition(doc, form, uuid, expression),
+					(ref.slot !== "required" && ref.slot !== "relevant") ||
+					!localTextCondition(doc, form, uuid, expression, ref.slot),
 			) ||
 			field.addressLookup ||
 			field.androidApp ||

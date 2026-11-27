@@ -12120,7 +12120,7 @@
 		]
 	},
 	{
-		"id": "hq-bounded-flat-close/large-selection-with-conditional-visibility",
+		"id": "hq-bounded-flat-close/large-selection-with-compound-visibility",
 		"base": "hq-bounded-flat-close",
 		"entry": "menus-and-case-lists/detail-max-select-value-101-outside-flat-close",
 		"standing": "not-yet",
@@ -12131,8 +12131,24 @@
 		},
 		"change": {
 			"op": "named",
-			"name": "limit_101_with_conditional_visibility"
+			"name": "limit_101_with_compound_visibility"
 		}
+	},
+	{
+		"id": "hq-bounded-flat-close/large-selection-with-conditional-visibility",
+		"base": "hq-bounded-flat-close",
+		"entry": "menus-and-case-lists/detail-max-select-value-for-flat-followup",
+		"change": {
+			"op": "named",
+			"name": "limit_101_with_conditional_visibility"
+		},
+		"holds": [
+			{
+				"key": ["field", { "$xmlns": [0, 0] }, ["recommendation"]],
+				"pointer": "/relevant/kind",
+				"value": "eq"
+			}
+		]
 	},
 	{
 		"id": "hq-case-lists/multi-select-above-a-hundred",

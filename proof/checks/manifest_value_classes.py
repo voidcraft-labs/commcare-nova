@@ -14044,12 +14044,12 @@ def _flat_close_has_only_its_selected_case_block(xform):
     return not any(bind.get("relevant") for nodes in xform.binds.values() for bind in nodes)
 
 
-def _required_by_plain_answer(required, nodeset, plain_answers):
+def _bounded_answer_condition(expression, nodeset, plain_answers, *, allow_always):
     if nodeset not in plain_answers:
         return False
-    if required == "true()":
+    if allow_always and expression == "true()":
         return True
-    tree = expression_tree(required)
+    tree = expression_tree(expression)
     if not tree or tree[:2] != ["binary", "="]:
         return False
     _, _, left, right = tree
@@ -14098,6 +14098,7 @@ def _bounded_flat_form(use, *, followup):
     if xform is None:
         return None
     plain_answers = set()
+    always_visible = set()
     if followup:
         if xform.body is None or xform.model_repeats or xform.save_to_case:
             return False
@@ -14109,9 +14110,11 @@ def _bounded_flat_form(use, *, followup):
                 return False
             bind = xform.bind(ref)
             if (bind is None or bind.get("type") not in ("xsd:string", "string")
-                    or any(bind.get(name) for name in ("calculate", "relevant", "constraint"))):
+                    or any(bind.get(name) for name in ("calculate", "constraint"))):
                 return False
             plain_answers.add(ref)
+            if not bind.get("relevant"):
+                always_visible.add(ref)
         generated = None
     else:
         if not _flat_close_has_only_its_selected_case_block(xform):
@@ -14121,10 +14124,16 @@ def _bounded_flat_form(use, *, followup):
         if generated is not None and nodeset.startswith(f"{generated}/"):
             continue
         for bind in binds:
-            if bind.get("relevant") or bind.get("constraint"):
+            if bind.get("constraint"):
+                return False
+            relevant = bind.get("relevant")
+            if relevant and (
+                nodeset not in plain_answers
+                or not _bounded_answer_condition(relevant, nodeset, always_visible | {nodeset}, allow_always=False)
+            ):
                 return False
             required = bind.get("required")
-            if required and not _required_by_plain_answer(required, nodeset, plain_answers):
+            if required and not _bounded_answer_condition(required, nodeset, plain_answers, allow_always=True):
                 return False
             calculate = bind.get("calculate")
             if calculate and _literal(app, calculate) is not True:
