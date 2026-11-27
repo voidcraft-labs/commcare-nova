@@ -1101,7 +1101,11 @@ The local `.ccz` emits the preservable lookup wire. The binding facts:
 JavaRosa has no XPath-1.0 first-node coercion — a scalar use of a multi-node path
 throws (`XPathNodeset::unpack`) — and JavaRosa numeric predicates are **position**
 matches, not value matches. First-match lowering therefore carries an explicit
-positional `[1]` predicate structurally; coercion will never supply it.
+positional `[1]` predicate structurally. A single bare numeric predicate on a
+declared lookup itemset uses the truncated one-based index in Core. Nova reads
+an in-range positive integer or a nonintegral decimal with a positive integer
+part as an explicit position comparison. For example, `[2.5]` becomes
+`[position() = 2]`. An authored `[position() = 2.5]` still offers no row.
 
 The aggregate embedded-fixture budget is 10,000 rows, 100,000 cells, and 16 MiB of
 exact UTF-8 fixture bytes. These are declared Nova policy sized against an

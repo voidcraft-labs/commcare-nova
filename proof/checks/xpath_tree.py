@@ -266,28 +266,27 @@ def _fixture_itemset_path(node, instances):
 
 
 def fixture_itemset_number(text, instances):
-    """A numeric fixture row predicate, and whether its token is a positive Java-int ordinal."""
+    """A numeric fixture row predicate and its supported positive Java-int ordinal, if any."""
     shape = _fixture_itemset_path(tree(text), instances)
     if shape is None or shape[1][0] != "num":
         return None
     source, (_, number) = shape
     tokens = _xpath.tokens(text)
-    bare_ordinal = (
-        0 < number <= 2_147_483_647
-        and [one.kind for one in tokens[-3:]] == ["LBRACK", "NUM", "RBRACK"]
-        and tokens[-2].text.isdigit()
-    )
-    return source, number, bare_ordinal
+    if 1 <= number < 2_147_483_648 and [one.kind for one in tokens[-3:]] == ["LBRACK", "NUM", "RBRACK"]:
+        ordinal = int(number)
+        if tokens[-2].text.isdigit() or ("." in tokens[-2].text and ordinal != number):
+            return source, number, ordinal
+    return source, number, None
 
 
 def fixture_itemset_ordinal_spelling(before, after, instances):
     """A single literal fixture ordinal written as the same row predicate's position check."""
     numeric = fixture_itemset_number(before, instances[0])
-    if numeric is None or not numeric[2]:
+    if numeric is None or numeric[2] is None:
         return False
-    source, number, _ = numeric
+    source, _, ordinal = numeric
     return _fixture_itemset_path(tree(after), instances[1]) == (
-        source, ("EQ", ("call", "position", ()), ("num", number)),
+        source, ("EQ", ("call", "position", ()), ("num", ordinal)),
     )
 
 

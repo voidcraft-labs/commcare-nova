@@ -2398,8 +2398,13 @@ def itemset_filter_numeric_row_index(authoring, app_id):
 
 
 def itemset_filter_fractional_row_index(authoring, app_id):
-    """An adjacent numeric predicate outside the admitted integer form."""
+    """Core truncates this bare positive fraction before matching the second row."""
     _itemset_filter_numeric_row(authoring, app_id, "2.5", "itemset-filter-fractional-row-index")
+
+
+def itemset_filter_zero_row_index(authoring, app_id):
+    """A bare numeric predicate whose index is outside the accepted positive class."""
+    _itemset_filter_numeric_row(authoring, app_id, "0", "itemset-filter-zero-row-index")
 
 
 def itemset_over_cases(authoring, app_id):

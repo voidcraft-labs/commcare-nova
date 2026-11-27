@@ -776,31 +776,34 @@ describe("a select's choices", () => {
 				`/hq_districts_list/hq_districts${predicate}"`,
 			);
 
-		it("reads and republishes a single bare positive fixture row ordinal", async () => {
-			const outcome = await read(rowPredicate("[2]"));
-			expect(outcome.kind).toBe("read");
-			expect(outcome.defects).toEqual([]);
-			if (outcome.kind !== "read")
-				throw new Error("The fixture ordinal did not read");
-			const question = Object.values(outcome.draft.doc.fields).find(
-				(field) => field.kind === "single_select",
-			);
-			expect(question).toMatchObject({
-				optionsSource: {
-					filter: {
-						kind: "eq",
-						left: { kind: "call", fn: "position", args: [] },
-						right: { kind: "term", term: { kind: "literal", value: 2 } },
+		it.each(["[2]", "[2.5]", "[2.99]"])(
+			"reads and republishes fixture row %s as its exact position",
+			async (predicate) => {
+				const outcome = await read(rowPredicate(predicate));
+				expect(outcome.kind).toBe("read");
+				expect(outcome.defects).toEqual([]);
+				if (outcome.kind !== "read")
+					throw new Error("The fixture ordinal did not read");
+				const question = Object.values(outcome.draft.doc.fields).find(
+					(field) => field.kind === "single_select",
+				);
+				expect(question).toMatchObject({
+					optionsSource: {
+						filter: {
+							kind: "eq",
+							left: { kind: "call", fn: "position", args: [] },
+							right: { kind: "term", term: { kind: "literal", value: 2 } },
+						},
 					},
-				},
-			});
-			const authored = JSON.stringify(
-				exportedBody(outcome.draft.doc, { expand: { lookupNaming: naming } }),
-			);
-			expect(authored).toContain(
-				"/hq_districts_list/hq_districts[position() = 2]",
-			);
-		});
+				});
+				const authored = JSON.stringify(
+					exportedBody(outcome.draft.doc, { expand: { lookupNaming: naming } }),
+				);
+				expect(authored).toContain(
+					"/hq_districts_list/hq_districts[position() = 2]",
+				);
+			},
+		);
 
 		it("does not read a numeric ordinal from an implicitly supplied fixture", async () => {
 			const outcome = await read((xml) =>
@@ -822,8 +825,9 @@ describe("a select's choices", () => {
 			"[0]",
 			"[-1]",
 			"[2.0]",
-			"[2.5]",
+			"[0.5]",
 			"[(2)]",
+			"[(2.5)]",
 			"[2147483648]",
 			"[last() - 1]",
 			"[district_name != &apos;&apos;][2]",

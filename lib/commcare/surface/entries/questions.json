@@ -3107,7 +3107,7 @@
 		],
 		"valueClass": "predicate-filter",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: `optionsSource.filter`. A declared lookup fixture row index written as one bare positive integer in Core’s range is held as an explicit position comparison.",
+		"dispositionCell": "**HELD**: `optionsSource.filter`. A declared lookup fixture row index written as a bare positive integer or a nonintegral decimal that truncates to a positive Java integer is held as an explicit comparison with that position.",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
