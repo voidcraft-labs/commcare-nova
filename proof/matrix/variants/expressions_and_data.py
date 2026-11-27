@@ -432,8 +432,14 @@ def text_ordered_comparison(authoring, app_id):
 
 
 def assembled_text_ordered_against_a_literal(authoring, app_id):
-    """An assembled operand is outside the direct text-answer read."""
+    """A root text answer plus literal suffix retains Core's numeric ordering."""
     _language(authoring, app_id, "if(concat(/data/code, 'x') < 'm', 'early', 'late')", "assembled-text-ordered-as-a-number")
+
+
+def multiple_answers_assembled_for_ordering(authoring, app_id):
+    """Two question reads remain outside the one-answer spelling rule."""
+    _language(authoring, app_id, "if(concat(/data/code, /data/code_again) < 'm', 'early', 'late')",
+              "multiple-answers-assembled-for-ordering")
 
 
 def choice_name_on_a_lookup_select(authoring, app_id):

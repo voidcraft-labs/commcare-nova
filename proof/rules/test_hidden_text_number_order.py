@@ -18,12 +18,14 @@ from proof.rules.vellum_attributes import normalize as without_vellum_attributes
 from proof.webapps.hq import authored_project
 
 
-@pytest.mark.parametrize("literal, outcomes", [
-    ("m", ["late"] * 7),
-    ("20", ["late", "early", "late", "late", "early", "early", "late"]),
-    ("1970-01-02", ["late", "late", "late", "late", "early", "late", "late"]),
-], ids=["lexical-text", "numeric-text", "date-shaped-text"])
-def test_vellum_and_core_preserve_two_numeric_readings_of_text_order(hq, core_runner, editor_driver, tmp_path, literal, outcomes):
+@pytest.mark.parametrize("operand, literal, outcomes", [
+    ("/data/code", "m", ["late"] * 7),
+    ("/data/code", "20", ["late", "early", "late", "late", "early", "early", "late"]),
+    ("/data/code", "1970-01-02", ["late", "late", "late", "late", "early", "late", "late"]),
+    ("concat(/data/code, 'x')", "m", ["late"] * 7),
+    ("concat(/data/code, '0')", "30", ["early", "late", "late", "late", "late", "late", "late"]),
+], ids=["lexical-text", "numeric-text", "date-shaped-text", "assembled-nonnumeric", "assembled-numeric"])
+def test_vellum_and_core_preserve_two_numeric_readings_of_text_order(hq, core_runner, editor_driver, tmp_path, operand, literal, outcomes):
     document = corpus_document("hq-expressions")
     samples = ["", " 2 ", "23", "a", "1970-01-01", "1970-01-03", "2e0"]
     results, stored, built_forms = {}, {}, {}
@@ -36,8 +38,8 @@ def test_vellum_and_core_preserve_two_numeric_readings_of_text_order(hq, core_ru
         assert restore == {"served": True} and restored
         restored = b64encode(restored).decode()
         for kind, predicate in (
-            ("implicit", f"/data/code < '{literal}'"),
-            ("explicit", f"number(/data/code) < number('{literal}')"),
+            ("implicit", f"{operand} < '{literal}'"),
+            ("explicit", f"number({operand}) < number('{literal}')"),
         ):
             calculate = f"if({predicate}, 'early', 'late')"
             edited = vellum.open_and_save(editor_driver, endpoint, app_id, form.unique_id, edit={

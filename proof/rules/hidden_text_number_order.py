@@ -34,15 +34,22 @@ def _ordered(text):
         return None
     left, left_explicit = _unwrapped(condition[1])
     right, right_explicit = _unwrapped(condition[2])
-    if left_explicit != right_explicit or left[:3] != ("path", "SLASH", None) or right[0] != "str":
+    if left_explicit != right_explicit or right[0] != "str":
         return None
     if not right[1] or _TIME.fullmatch(right[1]) or _DATETIME.fullmatch(right[1]):
+        return None
+    suffix = None
+    if left[:2] == ("call", "concat") and len(left[2]) == 2 and left[2][1][0] == "str":
+        left, ending = left[2]
+        suffix = ending[1]
+    if left[:3] != ("path", "SLASH", None):
         return None
     steps = left[3]
     if len(steps) != 2 or any(step[:2] != ("step", "child") or step[3] for step in steps):
         return None
     source = "/" + "/".join(step[2] for step in steps)
-    return source, f"if(number({source}) < number({_quoted(right[1])}), {_quoted(early[1])}, {_quoted(late[1])})"
+    text = source if suffix is None else f"concat({source}, {_quoted(suffix)})"
+    return source, f"if(number({text}) < number({_quoted(right[1])}), {_quoted(early[1])}, {_quoted(late[1])})"
 
 
 def rewritten(root):
@@ -86,7 +93,7 @@ def normalize(root):
 RULE = SpellingRule(
     "hidden-text-number-order",
     ("form:*", "*/form:*"),
-    "A root hidden calculation ordering one root text input against a literal performs the same two numeric"
+    "A root hidden calculation ordering one root text input with an optional text suffix against a literal performs the same two numeric"
     " conversions with explicit number() (XPathCmpExpr and XPathNumberFunc).",
     normalize,
 )
