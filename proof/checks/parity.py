@@ -810,8 +810,9 @@ def _advanced_own_label_write(use):
     if not case_type or case_type == "commcare-user" or load.get("case_type") != case_type:
         return
     actions = form.get("actions") or {}
+    loads = actions.get("load_update_cases") or ()
     choices = [
-        row for row in actions.get("load_update_cases") or ()
+        row for row in loads
         if isinstance(row, dict) and not row.get("auto_select")
     ]
     if not choices or choices[-1] is not load or actions.get("open_cases"):
@@ -842,14 +843,20 @@ def _advanced_own_label_write(use):
         return OTHER_ADVANCED_LABEL
     preloads = [
         (row, prop)
-        for row in actions.get("load_update_cases") or ()
+        for row in loads
         if isinstance(row, dict) and isinstance(row.get("preload"), dict)
         for path, prop in row["preload"].items()
         if source is form_source.node(path)
     ]
     if preloads:
         (initial_load, initial_property) = preloads[0]
-        if (len(preloads) != 1 or initial_load is not load
+        from_earlier_choice = (
+            len(loads) == len(choices) == 2
+            and choices[0] is initial_load
+            and choices[1] is load
+            and initial_load.get("case_type") not in (None, "", "commcare-user")
+        )
+        if (len(preloads) != 1 or (initial_load is not load and not from_earlier_choice)
                 or not isinstance(initial_property, str) or not re.fullmatch(r"[a-zA-Z_][a-zA-Z0-9_]*", initial_property)
                 or initial_property in HQ_CASE_RESERVED_WORDS
                 or initial_property in {"name", "owner_id", "case_name", "external_id", "location_id", "hq_user_id"}
