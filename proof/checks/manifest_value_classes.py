@@ -6781,7 +6781,7 @@ def _standalone_result_detail_prompt(use):
         return None
     exact = f"instance('search-input:results')/input/field[@name = '{prompt_name}']"
     expected = expression_tree(f"if(count({exact}) > 0, string({exact}), '')")
-    if _tree_without_path_text(concat[1]) != _tree_without_path_text(expected):
+    if _shape(concat[1]) != _shape(expected):
         return None
     return prompt_name, search
 
