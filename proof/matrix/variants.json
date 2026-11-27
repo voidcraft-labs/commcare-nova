@@ -40245,18 +40245,67 @@
 	{
 		"id": "hq-search/field-named-by-three-parent-links",
 		"base": "hq-search",
-		"entry": "case-search/prompt-key-outside-nova-s-name-grammar",
-		"standing": "not-yet",
-		"place": {
-			"kind": "search",
-			"menu": 0,
-			"name": "Clients"
-		},
+		"entry": "case-search/prompt-key-matching-three-parent-links",
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/0/search_config/properties/1/name",
 			"value": "parent/parent/parent/village"
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/searchInputs/1/name",
+				"value": "parent_parent_village"
+			},
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/searchInputs/1/property",
+				"value": "village"
+			},
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/searchInputs/1/matching",
+				"value": "project-space"
+			},
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/searchInputs/1/via",
+				"value": {
+					"kind": "ancestor",
+					"via": [
+						{
+							"identifier": "parent"
+						},
+						{
+							"identifier": "parent"
+						},
+						{
+							"identifier": "parent"
+						}
+					]
+				}
+			}
+		]
 	},
 	{
 		"id": "hq-search/field-named-include-closed",

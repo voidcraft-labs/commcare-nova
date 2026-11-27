@@ -619,30 +619,37 @@ describe("a completed search's snapshot", () => {
 		});
 	});
 
-	it("matches a grandparent through authorized rows and keeps either unresolved hop distinct from a miss", async () => {
+	it.each([2, 3])("reads %i parent links in Preview", async (hops) => {
+		const prefix = "parent/".repeat(hops);
+		const label =
+			hops === 2 ? "Grandparent village" : "Great-grandparent village";
 		const store = storeAs(WORKER, async () => ({
 			revision: "exact",
 			maximum: 500,
 			timeZone: "UTC",
 			projectSpace: "clinic",
 			matcherFor: (key) =>
-				key === "parent/parent/village"
+				key === `${prefix}village`
 					? { fuzzy: false, ignoreLiterals: ["!"] }
-					: key === "parent/parent/stops"
+					: key === `${prefix}stops`
 						? { fuzzy: false, ignoreLiterals: [] }
 						: null,
 		}));
 		const grandparent: SearchInputDef = {
 			uuid: testUuid("grandparent-village"),
-			name: "parent_parent_village",
-			label: "Grandparent village",
+			name: `${prefix.replaceAll("/", "_")}village`,
+			label,
 			kind: "simple",
 			type: "text",
 			property: "village",
 			matching: "project-space",
 			via: {
 				kind: "ancestor",
-				via: [{ identifier: "parent" }, { identifier: "parent" }],
+				via: [
+					{ identifier: "parent" },
+					{ identifier: "parent" },
+					...(hops === 3 ? [{ identifier: "parent" }] : []),
+				],
 			},
 		};
 		for (const [caseId, village] of [
@@ -650,6 +657,8 @@ describe("a completed search's snapshot", () => {
 			["other-house", "South"],
 			["matching-middle", "South"],
 			["other-middle", "North"],
+			["matching-lower", "South"],
+			["other-lower", "South"],
 		] as const)
 			await storeAs(OTHER_WORKER).insert({
 				appId: APP_ID,
@@ -671,10 +680,12 @@ describe("a completed search's snapshot", () => {
 			);
 		await edge("matching-middle", "target-house");
 		await edge("other-middle", "other-house");
+		await edge("matching-lower", "matching-middle");
+		await edge("other-lower", "other-middle");
 		for (const [id, related] of [
-			["nested", "matching-middle"],
+			["nested", hops === 2 ? "matching-middle" : "matching-lower"],
 			["direct", "target-house"],
-			["wrong-terminal", "other-middle"],
+			["wrong-terminal", hops === 2 ? "other-middle" : "other-lower"],
 			["unlinked", undefined],
 		] as const)
 			await store.insert(patient(id, "open", related));
@@ -682,8 +693,8 @@ describe("a completed search's snapshot", () => {
 		const stops: SearchInputDef = {
 			...grandparent,
 			uuid: testUuid("grandparent-stops"),
-			name: "parent_parent_stops",
-			label: "Grandparent stops",
+			name: `${prefix.replaceAll("/", "_")}stops`,
+			label: "Ancestor stops",
 			property: "stops",
 		};
 		config.searchInputs = [grandparent, stops];
@@ -714,7 +725,7 @@ describe("a completed search's snapshot", () => {
 		const unavailable = {
 			reason: {
 				kind: "parent-value-unavailable",
-				field: "Grandparent village",
+				field: label,
 			},
 		};
 		await parkHouseholdVillage("matching-middle");
@@ -736,7 +747,14 @@ describe("a completed search's snapshot", () => {
 		await sql`delete from case_indices where case_id = 'unlinked' and ancestor_id = 'unknown-first'`.execute(
 			dbHandle.db,
 		);
-		await edge("other-middle", "unknown-second");
+		if (hops === 3) {
+			await edge("other-lower", "unknown-second");
+			await expect(read("North")).rejects.toMatchObject(unavailable);
+			await sql`delete from case_indices where case_id = 'other-lower' and ancestor_id = 'unknown-second'`.execute(
+				dbHandle.db,
+			);
+		}
+		await edge("other-middle", "unknown-terminal");
 		await expect(read("North")).rejects.toMatchObject(unavailable);
 	});
 
@@ -748,6 +766,8 @@ describe("a completed search's snapshot", () => {
 			["middle-one", "South"],
 			["middle-two", "South"],
 			["unrelated", "South"],
+			["lower-one", "South"],
+			["lower-two", "South"],
 		]) {
 			await store.insert({
 				appId: APP_ID,
@@ -785,9 +805,14 @@ describe("a completed search's snapshot", () => {
 				values: ["east west"],
 			},
 		};
-		const check = (terminal: number, intermediate: number, reverseTerms = 2) =>
+		const check = (
+			terminal: number,
+			intermediate: number,
+			reverseTerms = 2,
+			path = criterion,
+		) =>
 			checkParentPathLookupLimit(
-				criterion,
+				path,
 				{
 					db: dbHandle.db as unknown as Kysely<Database>,
 					appId: APP_ID,
@@ -817,6 +842,34 @@ describe("a completed search's snapshot", () => {
 			dbHandle.db,
 		);
 		await expect(check(2, 2, 1)).rejects.toMatchObject(overLimit);
+
+		await sql`delete from case_indices where case_id = 'middle-two' and ancestor_id = 'terminal-one'`.execute(
+			dbHandle.db,
+		);
+		await sql`insert into case_indices(case_id, ancestor_id, identifier, depth, relationship, target_case_type)
+			values ('lower-one', 'middle-one', 'parent', 1, 'child', 'household'),
+				('lower-two', 'middle-one', 'parent', 1, 'child', 'household')`.execute(
+			dbHandle.db,
+		);
+		const threeLinks: typeof criterion = {
+			...criterion,
+			parameter: {
+				...criterion.parameter,
+				key: "parent/parent/parent/stops",
+				target: {
+					kind: "property",
+					property: "stops",
+					ancestors: [
+						{ identifier: "parent" },
+						{ identifier: "parent" },
+						{ identifier: "parent" },
+					],
+				},
+			},
+		};
+		await expect(check(2, 1, 2)).resolves.toBeUndefined();
+		await expect(check(2, 1, 2, threeLinks)).rejects.toMatchObject(overLimit);
+		await expect(check(2, 2, 2, threeLinks)).resolves.toBeUndefined();
 	});
 
 	it("decides a fuzzy search condition from the Project's own words", async () => {

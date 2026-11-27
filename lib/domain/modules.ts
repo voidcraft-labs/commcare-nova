@@ -2930,6 +2930,8 @@ export function isParentPathSearchProperty(property: string): boolean {
 	);
 }
 
+export const MAX_PARENT_PATH_SEARCH_LINKS = 3;
+
 function parentPathSearchKey(
 	input: Pick<SimpleSearchInputDef, "property" | "via" | "type" | "mode">,
 ): string | undefined {
@@ -2937,18 +2939,18 @@ function parentPathSearchKey(
 	return input.type === "text" &&
 		(input.mode === undefined || input.mode.kind === "exact") &&
 		path?.kind === "ancestor" &&
-		path.via.length <= 2 &&
+		path.via.length <= MAX_PARENT_PATH_SEARCH_LINKS &&
 		path.via.every(
 			(step) =>
 				step.identifier === "parent" && step.throughCaseType === undefined,
 		) &&
 		isParentPathSearchProperty(input.property)
-		? `${path.via.length === 2 ? "parent/parent" : "parent"}/${input.property}`
+		? `${"parent/".repeat(path.via.length)}${input.property}`
 		: undefined;
 }
 
 /** The worker sends the typed parent path. Nova authors address the field by
- * its UUID and see its own name. The two-hop arm uses the same typed edge twice. */
+ * its UUID and see its own name. Each hop repeats the same typed edge. */
 export function parentPathSearchRequestKey(
 	input: SearchInputDef,
 ): string | undefined {
@@ -2981,7 +2983,7 @@ export function searchInputRequestKey(input: SearchInputDef): string {
  * Whether a simple field can take the project space's own matching
  * (`matching: "project-space"`): its prompt rides the bare key CommCare HQ
  * matches by its own rule. The key names this case's own property, or an
- * ordinary property across one or two parent links for a text field. HQ matches the answer whatever the property's type, so a field
+ * ordinary property across one to three parent links for a text field. HQ matches the answer whatever the property's type, so a field
  * whose widget doesn't fit the property's type can still search it there.
  * Shared by the commit gate and the builder so the builder offers the
  * matching, and the widgets it admits, exactly where the gate does.

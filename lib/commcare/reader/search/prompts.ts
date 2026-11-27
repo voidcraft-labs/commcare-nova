@@ -22,6 +22,7 @@ import { sameLookupRead } from "@/lib/domain/lookupRead";
 import {
 	DEFAULT_SEARCH_MODE_KIND,
 	isParentPathSearchProperty,
+	MAX_PARENT_PATH_SEARCH_LINKS,
 	SEARCH_ADDRESS_PARTS,
 	SEARCH_INPUT_NAME_PATTERN,
 	SEARCH_INPUT_REQUIRED_DEFAULT_MESSAGE,
@@ -110,6 +111,10 @@ export const PROMPT_CLAIMS = defineClaims("search.prompts", {
 	),
 	nestedParentName: take(
 		`${S}prompt-key-matching-two-parent-links`,
+		"schema:CaseSearchProperty.name",
+	),
+	thirdParentName: take(
+		`${S}prompt-key-matching-three-parent-links`,
 		"schema:CaseSearchProperty.name",
 	),
 	nameOutside: refuse(
@@ -872,28 +877,39 @@ function canReadAddressPrompt(
 	);
 }
 
-/** A labeled text prompt carried by one or two native parent links. */
+const PARENT_PROMPT_CLAIMS = [
+	P.parentName,
+	P.nestedParentName,
+	P.thirdParentName,
+] as const;
+
+/** A labeled text prompt carried by up to three native parent links. */
 function parentPathPromptBinding(prompt: JsonCursor):
 	| {
 			readonly key: string;
 			readonly property: string;
 			readonly via: Extract<RelationPath, { kind: "ancestor" }>;
+			readonly nameClaim: (typeof PARENT_PROMPT_CLAIMS)[number];
 	  }
 	| undefined {
 	const key = prompt.peek("name");
 	if (typeof key !== "string") return undefined;
 	const parts = key.split("/");
 	const property = parts.pop();
+	const nameClaim = PARENT_PROMPT_CLAIMS[parts.length - 1];
 	if (
 		!property ||
-		(parts.length !== 1 && parts.length !== 2) ||
+		parts.length > MAX_PARENT_PATH_SEARCH_LINKS ||
+		!nameClaim ||
 		parts.some((part) => part !== "parent")
 	)
 		return undefined;
-	const parent = { identifier: "parent" };
 	const via: Extract<RelationPath, { kind: "ancestor" }> = {
 		kind: "ancestor",
-		via: parts.length === 2 ? [parent, { ...parent }] : [parent],
+		via: [
+			{ identifier: "parent" },
+			...parts.slice(1).map(() => ({ identifier: "parent" })),
+		],
 	};
 	const required = prompt.peek("required");
 	const validations = prompt.peek("validations");
@@ -911,7 +927,7 @@ function parentPathPromptBinding(prompt: JsonCursor):
 		(!Array.isArray(validations) || validations.length === 0) &&
 		(!isJsonObject(itemset) ||
 			Object.keys(itemset).every((key) => key === "doc_type"))
-		? { key, property, via }
+		? { key, property, via, nameClaim }
 		: undefined;
 }
 
@@ -1558,9 +1574,7 @@ function readPrompt(
 		prompt.take(
 			"name",
 			parentBinding !== undefined
-				? parentBinding.via.via.length === 2
-					? P.nestedParentName
-					: P.parentName
+				? parentBinding.nameClaim
 				: !projectService && !exclude && ATTRIBUTE_PROMPT_NAMES.has(name)
 					? P.nameAttribute
 					: P.name,
