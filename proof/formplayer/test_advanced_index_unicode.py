@@ -95,7 +95,6 @@ def _assert_produced_index(raw, name):
 def test_formplayer_opens_and_submits_advanced_index_producer(hq, formplayer_runner, evidence, name):
     from corehq.form_processor.models import CommCareCase
     from proof.formplayer.test_receiving_answers import _questions
-    from proof.formplayer.webapps import FormplayerRefused
 
     database = _worker_database(_worker_case(PARENT, "clinic", "Selected clinic"))
     with hq_check(Configuration(privileges={"CHILD_CASES", "CLOUDCARE"})) as (state, _):
@@ -108,16 +107,14 @@ def test_formplayer_opens_and_submits_advanced_index_producer(hq, formplayer_run
                 assert screen_kind(clinic) == "entities", clinic
                 assert [row["id"] for row in clinic["entities"]] == [PARENT], clinic
                 args = [*map(str, clinic["selections"]), PARENT]
-                if not name.isascii():
-                    with pytest.raises(FormplayerRefused, match="SAXParseException") as failed:
-                        web.navigate(args)
-                    assert not served.hq.submissions
-                    evidence("advanced-index-cannot-open", {
-                        "name": name, "status": failed.value.exchange.response.status,
-                        "exception": str(failed.value),
-                    })
-                    return
                 form = web.navigate(args)
+                if not name.isascii():
+                    # GlobalDefaultExceptionHandler sends the error body with HTTP 200.
+                    assert form.get("status") == "error", form
+                    assert "SAXParseException" in form.get("exception", ""), form
+                    assert not served.hq.submissions
+                    evidence("advanced-index-cannot-open", {"name": name, "error": form["exception"]})
+                    return
                 assert screen_kind(form) == "form", form
                 question, = _questions(form["tree"])
                 reply = web.submit(form["session_id"], {question["ix"]: "One requisition"})
