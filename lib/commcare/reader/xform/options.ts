@@ -507,8 +507,14 @@ function readItemset(
 			cursor.take({ element, attribute: "ref" }, siteRef).value;
 		}
 		if (sort !== undefined) {
-			cursor.take({ element: sort }, X.itemsetSort).value;
-			cursor.take({ element: sort, attribute: "ref" }, X.itemsetSort).value;
+			cursor.take(
+				{ element: sort },
+				one ? X.itemsetSort.select1 : X.itemsetSort.select,
+			).value;
+			cursor.take(
+				{ element: sort, attribute: "ref" },
+				one ? X.itemsetSort.select1Ref : X.itemsetSort.selectRef,
+			).value;
 		}
 		field.field.optionsSource = {
 			kind: "lookup",
@@ -658,7 +664,13 @@ export function settleCaseChoices(
 		cursor.take({ element: part, attribute: "ref" }, element).value;
 	}
 	if (sort !== undefined) {
-		cursor.take({ element: sort }, X.itemsetSort).value;
-		cursor.take({ element: sort, attribute: "ref" }, X.itemsetSort).value;
+		cursor.take(
+			{ element: sort },
+			one ? X.itemsetSort.select1 : X.itemsetSort.select,
+		).value;
+		cursor.take(
+			{ element: sort, attribute: "ref" },
+			one ? X.itemsetSort.select1Ref : X.itemsetSort.selectRef,
+		).value;
 	}
 }

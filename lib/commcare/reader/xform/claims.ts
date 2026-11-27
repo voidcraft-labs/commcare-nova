@@ -831,11 +831,12 @@ export const X = {
 	),
 	itemsetCopy: one("refuse", Q("itemset-copy"), "xform:select1/itemset/copy"),
 	/** The `<sort>` of an itemset and its `ref`, a table column or case property. */
-	itemsetSort: one(
-		"take",
-		Q("itemset-sort-ref"),
-		"vellum-feature:sorted_itemsets",
-	),
+	itemsetSort: under("take", Q("itemset-sort-ref"), {
+		select1: "xform:select1/itemset/sort",
+		select1Ref: "xform:select1/itemset/sort@ref",
+		select: "xform:select/itemset/sort",
+		selectRef: "xform:select/itemset/sort@ref",
+	}),
 	choiceValueRefused: one(
 		"refuse",
 		Q("choice-value-with-whitespace-empty-or-duplicated"),

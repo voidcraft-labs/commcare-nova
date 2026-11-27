@@ -3070,7 +3070,13 @@
 		"area": "questions",
 		"section": "Question types",
 		"item": "itemset `<sort ref>`",
-		"surfaceKeys": ["vellum-feature:sorted_itemsets"],
+		"surfaceKeys": [
+			"vellum-feature:sorted_itemsets",
+			"xform:select1/itemset/sort",
+			"xform:select1/itemset/sort@ref",
+			"xform:select/itemset/sort",
+			"xform:select/itemset/sort@ref"
+		],
 		"disposition": "HELD",
 		"dispositionCell": "**HELD**: `sortColumnId` for table choices or `sortProperty` for case choices. Omit to keep the source row order",
 		"slotChanges": [],
