@@ -1227,7 +1227,7 @@ describe("a detail's callout and tabs", () => {
 				],
 				lookup_responses: [{ key: "first" }],
 			});
-		});
+		}, false);
 		expect(closedCodes(reading)).toEqual([]);
 		const lookup = listOf(reading).deviceLookup;
 		expect(lookup?.evaluateExtras).toBe(true);
