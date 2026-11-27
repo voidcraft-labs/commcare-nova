@@ -179,6 +179,15 @@ function source(filter?: LookupOptionsSource["filter"]): LookupOptionsSource {
 }
 
 describe("evaluateLookupChoices", () => {
+	it("uses the one-based fixture position and offers no choice past the last row", () => {
+		const at = (ordinal: number) =>
+			source(eq({ kind: "call", fn: "position", args: [] }, literal(ordinal)));
+		expect(
+			evaluateLookupChoices(at(2), data()).map(({ value }) => value),
+		).toEqual(["b2"]);
+		expect(evaluateLookupChoices(at(4), data())).toEqual([]);
+	});
+
 	it("returns every row in authored order when unfiltered", () => {
 		const choices = evaluateLookupChoices(source(), data());
 		expect(choices).toEqual([

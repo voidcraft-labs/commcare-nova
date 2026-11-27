@@ -482,6 +482,7 @@ CHILD_REGISTRATION = (
 )
 ADVANCED_REGISTRATION = "menus-and-case-lists/case-list-form-on-an-advanced-module-or-naming-an-advanced-form"
 ITEMSET_FILTER = "questions/itemset-filter-outside-predicate"
+ITEMSET_PREDICATE = "questions/itemset-filter-lifting-into-predicate"
 ADVANCED_CASE_ITEMSET = "questions/itemset-over-casedb-or-another-instance-advanced-data-source"
 ITEMSET_NODESETS = frozenset({"xform:select1/itemset@nodeset", "xform:select/itemset@nodeset"})
 OWN_CASE_BESIDE = "questions/a-savetocase-change-of-the-form-s-own-case-beside-the-form-s-own-change-of-it"
@@ -748,7 +749,7 @@ def _forms_variant_uses(found, held, entries):
     """Source facts retained variants can decide without the full corpus's runtime observations."""
     wanted = {
         AUTOMATIC_MULTI, LOCATION_WRITE, HYPHEN_TAG, EXTENDED_OPEN_INDEX, SHADOW_LOAD, SUPPLY_POINT,
-        OWN_CASE_BESIDE, LOOKUP_COUNT, ITEMSET_FILTER, ADVANCED_CASE_ITEMSET, PARENT_USER_WRITE,
+        OWN_CASE_BESIDE, LOOKUP_COUNT, ITEMSET_FILTER, ITEMSET_PREDICATE, ADVANCED_CASE_ITEMSET, PARENT_USER_WRITE,
         *REGISTRATION_ENTRIES, *RETYPE_ENTRIES,
         CONDITIONAL_WORKER_UPDATE, REPEATED_WORKER_UPDATE, HELD_REPEATED_WORKER_UPDATE, LATER_OWNER_ON_FRESH_CREATE,
         PASSIVE_LABEL_WRITE, OTHER_ADVANCED_LABEL,
@@ -790,10 +791,12 @@ def _forms_variant_uses(found, held, entries):
                 yield Decided(block, manifest_usage.HELD, (by_id[REPEATED_WORKER_UPDATE],))
             elif shape == "repeat-held" and HELD_REPEATED_WORKER_UPDATE in wanted:
                 yield Decided(block, manifest_usage.HELD_NEW, (by_id[HELD_REPEATED_WORKER_UPDATE],))
-        # This proves the literal retained shape alone. The inventory's
-        # broad outside-predicate class is not exhausted by a row ordinal.
-        if ITEMSET_FILTER in wanted and use.key in ITEMSET_NODESETS and itemset_literal_row_index(use):
-            yield Decided(use, manifest_usage.HELD_NEW, (by_id[ITEMSET_FILTER],))
+        if wanted.intersection((ITEMSET_FILTER, ITEMSET_PREDICATE)) and use.key in ITEMSET_NODESETS:
+            shape = itemset_literal_row_index(use)
+            if shape == "ordinal" and ITEMSET_PREDICATE in wanted:
+                yield Decided(use, manifest_usage.HELD, (by_id[ITEMSET_PREDICATE],))
+            elif shape == "other-number" and ITEMSET_FILTER in wanted:
+                yield Decided(use, manifest_usage.HELD_NEW, (by_id[ITEMSET_FILTER],))
         if (ADVANCED_CASE_ITEMSET in wanted and use.key == "xform:select1/itemset"
                 and case_itemset_survey_readiness(use)):
             yield Decided(use, manifest_usage.HELD_NEW, (by_id[ADVANCED_CASE_ITEMSET],))

@@ -253,6 +253,44 @@ def _resolved(node, instances, context, inside=False):
     return resolved
 
 
+def _fixture_itemset_path(node, instances):
+    """The sole predicate of a declared lookup fixture's row step, and its source."""
+    match node:
+        case ("path", "SLASH", ("call", "instance", (("str", identity),)), (
+            ("step", "child", root, ()), ("step", "child", row, (predicate,)),
+        )):
+            source = instances.get(identity)
+            if source == f"jr://fixture/item-list:{row}" and root == f"{row}_list":
+                return (source, predicate)
+    return None
+
+
+def fixture_itemset_number(text, instances):
+    """A numeric fixture row predicate, and whether its token is a positive Java-int ordinal."""
+    shape = _fixture_itemset_path(tree(text), instances)
+    if shape is None or shape[1][0] != "num":
+        return None
+    source, (_, number) = shape
+    tokens = _xpath.tokens(text)
+    bare_ordinal = (
+        0 < number <= 2_147_483_647
+        and [one.kind for one in tokens[-3:]] == ["LBRACK", "NUM", "RBRACK"]
+        and tokens[-2].text.isdigit()
+    )
+    return source, number, bare_ordinal
+
+
+def fixture_itemset_ordinal_spelling(before, after, instances):
+    """A single literal fixture ordinal written as the same row predicate's position check."""
+    numeric = fixture_itemset_number(before, instances[0])
+    if numeric is None or not numeric[2]:
+        return False
+    source, number, _ = numeric
+    return _fixture_itemset_path(tree(after), instances[1]) == (
+        source, ("EQ", ("call", "position", ()), ("num", number)),
+    )
+
+
 def same(before, after, *, instances=({}, {}), context=None) -> bool:
     """Whether two texts of one expression slot are one expression (the module's docstring): ``instances`` is each
     form's sources by instance id, ``context`` the steps of the node the slot is about."""

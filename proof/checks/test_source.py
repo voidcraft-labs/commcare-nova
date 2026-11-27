@@ -398,3 +398,31 @@ def test_a_row_filter_reading_current_is_no_respelling_of_one_reading_every_entr
     a = form.format(calculate.format("/data/visits/case_ref"))
     b = form.format(calculate.format("current()/../case_ref"))
     assert _parts(a, b) == [("changed", "/data/*/:bind/@calculate", "/data/visits/total/:bind/@calculate")]
+
+
+def test_only_a_single_declared_fixture_ordinal_is_its_explicit_position_spelling():
+    itemset = '<select1 ref="/data/q"><itemset nodeset="{}"><label ref="name"/><value ref="id"/></itemset></select1>'
+
+    def form(expression, source="jr://fixture/item-list:villages", *, control=None):
+        return _form(
+            model=f'<instance id="rows" src="{source}"/>',
+            body=(control or itemset).format(expression),
+        )
+
+    path = "instance('rows')/villages_list/villages"
+    before = form(path + "[2]")
+    after = form(path + "[position() = 2]")
+    at = "/data/q/:control/itemset/@nodeset"
+    pattern = "/data/*/:control/itemset/@nodeset"
+    assert _parts(before, after) == [("changed", pattern + "/:respelled", at + "/:respelled")]
+
+    for expression in ("[0]", "[2.0]", "[2.5]", "[(2)]", "[-2]", "[2147483648]", "[last() - 1]", "[name != ''][2]"):
+        assert _parts(form(path + expression), after) == [("changed", pattern, at)]
+    assert _parts(before, form(path + "[position() = 1]")) == [("changed", pattern, at)]
+    assert _parts(before, form(path + "[position() = 2][name != '']")) == [("changed", pattern, at)]
+    cases = "jr://instance/casedb"
+    assert _parts(form(path + "[2]", cases), form(path + "[position() = 2]", cases)) == [("changed", pattern, at)]
+    value = itemset.replace('nodeset="{}"', f'nodeset="{path}"').replace('ref="id"', 'ref="{}"')
+    assert _parts(
+        form(path + "[2]", control=value), form(path + "[position() = 2]", control=value),
+    ) == [("changed", "/data/*/:control/itemset/value/@ref", "/data/q/:control/itemset/value/@ref")]

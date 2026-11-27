@@ -2829,6 +2829,14 @@ same score on all rows that share a returned key. A returned empty key can
 match rows whose property is missing or empty, which Core both reads as
 an empty string. The browser Preview has no companion return channel.
 
+A lookup-backed form question can bring in one bare positive integer predicate
+on the row of its declared fixture. Core compares the integer with the same
+one-based candidate counter that zero-argument `position()` returns inside
+that predicate (`EvaluationContext.expandReferenceAccumulator`,
+`XPathPositionFunc.evalBody`). Nova keeps the comparison in the ordinary typed
+choice filter and publishes it explicitly as `position() = n`. The reader limits
+this spelling to Core's signed integer range and to one row predicate.
+
 ## Case-backed question choices
 
 `caseOptions.ts::caseOptionsNodeset` lowers the typed cases source to a standard

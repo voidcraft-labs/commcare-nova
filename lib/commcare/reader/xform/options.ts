@@ -242,6 +242,24 @@ function positionOfNumber(predicate: FormSyntax): boolean {
 	);
 }
 
+/** Core compares a numeric predicate through a signed Java int against the
+ * same one-based counter position() returns. Keep this to bare integer tokens
+ * on the one declared fixture row predicate this reader can carry. */
+function lookupPredicateText(
+	nodeset: string,
+	predicate: FormSyntax,
+	declared: boolean,
+): string {
+	const text = nodeset.slice(predicate.from, predicate.to);
+	return declared &&
+		predicate.kind === "number" &&
+		!text.includes(".") &&
+		predicate.value > 0 &&
+		predicate.value <= 2_147_483_647
+		? `position() = ${predicate.value}`
+		: text;
+}
+
 /** A ref that is one name step: the column's or the property's name. */
 function singleName(text: string, storedName = false): string | undefined {
 	const read = storedName ? readStoredNameSyntax(text) : readFormSyntax(text);
@@ -459,7 +477,14 @@ function readItemset(
 		else
 			field.expressions.push({
 				slot: "lookup_options_source",
-				text: nodeset.slice(predicate.from, predicate.to),
+				text: lookupPredicateText(
+					nodeset,
+					predicate,
+					parsed.instances.some(
+						({ id, src }) =>
+							id === chain.id && src === `jr://fixture/item-list:${tag}`,
+					),
+				),
 				at: { element: itemset, attribute: "nodeset" },
 				key: one
 					? "xform:select1/itemset@nodeset"

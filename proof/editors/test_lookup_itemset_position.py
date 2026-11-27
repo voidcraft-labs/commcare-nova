@@ -1,4 +1,4 @@
-"""A literal row predicate selects a fixture row. A scalar argument to position fails at runtime."""
+"""Fixture row ordinals and invalid scalar position arguments in Vellum and Formplayer."""
 
 from lxml import etree
 
@@ -9,6 +9,7 @@ from proof.formplayer.test_lookup_tags import _opened, _questions
 from proof.formplayer.walk import screen_kind
 from proof.hq import operations
 from proof.hq.check import hq_check
+from proof.matrix import ops
 from proof.matrix.authoring import Authoring
 from proof.observe import publish
 
@@ -35,22 +36,27 @@ def _worker(unit, app_id, runner, document, label):
         return _opened(apps.web(runner, served))
 
 
-def _submit_second_row(unit, app_id, runner, document):
-    with formplayer.serve(unit, document, app_id, runner=runner, label="literal-second") as served:
-        with served.run("second-fixture-row"):
-            web = apps.web(runner, served)
-            screen = _opened(web)
-            assert screen_kind(screen) == "form", screen
-            village, = [q for q in _questions(screen["tree"]) if q.get("binding") == "/data/village"]
-            choices = village["choices"]
-            assert choices == ["Mbeya"], screen
+def _village_choices(unit, app_id, runner, document, label, *, submit=False):
+    with formplayer.serve(unit, document, app_id, runner=runner, label=label) as served, served.run(label):
+        web = apps.web(runner, served)
+        screen = _opened(web)
+        assert screen_kind(screen) == "form", (label, screen)
+        village, = [q for q in _questions(screen["tree"]) if q.get("binding") == "/data/village"]
+        result = {"choices": village.get("choices") or []}
+        if submit:
+            assert len(result["choices"]) == 1, (label, screen)
             start = len(served.hq.submissions)
             reply = web.submit(screen["session_id"], {village["ix"]: "1"})
-            assert reply.get("status") == "success", reply
+            assert reply.get("status") == "success", (label, reply)
             submission, = served.hq.submissions[start:]
-            value = etree.fromstring(submission.instance).findtext("{*}village")
-            assert value == "v2"
-            return {"choices": choices, "submitted": value}
+            result["submitted"] = etree.fromstring(submission.instance).findtext("{*}village")
+        return result
+
+
+def _submit_second_row(unit, app_id, runner, document):
+    observed = _village_choices(unit, app_id, runner, document, "second-fixture-row", submit=True)
+    assert observed == {"choices": ["Mbeya"], "submitted": "v2"}
+    return observed
 
 
 def test_vellum_preserves_the_invalid_scalar_position_and_formplayer_refuses_it(
@@ -92,3 +98,54 @@ def test_vellum_preserves_the_invalid_scalar_position_and_formplayer_refuses_it(
     })
     assert screen_kind(bad_before) != "form", bad_before
     assert screen_kind(bad_after) != "form", bad_after
+
+
+
+def test_positive_fixture_row_ordinal_and_predicate_position_offer_the_same_choices(
+    hq, core_runner, editor_driver, formplayer_runner,
+):
+    document = corpus_document("hq-lookups")
+    # Test each filter's local candidate list. With the district test first,
+    # the third original row becomes the first candidate. With the tests
+    # reversed, selecting the first original row before district yields none.
+    controls = (
+        ("second", "", 2, "", {"choices": ["Mbeya"], "submitted": "v2"}),
+        ("out-of-range", "", 4, "", {"choices": []}),
+        ("empty-candidates", "[district = 'missing']", 1, "", {"choices": []}),
+        ("filter-then-ordinal", "[district = 'd2']", 1, "", {"choices": ["Rusumo"], "submitted": "v3"}),
+        ("ordinal-then-filter", "", 1, "[district = 'd2']", {"choices": []}),
+    )
+    observed = {}
+    with hq_check(document.exports["minimum"].configuration.hq()) as (unit, _):
+        with unit.operation("fixture-ordinal:source", b"hq-lookups"):
+            app_id, refusal, _ = publish.create_authored(unit, document)
+            assert refusal is None
+        authoring = Authoring(unit, {}, base=document.id, operation=unit.operation)
+        for label, prefix, ordinal, suffix, expected in controls:
+            for spelling, predicate in (("literal", str(ordinal)), ("position", f"position() = {ordinal}")):
+                filter_text = f"{prefix}[{predicate}]{suffix}"
+                arm = f"{label}-{spelling}"
+
+                def change(root, _form):
+                    itemset, = root.xpath(
+                        "//*[local-name()='select1' and @ref='/data/village']/*[local-name()='itemset']"
+                    )
+                    for key, text in itemset.attrib.items():
+                        if key == "nodeset" or key.endswith("}nodeset"):
+                            itemset.set(key, text.partition("[")[0] + filter_text)
+
+                ops.set_form_source(authoring, app_id, 0, 0, change, what=arm)
+                form = operations.held_app(unit, app_id).modules[0].forms[0]
+                nodeset = _state(form.source)["nodeset"]
+                assert nodeset.endswith("villages" + filter_text), (arm, nodeset)
+                if label == "second":
+                    run = vellum.fresh_open_and_save(editor_driver, unit, app_id, form.unique_id)
+                    assert run.loaded and run.saved, (arm, run.load_error, run.save_refusal)
+                    assert _state(run.stored_source)["nodeset"] == nodeset
+                actual = _village_choices(
+                    unit, app_id, formplayer_runner, document, arm, submit="submitted" in expected,
+                )
+                assert actual == expected, (arm, actual)
+                observed[arm] = {"nodeset": nodeset, **actual}
+
+    write_evidence("lookup-itemset-ordinal-predicate-position", observed)
