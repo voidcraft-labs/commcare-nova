@@ -18987,9 +18987,24 @@
 		},
 		"holds": [
 			{
-				"key": ["case-type", "household"],
-				"pointer": "/properties/category/data_type",
+				"key": ["app"],
+				"pointer": "/caseTypes/0/name",
+				"value": "household"
+			},
+			{
+				"key": ["app"],
+				"pointer": "/caseTypes/0/properties/0/name",
+				"value": "category"
+			},
+			{
+				"key": ["app"],
+				"pointer": "/caseTypes/0/properties/0/data_type",
 				"value": "date"
+			},
+			{
+				"key": ["form", { "$xmlns": [0, 3] }],
+				"pointer": "/caseOperations/0/writes/1/property",
+				"value": "category"
 			}
 		]
 	},
