@@ -2345,11 +2345,11 @@
 		"area": "case-search",
 		"section": "Case search",
 		"subsection": "Search prompts",
-		"item": "A labeled single-date prompt matched by its fifth ancestor’s property key",
+		"item": "A labeled single-date prompt matched by its fifth or sixth ancestor’s property key",
 		"surfaceKeys": ["schema:CaseSearchProperty.name"],
 		"valueClass": "five-parent-links-date-prompt-key",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: Web Apps sends the chosen date as exact saved text on the fifth ancestor’s property.",
+		"dispositionCell": "**HELD**: Web Apps sends the chosen date as exact saved text on the fifth or sixth ancestor’s property.",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
@@ -2358,7 +2358,7 @@
 			"android": { "reading": "unavailable" }
 		},
 		"emission": {
-			"cell": "`name` derived from the five parent links and the property, with `input_: date`",
+			"cell": "`name` derived from the five or six parent links and the property, with `input_: date`",
 			"markers": []
 		},
 		"gates": [

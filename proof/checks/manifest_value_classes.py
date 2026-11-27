@@ -13995,7 +13995,8 @@ def four_parent_links_date_prompt_key(use, manifest):
 
 
 def five_parent_links_date_prompt_key(use, manifest):
-    return _parent_path_prompt_key(use, "parent/parent/parent/parent/parent/", "date")
+    return (_parent_path_prompt_key(use, "parent/parent/parent/parent/parent/", "date")
+            or _parent_path_prompt_key(use, "parent/parent/parent/parent/parent/parent/", "date"))
 
 
 def two_parent_links_text_prompt_key(use, manifest):

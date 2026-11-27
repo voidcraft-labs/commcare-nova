@@ -1114,6 +1114,7 @@ function parentPathPromptBinding(prompt: JsonCursor):
 					P.thirdParentDateName,
 					P.fourthParentDateName,
 					P.fifthParentDateName,
+					P.fifthParentDateName,
 				][parts.length - 1]
 			: !widget
 				? PARENT_PROMPT_CLAIMS[parts.length - 1]
