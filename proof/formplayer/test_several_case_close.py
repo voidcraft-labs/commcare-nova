@@ -288,7 +288,7 @@ def test_basic_automatic_multi_selection_uses_the_whole_datum_and_refuses_overfl
 
 
 
-@pytest.mark.parametrize("kind", ["close", "followup", "answer", "answers"])
+@pytest.mark.parametrize("kind", ["close", "followup", "answer", "answers", "required"])
 def test_the_authored_bounded_case_list_selects_101_and_refuses_the_102nd(
     hq, formplayer_runner, formplayer_documents, evidence, kind,
 ):
@@ -321,6 +321,7 @@ def test_the_authored_bounded_case_list_selects_101_and_refuses_the_102nd(
                     "followup": "limit_101_outside_flat_close",
                     "answer": "limit_101_with_visible_question",
                     "answers": "limit_101_with_two_visible_questions",
+                    "required": "limit_101_with_required_text",
                 }[kind]
                 registry.named_change(change)(author, app_id)
         for batch, count in (("at-maximum", witness["selectedCount"]), ("overflow", witness["overflowCount"])):
@@ -348,10 +349,15 @@ def test_the_authored_bounded_case_list_selects_101_and_refuses_the_102nd(
                             ids = {case.case_id for case in supplied.cases}
                             before = _held(served.domain, sorted(ids)) if followup else None
                             answers = {}
-                            if kind in ("answer", "answers"):
+                            if kind in ("answer", "answers", "required"):
                                 questions = [node for node in page["tree"] if node.get("type") == "question"]
-                                expected = ["Reviewed", "Call again"] if kind == "answers" else ["Reviewed"]
+                                expected = ["Reviewed", "Call again"] if kind != "answer" else ["Reviewed"]
                                 answers = {question["ix"]: value for question, value in zip(questions, expected, strict=True)}
+                                if kind == "required":
+                                    recommendation = questions[1]["ix"]
+                                    refused = web.submit(page["session_id"], {**answers, recommendation: ""})
+                                    assert refused["status"] == "validation-error", refused
+                                    assert not served.hq.submissions
                             result = web.submit(page["session_id"], answers)
                             assert result["status"] == "success", result
                             (submission,) = served.hq.submissions
@@ -359,7 +365,7 @@ def test_the_authored_bounded_case_list_selects_101_and_refuses_the_102nd(
                                 payload = etree.fromstring(submission.instance, PARSER)
                                 assert not list(payload.iter(CASE))
                                 assert payload.findtext("{*}outcome") == ("Reviewed" if answers else "done")
-                                if kind == "answers":
+                                if kind in ("answers", "required"):
                                     assert payload.findtext("{*}recommendation") == "Call again"
                                 assert _held(served.domain, sorted(ids)) == before
                                 observations[batch] = {"caseTransactions": 0, "offered": count}

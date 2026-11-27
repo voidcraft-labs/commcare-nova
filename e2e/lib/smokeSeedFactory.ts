@@ -1172,6 +1172,7 @@ export async function createSmokeBuilders(
 														f({
 															kind: "text",
 															id: "recommendation",
+															required: "true()",
 															label: "Recommendation",
 														}),
 													],
