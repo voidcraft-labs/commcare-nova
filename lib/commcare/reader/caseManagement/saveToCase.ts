@@ -833,6 +833,7 @@ export interface ProposedBlock {
 		readonly text: string;
 		readonly site: ClaimSite;
 		readonly otherwise: string;
+		readonly reapplyPrimaryAtEnd?: true;
 	};
 	readonly writes: readonly ProposedRow[];
 	readonly links: readonly ProposedLink[];
@@ -1566,6 +1567,37 @@ function laterOwnerGuardIsHeld(
 	);
 }
 
+/** A following text guard may explicitly apply the primary type to the
+ * newly created case. The full form boundary still compares all its binds. */
+function guardReappliesPrimaryType(
+	xform: ReadXForm,
+	block: ReadSaveToCaseBlock,
+	primary: string,
+): boolean {
+	if (block.repeat !== null) return false;
+	const name = block.path.at(-1);
+	if (name === undefined) return false;
+	const parent = block.element.parent;
+	if (parent === null || !isTag(parent)) return false;
+	const siblings = children(parent);
+	const next = siblings[siblings.indexOf(block.element) + 1];
+	const guard = xform.saveToCaseBlocks.find(
+		(candidate) => candidate.element === next,
+	);
+	return (
+		guard !== undefined &&
+		isAllocatedName(
+			guard.path.at(-1) ?? "",
+			generatedBaseName("guard", name, "text"),
+		) &&
+		guard.element.attribs["vellum:case_type"] === primary &&
+		literalOf(
+			bindsUnder(xform, guard.path).get("case/update/case_type")?.attribs
+				.calculate,
+		) === primary
+	);
+}
+
 /** Reads one block's content into its proposal, or the finding it is. */
 function readBlock(
 	ctx: ReadContext,
@@ -1647,7 +1679,16 @@ function readBlock(
 				{ name: reserved, reason: "platform-owned-output" },
 				typeBind,
 			);
-		const undeclared = names.find((type) => !isDeclared(type));
+		const reapplyPrimaryAtEnd = guardReappliesPrimaryType(
+			xform,
+			block,
+			primaryType.value,
+		);
+		const undeclared = names.find(
+			(type) =>
+				caseOperationCaseTypeNameProblem(type) !== undefined ||
+				(!reapplyPrimaryAtEnd && !isDeclared(type)),
+		);
 		if (undeclared !== undefined)
 			return fail(
 				SAVE_TO_CASE_CLAIMS.caseTypeXPath,
@@ -1657,6 +1698,7 @@ function readBlock(
 		choiceType = {
 			type: primaryType.value,
 			otherwise: alternateType.value,
+			...(reapplyPrimaryAtEnd && { reapplyPrimaryAtEnd: true as const }),
 			text: createTypeText.slice(caseCondition.from, caseCondition.to),
 			site: { element: typeBind, attribute: "calculate" },
 		};
@@ -4297,6 +4339,9 @@ function operationOf(
 			}),
 			...(one.typeChoice !== undefined && {
 				typeChoice: {
+					...(one.typeChoice.reapplyPrimaryAtEnd && {
+						reapplyPrimaryAtEnd: true as const,
+					}),
 					otherwise: one.typeChoice.otherwise,
 					condition: placeholder("condition"),
 				},

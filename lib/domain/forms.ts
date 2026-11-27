@@ -625,6 +625,7 @@ export type OwnerAfterCreate = z.infer<typeof ownerAfterCreateSchema>;
 const caseTypeChoiceSchema = z.strictObject({
 	condition: conditionSchema,
 	otherwise: z.string(),
+	reapplyPrimaryAtEnd: z.literal(true).optional(),
 });
 export type CaseTypeChoice = z.infer<typeof caseTypeChoiceSchema>;
 

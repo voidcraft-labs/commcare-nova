@@ -2401,6 +2401,7 @@ export const NON_REFERENCE_FORM_PATHS: Readonly<
 	"caseOperations[].ownerOnlyIfChanged": "config",
 	// Imported case-type calculations contain literal pieces only.
 	// The checked caseType above supplies the case catalog reference.
+	"caseOperations[].typeChoice.reapplyPrimaryAtEnd": "config",
 	"caseOperations[].typeCalculation.kind": "discriminator",
 	"caseOperations[].typeCalculation.parts[].kind": "discriminator",
 	"caseOperations[].typeCalculation.parts[].term.kind": "discriminator",

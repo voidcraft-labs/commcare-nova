@@ -2218,7 +2218,20 @@ function validateCreateTypeChoice(
 ): void {
 	const choice = operation.typeChoice;
 	if (choice === undefined) return;
-	validateCaseType(ctx, operation, choice.otherwise, errors);
+	if (choice.reapplyPrimaryAtEnd) {
+		if (
+			caseOperationCaseTypeNameProblem(choice.otherwise) !== undefined ||
+			RESERVED_CASE_OPERATION_TYPES.has(choice.otherwise)
+		)
+			errors.push(
+				opError(
+					ctx,
+					operation,
+					"CASE_OPERATION_INVALID_CASE_TYPE",
+					"The initial case type must be a valid ordinary case type name.",
+				),
+			);
+	} else validateCaseType(ctx, operation, choice.otherwise, errors);
 	validatePredicateSlot(
 		ctx,
 		operation,
@@ -2234,7 +2247,10 @@ function validateCreateTypeChoice(
 			(write.value.kind === "term" && write.value.term.kind === "capture-link")
 		)
 			return false;
-		if (Object.hasOwn(WRITABLE_STANDARD_CASE_PROPERTY_WORDS, write.property))
+		if (
+			choice.reapplyPrimaryAtEnd ||
+			Object.hasOwn(WRITABLE_STANDARD_CASE_PROPERTY_WORDS, write.property)
+		)
 			return true;
 		const from = primary?.properties.find(
 			(property) => property.name === write.property,
@@ -2280,6 +2296,11 @@ function validateCreateTypeChoice(
 			});
 	if (
 		operation.typeCalculation !== undefined ||
+		(choice.reapplyPrimaryAtEnd &&
+			(ctx.form.type !== "survey" ||
+				operation.forEach !== undefined ||
+				operation.condition !== undefined ||
+				ctx.form.caseOperations?.length !== 1)) ||
 		choice.otherwise === operation.caseType ||
 		operation.target.kind !== "new" ||
 		operation.target.idFrom !== undefined ||

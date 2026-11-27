@@ -830,6 +830,7 @@ class Inference {
 					const types =
 						operation.action === "create" &&
 						operation.typeChoice !== undefined &&
+						!operation.typeChoice.reapplyPrimaryAtEnd &&
 						write.via === undefined
 							? [destination.caseType, operation.typeChoice.otherwise]
 							: [destination.caseType];

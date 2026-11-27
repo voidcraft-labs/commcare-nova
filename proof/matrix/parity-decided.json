@@ -647,6 +647,7 @@
 		"hq-questions/save-to-case-create-with-other-unchecked-owner",
 		"hq-questions/save-to-case-date-as-text",
 		"hq-questions/save-to-case-declared-type-choice",
+		"hq-questions/save-to-case-dynamic-type",
 		"hq-questions/save-to-case-fresh-create-with-later-owner",
 		"hq-questions/save-to-case-hyphenated-link-name",
 		"hq-questions/save-to-case-hyphenated-property",

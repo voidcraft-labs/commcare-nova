@@ -2230,11 +2230,10 @@ async function resolveOperationProgram(
 				allocations.get(index)?.identity !== "fresh" ||
 				program.entryCaseKeys?.has(operation.uuid) === true ||
 				operation.caseType === operation.typeChoice.otherwise ||
-				[operation.caseType, operation.typeChoice.otherwise].some(
-					(type) =>
-						RESERVED_CASE_OPERATION_TYPES.has(type) ||
-						!program.caseTypeSchemas.has(type),
-				)
+				RESERVED_CASE_OPERATION_TYPES.has(operation.typeChoice.otherwise) ||
+				!program.caseTypeSchemas.has(operation.caseType) ||
+				(!operation.typeChoice.reapplyPrimaryAtEnd &&
+					!program.caseTypeSchemas.has(operation.typeChoice.otherwise))
 			)
 				throw new SubmissionRejectedError({
 					kind: "expression",
@@ -2246,7 +2245,10 @@ async function resolveOperationProgram(
 				});
 			operation = {
 				...operation,
-				caseType: branch ? operation.caseType : operation.typeChoice.otherwise,
+				caseType:
+					branch || operation.typeChoice.reapplyPrimaryAtEnd
+						? operation.caseType
+						: operation.typeChoice.otherwise,
 			};
 			instance = { ...instance, envelope: { ...instance.envelope, operation } };
 		}

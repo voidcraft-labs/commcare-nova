@@ -1912,7 +1912,9 @@ export function buildCaseOperations(
 			guards.push(
 				saveToCaseBlock(
 					generatedNodes.guard(operation.uuid, kind),
-					typeChoice === undefined ? guardType : "",
+					typeChoice === undefined || typeChoice.reapplyPrimaryAtEnd
+						? guardType
+						: "",
 					[el("update", {}, [el("case_type", {})])],
 				),
 			);
@@ -1926,7 +1928,7 @@ export function buildCaseOperations(
 								.child("case_type")
 								.toWire(),
 							calculate:
-								typeChoice === undefined
+								typeChoice === undefined || typeChoice.reapplyPrimaryAtEnd
 									? w.str(guardType)
 									: originalContextWirePath(
 											guardCasePath.child("update").child("case_type"),

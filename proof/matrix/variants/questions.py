@@ -2005,6 +2005,21 @@ def save_to_case_dynamic_type(authoring, app_id):
     )
 
 
+def save_to_case_undeclared_type_without_primary_restore(authoring, app_id):
+    """The final guard does not establish the primary type in this form."""
+    _save_to_case(
+        authoring, app_id, "save-to-case-undeclared-type-without-primary-restore",
+        ('make_household vellum:role="SaveToCase" vellum:case_type="household"',
+         'make_household vellum:role="SaveToCase" vellum:case_type=""', 1),
+        (STC_TYPE_BIND,
+         f'<bind nodeset="{MAKE}/create/case_type" calculate="if(/data/age &gt; 5, &apos;household&apos;, &apos;visit&apos;)"/>',
+         1),
+        (f'<bind nodeset="{GUARD}/update/case_type" calculate="&apos;household&apos;"/>',
+         f'<bind nodeset="{GUARD}/update/case_type" calculate="current()/../../../../make_household/case/create/case_type"/>',
+         1),
+    )
+
+
 def save_to_case_authored_id(authoring, app_id):
     """The create's case id set when the form loads to ``concat('h-', today())``."""
     _save_to_case(

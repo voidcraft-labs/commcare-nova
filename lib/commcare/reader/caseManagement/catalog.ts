@@ -601,7 +601,7 @@ export function readCaseCatalog(ctx: ReadContext, app: DraftApp): void {
 				noteType(caseTypes, caseType);
 				const destination = block.retype ?? caseType;
 				const destinations =
-					block.typeChoice === undefined
+					block.typeChoice === undefined || block.typeChoice.reapplyPrimaryAtEnd
 						? [destination]
 						: [destination, block.typeChoice.otherwise];
 				for (const type of destinations) noteType(caseTypes, type);
@@ -1146,7 +1146,9 @@ export function catalogAsRead(
 				noteType(caseTypes, caseType);
 				const destination = (op.action === "update" && op.retype) || caseType;
 				const destinations =
-					op.action === "create" && op.typeChoice !== undefined
+					op.action === "create" &&
+					op.typeChoice !== undefined &&
+					!op.typeChoice.reapplyPrimaryAtEnd
 						? [destination, op.typeChoice.otherwise]
 						: [destination];
 				for (const type of destinations) noteType(caseTypes, type);

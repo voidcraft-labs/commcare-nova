@@ -378,7 +378,9 @@ export function CaseOperationInspectorBody({
 					title="Kind of case"
 					description={
 						operation.action === "create" && operation.typeChoice !== undefined
-							? `The imported condition chooses between ${humanizeId(operation.caseType)} and ${humanizeId(operation.typeChoice.otherwise)}. Choosing a different type replaces the condition.`
+							? operation.typeChoice.reapplyPrimaryAtEnd
+								? "The imported form applies this case type after creation. Choosing a different type replaces the imported calculation."
+								: `The imported condition chooses between ${humanizeId(operation.caseType)} and ${humanizeId(operation.typeChoice.otherwise)}. Choosing a different type replaces the condition.`
 							: "The type of case this change acts on."
 					}
 				>

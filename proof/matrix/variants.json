@@ -38515,6 +38515,19 @@
 	{
 		"id": "hq-questions/save-to-case-dynamic-type",
 		"base": "hq-questions",
+		"entry": "questions/savetocase-create-case-type-literal-case-name-owner-id-uuid-case",
+		"change": { "op": "named", "name": "save_to_case_dynamic_type" },
+		"holds": [
+			{
+				"key": ["form", { "$xmlns": [0, 0] }],
+				"pointer": "/caseOperations/0/typeChoice/reapplyPrimaryAtEnd",
+				"value": true
+			}
+		]
+	},
+	{
+		"id": "hq-questions/save-to-case-undeclared-type-without-primary-restore",
+		"base": "hq-questions",
 		"entry": "questions/savetocase-case-type-given-as-an-xpath",
 		"standing": "not-yet",
 		"place": {
@@ -38527,7 +38540,7 @@
 		},
 		"change": {
 			"op": "named",
-			"name": "save_to_case_dynamic_type"
+			"name": "save_to_case_undeclared_type_without_primary_restore"
 		}
 	},
 	{
