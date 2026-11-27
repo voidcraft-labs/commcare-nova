@@ -45,7 +45,7 @@ from proof.checks.case_property_names import (
 )
 from proof.checks.compare.app_strings import is_locale_file_key
 from proof.checks.compare.names import nova_name
-from proof.observe.manifest import CSQL_HOLES, expression_tree, form_language_profiles
+from proof.observe.manifest import CSQL_HOLES, expression_tree, form_language_profiles, hashtag_tree
 from proof.rules._xpath import tokens as xpath_tokens
 
 XFORMS = "http://www.w3.org/2002/xforms"
@@ -6934,6 +6934,45 @@ def _detail_of(use):
         None,
     )
     return at, detail, kind, module
+
+
+def direct_host_text_filter(use, manifest):
+    """The Case List editor's host text equality, confirmed by its generated worker nodeset."""
+    at, detail, kind, module = _detail_of(use)
+    if kind != "short" or at.key != "filter" or not isinstance(at.value, str):
+        return False
+    if (module.get("doc_type") != "Module" or not module.get("case_type")
+            or module.get("root_module_id") or module.get("put_in_root") or detail.get("multi_select")):
+        return False
+    parent = module.get("parent_select") or {}
+    if not isinstance(parent, dict) or parent.get("active"):
+        return False
+    search = module.get("search_config") or {}
+    if not isinstance(search, dict) or any(search.get(field) for field in (
+        "properties", "default_properties", "auto_launch", "default_search", "inline_search", "case_search_endpoint_id",
+        "additional_case_types",
+    )):
+        return False
+    tree = hashtag_tree(at.value)
+    if not tree or tree[:2] != ["binary", "="]:
+        return False
+    left, right = tree[2:]
+    if right[0] != "text" or not right[1].strip():
+        return False
+    if left[0] == "hashtag":
+        path = left[1].split("/")
+        if len(path) != 2 or path[0] != "#host":
+            return False
+        field = path[1]
+    elif left[0] == "path" and left[4] and left[4][-1][0] == "child":
+        field = left[4][-1][1]
+        if not searchable_order_key(field) or left != expression_tree(
+            f"instance('casedb')/casedb/case[@case_id=current()/index/host]/{field}"
+        ):
+            return False
+    else:
+        return False
+    return field != "name" and field not in SERVER_ORDER_RECORD_KEYS and searchable_order_key(field)
 
 
 def inline_search_result_own_text_property(use, manifest):
@@ -14766,6 +14805,7 @@ VALUE_CLASSES = {
 # A positive class may need an observation beyond the use at its own source.
 # It grants HELD only when that observation establishes the supported class.
 POSITIVE_VALUE_CLASSES = {
+    "menus-and-case-lists/detail-filter-matching-the-direct-hosts-text": direct_host_text_filter,
     "menus-and-case-lists/detail-max-select-value-for-flat-close": bounded_flat_close_maximum,
     "case-search/address-picker-on-a-search-screen": ordinary_address_search_marker,
     "case-search/case-search-endpoint-id": configured_search_endpoint,

@@ -97,6 +97,38 @@ def _basic_auto_select_shapes():
     )
 
 
+def _direct_host_text_filter_shapes():
+    key = "schema:Detail.filter"
+    where = "/case_details/short/filter"
+
+    def app(text, *, search=None, **placement):
+        return {
+            "doc_type": "Application",
+            "modules": [{
+                "doc_type": "Module",
+                "case_type": "patient",
+                "case_details": {"doc_type": "DetailPair", "short": {"doc_type": "Detail", "filter": text}},
+                **({"search_config": search} if search is not None else {}),
+                **placement,
+            }],
+        }
+
+    return {
+        "menus-and-case-lists/detail-filter-matching-the-direct-hosts-text": (
+            refused("app", app("#host/village = 'north'"), key, where),
+            refused("app", app("instance('casedb')/casedb/case[@case_id=current()/index/host]/village = 'north'"),
+                    key, where),
+            accepted("app", app("village = 'north'"), key, where, standing=manifest_usage.HELD),
+            accepted("app", app("#host/village != 'north'"), key, where, standing=manifest_usage.HELD),
+            accepted("app", app("#host/village = ''"), key, where, standing=manifest_usage.HELD),
+            accepted("app", app("#host/village = 'north'", search={"properties": [{"name": "village"}]}), key, where, standing=manifest_usage.HELD),
+            accepted("app", app("#host/village = 'north'", put_in_root=True), key, where, standing=manifest_usage.HELD),
+            accepted("app", app("#host/village = 'north' and village = 'south'"), key, where, standing=manifest_usage.HELD),
+            accepted("app", app("count(instance('casedb')/casedb/case[@case_type='patient']) > 0"), key, where, standing=manifest_usage.HELD),
+        ),
+    }
+
+
 def _bounded_flat_close_shapes():
     source = b"""<h:html xmlns:h="http://www.w3.org/1999/xhtml" xmlns="http://www.w3.org/2002/xforms"
         xmlns:vellum="http://commcarehq.org/xforms/vellum" xmlns:jr="http://openrosa.org/javarosa">
@@ -9073,6 +9105,7 @@ def test_standalone_result_detail_positive_classifier(manifest, prompt, guarded,
 SHAPES = {
     "menus-and-case-lists/detail-auto-select-true-on-a-single-select-basic-list": _basic_auto_select_shapes(),
     **_bounded_flat_close_shapes(),
+    **_direct_host_text_filter_shapes(),
     **_standalone_result_detail_shapes(),
     **_android_callout_shapes(),
     **_lookup_count_shapes(),

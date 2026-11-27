@@ -12,7 +12,6 @@ import {
 	extractAstLookupReferences,
 	readReferences,
 } from "@/lib/doc/lookupReferences";
-
 import type { BlueprintDoc } from "@/lib/domain/blueprint";
 import { fieldCaseWriteViews } from "@/lib/domain/caseWriteViews";
 import { effectiveCaseTypes } from "@/lib/domain/effectiveCaseTypes";
@@ -22,6 +21,7 @@ import {
 	type LookupTypeIndex,
 	slotContext,
 } from "@/lib/domain/expression/context";
+import { ordinaryHostFilterList } from "@/lib/domain/expression/directHostTextEquality";
 import { formStructure } from "@/lib/domain/expression/formStructure";
 import type { RuleSet } from "@/lib/domain/expression/profiles";
 import { literalShape } from "@/lib/domain/expression/ruleSets";
@@ -574,6 +574,7 @@ function scopeWith(
 		form !== undefined && caseOperationSlot(pending.ref)
 			? operationPlaceReads(doc, form, pending.ref, env)
 			: undefined;
+	const reached = reachedSlot(doc, pending);
 	const reading: FormReadingHooks = {
 		functions: READ_FUNCTIONS,
 		itextUnit: (id) => itextUnits?.get(id),
@@ -588,9 +589,7 @@ function scopeWith(
 				operationIdPaths,
 				withdrawn,
 				sites,
-				...(readsReached(doc, pending.ref) && {
-					readsReached: true as const,
-				}),
+				...(reached === undefined ? {} : { readsReached: reached }),
 				...(place === undefined ? {} : { place }),
 				...(root === undefined ? {} : { root }),
 			}),
@@ -611,17 +610,24 @@ function scopeWith(
 	};
 }
 
-/** Whether the slot reads an untyped index walk as the reached read: a case
- *  list column's calculation, in a menu that offers no Search, whose Results
- *  hold no case such a walk reaches (`searchRelatedCalculationCompatibility`
- *  refuses it there). */
-function readsReached(doc: BlueprintDoc, ref: SlotContextRef): boolean {
-	if (ref.entity !== "module" || ref.slot !== "case_list_column_expression")
-		return false;
+/** A reached read describes the worker's case database. Search Results and
+ * other details can have a different row population. */
+function reachedSlot(
+	doc: BlueprintDoc,
+	pending: PendingExpression,
+): FoldEnv["readsReached"] {
+	const { ref, mode } = pending;
+	if (ref.entity !== "module") return undefined;
 	const module = doc.modules[ref.uuid];
-	return (
-		module !== undefined && effectiveCaseSearchConfig(module) === undefined
-	);
+	if (module === undefined || effectiveCaseSearchConfig(module) !== undefined)
+		return undefined;
+	if (ref.slot === "case_list_column_expression") return "column";
+	return ref.slot === "case_list_filter" &&
+		ordinaryHostFilterList(doc, ref.uuid) &&
+		mode.target === "hq-json" &&
+		mode.interpolation === "case"
+		? "host-filter"
+		: undefined;
 }
 
 /** The site key of one fold over one span of the source. */
@@ -644,7 +650,7 @@ function proposeFold(
 		readonly operationIdPaths: ReadonlyMap<string, Uuid>;
 		readonly withdrawn: ReadonlySet<string>;
 		readonly sites: FoldSites;
-		readonly readsReached?: true;
+		readonly readsReached?: FoldEnv["readsReached"];
 		readonly place?: OperationPlaceReads;
 		readonly root?: FormSyntax;
 	},
@@ -660,7 +666,9 @@ function proposeFold(
 			doc: options.doc,
 			operationIdPaths: options.operationIdPaths,
 			withdrawn: options.withdrawn,
-			...(options.readsReached && { readsReached: true }),
+			...(options.readsReached === undefined
+				? {}
+				: { readsReached: options.readsReached }),
 			...(options.place === undefined ? {} : { place: options.place }),
 			...(options.root === undefined ? {} : { root: options.root }),
 			bindPlain(at, context) {

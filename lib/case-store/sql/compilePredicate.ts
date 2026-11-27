@@ -59,6 +59,8 @@ import type {
 	SqlBool,
 } from "kysely";
 import { expressionBuilder, sql } from "kysely";
+import { reachedPropertyType } from "@/lib/domain/columnRelation";
+import { directHostTextEquality } from "@/lib/domain/expression/directHostTextEquality";
 import {
 	DISTANCE_UNITS,
 	distanceToMeters,
@@ -224,7 +226,7 @@ export function compilePredicate(
 	if (normalizedSubject !== pred) {
 		return compilePredicate(normalizedSubject, ctx);
 	}
-	assertNoUnnormalizedRelationPropertyRefs(pred);
+	assertNoUnnormalizedRelationPropertyRefs(pred, ctx);
 	switch (pred.kind) {
 		case "match-all":
 			// `eb.lit(true)` emits the SQL `true` keyword; binding
@@ -403,18 +405,44 @@ function heldTruth(
  * one-row `exists(via, where: ...)` scope before SQL emission. Keeping this
  * defense at the compiler boundary prevents a future normalizer regression
  * from falling back to an arbitrary scalar subquery row or inventing
- * cross-product semantics that CommCare Core does not implement.
+ * cross-product semantics that CommCare Core does not implement. The one
+ * device equality on its directly indexed host has scalar text semantics
+ * and a unique link per record; its exact left operand may keep that read.
  */
 function assertNoUnnormalizedRelationPropertyRefs(
 	pred: DomainExpression,
+	ctx: PredicateCompileContext,
 ): void {
+	let hostReads: Set<string> | undefined;
+	function allowedHostReads(): Set<string> {
+		const reads = new Set<string>();
+		walkExpressionNodes(pred, (node, path) => {
+			const host = directHostTextEquality(node);
+			const origin = host?.caseType ?? ctx.currentCaseType;
+			if (
+				host?.via?.kind === "ancestor" &&
+				origin !== undefined &&
+				reachedPropertyType(
+					{ field: host.property, via: host.via.via },
+					origin,
+					[...ctx.caseTypeSchemas.values()],
+				) === "text"
+			)
+				reads.add(JSON.stringify([...path, "left"]));
+		});
+		return reads;
+	}
 	let survivingProperty: PropertyRef | undefined;
-	walkPropertyRefs(pred, (property) => {
+	walkPropertyRefs(pred, (property, path) => {
 		if (
 			survivingProperty === undefined &&
 			property.via !== undefined &&
 			property.via.kind !== "self"
 		) {
+			if (ctx.reading === "casedb" && property.readReached) {
+				hostReads ??= allowedHostReads();
+				if (hostReads.has(JSON.stringify(path))) return;
+			}
 			survivingProperty = property;
 		}
 	});
