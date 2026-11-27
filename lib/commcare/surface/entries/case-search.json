@@ -5402,7 +5402,7 @@
 		"area": "case-search",
 		"section": "Case search",
 		"subsection": "CSQL in `_xpath_query` values and ancestor-path criteria",
-		"item": "an `_xpath_query` comparison HQ's search runs by its own conversion of the value and Nova's device rules type otherwise: a text or time property ordered against a number, a date or a date and time, or against a worker's text, a custom date and time, date, time or number property tested for equality with text (a whole-number property against a whole number's text compares the two numbers), or a custom date property compared with a whole-number literal",
+		"item": "an `_xpath_query` comparison HQ's search runs by its own conversion of the value and Nova's device rules type otherwise: a text or time property ordered against a number, a date or a date and time, or against a worker's text, a custom date and time, date, time or number property tested for equality with text (a whole-number property against a whole number's text compares the two numbers), or a custom date property ordered with a number or tested for equality with a whole number",
 		"surfaceKeys": [
 			"schema:DefaultCaseSearchProperty.defaultValue",
 			"csql-key:_xpath_query"

@@ -128,6 +128,15 @@ describe("searchIndexedComparison", () => {
 			searchIndexedComparison(true, dob, "date", answer, "int"),
 		).toBeUndefined();
 		expect(
+			searchIndexedComparison(
+				false,
+				dob,
+				"date",
+				term(literal(3.5)),
+				"decimal",
+			),
+		).toBe("number");
+		expect(
 			searchIndexedComparison(true, dob, "date", term(literal(3.5)), "decimal"),
 		).toBeUndefined();
 		expect(

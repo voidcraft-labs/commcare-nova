@@ -2143,6 +2143,8 @@ test("an integer literal compares a custom date to the exact stored spelling in 
 		["untyped", { dob: "3" }],
 		["padded", { dob: "003" }],
 		["decimal", { dob: "3.0" }],
+		["at-fraction", { dob: "3.50" }],
+		["over-fraction", { dob: "3.6" }],
 		["four", { dob: "4" }],
 		["epoch", { dob: "1970-01-04" }],
 		["absent", {}],
@@ -2151,15 +2153,32 @@ test("an integer literal compares a custom date to the exact stored spelling in 
 	expect(await matchedIds(db, eq(dob, literal(3)))).toEqual(["untyped"]);
 	expect(await matchedIds(db, neq(dob, literal(3)))).toEqual([
 		"absent",
+		"at-fraction",
 		"decimal",
 		"epoch",
 		"four",
+		"over-fraction",
 		"padded",
 	]);
-	expect(await matchedIds(db, gt(dob, literal(3)))).toEqual(["four"]);
+	expect(await matchedIds(db, gt(dob, literal(3)))).toEqual([
+		"at-fraction",
+		"four",
+		"over-fraction",
+	]);
+	expect(await matchedIds(db, gt(dob, literal(3.5)))).toEqual([
+		"four",
+		"over-fraction",
+	]);
+	expect(await matchedIds(db, gte(dob, literal(3.5)))).toEqual([
+		"at-fraction",
+		"four",
+		"over-fraction",
+	]);
 	expect(await matchedIds(db, gte(dob, literal(3)))).toEqual([
+		"at-fraction",
 		"decimal",
 		"four",
+		"over-fraction",
 		"padded",
 		"untyped",
 	]);

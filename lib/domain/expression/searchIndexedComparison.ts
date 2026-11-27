@@ -83,13 +83,13 @@ export function searchIndexedComparison(
 			return;
 		return "exact-text";
 	}
-	// A static whole number orders a date property's stored numeric values in
-	// HQ's numeric index. Calendar dates do not participate in that range.
+	// A literal number orders stored numeric values in HQ’s numeric index.
+	// A calendar date has no numeric index value.
 	if (
 		leftType === "date" &&
-		rightType === "int" &&
+		(rightType === "int" || rightType === "decimal") &&
 		typeof value === "number" &&
-		canonicalIntegerText(String(value)) !== undefined
+		Number.isFinite(value)
 	)
 		return "number";
 	if (leftType !== "text" && leftType !== "time") return;
