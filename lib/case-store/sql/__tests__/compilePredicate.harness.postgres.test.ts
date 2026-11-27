@@ -2143,6 +2143,7 @@ test("an integer literal compares a custom date to the exact stored spelling in 
 		["untyped", { dob: "3" }],
 		["padded", { dob: "003" }],
 		["decimal", { dob: "3.0" }],
+		["four", { dob: "4" }],
 		["epoch", { dob: "1970-01-04" }],
 		["absent", {}],
 	]);
@@ -2152,7 +2153,15 @@ test("an integer literal compares a custom date to the exact stored spelling in 
 		"absent",
 		"decimal",
 		"epoch",
+		"four",
 		"padded",
+	]);
+	expect(await matchedIds(db, gt(dob, literal(3)))).toEqual(["four"]);
+	expect(await matchedIds(db, gte(dob, literal(3)))).toEqual([
+		"decimal",
+		"four",
+		"padded",
+		"untyped",
 	]);
 });
 

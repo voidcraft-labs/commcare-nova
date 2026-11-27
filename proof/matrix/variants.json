@@ -39515,6 +39515,49 @@
 	{
 		"id": "hq-search/date-ordered-against-a-number",
 		"base": "hq-search",
+		"entry": "case-search/xpath-query-condition-outside-what-nova-types",
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/1/search_config/default_properties/-",
+			"value": {
+				"property": "_xpath_query",
+				"doc_type": "DefaultCaseSearchProperty",
+				"defaultValue": "\"dob > 3\""
+			}
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 1
+					}
+				],
+				"pointer": "/caseListConfig/searchCondition/clauses/2",
+				"value": {
+					"kind": "gt",
+					"left": {
+						"kind": "term",
+						"term": {
+							"kind": "prop",
+							"caseType": "client",
+							"property": "dob"
+						}
+					},
+					"right": {
+						"kind": "term",
+						"term": {
+							"kind": "literal",
+							"value": 3
+						}
+					}
+				}
+			}
+		]
+	},
+	{
+		"id": "hq-search/date-ordered-against-a-fraction",
+		"base": "hq-search",
 		"entry": "case-search/xpath-query-condition-nova-s-checker-refuses",
 		"standing": "not-yet",
 		"place": {
@@ -39528,7 +39571,7 @@
 			"value": {
 				"property": "_xpath_query",
 				"doc_type": "DefaultCaseSearchProperty",
-				"defaultValue": "\"dob > 3\""
+				"defaultValue": "\"dob > 3.5\""
 			}
 		}
 	},
