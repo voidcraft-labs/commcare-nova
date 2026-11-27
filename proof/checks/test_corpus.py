@@ -200,6 +200,8 @@ PLAN_PRIVILEGES = frozenset(
         "GEOCODER",
         "CUSTOM_ICON_BADGES",
         "LOCKED_ADMIN_QUESTIONS",
+        "TEMPLATED_INTENTS",
+        "CUSTOM_INTENTS",
     }
 )
 

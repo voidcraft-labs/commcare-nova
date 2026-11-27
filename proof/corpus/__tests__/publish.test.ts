@@ -91,6 +91,7 @@ import { authoredCaseIdPrefix } from "@/lib/domain/caseOperationIdentity";
 import { formField, term } from "@/lib/domain/expression";
 import { parseLookupRevision } from "@/lib/lookup/schema";
 import { commtrackAdvanced } from "../../targeted/documents/advancedModules";
+import { androidAppAnswers } from "../../targeted/documents/androidAppAnswers";
 import {
 	heldPlacementApp,
 	OWN_BLOCK,
@@ -321,6 +322,21 @@ it("says nothing of sync on form entry for a document whose publish asks nothing
 	expect(verdict.minimumConfiguration).not.toHaveProperty(
 		"syncCasesOnFormEntry",
 	);
+});
+
+it("captures the specific privilege Nova confirms for built-in and custom Android actions", () => {
+	const { id, doc } = androidAppAnswers();
+	const document = { id, doc, compiledAtSeq: 1, media: new Map() };
+	expect(documentVerdict(document).planPrivileges).toEqual(["CUSTOM_INTENTS"]);
+
+	const builtInOnly = structuredClone(doc);
+	for (const field of Object.values(builtInOnly.fields)) {
+		if (field.kind === "text" && field.androidApp?.kind === "open-app")
+			field.androidApp.action = "org.commcare.respiratory.BREATHCOUNT";
+	}
+	expect(
+		documentVerdict({ ...document, doc: builtInOnly }).planPrivileges,
+	).toEqual(["TEMPLATED_INTENTS"]);
 });
 
 it("republishes over a retained A, sending an update and no create, over the baseline read back after A's bodies", async () => {

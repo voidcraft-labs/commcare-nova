@@ -608,10 +608,16 @@ function planPrivileges(
 	return [
 		...new Set(
 			uses.flatMap((use) => {
-				const constants = PRIVILEGE_CONSTANTS.get(use.gate) ?? [];
-				if (constants.length === 0) {
+				const candidates = PRIVILEGE_CONSTANTS.get(use.gate) ?? [];
+				// The intent gate names two choices. Capture the one Nova asked
+				// for, using the constant with that privilege's slug.
+				const constants =
+					use.gate === "privilege/templated_intents+custom_intents"
+						? candidates.filter((name) => name === use.id.toUpperCase())
+						: candidates;
+				if (constants.length !== 1) {
 					throw new Error(
-						`Nova's publish asks for the plan privilege ${use.id}, and the gate entry ${use.gate} in lib/commcare/surface/entries/gates.json names no privilege constant. Give the entry its surface key, privilege:<constant>.`,
+						`Nova's publish asks for the plan privilege ${use.id}, and the gate entry ${use.gate} in lib/commcare/surface/entries/gates.json does not name exactly one matching privilege constant. Give the entry its surface key, privilege:<constant>.`,
 					);
 				}
 				return constants;
