@@ -1499,7 +1499,7 @@ describe("one cause, one finding, at a basic form's case actions", () => {
 
 	it.each([
 		["always", "basic-update-key-with-an-accented-latin-name", "fix-in-hq"],
-		["edit", "update-key-holding-a-non-ascii-core-name-character", "not-yet"],
+		["edit", "basic-update-key-with-an-accented-latin-name", "fix-in-hq"],
 	])(
 		"places the accented Basic mapping's %s mode under its exact refusal",
 		async (update_mode, entry, standing) => {

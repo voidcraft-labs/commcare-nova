@@ -32,7 +32,7 @@ MENU_NAME = "Members"
 FORM_NAME = "Visit"
 
 
-def _author_basic_mapping(state, *, key=ACCENTED, web_apps=False):
+def _author_basic_mapping(state, *, key=ACCENTED, web_apps=False, mode="always"):
     from corehq.apps.app_manager.form_action_diff import make_multi
     from corehq.apps.app_manager.models import ConditionalCaseUpdate, DetailColumn
 
@@ -59,11 +59,12 @@ def _author_basic_mapping(state, *, key=ACCENTED, web_apps=False):
         ("requires", "case"),
         ("actions", json.dumps(make_multi(form.actions.to_json()))),
         ("case_mapping_diff", json.dumps({"update_case": {"add": {
-            key: [{"question_path": "/data/note", "update_mode": "always"}],
+            key: [{"question_path": "/data/note", "update_mode": mode}],
         }}})),
     ])
     kept = operations.held_app(state, app_id).get_form(form.unique_id).actions.update_case.update
     assert {name: write.question_path for name, write in kept.items()} == {key: "/data/note"}
+    assert kept[key].update_mode == mode
     if web_apps:
         from proof.observe.hqside import app_attributes
 
@@ -412,3 +413,15 @@ def test_basic_vellum_edit_reopens_and_installs_with_its_exact_saved_mapping(hq,
             "editor": editor, "mapping": {property_key: "/data/note"},
             "walk": answer["walks"]["m0-f0"], "receipt": receipt, "storedProperties": observed,
         })
+
+@pytest.mark.parametrize("property_key", [ACCENTED, ASCII_NEIGHBOR], ids=["accented", "ascii"])
+def test_vellum_marks_the_same_case_property_in_edit_only_mode(hq, editor_driver, property_key):
+    from proof.editors.conftest import write_evidence
+
+    with hq_check(CONFIGURATION) as (state, _):
+        app_id, _ = _author_basic_mapping(state, key=property_key, mode="edit")
+        result = _edit_unmapped_question_and_reopen(editor_driver, state, app_id, property_key)
+        native = operations.held_app(state, app_id)
+        kept = native.modules[0].forms[0].actions.update_case.update[property_key]
+        assert kept.update_mode == "edit"
+        write_evidence(f"basic-accented-edit-only-{property_key}", {"messages": result, "mode": kept.update_mode})
