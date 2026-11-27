@@ -266,6 +266,11 @@ export const X = {
 		Q("data-root-name-that-workers-cannot-address"),
 		"xform:model/instance/*",
 	),
+	unicodeRoot: one(
+		"take",
+		Q("answer-root-with-a-non-ascii-name"),
+		"xform:model/instance/*",
+	),
 	namedRoot: one(
 		"take",
 		Q("data-root-element-named-other-than-data"),

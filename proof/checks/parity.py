@@ -79,6 +79,7 @@ from proof.checks.manifest_value_classes import (
     worker_record_save_to_case_shape,
     guarded_owner_after_fresh_create,
     two_parent_links_text_prompt_key,
+    unaddressable_answer_root,
 )
 from proof.observe.manifest import expression_tree
 
@@ -88,6 +89,7 @@ ALLOWING = frozenset({"HELD", "TARGET-OWNED", "INERT"})
 HQ_BUILD_REASON = "not-hq-buildable"
 DIRECT_PARENT_PROMPT = "case-search/prompt-key-matching-a-direct-parent-property"
 LATER_OWNER_ON_FRESH_CREATE = "questions/savetocase-guarded-owner-after-fresh-create"
+UNICODE_PRIMARY_ROOT = "questions/answer-root-with-a-non-ascii-name"
 PARENT_USER_WRITE = "forms-and-case-writes/update-key-through-a-typed-user-index"
 CONDITIONAL_WORKER_UPDATE = "questions/savetocase-update-case-id-xpath"
 REPEATED_WORKER_UPDATE = "questions/savetocase-inside-a-repeat"
@@ -746,6 +748,18 @@ def _advanced_own_label_write(use):
     return PASSIVE_LABEL_WRITE if control.get("appearance") in {"minimal", "selectable"} else OTHER_ADVANCED_LABEL
 
 
+def _unicode_primary_root(use, held):
+    at = use.at
+    if not isinstance(at, manifest_usage.XmlAt) or at.document.kind != "xform":
+        return False
+    root = at.element
+    return (
+        root is at.document.data_root
+        and not root.tag.rsplit("}", 1)[-1].isascii()
+        and unaddressable_answer_root(use, held) is False
+    )
+
+
 def _forms_variant_uses(found, held, entries):
     """Source facts retained variants can decide without the full corpus's runtime observations."""
     wanted = {
@@ -753,7 +767,7 @@ def _forms_variant_uses(found, held, entries):
         OWN_CASE_BESIDE, LOOKUP_COUNT, ITEMSET_FILTER, ITEMSET_PREDICATE, ADVANCED_CASE_ITEMSET, PARENT_USER_WRITE,
         *REGISTRATION_ENTRIES, *RETYPE_ENTRIES,
         CONDITIONAL_WORKER_UPDATE, REPEATED_WORKER_UPDATE, HELD_REPEATED_WORKER_UPDATE, LATER_OWNER_ON_FRESH_CREATE,
-        PASSIVE_LABEL_WRITE, OTHER_ADVANCED_LABEL,
+        PASSIVE_LABEL_WRITE, OTHER_ADVANCED_LABEL, UNICODE_PRIMARY_ROOT,
     }.intersection(entries)
     if not wanted:
         return
@@ -761,6 +775,9 @@ def _forms_variant_uses(found, held, entries):
     places = {(use.artifact, use.where, use.key) for use in found.uses}
     for use in found.uses:
         at = use.at
+        if (UNICODE_PRIMARY_ROOT in wanted and use.key == "xform:model/instance/*"
+                and _unicode_primary_root(use, held)):
+            yield Decided(use, manifest_usage.HELD, (by_id[UNICODE_PRIMARY_ROOT],))
         if wanted.intersection((PASSIVE_LABEL_WRITE, OTHER_ADVANCED_LABEL)) and use.key == LABEL_WRITE_PATH:
             if (entry := _advanced_own_label_write(use)) in wanted:
                 status = manifest_usage.HELD if entry == PASSIVE_LABEL_WRITE else manifest_usage.HELD_NEW
@@ -963,7 +980,7 @@ def _projects(decided: Decided, record: Record, held) -> tuple[bool, bool]:
         return record.standing == "fix-in-hq", refused
     if standing == manifest_usage.HELD_NEW:
         return record.standing == "not-yet", record.entry in resting
-    if standing == manifest_usage.HELD and len(resting) == 1 and resting <= PARENT_PROMPT_SHAPES.keys():
+    if standing == manifest_usage.HELD and len(resting) == 1 and resting <= PARENT_PROMPT_SHAPES.keys() | {UNICODE_PRIMARY_ROOT}:
         return record.standing == "held", record.entry in resting
     if standing == manifest_usage.HELD and decided.at is not None:
         return record.standing == "held", record.entry in resting and record.at == decided.at

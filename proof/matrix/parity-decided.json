@@ -508,6 +508,7 @@
 		"hq-questions/data-parent-of-a-group",
 		"hq-questions/data-root-attribute",
 		"hq-questions/data-root-named-survey",
+		"hq-questions/data-root-named-survey-accented",
 		"hq-questions/data-root-reserved-by-designer",
 		"hq-questions/data-root-unaddressable",
 		"hq-questions/date-ethiopian",
