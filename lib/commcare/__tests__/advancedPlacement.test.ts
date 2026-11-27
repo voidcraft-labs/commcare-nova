@@ -33,7 +33,12 @@ import {
 } from "@/lib/commcare/wireIdentity";
 import { collectFieldLocations } from "@/lib/commcare/xform/caseOps";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
-import type { CaseOperation, CaseOperationLink, Uuid } from "@/lib/domain";
+import {
+	type CaseOperation,
+	type CaseOperationLink,
+	proseText,
+	type Uuid,
+} from "@/lib/domain";
 import { concat, eq, literal, term } from "@/lib/domain/expression/builders";
 import type { HqAnyForm } from "../types";
 import {
@@ -621,6 +626,68 @@ describe("the advanced procedure", () => {
 				menu === MEMBERS ? "never" : "always",
 			);
 		}
+	});
+
+	it("writes through the declared parent of the first manually chosen case", () => {
+		const { doc, formUuid } = advancedFixture(
+			followup(
+				[
+					own(),
+					update(
+						"first",
+						{ kind: "expression", expr: chosen(HOUSEHOLDS) },
+						{
+							writes: [
+								{
+									property: "district_note",
+									value: read("name"),
+									via: [{ identifier: "parent", throughCaseType: "district" }],
+								},
+							],
+						},
+					),
+				],
+				{
+					menu: "members",
+					configure(doc) {
+						const types = doc.caseTypes ?? [];
+						doc.caseTypes = [
+							...types.map((type) =>
+								type.name === "household"
+									? { ...type, parent_type: "district" }
+									: type,
+							),
+							{
+								name: "district",
+								properties: [
+									{
+										name: "district_note",
+										label: proseText("District note"),
+										data_type: "text",
+									},
+								],
+							},
+						];
+					},
+				},
+			),
+		);
+		expect(
+			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).map(({ code }) => code),
+		).toEqual([]);
+		expect(
+			planPlacements(doc, formUuid).placements.get(OP("first"))?.placement,
+		).toEqual({
+			kind: "advanced",
+			tag: "load_household0",
+		});
+		const form = expandDoc(doc).modules[1].forms[0];
+		if (form.doc_type !== "AdvancedForm")
+			throw new Error("Expected the Advanced form");
+		expect(
+			form.actions.load_update_cases[0].case_properties["parent/district_note"]
+				?.question_path,
+		).toBe("/data/name");
 	});
 
 	it("tags the chain's loads root first, the own load last, and the worker's after them", () => {

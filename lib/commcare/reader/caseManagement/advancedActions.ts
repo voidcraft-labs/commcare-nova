@@ -337,6 +337,10 @@ export const ADVANCED_CLAIMS = defineClaims("caseManagement.advancedActions", {
 		`${F}/loadupdateaction-case-properties-key-with-on-a-load-with-no-case`,
 		"schema:LoadUpdateAction.case_properties",
 	),
+	loadViaFirst: take(
+		`${F}/loadupdateaction-first-load-writes-through-a-declared-parent-or-host`,
+		"schema:LoadUpdateAction.case_properties",
+	),
 	loadViaFacet: take(
 		`${F}/update-key-name-or-owner-id-through-an-index-segment`,
 		"schema:LoadUpdateAction.case_properties",
@@ -933,7 +937,7 @@ interface Reading {
  */
 type SlashKeys =
 	| { readonly kind: "indexed" }
-	| { readonly kind: "own"; readonly caseType: string }
+	| { readonly kind: "own" | "first"; readonly caseType: string }
 	| { readonly kind: "elsewhere" };
 
 /** One write map (`case_properties`) of a load or an open action, key by key. */
@@ -1029,6 +1033,8 @@ function readProperties(
 				continue;
 			}
 			via = steps.steps as CaseWriteVia;
+			if (slashes.kind === "first")
+				cursor.holdMapEntry(ADVANCED_CLAIMS.loadViaFirst);
 		}
 		// The case above's name and owner: HQ's build writes `name` as the
 		// block's `case_name` (`XFormCaseBlock.add_case_updates`) and `owner_id`
@@ -2142,7 +2148,12 @@ function readOrdinaryAdvancedActions(
 				? { kind: "indexed" }
 				: last
 					? { kind: "own", caseType: caseType as string }
-					: { kind: "elsewhere" },
+					: i === 0 &&
+							position === 0 &&
+							!automatic &&
+							caseType !== "commcare-user"
+						? { kind: "first", caseType: caseType as string }
+						: { kind: "elsewhere" },
 			{
 				...(last &&
 					!automatic &&

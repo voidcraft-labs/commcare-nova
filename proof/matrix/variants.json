@@ -689,7 +689,28 @@
 	{
 		"id": "hq-advanced/first-load-writes-through-parent",
 		"base": "hq-advanced",
-		"entry": "forms-and-case-writes/loadupdateaction-case-properties-key-with-on-a-load-with-no-case",
+		"entry": "forms-and-case-writes/loadupdateaction-first-load-writes-through-a-declared-parent-or-host",
+		"change": {
+			"op": "named",
+			"name": "first_load_writes_through_declared_parent"
+		},
+		"holds": [
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [1, 0]
+					}
+				],
+				"pointer": "/caseOperations/1/writes/0/via/0/throughCaseType",
+				"value": "district"
+			}
+		]
+	},
+	{
+		"id": "hq-advanced/first-load-writes-through-an-unbound-parent",
+		"base": "hq-advanced",
+		"entry": "forms-and-case-writes/index-path-through-a-case-type-the-app-does-not-fix",
 		"standing": "not-yet",
 		"place": {
 			"kind": "form",
@@ -701,6 +722,28 @@
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/1/forms/0/actions/load_update_cases/0/case_properties/parent~1last_member_visit",
+			"value": {
+				"question_path": "/data/visited_on",
+				"update_mode": "always",
+				"doc_type": "ConditionalCaseUpdate"
+			}
+		}
+	},
+	{
+		"id": "hq-advanced/first-load-writes-through-worker-index",
+		"base": "hq-advanced",
+		"entry": "forms-and-case-writes/loadupdateaction-case-properties-key-with-on-a-load-with-no-case",
+		"standing": "not-yet",
+		"place": {
+			"kind": "form",
+			"menu": 1,
+			"form": 0,
+			"menuName": "Member visits",
+			"name": "Untitled Form"
+		},
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/1/forms/0/actions/load_update_cases/0/case_properties/user~1last_member_visit",
 			"value": {
 				"question_path": "/data/visited_on",
 				"update_mode": "always",

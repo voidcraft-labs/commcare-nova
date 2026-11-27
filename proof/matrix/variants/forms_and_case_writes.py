@@ -998,3 +998,38 @@ def two_entries_opening_the_visit(authoring, app_id):
             entry = operations.held_app(authoring.state, app_id).get_module(menu).get_form(1)
             body, content_type = ops.form_body(pairs)
             ops.post(authoring, "edit_advanced_form_actions", [app_id, entry.unique_id], body, content_type, name)
+
+
+def first_load_writes_through_declared_parent(authoring, app_id):
+    """A district follow-up establishes the household parent used by the existing first load."""
+    from corehq.apps.app_manager.models import ConditionalCaseUpdate, FormActionCondition, OpenSubCaseAction
+
+    from proof.matrix.bases.hq_advanced import HOUSEHOLD_VISIT, REGISTRATION
+
+    _pages.new_case_module(authoring, app_id, name="Districts", case_type="district")
+    ops.upload_form_source(authoring, app_id, 3, 0, REGISTRATION, "district registration source")
+    ops.upload_form_source(authoring, app_id, 3, 1, HOUSEHOLD_VISIT, "district follow-up source")
+    _pages.save_case_actions(authoring, app_id, 3, 0, name_path="/data/head_name")
+
+    def open_household(actions):
+        actions["subcases"] = [
+            OpenSubCaseAction(
+                case_type="household",
+                name_update=ConditionalCaseUpdate(question_path="/data/new_member"),
+                repeat_context="",
+                relationship="child",
+                condition=FormActionCondition(type="always"),
+            ).to_json()
+        ]
+
+    _pages.save_case_management(authoring, app_id, 3, 1, change=open_household, what="household district parent")
+
+    def update_district(app):
+        load = app.get_module(1).get_form(0).actions.load_update_cases[0]
+        load.case_properties = {
+            "parent/last_member_visit": ConditionalCaseUpdate(
+                question_path="/data/visited_on", update_mode="always"
+            )
+        }
+
+    _pages.change_app_model(authoring, app_id, "save-visit-to-household-district", update_district)

@@ -554,6 +554,41 @@ def _location_write_uses(use, entry):
             yield Decided(use, manifest_usage.HELD, (entry,), f"{use.where}/{name}")
 
 
+def _first_advanced_parent_write_uses(use, entry):
+    """A deliberate first selection and a path witnessed by ordinary child registrations."""
+    at = use.at
+    form = at.nearest("AdvancedForm")
+    load = at.nearest("LoadUpdateAction")
+    if form is None or load is None or not isinstance(at.value, dict):
+        return
+    loads = (form.get("actions") or {}).get("load_update_cases") or []
+    if (len(loads) < 2 or loads[0] is not load or load.get("auto_select") or
+            (load.get("case_index") or {}).get("tag") or load.get("case_type") in {None, "commcare-user"}):
+        return
+    edges = {}
+    for menu in at.app.modules:
+        if menu.get("doc_type") != "Module":
+            continue
+        for authored_form in menu.get("forms") or ():
+            for opening in (authored_form.get("actions") or {}).get("subcases") or ():
+                if (opening.get("condition") or {}).get("type") != "always":
+                    continue
+                edge = (opening.get("case_type"), opening.get("reference_id") or "parent")
+                edges.setdefault(edge, set()).add(menu.get("case_type"))
+    for key, update in at.value.items():
+        *steps, _property = key.split("/")
+        if not steps or not isinstance(update, dict) or not update.get("question_path"):
+            continue
+        case_type = load["case_type"]
+        for step in steps:
+            targets = edges.get((case_type, step), ())
+            if step not in {"parent", "host"} or len(targets) != 1:
+                break
+            case_type, = targets
+        else:
+            yield Decided(use, manifest_usage.HELD, (entry,), f"{use.where}/{pointer_token(key)}")
+
+
 def _parent_user_write_uses(use, entry):
     """A basic one-case follow-up with a unique ordinary type at both literal hops."""
     at = use.at
@@ -809,12 +844,15 @@ def _unicode_primary_root(use, held):
     )
 
 
+FIRST_ADVANCED_PARENT_WRITE = "forms-and-case-writes/loadupdateaction-first-load-writes-through-a-declared-parent-or-host"
+
+
 def _forms_variant_uses(found, held, entries):
     """Source facts retained variants can decide without the full corpus's runtime observations."""
     wanted = {
         AUTOMATIC_MULTI, LOCATION_WRITE, HYPHEN_TAG, EXTENDED_OPEN_INDEX, UNICODE_OPEN_INDEX, SHADOW_LOAD, SUPPLY_POINT,
         OWN_CASE_BESIDE, LOOKUP_COUNT, BARE_LOOKUP_COUNT, ITEMSET_FILTER, ITEMSET_PREDICATE, ADVANCED_CASE_ITEMSET,
-        PARENT_USER_WRITE,
+        PARENT_USER_WRITE, FIRST_ADVANCED_PARENT_WRITE,
         *REGISTRATION_ENTRIES, *RETYPE_ENTRIES,
         CONDITIONAL_WORKER_UPDATE, REPEATED_WORKER_UPDATE, HELD_REPEATED_WORKER_UPDATE, LATER_OWNER_ON_FRESH_CREATE,
         PASSIVE_LABEL_WRITE, OTHER_ADVANCED_LABEL, UNICODE_PRIMARY_ROOT,
@@ -872,6 +910,8 @@ def _forms_variant_uses(found, held, entries):
         if (ADVANCED_CASE_ITEMSET in wanted and use.key == "xform:select1/itemset"
                 and case_itemset_survey_readiness(use)):
             yield Decided(use, manifest_usage.HELD_NEW, (by_id[ADVANCED_CASE_ITEMSET],))
+        if FIRST_ADVANCED_PARENT_WRITE in wanted and use.key == "schema:LoadUpdateAction.case_properties":
+            yield from _first_advanced_parent_write_uses(use, by_id[FIRST_ADVANCED_PARENT_WRITE])
         if PARENT_USER_WRITE in wanted and use.key == "schema:UpdateCaseAction.update":
             yield from _parent_user_write_uses(use, by_id[PARENT_USER_WRITE])
         if LOCATION_WRITE in wanted and use.key == LOCATION_UPDATE_KEY:
