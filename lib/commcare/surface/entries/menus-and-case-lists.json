@@ -9826,7 +9826,7 @@
 			"schema:Detail.lookup_field_header",
 			"schema:Detail.lookup_field_template"
 		],
-		"valueClass": "named-result-column-keyed-by-a-custom-case-text-property-on-a-plain-list",
+		"valueClass": "named-result-column-keyed-by-a-case-text-property-on-a-plain-list",
 		"disposition": "HELD",
 		"dispositionCell": "**HELD**: Android shows the returned confidence on each eligible row with the matching case property value.",
 		"slotChanges": [],

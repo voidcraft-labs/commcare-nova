@@ -3790,9 +3790,12 @@ export type DeviceLookupExtra = z.infer<typeof deviceLookupExtraSchema>;
 export const caseListLookupResultPropertySchema =
 	readCasePropertyNameSchema.refine(
 		(name) =>
-			!Object.hasOwn(STANDARD_CASE_LIST_PROPERTY_DATA_TYPES, name) &&
-			!["case_type", "category", "state", "index", "attachment"].includes(name),
-		"Choose a custom case property or the record ID.",
+			name === "case_name" ||
+			(!Object.hasOwn(STANDARD_CASE_LIST_PROPERTY_DATA_TYPES, name) &&
+				!["case_type", "category", "state", "index", "attachment"].includes(
+					name,
+				)),
+		"Choose the record name, a custom text property, or the record ID.",
 	);
 
 export const caseListDeviceLookupSchema = z

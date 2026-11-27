@@ -69,6 +69,7 @@ interface Props {
 	readonly moduleUuid: Uuid;
 	readonly disabled: boolean;
 	readonly allowConfidence: boolean;
+	readonly allowResultProperty: boolean;
 	readonly caseProperties: readonly CaseProperty[];
 	readonly value: CaseListDeviceLookup | undefined;
 	readonly canEdit: boolean;
@@ -79,6 +80,7 @@ export function CaseListDeviceLookupSetting({
 	moduleUuid,
 	disabled,
 	allowConfidence,
+	allowResultProperty,
 	caseProperties,
 	value,
 	canEdit,
@@ -91,6 +93,7 @@ export function CaseListDeviceLookupSetting({
 	const [error, setError] = useState<string>();
 	const resultProperties = caseProperties.filter(
 		(property) =>
+			property.name !== "case_name" &&
 			effectiveDataType(property) === "text" &&
 			caseListLookupResultPropertySchema.safeParse(property.name).success,
 	);
@@ -281,7 +284,7 @@ export function CaseListDeviceLookupSetting({
 											setDraft({ ...draft, resultHeading })
 										}
 									/>
-									{(resultProperties.length > 0 ||
+									{(allowResultProperty ||
 										draft.resultProperty !== undefined) && (
 										<div className="space-y-1">
 											<p className="text-sm text-nova-text">
@@ -304,6 +307,11 @@ export function CaseListDeviceLookupSetting({
 												</SelectTrigger>
 												<SelectContent>
 													<SelectItem value="case_id">Record ID</SelectItem>
+													{allowResultProperty && (
+														<SelectItem value="case_name">
+															Record name
+														</SelectItem>
+													)}
 													{resultProperties.map((property) => (
 														<SelectItem
 															key={property.name}

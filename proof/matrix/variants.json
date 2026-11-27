@@ -12560,6 +12560,22 @@
 		}
 	},
 	{
+		"id": "hq-case-lists/fixed-text-callout-name-confidence",
+		"base": "hq-case-lists",
+		"entry": "menus-and-case-lists/lookup-case-property-confidence",
+		"change": {
+			"op": "named",
+			"name": "fixed_text_callout_with_name_confidence"
+		},
+		"holds": [
+			{
+				"key": ["module", { "$menu": 0 }],
+				"pointer": "/caseListConfig/deviceLookup/resultProperty",
+				"value": "case_name"
+			}
+		]
+	},
+	{
 		"id": "hq-case-lists/fixed-text-callout-property-confidence",
 		"base": "hq-case-lists",
 		"entry": "menus-and-case-lists/lookup-case-property-confidence",

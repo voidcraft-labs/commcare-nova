@@ -508,6 +508,12 @@ def fixed_text_callout_with_confidence(authoring, app_id):
     )
 
 
+def fixed_text_callout_with_name_confidence(authoring, app_id):
+    """The companion's return value matches each record's native case_name child."""
+    fixed_text_callout_with_confidence(authoring, app_id)
+    ops.set_json(authoring, app_id, "/modules/0/case_details/short/lookup_field_template", "case_name")
+
+
 def fixed_text_callout_with_property_confidence(authoring, app_id):
     """Patients' lookup matches the companion's key to each row's custom property."""
     fixed_text_callout_with_confidence(authoring, app_id)

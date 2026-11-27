@@ -228,6 +228,7 @@ export function CaseListCanvas({
 						disabled={caseType === undefined || tile?.namedSlots !== undefined}
 						value={config.deviceLookup}
 						allowConfidence={tile === undefined}
+						allowResultProperty={!config.additionalCaseTypes?.length}
 						caseProperties={
 							config.additionalCaseTypes?.length
 								? []

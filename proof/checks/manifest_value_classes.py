@@ -7659,7 +7659,7 @@ def lookup_with_case_property_result(use, manifest):
     return (
         axis == "child" and not predicates and re.fullmatch(r"[A-Za-z][A-Za-z0-9_-]*", name) is not None
         and name not in {
-            "name", "date-opened", "external-id", "case_id", "case_name", "date_opened", "last_modified",
+            "name", "date-opened", "external-id", "case_id", "date_opened", "last_modified",
             "owner_id", "external_id", "status", "case_type", "category", "state", "index", "attachment",
         }
     )
