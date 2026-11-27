@@ -22,7 +22,7 @@ const doc = buildDoc({
 		{
 			name: "Patients",
 			caseType: "patient",
-			caseSearchConfig: { workflow: "searchFirst" },
+			caseSearchConfig: {},
 			caseListConfig: {
 				columns: [column],
 				listColumnOrder: [column.uuid],

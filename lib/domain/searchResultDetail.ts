@@ -29,9 +29,19 @@ export function resolveSearchResultDetailText(
 	column: CalculatedColumn,
 	branch: SearchResultDetailText,
 ) {
+	return doc.appSettings.runsOnlyOn === "web-apps"
+		? resolveSearchResultDetailRoute(module, column, branch)
+		: undefined;
+}
+
+/** Check the route and column shape before the reader offers platform choices. */
+export function resolveSearchResultDetailRoute(
+	module: Module,
+	column: CalculatedColumn,
+	branch: SearchResultDetailText,
+) {
 	const config = module.caseListConfig;
 	if (
-		doc.appSettings.runsOnlyOn !== "web-apps" ||
 		config === undefined ||
 		moduleSearchWorkflow(module) !== "searchFirst" ||
 		moduleFormsReadSearch(module) ||

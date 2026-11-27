@@ -34,7 +34,7 @@ import {
 	type ScalarType,
 	scalarDataType,
 } from "@/lib/domain/expression";
-import { resolveSearchResultDetailText } from "@/lib/domain/searchResultDetail";
+import { resolveSearchResultDetailRoute } from "@/lib/domain/searchResultDetail";
 import {
 	type ModuleExpressionContexts,
 	moduleExpressionContexts,
@@ -140,8 +140,7 @@ export function hqExpressionField(
 ): WireExpr {
 	if (column.kind === "calculated") {
 		if (screen === "details" && column.searchResultDetail) {
-			const branch = resolveSearchResultDetailText(
-				doc,
+			const branch = resolveSearchResultDetailRoute(
 				mod,
 				column,
 				column.searchResultDetail,

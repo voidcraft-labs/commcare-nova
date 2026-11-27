@@ -745,6 +745,16 @@ export function useCaseData(args: {
 		readonly moduleUuid: string | undefined;
 		readonly value: LoadingState<LoadCaseDataResult>;
 	}
+	const detailArguments: [
+		language?: string,
+		selectionMenuUuid?: string,
+		resultDetail?: typeof resultDetail,
+	] =
+		resultDetail !== undefined
+			? [language, selectionMenuUuid, resultDetail]
+			: language === undefined && selectionMenuUuid === undefined
+				? []
+				: [language, selectionMenuUuid];
 	const resource = useReloadableResource<KeyedCaseDataState>({
 		prepare: () =>
 			!ready || !appId || !caseType || !caseId
@@ -789,11 +799,7 @@ export function useCaseData(args: {
 									: null,
 								withNavigationWidth(device),
 								searchAnswers,
-								...(resultDetail !== undefined
-									? ([language, selectionMenuUuid, resultDetail] as const)
-									: language === undefined && selectionMenuUuid === undefined
-										? ([] as const)
-										: ([language, selectionMenuUuid] as const)),
+								...detailArguments,
 							),
 						}),
 					},

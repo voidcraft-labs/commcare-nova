@@ -380,7 +380,7 @@ it("uses the originating offered Search page when restoring a standalone case De
 				name: "Patients",
 				caseType: "patient",
 				caseListMenuItem: {},
-				caseSearchConfig: { workflow: "searchFirst" },
+				caseSearchConfig: {},
 				caseListConfig: {
 					columns: [column],
 					listColumnOrder: [columnUuid],

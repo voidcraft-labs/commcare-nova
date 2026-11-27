@@ -9,6 +9,7 @@ import { hqExpressionField } from "../../../suite/case-list/orderPlanOptions";
 import { resultDetailTextWire } from "../../../suite/case-list/resultDetailText";
 import { serializeWire } from "../../../xpath/wire/serialize";
 import { readResultDetailText } from "../resultDetailText";
+import { closedCodes, listOf, readLists } from "./listReading";
 
 const prompt =
 	"instance('search-input:results')/input/field[@name = 'detail_marker']";
@@ -60,7 +61,7 @@ describe("standalone Search result-detail text", () => {
 				{
 					name: "Visits",
 					caseType: "patient",
-					caseSearchConfig: { workflow: "searchFirst" },
+					caseSearchConfig: {},
 					caseListConfig: {
 						columns: [column],
 						listColumnOrder: [column.uuid],
@@ -110,6 +111,86 @@ describe("standalone Search result-detail text", () => {
 			expect(out).toContain("detail_marker");
 		}
 	});
+
+	it.each([true, false])(
+		"binds the source prompt identity only when it is offered (%s)",
+		async (offered) => {
+			const column = calculatedColumn(
+				testUuid("read-result-detail-column"),
+				"Entered value",
+				term(literal("local row")),
+				{ notOnList: true, visibleInList: false },
+			);
+			const doc = buildDoc({
+				modules: [
+					{
+						name: "Visits",
+						caseType: "patient",
+						caseListMenuItem: {},
+						caseSearchConfig: {},
+						caseListConfig: {
+							columns: [column],
+							listColumnOrder: [column.uuid],
+							detailColumnOrder: [column.uuid],
+							searchInputs: [
+								simpleSearchInputDef(
+									testUuid("read-result-detail-prompt"),
+									"detail_marker",
+									"Marker",
+									"text",
+									"case_name",
+								),
+							],
+						},
+						forms: [
+							{
+								name: "Visit",
+								type: "followup",
+								fields: [{ id: "note", kind: "text" }],
+							},
+						],
+					},
+				],
+			});
+			const outcome = await readLists(doc, {
+				edit: (app) => {
+					app.cloudcare_enabled = true;
+					const menu = app.modules[0];
+					expect(menu.search_config.auto_launch).toBe(true);
+					expect(menu.search_config.inline_search).not.toBe(true);
+					expect(menu.search_config.default_search).not.toBe(true);
+					const stored = menu.case_details.long.columns.find(
+						(one) => one.useXpathExpression === true,
+					);
+					if (!stored) throw new Error("No stored Details calculation.");
+					stored.field = offered
+						? formula
+						: formula.replaceAll("detail_marker", "foreign_marker");
+				},
+			});
+			const list = listOf(outcome);
+			const calculated = list.columns.find((one) => one.kind === "calculated");
+			expect(calculated).toMatchObject({
+				kind: "calculated",
+				expression: term(literal("local row")),
+			});
+			if (calculated?.kind !== "calculated")
+				throw new Error("Expected Detail calculation.");
+			if (offered) {
+				expect(closedCodes(outcome)).toEqual([]);
+				expect(calculated.searchResultDetail).toEqual({
+					inputUuid: list.searchInputs[0].uuid,
+					prefix: "entered=[",
+					suffix: "]",
+				});
+			} else {
+				expect(closedCodes(outcome)).toContain(
+					"menus-and-case-lists/standalone-search-result-detail-without-its-offered-prompt",
+				);
+				expect(calculated.searchResultDetail).toBeUndefined();
+			}
+		},
+	);
 
 	it.each([
 		`if(${roster}, concat('entered=[', string(${prompt}), ']'), 'local row')`,

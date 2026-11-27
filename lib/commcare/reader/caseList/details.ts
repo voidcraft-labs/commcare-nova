@@ -1954,6 +1954,12 @@ export function readCaseDetails(
 		formats: formatCounts(long),
 		filterChangesBuild: false,
 		searchInstancesRead: autoLaunch || long.peek("instance_name") === "results",
+		standaloneResultDetailText:
+			ctx.facts.webAppsOnInHq &&
+			isJsonObject(search) &&
+			search.auto_launch === true &&
+			search.inline_search !== true &&
+			search.default_search !== true,
 	};
 	const shortReadings = shortCursors.map((column, index) =>
 		readDetailColumn(ctx, module, column, "short", {
