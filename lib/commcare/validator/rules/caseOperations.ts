@@ -1588,26 +1588,36 @@ function validateVia(
 			"new-case",
 			`${write.property} is saved to the case above a case this form creates, and that case has no link yet while the form is open. You can save it from a form that opens the existing case.`,
 		);
+	const directUserIndex = via.length === 1 && via[0].identifier === "user";
+	let firstAdvancedUserWrite = false;
 	if (operation.action !== "own") {
 		const planned = planPlacements(ctx.doc, ctx.formUuid).placements.get(
 			operation.uuid,
 		);
+		const firstManualLoad =
+			operation.action === "update" &&
+			operation.target.kind === "expression" &&
+			chainLoadOfTarget(ctx.doc, ctx.formUuid, operation.target) === 0 &&
+			formCaseSelections(ctx.doc, ctx.formUuid)[0]?.source.kind === "choose" &&
+			planned?.placement.kind === "advanced";
+		firstAdvancedUserWrite =
+			firstManualLoad &&
+			directUserIndex &&
+			write.property !== "case_name" &&
+			write.property !== "owner_id" &&
+			caseWriteValueField(write.value)?.link !== true;
 		if (
-			operation.action !== "update" ||
-			operation.target.kind !== "expression" ||
-			chainLoadOfTarget(ctx.doc, ctx.formUuid, operation.target) !== 0 ||
-			formCaseSelections(ctx.doc, ctx.formUuid)[0]?.source.kind !== "choose" ||
-			planned?.placement.kind !== "advanced" ||
-			via.some(
-				(step) => step.identifier !== "parent" && step.identifier !== "host",
-			)
+			!firstManualLoad ||
+			(!firstAdvancedUserWrite &&
+				via.some(
+					(step) => step.identifier !== "parent" && step.identifier !== "host",
+				))
 		)
 			return refuse(
 				"target",
 				"A change can save through a parent or host from this form's own case or its first manually chosen case. You can add a change for the connected case directly.",
 			);
 	}
-	const directUserIndex = via.length === 1 && via[0].identifier === "user";
 	if (isParentUserWritePath(via)) {
 		if (caseWriteValueField(write.value)?.link === true)
 			return refuse(
@@ -1676,7 +1686,8 @@ function validateVia(
 			operation.uuid,
 		)?.placement;
 		if (
-			planned?.kind !== "basic" ||
+			(!firstAdvancedUserWrite && planned?.kind !== "basic") ||
+			(firstAdvancedUserWrite && origin === reached.caseType) ||
 			RESERVED_CASE_OPERATION_TYPES.has(origin) ||
 			RESERVED_CASE_OPERATION_TYPES.has(reached.caseType)
 		)

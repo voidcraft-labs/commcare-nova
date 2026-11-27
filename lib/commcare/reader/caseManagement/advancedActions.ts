@@ -26,6 +26,7 @@ import {
 	isCaseOperationIdentifier,
 	isCaseOperationLinkIdentifier,
 	ownCaseOperationId,
+	RESERVED_CASE_OPERATION_TYPES,
 	type TargetedCaseOperation,
 	type Term,
 	type Uuid,
@@ -1030,14 +1031,31 @@ function readProperties(
 				continue;
 			}
 			const indices = segments.slice(0, -1);
+			const firstUserIndex =
+				slashes.kind === "first" &&
+				indices.length === 1 &&
+				indices[0] === "user" &&
+				property !== "name" &&
+				property !== "owner_id" &&
+				!namesAttachment(r.form, cursor.peek("question_path"));
 			if (
 				slashes.kind === "elsewhere" ||
-				!indices.every((step) => step === "parent" || step === "host")
+				(!firstUserIndex &&
+					!indices.every((step) => step === "parent" || step === "host"))
 			) {
 				refuseKey(ADVANCED_CLAIMS.loadViaElsewhere);
 				continue;
 			}
 			const steps = ancestorSteps(r.ctx, slashes.caseType, indices);
+			if (
+				firstUserIndex &&
+				(steps === undefined ||
+					steps.types.some((type) => RESERVED_CASE_OPERATION_TYPES.has(type)) ||
+					steps.types[0] === steps.types[1])
+			) {
+				refuseKey(ADVANCED_CLAIMS.loadViaElsewhere);
+				continue;
+			}
 			if (steps === undefined) {
 				refuseKey(ADVANCED_CLAIMS.loadViaUnknown);
 				continue;

@@ -223,6 +223,44 @@ describe("a write through the own load's parent link", () => {
 		]);
 	});
 
+	it("keeps a direct user index from the first selected record to the declared ordinary case", async () => {
+		const base = memberFollowup();
+		const source = {
+			...base,
+			caseTypes: [
+				...(base.caseTypes ?? []).map((type) =>
+					type.name === "household"
+						? {
+								...type,
+								relations: [
+									{
+										identifier: "user",
+										targetType: "district",
+										relationship: "child" as const,
+									},
+								],
+							}
+						: type,
+				),
+				{ name: "district", properties: [] },
+			],
+		};
+		const outcome = await reading(source, (loads) => {
+			const own = loads.at(-1) as Load;
+			const first = loads[0] as Load;
+			const [value] = Object.values(own.case_properties);
+			first.case_properties = { "user/remark": value };
+		});
+		if (outcome.kind !== "read")
+			throw new Error("The linked update did not read.");
+		const doc = outcome.draft.doc;
+		const verdict = mutationCommitVerdict(doc, [], LOOKUP_CONTEXT_UNAVAILABLE);
+		expect(verdict.ok ? [] : verdict.findings).toEqual([]);
+		expect(loadsOf(exportedBody(doc))[0]?.case_properties).toHaveProperty(
+			"user/remark",
+		);
+	});
+
 	it("refuses an unknown parent type on the first manually chosen case", async () => {
 		// The household's load, first of the chain, chosen with no `case_index`.
 		const outcome = await reading(memberFollowup(), (loads) => {
