@@ -17,6 +17,7 @@ import pytest
 DOCUMENTS = (
     "hq-question-display",
     "hq-lookups",
+    "hq-advanced",
     "hq-search",
     "targeted-question-calendar",
     "prompt-periods",
