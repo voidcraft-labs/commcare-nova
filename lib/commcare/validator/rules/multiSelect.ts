@@ -27,10 +27,8 @@ import {
 	resolveFormLinkTarget,
 	type Uuid,
 } from "@/lib/domain";
-import {
-	authoredBoundedFlatClose,
-	STANDARD_CASE_SELECTION_MAXIMUM,
-} from "@/lib/domain/boundedFlatClose";
+import { authoredBoundedFlatClose } from "@/lib/domain/boundedFlatClose";
+import { STANDARD_CASE_SELECTION_MAXIMUM } from "@/lib/domain/caseSelectionLimits";
 import { activeRowScope, slotContext } from "@/lib/domain/expression/context";
 import { expressionContextAtPath } from "@/lib/domain/expression/typeChecker";
 import {

@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { PersistableDoc, Uuid } from "@/lib/domain";
 import { uuidSchema } from "@/lib/domain";
-import { BOUNDED_FLAT_CLOSE_MAXIMUM } from "@/lib/domain/boundedFlatClose";
+import { BOUNDED_FLAT_CLOSE_MAXIMUM } from "@/lib/domain/caseSelectionLimits";
 import {
 	appLanguageIdentitySchema,
 	type LanguageTag,

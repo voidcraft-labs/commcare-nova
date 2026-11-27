@@ -101,6 +101,7 @@ import {
 	columnsJoinedAsRead,
 	columnsOfAMenuThatListsNoCases,
 	columnsOffAScreenLast,
+	settleFlatCloseSelectionLimits,
 	sortNamedHiddenColumnHeader,
 } from "./caseList/details";
 import { columnFieldWordsRead } from "./caseList/fieldWords";
@@ -2392,6 +2393,12 @@ export function* assembleDocumentSteps(
 	// 2. The declaration, over the document as it stands, in every reading.
 	const working = ctx.doc ?? provisionalDocument(ctx);
 	const declaration = judgeDeclaration(ctx, working);
+	settleFlatCloseSelectionLimits(
+		ctx,
+		working,
+		declaration.kind === "choices" &&
+			declaration.choices[declaration.proposed]?.runsOnlyOn === "web-apps",
+	);
 	yield;
 
 	// 3. The document, where no finding stands yet.

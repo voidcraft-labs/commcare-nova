@@ -60,3 +60,58 @@ test("automatically selects the whole case datum and submits one atomic close", 
 		await db.end();
 	}
 });
+
+test("closes 101 records from manual pages and automatic selection in the signed running app", {
+	tag: "@seed:bounded-flat-close",
+}, async ({ page, scenario }) => {
+	const { boundedFlatCloseApps } = seedFor(scenario, "bounded-flat-close");
+	const db = new Client({ connectionString: process.env.NOVA_DB_LOCAL_URL });
+	await db.connect();
+	try {
+		for (const { appId, caseIds, autoSelect } of boundedFlatCloseApps) {
+			await openBuilder(page, `/build/${appId}`);
+			await page.getByRole("button", { name: "Preview", exact: true }).click();
+			const preview = page.locator("main[data-preview-scroll-container]");
+			await preview.getByRole("button", { name: /^Member records/ }).click();
+			if (!autoSelect) {
+				const chooseShown = preview.getByRole("button", {
+					name: "Choose all cases shown",
+				});
+				const pages = preview.getByRole("navigation", {
+					name: "Results pages",
+				});
+				await chooseShown.click();
+				await pages.getByRole("button", { name: "Next", exact: true }).click();
+				await chooseShown.click();
+				await pages.getByRole("button", { name: "Next", exact: true }).click();
+				await chooseShown.click();
+				await preview
+					.getByRole("button", { name: "Continue", exact: true })
+					.click();
+			}
+			await expect(
+				preview.getByRole("heading", { name: "101 cases selected" }),
+			).toBeVisible();
+			await preview
+				.getByRole("button", { name: "Close these records" })
+				.click();
+			const submit = preview.getByRole("button", {
+				name: "Submit",
+				exact: true,
+			});
+			await expect(submit).toBeEnabled();
+			await submit.click();
+			await expect
+				.poll(async () => {
+					const { rows } = await db.query<{ case_id: string }>(
+						"SELECT case_id FROM cases WHERE app_id = $1 AND status = 'closed' ORDER BY case_id",
+						[appId],
+					);
+					return rows.map(({ case_id }) => case_id);
+				})
+				.toEqual(caseIds.toSorted());
+		}
+	} finally {
+		await db.end();
+	}
+});

@@ -8,6 +8,7 @@
 import { describe, expect, it } from "vitest";
 import { testMediaAssetId, testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import { NEW_APP_SETTINGS } from "@/lib/domain";
 import { walkExpressionTerms } from "@/lib/domain/expression/walk";
 import {
 	lookupColumnIdSchema,
@@ -648,8 +649,59 @@ describe("CommCare HQ's column formats", () => {
 		async (maximum, entry) => {
 			const read = await readDetails((short) => {
 				Object.assign(short, { multi_select: true, max_select_value: maximum });
-			});
+			}, false);
 			expect(closedCodes(read)).toContain(`${M}${entry}`);
+		},
+	);
+
+	it.each([false, true])(
+		"keeps the bounded flat close maximum with auto-select %s",
+		async (autoSelect) => {
+			const name = plainColumn(uuid(1), "case_name", "Name");
+			const doc = buildDoc({
+				appSettings: { ...NEW_APP_SETTINGS, runsOnlyOn: "web-apps" },
+				caseTypes: [{ name: "patient", properties: [] }],
+				modules: [
+					{
+						name: "Cases",
+						caseType: "patient",
+						caseListConfig: {
+							columns: [name],
+							listColumnOrder: [name.uuid],
+							detailColumnOrder: [name.uuid],
+							searchInputs: [],
+							selection: {
+								kind: "multiple",
+								maximum: 101,
+								...(autoSelect && { autoSelect: true }),
+							},
+						},
+						forms: [
+							{
+								name: "Close selected cases",
+								type: "close",
+								postSubmit: "app_home",
+								fields: [f({ kind: "hidden", id: "done", calculate: "'yes'" })],
+							},
+						],
+					},
+				],
+			});
+			const reading = await readLists(doc, {
+				input: (input) => ({
+					...input,
+					source: { ...input.source, cloudcareEnabled: true },
+				}),
+			});
+			expect(closedCodes(reading)).toEqual([]);
+			expect(reading.app.modules[0]?.case_details.short.max_select_value).toBe(
+				101,
+			);
+			expect(listOf(reading).selection).toEqual({
+				kind: "multiple",
+				maximum: 101,
+				...(autoSelect && { autoSelect: true }),
+			});
 		},
 	);
 

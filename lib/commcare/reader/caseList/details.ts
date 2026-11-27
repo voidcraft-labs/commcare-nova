@@ -1,3 +1,5 @@
+import { authoredBoundedFlatClose } from "@/lib/domain/boundedFlatClose";
+import { BOUNDED_FLAT_CLOSE_MAXIMUM } from "@/lib/domain/caseSelectionLimits";
 import { bindCalculationText } from "./calculationText";
 import { mappingIdentityAt } from "./mappingIdentity";
 /**
@@ -174,6 +176,10 @@ export const DETAIL_CLAIMS = defineClaims("caseList.details", {
 	),
 	maxSelect: take(
 		`${A}detail-max-select-value-on-a-multi-select-basic-list`,
+		"schema:Detail.max_select_value",
+	),
+	maxSelectFlatClose: take(
+		`${A}detail-max-select-value-for-flat-close`,
 		"schema:Detail.max_select_value",
 	),
 	maxSelectAbove: refuse(
@@ -1677,6 +1683,39 @@ function readDetailKeys(
 	return ok;
 }
 
+// The form's own close action, expressions and outgoing route all settle
+// after this list has to declare its datum for binding.
+const deferredFlatCloseLimits = new WeakMap<
+	ReadContext,
+	{ module: DraftModule; short: JsonCursor }[]
+>();
+
+export function settleFlatCloseSelectionLimits(
+	ctx: ReadContext,
+	doc: BlueprintDoc,
+	webAppsOnly: boolean,
+): void {
+	const awaiting = deferredFlatCloseLimits.get(ctx);
+	if (!awaiting) return;
+	for (const { module, short } of awaiting) {
+		const candidate = {
+			...doc,
+			appSettings: { ...doc.appSettings, runsOnlyOn: "web-apps" as const },
+		};
+		if (
+			webAppsOnly &&
+			authoredBoundedFlatClose(
+				candidate,
+				module.uuid,
+				doc.formOrder[module.uuid]?.[0],
+			)
+		)
+			short.take("max_select_value", D.maxSelectFlatClose, Number);
+		else short.refuse("max_select_value", D.maxSelectAbove);
+	}
+	deferredFlatCloseLimits.delete(ctx);
+}
+
 /** The menu's selection: one case, or several up to a maximum. */
 function readSelection(
 	ctx: ReadContext,
@@ -1729,6 +1768,19 @@ function readSelection(
 	if (max > 2_147_483_647) {
 		short.refuse("max_select_value", D.maxSelectOutsideRuntime);
 		return { ok: false };
+	}
+	if (
+		max === BOUNDED_FLAT_CLOSE_MAXIMUM &&
+		module.docType === "Module" &&
+		ctx.facts.webAppsOnInHq
+	) {
+		const awaiting = deferredFlatCloseLimits.get(ctx) ?? [];
+		awaiting.push({ module, short });
+		deferredFlatCloseLimits.set(ctx, awaiting);
+		return {
+			ok: true,
+			selection: { kind: "multiple", maximum: max, ...automatic },
+		};
 	}
 	if (max > 100) {
 		short.refuse("max_select_value", D.maxSelectAbove);

@@ -1,12 +1,9 @@
 import { menuEmittedAdvanced } from "./advancedEntryDatums";
 import type { BlueprintDoc } from "./blueprint";
+import { BOUNDED_FLAT_CLOSE_MAXIMUM } from "./caseSelectionLimits";
 import { effectivePostSubmit } from "./postSubmit";
 import { expressionSlotValues } from "./referenceSlots";
 import type { Uuid } from "./uuid";
-
-/** The authoring allowance is separate from the case store's runtime budgets. */
-export const STANDARD_CASE_SELECTION_MAXIMUM = 100;
-export const BOUNDED_FLAT_CLOSE_MAXIMUM = 101;
 
 /** The bounded opening cannot serve an expression or operation that needs
  * records beyond the selection. Keep the initial profile intentionally flat. */
@@ -22,6 +19,7 @@ export function boundedFlatCloseForm(
 	if (
 		doc.appSettings.runsOnlyOn !== "web-apps" ||
 		doc.appSettings.caseSharing ||
+		doc.appSettings.captureLocation ||
 		doc.moduleOrder.length !== 1 ||
 		doc.moduleOrder[0] !== module ||
 		!menu?.caseType ||
@@ -34,6 +32,9 @@ export function boundedFlatCloseForm(
 		menu.caseSearchConfig ||
 		menu.caseListMenuItem ||
 		menu.caseListRegistrationForm ||
+		menu.entryPoint ||
+		menu.caseListEntryPoint ||
+		menu.entryPoints?.length ||
 		!config ||
 		!selection ||
 		config.filter ||
@@ -41,6 +42,7 @@ export function boundedFlatCloseForm(
 		config.searchInputs.length ||
 		config.deviceLookup ||
 		config.tile ||
+		config.contextAboveForm ||
 		menuEmittedAdvanced(doc, module) ||
 		owner?.type !== "close" ||
 		owner.shadowOf ||

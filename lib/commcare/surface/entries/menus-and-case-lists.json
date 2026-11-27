@@ -3476,18 +3476,47 @@
 		"gates": []
 	},
 	{
+		"id": "menus-and-case-lists/detail-max-select-value-for-flat-close",
+		"area": "menus-and-case-lists",
+		"section": "Case list and case detail",
+		"subsection": "Detail screens",
+		"item": "`Detail.max_select_value` of 101 on a single Web Apps list with one unconditional close form",
+		"surfaceKeys": [
+			"parser:SessionDatumParser/instance-datum@max-select-value",
+			"schema:Detail.max_select_value"
+		],
+		"valueClass": "101-on-a-web-apps-flat-close",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: `selection.maximum` of 101 for the bounded Web Apps close",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / UNAVAILABLE",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "unavailable"
+			}
+		},
+		"emission": {
+			"cell": "`max_select_value`",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
 		"id": "menus-and-case-lists/detail-max-select-value-above-100",
 		"area": "menus-and-case-lists",
 		"section": "Case list and case detail",
 		"subsection": "Detail screens",
-		"item": "`Detail.max_select_value` from 101 through 2,147,483,647 on a multi-select basic list",
+		"item": "`Detail.max_select_value` from 101 through 2,147,483,647 outside the bounded Web Apps close",
 		"surfaceKeys": [
 			"parser:SessionDatumParser/instance-datum@max-select-value",
 			"schema:Detail.max_select_value"
 		],
 		"valueClass": "above-100",
 		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `selection.maximum` from 101 through 2,147,483,647",
+		"dispositionCell": "**HELD-NEW**: `selection.maximum` from 101 through 2,147,483,647 outside the bounded Web Apps close",
 		"subject": "case-list-setup",
 		"owner": "case-list-and-detail",
 		"platforms": {

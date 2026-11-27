@@ -1119,6 +1119,59 @@ export async function createSmokeBuilders(
 			}
 			return { automaticCaseSelection: { appId, caseIds } };
 		},
+		"bounded-flat-close": async () => {
+			const apps = [];
+			for (const autoSelect of [false, true]) {
+				const name = autoSelect ? "Automatic flat close" : "Manual flat close";
+				const appId = await seedRuntimeApp(name, (appId) =>
+					buildDoc({
+						appId,
+						appName: name,
+						appSettings: { ...NEW_APP_SETTINGS, runsOnlyOn: "web-apps" },
+						caseTypes: [{ name: "member", properties: [] }],
+						modules: [
+							{
+								name: "Member records",
+								caseType: "member",
+								caseListConfig: {
+									...caseListConfig([{ field: "case_name", header: "Name" }]),
+									selection: {
+										kind: "multiple",
+										maximum: 101,
+										...(autoSelect && { autoSelect: true }),
+									},
+								},
+								forms: [
+									{
+										name: "Close these records",
+										type: "close",
+										postSubmit: "app_home",
+										fields: [
+											f({ kind: "hidden", id: "ready", calculate: "'yes'" }),
+										],
+									},
+								],
+							},
+						],
+					}),
+				);
+				const caseIds: string[] = [];
+				for (let index = 0; index < 101; index++) {
+					const saved = await caseStore.insert({
+						appId,
+						row: {
+							case_type: "member",
+							case_name: `Member ${index + 1}`,
+							status: "open",
+							properties: {},
+						},
+					});
+					caseIds.push(saved.caseId);
+				}
+				apps.push({ appId, caseIds, autoSelect });
+			}
+			return { boundedFlatCloseApps: apps };
+		},
 		"case-changes": async () => {
 			const { appId: caseChangesAppId, baseSeq: caseChangesGenesisSeq } =
 				await createExplicitBlankApp(SEED.userId, seedProjectId, randomUUID(), {

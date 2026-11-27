@@ -5665,3 +5665,100 @@ it("automatically opens and atomically closes the whole ordered case datum", {
 		await step({ kind: "finish" });
 	}
 });
+
+it.each([false, true])(
+	"closes 101 records in one bounded flat close App Test (automatic %s)",
+	{
+		timeout: 30_000,
+	},
+	async (automatic) => {
+		const name = plainColumn(
+			testUuid("bounded-close-case-name"),
+			"case_name",
+			"Name",
+		);
+		const doc = buildDoc({
+			appSettings: { ...NEW_APP_SETTINGS, runsOnlyOn: "web-apps" },
+			caseTypes: [{ name: "person", properties: [] }],
+			modules: [
+				{
+					name: "Close records",
+					caseType: "person",
+					caseListConfig: {
+						columns: [name],
+						listColumnOrder: [name.uuid],
+						detailColumnOrder: [name.uuid],
+						searchInputs: [],
+						selection: {
+							kind: "multiple",
+							maximum: 101,
+							...(automatic && { autoSelect: true }),
+						},
+					},
+					forms: [
+						{
+							name: "Close these records",
+							type: "close",
+							postSubmit: "app_home",
+							fields: [f({ kind: "hidden", id: "done", calculate: "'yes'" })],
+						},
+					],
+				},
+			],
+		});
+		const [moduleUuid] = doc.moduleOrder;
+		const [formUuid] = doc.formOrder[moduleUuid];
+		const records = Array.from({ length: 101 }, (_, index) => ({
+			id: `case-${String(index).padStart(3, "0")}`,
+			caseType: "person",
+			name: `Name ${101 - index}`,
+		}));
+		const caseIds = records.map(({ id }) => id);
+		const ordered = automatic ? caseIds : caseIds.toReversed();
+		await h.seedProjectMember(scope.actorUserId, scope.projectId, "viewer");
+		await h.seedAppWithBlueprint(doc, {
+			id: scope.appId,
+			owner: scope.actorUserId,
+			projectId: scope.projectId,
+		});
+		let current = await startAppTest(scope, {
+			requestId: "flat-batch-start",
+			expectedBlueprintSeq: 0,
+			input: {
+				purpose: "Close all chosen records together",
+				scenario: { records },
+			},
+		});
+		let request = 0;
+		const step = async (action: AppTestAction) => {
+			current = await continueAppTest(scope, {
+				testId: current.testId,
+				requestId: `flat-batch-${++request}`,
+				expectedStep: current.step,
+				action,
+			});
+			return current.observation;
+		};
+		try {
+			const menu = await step({ kind: "menu", moduleUuid });
+			if (!automatic) {
+				expect(menu).toMatchObject({ screen: "records" });
+				await step({ kind: "select", caseIds: ordered });
+			}
+			expect(await step({ kind: "form", formUuid })).toMatchObject({
+				screen: "form",
+			});
+			expect(await step({ kind: "submit" })).toMatchObject({
+				savedInTest: true,
+				effects: { primaryCaseIds: ordered },
+			});
+			const saved = await sql<{ case_id: string }>`
+			SELECT case_id FROM ${sql.id(appTestNamespace(current.testId), "cases")}
+			WHERE status = 'closed' AND case_type = 'person' ORDER BY case_id
+		`.execute(h.db());
+			expect(saved.rows.map(({ case_id }) => case_id)).toEqual(caseIds);
+		} finally {
+			await step({ kind: "finish" });
+		}
+	},
+);

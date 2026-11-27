@@ -13002,9 +13002,64 @@ def _basic_multi_select_maximum(use):
     return _max_select_number(detail.get("max_select_value"))
 
 
+def bounded_flat_close_maximum(use, manifest):
+    """One ordinary unconditional own-case close supplies a manually or automatically chosen 101-case datum."""
+    runtime = _xml(use)
+    if runtime is not None and runtime.document.kind == "runtime":
+        return _max_select_number(runtime.element.get("max-select-value")) == 101
+    value = _basic_multi_select_maximum(use)
+    if value != 101:
+        return value if value is None else False
+    at = _json(use)
+    app = at.app
+    modules = app.modules
+    if len(modules) != 1 or app.doc.get("cloudcare_enabled") is not True or app.doc.get("case_sharing"):
+        return False
+    module = modules[0]
+    forms = _forms(module)
+    detail = at.owner
+    search = module.get("search_config") or {}
+    if (len(forms) != 1 or module.get("parent_select") or module.get("root_module_id")
+            or module.get("module_filter") or detail.get("filter") or detail.get("lookup_enabled")
+            or detail.get("case_tile_template") or detail.get("persist_case_context")
+            or (module.get("case_list") or {}).get("show")
+            or (module.get("case_list_form") or {}).get("form_id")
+            or search.get("properties") or search.get("auto_launch") or search.get("inline_search")):
+        return False
+    form = forms[0]
+    actions = _actions(form)
+    if (_requires(form) != "case" or (form.get("doc_type") or "Form") != "Form"
+            or form.get("form_filter") or form.get("post_form_workflow") not in (None, "", "default")
+            or _condition(actions.get("close_case")) != "always"
+            or any(_active(actions.get(name)) for name in ("open_case", "update_case", "usercase_update"))
+            or any((actions.get(name) or {}).get("preload") for name in ("case_preload", "usercase_preload", "load_from_form"))
+            or any(_active(child) for child in _subcases(form))):
+        return False
+    xform = app.xform(form)
+    if xform is None:
+        return None
+    if xform.body is None or _children(xform.body) or xform.model_repeats:
+        return False
+    for binds in xform.binds.values():
+        for bind in binds:
+            if any(bind.get(name) for name in ("relevant", "constraint", "required")):
+                return False
+            calculate = bind.get("calculate")
+            if calculate and _literal(app, calculate) is not True:
+                tokens = xpath_tokens(calculate) or ()
+                if len(tokens) != 1 or tokens[0].kind not in ("STR", "NUM"):
+                    return False
+    return True
+
+
 def max_select_value_above_100(use, manifest):
     value = _basic_multi_select_maximum(use)
-    return value if value is None else 100 < value <= 2_147_483_647
+    if value is None or not 100 < value <= 2_147_483_647:
+        return value if value is None else False
+    if value != 101:
+        return True
+    supported = bounded_flat_close_maximum(use, manifest)
+    return None if supported is None else not supported
 
 
 def multi_select_maximum_exceeds_java_int(use, manifest):
@@ -14069,6 +14124,7 @@ VALUE_CLASSES = {
     "menus-and-case-lists/lookup-display-results-lookup-field-header-lookup-field-template": (
         lookup_with_result_column
     ),
+    "menus-and-case-lists/detail-max-select-value-for-flat-close": bounded_flat_close_maximum,
     "menus-and-case-lists/detail-max-select-value-above-100": max_select_value_above_100,
     "menus-and-case-lists/detail-max-select-value-above-2147483647": multi_select_maximum_exceeds_java_int,
     "menus-and-case-lists/case-tile-group-identifier-starts-with-a-hyphen": tile_group_index_starts_with_hyphen,

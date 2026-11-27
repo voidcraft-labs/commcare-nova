@@ -13,6 +13,7 @@
 "use client";
 
 import { ContentFrame } from "@/components/builder/ContentFrame";
+import { useCaseSelectionMaximumOffer } from "@/lib/doc/hooks/useCaseListSummary";
 import { useDeclaredPlatforms } from "@/lib/doc/hooks/useDeclaredPlatforms";
 import type {
 	CaseListConfig,
@@ -168,6 +169,7 @@ export function CaseListCanvas({
 	onDeviceLookupChange,
 }: CaseListCanvasProps) {
 	const canEdit = useCanEdit();
+	const maximum = useCaseSelectionMaximumOffer(moduleUuid);
 	const platforms = useDeclaredPlatforms();
 	const severalCasesRefusal = platformRefusal("several-cases", platforms);
 	const severalRefusal =
@@ -208,6 +210,7 @@ export function CaseListCanvas({
 					<ParentCaseSelectionSetting moduleUuid={moduleUuid} />
 					<CaseSelectionSetting
 						value={config.selection}
+						maximumAllowed={maximum}
 						canEdit={canEdit}
 						severalRefusal={severalRefusal}
 						onChange={onCaseSelectionChange}

@@ -80,10 +80,10 @@ import { blueprintDocSchema } from "@/lib/domain/blueprint";
 import {
 	authoredBoundedFlatClose,
 	boundedFlatCloseForm,
-	STANDARD_CASE_SELECTION_MAXIMUM,
 } from "@/lib/domain/boundedFlatClose";
 import { resolveCaseFormContext } from "@/lib/domain/caseFormContext";
 import { isAdvancedCaseIndexIdentifier } from "@/lib/domain/caseOperationIdentifiers";
+import { STANDARD_CASE_SELECTION_MAXIMUM } from "@/lib/domain/caseSelectionLimits";
 import type { Expression } from "@/lib/domain/expression";
 import { unhandledKindMessage } from "@/lib/domain/expression/errors";
 import { caseQueryReadingFor } from "@/lib/domain/expression/temporalType";
