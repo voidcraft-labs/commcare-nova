@@ -881,6 +881,7 @@ def _forms_variant_uses(found, held, entries):
 
 FLAT_CLOSE_MAXIMUM = "menus-and-case-lists/detail-max-select-value-for-flat-close"
 OTHER_101_MAXIMUM = "menus-and-case-lists/detail-max-select-value-101-outside-flat-close"
+ORDINARY_LIST_MAXIMUM = "menus-and-case-lists/detail-max-select-value-on-a-multi-select-basic-list"
 SEARCH_INDEX_FALLBACK = "case-search/default-filter-resets-order-with-index-fallback"
 
 
@@ -924,6 +925,15 @@ def added_uses(base_source: dict, variant_source: dict, *, entries=()) -> list[D
         decided.extend(_forms_variant_uses(found, held, entries))
         if SEARCH_CHECK_NO_MESSAGE in entries:
             decided.extend(_empty_search_check_messages(found, held))
+
+        if ORDINARY_LIST_MAXIMUM in entries:
+            entry = _entries_by_id(held)[ORDINARY_LIST_MAXIMUM]
+            # HQ's unlimited sentinel is a non-default spelling of the ordinary accepted maximum.
+            decided.extend(
+                Decided(use, manifest_usage.HELD, (entry,))
+                for use in found.uses
+                if use.key == "schema:Detail.max_select_value" and _basic_multi_select_maximum(use) == -1
+            )
 
         if FLAT_CLOSE_MAXIMUM in entries or OTHER_101_MAXIMUM in entries:
             by_id = _entries_by_id(held)
@@ -1065,7 +1075,7 @@ def _projects(decided: Decided, record: Record, held) -> tuple[bool, bool]:
     if standing == manifest_usage.HELD_NEW:
         return record.standing == "not-yet", record.entry in resting
     exact = PARENT_PROMPT_SHAPES.keys() | SEARCH_DETAIL_PROJECTIONS.keys() | {
-        ADDRESS_SAVED_TEXT, FLAT_CLOSE_MAXIMUM, UNICODE_PRIMARY_ROOT,
+        ADDRESS_SAVED_TEXT, FLAT_CLOSE_MAXIMUM, ORDINARY_LIST_MAXIMUM, UNICODE_PRIMARY_ROOT,
         UNMATCHED_ADDRESS_TOPIC, SEARCH_INDEX_FALLBACK,
     }
     if standing == manifest_usage.HELD and len(resting) == 1 and resting <= exact:
