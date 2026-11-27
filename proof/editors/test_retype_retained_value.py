@@ -13,7 +13,7 @@ from proof.formplayer.walk import screen_kind
 from proof.hq import operations
 from proof.hq.check import hq_check
 from proof.matrix.authoring import Authoring
-from proof.matrix.variants import questions
+from proof.matrix import registry
 from proof.observe import casedata, publish
 
 CASE = "{http://commcarehq.org/case/transaction/v2}"
@@ -93,8 +93,8 @@ def test_vellum_and_signed_worker_retype_a_fresh_case_with_an_explicit_overwrite
             app_id, refusal, _ = publish.create_authored(unit, document)
             assert refusal is None
         authoring = Authoring(unit, {}, base=document.id, driver=editor_driver, operation=unit.operation)
-        edit = questions.save_to_case_retype_converts if direction == "text-to-date" else questions.save_to_case_date_as_text
-        edit(authoring, app_id)
+        change = "save_to_case_retype_converts" if direction == "text-to-date" else "save_to_case_date_as_text"
+        registry.named_change(change)(authoring, app_id)
         form = operations.held_app(unit, app_id).modules[0].forms[0]
         before = _operations(form.source)
         saved = vellum.fresh_open_and_save(editor_driver, unit, app_id, form.unique_id)
