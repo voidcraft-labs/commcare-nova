@@ -52,6 +52,7 @@ import {
 	term,
 } from "@/lib/domain/expression";
 import { SEARCH_READING } from "@/lib/domain/expression/temporalType";
+import { instantDatetimeValue } from "@/lib/domain/temporalValues";
 import { applyLookupAuthoringBatchInTransaction } from "@/lib/lookup/authoringBatch";
 import { readLookupDefinitionsInTransaction } from "@/lib/lookup/definitionSnapshot";
 import { authorizeLookupWriteInTransaction } from "@/lib/lookup/writerTransaction";
@@ -297,7 +298,8 @@ describe("engine → builder → executor acceptance", () => {
 			["irrelevant", "seed-external"],
 			["answered", "2025-04-05"],
 			["same-day", mode === "edit" ? "concurrent-id" : "2025-04-05"],
-			["blank", ""],
+			["retained-blank", ""],
+			["untouched-picker", undefined],
 		] as const) {
 			const entryKey = testUuid(`external-id-${kind}`);
 			const snapshot = await store.readDeviceCaseDatabase({
@@ -342,6 +344,20 @@ describe("engine → builder → executor acceptance", () => {
 			engine.setValue("/data/toggle", kind === "irrelevant" ? "no" : "yes");
 			if (kind === "answered" || kind === "same-day")
 				engine.setValue("/data/seen", answer);
+			const zone = "America/Los_Angeles";
+			let expectedExternalId: string | undefined = externalId;
+			if (kind === "untouched-picker") {
+				engine.enterScreen("/data/seen");
+				const shown = engine.getState("/data/seen").androidPickerDatetime;
+				if (shown === undefined)
+					throw Error("The Android picker must show its clock");
+				expect(engine.getState("/data/seen").value).toBe("");
+				expect(engine.saveScreenAnswers()).toEqual(["/data/seen"]);
+				expectedExternalId = instantDatetimeValue(
+					Date.parse(shown),
+					zone,
+				).slice(0, 10);
+			}
 			expect(engine.getState("/data/seen").visible).toBe(kind !== "irrelevant");
 			expect(engine.validateAll()).toBe(true);
 			const mutation = engine.computeSubmissionMutation({
@@ -361,7 +377,7 @@ describe("engine → builder → executor acceptance", () => {
 				projection,
 				identity: IDENTITY,
 				opening: await verifyFormOpening(secret, audience, signed),
-				viewerTimeZone: "America/Los_Angeles",
+				viewerTimeZone: zone,
 			});
 			if (kind === "same-day")
 				await store.update({
@@ -385,7 +401,7 @@ describe("engine → builder → executor acceptance", () => {
 				}),
 			);
 			expect(await loadCase(store, SESSION_CASE)).toMatchObject({
-				external_id: externalId,
+				external_id: expectedExternalId,
 			});
 			expect(await loadCase(store, SECOND_SESSION_CASE)).toMatchObject({
 				external_id: "seed-external-2",
