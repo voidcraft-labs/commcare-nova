@@ -72,6 +72,16 @@ const caseTypes: CaseType[] = [
 		],
 	},
 ];
+if (scenario === "accented-write") {
+	caseTypes[0].properties.push(
+		{ name: "estado_e", label: proseText("Portable state"), data_type: "text" },
+		{
+			name: "estado_é",
+			label: proseText("State saved on Android"),
+			data_type: "text",
+		},
+	);
+}
 if (scenario === "map") {
 	caseTypes[0].properties.push(
 		{
@@ -258,6 +268,9 @@ const source = buildDoc({
 	scenario === "search"
 		? { appSettings: { ...NEW_APP_SETTINGS, runsOnlyOn: "web-apps" } }
 		: {}),
+	...(scenario === "accented-write" && {
+		appSettings: { ...NEW_APP_SETTINGS, runsOnlyOn: "android" as const },
+	}),
 	caseTypes,
 	modules: [
 		{
@@ -291,7 +304,10 @@ const source = buildDoc({
 							id: "stage",
 							label: proseText("Status"),
 							default_value: term(literal("pending")),
-							caseWrite: { caseType: "patient", property: "stage" },
+							caseWrite: {
+								caseType: "patient",
+								property: scenario === "accented-write" ? "estado_é" : "stage",
+							},
 						},
 						{
 							kind: "image",
