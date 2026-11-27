@@ -101,12 +101,9 @@ interface DateFieldProps {
  *
  * A NEWLY entered datetime takes the offset of the viewer's zone, matching
  * the device stamping its own (`DateTimeData::uncast`, and Web Apps'
- * browser-offset provider). An answer that already carries an offset keeps
- * it, and its wall clock is displayed exactly as stored, so an answer
- * entered on some other device reads as the clock that was entered there,
- * and moving its date does not quietly relocate it to the author's zone.
- * The offset belongs to the answer; only a clock the person types here is
- * this viewer's to stamp.
+ * browser-offset provider). Web Apps displays an existing offset and wall
+ * clock as stored. Android shows the instant on the device's own clock and
+ * saves the displayed day and minute in the zone of that selected day.
  */
 export function DateField({
 	field,
@@ -220,17 +217,9 @@ export function DateField({
 	const timePart = separator === -1 ? "" : displayed.slice(separator + 1);
 
 	/**
-	 * Commit the two halves as one answer. Each arm produces a value the
-	 * split above can read back, and none of them invents a half nobody
-	 * entered: the join has to survive being HALF filled in, because that
-	 * is the state a person passes through on the way to filling it.
-	 *
-	 * A bare date is deliberately left bare rather than extended to its own
-	 * midnight here. It is already a readable datetime that the storage
-	 * boundary reads as midnight, so leaving it alone keeps an empty clock
-	 * box honest ("you have not set a time") instead of answering the
-	 * question on the person's behalf with a 12:00 AM they never chose and
-	 * cannot clear: clearing it would just put it straight back.
+	 * Android saves a complete local minute and clearing returns its picker
+	 * to the current clock. Web Apps can leave either half empty while the
+	 * worker fills in an answer.
 	 */
 	const commit = (date: string, time: string): void => {
 		const parsedClock = parseClockTime(time);
