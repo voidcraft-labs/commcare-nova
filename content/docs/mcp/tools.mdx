@@ -1331,7 +1331,8 @@ candidate records and eligible earlier form answers.
 
 Use `{ kind: "available-cases" }` on a single-select question to offer all case
 types restored for the worker. This source displays the case name, saves the
-exact ID, and keeps device order. Set `status: "open"` or `status: "closed"` to offer only restored cases with that status.
+exact ID, and keeps device order. Set `status: "open"` or `status: "closed"` to offer only restored cases with that status. Set `propertyMatch.alternateText` to include cases with a second stored value
+of the same property.
 
 An optional lookup row filter may compare columns from that same table with fixed
 values, worker/session values, and eligible earlier answers from the form. It

@@ -31,19 +31,26 @@ export const caseOptionsSourceSchema = z.strictObject({
 export type CaseOptionsSource = z.infer<typeof caseOptionsSourceSchema>;
 z.globalRegistry.add(caseOptionsSourceSchema, { id: "CaseOptionsSource" });
 
+const storedCaseMatchText = z
+	.string()
+	.min(1)
+	.refine(
+		(text) =>
+			!/[^\u0020-\ud7ff\ue000-\ufffd\u{10000}-\u{10ffff}]/u.test(text) &&
+			!(text.includes("'") && text.includes('"')),
+		"Enter text that can be carried as one value.",
+	);
+
 export const availableCasePropertyMatchSchema = z.strictObject({
 	property: authoredCasePropertyNameSchema.refine(
 		(property) => !CASE_NODE_ATTRIBUTE_PROPERTIES.has(property),
 		"Use a case property to filter the restored records.",
 	),
-	text: z
-		.string()
-		.min(1)
-		.refine(
-			(text) =>
-				!/[^\u0020-\ud7ff\ue000-\ufffd\u{10000}-\u{10ffff}]/u.test(text) &&
-				!(text.includes("'") && text.includes('"')),
-			"Enter text that can be carried as one value.",
+	text: storedCaseMatchText,
+	alternateText: storedCaseMatchText
+		.optional()
+		.describe(
+			"Also offer records whose same property has this exact stored value.",
 		),
 });
 

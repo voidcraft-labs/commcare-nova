@@ -2276,6 +2276,7 @@ export const NON_REFERENCE_FIELD_PATHS: Readonly<
 	// shared by any number of case types. It has no single catalog identity.
 	"optionsSource.propertyMatch.property": "config",
 	"optionsSource.propertyMatch.text": "data-literal",
+	"optionsSource.propertyMatch.alternateText": "data-literal",
 	"optionsSource.options[].uuid": "identity",
 	"optionsSource.options[].value": "data-literal",
 	"optionsSource.options[].media": "media",

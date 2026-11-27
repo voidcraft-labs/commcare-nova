@@ -24770,7 +24770,7 @@
 		]
 	},
 	{
-		"id": "hq-lookups/itemset-filters-available-cases-by-multiple-values",
+		"id": "hq-lookups/itemset-filters-available-cases-by-multiple-properties",
 		"base": "hq-lookups",
 		"entry": "questions/itemset-over-casedb-or-another-instance-advanced-data-source",
 		"standing": "not-yet",
@@ -24784,8 +24784,30 @@
 		},
 		"change": {
 			"op": "named",
-			"name": "itemset_filters_available_cases_by_multiple_values"
+			"name": "itemset_filters_available_cases_by_multiple_properties"
 		}
+	},
+	{
+		"id": "hq-lookups/itemset-filters-available-cases-by-multiple-values",
+		"base": "hq-lookups",
+		"entry": "questions/itemset-over-casedb-in-nova-s-case-choices-shape",
+		"change": {
+			"op": "named",
+			"name": "itemset_filters_available_cases_by_multiple_values"
+		},
+		"holds": [
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["district"]
+				],
+				"pointer": "/optionsSource/propertyMatch/alternateText",
+				"value": "pending"
+			}
+		]
 	},
 	{
 		"id": "hq-lookups/itemset-sort",

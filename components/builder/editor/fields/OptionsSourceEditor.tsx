@@ -586,9 +586,17 @@ function AvailableCasePropertyMatchEditor({
 }) {
 	const [property, setProperty] = useState(value?.property ?? "");
 	const [text, setText] = useState(value?.text ?? "");
+	const [alternateText, setAlternateText] = useState(
+		value?.alternateText ?? "",
+	);
 	const propertyId = useId();
 	const valueId = useId();
-	const match = availableCasePropertyMatchSchema.safeParse({ property, text });
+	const alternateValueId = useId();
+	const match = availableCasePropertyMatchSchema.safeParse({
+		property,
+		text,
+		...(alternateText !== "" && { alternateText }),
+	});
 	return (
 		<div className="space-y-2">
 			<Label htmlFor={propertyId}>Match a case property</Label>
@@ -605,6 +613,13 @@ function AvailableCasePropertyMatchEditor({
 				disabled={!canEdit}
 				onChange={(event) => setText(event.currentTarget.value)}
 			/>
+			<Label htmlFor={alternateValueId}>Or another stored value</Label>
+			<Input
+				id={alternateValueId}
+				value={alternateText}
+				disabled={!canEdit}
+				onChange={(event) => setAlternateText(event.currentTarget.value)}
+			/>
 			<div className="flex gap-2">
 				<Button
 					type="button"
@@ -612,7 +627,9 @@ function AvailableCasePropertyMatchEditor({
 					disabled={
 						!canEdit ||
 						!match.success ||
-						(value?.property === property && value?.text === text)
+						(value?.property === property &&
+							value?.text === text &&
+							(value.alternateText ?? "") === alternateText)
 					}
 					onClick={() => {
 						if (match.success) onChange(match.data);

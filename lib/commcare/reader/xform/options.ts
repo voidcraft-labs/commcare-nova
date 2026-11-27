@@ -608,38 +608,52 @@ function readItemset(
 	return other();
 }
 
+function availableCaseTextEquality(predicate: FormSyntax) {
+	while (predicate.kind === "group") predicate = predicate.value;
+	if (
+		predicate.kind !== "binary" ||
+		predicate.op !== "=" ||
+		predicate.left.kind !== "name" ||
+		predicate.left.wildcard ||
+		predicate.right.kind !== "string"
+	)
+		return undefined;
+	return { property: predicate.left.name, text: predicate.right.value };
+}
+
 function availableCaseFilters(
 	predicates: readonly FormSyntax[],
 ): AvailableCasesOptionsSource | undefined {
 	const source: AvailableCasesOptionsSource = { kind: "available-cases" };
-	for (const predicate of predicates) {
+	for (let predicate of predicates) {
+		while (predicate.kind === "group") predicate = predicate.value;
 		if (
-			predicate.kind !== "binary" ||
-			predicate.op !== "=" ||
-			predicate.right.kind !== "string"
-		)
-			return undefined;
-		const { left, right } = predicate;
-		if (
-			left.kind === "axis" &&
-			left.axis === "attribute" &&
-			left.value.kind === "name" &&
-			left.value.name === "status" &&
-			(right.value === "open" || right.value === "closed") &&
+			predicate.kind === "binary" &&
+			predicate.op === "=" &&
+			predicate.left.kind === "axis" &&
+			predicate.left.axis === "attribute" &&
+			predicate.left.value.kind === "name" &&
+			predicate.left.value.name === "status" &&
+			predicate.right.kind === "string" &&
+			(predicate.right.value === "open" ||
+				predicate.right.value === "closed") &&
 			source.status === undefined
 		) {
-			source.status = right.value;
+			source.status = predicate.right.value;
 			continue;
 		}
-		if (
-			left.kind !== "name" ||
-			left.wildcard ||
-			source.propertyMatch !== undefined
-		)
+		if (source.propertyMatch !== undefined) return undefined;
+		const either =
+			predicate.kind === "binary" && predicate.op === "or"
+				? predicate
+				: undefined;
+		const first = availableCaseTextEquality(either?.left ?? predicate);
+		const other = either && availableCaseTextEquality(either.right);
+		if (!first || (either && (!other || other.property !== first.property)))
 			return undefined;
 		const match = availableCasePropertyMatchSchema.safeParse({
-			property: left.name,
-			text: right.value,
+			...first,
+			...(other && { alternateText: other.text }),
 		});
 		if (!match.success) return undefined;
 		source.propertyMatch = match.data;
