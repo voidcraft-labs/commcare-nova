@@ -5,11 +5,11 @@ import {
 import {
 	type FormSyntax,
 	needsInstanceDeclaration,
-	readFormSyntax,
 	visitSyntax,
 } from "../../xpath/formSyntax";
 import { serializeWire } from "../../xpath/wire/serialize";
 import { sameSyntax } from "../syntaxCompare";
+import { readFormSyntax } from "../syntaxRead";
 import { literalText } from "./literalText";
 
 function ungroup(node: FormSyntax | undefined): FormSyntax | undefined {
