@@ -584,6 +584,8 @@ export const FIX_IN_HQ_SENTENCES: Readonly<
  * get past it. `findingLine` adds the name itself ("In CommCare HQ: …").
  */
 export const FIX_IN_HQ_ENTRY_SENTENCES: Readonly<Record<string, string>> = {
+	"case-search/name-check-allows-both-quote-delimiters":
+		"CommCare HQ rejects a Search name that includes both single and double quotation marks. In CommCare HQ, you can add a check to the Name prompt that explains which characters workers can use.",
 	"forms-and-case-writes/repeat-open-index-unavailable-on-either-worker":
 		"This repeat creates a case link with a name Web Apps cannot save and Android cannot read. In CommCare HQ, you can use ordinary letters, digits or underscores for the link name.",
 	"forms-and-case-writes/basic-update-key-with-a-roman-numeral":
