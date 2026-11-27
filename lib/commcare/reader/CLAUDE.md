@@ -936,9 +936,10 @@ A change that holds one removes its line.
   to a worker record loaded earlier. An entry expression binds against the
   completed prefix. A missing earlier datum, missing table or column, and an
   invalid earlier-load reference have their own recovery findings.
-  Its ordinary own follow-up load can also save a direct root passive label without a banner or starting
-  value to a custom text property. The reader and placement keep the source on that load;
-  the submitted value is `OK` when visible, and an irrelevant label leaves the previous value.
+  The selected case’s Advanced load can save a root passive label to a custom text property, including
+  on the same load that closes the case. On a follow-up that leaves the case open, confirmations and
+  visible banners can also save their answer. A present empty answer keeps the property present and
+  empty. An irrelevant label leaves the previous value.
 - **An after-submit link's condition or carried value that prints as the source only with a
   rewrite withheld**: `unrecognized` at the form, `schema:FormLink.xpath` or
   `schema:FormDatum.xpath` (`menus/afterSubmit.ts::compareLinks`). The links are compared with
