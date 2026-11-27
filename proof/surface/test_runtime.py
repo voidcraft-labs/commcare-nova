@@ -99,6 +99,11 @@ def test_function_names_build_what_cores_parser_builds(items, sources):
 
 def test_xform_tables_and_android_registrations(items):
     assert items["jr-type:geopoint"]["datatypes"] == ["DATATYPE_GEOPOINT"]
+    assert items["jr-type:intent"] == {
+        "source": ["commcare-hq/corehq/apps/app_manager/xform.py::VELLUM_TYPES.AndroidIntent"],
+        "hqQuestion": "AndroidIntent",
+        "hqControl": "input",
+    }
     assert items["jr-control:select1"]["core"] == {"calls": "parseControl", "passes": ["Constants.CONTROL_SELECT_ONE"]}
     assert items["jr-control:intent"]["android"] == {"handler": "IntentExtensionParser"}
     assert items["jr-control:intent"]["core"] is None

@@ -298,19 +298,23 @@ def _uses(xml, manifest, key, artifact="form:0.0", readings=None):
     return [use for use in found.uses if use.key == key]
 
 
-@pytest.mark.parametrize("mutation", [None, "orphan", "missing-destination", "quick", "print"])
-def test_android_callout_inventory_holds_only_the_supported_owner_and_payload(manifest, mutation):
+def _android_callout_payload(mutation=None):
     appearance = "intent:other" if mutation == "orphan" else "intent:meter"
     ref = "/data/missing" if mutation == "missing-destination" else "/data/reading"
     action = classes.PRINT_ACTION if mutation == "print" else "org.example.MEASURE"
     quick = 'appearance="quick"' if mutation == "quick" else ""
-    source = _form(
+    return _form(
         data="<meter/><reading/>",
         model='<bind nodeset="/data/meter" type="intent"/>',
         body=f'<input ref="/data/meter" appearance="{appearance}"/><input ref="/data/reading"/>',
         head=(f'<o:intent xmlns:o="{classes.OPENDATAKIT}" id="meter" class="{action}" {quick}>'
               f'<extra key="unit" ref="/data/reading"/><response key="measurement" ref="{ref}"/></o:intent>'),
     )
+
+
+@pytest.mark.parametrize("mutation", [None, "orphan", "missing-destination", "quick", "print"])
+def test_android_callout_inventory_holds_only_the_supported_owner_and_payload(manifest, mutation):
+    source = _android_callout_payload(mutation)
     for artifact in ("form:0.0", "local.ccz/modules-0/forms-0.xml"):
         found = manifest_usage.Uses()
         manifest_usage.xform_uses(source, manifest, artifact, found)
@@ -8721,7 +8725,22 @@ def _search_wire_shapes():
     }
 
 
+def _android_callout_shapes():
+    owned = _android_callout_payload()
+    orphan = _android_callout_payload("orphan")
+    missing = _android_callout_payload("missing-destination")
+    return {
+        "questions/android-app-callout-input-appearance-intent-id-bind-type-intent": (
+            refused("form", owned, "jr-type:intent", "bind[1]/@type"),
+            accepted("form", orphan, "jr-type:intent", "bind[1]/@type", standing=manifest_usage.UNHELD),
+            refused("form", owned, "xform:intent/response@ref", "response[1]/@ref"),
+            accepted("form", missing, "xform:intent/response@ref", "response[1]/@ref", standing=manifest_usage.UNHELD),
+        ),
+    }
+
+
 SHAPES = {
+    **_android_callout_shapes(),
     **_lookup_count_shapes(),
     **_case_list_lookup_shapes(),
     **_connect_activities(),
