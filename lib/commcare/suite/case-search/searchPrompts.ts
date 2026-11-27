@@ -268,12 +268,16 @@ export function searchPromptWire(
 	};
 	const mapping = promptAttributeMapping(input);
 	const receiver = input.kind === "hidden" ? undefined : input.addressReceiver;
-	const receive =
-		receiver?.kind === "unsubscribed"
-			? `${receiver.topic}-${receiver.fields}`
-			: receiver === undefined
-				? undefined
-				: addressReceiveExpression(allInputs, receiver.source, receiver.parts);
+	let receive: string | undefined;
+	if (receiver?.kind === "address")
+		receive = addressReceiveExpression(
+			allInputs,
+			receiver.source,
+			receiver.parts,
+		);
+	else if (receiver?.kind === "unsubscribed")
+		receive = `${receiver.topic}-${receiver.fields}`;
+	else if (receiver?.kind === "unsubscribed-topic") receive = receiver.topic;
 	// When `input.label` is empty the locale registers `input.name`
 	// — gives the runtime something readable to render rather than
 	// the locale id itself.

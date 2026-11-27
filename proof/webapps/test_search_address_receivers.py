@@ -62,6 +62,63 @@ def test_search_address_fills_two_text_fields_with_the_same_subscription(
     assert sent[0]["village"] == sent[0]["client_name"] == "Upper valley"
 
 
+def _rebuild_reviewed_receivers(project):
+    """Read the HQ save through Nova's normal review and send the generated app back."""
+    from corehq import privileges
+
+    from proof.hq import redis as hq_redis
+    from proof.hq.conftest import nova_shaped_upload
+    from proof.hq.seams import also_granted, api_rate_limits
+    from proof.matrix.author import Authoring, READER
+    from proof.matrix.registry import BASES
+    from proof.matrix.retain import app_reads, project_data_reads, reading_input, run_bundle
+
+    unit, app_id = project.unit, project.app_id
+    document = project.document
+    base = next(base for base in BASES if base.id == document.id)
+    author = Authoring(unit, {document.id: document}, document.id, operation=unit.operation)
+    with hq_redis.shared(None), unit.committing(), also_granted(privileges.API_ACCESS), api_rate_limits(unit):
+        with author.step("search-receiver:api-user"):
+            credential = operations.seed_api_user(unit, READER)
+
+        original = document.document
+        answers = app_reads(author, app_id, credential)
+        project_data, media = project_data_reads(author, app_id, credential)
+        (incoming,) = run_bundle([{
+            "id": "unmatched-search-topic-a",
+            "mode": "first-read",
+            "input": reading_input(answers, project_data, media, base, claims="full"),
+            "expected": original["doc"],
+            "reviewChanges": True,
+        }])
+        assert incoming["kind"] == "read", incoming
+        review = incoming["review"]
+        assert review["kind"] == "changes", review
+        application = review["application"]
+        fields = application["modules"][0]["search_config"]["properties"]
+        aliases = {field["name"]: field["receiver_expression"] for field in fields if field.get("receiver_expression")}
+        assert aliases == {"client_name": "home-region", "village": "home||city"}
+        with author.step("search-receiver:publish"):
+            result = operations.apply_upload(unit, nova_shaped_upload(application, application["name"], app_id=app_id))
+        assert result.status == 200, result.response
+
+        target = {**original, "doc": review["target"]}
+        answers = app_reads(author, app_id, credential)
+        (reread,) = run_bundle([{
+            "id": "unmatched-search-topic-b",
+            "mode": "read-back",
+            "input": {
+                "appId": target["doc"]["appId"], "identity": "match", "claims": "full",
+                "document": target, "application": answers["application"].retained(),
+                "source": answers["source"].retained(), "currentVersion": answers["currentVersion"].retained(),
+            },
+            "expected": target["doc"],
+        }])
+        assert reread["kind"] == "read", reread
+        assert reread["differences"] == [], reread["differences"]
+        return aliases
+
+
 @pytest.mark.parametrize("expression", ["home", "home||city"], ids=["matching-topic", "unmatched-topic"])
 def test_editor_keeps_malformed_receiver_and_only_the_matching_topic_fails(
     hq, core_runner, formplayer_runner, editor_driver, webapps_documents, evidence, expression
@@ -111,6 +168,18 @@ def test_editor_keeps_malformed_receiver_and_only_the_matching_topic_fails(
         })
         assert saved.save and saved.save.status == 200 and not saved.refused, saved.alerts
         assert retained == {"client_name": "home-region", "village": expression}
+
+        if expression == "home||city":
+            emitted = _rebuild_reviewed_receivers(project)
+            evidence("search-address-reviewed-aliases", emitted)
+            # The emitted result also has to survive the native editor again.
+            resaved = pages.fresh_section_save(editor_driver, project.unit, pages.CASE_LIST, project.app_id, menu_id)
+            assert resaved.save and resaved.save.status == 200 and not resaved.refused, resaved.alerts
+            current = operations.held_app(project.unit, project.app_id).get_module_by_unique_id(menu_id)
+            assert {
+                field.name: field.receiver_expression for field in current.search_config.properties
+                if field.receiver_expression
+            } == emitted
 
         with project.released(formplayer_runner, database=database) as release:
             run = Session(release, editor_driver).run([*opening, read])

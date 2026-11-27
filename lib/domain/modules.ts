@@ -1783,6 +1783,11 @@ export const SEARCH_ADDRESS_PARTS = [
 	"country_short",
 ] as const;
 
+/** A saved Web Apps subscription to one event name with no component separator.
+ * An address picker cannot have this name, so the subscription is never invoked. */
+export const UNMATCHED_ADDRESS_TOPIC_PATTERN =
+	/^[A-Za-z_][A-Za-z0-9_]*\|\|[A-Za-z_][A-Za-z0-9_]*$/;
+
 export const searchAddressReceiverSchema = z.discriminatedUnion("kind", [
 	z.strictObject({
 		kind: z.literal("address"),
@@ -1795,6 +1800,10 @@ export const searchAddressReceiverSchema = z.discriminatedUnion("kind", [
 		fields: z
 			.string()
 			.regex(/^[A-Za-z_][A-Za-z0-9_]*(?:\|\|[A-Za-z_][A-Za-z0-9_]*)*$/),
+	}),
+	z.strictObject({
+		kind: z.literal("unsubscribed-topic"),
+		topic: z.string().regex(UNMATCHED_ADDRESS_TOPIC_PATTERN),
 	}),
 ]);
 export type SearchAddressReceiver = z.infer<typeof searchAddressReceiverSchema>;
@@ -3697,6 +3706,8 @@ export type CaseListDeviceLookup = z.infer<typeof caseListDeviceLookupSchema>;
 export const SEARCH_ADDRESS_RECEIVER_MESSAGES = {
 	"receiver-type":
 		"An address can fill a visible text or multiple-choice field.",
+	"unmatched-topic-type":
+		"A saved address topic without a picker can stay on a visible text field. Clear the topic to change the field’s type.",
 	"single-choice":
 		"Web Apps can select a different lookup value when an address fills a single-choice Search field. Link a text or multiple-choice field instead.",
 	"source-link":
@@ -3711,6 +3722,10 @@ export function searchAddressReceiverProblem(
 ): keyof typeof SEARCH_ADDRESS_RECEIVER_MESSAGES | undefined {
 	const receiver = input.addressReceiver;
 	if (receiver === undefined) return undefined;
+	if (receiver.kind === "unsubscribed-topic")
+		return input.hidden !== true && input.type === "text"
+			? undefined
+			: "unmatched-topic-type";
 	if (
 		input.hidden === true ||
 		(input.type !== "text" &&

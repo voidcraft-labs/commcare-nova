@@ -5669,6 +5669,40 @@ def _active_address_receive(config, prompt):
     return selector if selector is not None and _has_address_publisher(config, selector[1]) else None
 
 
+def unmatched_address_receive_topic(use, manifest):
+    """The pinned query subscribes to the entire two-part topic since it has no hyphen."""
+    at, config = _search(use)
+    if config is None:
+        return None
+    prompt = at.nearest("CaseSearchProperty")
+    if at.key != "receiver_expression" or prompt is None or _address_receiver_widget(prompt) != "text":
+        return False
+    topic = prompt.get("receiver_expression")
+    if not isinstance(topic, str) or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*\|\|[A-Za-z_][A-Za-z0-9_]*", topic):
+        return False
+    return not any(
+        row.get("name") == topic and not row.get("is_group")
+        and (row.get("input_") == "address" or (row.get("appearance") == "address" and not row.get("input_")))
+        for row in config.get("properties") or [] if isinstance(row, dict)
+    )
+
+def address_receive_with_extra_hyphen(use, manifest):
+    """An active Search address receiver whose extra hyphen segment Core carries and Web Apps skips."""
+    at, config = _search(use)
+    if config is None:
+        return None
+    prompt = at.nearest("CaseSearchProperty")
+    if at.key != "receiver_expression" or prompt is None or _address_receiver_widget(prompt) != "text":
+        return False
+    value = prompt.get("receiver_expression")
+    selector = (
+        re.fullmatch(r"([A-Za-z_][A-Za-z0-9_]*)-([A-Za-z_][A-Za-z0-9_]*)-[A-Za-z_][A-Za-z0-9_]*", value)
+        if isinstance(value, str) else None
+    )
+    return (selector is not None and selector[2] in ADDRESS_MESSAGE_PARTS
+            and _has_address_publisher(config, selector[1]))
+
+
 def address_receive_without_component(use, manifest):
     """Web Apps subscribes to a bare publisher name, then fails when its first address arrives."""
     at, config = _search(use)
@@ -14097,6 +14131,7 @@ VALUE_CLASSES = {
     "case-search/input-no-runtime-names": input_no_runtime_names,
     "case-search/receiver-expression-on-a-prompt-whose-editor-appearance-is": receiver_on_another_appearance,
     "case-search/address-receiver-single-choice-lookup-position": single_choice_receives_from_address,
+    "case-search/receiver-expression": address_receive_with_extra_hyphen,
     "case-search/address-receiver-matching-a-picker-without-a-component": address_receive_without_component,
     "case-search/address-receiver-shared-with-a-choice-field": address_receiver_shared_with_choice,
     "case-search/search-button-label-any-other-value": other_search_button_label,

@@ -28,6 +28,7 @@ import {
 	SEARCH_INPUT_REQUIRED_DEFAULT_MESSAGE,
 	type SearchAddressReceiver,
 	type SearchInputLookupOptions,
+	UNMATCHED_ADDRESS_TOPIC_PATTERN,
 } from "@/lib/domain/modules";
 import { NO_ENTRIES, recordFromEntries } from "@/lib/domain/records";
 import type { SearchRuntimeValidationMessage } from "@/lib/domain/searchRuntimeValidationMessages";
@@ -333,6 +334,10 @@ export const PROMPT_CLAIMS = defineClaims("search.prompts", {
 	),
 	addressReceiver: take(
 		`${S}address-picker-receiver-on-a-search-screen`,
+		"schema:CaseSearchProperty.receiver_expression",
+	),
+	addressReceiverUnmatchedTopic: take(
+		`${S}address-receiver-on-an-unmatched-topic-without-a-component`,
 		"schema:CaseSearchProperty.receiver_expression",
 	),
 	addressReceiverDuplicate: refuse(
@@ -772,6 +777,19 @@ export function readSearchPrompts(
 				return typeof name === "string" ? [name] : [];
 			}),
 	);
+	// A saved publisher can have a name Nova cannot hold. Its raw name
+	// still decides whether an otherwise inert receive topic can fire.
+	const savedPublisherNames = new Set(
+		prompts.flatMap((prompt) => {
+			const name = prompt.peek("name");
+			return typeof name === "string" &&
+				prompt.peek("is_group") !== true &&
+				(prompt.peek("input_") === "address" ||
+					(prompt.peek("appearance") === "address" && !prompt.peek("input_")))
+				? [name]
+				: [];
+		}),
+	);
 	const receiverDuplicates = addressReceiverDuplicates(prompts, sourceNames);
 	const occupiedNames = new Set(
 		prompts.flatMap((prompt) => {
@@ -812,6 +830,7 @@ export function readSearchPrompts(
 			suiteSources,
 			projectService,
 			sourceNames,
+			savedPublisherNames,
 			receiverDuplicates.has(prompt),
 			occupiedNames,
 			savedNames,
@@ -950,6 +969,7 @@ function readPrompt(
 	suiteSources: ReadonlyMap<string, string>,
 	projectService: boolean,
 	addressSources: ReadonlySet<string>,
+	savedPublisherNames: ReadonlySet<string>,
 	receiverDuplicate: boolean,
 	occupiedNames: Set<string>,
 	savedNames: ReadonlyMap<string, string>,
@@ -1119,7 +1139,21 @@ function readPrompt(
 			refuseWith("receiver_expression", P.addressReceiverNoComponent);
 		else if (validSource && prompt.peek("input_") === "select1")
 			refuseWith("receiver_expression", P.receiverSingleChoice);
-		else if (wire === null || (validSource && !addressPartsHeld(parts)))
+		else if (
+			wire === null &&
+			inputType === "" &&
+			!prompt.peek("input_") &&
+			typeof sourceReceiver === "string" &&
+			UNMATCHED_ADDRESS_TOPIC_PATTERN.test(sourceReceiver) &&
+			!savedPublisherNames.has(sourceReceiver)
+		) {
+			prompt.take(
+				"receiver_expression",
+				P.addressReceiverUnmatchedTopic,
+				String,
+			).value;
+			addressReceiver = { kind: "unsubscribed-topic", topic: sourceReceiver };
+		} else if (wire === null || (validSource && !addressPartsHeld(parts)))
 			refuseWith("receiver_expression", P.receiver);
 		else if (receiverDuplicate)
 			refuseWith("receiver_expression", P.addressReceiverDuplicate);

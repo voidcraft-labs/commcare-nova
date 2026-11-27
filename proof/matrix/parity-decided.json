@@ -683,6 +683,7 @@
 		"hq-search/address-choice-shares-its-receiver-with-text",
 		"hq-search/address-field",
 		"hq-search/address-fills-a-single-choice-by-position",
+		"hq-search/address-receiver-with-an-extra-hyphen-segment",
 		"hq-search/address-receiver-without-a-component",
 		"hq-search/another-case-type-searched",
 		"hq-search/blank-answer-searched-for",
@@ -751,7 +752,10 @@
 		"hq-search/slider-field",
 		"hq-search/translation-overrides-a-saved-legacy-search-group-heading",
 		"hq-search/translation-overrides-a-search-group-heading",
+		"hq-search/two-fields-receive-from-the-address-picker",
+		"hq-search/value-received",
 		"hq-search/value-received-on-a-barcode-field",
+		"hq-search/value-received-with-invalid-topic",
 		"hq-search/visits-form-reads-a-search-field",
 		"hq-search/visits-form-reads-the-inline-results"
 	],

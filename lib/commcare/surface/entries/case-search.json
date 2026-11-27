@@ -3769,6 +3769,32 @@
 		"gates": []
 	},
 	{
+		"id": "case-search/address-receiver-on-an-unmatched-topic-without-a-component",
+		"area": "case-search",
+		"section": "Case search",
+		"subsection": "Search prompts",
+		"item": "A visible text Search field subscribes to an unmatched two-part topic without an address component",
+		"surfaceKeys": [
+			"schema:CaseSearchProperty.receiver_expression",
+			"parser:QueryPromptParser/prompt@receive"
+		],
+		"valueClass": "unmatched-pipe-separated-topic",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: keeps a subscription such as `home||city` byte for byte. Web Apps receives nothing on that topic, and Android ignores it.",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "IGNORED / IGNORED",
+			"webApps": { "reading": "ignored" },
+			"android": { "reading": "ignored" }
+		},
+		"emission": {
+			"cell": "Stored `receiver_expression`",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
 		"id": "case-search/receiver-expression",
 		"area": "case-search",
 		"section": "Case search",
@@ -3780,7 +3806,7 @@
 		],
 		"valueClass": "receiver-with-a-topic-or-part-nova-cannot-hold",
 		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: receiver outside the address topic and component grammar",
+		"dispositionCell": "**HELD-NEW**: other receiver spellings outside the address topic and component grammar, including an active receiver with additional hyphen segments",
 		"subject": "search-fields",
 		"owner": "case-search",
 		"platforms": {

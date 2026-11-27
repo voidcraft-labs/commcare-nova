@@ -44156,6 +44156,25 @@
 	{
 		"id": "hq-search/value-received-with-invalid-topic",
 		"base": "hq-search",
+		"entry": "case-search/address-receiver-on-an-unmatched-topic-without-a-component",
+		"change": {
+			"op": "named",
+			"name": "address_picker_and_unmatched_receiver_topic"
+		},
+		"holds": [
+			{
+				"key": ["module", { "$menu": 0 }],
+				"pointer": "/caseListConfig/searchInputs/2/addressReceiver",
+				"value": {
+					"kind": "unsubscribed-topic",
+					"topic": "home||city"
+				}
+			}
+		]
+	},
+	{
+		"id": "hq-search/address-receiver-with-an-extra-hyphen-segment",
+		"base": "hq-search",
 		"entry": "case-search/receiver-expression",
 		"standing": "not-yet",
 		"place": {
@@ -44164,16 +44183,8 @@
 			"name": "Clients"
 		},
 		"change": {
-			"op": "set-json",
-			"pointer": "/modules/0/search_config/properties/1",
-			"value": {
-				"doc_type": "CaseSearchProperty",
-				"name": "village",
-				"label": {
-					"en": "Village"
-				},
-				"receiver_expression": "home||city"
-			}
+			"op": "named",
+			"name": "address_picker_receiver_with_extra_hyphen"
 		}
 	},
 	{

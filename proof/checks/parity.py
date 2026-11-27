@@ -83,6 +83,7 @@ from proof.checks.manifest_value_classes import (
     three_parent_links_text_prompt_key,
     two_parent_links_text_prompt_key,
     unaddressable_answer_root,
+    unmatched_address_receive_topic,
 )
 from proof.observe.manifest import expression_tree
 
@@ -103,6 +104,7 @@ PARENT_PROMPT_SHAPES = {
     TWO_PARENT_LINKS_PROMPT: two_parent_links_text_prompt_key,
     "case-search/prompt-key-matching-three-parent-links": three_parent_links_text_prompt_key,
 }
+UNMATCHED_ADDRESS_TOPIC = "case-search/address-receiver-on-an-unmatched-topic-without-a-component"
 UNCLAIMED, ENTRY, STANDING, UNSEEN = "unclaimed", "entry", "standing", "unseen"
 
 
@@ -921,6 +923,14 @@ def added_uses(base_source: dict, variant_source: dict, *, entries=()) -> list[D
                 for use in found.uses
                 if use.key == "schema:CaseSearchProperty.name" and classifier(use, held)
             )
+        if UNMATCHED_ADDRESS_TOPIC in entries:
+            entry = _entries_by_id(held)[UNMATCHED_ADDRESS_TOPIC]
+            decided.extend(
+                Decided(use, manifest_usage.HELD, (entry,))
+                for use in found.uses
+                if use.key == "schema:CaseSearchProperty.receiver_expression"
+                and unmatched_address_receive_topic(use, held)
+            )
         return decided
 
     base, variant = decisions(base_source), decisions(variant_source)
@@ -1005,7 +1015,7 @@ def _projects(decided: Decided, record: Record, held) -> tuple[bool, bool]:
         return record.standing == "fix-in-hq", refused
     if standing == manifest_usage.HELD_NEW:
         return record.standing == "not-yet", record.entry in resting
-    if standing == manifest_usage.HELD and len(resting) == 1 and resting <= PARENT_PROMPT_SHAPES.keys() | {UNICODE_PRIMARY_ROOT}:
+    if standing == manifest_usage.HELD and len(resting) == 1 and resting <= PARENT_PROMPT_SHAPES.keys() | {UNICODE_PRIMARY_ROOT, UNMATCHED_ADDRESS_TOPIC}:
         return record.standing == "held", record.entry in resting
     if standing == manifest_usage.HELD and decided.at is not None:
         return record.standing == "held", record.entry in resting and record.at == decided.at
