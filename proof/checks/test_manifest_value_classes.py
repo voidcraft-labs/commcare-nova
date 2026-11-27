@@ -2092,6 +2092,23 @@ def _settings_and_forms():
             "media_type": "CommCareImage", "multimedia_id": "mapped-image",
         }}, translations={"en": {"modules.m0.icon": translated_icon}}), f=QUESTIONS)
 
+    recording = "jr://file/commcare/audio/data/recording.mp3"
+
+    def audio_profile(languages=None, carrier=None):
+        form = _form_json("none")
+        if carrier is not None:
+            form["media_audio"] = {carrier: recording}
+        source = _with_forms(_app([
+            _module([form], media_audio={"en": "jr://file/commcare/audio/data/menu.mp3"}),
+        ], langs=["en", "fr"], multimedia_map={recording: {
+            "media_type": "CommCareAudio", "multimedia_id": "mapped-recording",
+        }}, translations={"en": {"modules.m0.audio": recording}}), f=QUESTIONS)
+        if languages is not None:
+            source["build_profiles"] = {"field": {
+                "doc_type": "BuildProfile", "name": "Field", "langs": languages,
+            }}
+        return source
+
     case_id = "instance('commcaresession')/session/data/case_id"
     workflow = "/modules/0/forms/0/post_form_workflow"
     translations = "schema:Application.translations"
@@ -2141,6 +2158,17 @@ def _settings_and_forms():
                      multimedia_map={"jr://file/commcare/image/mapped.png": {"multimedia_id": "supplied"}},
                      translations={"en": {"modules.m0.icon": "jr://file/commcare/image/mapped.png"}}),
                      translations, "/translations"),
+        ),
+        "application-and-settings/translations-generated-menu-audio-only-in-media-map": (
+            refused("app", audio_profile(), translations, "/translations"),
+            accepted("app", audio_profile(carrier="en"), translations, "/translations"),
+            accepted("app", audio_profile(carrier="fr"), translations, "/translations"),
+        ),
+        "application-and-settings/translations-generated-menu-audio-outside-installation-languages": (
+            refused("app", audio_profile(["en"], "fr"), translations, "/translations"),
+            accepted("app", audio_profile(["en"], "en"), translations, "/translations"),
+            accepted("app", audio_profile(["en", "fr"], "fr"), translations, "/translations"),
+            accepted("app", audio_profile(["fr"], "fr"), translations, "/translations"),
         ),
         "application-and-settings/translations-generated-menu-icon-only-in-media-map": (
             refused("app", _app([_module(media_image={"en": "jr://file/commcare/image/menu.png"})],
