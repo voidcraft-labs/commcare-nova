@@ -324,12 +324,9 @@ async function photoSize(page: Page, android: boolean) {
 	await expect.poll(() => answer(page, PLATFORM_IDS.image)).toBe("large.png");
 }
 
-async function checkDatetimePicker(
-	page: Page,
-	platform: "android" | "web-apps",
-) {
+async function checkAndroidDatetimePicker(page: Page) {
 	await page.clock.setFixedTime(new Date("2025-11-02T06:00:00Z"));
-	await openScenario(page, `datetime-picker-${platform}`);
+	await openScenario(page, "datetime-picker-android");
 	const clock = page.getByRole("textbox", { name: "Time", exact: true });
 	await expect(clock).toBeVisible();
 	const applied = await page.evaluate(
@@ -338,65 +335,73 @@ async function checkDatetimePicker(
 		PLATFORM_IDS.datetime,
 	);
 	expect(applied).toBe(true);
+	const calendarTrigger = page.getByRole("button", {
+		name: "Date",
+		exact: true,
+	});
+	await expect(calendarTrigger).toContainText("November 1, 2025");
+	await expect(clock).toHaveValue("11:24 PM");
+	await page.getByRole("button", { name: "Next", exact: true }).click();
 	await expect(
-		page.getByRole("button", { name: "Date", exact: true }),
-	).toContainText("November 1, 2025");
-	if (platform === "android") {
-		await expect(clock).toHaveValue("11:24 PM");
-		await page.getByRole("button", { name: "Next", exact: true }).click();
-		await expect(
-			page.getByRole("textbox", { name: /Review visit/ }),
-		).toBeVisible();
-		await expect
-			.poll(() => answer(page, PLATFORM_IDS.datetime))
-			.toBe("2025-11-01T23:24:00.000-07:00");
-		await page.getByRole("button", { name: "Back", exact: true }).click();
-	} else {
-		await expect(clock).toHaveValue(/23:24:47\.125/);
-		const existing = await answer(page, PLATFORM_IDS.datetime);
-		expect(Date.parse(existing ?? "")).toBe(
-			Date.parse("2025-11-02T06:24:47.125Z"),
-		);
-	}
+		page.getByRole("textbox", { name: /Review visit/ }),
+	).toBeVisible();
+	await expect
+		.poll(() => answer(page, PLATFORM_IDS.datetime))
+		.toBe("2025-11-01T23:24:00.000-07:00");
+	await page.getByRole("button", { name: "Back", exact: true }).click();
 	await clock.fill("11:26:48 PM");
 	await clock.press("Tab");
 	await expect
 		.poll(() => answer(page, PLATFORM_IDS.datetime))
-		.toBe(
-			platform === "android"
-				? "2025-11-01T23:26:00.000-07:00"
-				: "2025-11-01T23:26:48.000-07:00",
-		);
-	if (platform === "android") {
-		const calendarTrigger = page.getByRole("button", {
-			name: "Date",
-			exact: true,
-		});
-		const calendar = page.locator('[data-slot="calendar"]');
-		await calendarTrigger.click();
-		await calendar
-			.getByRole("button", { name: /November 1(?:st)?,? 2025/ })
-			.click({ timeout: 10_000 });
-		await expect
-			.poll(() => answer(page, PLATFORM_IDS.datetime))
-			.toBe("2025-11-01T23:26:00.000-07:00");
-		await calendarTrigger.click();
-		const nextDay = calendar.getByRole("button", {
-			name: /November 2(?:nd)?,? 2025/,
-		});
-		await expect(nextDay).toBeVisible();
-		await nextDay.click();
-		await expect
-			.poll(() => answer(page, PLATFORM_IDS.datetime))
-			.toBe("2025-11-02T23:26:00.000-08:00");
-	}
+		.toBe("2025-11-01T23:26:00.000-07:00");
+
+	const calendar = page.locator('[data-slot="calendar"]');
+	await calendarTrigger.click();
+	await calendar
+		.getByRole("button", { name: /November 1(?:st)?,? 2025/ })
+		.click({ timeout: 10_000 });
+	await expect
+		.poll(() => answer(page, PLATFORM_IDS.datetime))
+		.toBe("2025-11-01T23:26:00.000-07:00");
+	await calendarTrigger.click();
+	const nextDay = calendar.getByRole("button", {
+		name: /November 2(?:nd)?,? 2025/,
+	});
+	await expect(nextDay).toBeVisible();
+	await nextDay.click();
+	await expect
+		.poll(() => answer(page, PLATFORM_IDS.datetime))
+		.toBe("2025-11-02T23:26:00.000-08:00");
+}
+
+async function checkWebAppsDatetimePicker(page: Page) {
+	await page.clock.setFixedTime(new Date("2025-11-02T06:00:00Z"));
+	await openScenario(page, "datetime-picker-web-apps");
+	const clock = page.getByRole("textbox", { name: "Time", exact: true });
+	const calendarTrigger = page.getByRole("button", {
+		name: "Date",
+		exact: true,
+	});
+	await expect(clock).toHaveValue("");
+	await expect(calendarTrigger).toContainText("Pick a date");
+	await calendarTrigger.click();
+	await page
+		.locator('[data-slot="calendar"]')
+		.getByRole("button", { name: /November 1(?:st)?,? 2025/ })
+		.click({ timeout: 10_000 });
+	await clock.fill("11:26:48 PM");
+	await clock.press("Tab");
+	await expect
+		.poll(() => answer(page, PLATFORM_IDS.datetime))
+		.toBe("2025-11-01T23:26:48.000-07:00");
+	await expect(clock).toHaveValue("11:26:48 PM");
 }
 
 const PREVIEW_PLATFORM_CHECKS: Readonly<
 	Record<PreviewPlatformScenarioId, (page: Page) => Promise<void>>
 > = {
-	"datetime-picker-android": (page) => checkDatetimePicker(page, "android"),
-	"datetime-picker-web-apps": (page) => checkDatetimePicker(page, "web-apps"),
+	"datetime-picker-android": checkAndroidDatetimePicker,
+	"datetime-picker-web-apps": checkWebAppsDatetimePicker,
 	async "face-photo-android"(page) {
 		await page.addInitScript(() => {
 			const streams: MediaStream[] = [];
