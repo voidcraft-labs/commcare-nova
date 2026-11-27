@@ -2,7 +2,12 @@ import {
 	type ResultDetailTextWire,
 	resultDetailTextWire,
 } from "../../suite/case-list/resultDetailText";
-import { type FormSyntax, readFormSyntax } from "../../xpath/formSyntax";
+import {
+	type FormSyntax,
+	needsInstanceDeclaration,
+	readFormSyntax,
+	visitSyntax,
+} from "../../xpath/formSyntax";
 import { serializeWire } from "../../xpath/wire/serialize";
 import { sameSyntax } from "../syntaxCompare";
 
@@ -35,6 +40,11 @@ export function readResultDetailText(
 ): ResultDetailTextWire | undefined {
 	const parsed = readFormSyntax(source);
 	if (!parsed.ok || !parsed.node) return;
+	let hqSeesSources = true;
+	visitSyntax(parsed.node, (node) => {
+		if (needsInstanceDeclaration(node, source)) hqSeesSources = false;
+	});
+	if (!hqSeesSources) return;
 	const outer = call(parsed.node, "if", 3);
 	const concat = call(outer?.[1], "concat", 3);
 	const inner = call(concat?.[1], "if", 3);

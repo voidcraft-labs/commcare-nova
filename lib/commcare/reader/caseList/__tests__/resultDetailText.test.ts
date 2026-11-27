@@ -37,6 +37,8 @@ describe("standalone Search result-detail text", () => {
 		`if(${roster}, concat('entered=[', string(${prompt}), ']'), 'local row')`,
 		formula.replace("../results", "../casedb"),
 		formula.replace("search-input:results", "search-input:results:inline"),
+		formula.replaceAll("instance(", "instance ("),
+		formula.replaceAll("'search-input:results'", "('search-input:results')"),
 		formula.replace(
 			`count(${prompt})`,
 			"count(instance('search-input:results')/input/field)",
