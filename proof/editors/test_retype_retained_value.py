@@ -37,7 +37,7 @@ def _operations(source):
     }
 
 
-def _submitted(unit, document, app_id, runner, *, full_name, visit_date):
+def _submitted(unit, document, app_id, runner, *, full_name, visit_date, must_answer_date=False):
     from corehq.form_processor.models import CommCareCase
 
     with formplayer.serve(
@@ -48,9 +48,16 @@ def _submitted(unit, document, app_id, runner, *, full_name, visit_date):
         assert screen_kind(screen) == "form", screen
         question_map = {question.get("binding"): question for question in _questions(screen["tree"])}
         answers = {question_map["/data/full_name"]["ix"]: full_name}
+        date_question = question_map["/data/visit_date"]
         if visit_date is not None:
-            answers[question_map["/data/visit_date"]["ix"]] = visit_date
-        reply = web.submit(screen["session_id"], answers)
+            answers[date_question["ix"]] = visit_date
+        reply = web.submit(screen["session_id"], answers, prevalidated=not must_answer_date)
+        if must_answer_date and visit_date is None:
+            return {
+                "status": reply.get("status"),
+                "required": date_question.get("required"),
+                "submissions": len(served.hq.submissions),
+            }
         assert reply.get("status") == "success", reply
         submission, = served.hq.submissions
         instance = etree.fromstring(submission.instance)
@@ -81,7 +88,7 @@ def _submitted(unit, document, app_id, runner, *, full_name, visit_date):
         }
 
 
-@pytest.mark.parametrize("direction", ["text-to-date", "date-to-text"])
+@pytest.mark.parametrize("direction", ["text-to-date", "date-to-text", "required-date"])
 def test_vellum_and_signed_worker_retype_a_fresh_case_with_an_explicit_overwrite(
     hq, editor_driver, formplayer_runner, direction,
 ):
@@ -93,17 +100,32 @@ def test_vellum_and_signed_worker_retype_a_fresh_case_with_an_explicit_overwrite
             app_id, refusal, _ = publish.create_authored(unit, document)
             assert refusal is None
         authoring = Authoring(unit, {}, base=document.id, driver=editor_driver, operation=unit.operation)
-        change = "save_to_case_retype_converts" if direction == "text-to-date" else "save_to_case_date_as_text"
+        change = "save_to_case_date_as_text" if direction == "date-to-text" else "save_to_case_retype_converts"
         registry.named_change(change)(authoring, app_id)
         form = operations.held_app(unit, app_id).modules[0].forms[0]
         before = _operations(form.source)
-        saved = vellum.fresh_open_and_save(editor_driver, unit, app_id, form.unique_id)
+        edit = (
+            {"way": "builder-model", "path": "/data/visit_date", "property": "requiredAttr", "value": True}
+            if direction == "required-date" else None
+        )
+        saved = vellum.fresh_open_and_save(editor_driver, unit, app_id, form.unique_id, edit=edit)
         after = _operations(saved.stored_source) if saved.stored_source else {}
         receipt = {"before": before, "after": after, "loaded": saved.loaded, "saved": saved.saved,
                    "loadError": saved.load_error, "saveRefusal": saved.save_refusal, "formErrors": saved.form_errors}
         write_evidence(f"save-to-case-retype-{direction}", receipt)
         assert saved.loaded and saved.saved and not saved.page_errors, receipt
         assert before == after, receipt
+        if direction == "required-date":
+            root = etree.fromstring(saved.stored_source.encode())
+            (date_bind,) = root.xpath("//*[local-name()='bind' and @nodeset='/data/visit_date']")
+            assert date_bind.get("required") == "true()"
+            receipt["missing"] = _submitted(
+                unit, document, app_id, formplayer_runner, full_name="blue",
+                visit_date=None, must_answer_date=True,
+            )
+            write_evidence(f"save-to-case-retype-{direction}", receipt)
+            assert receipt["missing"]["required"] is True, receipt
+            assert receipt["missing"]["status"] != "success" and receipt["missing"]["submissions"] == 0, receipt
 
         scenarios = {"dated": ("blue", "2025-12-01")}
         if direction == "text-to-date":
@@ -111,14 +133,17 @@ def test_vellum_and_signed_worker_retype_a_fresh_case_with_an_explicit_overwrite
         for name, (full_name, visit_date) in scenarios.items():
             # Each submission starts from the same existing rows. Native
             # Formplayer generates the case ID and HQ commits the case blocks.
-            receipt[name] = _submitted(unit, document, app_id, formplayer_runner, full_name=full_name, visit_date=visit_date)
+            receipt[name] = _submitted(
+                unit, document, app_id, formplayer_runner, full_name=full_name,
+                visit_date=visit_date, must_answer_date=direction == "required-date",
+            )
         write_evidence(f"save-to-case-retype-{direction}", receipt)
 
     for name, (full_name, visit_date) in scenarios.items():
         result = receipt[name]
         assert result["changes"]["mk"]["type"] == "patient"
         assert result["changes"]["again"]["type"] == "visit"
-        first, final = (full_name, visit_date or "") if direction == "text-to-date" else (visit_date, full_name)
+        first, final = (full_name, visit_date or "") if direction != "date-to-text" else (visit_date, full_name)
         assert result["changes"]["mk"]["kept"] == [first]
         assert result["changes"]["again"]["kept"] == [final]
         assert result["final"] == {"type": "visit", "properties": {"kept": final}}
