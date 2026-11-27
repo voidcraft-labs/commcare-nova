@@ -6,6 +6,7 @@ import { effectiveCaseTypes } from "@/lib/domain";
 import { literal, term } from "@/lib/domain/expression/builders";
 import { plainColumn } from "@/lib/domain/modules";
 import { proseText } from "@/lib/domain/prose";
+import { effectiveSearchOrder } from "@/lib/domain/searchOrder";
 import { patients, uuid } from "../../caseList/__tests__/fixtures";
 import {
 	closedCodes,
@@ -703,6 +704,45 @@ it.each(["-visit:date", "++priority:unknown"])(
 		);
 	},
 );
+
+it("preserves a mixed indexed fallback and drops its earlier date term at runtime", async () => {
+	const stored = "-visit:date,+priority::obsolete";
+	const input = patients([], { search: { workflow: "skipToResults" } });
+	const read = await readLists(input, {
+		edit: (app) => {
+			app.modules[0].search_config.default_properties = [
+				{ property: "commcare_sort", defaultValue: `'${stored}'` },
+			];
+		},
+	});
+	expect(closedCodes(read), JSON.stringify(read.findings)).toEqual([]);
+	const filters = listOf(read).searchFilters;
+	expect(filters).toMatchObject([
+		{
+			kind: "order",
+			order: [
+				{ property: "visit", comparison: "date", direction: "descending" },
+				{
+					property: "priority",
+					comparison: "indexed-fallback",
+					savedSuffix: "obsolete",
+				},
+			],
+		},
+	]);
+	const row = filters?.[0];
+	if (!row || !("order" in row))
+		throw new Error("Expected the saved order filter.");
+	expect(requestOrderText(row.order)).toBe(stored);
+	expect(effectiveSearchOrder([row], [])).toEqual(
+		["number", "date", "text"].map((comparison) => ({
+			property: "priority",
+			comparison,
+			direction: "ascending",
+			missing: "last",
+		})),
+	);
+});
 
 it("refuses a discarded order without a later reset in the same Search", () => {
 	const saved = {
