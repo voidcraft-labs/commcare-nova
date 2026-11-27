@@ -102,6 +102,10 @@ import {
 	SubmissionRejectedError,
 } from "../errors";
 import {
+	FLAT_CLOSE_CASE_EFFECTS,
+	FLAT_CLOSE_SELECTED_RECORDS,
+} from "../flatCloseBudget";
+import {
 	compileExpression,
 	compilePredicate,
 	compileSubmittedTextValue,
@@ -174,6 +178,15 @@ export interface SubmissionEnvelopeHost {
 	updateCase(
 		trx: Transaction<Database>,
 		args: { appId: string; caseId: string; patch: CaseUpdate },
+	): Promise<void>;
+	checkFlatCloseSelection(
+		trx: Transaction<Database>,
+		args: {
+			appId: string;
+			caseIds: readonly string[];
+			caseType: string;
+			ownerIds: readonly string[];
+		},
 	): Promise<void>;
 	/** The canonical lifecycle close (idempotent, repairs status). */
 	closeCase(
@@ -1268,22 +1281,25 @@ function validatedSelectedCaseIds(
 	}
 	const caseIds = ordinary.caseIds;
 	const maximum = ordinary.selection.maximum;
+	const selectedRecordBudget = args.boundedFlatClose
+		? FLAT_CLOSE_SELECTED_RECORDS
+		: MAX_SELECTED_CASES;
 	if (
 		!Number.isInteger(maximum) ||
 		maximum < 1 ||
-		maximum > MAX_SELECTED_CASES ||
+		maximum > selectedRecordBudget ||
 		(ordinary.selection.kind === "single" && maximum !== 1)
 	) {
 		rejectSelection({
 			kind: "selection",
 			reason: "too-many",
-			maximum: Math.min(MAX_SELECTED_CASES, Math.max(1, maximum)),
+			maximum: Math.min(selectedRecordBudget, Math.max(1, maximum)),
 		});
 	}
 	if (caseIds.length === 0) {
 		rejectSelection({ kind: "selection", reason: "empty", maximum });
 	}
-	if (caseIds.length > maximum || caseIds.length > MAX_SELECTED_CASES) {
+	if (caseIds.length > maximum || caseIds.length > selectedRecordBudget) {
 		rejectSelection({ kind: "selection", reason: "too-many", maximum });
 	}
 	const seen = new Set<string>();
@@ -1348,14 +1364,85 @@ function validatedSelectedCaseIds(
 	return caseIds;
 }
 
+function flatCloseSelectionOf(
+	args: ApplySubmissionArgs,
+	caseIds: readonly string[],
+) {
+	if (!args.boundedFlatClose) return undefined;
+	const { ordinary, operations: program } = args;
+	const opening = program?.openingReads;
+	const operation = program?.operations[0]?.operation;
+	const root = program?.scopes[0];
+	const orderedScope = program?.scopeOrder?.[0];
+	const orderedEffect = program?.effectOrder?.[0];
+	if (
+		ordinary.kind !== "close" ||
+		ordinary.selection.kind !== "multiple" ||
+		ordinary.additionalCaseTypes?.length ||
+		!opening ||
+		!opening.currentOwnerIds.length ||
+		opening.submittedCaseIds?.length ||
+		!program ||
+		program.ownCase?.formType !== "close" ||
+		program.ownCase.caseType !== ordinary.caseType ||
+		program.ownCase.closeCondition !== undefined ||
+		program.ownCase.openCondition !== undefined ||
+		program.operations.length !== 1 ||
+		operation?.action !== "own" ||
+		operation.name !== undefined ||
+		operation.owner !== undefined ||
+		operation.writes?.length ||
+		operation.links?.length ||
+		program.groupDefaults !== undefined ||
+		program.scopes.length !== 1 ||
+		root?.repeat !== undefined ||
+		root?.iterations.length !== 1 ||
+		(program.scopeOrder !== undefined &&
+			(program.scopeOrder.length !== 1 ||
+				orderedScope?.repeat !== undefined ||
+				orderedScope?.iteration !== 0)) ||
+		(program.effectOrder !== undefined &&
+			(program.effectOrder.length !== 1 ||
+				orderedEffect?.repeat !== undefined ||
+				orderedEffect?.iteration !== 0 ||
+				orderedEffect.absent ||
+				orderedEffect.operationUuids.length !== 1 ||
+				orderedEffect.operationUuids[0] !== operation.uuid)) ||
+		args.captureIntent ||
+		args.connect ||
+		args.webActivity ||
+		caseIds.length > FLAT_CLOSE_CASE_EFFECTS
+	)
+		throw new CaptureSubmissionRejectedError(
+			"This form could not close the selected records together.",
+		);
+
+	const openedIds = new Set(opening.cases.rows.map((row) => row.case_id));
+	if (
+		openedIds.size !== caseIds.length ||
+		caseIds.some((id) => !openedIds.has(id))
+	)
+		throw new CaptureSubmissionRejectedError(
+			"The selected records changed. Reopen the form to choose them again.",
+		);
+	return {
+		appId: args.appId,
+		caseIds,
+		caseType: ordinary.caseType,
+		ownerIds: opening.currentOwnerIds,
+	};
+}
+
 /** Verify the schedule and selected-case budget before reading or locking any case. */
 export function prepareSubmissionEnvelope(args: ApplySubmissionArgs) {
 	const selectedCaseIds = validatedSelectedCaseIds(args);
+	const flatClose = flatCloseSelectionOf(args, selectedCaseIds);
 	const program = args.operations;
 	const steps =
 		program === undefined ? [] : programSteps(program, args.ordinary);
 	return {
 		selectedCaseIds,
+		flatClose,
 		operations:
 			program && steps.length > 0
 				? {
@@ -1396,6 +1483,8 @@ export async function executeSubmissionEnvelope(
 		currentAccess,
 		opening?.submittedCaseIds,
 	);
+	if (prepared.flatClose)
+		await host.checkFlatCloseSelection(trx, prepared.flatClose);
 	const operationRecords: OperationEffectRecord[] = [];
 	const reachedWriteCaseIds = new Set<string>();
 	let registeredCaseId: string | undefined;

@@ -1,6 +1,10 @@
 import { recordWebFormActivity } from "@/lib/db/previewWebActivity";
 import { submittedActivityFacts } from "@/lib/domain/connectSubmissionFacts";
 import { CaptureSubmissionRejectedError } from "../errors";
+import {
+	FLAT_CLOSE_CASE_BYTES,
+	FLAT_CLOSE_SELECTED_RECORDS,
+} from "../flatCloseBudget";
 import { searchSupportingIds } from "./searchSupportingIds";
 // lib/case-store/postgres/store.ts
 //
@@ -1674,23 +1678,127 @@ export class PostgresCaseStore implements CaseStore {
 		return parseSubmissionEnvelopeResult(row.result).caseDatabasePatch;
 	}
 
+	async readFlatCloseSelection(args: {
+		readonly appId: string;
+		readonly caseIds: readonly string[];
+		readonly caseType: string;
+		readonly restoreScope: RestoreScope;
+	}): Promise<DeviceCaseDatabase | undefined> {
+		return this.dataTransaction(
+			(tx) => this.readFlatCloseSelectionInTransaction(tx, args),
+			true,
+		);
+	}
+
+	private async readFlatCloseSelectionInTransaction(
+		tx: Transaction<Database>,
+		args: {
+			readonly appId: string;
+			readonly caseIds: readonly string[];
+			readonly caseType: string;
+			readonly restoreScope: RestoreScope;
+		},
+	): Promise<DeviceCaseDatabase | undefined> {
+		const { appId, caseIds, caseType, restoreScope } = args;
+		if (
+			!caseIds.length ||
+			caseIds.length > FLAT_CLOSE_SELECTED_RECORDS ||
+			new Set(caseIds).size !== caseIds.length ||
+			caseIds.some((id) => !id.trim())
+		)
+			return undefined;
+
+		const available = await this.buildCaseSelect(
+			{
+				appId,
+				caseType,
+				restoreScope,
+				reading: { filter: "casedb", columns: "casedb" },
+			},
+			tx,
+		)
+			.qb.clearSelect()
+			.select("c.case_id")
+			.where("c.case_id", "in", caseIds)
+			.where("c.status", "is distinct from", "closed")
+			.execute();
+		if (available.length !== caseIds.length) return undefined;
+		const patch = await this.readCaseDatabasePatchInTransaction(tx, {
+			appId,
+			projectId: this.requireProjectId(),
+			caseIds,
+			boundedFlatClose: true,
+		});
+		if (patch.rows.length !== caseIds.length) return undefined;
+		// A plain close changes only status and the two lifecycle timestamps.
+		// Test the exact public payload both as read and as it can land.
+		assertFlatCloseCaseBytes(patch);
+		const stamp = new Date();
+		assertFlatCloseCaseBytes({
+			...patch,
+			rows: patch.rows.map((row) => ({
+				...row,
+				status: "closed",
+				closed_on: row.closed_on ?? stamp,
+				modified_on: row.closed_on === null ? stamp : row.modified_on,
+			})),
+		});
+		return patch;
+	}
+
+	private async checkFlatCloseSelection(
+		tx: Transaction<Database>,
+		args: {
+			appId: string;
+			caseIds: readonly string[];
+			caseType: string;
+			ownerIds: readonly string[];
+		},
+	): Promise<void> {
+		const selected = await this.readFlatCloseSelectionInTransaction(tx, {
+			...args,
+			restoreScope: { ownerIds: args.ownerIds },
+		});
+		if (!selected)
+			throw new CaptureSubmissionRejectedError(
+				"The selected records changed. Reopen the form to choose them again.",
+			);
+	}
+
 	private async readCaseDatabasePatchInTransaction(
 		trx: Transaction<Database>,
 		args: {
 			readonly appId: string;
 			readonly projectId: string;
 			readonly caseIds: readonly string[];
+			readonly boundedFlatClose?: true;
 		},
 	): Promise<DeviceCaseDatabase> {
 		const caseIds = [...new Set(args.caseIds)];
 		if (caseIds.length === 0)
 			return { rows: [], indices: [], propertyTypes: {} };
-		const storedRows = await trx
+		const caseRows = trx
 			.selectFrom("cases as c")
 			.selectAll("c")
 			.where("c.app_id", "=", args.appId)
 			.where("c.project_id", "=", args.projectId)
-			.where("c.case_id", "in", caseIds)
+			.where("c.case_id", "in", caseIds);
+
+		// Scrutinize the same case and direct-index projections before
+		// transferring any large JSON values to the Node process.
+		if (args.boundedFlatClose) {
+			const sizes = await caseRows
+				.clearSelect()
+				.select(
+					sql<string>`coalesce(sum(octet_length((to_jsonb(c) -
+					array['project_id','index_history_complete','cleared_index_identifiers'])::text)), 0)::text`.as(
+						"size",
+					),
+				)
+				.executeTakeFirstOrThrow();
+			this.assertFlatCloseTransferSize(Number(sizes.size));
+		}
+		const storedRows = await caseRows
 			.orderBy("c.opened_on", "asc")
 			.orderBy("c.case_id", "asc")
 			.execute();
@@ -1701,10 +1809,10 @@ export class PostgresCaseStore implements CaseStore {
 		// with every case before probing `case_indices` when the tenant's
 		// rows had no statistics yet: 500 fresh cases took 18 seconds.
 		const tenantCaseIds = rows.map((row) => row.case_id);
-		const indices =
+		const indicesQuery =
 			tenantCaseIds.length === 0
-				? []
-				: await trx
+				? undefined
+				: trx
 						.selectFrom("case_indices as ci")
 						.select([
 							"ci.case_id",
@@ -1728,14 +1836,34 @@ export class PostgresCaseStore implements CaseStore {
 						)
 						.orderBy("ci.case_id", "asc")
 						.orderBy("ci.identifier", "asc")
-						.orderBy("ci.ancestor_id", "asc")
-						.execute();
+						.orderBy("ci.ancestor_id", "asc");
+		if (args.boundedFlatClose && indicesQuery) {
+			const indexSizes = await trx
+				.selectFrom(indicesQuery.as("direct_edge"))
+				.select(
+					sql<string>`coalesce(sum(octet_length(to_jsonb(direct_edge)::text)), 0)::text`.as(
+						"size",
+					),
+				)
+				.executeTakeFirstOrThrow();
+			this.assertFlatCloseTransferSize(Number(indexSizes.size));
+		}
+		const indices = (await indicesQuery?.execute()) ?? [];
 		const propertyTypes = await this.readCaseDatabasePropertyTypes(
 			trx,
 			args.appId,
 			rows.map((row) => row.case_type),
+			args.boundedFlatClose,
 		);
 		return { rows, indices, propertyTypes };
+	}
+
+	/** PostgreSQL's JSON representation includes spacing and the full stored
+	 * schema instead of its wire projection. This is a transfer budget,
+	 * distinct from the exact compact DTO budget verified after projection. */
+	private assertFlatCloseTransferSize(bytes: number): void {
+		if (bytes > 2 * FLAT_CLOSE_CASE_BYTES)
+			throw new CaptureSubmissionRejectedError(FLAT_CLOSE_LARGE);
 	}
 
 	/** The source rows were selected in this transaction, including the worker
@@ -1785,15 +1913,25 @@ export class PostgresCaseStore implements CaseStore {
 		trx: Transaction<Database>,
 		appId: string,
 		caseTypes: readonly string[],
+		boundedFlatClose?: true,
 	): Promise<Record<string, Readonly<Record<string, CasePropertyDataType>>>> {
 		const names = [...new Set(caseTypes)].sort();
 		if (names.length === 0) return {};
-		const schemaRows = await trx
+		const schemas = trx
 			.selectFrom("case_type_schemas")
-			.select(["case_type", "schema"])
 			.where("app_id", "=", appId)
-			.where("case_type", "in", names)
-			.execute();
+			.where("case_type", "in", names);
+		if (boundedFlatClose) {
+			const sizes = await schemas
+				.select(
+					sql<string>`coalesce(sum(octet_length("schema"::text) + octet_length(case_type)), 0)::text`.as(
+						"size",
+					),
+				)
+				.executeTakeFirstOrThrow();
+			this.assertFlatCloseTransferSize(Number(sizes.size));
+		}
+		const schemaRows = await schemas.select(["case_type", "schema"]).execute();
 		const propertyTypes: Record<
 			string,
 			Readonly<Record<string, CasePropertyDataType>>
@@ -2610,6 +2748,8 @@ export class PostgresCaseStore implements CaseStore {
 			if (activities && "issue" in activities)
 				throw new CaptureSubmissionRejectedError(activities.issue);
 			const prepared = prepareSubmissionEnvelope(args);
+			if (prepared.flatClose)
+				await this.checkFlatCloseSelection(trx, prepared.flatClose);
 			await this.lockRelationshipWrites(trx, args.appId);
 			await this.lockValidators(trx, args.appId, submissionCaseTypes(args));
 			const { deviceExternalIds, reachedWriteCaseIds, ...effects } =
@@ -2632,9 +2772,11 @@ export class PostgresCaseStore implements CaseStore {
 					appId: args.appId,
 					projectId: this.requireProjectId(),
 					caseIds: affectedCaseIds,
+					...(prepared.flatClose && { boundedFlatClose: true }),
 				}),
 				deviceExternalIds,
 			);
+			if (prepared.flatClose) assertFlatCloseCaseBytes(caseDatabasePatch);
 			const result: SubmissionEnvelopeResult = {
 				...effects,
 				...(args.submissionLocation !== undefined && {
@@ -2713,6 +2855,7 @@ export class PostgresCaseStore implements CaseStore {
 						: { caseIdTaken: a.caseIdTaken }),
 				}),
 			updateCase: (trx, a) => this.updateInTransaction(trx, a),
+			checkFlatCloseSelection: (trx, a) => this.checkFlatCloseSelection(trx, a),
 			closeCase: (trx, a) => this.closeCaseInTransaction(trx, a),
 		};
 	}
@@ -5473,6 +5616,13 @@ function submissionCaseTypes(args: ApplySubmissionArgs): string[] {
  * external id, the device keeps the external id it had
  * (`submissionEnvelope.ts::DeviceExternalIds`) until its next sync.
  */
+const FLAT_CLOSE_LARGE = "These records hold too much data to close together.";
+
+function assertFlatCloseCaseBytes(patch: DeviceCaseDatabase): void {
+	if (Buffer.byteLength(JSON.stringify(patch), "utf8") > FLAT_CLOSE_CASE_BYTES)
+		throw new CaptureSubmissionRejectedError(FLAT_CLOSE_LARGE);
+}
+
 function devicePatch(
 	patch: DeviceCaseDatabase,
 	deviceExternalIds: ReadonlyMap<string, string | null>,

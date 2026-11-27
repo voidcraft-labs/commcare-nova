@@ -3413,6 +3413,7 @@ export function schemaHealingCaseStore(
 		withSchemaHeal(args, run);
 	return {
 		query: (a) => heal(() => store.query(a)),
+		readFlatCloseSelection: (a) => heal(() => store.readFlatCloseSelection(a)),
 		queryAutomaticSelection: (...args) =>
 			heal(() => store.queryAutomaticSelection(...args)),
 		// Un-healed: this raw restore read does not consult a case-type schema,

@@ -429,6 +429,7 @@ function actionStore(overrides: Partial<CaseStore> = {}): CaseStore {
 		readSubmittedCaseDatabasePatch: vi.fn(async () => undefined),
 		queryGrouped: vi.fn(),
 		queryAutomaticSelection: vi.fn(),
+		readFlatCloseSelection: vi.fn(),
 		count: vi.fn(),
 		insert: vi.fn(),
 		applySubmission: vi.fn(),

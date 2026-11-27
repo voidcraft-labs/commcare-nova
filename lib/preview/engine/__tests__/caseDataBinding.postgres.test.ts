@@ -2470,6 +2470,7 @@ describe("readCaseData", () => {
 			readSubmittedCaseDatabasePatch: (a) =>
 				store.readSubmittedCaseDatabasePatch(a),
 			queryGrouped: (a) => store.queryGrouped(a),
+			readFlatCloseSelection: (a) => store.readFlatCloseSelection(a),
 			queryAutomaticSelection: (...args) =>
 				store.queryAutomaticSelection(...args),
 			count: (a) => store.count(a),

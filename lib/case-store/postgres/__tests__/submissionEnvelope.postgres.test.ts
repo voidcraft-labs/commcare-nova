@@ -780,6 +780,147 @@ describe("whole-envelope atomicity", () => {
 	});
 });
 
+describe("bounded flat close", () => {
+	const selected = Array.from(
+		{ length: 101 },
+		(_, index) => `flat-close-${index}`,
+	);
+	const request = (caseIds = selected) => ({
+		appId: APP_ID,
+		caseIds,
+		caseType: "patient",
+		restoreScope: { ownerIds: [ACTOR] },
+	});
+	async function signedProgram(
+		store: PostgresCaseStore,
+		caseIds = selected,
+	): Promise<TestSubmissionArgs> {
+		const snapshot = await store.readFlatCloseSelection(request(caseIds));
+		if (!snapshot)
+			throw new Error("The signed selection fixture is missing its rows.");
+		return {
+			appId: APP_ID,
+			ordinary: {
+				kind: "close",
+				caseType: "patient",
+				caseIds,
+				selection: { kind: "multiple", maximum: 101 },
+			},
+			boundedFlatClose: true,
+			operations: {
+				...ownProgram("close", [ownOp()]),
+				sessionCaseIds: caseIds,
+				openingReads: { currentOwnerIds: [ACTOR], cases: snapshot },
+			},
+		};
+	}
+
+	it("returns a bounded scoped projection and atomically closes 101 ordered cases", async () => {
+		const store = makeStore();
+		for (const id of selected) await seedPatient(store, id, id);
+		const parent = "not-selected-parent";
+		await makeStore(PROJECT_A, ACTOR, "another-worker").insert({
+			appId: APP_ID,
+			row: {
+				case_id: parent,
+				case_type: "patient",
+				case_name: parent,
+				status: "open",
+			},
+		});
+		await sql`INSERT INTO case_indices (case_id, ancestor_id, depth, identifier, relationship, target_case_type)
+			VALUES (${selected[0]}, ${parent}, 1, 'parent', 'child', 'patient')`.execute(
+			dbHandle.db,
+		);
+		const scope = request();
+		expect(
+			await store.readFlatCloseSelection({
+				...scope,
+				caseIds: [...selected, parent],
+			}),
+		).toBeUndefined();
+		expect(
+			await store.readFlatCloseSelection({ ...scope, caseIds: [parent] }),
+		).toBeUndefined();
+		const ordered = selected.toReversed();
+		const args = await signedProgram(store, ordered);
+		expect(args.operations?.openingReads?.cases).toMatchObject({
+			rows: expect.not.arrayContaining([
+				expect.objectContaining({ case_id: parent }),
+			]),
+			indices: [
+				expect.objectContaining({ case_id: selected[0], ancestor_id: parent }),
+			],
+			propertyTypes: { patient: { notes: "text" } },
+		});
+		const claimed = { ...args, submissionReceipt: receiptFor(args) };
+		const closed = await submit(store, claimed);
+		expect(closed.primaryCaseIds).toEqual(ordered);
+		expect(closed.operations.map(({ caseId }) => caseId)).toEqual(ordered);
+		expect(closed.caseDatabasePatch?.rows).toHaveLength(101);
+		expect(
+			closed.caseDatabasePatch?.rows.every((row) => row.status === "closed"),
+		).toBe(true);
+		expect(closed.caseDatabasePatch?.indices).toEqual(
+			args.operations?.openingReads?.cases.indices,
+		);
+		expect(await submit(store, claimed)).toEqual(closed);
+		expect((await patientRow(store, parent))?.status).toBe("open");
+	});
+
+	it("rechecks the exact selected payload after waiting for the case write locks", async () => {
+		const store = makeStore();
+		await seedPatient(store, SESSION_CASE_ID, "Alice");
+		const args = await signedProgram(store, [SESSION_CASE_ID]);
+		const blocker = new Client({ connectionString: dbHandle.uri });
+		let pending: Promise<PromiseSettledResult<unknown>[]> | undefined;
+		const lockScope = `nova:case-relationships:${PROJECT_A}:${APP_ID}`;
+		try {
+			await blocker.connect();
+			await blocker.query("SELECT pg_advisory_lock(hashtextextended($1, 0))", [
+				lockScope,
+			]);
+			pending = Promise.allSettled([submit(store, args)]);
+			await vi.waitFor(async () => {
+				const waiters = await blocker.query<{ count: number }>(`
+					SELECT count(*)::int AS count FROM pg_stat_activity
+					WHERE datname = current_database() AND pg_backend_pid() = ANY(pg_blocking_pids(pid))
+				`);
+				expect(waiters.rows[0]?.count).toBe(1);
+			});
+			await blocker.query(
+				`UPDATE cases SET properties=jsonb_build_object('notes',repeat('Ω',140000))
+				WHERE app_id=$1 AND project_id=$2 AND case_id=$3`,
+				[APP_ID, PROJECT_A, SESSION_CASE_ID],
+			);
+			await blocker.query(
+				"SELECT pg_advisory_unlock(hashtextextended($1, 0))",
+				[lockScope],
+			);
+			expect(await pending).toEqual([
+				{
+					status: "rejected",
+					reason: expect.objectContaining({
+						message: "These records hold too much data to close together.",
+					}),
+				},
+			]);
+		} finally {
+			await blocker.end();
+			await pending;
+		}
+		expect((await patientRow(store, SESSION_CASE_ID))?.status).toBe("open");
+		const receipts =
+			await sql`SELECT 1 FROM form_submission_intents WHERE app_id = ${APP_ID}`.execute(
+				dbHandle.db,
+			);
+		expect(receipts.rows).toEqual([]);
+		await expect(
+			store.readFlatCloseSelection(request([SESSION_CASE_ID])),
+		).rejects.toThrow("too much data");
+	});
+});
+
 describe("ordered selected-case batches", () => {
 	it("rejects an invalid case schedule without waiting for case locks or leaving a receipt", async () => {
 		const db = dbHandle.db as Kysely<Database>;

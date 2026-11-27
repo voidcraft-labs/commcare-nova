@@ -60,6 +60,9 @@ function journey() {
 			return population.map((row) => ({ ...row }));
 		},
 		count: async () => population.length,
+		readFlatCloseSelection: async () => {
+			throw new Error("Unexpected flat close.");
+		},
 		queryAutomaticSelection: async () => {
 			throw new Error("Unexpected automatic selection.");
 		},

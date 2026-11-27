@@ -1230,6 +1230,14 @@ export interface CaseStore extends SchemaCaseStore {
 	 */
 	query(args: QueryArgs): Promise<CaseRowWithCalculated[]>;
 
+	/** The selected records a flat close opens on. No full device restore. */
+	readFlatCloseSelection(args: {
+		readonly appId: string;
+		readonly caseIds: readonly string[];
+		readonly caseType: string;
+		readonly restoreScope: RestoreScope;
+	}): Promise<DeviceCaseDatabase | undefined>;
+
 	/** An automatic device selection returns its complete set in datum order,
 	 * or only its exact population count when that set exceeds the maximum. */
 	queryAutomaticSelection(
