@@ -16,7 +16,7 @@
 			"answers": [
 				{
 					"path": "/data/area",
-					"value": "south"
+					"value": "2"
 				},
 				{
 					"path": "/data/note",
@@ -30,6 +30,14 @@
 			"expressions": ["/data/area", "/data/note", "/data/priority"]
 		},
 		"expect": [
+			{
+				"pointer": "/answers/0/result",
+				"value": "ok"
+			},
+			{
+				"pointer": "/answers/0/choices/1/value",
+				"value": "south"
+			},
 			{
 				"pointer": "/values/0/value",
 				"value": "south"

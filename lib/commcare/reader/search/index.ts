@@ -480,6 +480,23 @@ function readDefaultFilters(
 					}
 					row.take("property", C.defaultOrder, String).value;
 					row.take("defaultValue", C.defaultOrderValue, String).value;
+					accounting.claimEntry(
+						{ json: row, key: "property" },
+						C.defaultOrder.entry,
+						"csql-key:commcare_sort",
+						row.place,
+					);
+					// This filter's native syntax was read as one XPath string literal above.
+					for (const key of [
+						"xpath-expr:XPathStringLiteral",
+						"xpath-token:STR",
+					])
+						accounting.claimEntry(
+							{ json: row, key: "defaultValue" },
+							"expressions-and-data/xpath-operators-and-literals",
+							key,
+							row.place,
+						);
 					if (text !== requestOrderText(order))
 						sameState(
 							ctx,

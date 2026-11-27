@@ -79,6 +79,58 @@ def test_each_positive_reader_has_a_held_value_class(manifest):
         assert entry.disposition == "HELD" and entry.value_class
 
 
+def test_a_configured_project_search_uses_an_endpoint_datum_and_owns_its_parameter_row(manifest):
+    def source(endpoint, name):
+        return {
+            "doc_type": "Application",
+            "modules": [{
+                "doc_type": "Module",
+                "search_config": {
+                    "case_search_endpoint_id": endpoint,
+                    "default_properties": [{"property": name, "defaultValue": "'north'"}],
+                },
+            }],
+        }
+
+    for endpoint, name, expected in [
+        (17, "district", True), (17, "_xpath_query", True), ("17", "district", False), (0, "district", False),
+        (17, "x_commcare_endpoint_id", False), (17, "x_commcare_tag_module_name", False), (17, "", False),
+    ]:
+        found = manifest_usage.Uses()
+        manifest_usage.app_json_uses(source(endpoint, name), manifest, "app.json", found)
+        assert any(
+            use.key == "schema:DefaultCaseSearchProperty"
+            and use.where == "/modules/0/search_config/default_properties/0"
+            for use in found.uses
+        ) is expected
+
+    for ref, expected in [("'17'", True), ("17", False), ("'0'", False), ("'2147483648'", False)]:
+        xml = f'<suite><remote-request><session><query><data key="x_commcare_endpoint_id" ref="{ref}"/></query></session></remote-request></suite>'
+        found = manifest_usage.Uses()
+        manifest_usage.runtime_xml_uses(xml.encode(), "SuiteParser", manifest, "local.ccz/suite.xml", found)
+        (use,) = [use for use in found.uses if use.key == "csql-key:x_commcare_endpoint_id"]
+        assert (manifest_usage.standing(manifest, use)[0] == manifest_usage.HELD) is expected
+
+
+def test_native_sort_and_address_markers_hold_only_the_supported_search_query(manifest):
+    for attributes, order, expected_address, expected_order in [
+        ('input="address"', "'+-name:exact,-@owner_id:date'", True, True),
+        ('input="address" receive="other"', "concat('name', ':exact')", False, False),
+        ('input="address" allow_blank_value="true"', "'+location_id:exact'", False, False),
+    ]:
+        xml = f"""
+        <suite><remote-request><session><query>
+         <data key="commcare_sort" ref="{order}"/>
+         <prompt key="address" {attributes}/>
+        </query></session></remote-request></suite>
+        """
+        found = manifest_usage.Uses()
+        manifest_usage.runtime_xml_uses(xml.encode(), "SuiteParser", manifest, "local.ccz/suite.xml", found)
+        for key, expected in [("prompt-input:address", expected_address), ("csql-key:commcare_sort", expected_order)]:
+            (use,) = [use for use in found.uses if use.key == key]
+            assert (manifest_usage.standing(manifest, use)[0] == manifest_usage.HELD) is expected
+
+
 @pytest.mark.parametrize("identifier", ["my.parent", "éparent"])
 def test_the_retained_extended_open_index_is_decided_at_its_reference(identifier):
     from proof.checks import parity
@@ -1242,6 +1294,8 @@ class Shape:
     # Whether Nova's reader read that app (``App.read``): a corpus document's, which a class only that reader
     # settles takes as held.
     read: bool = False
+    # Positive rules whose supporting class is the only one that names the marker leave other shapes unheld.
+    standing: str | None = None
 
 
 def refused(export, source, key, where, **kw):
@@ -8545,6 +8599,37 @@ def _lookup_count_shapes():
     }
 
 
+def _search_wire_shapes():
+    def suite(content):
+        return f"<suite><remote-request><session><query>{content}</query></session></remote-request></suite>".encode()
+
+    outside = {"standing": manifest_usage.UNHELD}
+    return {
+        "case-search/address-picker-on-a-search-screen": (
+            refused("app", _app([_search_module(properties=[_prompt("place", appearance="address")])]),
+                    "prompt-appearance:address", "/properties/0/appearance"),
+            accepted("app", _app([_search_module(properties=[_prompt("place", appearance="address", input_="date")])]),
+                     "prompt-appearance:address", "/properties/0/appearance", **outside),
+            refused("suite", suite('<prompt key="address" input="address"/>'),
+                    "prompt-input:address", "prompt[1]/@input"),
+            accepted("suite", suite('<prompt key="address" input="address" receive="other"/>'),
+                     "prompt-input:address", "prompt[1]/@input", **outside),
+        ),
+        "case-search/case-search-endpoint-id": (
+            refused("suite", suite('<data key="x_commcare_endpoint_id" ref="&apos;17&apos;"/>'),
+                    "csql-key:x_commcare_endpoint_id", "data[1]/@key"),
+            accepted("suite", suite('<data key="x_commcare_endpoint_id" ref="17"/>'),
+                     "csql-key:x_commcare_endpoint_id", "data[1]/@key", **outside),
+        ),
+        "case-search/default-filter-orders-the-records-the-search-sends": (
+            refused("suite", suite('<data key="commcare_sort" ref="&apos;+-name:exact,-@owner_id:date&apos;"/>'),
+                    "csql-key:commcare_sort", "data[1]/@key"),
+            accepted("suite", suite('<data key="commcare_sort" ref="&apos;+location_id:exact&apos;"/>'),
+                     "csql-key:commcare_sort", "data[1]/@key", **outside),
+        ),
+    }
+
+
 SHAPES = {
     **_lookup_count_shapes(),
     **_case_list_lookup_shapes(),
@@ -8553,6 +8638,7 @@ SHAPES = {
     **_settings_and_forms(),
     **_advanced_actions(),
     **_search_and_menus(),
+    **_search_wire_shapes(),
     **_data_binds_and_itext(),
     **_save_to_case_effects(),
     **_localized_media(),
@@ -8670,8 +8756,8 @@ def _holds_its_shapes(entry_id, manifest, readings=None):
                     False: manifest_usage.HELD_NEW,
                     None: manifest_usage.UNDECIDED,
                 }
-                assert kind == expected[shape.verdict], f"{entry_id} stands {kind} at {shape.where}"
-                assert (entry in held) == (shape.verdict is not False)
+                assert kind == (shape.standing or expected[shape.verdict]), f"{entry_id} stands {kind} at {shape.where}"
+                assert (entry in held) == (shape.verdict is not False or shape.standing == manifest_usage.UNHELD)
             elif shape.verdict:
                 refuses = not manifest_usage.is_build(use.artifact) or entry.judges_builds()
                 assert kind == (manifest_usage.REFUSED if refuses else manifest_usage.SOURCE) and entry in held
