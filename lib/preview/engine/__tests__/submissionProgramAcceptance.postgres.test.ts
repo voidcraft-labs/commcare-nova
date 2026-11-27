@@ -226,7 +226,8 @@ async function loadCase(store: CaseStore, caseId: string) {
 }
 
 describe("engine → builder → executor acceptance", () => {
-	it("saves the Android calendar day as the signed selected case external ID", async () => {
+	const modes = ["always", "edit"] as const;
+	it.each(modes)("%s keeps the signed external ID day", async (mode) => {
 		const toggle = testUuid("datetime-external-id-toggle");
 		const seen = testUuid("datetime-external-id-seen");
 		const doc = buildDoc({
@@ -278,6 +279,7 @@ describe("engine → builder → executor acceptance", () => {
 					{
 						property: "external_id",
 						value: dateCoerce(term(formField(seen))),
+						...(mode === "edit" && { onlyIfChanged: true }),
 					},
 				],
 			},
@@ -294,6 +296,7 @@ describe("engine → builder → executor acceptance", () => {
 		for (const [kind, externalId] of [
 			["irrelevant", "seed-external"],
 			["answered", "2025-04-05"],
+			["same-day", mode === "edit" ? "concurrent-id" : "2025-04-05"],
 			["blank", ""],
 		] as const) {
 			const entryKey = testUuid(`external-id-${kind}`);
@@ -337,7 +340,8 @@ describe("engine → builder → executor acceptance", () => {
 				{ device },
 			);
 			engine.setValue("/data/toggle", kind === "irrelevant" ? "no" : "yes");
-			if (kind === "answered") engine.setValue("/data/seen", answer);
+			if (kind === "answered" || kind === "same-day")
+				engine.setValue("/data/seen", answer);
 			expect(engine.getState("/data/seen").visible).toBe(kind !== "irrelevant");
 			expect(engine.validateAll()).toBe(true);
 			const mutation = engine.computeSubmissionMutation({
@@ -359,6 +363,12 @@ describe("engine → builder → executor acceptance", () => {
 				opening: await verifyFormOpening(secret, audience, signed),
 				viewerTimeZone: "America/Los_Angeles",
 			});
+			if (kind === "same-day")
+				await store.update({
+					appId: APP_ID,
+					caseId: SESSION_CASE,
+					patch: { external_id: "concurrent-id" },
+				});
 			await store.applySubmission(
 				submissionEnvelopeArgs(mutation, APP_ID, {
 					...built,

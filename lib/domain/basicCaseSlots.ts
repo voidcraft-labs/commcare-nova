@@ -278,8 +278,7 @@ export function basicOwnExternalIdDayValue(
 		f.severalCases ||
 		f.module?.caseType === undefined ||
 		RESERVED_CASE_OPERATION_TYPES.has(f.module.caseType) ||
-		write.condition !== undefined ||
-		write.onlyIfChanged
+		write.condition !== undefined
 	)
 		return;
 	const uuid = externalIdCalendarDayField(f.own);

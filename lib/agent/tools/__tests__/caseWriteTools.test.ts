@@ -358,14 +358,18 @@ describe("this form's own case on the case change tools", () => {
 			];
 		});
 		const h = makeAuthoringHarness({}, before);
-		const edit = (externalId: string, note: string) =>
+		const edit = (externalId: string, note: string, onlyIfChanged?: true) =>
 			h.call("updateCaseOperation", {
 				formUuid: form.uuid,
 				operationUuid: own.uuid,
 				operation: {
 					action: "own",
 					writes: [
-						{ property: "external_id", value: externalId },
+						{
+							property: "external_id",
+							value: externalId,
+							...(onlyIfChanged && { onlyIfChanged }),
+						},
 						{ property: "note", value: note },
 					],
 				},
@@ -377,12 +381,22 @@ describe("this form's own case on the case change tools", () => {
 		expect(ownCase(edited).placement).toEqual(ownCase(before).placement);
 		expect(ownCase(edited).writes?.[0]).toEqual(ownCase(before).writes?.[0]);
 		expect(
+			await edit("date(#form/seen)", "#form/fixture_placeholder", true),
+		).toMatchObject({ ok: true });
+		const onlyChanged = h.currentDoc();
+		expect(ownCase(onlyChanged).placement).toEqual(ownCase(before).placement);
+		expect(ownCase(onlyChanged).writes?.[0]).toEqual({
+			...ownCase(before).writes?.[0],
+			onlyIfChanged: true,
+		});
+		expect(
 			await edit(
 				"date(#form/seen)",
 				"concat(#form/fixture_placeholder, ' note')",
+				true,
 			),
 		).toMatchObject({ error: expect.stringContaining("external ID") });
-		expect(h.currentDoc()).toEqual(edited);
+		expect(h.currentDoc()).toEqual(onlyChanged);
 		expect(
 			await edit(
 				"#form/fixture_placeholder",

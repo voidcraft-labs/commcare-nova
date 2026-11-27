@@ -5322,7 +5322,7 @@
 		"surfaceKeys": [],
 		"noSurfaceKey": "The calendar-day storage follows from the combination of the question type and the basic case-update destination. Their own rows account for the question and the update.",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: the root datetime question of an ordinary single-case follow-up saves its day as the external ID's text. The direct update stays in basic Case Management and leaves the question's full moment available to other reads. A relevant blank clears the ID. An irrelevant answer leaves it unchanged. The question remains an Android date-and-time question.",
+		"dispositionCell": "**HELD**: the root datetime question of an ordinary single-case follow-up saves its day as the external ID's text. The direct update stays in basic Case Management and leaves the question's full moment available to other reads. A relevant blank clears the ID. An irrelevant answer leaves it unchanged. With save only when changed, the worker compares the answer’s calendar day with the external ID when the form opened. The question remains an Android date-and-time question.",
 		"platforms": {
 			"kind": "not-applicable",
 			"cell": "n/a"
