@@ -866,7 +866,10 @@ export async function loadCasesAction(
 		const module =
 			moduleUuid === undefined ? undefined : doc?.modules[moduleUuid];
 		const detailColumns =
-			doc && module && prepared.context.device.platform === "web-apps"
+			doc &&
+			module &&
+			previewPlatformRules(prepared.context.device.platform)
+				.searchResultDetailText
 				? searchResultDetailColumns(doc, module)
 				: [];
 		const scope =
@@ -1583,7 +1586,7 @@ export async function loadCaseDataAction(
 							!menu ||
 							!environment ||
 							deviceScoped !== true ||
-							context.device.platform !== "web-apps"
+							!rules.searchResultDetailText
 						)
 							return;
 						const columns = searchResultDetailColumns(environment.doc, menu);

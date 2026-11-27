@@ -151,6 +151,9 @@ export interface PreviewPlatformRules {
 	 *  `case-layout.js` reads its grid area); Android draws a long detail's
 	 *  fields as ordinary labeled rows (`views/EntityDetailView.java`). */
 	readonly detailTile: "laid-out" | "rows";
+	/** The signed standalone Search page can supply its submitted text to
+	 *  Details in Formplayer (`proof/editors/test_search_result_detail.py`). */
+	readonly searchResultDetailText: boolean;
 	/** A Search Only field placed on a custom tile. Web Apps hides a field
 	 *  whose header width is zero; Android draws every placed cell of its
 	 *  list tile unless the cell's coordinate is negative
@@ -355,6 +358,9 @@ export interface PreviewPlatformRules {
 	 *  (only `gregorian-with-clear` and the Ethiopian and Nepali widgets can be
 	 *  empty, `workerCalendar.ts::androidCalendarCanBeEmpty`). */
 	readonly datePicker: "clearable" | "shows-a-day";
+	/** Android commits an unchanged visible text starting answer when the worker
+	 *  leaves its single-question screen (`proof/android/test_form_behavior_pragmas.py`). */
+	readonly commitStartingTextOnScreenExit: boolean;
 	/** Which calendars a date question draws. Web Apps builds
 	 *  `EthiopianDateEntry` for `ethiopian` alone (`form_entry/entries.js::getEntry`);
 	 *  Android's `views/widgets/WidgetFactory.java` builds the Ethiopian,
@@ -631,6 +637,9 @@ export const PREVIEW_PLATFORM_RULES = {
 		caseListIconActions: true,
 		linkColumnInList: "link",
 		detailTile: "laid-out",
+		searchResultDetailText:
+			platformBehavior("search-result-detail-text", "web-apps").reading ===
+			"runs",
 		searchOnlyTileCell: "hidden",
 		searchScreenText: true,
 		searchAddressPicker: true,
@@ -673,6 +682,7 @@ export const PREVIEW_PLATFORM_RULES = {
 		hintPlacement: "as-authored",
 		choiceSearch: "combobox",
 		datePicker: "clearable",
+		commitStartingTextOnScreenExit: false,
 		alternateCalendar: "ethiopian",
 		timeClock: "as-authored",
 		groupFrame: "as-authored",
@@ -744,6 +754,9 @@ export const PREVIEW_PLATFORM_RULES = {
 		caseListIconActions: false,
 		linkColumnInList: "raw-text",
 		detailTile: "rows",
+		searchResultDetailText:
+			platformBehavior("search-result-detail-text", "android").reading ===
+			"runs",
 		searchOnlyTileCell: "drawn",
 		searchScreenText: false,
 		searchAddressPicker: false,
@@ -786,6 +799,7 @@ export const PREVIEW_PLATFORM_RULES = {
 		hintPlacement: "below-question",
 		choiceSearch: "filter-rule",
 		datePicker: "shows-a-day",
+		commitStartingTextOnScreenExit: true,
 		alternateCalendar: "authored",
 		timeClock: "device",
 		groupFrame: "plain",

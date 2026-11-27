@@ -2809,7 +2809,7 @@ export class FormEngine {
 		| { path: string; value: string }
 		| undefined {
 		const path = this.activeScreenPath;
-		if (this.device.platform !== "android" || !path) return undefined;
+		if (!this.rules.commitStartingTextOnScreenExit || !path) return undefined;
 		const state = this.store.getState()[path];
 		const field = this.findField(path);
 		if (
@@ -2818,7 +2818,7 @@ export class FormEngine {
 			!state.valid ||
 			field?.kind !== "text" ||
 			field.androidApp !== undefined ||
-			usesNumberKeypad(field, "android") ||
+			usesNumberKeypad(field, this.device.platform) ||
 			!this.workerRelevantPaths().has(path) ||
 			!this.startingValueSource(field)
 		)

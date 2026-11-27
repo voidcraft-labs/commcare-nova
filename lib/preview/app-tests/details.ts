@@ -100,7 +100,7 @@ export async function appTestDetails(
 	const columns =
 		searched &&
 		screen.source.searchAnswers !== undefined &&
-		context.device.platform === "web-apps"
+		previewPlatformRules(context.device.platform).searchResultDetailText
 			? searchResultDetailColumns(
 					context.doc,
 					context.doc.modules[screen.moduleUuid],
