@@ -511,8 +511,8 @@ it("signs and atomically closes an ordered flat selection without restoring unre
 		expect(closed).toMatchObject({ kind: "close", caseIds: selected });
 		expect(await submit(selected)).toEqual(closed);
 		const stored = await pool.query<{ case_id: string; status: string }>(
-			"SELECT case_id,status FROM cases WHERE app_id=$1 ORDER BY case_id",
-			[app],
+			"SELECT case_id,status FROM cases WHERE app_id=$1 AND case_id=ANY($2) ORDER BY case_id",
+			[app, [...selected, "unrelated"]],
 		);
 		expect(stored.rows).toEqual([
 			{ case_id: "training-1", status: "closed" },

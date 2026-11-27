@@ -9,6 +9,5 @@ export const FLAT_CLOSE_CASE_BYTES = 256 * 1024;
 export class FlatClosePayloadTooLargeError extends CaptureSubmissionRejectedError {
 	constructor() {
 		super("These records hold too much data to close together.");
-		this.name = "FlatClosePayloadTooLargeError";
 	}
 }

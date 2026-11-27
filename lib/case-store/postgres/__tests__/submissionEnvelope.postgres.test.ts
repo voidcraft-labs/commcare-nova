@@ -844,6 +844,16 @@ describe("bounded flat close", () => {
 			WHERE c.app_id = ${APP_ID} AND c.project_id = ${PROJECT_A} AND c.case_id = selected.case_id`.execute(
 			dbHandle.db,
 		);
+		expect(
+			await store.readFlatCloseSelection({
+				...scope,
+				automaticMaximum: 101,
+			}),
+		).toBeUndefined();
+		await sql`UPDATE cases SET status = 'closed' WHERE app_id = ${APP_ID}
+			AND project_id = ${PROJECT_A} AND case_id = ${parent}`.execute(
+			dbHandle.db,
+		);
 		const datumOrder = selected;
 		expect(
 			await store.readFlatCloseSelection({
