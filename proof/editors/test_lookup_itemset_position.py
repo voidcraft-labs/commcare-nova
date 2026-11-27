@@ -31,6 +31,16 @@ def _state(source):
     }
 
 
+def _replace_village_filter(authoring, app_id, filter_text, label):
+    def change(root, _form):
+        itemset, = root.xpath("//*[local-name()='select1' and @ref='/data/village']/*[local-name()='itemset']")
+        for key, text in itemset.attrib.items():
+            if key == "nodeset" or key.endswith("}nodeset"):
+                itemset.set(key, text.partition("[")[0] + filter_text)
+
+    ops.set_form_source(authoring, app_id, 0, 0, change, what=label)
+
+
 def _worker(unit, app_id, runner, document, label):
     with formplayer.serve(unit, document, app_id, runner=runner, label=label) as served, served.run(label):
         return _opened(apps.web(runner, served))
@@ -126,15 +136,7 @@ def test_positive_fixture_row_ordinal_and_predicate_position_offer_the_same_choi
                 filter_text = f"{prefix}[{predicate}]{suffix}"
                 arm = f"{label}-{spelling}"
 
-                def change(root, _form):
-                    itemset, = root.xpath(
-                        "//*[local-name()='select1' and @ref='/data/village']/*[local-name()='itemset']"
-                    )
-                    for key, text in itemset.attrib.items():
-                        if key == "nodeset" or key.endswith("}nodeset"):
-                            itemset.set(key, text.partition("[")[0] + filter_text)
-
-                ops.set_form_source(authoring, app_id, 0, 0, change, what=arm)
+                _replace_village_filter(authoring, app_id, filter_text, arm)
                 form = operations.held_app(unit, app_id).modules[0].forms[0]
                 nodeset = _state(form.source)["nodeset"]
                 assert nodeset.endswith("villages" + filter_text), (arm, nodeset)
@@ -154,8 +156,6 @@ def test_positive_fixture_row_ordinal_and_predicate_position_offer_the_same_choi
 def test_fractional_fixture_row_index_truncates_after_vellum_reopens(
     hq, core_runner, editor_driver, formplayer_runner,
 ):
-    from proof.matrix.variants.questions import _itemset_filter_numeric_row
-
     document = corpus_document("hq-lookups")
     second = {"choices": ["Mbeya"], "submitted": "v2"}
     samples = (
@@ -171,7 +171,7 @@ def test_fractional_fixture_row_index_truncates_after_vellum_reopens(
             assert refusal is None
         authoring = Authoring(unit, {}, base=document.id, operation=unit.operation)
         for kind, predicate, expected in samples:
-            _itemset_filter_numeric_row(authoring, app_id, predicate, f"fractional-ordinal-{kind}")
+            _replace_village_filter(authoring, app_id, f"[{predicate}]", f"fractional-ordinal-{kind}")
             form = operations.held_app(unit, app_id).get_module(0).get_form(0)
             before = _state(form.source)
             assert before["nodeset"].endswith(f"villages[{predicate}]")
