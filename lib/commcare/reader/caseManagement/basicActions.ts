@@ -1598,16 +1598,17 @@ function isBasicAccentedEditorKey(name: string): boolean {
 	);
 }
 
-/** The measured editor refusal is an always-write of a root text answer
+/** The measured editor refusal is a write of a root text answer
  * to the case already selected for this Basic follow-up. */
 function hasBasicAccentedEditorWrite(
 	r: FormReading,
 	cursor: JsonCursor,
 ): boolean {
 	const question = cursor.peek("question_path");
+	const mode = cursor.peek("update_mode");
 	if (
 		r.type !== "followup" ||
-		cursor.peek("update_mode") !== "always" ||
+		(mode !== "always" && mode !== "edit") ||
 		typeof question !== "string" ||
 		r.form.xform === null
 	)

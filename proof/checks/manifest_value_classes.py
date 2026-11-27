@@ -13632,7 +13632,7 @@ def _basic_accented_update(at, slot, key, name):
     if _condition(update) != "always" or _active(actions.get("close_case")):
         return False
     mapping = _held(_held(update, "update"), key)
-    if not isinstance(mapping, dict) or mapping.get("update_mode") != "always":
+    if not isinstance(mapping, dict) or mapping.get("update_mode") not in ("always", "edit"):
         return False
     xform = at.own_xform
     if xform is None:
