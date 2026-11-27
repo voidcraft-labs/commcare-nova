@@ -1266,6 +1266,8 @@ class Shape:
     # Whether Nova's reader read that app (``App.read``): a corpus document's, which a class only that reader
     # settles takes as held.
     read: bool = False
+    # Positive rules whose supporting class is the only one that names the marker leave other shapes unheld.
+    standing: str | None = None
 
 
 def refused(export, source, key, where, **kw):
@@ -8548,6 +8550,33 @@ def _lookup_count_shapes():
     }
 
 
+def _search_wire_shapes():
+    def suite(content):
+        return f"<suite><remote-request><session><query>{content}</query></session></remote-request></suite>".encode()
+
+    outside = {"standing": manifest_usage.UNHELD}
+    return {
+        "case-search/address-picker-on-a-search-screen": (
+            refused("suite", suite('<prompt key="address" input="address"/>'),
+                    "prompt-input:address", "prompt[1]/@input"),
+            accepted("suite", suite('<prompt key="address" input="address" receive="other"/>'),
+                     "prompt-input:address", "prompt[1]/@input", **outside),
+        ),
+        "case-search/case-search-endpoint-id": (
+            refused("suite", suite('<data key="x_commcare_endpoint_id" ref="&apos;17&apos;"/>'),
+                    "csql-key:x_commcare_endpoint_id", "data[1]/@key"),
+            accepted("suite", suite('<data key="x_commcare_endpoint_id" ref="17"/>'),
+                     "csql-key:x_commcare_endpoint_id", "data[1]/@key", **outside),
+        ),
+        "case-search/default-filter-orders-the-records-the-search-sends": (
+            refused("suite", suite('<data key="commcare_sort" ref="&apos;+-name:exact,-@owner_id:date&apos;"/>'),
+                    "csql-key:commcare_sort", "data[1]/@key"),
+            accepted("suite", suite('<data key="commcare_sort" ref="&apos;+location_id:exact&apos;"/>'),
+                     "csql-key:commcare_sort", "data[1]/@key", **outside),
+        ),
+    }
+
+
 SHAPES = {
     **_lookup_count_shapes(),
     **_case_list_lookup_shapes(),
@@ -8556,6 +8585,7 @@ SHAPES = {
     **_settings_and_forms(),
     **_advanced_actions(),
     **_search_and_menus(),
+    **_search_wire_shapes(),
     **_data_binds_and_itext(),
     **_save_to_case_effects(),
     **_localized_media(),
@@ -8673,8 +8703,8 @@ def _holds_its_shapes(entry_id, manifest, readings=None):
                     False: manifest_usage.HELD_NEW,
                     None: manifest_usage.UNDECIDED,
                 }
-                assert kind == expected[shape.verdict], f"{entry_id} stands {kind} at {shape.where}"
-                assert (entry in held) == (shape.verdict is not False)
+                assert kind == (shape.standing or expected[shape.verdict]), f"{entry_id} stands {kind} at {shape.where}"
+                assert (entry in held) == (shape.verdict is not False or shape.standing == manifest_usage.UNHELD)
             elif shape.verdict:
                 refuses = not manifest_usage.is_build(use.artifact) or entry.judges_builds()
                 assert kind == (manifest_usage.REFUSED if refuses else manifest_usage.SOURCE) and entry in held
