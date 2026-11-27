@@ -181,6 +181,24 @@ const CASES: {
 			}),
 	})),
 	{
+		section: "an unused suffix on an address receiver",
+		register: "search-address-receiver-suffix-removed",
+		rewrites: () =>
+			listRewrites(searched({}, notesIs("open")), (app) => {
+				app.cloudcare_enabled = true;
+				const search = firstModule(app).search_config;
+				const prompts = search.properties as Record<string, unknown>[];
+				prompts[0].receiver_expression = "home-city-extra";
+				prompts.unshift({
+					name: "home",
+					doc_type: "CaseSearchProperty",
+					label: { en: "Find an address" },
+					appearance: "address",
+					exclude: true,
+				});
+			}),
+	},
+	{
 		section: "3.5, an own update's `if` condition",
 		register: "case-settings-respelled",
 		rewrites: async () =>

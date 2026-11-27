@@ -131,7 +131,9 @@ describe("proof/first-publish-changes.json", () => {
 				expect([one.change, row.artifact, row.kind]).toEqual([
 					one.change,
 					"app.json",
-					undefined,
+					one.change === "search-address-receiver-suffix-removed"
+						? "changed"
+						: undefined,
 				]);
 			// The change that stands everywhere holds a form's source only by the part classes a run's
 			// evidence writes (`python3 -m proof.checks.changes rows`), never every part at once, and

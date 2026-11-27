@@ -71,7 +71,7 @@ describe("Search action condition admission", () => {
 		},
 		{
 			condition: gt(sessionContext("deviceid"), literal("M")),
-			codes: [typeError],
+			codes: [notOnTheList],
 		},
 		{
 			condition: eq(sessionContext("username"), literal("A")),
