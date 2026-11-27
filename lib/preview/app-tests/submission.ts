@@ -1,6 +1,7 @@
 import { workerLookupSchemas } from "@/lib/case-store/sql/compileLookup";
 import type { AppTestScope } from "@/lib/db/appTests";
 import { formContentUuid, type Uuid } from "@/lib/domain";
+import { authoredBoundedFlatClose } from "@/lib/domain/boundedFlatClose";
 import { isParentUserWritePath } from "@/lib/domain/caseWriteViews";
 import { entryDatumCaseId } from "@/lib/domain/entryCaseIdentity";
 import { workerUpdateUsesOpeningCase } from "@/lib/domain/forms";
@@ -104,15 +105,22 @@ export async function submitAppTest(
 	const form = context.doc.forms[formContentUuid(context.doc, screen.formUuid)];
 	// These effects choose their physical target at entry, so the
 	// submission reads the journey server's held opening, not its live data.
-	const retainsOpening = form?.caseOperations?.some(
-		(operation) =>
-			operation.ownerAfterCreate !== undefined ||
-			(operation.action === "create" &&
-				operation.target.kind === "new" &&
-				operation.target.expr !== undefined) ||
-			workerUpdateUsesOpeningCase(operation) ||
-			operation.writes?.some((write) => isParentUserWritePath(write.via)),
+	const boundedFlatClose = !!authoredBoundedFlatClose(
+		context.doc,
+		screen.moduleUuid,
+		screen.formUuid,
 	);
+	const retainsOpening =
+		boundedFlatClose ||
+		form?.caseOperations?.some(
+			(operation) =>
+				operation.ownerAfterCreate !== undefined ||
+				(operation.action === "create" &&
+					operation.target.kind === "new" &&
+					operation.target.expr !== undefined) ||
+				workerUpdateUsesOpeningCase(operation) ||
+				operation.writes?.some((write) => isParentUserWritePath(write.via)),
+		);
 
 	const built = await buildSubmissionOperationProgram({
 		appId: scope.appId,
@@ -150,9 +158,10 @@ export async function submitAppTest(
 			(place) => place.id,
 		),
 	});
-	const result = await context.store.applySubmission(
-		submissionEnvelopeArgs(mutation, scope.appId, built),
-	);
+	const result = await context.store.applySubmission({
+		...submissionEnvelopeArgs(mutation, scope.appId, built),
+		...(boundedFlatClose && { boundedFlatClose: true }),
+	});
 	if (!result.caseDatabasePatch)
 		throw new Error("The submission did not return its saved record state.");
 	const cases = overlayCaseDatabasePatch(
@@ -161,10 +170,9 @@ export async function submitAppTest(
 	);
 	// A linked task sees the submitting entry plus its own committed effects.
 	// The session catalog also retains unrelated records learned by later Sync.
-	const deviceCases = overlayCaseDatabasePatch(
-		state.deviceCases,
-		result.caseDatabasePatch,
-	);
+	const deviceCases = boundedFlatClose
+		? state.deviceCases
+		: overlayCaseDatabasePatch(state.deviceCases, result.caseDatabasePatch);
 	const identity = {
 		...context.identity,
 		usercase: submissionWorkerValues(

@@ -14,6 +14,7 @@ import {
 	personaUserData,
 	type Uuid,
 } from "@/lib/domain";
+import { authoredBoundedFlatClose } from "@/lib/domain/boundedFlatClose";
 import {
 	type AppLanguageIdentity,
 	effectiveAppLocalization,
@@ -231,3 +232,23 @@ async function contextFor(
 	};
 }
 export type AppTestContext = Awaited<ReturnType<typeof contextFor>>;
+
+export function readAppTestDeviceCaseDatabase(
+	context: AppTestContext,
+	appId: string,
+) {
+	const module = context.doc.moduleOrder[0];
+	if (
+		module &&
+		authoredBoundedFlatClose(
+			context.doc,
+			module,
+			context.doc.formOrder[module]?.[0],
+		)
+	)
+		return { rows: [], indices: [] };
+	return context.store.readDeviceCaseDatabase({
+		appId,
+		restoreScope: context.restoreScope,
+	});
+}

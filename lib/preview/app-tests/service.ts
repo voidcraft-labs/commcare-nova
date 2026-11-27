@@ -24,6 +24,7 @@ import { captureAppTestSnapshot } from "./capture";
 import {
 	appTestLanguage,
 	appTestPlatform,
+	readAppTestDeviceCaseDatabase,
 	withAppTestContext,
 } from "./context";
 import { AppTestActionError, expectedAppTestRefusal } from "./errors";
@@ -238,10 +239,10 @@ export async function startAppTest(
 					snapshot,
 					initial,
 					async (context) => {
-						const deviceCases = await context.store.readDeviceCaseDatabase({
-							appId: scope.appId,
-							restoreScope: context.restoreScope,
-						});
+						const deviceCases = await readAppTestDeviceCaseDatabase(
+							context,
+							scope.appId,
+						);
 						const result = await observeAppTest(context, scope, {
 							...initial,
 							deviceCases,
@@ -408,10 +409,10 @@ export async function continueAppTest(
 							bound.kind === "identity"
 								? await observeAppTest(context, scope, {
 										...nextState,
-										deviceCases: await context.store.readDeviceCaseDatabase({
-											appId: scope.appId,
-											restoreScope: context.restoreScope,
-										}),
+										deviceCases: await readAppTestDeviceCaseDatabase(
+											context,
+											scope.appId,
+										),
 									})
 								: await advanceAppTest(
 										context,
