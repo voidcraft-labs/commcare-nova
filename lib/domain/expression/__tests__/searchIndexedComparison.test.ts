@@ -112,7 +112,7 @@ describe("searchIndexedComparison", () => {
 		).toBeUndefined();
 	});
 
-	it("tests a static whole number against a custom date's stored text", () => {
+	it("uses the exact text index for a custom date compared with a supported numeric literal", () => {
 		const dob = term(prop("client", "dob"));
 		const three = term(literal(3));
 		expect(searchIndexedComparison(true, dob, "date", three, "int")).toBe(
@@ -146,6 +146,15 @@ describe("searchIndexedComparison", () => {
 				"date",
 				term(literal(0.00001)),
 				"decimal",
+			),
+		).toBe("exact-text");
+		expect(
+			searchIndexedComparison(
+				true,
+				dob,
+				"date",
+				term(literal(2147483648)),
+				"int",
 			),
 		).toBeUndefined();
 		expect(
