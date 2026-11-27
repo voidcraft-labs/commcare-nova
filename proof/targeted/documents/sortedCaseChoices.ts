@@ -124,7 +124,7 @@ export function sortedCaseChoices() {
 					request: {
 						answers: [
 							{ path: "/data/region", value: "north" },
-							{ path: "/data/sorted", value: "north-tie-first" },
+							{ path: "/data/sorted", value: "1" },
 						],
 						expressions: ["/data/sorted"],
 					},
@@ -220,7 +220,7 @@ export function caseChoiceReopen() {
 				form: uuid("choose"),
 				restore,
 				request: {
-					answers: [{ path: "/data/clinic", value: choice }],
+					answers: [{ path: "/data/clinic", value: "1" }],
 					expressions: ["/data/clinic"],
 				},
 				expect: [
