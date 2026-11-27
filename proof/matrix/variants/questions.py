@@ -2427,8 +2427,13 @@ def itemset_filter_overflow_row_index(authoring, app_id):
 
 
 def itemset_filter_grouped_row_index(authoring, app_id):
-    """A grouped filter stays outside the bare numeric spelling."""
+    """A literal fixture position wrapped in parentheses."""
     _itemset_filter_numeric_row(authoring, app_id, "(2)", "itemset-filter-grouped-row-index")
+
+
+def itemset_filter_grouped_arithmetic_row_index(authoring, app_id):
+    """An arithmetic expression is a different predicate from a numeric literal."""
+    _itemset_filter_numeric_row(authoring, app_id, "(1 + 1)", "itemset-filter-grouped-arithmetic-row-index")
 
 
 def itemset_over_cases(authoring, app_id):

@@ -24642,6 +24642,22 @@
 	{
 		"id": "hq-lookups/itemset-filter-grouped-row-index",
 		"base": "hq-lookups",
+		"entry": "questions/itemset-filter-lifting-into-predicate",
+		"change": {
+			"op": "named",
+			"name": "itemset_filter_grouped_row_index"
+		},
+		"holds": [
+			{
+				"key": ["field", { "$xmlns": [0, 0] }, ["village"]],
+				"pointer": "/optionsSource/filter/right/term/value",
+				"value": 2
+			}
+		]
+	},
+	{
+		"id": "hq-lookups/itemset-filter-grouped-arithmetic-row-index",
+		"base": "hq-lookups",
 		"entry": "questions/itemset-filter-outside-predicate",
 		"standing": "not-yet",
 		"place": {
@@ -24654,7 +24670,7 @@
 		},
 		"change": {
 			"op": "named",
-			"name": "itemset_filter_grouped_row_index"
+			"name": "itemset_filter_grouped_arithmetic_row_index"
 		}
 	},
 	{
