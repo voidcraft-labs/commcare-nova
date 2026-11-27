@@ -78,7 +78,10 @@ def test_vellum_and_core_preserve_two_numeric_readings_of_text_order(hq, core_ru
     runtime = ("changed", "/data/language/:bind/@calculate/:respelled")
     assert locations(before, after) == [runtime, ("changed", "/data/language/:bind/@vellum:calculate")]
     # HQ removes this already-known Vellum companion before building the runtime attribute.
-    after_vellum_rule = [etree.tostring(without_vellum_attributes(etree.fromstring(value))) for value in (before, after)]
+    after_vellum_rule = [
+        etree.tostring(without_vellum_attributes(etree.fromstring(value.encode())))
+        for value in (before, after)
+    ]
     assert locations(*after_vellum_rule) == [runtime]
 
 
