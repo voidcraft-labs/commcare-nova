@@ -941,12 +941,7 @@ it("pages the entire admitted installation inventory through the shared read and
 	doc.appSettings.installationProfiles = Object.fromEntries(
 		installations.map((p) => [p.uuid, p]),
 	);
-	await h.seedAppWithBlueprint(doc, {
-		id: doc.appId,
-		owner: "creator",
-		projectId: PROJECT,
-	});
-	await h.seedProjectMember(ACTOR, PROJECT, "editor");
+	await seedCanonical(doc);
 	const prompt = JSON.stringify(buildAppStateMessage(doc));
 	expect(prompt.length).toBeLessThan(20_000);
 	expect(prompt).not.toContain("Team 13107");
