@@ -703,7 +703,7 @@ def test_saved_address_default_stays_out_of_an_installed_android_search(
     )
 
     document = android_documents["hq-search"]
-    command = "m0-f1"
+    command = "search_command.m0"
     with webapps_hq.authored_project(document, "A", configure=_enable_address_search) as project:
         _stored_address_default(project)
         with project.released(services.formplayer(), database=_address_default_database(document)) as release:
@@ -718,6 +718,7 @@ def test_saved_address_default_stays_out_of_an_installed_android_search(
             exchanges = blobs.get_json(record["hq"])
     assert answer["install"] == "Installed" and answer["signIn"].startswith("Success("), answer
     walk = answer["walks"][command]
+    android_walk_evidence({"built": built, "walk": walk, "exchanges": exchanges})
     (query,) = [step["query"] for step in walk["steps"] if "query" in step]
     params = query["RemoteQuerySessionManager.getRawQueryParams"]
     searches = [
