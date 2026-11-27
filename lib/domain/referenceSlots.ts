@@ -2476,6 +2476,17 @@ export const NON_REFERENCE_MODULE_PATHS: Readonly<
 	// The only computed extras are the signed worker's name and ID. They
 	// select fixed session keys and do not name authored properties.
 	"caseListConfig.deviceLookup.extras[].expression.kind": "discriminator",
+	"caseListConfig.deviceLookup.extras[].expression.op": "discriminator",
+	"caseListConfig.deviceLookup.extras[].expression.left.kind": "discriminator",
+	"caseListConfig.deviceLookup.extras[].expression.left.term.kind":
+		"discriminator",
+	"caseListConfig.deviceLookup.extras[].expression.left.term.value":
+		"data-literal",
+	"caseListConfig.deviceLookup.extras[].expression.right.kind": "discriminator",
+	"caseListConfig.deviceLookup.extras[].expression.right.term.kind":
+		"discriminator",
+	"caseListConfig.deviceLookup.extras[].expression.right.term.value":
+		"data-literal",
 	"caseListConfig.deviceLookup.extras[].expression.term.kind": "discriminator",
 	"caseListConfig.deviceLookup.extras[].expression.term.field": "wire-token",
 	"caseListConfig.deviceLookup.extras[].name": "wire-token",

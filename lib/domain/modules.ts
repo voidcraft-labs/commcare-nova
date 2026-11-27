@@ -3683,6 +3683,13 @@ const deviceLookupExtraName = deviceLookupName.refine(
 export const CASE_LIST_LOOKUP_WORKER_FIELDS = ["username", "userid"] as const;
 export type CaseListLookupWorkerField =
 	(typeof CASE_LIST_LOOKUP_WORKER_FIELDS)[number];
+const deviceLookupSumOperand = z.strictObject({
+	kind: z.literal("term"),
+	term: z.strictObject({
+		kind: z.literal("literal"),
+		value: z.number().int().min(0).max(2_147_483_647),
+	}),
+});
 const deviceLookupExtraSchema = z.union([
 	z.strictObject({ name: deviceLookupExtraName, value: z.string() }),
 	z.strictObject({
@@ -3694,6 +3701,20 @@ const deviceLookupExtraSchema = z.union([
 				field: z.enum(CASE_LIST_LOOKUP_WORKER_FIELDS),
 			}),
 		}),
+	}),
+	z.strictObject({
+		name: deviceLookupExtraName,
+		expression: z
+			.strictObject({
+				kind: z.literal("arith"),
+				op: z.literal("+"),
+				left: deviceLookupSumOperand,
+				right: deviceLookupSumOperand,
+			})
+			.refine(
+				(sum) => sum.left.term.value + sum.right.term.value <= 2_147_483_647,
+				"The two numbers must add up to 2,147,483,647 or less.",
+			),
 	}),
 ]);
 export type DeviceLookupExtra = z.infer<typeof deviceLookupExtraSchema>;

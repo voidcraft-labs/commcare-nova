@@ -24,9 +24,22 @@ import {
 	type Uuid,
 } from "@/lib/domain";
 
-function row(name = "", value = "", field?: CaseListLookupWorkerField) {
-	return { id: v4(), name, value, field };
+function row(
+	name = "",
+	value = "",
+	field?: CaseListLookupWorkerField,
+	sum?: readonly [string, string],
+) {
+	return { id: v4(), name, value, field, sum };
 }
+
+const wholeNumber = (value: string) => ({
+	kind: "term" as const,
+	term: {
+		kind: "literal" as const,
+		value: value.trim() === "" ? Number.NaN : Number(value),
+	},
+});
 
 function edit(value?: CaseListDeviceLookup) {
 	return {
@@ -40,7 +53,12 @@ function edit(value?: CaseListDeviceLookup) {
 		extras: value?.extras.map((extra) =>
 			"value" in extra
 				? row(extra.name, extra.value)
-				: row(extra.name, "", extra.expression.term.field),
+				: extra.expression.kind === "term"
+					? row(extra.name, "", extra.expression.term.field)
+					: row(extra.name, "", undefined, [
+							String(extra.expression.left.term.value),
+							String(extra.expression.right.term.value),
+						]),
 		) ?? [row()],
 		responses: value?.responses.map((name) => row(name)) ?? [row()],
 	};
@@ -138,17 +156,26 @@ export function CaseListDeviceLookupSetting({
 							...(draft.automatic !== undefined && {
 								automatic: draft.automatic,
 							}),
-							extras: draft.extras.map(({ name, value, field }) =>
-								field === undefined
-									? { name, value }
-									: {
-											name,
-											expression: {
-												kind: "term",
-												term: { kind: "session-context", field },
-											},
+							extras: draft.extras.map(({ name, value, field, sum }) => {
+								if (sum !== undefined)
+									return {
+										name,
+										expression: {
+											kind: "arith",
+											op: "+",
+											left: wholeNumber(sum[0]),
+											right: wholeNumber(sum[1]),
 										},
-							),
+									};
+								if (field === undefined) return { name, value };
+								return {
+									name,
+									expression: {
+										kind: "term",
+										term: { kind: "session-context", field },
+									},
+								};
+							}),
 							responses: draft.responses.map(({ name }) => name),
 						});
 						if (draft.resultHeading?.trim() === "") {
@@ -157,7 +184,14 @@ export function CaseListDeviceLookupSetting({
 						}
 						if (!parsed.success) {
 							setError(
-								"Add an action and a lookup name. Give each sent value and each response its own name.",
+								parsed.error.issues.some(
+									({ path }) =>
+										path[0] === "extras" &&
+										typeof path[1] === "number" &&
+										draft.extras[path[1]]?.sum !== undefined,
+								)
+									? "The two nonnegative whole numbers can add up to 2,147,483,647 or less."
+									: "Add an action and a lookup name. Give each sent value and each response its own name.",
 							);
 							return;
 						}
@@ -330,8 +364,8 @@ function LookupRows({
 			<legend className="text-sm font-medium text-nova-text">
 				{sending ? "Values to send" : "Response names, in order"}
 			</legend>
-			{rows.map(({ id, name, value, field }) => (
-				<div className="flex items-end gap-2" key={id}>
+			{rows.map(({ id, name, value, field, sum }) => (
+				<div className="flex flex-wrap items-end gap-2" key={id}>
 					<LookupInput
 						label="Name"
 						value={name}
@@ -339,13 +373,14 @@ function LookupRows({
 					/>
 					{sending && (
 						<Select
-							value={field ?? "text"}
+							value={sum ? "sum" : (field ?? "text")}
 							onValueChange={(source) =>
 								update(id, {
 									field:
 										source === "username" || source === "userid"
 											? source
 											: undefined,
+									sum: source === "sum" ? ["0", "0"] : undefined,
 								})
 							}
 						>
@@ -354,12 +389,27 @@ function LookupRows({
 							</SelectTrigger>
 							<SelectContent>
 								<SelectItem value="text">Fixed text</SelectItem>
+								<SelectItem value="sum">Sum of two whole numbers</SelectItem>
 								<SelectItem value="username">Worker username</SelectItem>
 								<SelectItem value="userid">Worker ID</SelectItem>
 							</SelectContent>
 						</Select>
 					)}
-					{sending && field === undefined && (
+					{sending && sum !== undefined && (
+						<>
+							<LookupInput
+								label="First whole number"
+								value={sum[0]}
+								onChange={(value) => update(id, { sum: [value, sum[1]] })}
+							/>
+							<LookupInput
+								label="Second whole number"
+								value={sum[1]}
+								onChange={(value) => update(id, { sum: [sum[0], value] })}
+							/>
+						</>
+					)}
+					{sending && field === undefined && sum === undefined && (
 						<LookupInput
 							label="Text"
 							value={value}

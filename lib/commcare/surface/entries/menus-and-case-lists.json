@@ -9391,10 +9391,9 @@
 		"item": "An otherwise supported short case-list lookup sends the sum of two fixed whole numbers",
 		"surfaceKeys": ["schema:Detail.lookup_extras"],
 		"valueClass": "enabled-lookup-with-native-mode-dependent-fixed-integer-sum",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: Android normally sends the sum as text. A legacy worker mode sends the exact saved text instead, unless the callout explicitly enables XPath evaluation. Replacing the calculation with fixed text can change what the companion receives.",
-		"subject": "case-list-callout",
-		"owner": "case-list-and-detail",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the two whole numbers remain a calculation in the lookup argument. Android sends the calculated text or the canonical spelling according to the worker’s mode.",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "IGNORED (no button) / RUNS",

@@ -11785,16 +11785,22 @@
 		"id": "hq-case-lists/calculated-callout",
 		"base": "hq-case-lists",
 		"entry": "menus-and-case-lists/lookup-extra-with-a-fixed-integer-sum",
-		"standing": "not-yet",
-		"place": {
-			"kind": "case-list",
-			"menu": 0,
-			"name": "Patients"
-		},
 		"change": {
 			"op": "named",
 			"name": "calculated_callout"
-		}
+		},
+		"holds": [
+			{
+				"key": ["module", { "$menu": 0 }],
+				"pointer": "/caseListConfig/deviceLookup/extras/0/expression",
+				"value": {
+					"kind": "arith",
+					"op": "+",
+					"left": { "kind": "term", "term": { "kind": "literal", "value": 1 } },
+					"right": { "kind": "term", "term": { "kind": "literal", "value": 2 } }
+				}
+			}
+		]
 	},
 	{
 		"id": "hq-case-lists/callout-with-a-multi-step-field-argument",

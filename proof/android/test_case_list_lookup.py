@@ -455,6 +455,44 @@ def test_nova_archive_and_hq_release_send_extras_and_search_text(hq, android_doc
             write_evidence(f"nova-case-list-lookup-{heading}-{label}", results)
 
 
+def test_nova_archives_keep_the_integer_sum_in_both_worker_modes(hq, android_documents):
+    from proof.android.test_form_reads import _served
+    from proof.observe.served import local_archive
+
+    document = android_documents["targeted-case-list-device-lookup-sum"]
+    database = casedata.CaseDatabase(
+        user_id=casedata.USER_ID,
+        username=casedata.USERNAME,
+        user_data=(),
+        cases=(_case("lookup-cedar", "Cedar"), _case("lookup-juniper", "Juniper")),
+    )
+    with _served(document, database=database) as (served, released):
+        assert document.local_ccz is not None
+        local = local_archive(document.local_ccz, served.app_id)
+        for publisher, archive in (("hq", released), ("local", local)):
+            with ZipFile(BytesIO(archive)) as product:
+                suite = etree.fromstring(product.read("suite.xml"))
+            assert suite.xpath(".//lookup/extra[@key='visit_limit']/@value") == ["1 + 2"]
+            for mode, legacy, expected in (("ordinary", False, "3"), ("legacy", True, "1 + 2")):
+                label = f"nova-sum-{publisher}-{mode}"
+                blobs = Blobs()
+                record = observe.app(
+                    served, blobs, label=label, archive=archive, case_lookup_legacy_mode=legacy,
+                    case_lookup_returns=[{"primary": " Juniper "}],
+                )
+                installed = blobs.get_json(record["answer"])
+                write_evidence(label, installed)
+                assert installed["install"] == "Installed", installed
+                assert installed["signIn"].startswith("Success("), installed
+                assert not any("raised" in walk for walk in installed["walks"].values()), installed
+                replies = [
+                    reply for walk in installed["walks"].values() for step in walk.get("steps", [])
+                    for reply in (step.get("list") or {}).get("lookupReturns", [])
+                ]
+                assert replies and all(reply["sent"]["visit_limit"] == expected for reply in replies), replies
+                assert all(reply["after"] == ["Juniper"] for reply in replies), replies
+
+
 def test_nova_lookup_result_filters_both_archives_by_the_same_case_property(hq, android_documents):
     from proof.android.test_form_reads import _served
     from proof.observe.served import local_archive
