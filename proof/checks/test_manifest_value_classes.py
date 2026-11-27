@@ -935,6 +935,31 @@ def test_a_case_list_columns_value_by_the_column_a_use_sits_in(manifest):
     assert [classes.geo_without_dependency(use, manifest) for use in formats] == [False] * 5 + [True]
 
 
+def test_suite_field_widths_do_not_inherit_another_fields_icon_action(manifest):
+    def field(action):
+        return (
+            '<field><header width="10%"><text><locale id="h"/></text></header>'
+            '<template width="10%" form="image"><text><locale id="v"/></text></template>'
+            + action + '</field>'
+        )
+
+    suite = (
+        '<suite version="1"><detail id="m0_case_short"><title><text><locale id="t"/></text></title>'
+        + field('') + field('<endpoint_action background="true"/>')
+        + field('<endpoint_action endpoint_id="visit" background="true"/>')
+        + '</detail></suite>'
+    ).encode()
+    found = manifest_usage.Uses()
+    manifest_usage.runtime_xml_uses(suite, "SuiteParser", manifest, "local.ccz/suite.xml", found)
+    for slot in ("header@width", "template@width", "template@form"):
+        key = f"parser:DetailFieldParser/{slot}"
+        uses = [use for use in found.uses if use.key == key]
+        assert [classes.clickable_icon_unusable(use, manifest) for use in uses] == [False, True, None]
+        assert manifest_usage.standing(manifest, uses[0])[0] == manifest_usage.HELD
+        assert manifest_usage.standing(manifest, uses[1])[0] == manifest_usage.REFUSED
+        assert manifest_usage.standing(manifest, uses[2])[0] == manifest_usage.UNDECIDED
+
+
 def test_an_apps_settings_by_their_values(manifest):
     app = _app(
         [_module()],

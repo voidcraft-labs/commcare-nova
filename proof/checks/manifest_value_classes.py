@@ -5862,9 +5862,30 @@ def _unusable_clickable_icon(at, column, detail, kind, module):
     return True
 
 
-clickable_icon_unusable = _column_reader(_unusable_clickable_icon)
-clickable_icon_unusable.__doc__ = """A case-list icon missing a case-requiring form with a leaf label that
-sets Pragma-Submit-Automatically, which HQ requires before offering the endpoint in its Case List editor."""
+_unusable_clickable_icon_in_source = _column_reader(_unusable_clickable_icon)
+
+
+def clickable_icon_unusable(use, manifest):
+    """A case-list icon missing a case-requiring form with a leaf label that
+    sets Pragma-Submit-Automatically, which HQ requires before offering the endpoint in its Case List editor.
+
+    In a suite, Core reads the action from a direct ``endpoint_action`` child of
+    the field (``DetailFieldParser.parseEndpointAction``). Widths and template
+    forms appear on ordinary fields too. The suite alone does not include the
+    target form's automatic-submission label.
+    """
+    at = _xml(use, "runtime")
+    if at is None:
+        return _unusable_clickable_icon_in_source(use, manifest)
+    field = at.element.getparent()
+    if field is None or _local(field) != "field":
+        return None
+    actions = [child for child in _children(field) if _local(child) == "endpoint_action"]
+    if not actions:
+        return False
+    if any(not action.get("endpoint_id") for action in actions):
+        return True
+    return None
 
 # Characters HQ's mapping editor marks in a translatable-enum key (ui-element-key-val-mapping.js::hasBadXML):
 # anything outside [A-Za-z0-9_-].
