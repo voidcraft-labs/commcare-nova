@@ -76,6 +76,7 @@ import {
 	openingCaseData,
 } from "../formOpeningSnapshot";
 import type { ResolvedPreviewIdentity } from "../identity";
+import { openingCaseAssignments } from "../openingCaseAssignments";
 import { signFormOpening, verifyFormOpening } from "../signedFormOpening";
 import {
 	acceptanceDoc,
@@ -409,12 +410,24 @@ describe("engine → builder → executor acceptance", () => {
 		}
 	});
 
-	it.each(["Advanced", "held Save to Case", "confirmation", "banner"] as const)(
+	it.each([
+		"Advanced",
+		"held Save to Case",
+		"confirmation",
+		"banner",
+		"preloaded",
+	] as const)(
 		"saves only a relevant root label on %s to the signed selected case",
 		async (source) => {
 			const held = source === "held Save to Case";
+			const preloaded = source === "preloaded";
+			const initialNotes = "Text from the selected case";
 			const submittedText =
-				source === "confirmation" || source === "banner" ? "" : "OK";
+				source === "confirmation" || source === "banner"
+					? ""
+					: preloaded
+						? "The reminder is hidden"
+						: "OK";
 			const {
 				doc: initial,
 				formUuid,
@@ -434,6 +447,15 @@ describe("engine → builder → executor acceptance", () => {
 					doc.forms[UNDER_TEST].caseSelections = [
 						...formCaseSelections(doc, UNDER_TEST),
 					];
+					if (preloaded)
+						doc.forms[UNDER_TEST].openingAssignments = [
+							{
+								uuid: testUuid("passive-label-starting-assignment"),
+								source: { kind: "own" },
+								field: U("note"),
+								property: "notes",
+							},
+						];
 				},
 			});
 			const operation: CaseOperation = {
@@ -538,7 +560,10 @@ describe("engine → builder → executor acceptance", () => {
 						case_type: caseType,
 						case_name: caseType,
 						status: "open",
-						properties: caseType === "member" ? { seen: previous } : {},
+						properties:
+							caseType === "member"
+								? { seen: previous, notes: initialNotes }
+								: {},
 						...(caseType === "member" && { parent_case_id: household }),
 					},
 				});
@@ -630,7 +655,15 @@ describe("engine → builder → executor acceptance", () => {
 				const input = buildEngineInput(doc, formUuid, null);
 				if (!input) throw new Error("Expected the Advanced member form");
 				const engine = new FormEngine(
-					input,
+					{
+						...input,
+						openingAssignments: openingCaseAssignments(
+							doc,
+							formUuid,
+							ready.reachedCaseIds,
+							snapshot,
+						),
+					},
 					"member",
 					undefined,
 					IDENTITY,
