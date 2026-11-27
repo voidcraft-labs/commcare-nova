@@ -45,7 +45,7 @@ function candidate(filter: Expression) {
 }
 describe("case-list filter type admission", () => {
 	it("admits only the current type's presence as a whole ordinary list filter", () => {
-		const restoredRows = {
+		const restoredRows: Extract<Expression, { kind: "cases" }> = {
 			kind: "cases",
 			source: "casedb",
 			where: [
@@ -54,7 +54,7 @@ describe("case-list filter type admission", () => {
 					{ kind: "case-type", caseType: "patient" },
 				),
 			],
-		} as const;
+		};
 		const restored = count(restoredRows);
 		expect(findings(candidate(gt(restored, literal(0))))).toEqual([]);
 		const filteredRestored = count({
