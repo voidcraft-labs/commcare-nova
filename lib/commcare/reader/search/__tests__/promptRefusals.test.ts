@@ -1041,13 +1041,18 @@ describe("a check CommCare HQ holds with no message in any language", () => {
 		expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
 	});
 
+	it("keeps the generated protection when a saved check uses the native message", async () => {
+		const source = `not(count(${answer("status")}) and contains(${answer("status")}, "'") and contains(${answer("status")}, '"'))`;
+		const { doc } = await documentOf((body) => {
+			third(body).validations = [{ test: source, text: {} }];
+		});
+		const [printed] = third(exportedBody(doc)).validations as JsonObject[];
+		expect(printed).toEqual({ test: source, text: {} });
+	});
+
 	it.each([
 		["a different field's lowercase check", typedRule("case_name", "^[a-z]+$")],
 		["a rule allowing both quote kinds", typedRule("status", "^.+$")],
-		[
-			"a blank-message guard on its own",
-			`not(count(${answer("status")}) and contains(${answer("status")}, "'") and contains(${answer("status")}, '"'))`,
-		],
 	])("keeps the refusal for %s", async (_, test) => {
 		const found = await account((body) => {
 			third(body).validations = [{ test, text: {} }];

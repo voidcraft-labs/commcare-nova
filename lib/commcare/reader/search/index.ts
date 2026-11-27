@@ -1787,7 +1787,8 @@ function settleUntoldChecks(
 				}),
 			);
 			const usesNativeMessage =
-				rule !== undefined && codes.every((code) => stored[code] === "");
+				(ending.whole || rule !== undefined) &&
+				codes.every((code) => (stored[code] ?? "") === "");
 			let kept =
 				usesNativeMessage ||
 				(ending.whole
@@ -1843,7 +1844,7 @@ function settleUntoldChecks(
 					module.uuid
 				]?.caseListConfig?.searchInputs.find((one) => one.uuid === prompt.uuid);
 				if (!input || input.kind === "hidden") return;
-				if (ending.whole) delete input.validation;
+				if (ending.whole && !usesNativeMessage) delete input.validation;
 				else if (input.validation) {
 					if (usesNativeMessage) delete input.validation.message;
 					else input.validation.message = ownMessages[source];

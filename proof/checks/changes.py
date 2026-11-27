@@ -322,6 +322,15 @@ def lowercase_search_answer(original):
     match answer:
         case ("call", "if", (("GT", ("call", "count", (count_all,)), ("num", 0)), answer, ("str", ""))):
             pass
+    field = search_validation_answer_name(answer)
+    if field is None:
+        return None
+    if count_all is not None and count_all != (*answer[:3], (answer[3][0], ("step", "child", "field", ()))):
+        return None
+    return answer, field
+
+
+def search_validation_answer_name(answer):
     match answer:
         case (
             "path", "SLASH", ("call", "instance", (("str", instance),)),
@@ -330,11 +339,17 @@ def lowercase_search_answer(original):
                 ("step", "child", "field", (("EQ", ("path", None, None, (("step", "attribute", "name", ()),)), ("str", field)),)),
             ),
         ) if instance.startswith("search-input:") and field:
-            if count_all is not None and count_all != (*answer[:3], (answer[3][0], ("step", "child", "field", ()))):
-                return None
-        case _:
-            return None
-    return answer, field
+            return field
+
+
+def quote_guard_answer(test):
+    """The exact generated protection for a single prompt's own answer."""
+    match test:
+        case ("call", "not", (("AND", (("call", "count", (answer,)),
+                                        ("call", "contains", (first, ("str", left))),
+                                        ("call", "contains", (second, ("str", right))))),)):
+            if first == answer == second and {left, right} == {"'", '"'}:
+                return search_validation_answer_name(answer)
 
 
 def redundant_search_quote_guard(before, after):

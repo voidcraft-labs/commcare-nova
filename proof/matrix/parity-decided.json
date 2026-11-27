@@ -745,6 +745,7 @@
 		"hq-search/owner-exclusion-on-an-ordered-text",
 		"hq-search/owner-exclusion-on-an-ordered-worker-id",
 		"hq-search/owner-exclusion-twice",
+		"hq-search/quote-guard-only-with-no-message",
 		"hq-search/registration-after-an-empty-search-back-to-the-list",
 		"hq-search/registration-after-an-empty-search-offered-again",
 		"hq-search/registration-after-an-empty-search-to-home",

@@ -43633,13 +43633,14 @@
 	{
 		"id": "hq-search/quote-guard-only-with-no-message",
 		"base": "hq-search",
-		"entry": "case-search/a-check-with-no-message-on-a-field-nova-s-search-guards",
-		"standing": "not-yet",
-		"place": {
-			"kind": "search",
-			"menu": 0,
-			"name": "Clients"
-		},
+		"entry": "case-search/a-required-or-validation-test-with-no-message-in-any-language",
+		"holds": [
+			{
+				"key": ["module", { "$menu": 0 }],
+				"pointer": "/caseListConfig/searchInputs/0/validation/message",
+				"value": null
+			}
+		],
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/0/search_config/properties/0/validations",
