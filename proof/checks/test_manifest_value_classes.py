@@ -7821,9 +7821,12 @@ def _held_new():
     load_tag, open_tag = "schema:LoadUpdateAction.case_tag", "schema:AdvancedOpenCaseAction.case_tag"
     reference = "schema:CaseIndex.reference_id"
 
-    def opened(identifier):
-        index = _index("load_household_0", reference_id=identifier)
-        return _advanced_app([household], [_open("open_visit_0", case_indices=[index])])
+    def opened(identifier, *, repeat_context="", condition="always", index_tag="load_household_0", relationship="child"):
+        index = _index(index_tag, reference_id=identifier, relationship=relationship)
+        return _advanced_app([household], [_open(
+            "open_visit_0", case_indices=[index], repeat_context=repeat_context,
+            open_condition={"doc_type": "FormActionCondition", "type": condition},
+        )])
 
     def load_indexed(identifier):
         index = _index("load_household_0", reference_id=identifier)
@@ -7919,8 +7922,20 @@ def _held_new():
             # The case update's XML name is outside the held value class.
             accepted("app", own_update("aª"), update_map, updates),
         ),
-        "forms-and-case-writes/index-identifier-outside-an-xml-element-name": (
+        "forms-and-case-writes/root-open-index-unavailable-on-either-worker": (
             refused("app", opened("აprobe"), reference, f"{opens}/0/case_indices/0/reference_id"),
+            accepted("app", opened("aprobe"), reference, f"{opens}/0/case_indices/0/reference_id"),
+            accepted("app", opened("Ωprobe"), reference, f"{opens}/0/case_indices/0/reference_id"),
+            accepted("app", opened("me\u0301trique"), reference, f"{opens}/0/case_indices/0/reference_id"),
+            accepted("app", opened("აprobe", repeat_context="/data/rep"), reference, f"{opens}/0/case_indices/0/reference_id"),
+            accepted("app", opened("აprobe", condition="if"), reference, f"{opens}/0/case_indices/0/reference_id"),
+            accepted("app", opened("აprobe", index_tag="open_other"), reference, f"{opens}/0/case_indices/0/reference_id"),
+            accepted("app", opened("აprobe", relationship="extension"), reference, f"{opens}/0/case_indices/0/reference_id"),
+            accepted("app", load_indexed("აprobe"), reference, f"{loads}/1/case_index/reference_id"),
+        ),
+        "forms-and-case-writes/index-identifier-outside-an-xml-element-name": (
+            refused("app", opened("აprobe", repeat_context="/data/rep"), reference, f"{opens}/0/case_indices/0/reference_id"),
+            accepted("app", opened("აprobe"), reference, f"{opens}/0/case_indices/0/reference_id"),
             accepted("app", opened("Ωprobe"), reference, f"{opens}/0/case_indices/0/reference_id"),
             accepted("app", opened("Équipe"), reference, f"{opens}/0/case_indices/0/reference_id"),
             accepted("app", opened("me\u0301trique"), reference, f"{opens}/0/case_indices/0/reference_id"),

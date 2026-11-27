@@ -13680,11 +13680,39 @@ def _index_is_xml_name(name):
     return True
 
 
+def _writer_unavailable_source(at, index):
+    """HQ writes this child connection in the initial primary instance. Repeat templates can be absent."""
+    form = at.nearest("AdvancedForm", "ShadowForm")
+    action = at.nearest("AdvancedOpenCaseAction")
+    if action is None or form is None or action.get("repeat_context") not in (None, ""):
+        return False
+    condition = action.get("open_condition")
+    if not isinstance(condition, dict) or condition.get("type") != "always":
+        return False
+    name = _index_identifier(index)
+    if name.isascii() or not _index_is_xml_name(name) or _worker_name_acceptance(name) != (True, False):
+        return False
+    loads, _ = _advanced_lists(form)
+    tag = index.get("tag")
+    return (
+        isinstance(tag, str) and bool(tag)
+        and index.get("relationship", "child") == "child"
+        and any(load.get("case_tag") == tag for load in loads)
+    )
+
+
+def root_open_index_writer_unavailable(use, manifest):
+    """No offered worker can write this exact root Advanced index under the pinned readers."""
+    indices = _open_indexes_for_name(use)
+    return None if indices is None else any(_writer_unavailable_source(use.at, index) for index in indices)
+
+
 def index_identifier_outside_an_xml_name(use, manifest):
-    """HQ can create the element, and only one pinned worker lexer can address it."""
+    """A one-worker spelling whose owning Advanced open is outside the proven writer shape."""
     indices = _open_indexes_for_name(use)
     return None if indices is None else any(
         _index_is_xml_name(name) and sum(_worker_name_acceptance(name)) == 1
+        and not _writer_unavailable_source(use.at, index)
         for index in indices if (name := _index_identifier(index))
     )
 
@@ -14685,6 +14713,7 @@ VALUE_CLASSES = {
     "forms-and-case-writes/basic-update-key-with-an-accented-latin-name": basic_accented_update_editor_refusal,
     "forms-and-case-writes/basic-update-key-with-an-unaddressable-uncased-letter": basic_update_key_with_unaddressable_letter,
     "forms-and-case-writes/update-key-holding-a-non-ascii-core-name-character": non_ascii_core_name_key,
+    "forms-and-case-writes/root-open-index-unavailable-on-either-worker": root_open_index_writer_unavailable,
     "forms-and-case-writes/index-identifier-outside-an-xml-element-name": index_identifier_outside_an_xml_name,
     "forms-and-case-writes/index-identifier-unaddressable-in-worker-xpath": index_identifier_unaddressable_in_worker_xpath,
     "case-search/prompt-key-outside-nova-s-name-grammar": prompt_key_outside_nova_s_name_grammar,

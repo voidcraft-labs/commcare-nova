@@ -710,6 +710,47 @@ describe("an advanced form's loads and open actions", () => {
 	);
 
 	it.each([undefined, "web-apps", "android"] as const)(
+		"offers the runtime reason for the top-level connection with platform %s",
+		async (runsOnlyOn) => {
+			const { doc } = memberFollowup();
+			if (runsOnlyOn !== undefined) doc.appSettings.runsOnlyOn = runsOnlyOn;
+			const reading = await readCases(doc, {
+				edit: (app) => {
+					const actions = actionsOf(app);
+					const parent = actions.load_update_cases[0] as { case_tag: string };
+					actions.open_cases = [
+						{
+							doc_type: "AdvancedOpenCaseAction",
+							case_tag: "open_new_member",
+							case_type: "member",
+							name_update: { question_path: "/data/age" },
+							repeat_context: "",
+							open_condition: { type: "always" },
+							close_condition: { type: "never" },
+							case_indices: [
+								{
+									doc_type: "CaseIndex",
+									tag: parent.case_tag,
+									reference_id: "აprobe",
+									relationship: "child",
+								},
+							],
+						},
+					];
+				},
+			});
+			expect(reading.whole).toMatchObject({ kind: "account" });
+			expect(reading.findings).toContainEqual(
+				expect.objectContaining({
+					code: `${F}/root-open-index-unavailable-on-either-worker`,
+					standing: "fix-in-hq",
+					detail: { name: "აprobe" },
+				}),
+			);
+		},
+	);
+
+	it.each([undefined, "web-apps", "android"] as const)(
 		"refuses writing the Web-lexical Georgian connection with platform %s",
 		async (runsOnlyOn) => {
 			const { doc } = registration([kid]);
