@@ -5,11 +5,17 @@ import { afterEach, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig } from "@/lib/__tests__/docHelpers";
 import { PostgresCaseStore } from "@/lib/case-store/postgres/store";
+import { evaluateCommit } from "@/lib/commcare/validator/gate";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
 import { reclaimExpiredFormOpeningData } from "@/lib/db/formOpeningData";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { createBlueprintDocStore } from "@/lib/doc/store";
-import { type FormSelectionSource, NEW_APP_SETTINGS } from "@/lib/domain";
+import {
+	effectiveCaseTypes,
+	type FormSelectionSource,
+	NEW_APP_SETTINGS,
+} from "@/lib/domain";
 import { eq, literal, matchAll, tableLookup } from "@/lib/domain/expression";
 import {
 	lookupColumnIdSchema,
@@ -1545,4 +1551,154 @@ it("carries the submission into its continuing device run even when the signed e
 			)
 		).kind,
 	).toBe("reopen");
+});
+
+it("matches the device's numeric only-if-changed write onto a retained text property", async () => {
+	vi.stubEnv("BETTER_AUTH_SECRET", "synthetic numeric edit opening secret");
+	const app = "mixed-text-numeric-edit";
+	const number = testUuid("mixed-members-number");
+	const text = testUuid("mixed-members-text");
+	const doc = buildDoc({
+		appId: app,
+		appSettings: { ...NEW_APP_SETTINGS, runsOnlyOn: "web-apps" },
+		caseTypes: [{ name: "household", properties: [] }],
+		modules: [
+			{
+				name: "Households",
+				caseType: "household",
+				caseListConfig: caseListConfig([
+					{ field: "case_name", header: "Name" },
+				]),
+				forms: [
+					{
+						name: "Count members",
+						type: "followup",
+						fields: [
+							{
+								kind: "int",
+								id: "count",
+								uuid: number,
+								label: "Members",
+								caseWrite: { caseType: "household", property: "members" },
+							},
+						],
+					},
+					{
+						name: "Describe members",
+						type: "followup",
+						fields: [
+							{
+								kind: "text",
+								id: "description",
+								uuid: text,
+								label: "Members",
+								caseWrite: { caseType: "household", property: "members" },
+							},
+						],
+					},
+				],
+			},
+		],
+	});
+	const module = doc.moduleOrder[0];
+	const [count, describe] = doc.formOrder[module];
+	const numberForm = doc.forms[count];
+	// The fixture planner normally preloads an existing case field when
+	// adding its write. Both actual HQ questions start blank in this slice.
+	for (const field of [doc.fields[number], doc.fields[text]]) {
+		if ("default_value" in field) delete field.default_value;
+	}
+	const write = numberForm.caseOperations?.find(
+		(operation) => operation.action === "own",
+	)?.writes?.[0];
+	if (!write) throw new Error("Expected the numeric own-case write");
+	write.onlyIfChanged = true;
+	expect(numberForm.openingAssignments ?? []).toEqual([]);
+	expect(
+		evaluateCommit({ nextDoc: doc, lookupContext: LOOKUP_CONTEXT_UNAVAILABLE }),
+	).toEqual({ ok: true });
+	expect(
+		effectiveCaseTypes(doc).find((type) => type.name === "household")
+			?.properties,
+	).toEqual(
+		expect.arrayContaining([
+			expect.objectContaining({ name: "members", data_type: "text" }),
+		]),
+	);
+
+	await h.seedAppWithBlueprint(doc, {
+		id: app,
+		owner: member.id,
+		projectId: project,
+	});
+	await h.seedProjectMember(member.id, project, "editor");
+	const pool = h.pool();
+	await pool.query(
+		`INSERT INTO auth_session (id,"userId",token,"createdAt","updatedAt","expiresAt")
+		VALUES ($1,$2,$1,now(),now(),now()+interval '1 day')`,
+		[member.session, member.id],
+	);
+	await pool.query(
+		`INSERT INTO cases (app_id,project_id,case_id,case_type,case_name,status,owner_id,properties)
+		VALUES ($1,$2,'leading-zero','household','First record','open',$3,'{}'),
+		       ($1,$2,'ordinary-text','household','Second record','open',$3,'{}')`,
+		[app, project, member.id],
+	);
+	const blueprintDigest = await blueprintRevisionDigest(doc);
+	const device = webAppsDevice();
+	const run = testUuid("mixed-members-edit-run");
+	const submit = async (
+		form: typeof count,
+		fieldUuid: typeof number,
+		caseId: string,
+		value: string,
+	) => {
+		const entry = testUuid(`${caseId}-${form}`);
+		const opening = await readFormOpeningAction(
+			{ app, module, form, entry, run, blueprintDigest, bound: [caseId] },
+			device,
+		);
+		if (opening.kind !== "opening")
+			throw new Error(`Expected a signed opening, got ${opening.kind}`);
+		expect(opening.projection.primaryCaseIds).toEqual([caseId]);
+		const result = await submitFormAction(
+			{
+				kind: "followup",
+				caseIds: [caseId],
+				formUuid: form,
+				entryKey: entry,
+				attachmentRefs: [],
+				formOpening: { module, run, evidence: opening.evidence },
+				operationAnswers: { root: [{ fieldUuid, value }], repeats: [] },
+			},
+			app,
+			blueprintDigest,
+			undefined,
+			undefined,
+			undefined,
+			device,
+			undefined,
+			run,
+		);
+		expect(result).toMatchObject({ kind: "followup" });
+	};
+	const read = async () =>
+		(
+			await pool.query<{ case_id: string; members: string }>(
+				"SELECT case_id, properties->>'members' AS members FROM cases WHERE app_id = $1 AND project_id = $2 AND case_type = 'household' ORDER BY case_id",
+				[app, project],
+			)
+		).rows;
+	await submit(describe, text, "leading-zero", "007");
+	await submit(describe, text, "ordinary-text", "several");
+	expect(await read()).toEqual([
+		{ case_id: "leading-zero", members: "007" },
+		{ case_id: "ordinary-text", members: "several" },
+	]);
+	await submit(count, number, "leading-zero", "7");
+	await submit(count, number, "ordinary-text", "7");
+	expect(await read()).toEqual([
+		{ case_id: "leading-zero", members: "007" },
+		{ case_id: "ordinary-text", members: "7" },
+	]);
 });
