@@ -281,7 +281,7 @@ def test_retained_guarded_name_search_messages(
     observations = {}
     suites = {}
     stored = {}
-    for label in ("authored", "merged-without-message", "guard-only"):
+    for label in ("authored", "merged-without-message", "guard-only", "guard-without-message"):
         publication = "A" if label == "authored" else "B"
         with webapps_hq.authored_project(document, publication) as project:
             def apply(app):
@@ -289,6 +289,9 @@ def test_retained_guarded_name_search_messages(
                 field = app["modules"][0]["search_config"]["properties"][0]
                 if label == "authored":
                     field["validations"] = [dict(assertion)]
+                elif label == "guard-without-message":
+                    [guard] = field["validations"]
+                    field["validations"] = [{"test": guard["test"], "text": {}, "doc_type": "Assertion"}]
                 elif label == "merged-without-message":
                     [guard] = field["validations"]
                     # B supplies the actual compiler's guard and its protected
@@ -338,7 +341,7 @@ def test_retained_guarded_name_search_messages(
         errors = [screen["query"]["prompts"][0]["error"] for screen in (initial, upper, quotes, refused, blank, lower)]
         assert not errors[0] and not errors[4] and not errors[5], errors
         expected = guard_message if label == "guard-only" else "Sorry, this response is invalid!"
-        if label == "guard-only":
+        if label in ("guard-only", "guard-without-message"):
             assert not errors[1], errors
         else:
             assert errors[1] == expected, errors

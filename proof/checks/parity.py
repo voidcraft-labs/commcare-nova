@@ -972,8 +972,10 @@ def _empty_search_check_messages(found, held):
             or not isinstance(use.at.value, str)
         ):
             continue
-        answer = changes.lowercase_search_answer(tree(use.at.value))
-        if answer is not None and answer[1] == prompt.get("name"):
+        test = tree(use.at.value)
+        answer = changes.lowercase_search_answer(test)
+        name = answer[1] if answer is not None else changes.quote_guard_answer(test)
+        if name is not None and name == prompt.get("name"):
             yield Decided(
                 manifest_usage.Use("schema:Assertion.text", use.artifact, use.where.removesuffix("/test") + "/text"),
                 manifest_usage.HELD,

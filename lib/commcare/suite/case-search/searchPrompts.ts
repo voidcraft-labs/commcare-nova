@@ -785,7 +785,13 @@ function buildValidation(
 				emission,
 			),
 		);
-	if (runtimeValidation) tests.push(runtimeValidation.test);
+	if (runtimeValidation) {
+		const authored = tests[0];
+		// A check can select the worker's native message and leave all
+		// rejection to the protection already needed by the search.
+		if (authored?.k === "call" && authored.fn === "true") tests.pop();
+		tests.push(runtimeValidation.test);
+	}
 	return { test: w.and(...tests), ...(message !== undefined && { message }) };
 }
 
