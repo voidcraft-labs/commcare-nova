@@ -193,6 +193,44 @@ it("compares an answer saved only if changed with the case's value when the form
 	).toEqual([{ id: "casedb", src: "jr://instance/casedb" }]);
 });
 
+it("keeps the exact accented key in a direct Basic update and its generated bind", () => {
+	const actions = emptyFormActions();
+	actions.update_case.condition = alwaysCondition();
+	actions.update_case.update = Object.fromEntries(
+		["estado_é", "Visità_État", "estado_e"].map((key) => [
+			key,
+			{ question_path: "/data/weight", update_mode: "always" },
+		]),
+	);
+	const output = read(addCaseBlocks(host(), actions, "patient"));
+	expect(names(child(child(output.data, "case"), "update"))).toEqual([
+		"Visità_État",
+		"estado_e",
+		"estado_é",
+	]);
+	expect(output.bind("/data/case/update/estado_é")).toEqual({
+		nodeset: "/data/case/update/estado_é",
+		calculate: "/data/weight",
+		relevant: "count(/data/weight) > 0",
+	});
+});
+
+it.each([
+	{ key: "parent/estado_é", mode: "always" },
+	{ key: "estado_é", mode: "edit" },
+	{ key: "estado_e\u0301", mode: "always" },
+	{ key: "n名字", mode: "always" },
+])("keeps $key ($mode) outside the new Basic wire address", ({ key, mode }) => {
+	const actions = emptyFormActions();
+	actions.update_case.condition = alwaysCondition();
+	actions.update_case.update = {
+		[key]: { question_path: "/data/weight", update_mode: mode },
+	};
+	expect(() => addCaseBlocks(host(), actions, "patient")).toThrow(
+		"Invalid property name",
+	);
+});
+
 it("writes a key through an index into a block of the case that index reaches", () => {
 	const actions = emptyFormActions();
 	actions.update_case.condition = alwaysCondition();
