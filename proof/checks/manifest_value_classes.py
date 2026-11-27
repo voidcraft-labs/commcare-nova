@@ -6076,6 +6076,7 @@ def required_condition_counts_restored_cases(use, manifest):
         return False
     case_instance = tree("instance('casedb')")
     case_type_attribute = tree("@case_type")
+    expression = tree(raw)
 
     def contains_count(node):
         if not isinstance(node, tuple):
@@ -6095,13 +6096,19 @@ def required_condition_counts_restored_cases(use, manifest):
                                     return bool(first)
                                 case ("path", None, None, (("step", "child", second, ()),)):
                                     return bool(first and second)
-                                case ("path", "SLASH", ("path", None, None, (
-                                    ("step", "child", parent, ()),
-                                )), (("step", "child", child, ()),)):
-                                    return bool(first and child and parent not in {"index", "attachments"})
+                                case ("path", None, None, (
+                                    ("step", "child", parent, ()), ("step", "child", child, ()),
+                                )):
+                                    # Core reads a child of a flat case property as empty text.
+                                    # Keep the two containers and other count operators out of this class.
+                                    return (
+                                        expression == ("GT", node, ("num", 0))
+                                        and parent not in {"index", "attachments"}
+                                        and all(_authored_property_name(name) for name in (first, parent, child))
+                                    )
         return any(contains_count(child) for child in node)
 
-    return contains_count(tree(raw))
+    return contains_count(expression)
 
 
 def manual_address_with_saved_text(use, manifest):

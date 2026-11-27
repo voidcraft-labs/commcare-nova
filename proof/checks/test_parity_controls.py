@@ -446,6 +446,43 @@ def test_a_retained_location_write_needs_a_claim_on_its_own_update_member():
     assert parity.added_uses(variant, copy.deepcopy(variant), entries=[entry]) == []
 
 
+def test_a_retained_search_count_reads_the_missing_child_of_a_flat_property():
+    root = Path(__file__).resolve().parents[1]
+    rows = json.loads((root / "matrix/variants.json").read_text(encoding="utf-8"))
+    row = next(row for row in rows if row["id"] == "hq-search/required-counting-a-case-list-with-a-nested-property-comparison")
+    answer = root / "hq-apps" / row["base"] / "app-source.json"
+    base = json.loads(json.loads(answer.read_text(encoding="utf-8"))["body"])
+    variant = copy.deepcopy(base)
+    prompt = copy.deepcopy(row["change"]["value"])
+    variant["modules"][0]["search_config"]["properties"][1] = prompt
+    entry = parity.SEARCH_REQUIRED_CASE_COUNT
+    where = row["change"]["pointer"] + "/required"
+    key = "schema:CaseSearchProperty.required"
+
+    uses, differences = parity.variant_differences(base, variant, [], [entry])
+    assert [(use.use, use.standing, [item.id for item in use.entries]) for use in uses] == [
+        (Use(key, "app.json", where), HELD, [entry]),
+    ]
+    assert _whats(differences) == ["unclaimed"]
+    assert parity.variant_differences(base, variant, [
+        parity.Record("app.json", where, key, entry, "held"),
+    ], [entry])[1] == []
+    assert set(_whats(parity.variant_differences(base, variant, [
+        parity.Record("app.json", where, key, entry, "not-yet"),
+    ], [entry])[1])) == {"standing"}
+
+    original = prompt["required"]["test"]
+    for other in (
+        original.replace("household/village", "index/household"),
+        original.replace("household/village", "attachments/village"),
+        original.replace("household/village", "household//village"),
+        original.replace("household/village", "household/village/name"),
+        original.replace(" > 0", " >= 0"),
+    ):
+        prompt["required"]["test"] = other
+        assert parity.variant_differences(base, variant, [], [entry]) == ([], [])
+
+
 def test_each_private_language_and_alias_needs_a_claim_at_its_own_position():
     from proof.checks.manifest_usage import app_json_uses, Uses
 
