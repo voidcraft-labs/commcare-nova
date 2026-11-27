@@ -425,6 +425,42 @@ def test_vellum_changes_an_android_app_argument_and_keeps_shared_result_destinat
         assert not run.question_errors(), run.question_errors()
 
 
+@pytest.mark.parametrize("configuration", ["minimum", "maximum"])
+def test_vellum_groups_interleaved_android_app_result_destinations(hq, core_runner, editor_driver, configuration):
+    from proof.rules.conftest import build_differences, published
+
+    def responses(source):
+        root = etree.fromstring(source.encode())
+        (intent,) = root.xpath("//*[local-name()='intent' and @id='meter']")
+        return [(row.get("key"), row.get("ref")) for row in intent.xpath("./*[local-name()='response']")]
+
+    document = corpus_document("targeted-android-app-answers")
+    with published(document, core_runner, configuration) as app:
+        form = next(form for form in operations.held_app(app.unit, app.app_id).get_forms()
+                    if 'class="org.example.MEASURE"' in form.source)
+        before = app.spell()
+        original = responses(form.source)
+        run = vellum.fresh_open_and_save(editor_driver, app.unit, app.app_id, form.unique_id)
+        assert run.loaded and run.saved, (run.load_error, run.save_refusal)
+        assert not run.question_errors(), run.question_errors()
+        after = app.spell()
+        saved = responses(run.stored_source)
+        assert original[:3] == [
+            ("measurement", "/data/visits/description"),
+            ("correction", "/data/visits/description"),
+            ("measurement", "/data/visits/reading"),
+        ]
+        assert saved == [original[0], original[2], original[1], *original[3:]]
+        changes = build_differences(before.build, after.build)
+        assert sorted((change.before, change.after) for change in changes
+                      if "/intent[" in change.path and "/response[" in change.path) == sorted([
+            ("correction", "measurement"),
+            ("/data/visits/description", "/data/visits/reading"),
+            ("measurement", "correction"),
+            ("/data/visits/reading", "/data/visits/description"),
+        ])
+
+
 def test_vellum_keeps_typed_case_choice_sort_and_refs(hq, editor_driver):
     document = corpus_document("targeted-sorted-case-choices")
     with _published(document, "LOOKUP_TABLES", True) as opened:
