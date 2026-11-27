@@ -781,6 +781,48 @@ describe("whole-envelope atomicity", () => {
 });
 
 describe("ordered selected-case batches", () => {
+	it("rejects an invalid case schedule without waiting for case locks or leaving a receipt", async () => {
+		const db = dbHandle.db as Kysely<Database>;
+		const relationshipScope = `nova:case-relationships:${PROJECT_A}:${APP_ID}`;
+		const selected = [SESSION_CASE_ID];
+		const blocker = new Client({ connectionString: dbHandle.uri });
+		try {
+			await blocker.connect();
+			await blocker.query("SELECT pg_advisory_lock(hashtextextended($1, 0))", [
+				relationshipScope,
+			]);
+
+			await expect(
+				db.transaction().execute(async (tx) => {
+					// A lock attempt would fail with PostgreSQL 55P03. The structural
+					// refusal has to win while the real write lock is still held.
+					await sql`SET LOCAL lock_timeout = '500ms'`.execute(tx);
+					await submit(makeStore(PROJECT_A, ACTOR, ACTOR, tx), {
+						appId: APP_ID,
+						ordinary: {
+							kind: "followup",
+							caseType: "patient",
+							caseIds: selected,
+							selection: { kind: "multiple", maximum: 100 },
+						},
+						operations: {
+							...ownProgram("followup", [ownOp()]),
+							sessionCaseIds: selected,
+							effectOrder: [{ iteration: 0, operationUuids: [OP_B] }],
+						},
+					});
+				}),
+			).rejects.toThrow(/operation program must schedule each live row once/);
+		} finally {
+			await blocker.end();
+		}
+		const receipts =
+			await sql`SELECT 1 FROM form_submission_intents WHERE app_id = ${APP_ID}`.execute(
+				db,
+			);
+		expect(receipts.rows).toEqual([]);
+	});
+
 	it("refuses a 101-case selection before a shared write or receipt can land", {
 		timeout: 25_000,
 	}, async () => {

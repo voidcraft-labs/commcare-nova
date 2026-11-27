@@ -155,6 +155,7 @@ import {
 import {
 	applyLinkEffect,
 	executeSubmissionEnvelope,
+	prepareSubmissionEnvelope,
 	type SubmissionEnvelopeHost,
 } from "./submissionEnvelope";
 import {
@@ -2580,7 +2581,7 @@ export class PostgresCaseStore implements CaseStore {
 		// the form's operation program, its own case first, lands together
 		// or not at all. Every envelope first adjudicates and claims its durable
 		// entry receipt, even with no attachments. Standard lock order:
-		// authorize → entry receipt → relationship advisory → schema locks in
+		// authorize → entry receipt → pure plan → relationship advisory → schema locks in
 		// sorted order for every case type the
 		// submission names up front (a followup/close bound case's type
 		// is discovered inside the update core, which acquires its own
@@ -2608,6 +2609,7 @@ export class PostgresCaseStore implements CaseStore {
 					: submittedActivityFacts(args.connect);
 			if (activities && "issue" in activities)
 				throw new CaptureSubmissionRejectedError(activities.issue);
+			const prepared = prepareSubmissionEnvelope(args);
 			await this.lockRelationshipWrites(trx, args.appId);
 			await this.lockValidators(trx, args.appId, submissionCaseTypes(args));
 			const { deviceExternalIds, reachedWriteCaseIds, ...effects } =
@@ -2615,6 +2617,7 @@ export class PostgresCaseStore implements CaseStore {
 					trx,
 					this.submissionEnvelopeHost(),
 					args,
+					prepared,
 				);
 			const affectedCaseIds = [
 				...effects.primaryCaseIds,

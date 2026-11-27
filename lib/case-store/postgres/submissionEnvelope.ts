@@ -2,8 +2,8 @@
 //
 // The atomic submission envelope's executor — the in-transaction half
 // of `CaseStore.applySubmission`. The store method owns the outer
-// transaction and lock order (authorize → relationship advisory →
-// schema locks); this module owns the operation program's execution
+// transaction and lock order (authorize → receipt → prepare →
+// relationship advisory → schema locks); this module owns the operation program's execution
 // model. Every case change of the form is an operation, the form's own case
 // first, and the program runs them in array order: the validator keeps
 // every other operation from writing, retyping or closing what the own arm
@@ -121,6 +121,7 @@ import type {
 	CaseOperationProgram,
 	EnvelopeCaseOperation,
 	OperationEffectRecord,
+	OperationIterationBindings,
 	SubmissionEnvelopeResult,
 } from "../submission";
 import { replaceCaseIndex } from "./caseIndexWrites";
@@ -328,16 +329,16 @@ interface PhysicalInstance {
  * iteration numbers intact. The executor verifies the schedule covers the
  * live rows exactly once and keeps each operation's repeat binding.
  */
-function expandPhysicalInstances(
+function planPhysicalInstances(
 	program: CaseOperationProgram,
 	steps: readonly ProgramStep[],
 	ordinary: ApplySubmissionArgs["ordinary"],
-): PhysicalInstance[] {
+): Iterable<PhysicalInstance> {
 	const scopes = new Map(program.scopes.map((scope) => [scope.repeat, scope]));
 	const malformed = () =>
 		new Error(
 			compilerBugMessage({
-				where: "case-store.submissionEnvelope.expandPhysicalInstances",
+				where: "case-store.submissionEnvelope.planPhysicalInstances",
 				invariant:
 					"the operation program must schedule each live row once in a declared scope",
 				detail:
@@ -401,7 +402,13 @@ function expandPhysicalInstances(
 			? ordinary.selection.kind === "multiple"
 			: (program.sessionCaseIds?.length ?? 0) > 1;
 	const selectedCases = program.sessionCaseIds ?? [];
-	const instances: PhysicalInstance[] = [];
+	const scheduled: {
+		readonly repeat: Uuid | undefined;
+		readonly iteration: number;
+		readonly bindings: OperationIterationBindings;
+		readonly once: readonly ProgramStep[];
+		readonly perCase: readonly ProgramStep[];
+	}[] = [];
 	for (const slot of order) {
 		const { repeat, iteration, operationUuids } = slot;
 		const bindings = scopes.get(repeat)?.iterations[iteration];
@@ -420,40 +427,48 @@ function expandPhysicalInstances(
 		});
 		if ("absent" in slot && slot.absent === true) continue;
 
-		const append = (
-			operations: readonly ProgramStep[],
-			sessionCaseId: string | undefined,
-			selection: number,
-			perSelectedCase: boolean,
-		): void => {
-			for (const envelope of operations) {
-				instances.push({
-					envelope,
-					scopeRepeat: repeat,
-					iteration,
-					selection,
-					perSelectedCase,
-					sessionCaseId,
-					formFields: bindings.formFields,
-					absentFields: bindings.absentFields,
-				});
-			}
-		};
-		if (multiple) {
-			const formOperations = operations.filter(
-				({ operation }) => !caseOperationRunsPerSelectedCase(operation),
-			);
-			const selectedOperations = operations.filter(({ operation }) =>
-				caseOperationRunsPerSelectedCase(operation),
-			);
-			append(formOperations, undefined, 0, false);
-			for (const [selection, caseId] of selectedCases.entries())
-				append(selectedOperations, caseId, selection, true);
-		} else append(operations, selectedCases[0], 0, false);
+		const once: ProgramStep[] = [];
+		const perCase: ProgramStep[] = [];
+		for (const step of operations) {
+			(multiple && caseOperationRunsPerSelectedCase(step.operation)
+				? perCase
+				: once
+			).push(step);
+		}
+		scheduled.push({ repeat, iteration, bindings, once, perCase });
 	}
 	if (seenEffects.size !== expectedEffects) throw malformed();
 
-	return instances;
+	return {
+		*[Symbol.iterator]() {
+			for (const { repeat, iteration, bindings, once, perCase } of scheduled) {
+				const scope = {
+					scopeRepeat: repeat,
+					iteration,
+					formFields: bindings.formFields,
+					absentFields: bindings.absentFields,
+				};
+				for (const envelope of once)
+					yield {
+						...scope,
+						envelope,
+						selection: 0,
+						perSelectedCase: false,
+						sessionCaseId: multiple ? undefined : selectedCases[0],
+					};
+				if (perCase.length === 0) continue;
+				for (const [selection, sessionCaseId] of selectedCases.entries())
+					for (const envelope of perCase)
+						yield {
+							...scope,
+							envelope,
+							selection,
+							perSelectedCase: true,
+							sessionCaseId,
+						};
+			}
+		},
+	};
 }
 
 // ---------------------------------------------------------------
@@ -1333,10 +1348,29 @@ function validatedSelectedCaseIds(
 	return caseIds;
 }
 
+/** Verify the schedule and selected-case budget before reading or locking any case. */
+export function prepareSubmissionEnvelope(args: ApplySubmissionArgs) {
+	const selectedCaseIds = validatedSelectedCaseIds(args);
+	const program = args.operations;
+	const steps =
+		program === undefined ? [] : programSteps(program, args.ordinary);
+	return {
+		selectedCaseIds,
+		operations:
+			program && steps.length > 0
+				? {
+						program,
+						instances: planPhysicalInstances(program, steps, args.ordinary),
+					}
+				: undefined,
+	};
+}
+
 export async function executeSubmissionEnvelope(
 	trx: Transaction<Database>,
 	host: SubmissionEnvelopeHost,
 	args: ApplySubmissionArgs,
+	prepared: ReturnType<typeof prepareSubmissionEnvelope>,
 ): Promise<
 	SubmissionEnvelopeResult & {
 		readonly deviceExternalIds: DeviceExternalIds;
@@ -1344,11 +1378,7 @@ export async function executeSubmissionEnvelope(
 	}
 > {
 	const deviceExternalIds: DeviceExternalIds = new Map();
-	const steps =
-		args.operations === undefined
-			? []
-			: programSteps(args.operations, args.ordinary);
-	const selectedCaseIds = validatedSelectedCaseIds(args);
+	const { selectedCaseIds, operations } = prepared;
 	const opening = args.operations?.openingReads;
 	const currentAccess =
 		opening &&
@@ -1370,13 +1400,13 @@ export async function executeSubmissionEnvelope(
 	const reachedWriteCaseIds = new Set<string>();
 	let registeredCaseId: string | undefined;
 
-	if (args.operations !== undefined && steps.length > 0) {
+	if (operations !== undefined) {
 		const program = await resolveOperationProgram(
 			trx,
 			host,
 			args,
-			args.operations,
-			steps,
+			operations.program,
+			operations.instances,
 			sessionAnchors,
 		);
 		registeredCaseId = program.registeredCaseId;
@@ -1427,7 +1457,7 @@ async function resolveOperationProgram(
 	host: SubmissionEnvelopeHost,
 	args: ApplySubmissionArgs,
 	program: CaseOperationProgram,
-	steps: readonly ProgramStep[],
+	plannedInstances: Iterable<PhysicalInstance>,
 	sessions: ReadonlyMap<string, SessionAnchor>,
 ): Promise<{
 	readonly resolved: ResolvedInstance[];
@@ -1436,7 +1466,6 @@ async function resolveOperationProgram(
 	readonly registeredCaseId?: string;
 }> {
 	const appId = args.appId;
-	const ordinary = args.ordinary;
 	const revisions = program.groupDefaults?.revisions;
 	if (revisions) {
 		// A zero revision can mean no prior writer. Materialize both clock rows
@@ -1486,28 +1515,25 @@ async function resolveOperationProgram(
 			);
 		}
 	}
-	const instances = expandPhysicalInstances(program, steps, ordinary).map(
-		(instance) => {
-			// HQ's own follow-up block writes the ID chosen by the datum. It
-			// does not assert or retype the selected record to the menu's primary type.
-			const row =
-				instance.sessionCaseId && sessions.get(instance.sessionCaseId);
-			if (
-				!row ||
-				!instance.envelope.own ||
-				instance.envelope.operation.action !== "update" ||
-				instance.envelope.operation.caseType === row.caseType
-			)
-				return instance;
-			return {
-				...instance,
-				envelope: {
-					...instance.envelope,
-					operation: { ...instance.envelope.operation, caseType: row.caseType },
-				},
-			};
-		},
-	);
+	const instances = Array.from(plannedInstances, (instance) => {
+		// HQ's own follow-up block writes the ID chosen by the datum. It
+		// does not assert or retype the selected record to the menu's primary type.
+		const row = instance.sessionCaseId && sessions.get(instance.sessionCaseId);
+		if (
+			!row ||
+			!instance.envelope.own ||
+			instance.envelope.operation.action !== "update" ||
+			instance.envelope.operation.caseType === row.caseType
+		)
+			return instance;
+		return {
+			...instance,
+			envelope: {
+				...instance.envelope,
+				operation: { ...instance.envelope.operation, caseType: row.caseType },
+			},
+		};
+	});
 	const allocations = allocateCreateIdentities(
 		appId,
 		args.submissionReceipt.entryKey,
