@@ -341,6 +341,11 @@ async function checkAndroidDatetimePicker(page: Page) {
 	});
 	await expect(calendarTrigger).toContainText("November 1, 2025");
 	await expect(clock).toHaveValue("11:24 PM");
+	const original = await answer(page, PLATFORM_IDS.datetime);
+	await clock.fill("");
+	await clock.blur();
+	await expect(clock).toHaveValue("");
+	await expect.poll(() => answer(page, PLATFORM_IDS.datetime)).toBe(original);
 	await page.getByRole("button", { name: "Next", exact: true }).click();
 	await expect(
 		page.getByRole("textbox", { name: /Review visit/ }),
@@ -349,6 +354,7 @@ async function checkAndroidDatetimePicker(page: Page) {
 		.poll(() => answer(page, PLATFORM_IDS.datetime))
 		.toBe("2025-11-01T23:24:00.000-07:00");
 	await page.getByRole("button", { name: "Back", exact: true }).click();
+	await expect(clock).toHaveValue("11:24 PM");
 	await clock.fill("11:26:48 PM");
 	await clock.press("Tab");
 	await expect

@@ -358,7 +358,9 @@ English/Spanish labels and week layout. In Android Preview, the visible
 DateTime picker shows an existing answer in the device’s time zone, to the
 minute, or the current day and minute when the instance has no answer. The
 form saves what the picker shows when the worker leaves the screen or saves
-its form. A skipped question adds no clock value.
+its form. A skipped question adds no clock value. The browser's empty clock
+text is a local replacement draft for that screen visit. Blur keeps the
+picker's current answer available, and leaving the screen discards the draft.
 A language rerender adds no answer or draft reset. Restored entries refresh existing invalid-state messages in the
 new presentation language without touching previously clean questions. Capture
 invalid paths before constraint settlement so an already-shown required warning
