@@ -36,6 +36,10 @@ import {
 	ownRecordValue,
 	type Uuid,
 } from "@/lib/domain";
+import {
+	externalIdCalendarDayField,
+	retainedExternalIdDayRead,
+} from "@/lib/domain/basicCaseSlots";
 import { placementLabel } from "@/lib/domain/placementCopy";
 
 type OperationHoldEntry = Extract<
@@ -113,7 +117,22 @@ export function planOperationPlacementMoves(
 	for (const moduleUuid of candidate.moduleOrder) {
 		for (const formUuid of orderedFormUuids(candidate, moduleUuid)) {
 			if (!formHoldsOperationPlacement(candidate, formUuid)) continue;
-			const { inexpressible } = planPlacements(candidate, formUuid);
+			const operations = candidate.forms[formUuid]?.caseOperations ?? [];
+			const inexpressible = planPlacements(
+				candidate,
+				formUuid,
+			).inexpressible.filter(({ subject }) => {
+				if (subject.kind !== "operation") return true;
+				const operation = operations.find(
+					({ uuid }) => uuid === subject.operationUuid,
+				);
+				const source = externalIdCalendarDayField(operation);
+				// A physical move would change this still-live direct write.
+				// Retain the hold for the ordinary commit gate to explain.
+				return !operation?.writes?.some((write) =>
+					retainedExternalIdDayRead(source, write),
+				);
+			});
 			if (inexpressible.length === 0) continue;
 			// Every stranded hold of the form is placed as if unheld, in one
 			// plan, so two moved subcases never claim one index.
