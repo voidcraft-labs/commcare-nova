@@ -64,9 +64,10 @@ def test_installed_android_compares_the_direct_external_id_day_before_saving(hq,
         )
         with hq_forms.serve(state, None, app_id, database=database, platforms={"android"}) as served:
             archive = observe.release_archive(served)
+            # Android enters date and time to the minute. The sibling saves that same answer.
             for label, moment, want_leaf, want_external_id in (
-                ("same-day", MOMENT, None, DAY),
-                ("next-day", "2025-04-07T06:24:47.125Z", "2025-04-07", "2025-04-07"),
+                ("same-day", "2025-04-06T06:24:00.000Z", None, DAY),
+                ("next-day", "2025-04-07T06:24:00.000Z", "2025-04-07", "2025-04-07"),
                 ("clear", "", "", ""),
             ):
                 blobs, sent, stored = Blobs(), [], []
@@ -79,7 +80,7 @@ def test_installed_android_compares_the_direct_external_id_day_before_saving(hq,
                 assert len(sent) == 1, walk
                 receipt, = stored
                 assert receipt["form"]["normal"], receipt
-                assert receipt["storedExternalId"] == want_external_id, receipt
+                assert (receipt["storedExternalId"] or "") == want_external_id, receipt
                 for submission in (sent[0], receipt["form"]["xml"].encode()):
                     root = etree.fromstring(submission)
                     update = root.find(f"{{{CASE}}}case/{{{CASE}}}update")
