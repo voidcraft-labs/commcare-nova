@@ -44,6 +44,96 @@ def _enable_address_search(config):
     )
 
 
+def _stored_address_default(project):
+    """Use the matrix's exact non-excluded prompt, with no attached receiver."""
+    from corehq.apps.app_manager.models.case_search import CaseSearchProperty
+
+    from proof.matrix.registry import load_variants
+
+    variant = next(row for row in load_variants() if row.id == "hq-search/address-picker-with-stored-default")
+    app = operations.held_app(project.unit, project.app_id)
+    menu = app.modules[0]
+    assert variant.change["pointer"] == "/modules/0/search_config/properties/1"
+    assert menu.search_config.properties[1].name == "village"
+    menu.search_config.properties[1] = CaseSearchProperty.wrap(dict(variant.change["value"]))
+    app.cloudcare_enabled = True
+    app.save()
+    return menu.unique_id
+
+
+def _address_default_database(document):
+    database = casedata.document_case_database(document)
+    (original,) = database.cases
+    properties = dict(original.properties)
+    properties.update(client_name="Amina", last_visit="2025-12-01")
+    return replace(database, cases=(replace(original, name="Amina", properties=tuple(properties.items())),))
+
+
+def _built_address_default(archive):
+    from io import BytesIO
+    from zipfile import ZipFile
+
+    from lxml import etree
+
+    with ZipFile(BytesIO(archive)) as zipped:
+        suite = etree.fromstring(zipped.read("suite.xml"))
+    prompts = suite.xpath(".//query/prompt[@key='village'][@input='address']")
+    assert prompts, "HQ emitted no address picker for the saved Village field"
+    held = {(prompt.getparent().get("storage-instance"), prompt.get("default"), prompt.get("exclude")) for prompt in prompts}
+    (storage, default, exclude), = held
+    assert default == "'Old address'" and exclude is None, held
+    assert storage
+    return {"storage": storage, "default": default, "exclude": exclude}
+
+
+def test_saved_address_default_stays_out_of_signed_web_search(
+    hq, formplayer_runner, editor_driver, webapps_documents, evidence
+):
+    document = webapps_documents["hq-search"]
+    address = {
+        "eval": """() => document.querySelector('#village_mapbox input.mapboxgl-ctrl-geocoder--input')?.value"""
+    }
+    opening = [
+        {"geocoderFixture": {"query": "Visit Road", "feature": PLACE}},
+        *steps.open_app("Client search"),
+        *steps.choose("Clients"),
+        *steps.choose("Followup Form"),
+        steps.SCREEN,
+    ]
+    with webapps_hq.authored_project(document, "A", configure=_enable_address_search) as project:
+        menu_id = _stored_address_default(project)
+        saved = pages.fresh_section_save(editor_driver, project.unit, pages.CASE_LIST, project.app_id, menu_id)
+        menu = operations.held_app(project.unit, project.app_id).get_module_by_unique_id(menu_id)
+        field = next(field for field in menu.search_config.properties if field.name == "village")
+        assert saved.save and saved.save.status == 200 and not saved.refused, saved.alerts
+        assert (field.appearance, field.exclude, field.default_value) == ("address", False, "'Old address'")
+        assert field.receiver_expression in (None, "")
+
+        with project.released(formplayer_runner, database=_address_default_database(document)) as release:
+            built = _built_address_default(release.archive())
+            run = Session(release, editor_driver).run([
+                *opening, address, TYPE_ADDRESS,
+                {"until": "webapps/choose_address",
+                 "arg": {"name": PLACE["place_name"], "scope": "#village_mapbox"}, "within": 8000},
+                steps.SETTLE, address, *steps.type_prompt(0, "Amina"), *steps.run_search(), steps.SCREEN,
+            ])
+            requests = [
+                entry["inputs"] for request in _menu_requests(run) if request["searched"]
+                for entry in request["queryData"].values() if isinstance(entry, dict) and entry.get("execute")
+            ]
+            hq_searches = [dict(search.params) for search in release.hq.searches]
+    initial, selected = run.value(len(opening)), run.value(len(opening) + 4)
+    evidence("search-address-stored-default", {
+        "hqSave": saved.save.status, "built": built, "initial": initial,
+        "selected": selected, "workerSubmitted": requests, "hqSearch": hq_searches,
+        "pageErrors": run.page_errors,
+    })
+    assert run.page_errors == []
+    assert initial == "" and selected == PLACE["place_name"]
+    assert requests == [{"client_name": "Amina"}], requests
+    assert hq_searches and all("village" not in search for search in hq_searches), hq_searches
+
+
 def test_case_list_editor_keeps_search_address_receivers_after_reopening(
     hq, core_runner, editor_driver, webapps_documents, evidence
 ):
