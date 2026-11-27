@@ -964,6 +964,19 @@ it("shows the container the files git lists, an uncommitted edit among them, and
 	expect(await readlink(join(view, "AGENTS.md"))).toBe("proof/run.mjs");
 	expect(existsSync(join(view, "node_modules"))).toBe(true);
 	// A shard's view holds the harness alone.
+	await mkdir(join(root, "lib", "domain"), { recursive: true });
+	await writeFile(
+		join(root, "lib", "domain", "portableNameRanges.json"),
+		'{"initial":[[65,90]]}',
+	);
+	await writeFile(
+		join(root, "lib", "domain", "androidNameRanges.json"),
+		'{"initial":[[97,122]]}',
+	);
+	await writeFile(
+		join(root, "lib", "domain", "modules.ts"),
+		"outside the hosted view",
+	);
 	const harness = await checkoutView(join(scratch, "harness"), {
 		root,
 		only: HARNESS_PATHS,
@@ -972,6 +985,8 @@ it("shows the container the files git lists, an uncommitted edit among them, and
 		cwd: harness,
 	});
 	expect(shown.stdout.trim().split("\n").sort()).toEqual([
+		"./lib/domain/androidNameRanges.json",
+		"./lib/domain/portableNameRanges.json",
 		"./proof/new.py",
 		"./proof/run.mjs",
 	]);

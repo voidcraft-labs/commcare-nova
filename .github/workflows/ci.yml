@@ -773,6 +773,7 @@ jobs:
           sparse-checkout: |
             proof
             lib/commcare/surface
+            lib/domain
             .github/actions/proof-runtime
       # In the background, so they overlap every step up to the lane's start;
       # each writes its exit status when it ends, and holds none of the

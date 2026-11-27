@@ -945,3 +945,20 @@ it("keeps no credential in a workspace a job mounts into a container", async () 
 	// The image workflow's emission job runs the emission and the producers in the image over the workspace.
 	expect(mounting).toContain("proof-image.yml:emission");
 });
+
+it("includes the domain data consumed by both sparse proof shard checkouts", async () => {
+	for (const [file, job] of [
+		["ci.yml", "proof"],
+		["proof-lane.yml", "shard"],
+	] as const) {
+		const workflow = parse(
+			await readFile(join(WORKTREE, ".github", "workflows", file), "utf8"),
+		);
+		const checkout = workflow.jobs[job].steps.find((step: { uses?: string }) =>
+			step.uses?.startsWith("actions/checkout@"),
+		);
+		expect(checkout.with["sparse-checkout"].trim().split(/\s+/)).toContain(
+			"lib/domain",
+		);
+	}
+});
