@@ -399,7 +399,7 @@ const calculatedColumnInputArm = calculatedColumnArm
 		),
 
 		searchResultDetail: calculatedColumnArm.shape.searchResultDetail.describe(
-			"Show one submitted text prompt on a standalone Search result's Details. Available for Web Apps when Search opens before Results. Set notOnList to true and use a literal text expression for the ordinary case. Use that menu's offered text input UUID. Prefix and suffix may be empty; an unanswered prompt contributes empty text.",
+			"Show one submitted text prompt on a standalone Search result's Details. Available for Web Apps when Search opens before Results. Set notOnList to true and use a literal text expression for the ordinary case. Use that menu's offered text input UUID. Prefix and suffix may be empty. An unanswered prompt contributes empty text. Use text alone to show fixed wording on Search results.",
 		),
 		expression: valueExpressionInputSchema,
 	});

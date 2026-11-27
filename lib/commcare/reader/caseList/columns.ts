@@ -132,6 +132,10 @@ export const COLUMN_CLAIMS = defineClaims("caseList.columns", {
 		`${A}standalone-search-result-detail-text`,
 		"schema:DetailColumn.field",
 	),
+	searchResultDetailFixedText: take(
+		`${A}standalone-search-result-detail-fixed-text`,
+		"schema:DetailColumn.field",
+	),
 	searchResultDetailUnavailable: refuse(
 		`${A}standalone-search-result-detail-without-its-offered-prompt`,
 		"schema:DetailColumn.field",

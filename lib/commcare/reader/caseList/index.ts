@@ -28,7 +28,11 @@ import { caseContextLine } from "@/lib/domain/caseFormContext";
 import { columnPropertyCaseType } from "@/lib/domain/columnRelation";
 import { effectiveCaseTypes } from "@/lib/domain/effectiveCaseTypes";
 import { resolveRelationDestination } from "@/lib/domain/expression/relationDestination";
-import { columnFieldText, defaultSortBlanks } from "@/lib/domain/modules";
+import {
+	columnFieldText,
+	defaultSortBlanks,
+	searchInputRequestKey,
+} from "@/lib/domain/modules";
 import { NO_ENTRIES, recordFromEntries } from "@/lib/domain/records";
 import { resolveSearchResultDetailRoute } from "@/lib/domain/searchResultDetail";
 import { isStandardCaseListProperty } from "@/lib/domain/standardCaseProperties";
@@ -98,6 +102,7 @@ import {
 	retainSortComparisons,
 } from "./order";
 import { withReadTexts } from "./readTexts";
+import { readResultDetailText } from "./resultDetailText";
 
 export { joinDetailColumns } from "./details";
 
@@ -331,6 +336,7 @@ function columnDifference(
 	screen: "short" | "long",
 	fieldHandedOff: boolean,
 	optimizationsOn: boolean,
+	normalizedResultText?: string,
 ): string | undefined {
 	// A load behavior as HQ keeps it (`columns.ts::storedLoadBehavior`).
 	const behavior = (column: JsonObject) =>
@@ -370,7 +376,15 @@ function columnDifference(
 		if (
 			format === "translatable-enum"
 				? !sameXPathText(translated(stored, a), translated(ours, b))
-				: !sameField(a, b)
+				: !sameField(a, b) &&
+					!(
+						normalizedResultText !== undefined &&
+						b.text !== undefined &&
+						sameJson(readResultDetailText(b.text), {
+							text: normalizedResultText,
+							localText: readResultDetailText(a.text ?? "")?.localText,
+						})
+					)
 		)
 			return "schema:DetailColumn.field";
 	}
@@ -891,6 +905,23 @@ function listDifference(
 	const tile = mod.caseListConfig?.tile !== undefined;
 	if (longStored.length !== longOurs.length) return "schema:Detail.columns";
 	for (const [position, { column, index }] of longStored.entries()) {
+		const joined = reading.joined.columns.findIndex(
+			(one) => one.long === index,
+		);
+		const held = mod.caseListConfig?.columns.find(
+			(one) => one.uuid === reading.uuids[joined],
+		);
+		const branch =
+			held?.kind === "calculated" ? held.searchResultDetail : undefined;
+		const parsed = reading.joined.columns[joined]?.proposal.resultDetailText;
+		const fixedText =
+			branch &&
+			"text" in branch &&
+			parsed &&
+			"inputName" in parsed &&
+			branch.text === parsed.prefix + parsed.suffix
+				? branch.text
+				: undefined;
 		const key = columnDifference(
 			codes,
 			sourceCode(ctx),
@@ -900,6 +931,7 @@ function listDifference(
 			"long",
 			handed.long.has(index),
 			mod.caseListConfig?.optimizations === true,
+			fixedText,
 		);
 		if (key !== undefined) return key;
 	}
@@ -1361,15 +1393,29 @@ function settleSearchResultDetailColumns(
 		const column = config.columns.find(
 			(candidate) => candidate.uuid === reading.uuids[index],
 		);
-		const prompts = config.searchInputs.filter(
-			(prompt) => prompt.name === source.inputName,
-		);
-		const prompt = prompts.length === 1 ? prompts[0] : undefined;
-		const branch = prompt && {
-			inputUuid: prompt.uuid,
-			prefix: source.prefix,
-			suffix: source.suffix,
-		};
+		let branch:
+			| NonNullable<
+					Extract<Column, { kind: "calculated" }>["searchResultDetail"]
+			  >
+			| undefined;
+		if ("text" in source) {
+			branch = { text: source.text };
+		} else {
+			const prompts = config.searchInputs.filter(
+				(prompt) =>
+					prompt.name === source.inputName ||
+					searchInputRequestKey(prompt) === source.inputName,
+			);
+			if (prompts.length === 0) {
+				branch = { text: source.prefix + source.suffix };
+			} else if (prompts.length === 1 && prompts[0].name === source.inputName) {
+				branch = {
+					inputUuid: prompts[0].uuid,
+					prefix: source.prefix,
+					suffix: source.suffix,
+				};
+			}
+		}
 		if (
 			column?.kind === "calculated" &&
 			branch &&
@@ -1377,7 +1423,9 @@ function settleSearchResultDetailColumns(
 		) {
 			joined.proposal.json.take(
 				"field",
-				COLUMN_CLAIMS.searchResultDetail,
+				"text" in branch
+					? COLUMN_CLAIMS.searchResultDetailFixedText
+					: COLUMN_CLAIMS.searchResultDetail,
 				String,
 			).value;
 			branches.set(column.uuid, branch);
