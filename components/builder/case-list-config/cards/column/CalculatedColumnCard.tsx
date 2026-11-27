@@ -75,6 +75,8 @@ export function CalculatedColumnCard({
 	const searchResult = value.searchResultDetail;
 	const searchPrompt =
 		searchResult && "inputUuid" in searchResult ? searchResult : undefined;
+	const onList =
+		value.visibleInDetail === false && value.visibleInList !== false;
 	const resultText =
 		searchResult && "text" in searchResult ? searchResult.text : undefined;
 	const detailColumn =
@@ -88,6 +90,7 @@ export function CalculatedColumnCard({
 				inputUuid: prompt.uuid,
 				prefix: searchPrompt?.prefix ?? "",
 				suffix: searchPrompt?.suffix ?? "",
+				...(onList && { onList: true }),
 			}),
 	);
 	const canSetResultText =
@@ -236,6 +239,7 @@ export function CalculatedColumnCard({
 										inputUuid: prompt.uuid,
 										prefix: searchPrompt?.prefix ?? "",
 										suffix: searchPrompt?.suffix ?? "",
+										...(onList && { onList: true }),
 									},
 								});
 						}}
@@ -269,7 +273,7 @@ export function CalculatedColumnCard({
 									}
 								/>
 							)}
-							{searchPrompt && (
+							{searchPrompt && !onList && (
 								<>
 									<BlurCommitTextInput
 										ariaLabel="Text before the answer"
@@ -293,11 +297,13 @@ export function CalculatedColumnCard({
 									/>
 								</>
 							)}
-							<BlurCommitTextInput
-								ariaLabel="Text outside Search results"
-								value={localText ?? ""}
-								onCommit={(text) => setExpression(term(literal(text)))}
-							/>
+							{!onList && (
+								<BlurCommitTextInput
+									ariaLabel="Text outside Search results"
+									value={localText ?? ""}
+									onCommit={(text) => setExpression(term(literal(text)))}
+								/>
+							)}
 						</div>
 					)}
 				</div>

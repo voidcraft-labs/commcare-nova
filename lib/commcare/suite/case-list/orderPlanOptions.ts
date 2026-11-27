@@ -146,13 +146,19 @@ export function hqExpressionField(
 		const inlineProperty = ownInlineResultProperty(column, mod.caseType);
 		if (inlineProperty !== undefined)
 			return inlineResultPropertyWire(inlineProperty);
-		if (screen === "details" && column.searchResultDetail) {
+		if (column.searchResultDetail) {
 			const branch = resolveSearchResultDetailRoute(
 				mod,
 				column,
 				column.searchResultDetail,
 			);
-			if (branch) return resultDetailTextWire(branch);
+			if (
+				branch &&
+				(screen === "results"
+					? "onList" in branch && branch.onList === true
+					: !("onList" in branch) || branch.onList !== true)
+			)
+				return resultDetailTextWire(branch);
 		}
 		if (effectiveCaseSearchConfig(mod) !== undefined) {
 			const related = classifyRelatedCaseSearchExpression(

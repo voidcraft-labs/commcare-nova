@@ -485,7 +485,11 @@ it("opens a form on the same search response that supplied Results", async () =>
 	});
 });
 
-const detailVariants = ["submitted answer", "fixed text"] as const;
+const detailVariants = [
+	"submitted answer",
+	"fixed text",
+	"a Results-only answer",
+] as const;
 it.each(detailVariants)(
 	"restores standalone Details with %s",
 	testStandaloneDetails,
@@ -493,6 +497,7 @@ it.each(detailVariants)(
 
 async function testStandaloneDetails(branch: (typeof detailVariants)[number]) {
 	const fixed = branch === "fixed text";
+	const onList = branch === "a Results-only answer";
 	const actor = ACTOR;
 	const appId = "search-detail-restored-app";
 	const sessionId = "search-detail-restored-session";
@@ -508,15 +513,16 @@ async function testStandaloneDetails(branch: (typeof detailVariants)[number]) {
 		...calculatedColumn(
 			columnUuid,
 			"Entered name",
-			term(literal("local row")),
-			{
-				notOnList: true,
-				visibleInList: false,
-			},
+			term(literal(onList ? "" : "local row")),
+			onList
+				? { visibleInDetail: false }
+				: { notOnList: true, visibleInList: false },
 		),
 		searchResultDetail: fixed
 			? { text: "entered=[]" }
-			: { inputUuid, prefix: "entered=[", suffix: "]" },
+			: onList
+				? { inputUuid, prefix: "", suffix: "", onList: true as const }
+				: { inputUuid, prefix: "entered=[", suffix: "]" },
 	};
 	const ordinaryList = caseListConfig([{ field: "case_name", header: "Name" }]);
 	const fixture = buildDoc({
@@ -526,12 +532,14 @@ async function testStandaloneDetails(branch: (typeof detailVariants)[number]) {
 			{
 				name: "Patients",
 				caseType: "patient",
-				caseListMenuItem: {},
+				...(onList ? {} : { caseListMenuItem: {} }),
 				caseSearchConfig: {},
 				caseListConfig: {
 					columns: [...ordinaryList.columns, column],
 					listColumnOrder: [...ordinaryList.listColumnOrder, columnUuid],
-					detailColumnOrder: [columnUuid, ...ordinaryList.detailColumnOrder],
+					detailColumnOrder: onList
+						? ordinaryList.detailColumnOrder
+						: [columnUuid, ...ordinaryList.detailColumnOrder],
 					searchInputs: [
 						simpleSearchInputDef(
 							inputUuid,
@@ -614,6 +622,26 @@ async function testStandaloneDetails(branch: (typeof detailVariants)[number]) {
 		search: true,
 		page: { offset: 0, limit: 1 },
 	};
+	if (onList) {
+		for (const [inputValues, expected] of [
+			[{ name: "Asha" }, "Asha"],
+			[{}, ""],
+		] as const) {
+			expect(
+				await loadCasesAction({
+					...request,
+					searchSubmission: crypto.randomUUID(),
+					inputValues,
+				}),
+			).toMatchObject({
+				kind: "rows",
+				searchMatchCount: 2,
+				rows: [{ calculated: { [columnUuid]: expected } }],
+			});
+		}
+		return;
+	}
+
 	const run = async (inputValues: Record<string, string>) => {
 		const submission = crypto.randomUUID();
 		const previewRun = crypto.randomUUID();

@@ -12,6 +12,7 @@ export interface ResultDetailPromptWire {
 	readonly prefix: string;
 	readonly suffix: string;
 	readonly localText: string;
+	readonly onList?: true;
 }
 
 /** Both native detail projections share one column. The outer branch never
@@ -23,6 +24,8 @@ export type ResultDetailTextWire =
 	| { readonly text: string; readonly localText: string };
 
 export function resultDetailTextWire(input: ResultDetailTextWire) {
+	if ("onList" in input && input.onList === true)
+		return resultPromptNode(input.inputName);
 	return guardRead(
 		"text" in input ? w.str(input.text) : answeredText(input),
 		w.current([w.parent(), w.parent(), w.step("results")]),
@@ -31,18 +34,17 @@ export function resultDetailTextWire(input: ResultDetailTextWire) {
 }
 
 function answeredText(input: ResultDetailPromptWire) {
-	const node = w.instance(
-		searchInputInstance(STANDALONE_SEARCH_INPUT_INSTANCE_ID),
-		[
-			w.step("input"),
-			w.step("field", [
-				w.eq(w.context([w.attr("name")]), w.str(input.inputName)),
-			]),
-		],
-	);
+	const node = resultPromptNode(input.inputName);
 	return w.call("concat", [
 		w.str(input.prefix),
 		guardRead(w.call("string", [node]), node, w.str("")),
 		w.str(input.suffix),
+	]);
+}
+
+function resultPromptNode(inputName: string) {
+	return w.instance(searchInputInstance(STANDALONE_SEARCH_INPUT_INSTANCE_ID), [
+		w.step("input"),
+		w.step("field", [w.eq(w.context([w.attr("name")]), w.str(inputName))]),
 	]);
 }

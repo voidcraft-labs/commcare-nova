@@ -116,7 +116,7 @@ export function calculatedColumnTypeCheck(
 				validationError(
 					"CASE_LIST_CALCULATED_COLUMN_TYPE_ERROR",
 					"module",
-					"Choose a text prompt from this menu's Search. An answer can appear on a plain Details-only field where Search opens before Results.",
+					"Choose a text prompt from this menu's Search. An answer can appear on a plain field where Search opens before Results.",
 					{ moduleUuid, moduleName: mod.name },
 					{
 						columnUuid: column.uuid,

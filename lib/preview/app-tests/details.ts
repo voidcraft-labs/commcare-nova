@@ -104,7 +104,7 @@ export async function appTestDetails(
 			? searchResultDetailColumns(
 					context.doc,
 					context.doc.modules[screen.moduleUuid],
-				)
+				).filter((column) => !("onList" in column && column.onList))
 			: [];
 	const calculated = searchResultDetailProjection(
 		columns,

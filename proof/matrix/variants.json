@@ -44373,6 +44373,28 @@
 	{
 		"id": "hq-search/search-input-in-the-results-detail",
 		"base": "hq-search",
+		"entry": "menus-and-case-lists/standalone-search-result-list-text",
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/0/case_details/short/columns/1/field",
+			"value": "instance('search-input:results')/input/field[@name = 'village']"
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/columns/1/searchResultDetail/onList",
+				"value": true
+			}
+		]
+	},
+	{
+		"id": "hq-search/search-result-prompt-composed-in-the-results-list",
+		"base": "hq-search",
 		"entry": "expressions-and-data/search-input-results-read-in-the-search-results-detail",
 		"standing": "not-yet",
 		"place": {
@@ -44383,7 +44405,7 @@
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/0/case_details/short/columns/1/field",
-			"value": "instance('search-input:results')/input/field[@name = 'village']"
+			"value": "concat('Answer: ', instance('search-input:results')/input/field[@name = 'village'])"
 		}
 	},
 	{

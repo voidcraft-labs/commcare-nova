@@ -128,6 +128,10 @@ export const COLUMN_CLAIMS = defineClaims("caseList.columns", {
 		`${A}usexpathexpression-field-xpath-outside-valueexpression`,
 		"schema:DetailColumn.field",
 	),
+	searchResultList: take(
+		`${A}standalone-search-result-list-text`,
+		"schema:DetailColumn.field",
+	),
 	searchResultDetail: take(
 		`${A}standalone-search-result-detail-text`,
 		"schema:DetailColumn.field",
@@ -1980,13 +1984,12 @@ function readColumn(
 	}
 	const resultDetailText =
 		field.xpath &&
-		screen === "long" &&
 		format === "plain" &&
 		options.standaloneResultDetailText &&
 		!options.dataRows &&
 		!options.fixtureRow &&
 		loadBehavior === undefined
-			? readResultDetailText(field.text)
+			? readResultDetailText(field.text, screen)
 			: undefined;
 	if (resultDetailText) {
 		column.take("useXpathExpression", C.fieldCalculated, Boolean).value;

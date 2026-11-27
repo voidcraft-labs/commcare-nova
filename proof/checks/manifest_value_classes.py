@@ -7224,6 +7224,38 @@ def standalone_result_detail_text(use, manifest):
     return len(prompts) == 1 and not prompts[0].get("appearance") and prompts[0].get("input_") in (None, "", "text")
 
 
+def standalone_result_list_text(use, manifest):
+    at, detail, kind, module = _detail_of(use)
+    if kind != "short" or at.key != "field" or not at.owner.get("useXpathExpression"):
+        return False
+    search = module.get("search_config")
+    if (
+        (at.nearest("Application") or {}).get("cloudcare_enabled") is not True
+        or not isinstance(search, dict)
+        or search.get("auto_launch") is not True
+        or search.get("default_search") is True
+        or search.get("inline_search") is True
+        or search.get("case_search_endpoint_id")
+        or at.owner.get("format", "plain") != "plain"
+        or detail.get("case_tile_template")
+        or detail.get("multi_select")
+        or (module.get("case_list") or {}).get("show")
+        or not isinstance(at.value, str)
+    ):
+        return False
+    source = expression_tree(at.value)
+    for prompt in search.get("properties", ()):
+        name = prompt.get("name") if isinstance(prompt, dict) else None
+        if (
+            isinstance(name, str) and SEARCH_INPUT_NAME.fullmatch(name)
+            and not prompt.get("hidden") and not prompt.get("appearance")
+            and prompt.get("input_") in (None, "", "text")
+            and source == expression_tree(f"instance('search-input:results')/input/field[@name = '{name}']")
+        ):
+            return True
+    return False
+
+
 def standalone_result_detail_fixed_text(use, manifest):
     branch = _standalone_result_detail_branch(use)
     if branch is None:

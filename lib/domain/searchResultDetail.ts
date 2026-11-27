@@ -17,6 +17,7 @@ type ResolvedResultText = { readonly localText: string } & (
 			readonly inputUuid: import("./uuid").Uuid;
 			readonly prefix: string;
 			readonly suffix: string;
+			readonly onList?: true;
 	  }
 );
 
@@ -29,9 +30,7 @@ function literalText(column: CalculatedColumn): string | undefined {
 		: undefined;
 }
 
-/** Limit the first result branch to the proven complete Web Apps route and
- * plain, long-only column. In particular the result expression must never
- * run while a worker is sorting, choosing, or displaying an ordinary list. */
+/** Read a submitted answer only on the Web Apps route that supplied it. */
 export function resolveSearchResultDetailText(
 	doc: Pick<BlueprintDoc, "appSettings">,
 	module: Module,
@@ -50,6 +49,7 @@ export function resolveSearchResultDetailRoute(
 	branch: SearchResultDetailText,
 ): ResolvedResultText | undefined {
 	const config = module.caseListConfig;
+	const onList = "onList" in branch && branch.onList === true;
 	if (
 		config === undefined ||
 		moduleSearchWorkflow(module) !== "searchFirst" ||
@@ -58,8 +58,15 @@ export function resolveSearchResultDetailRoute(
 		config.selection !== undefined ||
 		config.detailTabs !== undefined ||
 		config.detailTile !== undefined ||
-		column.notOnList !== true ||
-		column.visibleInDetail === false ||
+		(onList
+			? column.notOnList === true ||
+				column.visibleInList === false ||
+				column.visibleInDetail !== false ||
+				module.caseListMenuItem !== undefined ||
+				config.tile !== undefined ||
+				branch.prefix !== "" ||
+				branch.suffix !== ""
+			: column.notOnList !== true || column.visibleInDetail === false) ||
 		column.sort !== undefined ||
 		column.texts !== undefined ||
 		column.showAs !== undefined ||
@@ -68,7 +75,12 @@ export function resolveSearchResultDetailRoute(
 	)
 		return;
 	const localText = literalText(column);
-	if (localText === undefined || !canPrint(localText)) return;
+	if (
+		localText === undefined ||
+		!canPrint(localText) ||
+		(onList && localText !== "")
+	)
+		return;
 	if ("text" in branch) {
 		return canPrint(branch.text) ? { text: branch.text, localText } : undefined;
 	}
@@ -90,6 +102,7 @@ export function resolveSearchResultDetailRoute(
 		prefix: branch.prefix,
 		suffix: branch.suffix,
 		localText,
+		...(onList && { onList }),
 	};
 }
 
