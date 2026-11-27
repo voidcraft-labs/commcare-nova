@@ -5,8 +5,8 @@ from lxml import etree
 from proof.core.client import load_answer_table
 from proof.editors import compare
 from proof.editors.conftest import corpus_document, write_evidence
+from proof.matrix import ops
 from proof.matrix.authoring import Authoring
-from proof.matrix.variants.expressions_and_data import _language, fingerprint_query
 from proof.observe.build import arrange
 from proof.observe.casedata import document_case_database
 from proof.observe.sessions import AuthoredTables, admitted, hq_restore
@@ -29,13 +29,13 @@ def test_retained_survey_bare_lookup_count_without_a_supplier(hq, core_runner, t
         for label in ("guarded", "bare"):
             with unit.fork():
                 authoring = Authoring(unit, {}, label, operation=unit.operation)
-                if label == "bare":
-                    fingerprint_query(authoring, project.app_id)
-                else:
-                    _language(
-                        authoring, project.app_id, f"if(count({PATH}) = 0, '{FALLBACK}', string({PATH}[1]))",
-                        "guarded-fingerprint-query",
-                    )
+                expression = PATH if label == "bare" else f"if(count({PATH}) = 0, '{FALLBACK}', string({PATH}[1]))"
+
+                def edit(root, _form):
+                    bind, = root.xpath("//*[local-name()='bind'][@nodeset='/data/language']")
+                    bind.set("calculate", expression)
+
+                ops.set_form_source(authoring, project.app_id, 0, 0, edit, what=f"{label}-fingerprint-query")
                 built = compare.build(unit, project.app_id, unit.record)
                 assert not built.errors, built.errors
                 suite = etree.fromstring(built.files["suite.xml"])
