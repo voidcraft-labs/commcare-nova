@@ -270,6 +270,7 @@ from proof.checks.manifest_value_classes import (
     instance_scheme,
     instance_source,
     preset_source,
+    project_search_endpoint_id,
     scanned_instance_names,
     protected_constraint_form,
     unread_words_dropped,
@@ -934,9 +935,10 @@ def _object_uses(cls, value, pointer, manifest, artifact, found, at):
             kind = field_value.split(":", 1)[0] if ":" in field_value else "property"
             found.add(f"detail-field-type:{kind}", artifact, f"{pointer}/field", JsonAt(at.app, at.scope, "field"))
     elif cls == "DefaultCaseSearchProperty":
-        # A filter that holds no value is one use of its own, where Nova's reader refuses it whole
-        # (``manifest_value_classes.missing_default_value``); a filter that holds one is used through its keys.
-        if holds_no_default_value(value):
+        # A filter with no value is refused whole. A project endpoint reads its parameter as an
+        # ordered request row with its own identity. Ordinary filters are used through their keys.
+        endpoint = (at.nearest("CaseSearch") or {}).get("case_search_endpoint_id")
+        if holds_no_default_value(value) or project_search_endpoint_id(endpoint):
             found.add(f"schema:{cls}", artifact, pointer, at)
         name = value.get("property")
         _search_key(name, manifest, artifact, f"{pointer}/property", found, JsonAt(at.app, at.scope, "property"))

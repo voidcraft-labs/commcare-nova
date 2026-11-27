@@ -1508,6 +1508,12 @@ function readPrompt(
 		if (!refusedHere("appearance")) {
 			if (address) {
 				prompt.take("appearance", P.addressPicker, String).value;
+				ctx.accounting.claimEntry(
+					{ json: prompt, key: "appearance" },
+					P.addressPicker.entry,
+					"prompt-appearance:address",
+					place,
+				);
 				type = "address";
 			} else if (appearance === "barcode_scan" && type === "text") {
 				prompt.take("appearance", P.barcode, String).value;

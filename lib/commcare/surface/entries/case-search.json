@@ -223,6 +223,7 @@
 		"subsection": "Search configuration",
 		"item": "a `default_properties[]` entry keyed `commcare_sort` whose literal value names each property, comparison and direction Nova reads",
 		"surfaceKeys": [
+			"csql-key:commcare_sort",
 			"schema:DefaultCaseSearchProperty.property",
 			"schema:DefaultCaseSearchProperty.defaultValue"
 		],
@@ -1874,6 +1875,7 @@
 		"subsection": "Search configuration",
 		"item": "`case_search_endpoint_id`",
 		"surfaceKeys": [
+			"csql-key:x_commcare_endpoint_id",
 			"schema:CaseSearch.case_search_endpoint_id",
 			"schema:CaseSearch.default_properties",
 			"schema:DefaultCaseSearchProperty",
@@ -2404,6 +2406,8 @@
 		"subsection": "Search prompts",
 		"item": "`appearance: address` (Geocoder Broadcast, emitted `input=\"address\"`)",
 		"surfaceKeys": [
+			"prompt-appearance:address",
+			"prompt-input:address",
 			"schema:CaseSearchProperty.appearance",
 			"parser:QueryPromptParser/prompt@input"
 		],

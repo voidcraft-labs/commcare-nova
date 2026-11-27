@@ -40,7 +40,7 @@ from pathlib import Path
 from lxml import etree
 
 from proof.checks.case_property_names import (
-    SERVER_SEARCH_DEVICE_ONLY_KEYS, SAVE_TO_CASE_RESERVED_UPDATE_KEYS, order_key_reserved,
+    SERVER_SEARCH_DEVICE_ONLY_KEYS, SAVE_TO_CASE_RESERVED_UPDATE_KEYS, order_key_reserved, searchable_order_key,
 )
 from proof.checks.compare.app_strings import is_locale_file_key
 from proof.checks.compare.names import nova_name
@@ -5154,6 +5154,64 @@ def registry_named(use, manifest):
     return bool(config.get("data_registry"))
 
 
+
+def project_search_endpoint_id(value):
+    """A positive HQ AutoField id, where the search endpoint supplies the request."""
+    return type(value) is int and 0 < value <= 2147483647
+
+
+def _suite_search_child(use, tag, attribute):
+    at = _xml(use, "runtime")
+    if at is None or at.attribute != attribute or _local(at.element) != tag:
+        return None
+    query = at.element.getparent()
+    session = query.getparent() if query is not None else None
+    if session is None or _local(query) != "query" or _local(session) != "session":
+        return None
+    return at.element
+
+
+def configured_search_endpoint(use, manifest):
+    """HQ writes the bound service id as a literal in a Search query, not as an authored parameter."""
+    if use.key != "csql-key:x_commcare_endpoint_id":
+        return True
+    element = _suite_search_child(use, "data", "key")
+    if element is None:
+        return False
+    text = _literal_text(element.get("ref"))
+    return bool(text and re.fullmatch(r"[1-9][0-9]{0,9}", text) and project_search_endpoint_id(int(text)))
+
+
+def named_search_order(use, manifest):
+    """The native order key on a supported literal request, in HQ's default row or a built query."""
+    if use.key != "csql-key:commcare_sort":
+        return True
+    at, config = _search(use)
+    if config is not None:
+        if project_search_endpoint_id(config.get("case_search_endpoint_id")):
+            return False
+        row = at.nearest("DefaultCaseSearchProperty")
+        ref = row.get("defaultValue") if row is not None else None
+    else:
+        element = _suite_search_child(use, "data", "key")
+        ref = element.get("ref") if element is not None else None
+    text = _literal_text(ref)
+    if text is None:
+        return False
+    repeated_signs = discarded_suffix = False
+    for term in text.split(","):
+        repeated_signs |= bool(re.match(r"[+-]{2}", term))
+        parts = term.lstrip("+-").split(":")
+        if len(parts) > 3 or (len(parts) == 3 and not parts[-1]):
+            return False
+        key = parts[0]
+        if not searchable_order_key(key):
+            return False
+        if len(parts) > 1 and parts[1] not in {"exact", "date", "numeric"}:
+            return False
+        discarded_suffix |= len(parts) == 3
+    return not (repeated_signs and discarded_suffix)
+
 def endpoint_id_key(use, manifest):
     """``case-search/default-properties-entry-keyed-x-commcare-endpoint-id``."""
     at, config = _search(use)
@@ -5347,6 +5405,31 @@ INPUTS_OVER_ADDRESS = frozenset({"date", "daterange", "checkbox"})
 def _address_field(prompt):
     return prompt.get("appearance") == "address" and prompt.get("input_") not in INPUTS_OVER_ADDRESS
 
+
+
+def ordinary_address_search_marker(use, manifest):
+    """A stored ordinary Search address or HQ's native query input produced for it."""
+    if use.key == "prompt-input:address":
+        element = _suite_search_child(use, "prompt", "input")
+        return element is not None and not any(element.get(key) for key in (
+            "appearance", "hidden", "receive", "default", "allow_blank_value",
+        ))
+    if use.key != "prompt-appearance:address":
+        return True
+    at, config = _search(use)
+    if config is None or project_search_endpoint_id(config.get("case_search_endpoint_id")):
+        return False
+    prompt = at.nearest("CaseSearchProperty")
+    name = prompt.get("name") if prompt is not None else None
+    if not isinstance(name, str) or SEARCH_INPUT_NAME.fullmatch(name) is None:
+        return False
+    itemset = prompt.get("itemset")
+    return (_address_field(prompt)
+            and not any(prompt.get(key) for key in (
+                "is_group", "hidden", "input_", "default_value", "allow_blank_value", "receiver_expression",
+            ))
+            and not _required(prompt) and not _validations(prompt)
+            and not (isinstance(itemset, dict) and itemset.get("nodeset")))
 
 address_with_required_or_validations = _prompt_reader(
     lambda prompt: _address_field(prompt) and (_required(prompt) or bool(_validations(prompt)))
@@ -13932,5 +14015,8 @@ VALUE_CLASSES = {
 # A positive class may need an observation beyond the use at its own source.
 # It grants HELD only when that observation establishes the supported class.
 POSITIVE_VALUE_CLASSES = {
+    "case-search/address-picker-on-a-search-screen": ordinary_address_search_marker,
+    "case-search/case-search-endpoint-id": configured_search_endpoint,
+    "case-search/default-filter-orders-the-records-the-search-sends": named_search_order,
     "expressions-and-data/companion-lookup-count": guarded_lookup_count_in_one_frame,
 }

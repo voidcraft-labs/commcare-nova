@@ -79,6 +79,55 @@ def test_each_positive_reader_has_a_held_value_class(manifest):
         assert entry.disposition == "HELD" and entry.value_class
 
 
+def test_a_configured_project_search_uses_an_endpoint_datum_and_owns_its_parameter_row(manifest):
+    def source(endpoint):
+        return {
+            "doc_type": "Application",
+            "modules": [{
+                "doc_type": "Module",
+                "search_config": {
+                    "case_search_endpoint_id": endpoint,
+                    "default_properties": [{"property": "district", "defaultValue": "'north'"}],
+                },
+            }],
+        }
+
+    for endpoint, expected in [(17, True), ("17", False), (0, False)]:
+        found = manifest_usage.Uses()
+        manifest_usage.app_json_uses(source(endpoint), manifest, "app.json", found)
+        assert any(
+            use.key == "schema:DefaultCaseSearchProperty"
+            and use.where == "/modules/0/search_config/default_properties/0"
+            for use in found.uses
+        ) is expected
+
+    for ref, expected in [("'17'", True), ("17", False), ("'0'", False), ("'2147483648'", False)]:
+        xml = f'<suite><remote-request><session><query><data key="x_commcare_endpoint_id" ref="{ref}"/></query></session></remote-request></suite>'
+        found = manifest_usage.Uses()
+        manifest_usage.runtime_xml_uses(xml.encode(), "SuiteParser", manifest, "local.ccz/suite.xml", found)
+        (use,) = [use for use in found.uses if use.key == "csql-key:x_commcare_endpoint_id"]
+        assert (manifest_usage.standing(manifest, use)[0] == manifest_usage.HELD) is expected
+
+
+def test_native_sort_and_address_markers_hold_only_the_supported_search_query(manifest):
+    for attributes, order, expected_address, expected_order in [
+        ('input="address"', "'+-name:exact,-@owner_id:date'", True, True),
+        ('input="address" receive="other"', "concat('name', ':exact')", False, False),
+        ('input="address" allow_blank_value="true"', "'+location_id:exact'", False, False),
+    ]:
+        xml = f"""
+        <suite><remote-request><session><query>
+         <data key="commcare_sort" ref="{order}"/>
+         <prompt key="address" {attributes}/>
+        </query></session></remote-request></suite>
+        """
+        found = manifest_usage.Uses()
+        manifest_usage.runtime_xml_uses(xml.encode(), "SuiteParser", manifest, "local.ccz/suite.xml", found)
+        for key, expected in [("prompt-input:address", expected_address), ("csql-key:commcare_sort", expected_order)]:
+            (use,) = [use for use in found.uses if use.key == key]
+            assert (manifest_usage.standing(manifest, use)[0] == manifest_usage.HELD) is expected
+
+
 @pytest.mark.parametrize("identifier", ["my.parent", "éparent"])
 def test_the_retained_extended_open_index_is_decided_at_its_reference(identifier):
     from proof.checks import parity
