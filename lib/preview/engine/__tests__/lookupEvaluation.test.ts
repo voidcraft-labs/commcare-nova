@@ -186,6 +186,9 @@ describe("evaluateLookupChoices", () => {
 			evaluateLookupChoices(at(2), data()).map(({ value }) => value),
 		).toEqual(["b2"]);
 		expect(evaluateLookupChoices(at(4), data())).toEqual([]);
+		// An explicit fractional equality is different from a bare Core index,
+		// which Nova reads as its truncated integral position.
+		expect(evaluateLookupChoices(at(2.5), data())).toEqual([]);
 	});
 
 	it("returns every row in authored order when unfiltered", () => {

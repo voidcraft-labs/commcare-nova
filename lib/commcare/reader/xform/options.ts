@@ -242,21 +242,21 @@ function positionOfNumber(predicate: FormSyntax): boolean {
 	);
 }
 
-/** Core compares a numeric predicate through a signed Java int against the
- * same one-based counter position() returns. Keep this to bare integer tokens
- * on the one declared fixture row predicate this reader can carry. */
+/** Core truncates a numeric predicate before comparing it with the one-based
+ * row counter. Keep this to one bare positive integer or nonintegral decimal
+ * with an in-range ordinal on a declared lookup fixture. */
 function lookupPredicateText(
 	nodeset: string,
 	predicate: FormSyntax,
 	declared: boolean,
 ): string {
 	const text = nodeset.slice(predicate.from, predicate.to);
-	return declared &&
-		predicate.kind === "number" &&
-		!text.includes(".") &&
-		predicate.value > 0 &&
-		predicate.value <= 2_147_483_647
-		? `position() = ${predicate.value}`
+	if (!declared || predicate.kind !== "number") return text;
+	const ordinal = Math.trunc(predicate.value);
+	return ordinal > 0 &&
+		ordinal <= 2_147_483_647 &&
+		(!text.includes(".") || ordinal !== predicate.value)
+		? `position() = ${ordinal}`
 		: text;
 }
 

@@ -11588,7 +11588,7 @@ def itemset_literal_row_index(use):
     numeric = fixture_itemset_number(itemset.get("nodeset") or "", dict(form.declared_instances))
     if numeric is None:
         return None
-    return "ordinal" if numeric[2] else "other-number"
+    return "ordinal" if numeric[2] is not None else "other-number"
 
 
 def case_itemset_survey_readiness(use):
