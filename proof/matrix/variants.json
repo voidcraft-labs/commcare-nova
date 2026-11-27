@@ -18126,13 +18126,6 @@
 		"id": "hq-case-management/non-ascii-update-key",
 		"base": "hq-case-management",
 		"entry": "forms-and-case-writes/basic-update-key-with-an-accented-latin-name",
-		"place": {
-			"kind": "form",
-			"menu": 1,
-			"form": 0,
-			"menuName": "Members",
-			"name": "Followup Form"
-		},
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/1/forms/0/actions/update_case/update/estado_é",
@@ -18141,7 +18134,29 @@
 				"update_mode": "always",
 				"doc_type": "ConditionalCaseUpdate"
 			}
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [1, 0]
+					}
+				],
+				"pointer": "/caseOperations/0/writes/1/property",
+				"value": "estado_é"
+			},
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [1, 0]
+					}
+				],
+				"pointer": "/caseOperations/0/writes/1/value/term/kind",
+				"value": "field"
+			}
+		]
 	},
 	{
 		"id": "hq-case-management/non-ascii-update-key-edited-only",
