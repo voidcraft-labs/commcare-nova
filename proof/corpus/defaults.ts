@@ -1,3 +1,5 @@
+import type { CommCareServer } from "@/lib/commcare/servers";
+
 /**
  * The corpus's defaults: the seed of its fuzz sample and edit batches, and
  * the sample's size, which the proof lane's time budget sets. `emit.ts`
@@ -17,3 +19,7 @@ export const DEFAULT_EXPRESSION_SAMPLE_SIZE = 8;
  * its menu advanced unless a blocker keeps it basic.
  */
 export const DEFAULT_ADVANCED_SAMPLE_SIZE = 8;
+
+/** Captures use the same origin as the retained HQ project space. */
+export const PROOF_SERVER: CommCareServer = "production";
+export const PROOF_DOMAIN = "nova-proof";

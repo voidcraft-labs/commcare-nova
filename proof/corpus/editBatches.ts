@@ -76,7 +76,9 @@ import {
 } from "@/lib/domain";
 import { type MediaSlotKind, walkAssetRefs } from "@/lib/domain/mediaRefs";
 import type { MediaFormatKey } from "@/lib/domain/multimedia";
+import { assignedLookupStaysAtSource } from "@/lib/export/boundaryFindings";
 import type { LookupFixtureDataSnapshot } from "@/lib/lookup/types";
+import { PROOF_DOMAIN, PROOF_SERVER } from "./defaults";
 import { lookupContextOf, storedDocument } from "./documents";
 import {
 	Minter,
@@ -297,7 +299,16 @@ export function publishFindings(
 			: [
 					...lookupXmlTextFindings(referenced),
 					...lookupHqCellTextFindings(referenced),
-					...lookupSelectSourceRowFindings(doc, referenced),
+					...lookupSelectSourceRowFindings(doc, {
+						...referenced,
+						definitions: referenced.definitions.filter(
+							(definition) =>
+								!assignedLookupStaysAtSource(definition, {
+									server: PROOF_SERVER,
+									domain: PROOF_DOMAIN,
+								}),
+						),
+					}),
 				]),
 	];
 	if (findings.length > 0) return findings;

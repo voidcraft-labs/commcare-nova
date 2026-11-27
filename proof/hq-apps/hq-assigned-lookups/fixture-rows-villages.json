@@ -1,0 +1,7 @@
+{
+	"status": 200,
+	"headers": {
+		"Content-Type": "application/json; charset=utf-8"
+	},
+	"body": "{\"meta\": {\"limit\": 1000, \"next\": null, \"offset\": 0, \"previous\": null, \"total_count\": 3}, \"objects\": [{\"fields\": {\"district\": \"d1\", \"id\": \"v1\", \"name\": \"Kalama\"}, \"fixture_type\": \"villages\", \"id\": \"4584450e769a4d8895c0923f8622edf5\", \"resource_uri\": \"\"}, {\"fields\": {\"district\": \"d1\", \"id\": \"v2\", \"name\": \"Mbeya\"}, \"fixture_type\": \"villages\", \"id\": \"0a81ae0a520d4002aff30411c333b08f\", \"resource_uri\": \"\"}, {\"fields\": {\"district\": \"d2\", \"id\": \"v3\", \"name\": \"Rusumo\"}, \"fixture_type\": \"villages\", \"id\": \"ec295979b9ab4ef1bebaafa3f72cce8e\", \"resource_uri\": \"\"}]}"
+}
