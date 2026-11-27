@@ -9,6 +9,7 @@
  * a publish that would silently move data a project space already holds.
  */
 import { describe, expect, it } from "vitest";
+import { addFixtureField } from "@/lib/__tests__/docHelpers";
 import {
 	advancedFixture,
 	HOUSEHOLDS,
@@ -199,17 +200,22 @@ describe("HELD_BLOCK_PATH_TAKEN", () => {
 				update("upd", { placement: at(["nova_operations", "upd"]) }),
 			],
 		});
-		doc.connectType = "deliver";
+		doc.connectRoles = ["deliver"];
 		doc.appSettings = { ...doc.appSettings, runsOnlyOn: "android" };
-		doc.forms[formUuid].connect = {
-			deliver_unit: {
-				id: "nova_operations",
+		addFixtureField(doc, formUuid, {
+			kind: "connect_activity",
+			uuid: U("held-path-activity"),
+			id: "nova_operations",
+			activity: {
+				kind: "delivery",
 				name: "Visit",
-				entity_id: term(literal("x")),
-				entity_name: term(literal("x")),
+				entityId: term(literal("x")),
+				entityName: term(literal("x")),
 			},
-		} as BlueprintDoc["forms"][Uuid]["connect"];
-		const [finding] = findings(doc, "HELD_BLOCK_PATH_TAKEN");
+		});
+		const [finding, ...others] = findings(doc, "HELD_BLOCK_PATH_TAKEN");
+		expect(others).toEqual([]);
+		expect(finding?.location.fieldUuid).toBe(U("held-path-activity"));
 		expect(finding?.details?.takenBy).toBe("connect");
 		expect(finding?.message).toBe(
 			"The name “nova_operations” is where your published app keeps the case change “upd” in CommCare HQ. You can name it “nova_operations_2”.",

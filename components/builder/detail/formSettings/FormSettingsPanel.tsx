@@ -8,10 +8,12 @@ import { ControlWording } from "@/components/builder/localization/ControlWording
 import { Button } from "@/components/shadcn/button";
 import { useForm } from "@/lib/doc/hooks/useEntity";
 import { useIsCaseListRegistrationForm } from "@/lib/doc/hooks/useOfferedBatchRefusals";
+import { useCanEdit } from "@/lib/session/hooks";
 import { AfterSubmitSection } from "./AfterSubmitSection";
+import { AnswerRootSection } from "./AnswerRootSection";
 import { CaseChangesSection } from "./CaseChangesSection";
-import { ConnectSection } from "./ConnectSection";
 import { FormAppearanceSection } from "./FormAppearanceSection";
+import { FormBehaviorSection } from "./FormBehaviorSection";
 import { FormEntrySection } from "./FormEntrySection";
 import { FormLocationSection } from "./FormLocationSection";
 import { NoMatchesAfterSubmitSection } from "./NoMatchesAfterSubmitSection";
@@ -32,7 +34,7 @@ interface FormSettingsPanelProps extends FormSettingsSectionProps {
  * chrome: a labeled header with a dismiss button and a scrollable
  * content region that composes the feature sections in a fixed vertical
  * order. Each section decides whether it renders (close forms only for
- * `OwnCaseSection`, non-null `connectType` for `ConnectSection`,
+ * `OwnCaseSection`,
  * registration forms with somewhere to be offered from for
  * `FormEntrySection`). A case list registration form has a restricted after-submit choice
  * and no menu section: it is on no menu, so it takes neither "Show on the
@@ -46,6 +48,7 @@ export function FormSettingsPanel({
 }: FormSettingsPanelProps) {
 	const shared = useForm(formUuid)?.shadowOf;
 	const noMatches = useIsCaseListRegistrationForm(moduleUuid, formUuid);
+	const canEdit = useCanEdit();
 	return (
 		<div className="w-80">
 			{/* Header */}
@@ -66,60 +69,64 @@ export function FormSettingsPanel({
 			</div>
 
 			{/* Content */}
-			<div className="px-3.5 py-3 space-y-3 overflow-y-auto max-h-[480px]">
-				{!shared && (
-					<RecordNameSection moduleUuid={moduleUuid} formUuid={formUuid} />
-				)}
-				{!shared && (
-					<OwnCaseSection moduleUuid={moduleUuid} formUuid={formUuid} />
-				)}
+			{canEdit ? (
+				<div className="px-3.5 py-3 space-y-3 overflow-y-auto max-h-[480px]">
+					{!shared && (
+						<RecordNameSection moduleUuid={moduleUuid} formUuid={formUuid} />
+					)}
+					{!shared && (
+						<OwnCaseSection moduleUuid={moduleUuid} formUuid={formUuid} />
+					)}
 
-				<FormEntrySection moduleUuid={moduleUuid} formUuid={formUuid} />
-				<SubmitButtonSection formUuid={formUuid} />
-				{!noMatches && (
-					<EntryPointSettingsShortcut
-						target={{ kind: "form", moduleUuid, formUuid }}
-						onNavigateAway={onClose}
-					/>
-				)}
+					<FormEntrySection moduleUuid={moduleUuid} formUuid={formUuid} />
+					<SubmitButtonSection formUuid={formUuid} />
+					<FormBehaviorSection moduleUuid={moduleUuid} formUuid={formUuid} />
+					{!noMatches && (
+						<EntryPointSettingsShortcut
+							target={{ kind: "form", moduleUuid, formUuid }}
+							onNavigateAway={onClose}
+						/>
+					)}
 
-				{noMatches ? (
-					<NoMatchesAfterSubmitSection
+					{noMatches ? (
+						<NoMatchesAfterSubmitSection
+							moduleUuid={moduleUuid}
+							formUuid={formUuid}
+						/>
+					) : (
+						<AfterSubmitSection
+							moduleUuid={moduleUuid}
+							formUuid={formUuid}
+							onNavigateAway={onClose}
+						/>
+					)}
+
+					{!shared && <FormLocationSection formUuid={formUuid} />}
+					<FormAppearanceSection moduleUuid={moduleUuid} formUuid={formUuid} />
+					{!noMatches && (
+						<MenuBadgeSection moduleUuid={moduleUuid} formUuid={formUuid} />
+					)}
+					<AnswerRootSection formUuid={formUuid} />
+					<ControlWording owner={formUuid} />
+
+					{!noMatches && (
+						<DisplayConditionSection
+							target={{ kind: "form", moduleUuid, formUuid }}
+							onNavigateAway={onClose}
+						/>
+					)}
+
+					<CaseChangesSection
 						moduleUuid={moduleUuid}
 						formUuid={formUuid}
-					/>
-				) : (
-					<AfterSubmitSection
-						moduleUuid={moduleUuid}
-						formUuid={formUuid}
 						onNavigateAway={onClose}
 					/>
-				)}
-
-				{!shared && (
-					<ConnectSection moduleUuid={moduleUuid} formUuid={formUuid} />
-				)}
-
-				{!shared && <FormLocationSection formUuid={formUuid} />}
-				<FormAppearanceSection moduleUuid={moduleUuid} formUuid={formUuid} />
-				{!noMatches && (
-					<MenuBadgeSection moduleUuid={moduleUuid} formUuid={formUuid} />
-				)}
-				<ControlWording owner={formUuid} />
-
-				{!noMatches && (
-					<DisplayConditionSection
-						target={{ kind: "form", moduleUuid, formUuid }}
-						onNavigateAway={onClose}
-					/>
-				)}
-
-				<CaseChangesSection
-					moduleUuid={moduleUuid}
-					formUuid={formUuid}
-					onNavigateAway={onClose}
-				/>
-			</div>
+				</div>
+			) : (
+				<div className="px-3.5 py-3">
+					<AnswerRootSection formUuid={formUuid} />
+				</div>
+			)}
 		</div>
 	);
 }

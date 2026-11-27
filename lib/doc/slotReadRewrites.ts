@@ -192,7 +192,6 @@ function formMutations(form: Form, rewrite: SlotReadRewrite): Mutation[] {
 		patch.openCondition = mapped.openCondition;
 	if (changedKeys.has("closeCondition"))
 		patch.closeCondition = mapped.closeCondition;
-	if (changedKeys.has("connect")) patch.connect = mapped.connect;
 	if (Object.keys(patch).length > 0)
 		mutations.push({ kind: "updateForm", uuid: form.uuid, patch });
 	if (changedKeys.has("formLinks")) {

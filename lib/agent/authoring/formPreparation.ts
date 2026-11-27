@@ -14,7 +14,6 @@ import {
 	type FormType,
 	fieldKinds,
 	formLinkTargetSchema,
-	formRootFieldIds,
 	formTypeLabels,
 	moduleUuidOfForm,
 	resolveFormLinkTarget,
@@ -27,7 +26,6 @@ import type { LookupDefinitionIndex } from "@/lib/domain/expression/context";
 import {
 	type FormStructure,
 	type FormStructureChoices,
-	type FormStructureConnect,
 	type FormStructureField,
 	formStructure,
 } from "@/lib/domain/expression/formStructure";
@@ -38,34 +36,38 @@ import {
 	formLinkDatumNameSchema,
 	formLinkSelectionName,
 } from "@/lib/domain/expression/types";
+import { TEXT_KEYPADS } from "@/lib/domain/fields/text";
+import { formRootNameSchema } from "@/lib/domain/formAnswerRoot";
 import { lookupTableIdSchema } from "@/lib/domain/lookupIds";
+import { rowTimingSchema } from "@/lib/domain/queryRepeatPlacement";
 import {
 	expressionSlotKey,
 	expressionSlotValue,
 	FORM_REFERENCE_SLOTS,
 } from "@/lib/domain/referenceSlots";
 import { catalogFieldDefaults } from "../contentProcessing";
-import {
-	type ConnectIdDraft,
-	connectIdsInConfig,
-	planConnectIds,
-	reserveExplicitConnectIds,
-} from "../tools/shared/connectIds";
 import type { ToolInvocationContext } from "../workspace/types";
 import { AuthoringInputError } from "./errors";
 import type { AuthoringPath } from "./schema";
 import { printAuthoringText } from "./text";
 
+const activityKind = z.enum([
+	"learning-module",
+	"assessment",
+	"delivery",
+	"assigned-task",
+]);
+const activitySlots = {
+	score: "assessment_user_score",
+	entityId: "deliver_entity_id",
+	entityName: "deliver_entity_name",
+	workAreaId: "deliver_work_area_id",
+} as const satisfies Record<string, FieldExpressionSlotRef["slot"]>;
+
 type Input = Record<string, unknown>;
 type FormSlot = FieldExpressionSlotRef | FormExpressionSlotRef;
 const object = z.record(z.string(), z.unknown());
 const objects = z.array(object);
-const connectKinds = [
-	"learn_module",
-	"assessment",
-	"deliver_unit",
-	"task",
-] as const;
 const pathKey = (path: AuthoringPath) => JSON.stringify(path);
 
 /** Catalog defaults become ordinary authored input before the one creation
@@ -97,123 +99,6 @@ export function stageFieldDefaults(
 					}),
 		};
 	});
-}
-
-function structuralConnect(
-	raw: Input,
-	previous: FormStructureConnect,
-	replace: boolean,
-): ConnectIdDraft {
-	const result: ConnectIdDraft = replace ? {} : { ...previous };
-	for (const kind of connectKinds) {
-		if (raw[kind] === null) delete result[kind];
-		if (raw[kind] == null) continue;
-		const block = object.parse(raw[kind]);
-		const id = z.string().nullish().parse(block.id) ?? previous[kind]?.id;
-		result[kind] = id === undefined ? {} : { id };
-	}
-	return result;
-}
-
-/** Finalize every Connect identity before reading one authored expression.
- * The shared ID planner also validates those explicit IDs during execution. */
-function stageConnect(
-	toolName: string,
-	input: Input,
-	doc: BlueprintDoc,
-): Map<Uuid, FormStructureConnect> {
-	const result = new Map<Uuid, FormStructureConnect>();
-	const mode =
-		toolName === "configureConnect"
-			? z.enum(["learn", "deliver"]).nullable().parse(input.mode)
-			: doc.connectType;
-	if (mode === null) return result;
-	const candidates: {
-		form: FormStructure;
-		raw: Input;
-		draft: ConnectIdDraft;
-	}[] = [];
-	if (toolName === "configureConnect") {
-		const requested = new Map(
-			objects
-				.parse(input.participants ?? [])
-				.map((item) => [uuidSchema.parse(item.formUuid), item]),
-		);
-		for (const moduleUuid of doc.moduleOrder)
-			for (const formUuid of doc.formOrder[moduleUuid] ?? []) {
-				const participant = requested.get(formUuid);
-				if (participant === undefined) continue;
-				const form = formStructure(doc, formUuid);
-				if (form === undefined)
-					throw new AuthoringInputError(
-						"This Connect form is no longer in the app.",
-					);
-				const raw = object.parse(participant.connect);
-				participant.connect = raw;
-				const previous = doc.forms[formUuid]?.connect ?? {};
-				candidates.push({
-					form,
-					raw,
-					draft: structuralConnect(raw, previous, true),
-				});
-			}
-		// Preserve the original participant objects after zod's structural reads.
-		input.participants = [...requested.values()];
-	} else if (toolName === "updateForm" && input.connect != null) {
-		const form = formStructure(doc, uuidSchema.parse(input.formUuid));
-		if (form === undefined)
-			throw new AuthoringInputError(
-				"This Connect form is no longer in the app.",
-			);
-		const raw = object.parse(input.connect);
-		input.connect = raw;
-		candidates.push({
-			form,
-			raw,
-			draft: structuralConnect(
-				raw,
-				doc.forms[form.formUuid]?.connect ?? {},
-				false,
-			),
-		});
-	}
-	const replacing = new Set(candidates.map(({ form }) => form.formUuid));
-	const taken = new Set<string>();
-	if (toolName !== "configureConnect")
-		for (const saved of Object.values(doc.forms)) {
-			if (!replacing.has(saved.uuid) && saved.connect !== undefined)
-				for (const id of connectIdsInConfig(saved.connect)) taken.add(id);
-		}
-	for (const { form, draft } of candidates) {
-		const errors = reserveExplicitConnectIds(
-			draft,
-			taken,
-			formRootFieldIds(doc, form.formUuid),
-		);
-		if (errors.length) throw new AuthoringInputError(errors.join("; "));
-	}
-	for (const { form, raw, draft } of candidates) {
-		const local = new Set(taken);
-		for (const id of connectIdsInConfig(draft)) local.delete(id);
-		const planned = planConnectIds(
-			draft,
-			mode,
-			doc.modules[form.moduleUuid]?.name ?? "",
-			doc.forms[form.formUuid]?.name ?? "",
-			local,
-			formRootFieldIds(doc, form.formUuid),
-		);
-		if (!planned.ok) throw new AuthoringInputError(planned.error);
-		for (const kind of connectKinds) {
-			const block = planned.config[kind];
-			if (block === undefined) continue;
-			if (raw[kind] != null)
-				raw[kind] = { ...object.parse(raw[kind]), id: block.id };
-			taken.add(block.id);
-		}
-		result.set(form.formUuid, planned.config);
-	}
-	return result;
 }
 
 function choices(
@@ -251,7 +136,13 @@ function fieldDeclaration(
 ): FormStructureField {
 	const repeat = raw.repeat == null ? undefined : object.parse(raw.repeat);
 	const prose = new Set(previous?.proseSlots ?? []);
-	for (const slot of ["label", "hint", "help"] as const) {
+	for (const slot of [
+		"label",
+		"hint",
+		"help",
+		"addFirstLabel",
+		"addLabel",
+	] as const) {
 		if (raw[slot] === null) prose.delete(slot);
 		else if (raw[slot] !== undefined) prose.add(slot);
 	}
@@ -265,13 +156,41 @@ function fieldDeclaration(
 		parent,
 		kind,
 		id: z.string().parse(raw.id ?? previous?.id),
+		...(kind === "connect_activity" && {
+			activityKind: activityKind.parse(
+				raw.activity === undefined
+					? previous?.activityKind
+					: object.parse(raw.activity).kind,
+			),
+		}),
 		...(kind !== "repeat"
 			? {}
 			: {
+					...(repeat?.when === undefined
+						? { rowTiming: previous?.rowTiming }
+						: {
+								rowTiming:
+									rowTimingSchema.nullish().parse(repeat.when) ?? undefined,
+							}),
+					...(previous?.heldQueryPlacement === undefined
+						? {}
+						: { heldQueryPlacement: previous.heldQueryPlacement }),
 					repeatMode: z
 						.enum(["user_controlled", "count_bound", "query_bound"])
 						.parse(repeat?.mode ?? previous?.repeatMode ?? "user_controlled"),
 				}),
+		...(kind === "text" && {
+			textInput: {
+				keypad:
+					raw.keypad === undefined
+						? previous?.textInput?.keypad
+						: (z.enum(TEXT_KEYPADS).nullish().parse(raw.keypad) ?? undefined),
+				addressLookup:
+					raw.addressLookup === undefined
+						? previous?.textInput?.addressLookup
+						: (z.literal(true).nullish().parse(raw.addressLookup) ?? undefined),
+			},
+		}),
 		...(choice === undefined ? {} : { choices: choice }),
 		proseSlots: [...prose],
 	};
@@ -292,6 +211,10 @@ function fieldSlot(
 			uuid,
 			slot: path[0] as "relevant" | "calculate" | "default_value" | "required",
 		};
+	if (path.length === 2 && path[0] === "activity") {
+		for (const [member, slot] of Object.entries(activitySlots))
+			if (path[1] === member) return { entity: "field", uuid, slot };
+	}
 	if (path[0] === "validate" && path[1] === "expr")
 		return { entity: "field", uuid, slot: "validate" };
 	if (path[0] === "repeat" && path[1] === "count")
@@ -407,7 +330,6 @@ export function prepareFormAuthoring(args: {
 			};
 		}
 	}
-	const connect = stageConnect(toolName, input, doc);
 	const forms = new Map<Uuid, FormStructure>();
 	const sources = new Map<
 		string,
@@ -431,6 +353,15 @@ export function prepareFormAuthoring(args: {
 					expressionSlotKey({ entity: "field", uuid, slot }),
 					undefined,
 				);
+		if (updates.activity !== undefined) {
+			const activity = object.parse(updates.activity);
+			for (const [member, slot] of Object.entries(activitySlots))
+				if (activity[member] === undefined)
+					parsed.set(
+						expressionSlotKey({ entity: "field", uuid, slot }),
+						undefined,
+					);
+		}
 		if (updates.repeat != null) {
 			const repeat = object.parse(updates.repeat);
 			for (const [mode, slot] of [
@@ -444,34 +375,6 @@ export function prepareFormAuthoring(args: {
 					);
 		}
 	}
-	const connectInputs =
-		toolName === "configureConnect"
-			? objects.parse(input.participants ?? []).map((item) => ({
-					uuid: uuidSchema.parse(item.formUuid),
-					raw: object.parse(item.connect),
-				}))
-			: toolName === "updateForm" &&
-					input.connect != null &&
-					formUuid !== undefined
-				? [{ uuid: formUuid, raw: object.parse(input.connect) }]
-				: [];
-	for (const { uuid, raw } of connectInputs)
-		for (const [block, member, slot] of [
-			["assessment", "user_score", "assessment_user_score"],
-			["deliver_unit", "entity_id", "deliver_entity_id"],
-			["deliver_unit", "entity_name", "deliver_entity_name"],
-		] as const) {
-			const value =
-				raw[block] == null ? raw[block] : object.parse(raw[block])[member];
-			if (
-				value === null ||
-				(toolName === "configureConnect" && value === undefined)
-			)
-				parsed.set(
-					expressionSlotKey({ entity: "form", uuid, slot }),
-					undefined,
-				);
-		}
 	const recordName =
 		toolName === "updateForm" &&
 		input.recordName !== undefined &&
@@ -683,10 +586,17 @@ export function prepareFormAuthoring(args: {
 		}
 		const result: FormStructure = {
 			...saved,
+			...(toolName === "updateForm" &&
+				uuid === formUuid &&
+				input.answerRoot !== undefined && {
+					dataRootName:
+						input.answerRoot === null
+							? undefined
+							: formRootNameSchema.parse(input.answerRoot),
+				}),
 			fields,
 			fieldOrder: order,
 			links,
-			connect: connect.get(uuid) ?? saved.connect,
 			expressionAt: read,
 		};
 		forms.set(uuid, result);
@@ -694,7 +604,6 @@ export function prepareFormAuthoring(args: {
 	}
 	if (formUuid !== undefined && doc.forms[formUuid] !== undefined)
 		ensure(formUuid);
-	for (const uuid of connect.keys()) ensure(uuid);
 
 	/* An open or close condition has no evaluation context on a form type
 	 * that does not create or close its own case, so its text cannot be read
@@ -758,27 +667,9 @@ export function prepareFormAuthoring(args: {
 			formUuid !== undefined
 		)
 			return { entity: "form", uuid: formUuid, slot: "form_open_condition" };
-		let owner = formUuid;
-		let local = path;
-		if (
-			toolName === "configureConnect" &&
-			path[0] === "participants" &&
-			typeof path[1] === "number"
-		) {
-			owner = uuidSchema.parse(
-				objects.parse(input.participants)[path[1]].formUuid,
-			);
-			local = path.slice(2);
-		}
+		const owner = formUuid;
 		if (owner === undefined) return undefined;
-		if (local[0] === "connect") {
-			if (local[1] === "assessment" && local[2] === "user_score")
-				return { entity: "form", uuid: owner, slot: "assessment_user_score" };
-			if (local[1] === "deliver_unit" && local[2] === "entity_id")
-				return { entity: "form", uuid: owner, slot: "deliver_entity_id" };
-			if (local[1] === "deliver_unit" && local[2] === "entity_name")
-				return { entity: "form", uuid: owner, slot: "deliver_entity_name" };
-		}
+		let local = path;
 		let linkUuid: Uuid | undefined;
 		if (
 			toolName === "addFormLinks" &&

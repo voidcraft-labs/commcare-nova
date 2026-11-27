@@ -104,6 +104,24 @@ def document_type_declaration(authoring, app_id):
 # Question ids and data nodes ----------------------------------------------------------------------------------------
 
 
+def submitted_case_answer(authoring, app_id):
+    _change(authoring, app_id, "submitted-case-answer",
+            ("<weight />", "<Case />", 1), ('"#form/weight"', '"#form/Case"', 2), ('"/data/weight"', '"/data/Case"', 2))
+
+
+def android_answer_name(authoring, app_id):
+    _change(authoring, app_id, "android-answer-name", ("<weight />", "<registration />", 1),
+            ('"#form/weight"', '"#form/registration"', 2), ('"/data/weight"', '"/data/registration"', 2))
+
+
+def ordinary_stock_answer(authoring, app_id):
+    _change(authoring, app_id, "ordinary-stock-answer", ("<double_age />", '<double_age xmlns="http://commcarehq.org/ledger/v1" />', 1))
+
+
+def empty_hidden_namespace(authoring, app_id):
+    _change(authoring, app_id, "empty-hidden-namespace", ("<double_age />", '<double_age xmlns="" />', 1))
+
+
 def question_id_script(authoring, app_id):
     """The question ``weight`` renamed ``script``, a name HQ's form builder only warns about, at its data node, its
     bind and its control."""
@@ -209,7 +227,7 @@ def hidden_calculate_and_default(authoring, app_id):
     """A default of ``1`` on the hidden value ``double_age``, which is calculated, as the form builder places a
     default: a setvalue at the question's place in data-tree order; and a default of ``details/nickname``, which
     the form builder runs after it and which reads ``double_age``, so the form opens with the default in the
-    nickname before the calculate replaces it. With no such later read the calculate alone is held."""
+    nickname before the calculate replaces it."""
     _change(
         authoring,
         app_id,
@@ -381,12 +399,63 @@ def no_add_remove_without_count(authoring, app_id):
     _change(authoring, app_id, "no-add-remove-without-count", (MEMBERS_COUNT + " ", "", 1))
 
 
+ROUNDS_ROW_BIND = '<bind vellum:nodeset="#form/rounds/item" nodeset="/data/rounds/item" />'
+
+
 def model_iteration_outside_rule(authoring, app_id):
-    """A display condition (``true()``) on the model-iteration repeat ``rounds``, a bind of its wrapper node."""
-    _model(
+    """A display condition (``true()``) on the model-iteration repeat ``rounds``, on its rows' bind, where the form
+    builder writes it."""
+    _change(
         authoring,
         app_id,
         "model-iteration-outside-rule",
+        (
+            ROUNDS_ROW_BIND,
+            '<bind vellum:nodeset="#form/rounds/item" nodeset="/data/rounds/item" relevant="true()" />',
+            1,
+        ),
+    )
+
+
+def model_iteration_hidden_first_row(authoring, app_id):
+    """The first row can hide while separately enabled later rows are created."""
+    _change(
+        authoring,
+        app_id,
+        "model-iteration-hidden-first-row",
+        (
+            '<input vellum:ref="#form/phone" ref="/data/phone" appearance="numeric">',
+            '<input vellum:ref="#form/phone" ref="/data/phone">',
+            1,
+        ),
+        (
+            ROUNDS_ROW_BIND,
+            ROUNDS_ROW_BIND.removesuffix(" />")
+            + """ relevant="if(position() = 0, /data/full_name = 'yes', /data/phone = '2')" />""",
+            1,
+        ),
+        (
+            FIRST_SETVALUE,
+            """<setvalue event="xforms-ready" ref="/data/full_name" value="'yes'" />
+"""
+            + FIRST_SETVALUE,
+            1,
+        ),
+        (
+            """value="join(' ', instance('casedb')/casedb/case/@case_id)" """.strip(),
+            """value="join(' ', 'a b c')" """.strip(),
+            1,
+        ),
+    )
+
+
+def model_iteration_container_condition(authoring, app_id):
+    """A display condition (``true()``) on the model-iteration repeat ``rounds``' container node, a bind the form
+    builder discards (its question is the rows): the repeat's condition, which the first publish writes on the rows."""
+    _model(
+        authoring,
+        app_id,
+        "model-iteration-container-condition",
         '<bind vellum:nodeset="#form/rounds" nodeset="/data/rounds" relevant="true()" />',
     )
 
@@ -407,8 +476,34 @@ def model_iteration_blank_answer(authoring, app_id):
 
 
 def model_iteration_late_relevance(authoring, app_id):
+    _iteration_under_condition(authoring, app_id, "model-iteration-late-relevance", True)
+
+
+def model_iteration_initially_relevant(authoring, app_id):
+    _iteration_under_condition(authoring, app_id, "model-iteration-initially-relevant", False)
+
+
+def model_iteration_blank_fallback(authoring, app_id):
+    """An unanswered name picks a fixed fallback roster."""
+    _change(
+        authoring, app_id, "model-iteration-blank-fallback",
+        ("""value="join(' ', instance('casedb')/casedb/case/@case_id)" """.strip(),
+         """value="join(' ', if(/data/full_name = '', 'east west', /data/full_name))" """.strip(), 1),
+    )
+
+
+def model_iteration_blank_insensitive(authoring, app_id):
+    """The filter admits every case whatever the worker enters."""
+    _change(
+        authoring, app_id, "model-iteration-blank-insensitive",
+        ("""value="join(' ', instance('casedb')/casedb/case/@case_id)" """.strip(),
+         """value="join(' ', instance('casedb')/casedb/case[@case_id = /data/full_name or @case_id != /data/full_name]/@case_id)" """.strip(), 1),
+    )
+
+
+def _iteration_under_condition(authoring, app_id, name, initialize_age):
     """The model-iteration repeat ``rounds`` moved into a new group ``section`` shown only where ``age`` is over 5,
-    an answer blank when the form loads."""
+    an earlier assignment sets it below the threshold before the repeat captures its count."""
 
     def moved(text):
         text = _replaced(
@@ -417,6 +512,7 @@ def model_iteration_late_relevance(authoring, app_id):
                 (
                     FIRST_SETVALUE,
                     '<bind vellum:nodeset="#form/section" nodeset="/data/section" relevant="/data/age &gt; 5" />\n'
+                    + ('<setvalue event="xforms-ready" ref="/data/age" value="0" />\n' if initialize_age else "")
                     + FIRST_SETVALUE,
                     1,
                 ),
@@ -430,7 +526,7 @@ def model_iteration_late_relevance(authoring, app_id):
         )
         return text
 
-    _edit(authoring, app_id, "model-iteration-late-relevance", moved)
+    _edit(authoring, app_id, name, moved)
 
 
 def model_iteration_nested(authoring, app_id):
@@ -582,14 +678,42 @@ def _model(authoring, app_id, what, model):
 
 
 def data_parent_other_group(authoring, app_id):
-    """The text question ``full_name``'s control moved into the question list ``details``, its data node left at
-    the form's root."""
+    """The nickname question is shown just after full name and still submits its answer under details."""
     _edit(
         authoring,
         app_id,
         "data-parent-other-group",
+        lambda text: _moved(text, NICKNAME_OPEN, NICKNAME_CLOSE, FULL_NAME_CLOSE),
+    )
+
+
+def data_parent_at_form_root(authoring, app_id):
+    """The full-name question is shown inside details but still submits its answer at the form root."""
+    _edit(
+        authoring,
+        app_id,
+        "data-parent-at-form-root",
         lambda text: _moved(text, FULL_NAME_INPUT, FULL_NAME_CLOSE, NICKNAME_CLOSE),
     )
+
+
+def data_parent_of_a_group(authoring, app_id):
+    """The details group remains on the main screen and submits its group under a separate container."""
+    def relocate(text):
+        text = _replaced(text, [
+            ("<details>", "<archive><details>", 1),
+            ("</details>", "</details></archive>", 1),
+            (FULL_NAME_CLOSE, FULL_NAME_CLOSE + '\n<group ref="/data/archive"><label>Archive</label></group>', 1),
+        ])
+        # Keep both the raw references and Vellum's companion references pointing at the source data nodes.
+        return text.replace("/data/details", "/data/archive/details").replace("#form/details", "#form/archive/details")
+
+    _edit(authoring, app_id, "data-parent-of-a-group", relocate)
+
+
+def file_default(authoring, app_id):
+    """A stored photo question supplies a file name as its default, without supplying that file."""
+    _change(authoring, app_id, "photo-file-default", ("<photo />", "<photo>opening.jpg</photo>", 1))
 
 
 def data_parent_crossing_repeat(authoring, app_id):
@@ -628,6 +752,11 @@ def hidden_value_xmlns(authoring, app_id):
     )
 
 
+def unrecognized_question_lock(authoring, app_id):
+    _change(authoring, app_id, "unrecognized-question-lock",
+            ('<full_name />', '<full_name vellum:lock="partial" />', 1))
+
+
 def locked_question(authoring, app_id):
     """The text question ``full_name`` locked (``vellum:lock="all"``) on its data node and its bind."""
     _change(
@@ -664,6 +793,16 @@ def required_condition_differing(authoring, app_id):
     )
 
 
+def constraint_on_hidden_value(authoring, app_id):
+    """Vellum's Hidden Value has no Validation Condition property."""
+    _change(
+        authoring,
+        app_id,
+        "constraint-on-hidden-value",
+        (DOUBLE_AGE_BIND, 'nodeset="/data/double_age" constraint="true()" vellum:calculate', 1),
+    )
+
+
 def constraint_on_capture(authoring, app_id):
     """A validation condition on the image question ``photo``."""
     _change(
@@ -686,14 +825,23 @@ def message_without_condition(authoring, app_id):
 
 
 def message_on_capture(authoring, app_id):
-    """A validation message on the location question ``location``, with no validation condition."""
+    """A validation message on the location question without a validation condition."""
+    _location_message(authoring, app_id, "message-on-capture", "")
+
+
+def message_on_capture_with_condition(authoring, app_id):
+    """The location question carries both a validation condition and the message it displays."""
+    _location_message(authoring, app_id, "message-on-capture-with-condition", ' constraint="true()"')
+
+
+def _location_message(authoring, app_id, name, condition):
     _change(
         authoring,
         app_id,
-        "message-on-capture",
+        name,
         (
             'nodeset="/data/location" type="geopoint" />',
-            'nodeset="/data/location" type="geopoint" jr:constraintMsg="jr:itext(\'location-constraintMsg\')" />',
+            f'nodeset="/data/location" type="geopoint"{condition} jr:constraintMsg="jr:itext(\'location-constraintMsg\')" />',
             1,
         ),
         (
@@ -764,8 +912,15 @@ def bind_on_attribute(authoring, app_id):
 
 
 def default_on_capture(authoring, app_id):
-    """A default on the image question ``photo``."""
+    """A default naming a file, ``x``, on the image question ``photo``."""
     _model(authoring, app_id, "default-on-capture", '<setvalue event="xforms-ready" ref="/data/photo" value="\'x\'" />')
+
+
+def default_blank_on_capture(authoring, app_id):
+    """A blank default on the image question ``photo``."""
+    _model(
+        authoring, app_id, "default-blank-on-capture", '<setvalue event="xforms-ready" ref="/data/photo" value="\'\'" />'
+    )
 
 
 def second_default(authoring, app_id):
@@ -891,6 +1046,24 @@ def data_root_named_survey(authoring, app_id):
         ("<data xmlns:jrm=", "<survey xmlns:jrm=", 1),
         ("</data>", "</survey>", 1),
         ("/data/", "/survey/", None),
+    )
+
+
+def data_root_reserved_by_designer(authoring, app_id):
+    _change(authoring, app_id, "data-root-reserved-by-designer",
+            ("<data xmlns:jrm=", "<instance xmlns:jrm=", 1),
+            ("</data>", "</instance>", 1), ("/data/", "/instance/", None))
+
+
+def data_root_unaddressable(authoring, app_id):
+    """The data root named ``患者``, at the element and in every path."""
+    _change(
+        authoring,
+        app_id,
+        "data-root-unaddressable",
+        ("<data xmlns:jrm=", "<患者 xmlns:jrm=", 1),
+        ("</data>", "</患者>", 1),
+        ("/data/", "/患者/", None),
     )
 
 
@@ -1075,11 +1248,22 @@ def pragma_entry(authoring, app_id):
 
 
 def pragma_question_text(authoring, app_id):
-    """``weight``'s label text given the itext id ``Pragma-Submit-Automatically``."""
+    """``weight``'s label text given the itext id ``Pragma-Volatility-Key``."""
     _change(
         authoring,
         app_id,
         "pragma-question-text",
+        ('"weight-label"', '"Pragma-Volatility-Key"', 1),
+        ("jr:itext('weight-label')", "jr:itext('Pragma-Volatility-Key')", 1),
+    )
+
+
+def pragma_presence_text(authoring, app_id):
+    """``weight``'s label text given the itext id ``Pragma-Submit-Automatically``."""
+    _change(
+        authoring,
+        app_id,
+        "pragma-presence-text",
         ('"weight-label"', '"Pragma-Submit-Automatically"', 1),
         ("jr:itext('weight-label')", "jr:itext('Pragma-Submit-Automatically')", 1),
     )
@@ -2075,6 +2259,30 @@ def connect_long_id(authoring, app_id):
     _change(authoring, app_id, "connect-long-id", ("intro_module", "m" * 51, 5))
 
 
+def connect_receiver_id_changed(authoring, app_id):
+    """The module's submitted ID differs from the question ID that Vellum saves."""
+    _change(authoring, app_id, "connect-receiver-id-changed", ('id="intro_module"', 'id="prior_lesson"', 1))
+
+
+def connect_work_area_photo(authoring, app_id):
+    """Vellum's work-area shape including the photo leaf the HQ forwarder sends as a filename."""
+    leaves = ("work_area_id", "status", "reason", "additional_details", "photo_evidence")
+    data = "".join(f"<{leaf}/>" for leaf in leaves)
+    binds = "".join(f"""<bind nodeset="/data/area/work_area_update/{leaf}" calculate="'value'"/>""" for leaf in leaves)
+    _edit(
+        authoring, app_id, "connect-work-area-photo",
+        lambda text: _connect_block(text, f'<area vellum:role="ConnectWorkAreaUpdate"><work_area_update {LEARN_XMLNS} id="area">{data}</work_area_update></area>',
+                                    '<bind vellum:nodeset="#form/area" nodeset="/data/area" />' + binds),
+    )
+
+
+def constant_work_area_calculation(authoring, app_id):
+    """A stable source form puts the constant in a calculate bind."""
+    _change(authoring, app_id, "constant-work-area-calculation",
+            ('nodeset="/data/visit_unit/deliver/work_area_id"',
+             """nodeset="/data/visit_unit/deliver/work_area_id" calculate="'5b2f7d1e-8c3a-4e6b-9d0f-1a2b3c4d5e6f'" """.rstrip(), 1))
+
+
 def connect_work_area_update(authoring, app_id):
     """A work area update block (``vellum:role="ConnectWorkAreaUpdate"``) in the learn form."""
     _edit(
@@ -2089,8 +2297,95 @@ def connect_work_area_update(authoring, app_id):
     )
 
 
+def connect_assessment_without_score(authoring, app_id):
+    """The assessment's score left without its calculation, so the submission sends an empty score."""
+    _change(
+        authoring,
+        app_id,
+        "connect-assessment-without-score",
+        (
+            '<bind nodeset="/data/intro_check/assessment/user_score" vellum:calculate="#form/quiz_score"'
+            ' calculate="/data/quiz_score" />',
+            '<bind nodeset="/data/intro_check/assessment/user_score" />',
+            1,
+        ),
+    )
+
+
+def connect_estimate_outside_receiver_range(authoring, app_id):
+    """The learn module's time estimate made one past what Connect's signed 32-bit column holds."""
+    _change(
+        authoring,
+        app_id,
+        "connect-estimate-outside-receiver-range",
+        ("<time_estimate>5</time_estimate>", "<time_estimate>2147483648</time_estimate>", 1),
+    )
+
+
+def connect_repeated_module(authoring, app_id):
+    """A learn module ``row_module`` in each row of a worker-added repeat ``lessons``, so one submission can
+    complete the same module once per row."""
+    _edit(
+        authoring,
+        app_id,
+        "connect-repeated-module",
+        lambda text: _replaced(
+            text,
+            [
+                (
+                    LEARN_DATA_END,
+                    LEARN_DATA_END
+                    + f'\n<lessons jr:template=""><row_module vellum:role="ConnectLearnModule"><module {LEARN_XMLNS}'
+                    ' id="row_module"><name>Practice</name><description>Practice again</description>'
+                    "<time_estimate>1</time_estimate></module></row_module></lessons>",
+                    1,
+                ),
+                (
+                    LEARN_BIND_END,
+                    LEARN_BIND_END
+                    + '\n<bind vellum:nodeset="#form/lessons" nodeset="/data/lessons" />'
+                    '\n<bind vellum:nodeset="#form/lessons/row_module" nodeset="/data/lessons/row_module" />',
+                    1,
+                ),
+                (
+                    "</h:body>",
+                    "<group><label>Lessons</label>"
+                    '<repeat vellum:nodeset="#form/lessons" nodeset="/data/lessons" /></group>\n</h:body>',
+                    1,
+                ),
+            ],
+        ),
+    )
+
+
 # hq-connect-deliver's forms: the deliver unit ``visit_unit`` in the first, the task ``follow_up_task`` in the
 # second.
+
+
+def _grouped_delivery_source(text, group):
+    """Place the existing delivery under one data group without changing its recipient or activity ID."""
+    path = f"/data/{group}"
+    return _replaced(
+        text,
+        [
+            ("<visit_unit ", f"<{group}><visit_unit ", 1),
+            ("</visit_unit>", f"</visit_unit></{group}>", 1),
+            ("#form/visit_unit", f"#form/{group}/visit_unit", 1),
+            ("/data/visit_unit", f"{path}/visit_unit", 4),
+            ("<itext>", f'<bind vellum:nodeset="#form/{group}" nodeset="{path}" />\n<itext>', 1),
+            ("</h:body>", f'<group ref="{path}"><label>Visit details</label></group>\n</h:body>', 1),
+        ],
+    )
+
+
+def deliver_under_receiver_key(authoring, app_id):
+    """The delivery is under `task`, which HQ forwards and Connect mistakes for its own task block."""
+    _edit(authoring, app_id, "deliver-under-receiver-key", lambda text: _grouped_delivery_source(text, "task"))
+
+
+def deliver_under_capitalized_receiver_key(authoring, app_id):
+    """The same delivery under `Task`, beside Connect's exact case-sensitive receiver key."""
+    _edit(authoring, app_id, "deliver-under-capitalized-receiver-key", lambda text: _grouped_delivery_source(text, "Task"))
 
 
 def deliver_work_area_expression(authoring, app_id):
@@ -3369,3 +3664,36 @@ def display_search_android_only(authoring, app_id):
     _change(authoring, app_id, "search-android-only",
             ('ref="/data/ranked_route" appearance="combobox fuzzy"',
              'ref="/data/ranked_route" appearance="fuzzy combobox"', 1))
+
+
+def deliver_shared_receiver_key(authoring, app_id):
+    """A deliver unit ``row_visit`` in each row of a worker-added repeat ``visits``, every row delivering to the
+    same fixed recipient, so one submission can file two visits under one unit and recipient."""
+    _change(
+        authoring,
+        app_id,
+        "deliver-shared-receiver-key",
+        (
+            "</visit_unit>",
+            '</visit_unit>\n<visits jr:template=""><row_visit vellum:role="ConnectDeliverUnit"><deliver'
+            f' {LEARN_XMLNS} id="row_visit"><name>Row visit</name><entity_id /><entity_name /><work_area_id />'
+            "</deliver></row_visit></visits>",
+            1,
+        ),
+        (
+            '<bind nodeset="/data/visit_unit/deliver/work_area_id" />',
+            '<bind nodeset="/data/visit_unit/deliver/work_area_id" />'
+            '\n<bind vellum:nodeset="#form/visits" nodeset="/data/visits" />'
+            '\n<bind vellum:nodeset="#form/visits/row_visit" nodeset="/data/visits/row_visit" />'
+            """\n<bind nodeset="/data/visits/row_visit/deliver/entity_id" calculate="'same'" />"""
+            """\n<bind nodeset="/data/visits/row_visit/deliver/entity_name" calculate="'Same'" />"""
+            '\n<bind nodeset="/data/visits/row_visit/deliver/work_area_id" />',
+            1,
+        ),
+        (
+            "</h:body>",
+            "<group><label>Visits</label>"
+            '<repeat vellum:nodeset="#form/visits" nodeset="/data/visits" /></group>\n</h:body>',
+            1,
+        ),
+    )

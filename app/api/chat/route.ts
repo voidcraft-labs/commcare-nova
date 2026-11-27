@@ -642,6 +642,7 @@ export async function POST(req: Request) {
 	 * authorization read below so the SA's working doc seeds from the saved
 	 * blueprint with no extra load. Undefined for a design turn, which owns no
 	 * document — the executor's change-set workspace does. */
+	let publishedQuestionIds: BlueprintDoc["publishedQuestions"];
 	let loadedApp:
 		| Awaited<ReturnType<typeof resolveAuthorizedAppSnapshot>>["app"]
 		| undefined;
@@ -1029,6 +1030,7 @@ export async function POST(req: Request) {
 				"edit",
 			);
 			loadedApp = snapshot.app;
+			publishedQuestionIds = snapshot.publishedQuestions;
 			projectId = snapshot.projectId;
 			projectRole = snapshot.role;
 		} catch (err) {
@@ -3099,6 +3101,7 @@ export async function POST(req: Request) {
 				 * answers "who references / declares X" through it (retirement
 				 * planning, rename verdicts, the rename cascade) from the first
 				 * tool call. */
+				sessionDoc.publishedQuestions = publishedQuestionIds;
 				ensureReferenceIndex(sessionDoc);
 
 				/* Persist the current request's user message as the first

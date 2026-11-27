@@ -48,6 +48,7 @@
 		"expressions-and-data/join",
 		"expressions-and-data/relative-paths-q-current-x",
 		"expressions-and-data/selected-at",
+		"expressions-and-data/true",
 		"expressions-and-data/xpath-location-paths",
 		"expressions-and-data/xpath-operators-and-literals",
 		"forms-and-case-writes/case-references-data-load",
@@ -81,6 +82,7 @@
 		"questions/bind-calculate-on-a-hidden-value",
 		"questions/bind-constraint",
 		"questions/bind-nodeset-absolute-or-relative",
+		"questions/bind-relevant",
 		"questions/checkbox-select-item",
 		"questions/choice-label-with-no-markdown-form",
 		"questions/data-root-uiversion-of-1",
@@ -95,6 +97,7 @@
 		"questions/h-title-and-data-name-whatever-their-text",
 		"questions/help-text-markdown-form",
 		"questions/help-text-with-no-markdown-form",
+		"questions/hidden-value-bound-a-type-nova-would-not-write",
 		"questions/hidden-value-data-node-bind-no-control-with-calculate-or-default",
 		"questions/hint-markdown-form",
 		"questions/hint-text",
@@ -109,6 +112,7 @@
 		"questions/label-trigger-whose-appearance-is-exactly-minimal",
 		"questions/label-with-no-markdown-form",
 		"questions/markdown-form-equal-to-the-default-text",
+		"questions/model-iteration-repeat-outside-nova-s-model-iteration-rule",
 		"questions/multiple-choice-select1-item",
 		"questions/output-value-any-other-expression",
 		"questions/output-value-of-a-question-case-or-user-reference",
@@ -116,6 +120,7 @@
 		"questions/phone-number-xsd-string-appearance-numeric",
 		"questions/question-id-matching-xml-a-za-z-w",
 		"questions/question-list-group-appearance-field-list-labelled",
+		"questions/relevance-bound-on-a-model-iteration-repeat-s-container",
 		"questions/repeat-model-iteration-vellum-role-repeat-ids-count-current",
 		"questions/repeat-with-jr-count-naming-an-integer-question-of-the-form-s",
 		"questions/signature-image-signature",
@@ -134,6 +139,8 @@
 		"list-settings-respelled",
 		"incomplete-forms-tile-hidden",
 		"date-and-time-questions-split",
-		"form-text-characters-written-as-outputs"
+		"form-text-characters-written-as-outputs",
+		"hidden-answer-types-respelled",
+		"model-iteration-conditions-moved-to-rows"
 	]
 }

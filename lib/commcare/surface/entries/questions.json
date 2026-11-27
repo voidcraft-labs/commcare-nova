@@ -30,16 +30,120 @@
 		"item": "Question ID `case`, `registration`, `script`",
 		"surfaceKeys": ["xform:model/instance/*/*", "xform:model/instance//*"],
 		"valueClass": "case-registration-script",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: a name HQ's form builder only warns about, which Nova's question id rule refuses (`questionId.ts::RESERVED_QUESTION_IDS`)",
-		"subject": "question-ids",
-		"owner": "xform",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: The designer warning remains on script and registration. Workers can submit script on either platform and registration on Android. An ordinary case answer has its own runtime refusal.",
 		"platforms": {
 			"kind": "not-applicable",
 			"cell": "n/a"
 		},
 		"emission": {
 			"cell": "verbatim",
+			"markers": []
+		},
+		"gates": [],
+		"slotChanges": []
+	},
+	{
+		"id": "questions/submitted-answer-name-only-android-stores",
+		"area": "questions",
+		"section": "Question types",
+		"item": "An ordinary submitted answer named registration, fixture, schema, or sync in the sync namespace",
+		"surfaceKeys": ["xform:model/instance/*/*", "xform:model/instance//*"],
+		"valueClass": "answer-name-only-android-stores",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: verbatim answer on Android. Web Apps reads the name as an instruction.",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "UNAVAILABLE on Web Apps / RUNS on Android",
+			"webApps": {
+				"reading": "unavailable",
+				"note": "it would read this answer as an instruction"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "The submitted ID and effective namespace",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "questions/submitted-namespace-the-form-designer-cannot-keep",
+		"area": "questions",
+		"section": "Question types",
+		"item": "An explicit empty namespace or a custom namespace on a visible question",
+		"surfaceKeys": ["xform:model/instance//*@xmlns"],
+		"valueClass": "submitted-namespace-the-form-designer-cannot-keep",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: The designer cannot retain this namespace on the question. Use a Hidden Value with a nonempty receiving namespace or inherit the form namespace.",
+		"subject": "question-ids",
+		"reasons": [
+			{
+				"kind": "not-hq-editable",
+				"named": "The designer cannot retain this namespace on the question. Use a Hidden Value with a nonempty receiving namespace or inherit the form namespace."
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "questions/ordinary-answer-in-stock-namespace",
+		"area": "questions",
+		"section": "Question types",
+		"item": "An ordinary submitted node in the stock instruction namespace",
+		"surfaceKeys": ["xform:model/instance/*/*", "xform:model/instance//*"],
+		"valueClass": "ordinary-answer-in-stock-namespace",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: Workers read this namespace as a stock instruction. Use the namespace of the receiving service or inherit the form namespace.",
+		"subject": "question-ids",
+		"reasons": [
+			{
+				"kind": "broken-at-runtime",
+				"named": "Workers read this namespace as a stock instruction. Use the namespace of the receiving service or inherit the form namespace."
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "questions/submitted-node-consumed-as-case",
+		"area": "questions",
+		"section": "Question types",
+		"item": "An ordinary answer or group named case in any capitalization",
+		"surfaceKeys": ["xform:model/instance/*/*", "xform:model/instance//*"],
+		"valueClass": "submitted-node-consumed-as-case",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: Workers read this answer as a case change. Rename it in the form designer and bring the form in again.",
+		"subject": "question-ids",
+		"reasons": [
+			{
+				"kind": "broken-at-runtime",
+				"named": "Workers read this answer as a case change. Rename it in the form designer and bring the form in again."
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
 			"markers": []
 		},
 		"gates": []
@@ -822,10 +926,9 @@
 		"item": "choice value containing both `'` and `\"`",
 		"surfaceKeys": ["xform:select1/item/value", "xform:select/item/value"],
 		"valueClass": "both-quote-marks",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: a value no XPath string literal spells, so a rule naming the choice has no form text",
-		"subject": "question-choices",
-		"owner": "xform",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the stored choice value and its identity in rules and starting answers",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -1087,10 +1190,8 @@
 			"xform:trigger@appearance"
 		],
 		"valueClass": "acknowledge-label",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `label.acknowledge`",
-		"subject": "question-types",
-		"owner": "xform",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: Confirmation checkbox on Android or a message automatically confirmed in Web Apps.",
 		"platforms": {
 			"kind": "each",
 			"cell": "DIFFERENT (auto-`OK`; a required one never blocks) / RUNS (checkbox)",
@@ -1104,10 +1205,11 @@
 			}
 		},
 		"emission": {
-			"cell": "`trigger` with the held appearance, or none (Web Apps reads `N-per-row` and `text-align-*` on it, and Android a `floating-` value)",
+			"cell": "Confirmation checkbox on Android or a message automatically confirmed in Web Apps.",
 			"markers": []
 		},
-		"gates": []
+		"gates": [],
+		"slotChanges": []
 	},
 	{
 		"id": "questions/ref-less-trigger",
@@ -1197,12 +1299,11 @@
 		"area": "questions",
 		"section": "Question types",
 		"item": "Hidden Value with both `calculate` and a default, by any expression spelling of its setvalue, where a runtime can read the default: a later load-time setvalue reads it, directly or through a calculation, or the Hidden Value stands in a repeat",
-		"surfaceKeys": ["mug:DataBindOnly"],
+		"surfaceKeys": ["mug:DataBindOnly", "xform:model/bind@type"],
 		"valueClass": "hidden-value-with-calculate-and-default",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: a Hidden Value keeping its default beside its calculate, with the default's setvalue at the question's place in data-tree order, as Vellum writes it (README, \"Load-time values\"): a later setvalue can read the default before the calculate overrides it (executed in Core: `3`, where without the default, or with the reader first, it is empty), and in a repeat row the default can outlast the calculate, until something the calculate depends on is set after the default's setvalue runs or the row's load reruns the calculate (executed: `D` against `a!`, and `ab!` where a node the calculate reads is set after the default); where it writes a case property, its default and its calculate each count as a writer of it (README, \"Data types\")",
-		"subject": "question-types",
-		"owner": "xform",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: independent starting answer and calculation",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "DIFFERENT (in such a repeat row the next request reinitializes the form and replaces the default with the calculate, so the default never reaches a submission) / RUNS (in such a repeat row the default lasts, and is submitted, until something its calculate depends on is set after the default's setvalue runs, as saving a screen does (leaving it, changing an answer on it, or a location or media response) for each question on it that holds or held a value, even unchanged, though not for one blank before and after (`FormEntryActivity.saveAnswersForCurrentScreen` → `FormEntryController.commitAnswer`; executed), and as an app callout response does for each of its targets; saving and resuming reinitializes the form, and finishing only revalidates, `SaveToDiskTask` → `FormDef.postProcessInstance`)",
@@ -1229,7 +1330,7 @@
 		"surfaceKeys": ["mug:DataBindOnly", "xform:model/bind@type"],
 		"valueClass": "hidden-value-default-overwritten-before-any-read",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: `hidden` with its `calculate` alone: Core runs the form's `xforms-ready` setvalues and then evaluates every calculate, relevant or not (`FormDef.initialize` → `initAllTriggerables`, `Recalculate.apply`), so the calculate replaces the default before any screen, and resuming a saved form runs no setvalue; with no later setvalue reading it and no repeat row to keep it, no runtime and no submission holds the default; the reader drops it and the first publish says so (`hidden-value-defaults-dropped`)",
+		"dispositionCell": "**HELD**: independent starting answer and calculation, including a starting answer the calculation replaces before any read",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
@@ -1330,13 +1431,30 @@
 		"id": "questions/hidden-value-bound-a-type-nova-would-not-write",
 		"area": "questions",
 		"section": "Question types",
-		"item": "a Hidden Value whose bind type is one Nova would not write for it: any type but `xsd:string` and `xsd:dateTime`; `xsd:dateTime` where it neither writes a date-and-time case property nor is calculated by the clock-keeping date; or text where it does",
-		"surfaceKeys": ["xform:model/bind@type"],
+		"item": "a Hidden Value with an explicit answer type, including a type different from the automatic type Nova would choose",
+		"surfaceKeys": [
+			"jr-type:barcode",
+			"jr-type:binary",
+			"jr-type:boolean",
+			"jr-type:date",
+			"jr-type:decimal",
+			"jr-type:double",
+			"jr-type:float",
+			"jr-type:geopoint",
+			"jr-type:int",
+			"jr-type:integer",
+			"jr-type:listItem",
+			"jr-type:listItems",
+			"jr-type:long",
+			"jr-type:select",
+			"jr-type:select1",
+			"jr-type:time",
+			"xform:model/bind@type"
+		],
 		"valueClass": "hidden-value-other-bind-type",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: a Hidden Value's own bind type, which decides what Core stores for its value (`Recalculate.java::wrapData`)",
-		"subject": "question-types",
-		"owner": "xform",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: a hidden value’s answer type determines the data class used by opening assignments and calculations. Core treats an unrecognized name as text without conversion.",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -1348,7 +1466,7 @@
 			}
 		},
 		"emission": {
-			"cell": "the type as written on the bind of a data node no control draws",
+			"cell": "an explicit answer type on a data node no control draws, in the standard spelling of its Core answer class",
 			"markers": []
 		},
 		"gates": []
@@ -1976,7 +2094,7 @@
 			}
 		},
 		"emission": {
-			"cell": "Vellum's canonical shape: `@ids` and `@count` setvalues at `xforms-ready`, `@index` and `@id` at `jr-insert`, absolute `@current_index`, the condition on `…/item`, only where model iteration runs: a query repeat in no other repeat, whose query reads no form answer, under no group whose condition can change during entry",
+			"cell": "model iteration with ordered ready assignments of IDs and count, assignments of the row index and ID on insertion, and the condition on the item",
 			"markers": []
 		},
 		"gates": []
@@ -1985,7 +2103,7 @@
 		"id": "questions/model-iteration-repeat-outside-nova-s-model-iteration-rule",
 		"area": "questions",
 		"section": "Question types",
-		"item": "a model-iteration repeat with a display condition, or whose query reads a form answer set when the form loads, or under a group whose display condition reads an answer or the clock, outside the three refused rows",
+		"item": "a fixed query that takes the rows available at its opening or outer-row insertion event, including a fallback or intentionally empty selection, outside the three record or initialization failures",
 		"surfaceKeys": [
 			"mug:Repeat",
 			"jr-control:repeat",
@@ -2010,10 +2128,9 @@
 			"vellum-markup:model/instance//*@vellum:role"
 		],
 		"valueClass": "model-iteration-outside-nova-s-rule",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: model iteration by the load-time rule (README, \"Load-time values\"); Nova runs model iteration only where nothing the query reads can change (`queryRepeatPlacement.ts::queryRepeatPlacementNeeds`)",
-		"subject": "repeats",
-		"owner": "xform",
+		"disposition": "HELD",
+		"slotChanges": [],
+		"dispositionCell": "**HELD**: the ordered cases captured when a form opens stay captured, including an empty result, as subsequent answers change.",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -2025,7 +2142,7 @@
 			}
 		},
 		"emission": {
-			"cell": "Vellum's canonical shape: `@ids` and `@count` setvalues at `xforms-ready`, `@index` and `@id` at `jr-insert`, absolute `@current_index`, the condition on `…/item`, only where model iteration runs: a query repeat in no other repeat, whose query reads no form answer, under no group whose condition can change during entry",
+			"cell": "the captured query and count at the opening event and each row’s stored index and identifier at insert",
 			"markers": []
 		},
 		"gates": []
@@ -2097,11 +2214,11 @@
 		"id": "questions/model-iteration-repeat-whose-query-reads-a-form-answer-that-is",
 		"area": "questions",
 		"section": "Question types",
-		"item": "model-iteration repeat whose query reads a form answer that is blank where the repeat's setvalues run, on every opening (README, \"Load-time values\"): an answer entered in the form, one only a later default or HQ's appended values set, a calculated value no earlier setvalue feeds, or one an earlier setvalue leaves not relevant",
+		"item": "a model iteration whose only possible source of case IDs requires an answer that is blank when its opening query runs",
 		"surfaceKeys": ["vellum-markup:model/instance//*@vellum:role"],
 		"valueClass": "model-iteration-reading-a-blank-answer",
 		"disposition": "REFUSED",
-		"dispositionCell": "**REFUSED**: broken at runtime: Vellum's setvalues evaluate the query once, when the form loads or the parent row is added, while that answer is still blank, so the rows never reflect it (executed); Nova writes the count placement there",
+		"dispositionCell": "**REFUSED**: the query requires a case identifier a worker has not yet supplied, so its one opening assignment cannot produce the intended rows; a changing query can follow the answer.",
 		"subject": "repeats",
 		"reasons": [
 			{
@@ -2123,7 +2240,7 @@
 		"id": "questions/model-iteration-repeat-nested-in-another-repeat-of-any-kind",
 		"area": "questions",
 		"section": "Question types",
-		"item": "model-iteration repeat nested in another repeat of any kind",
+		"item": "model iteration whose absolute row index can address another outer row’s inner records",
 		"surfaceKeys": ["vellum-markup:model/instance//*@vellum:role"],
 		"valueClass": "model-iteration-nested",
 		"disposition": "REFUSED",
@@ -2141,6 +2258,58 @@
 		},
 		"emission": {
 			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "questions/model-iteration-repeat-allowing-insertion-after-a-hidden-first-row",
+		"area": "questions",
+		"section": "Question types",
+		"item": "a model iteration whose first row and later rows are shown by different comparisons to earlier editable text answers and whose query can return another row",
+		"surfaceKeys": ["vellum-markup:model/instance//*@vellum:role"],
+		"valueClass": "model-iteration-hidden-first-row-on-insert",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: broken at runtime. Core counts only visible rows when it assigns the next row's record. Editing the answers can hide the first row as later rows are added, giving them the earlier row's record instead of their own. The count placement keeps each row's record.",
+		"subject": "repeats",
+		"reasons": [
+			{
+				"kind": "broken-at-runtime",
+				"named": "Core counts only visible rows when it assigns the next row's record. Editing the answers can hide the first row as later rows are added, giving them the earlier row's record instead of their own."
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "questions/relevance-bound-on-a-model-iteration-repeat-s-container",
+		"area": "questions",
+		"section": "Question types",
+		"item": "relevance bound on a model-iteration repeat’s container node (the node holding `@ids`, `@count` and `@current_index`) rather than on its rows (`…/item`)",
+		"surfaceKeys": ["xform:model/bind@relevant"],
+		"valueClass": "on-a-model-iteration-container",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the condition is the repeat’s, joined to one its rows hold; the first publish writes it on the rows, where the form builder keeps a model iteration’s condition (`parser.js::parseBindElement` discards a bind on the container, `modeliteration.js::getPathName`), and lists the move (`model-iteration-conditions-moved-to-rows`): while it is false the submission now holds the container and its ids",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "the condition on the rows’ bind (`…/item`), as a model iteration’s condition is written",
 			"markers": []
 		},
 		"gates": []
@@ -2187,10 +2356,8 @@
 			"xform:repeat/jr:addEmptyCaption",
 			"xform:repeat/jr:addEmptyCaption@ref"
 		],
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `repeat.addLabel`, `addFirstLabel`",
-		"subject": "repeats",
-		"owner": "xform",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: Localized text for adding the first entry and for adding another.",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -2205,7 +2372,8 @@
 			"cell": "itext refs",
 			"markers": []
 		},
-		"gates": []
+		"gates": [],
+		"slotChanges": []
 	},
 	{
 		"id": "questions/other-repeat-captions-choosecaption-delcaption-donecaption",
@@ -2307,13 +2475,13 @@
 		"item": "`jr:imageDimensionScaledMax` (250/500/1000px, or another positive integer no greater than 2147483647 with or without `px`, which Vellum keeps as \"Custom\", `parser.js::populateControlMug`), on an image or face-capture question",
 		"surfaceKeys": [
 			"jr-extension:UploadQuestionExtensionParser",
+			"xform:upload@jr:imageDimensionScaledMax",
 			"vellum-feature:image_resize"
 		],
 		"valueClass": "image-max-dimension",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `image.maxDimension`",
-		"subject": "question-types",
-		"owner": "xform",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: `image.maxDimension`",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "IGNORED / RUNS",
@@ -2335,7 +2503,10 @@
 		"area": "questions",
 		"section": "Question types",
 		"item": "`jr:imageDimensionScaledMax` that is not an integer or is greater than 2147483647 (with or without `px`; Core reads it with `Integer.parseInt`), on any upload, or zero, or less than -1, on an image or face-capture question (`-1` is Android's no-limit value, `ImageCaptureProcessing`, the same state as none)",
-		"surfaceKeys": ["jr-extension:UploadQuestionExtensionParser"],
+		"surfaceKeys": [
+			"jr-extension:UploadQuestionExtensionParser",
+			"xform:upload@jr:imageDimensionScaledMax"
+		],
 		"valueClass": "invalid-image-max-dimension",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: broken at runtime or not HQ-editable: Core throws \"Invalid input for image max dimension\" on a non-integer when Android installs or loads the form, on every `<upload>` element (`UploadQuestionExtensionParser`, which Android registers for all of them, `XFormExtensionUtils`), a Vellum save drops a non-number and truncates a fraction (executed: `big` dropped, `12.5px` becomes `12px`), and Android cannot scale an image to a size of zero or less (`FileUtil.getBitmapScaledByMaxDimen` then asks for a non-positive size)",
@@ -2369,7 +2540,10 @@
 		"area": "questions",
 		"section": "Question types",
 		"item": "`jr:imageDimensionScaledMax`, an integer with or without `px`, on any other upload (a signature, say), or `-1` on an image question",
-		"surfaceKeys": ["jr-extension:UploadQuestionExtensionParser"],
+		"surfaceKeys": [
+			"jr-extension:UploadQuestionExtensionParser",
+			"xform:upload@jr:imageDimensionScaledMax"
+		],
 		"valueClass": "image-max-dimension-on-other-upload",
 		"disposition": "INERT",
 		"dispositionCell": "**INERT**: Vellum writes it only on image and face-capture questions (`mugs/types/media.js`) and drops it elsewhere on save, and no other widget reads it (only `ImageWidget` and its subclass `FaceCaptureWidget` apply it, and Core's parser rejects only a non-integer); `-1` on an image question is `ImageWidget`'s own no-limit value, the state with none",
@@ -2852,10 +3026,9 @@
 		"section": "Question types",
 		"item": "itemset `<sort ref>`",
 		"surfaceKeys": ["vellum-feature:sorted_itemsets"],
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `optionsSource.sortColumn`",
-		"subject": "question-choices",
-		"owner": "xform",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: `optionsSource.sortColumnId` on a lookup source; absent keeps the table's row order",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -3092,6 +3265,7 @@
 			"xform:setvalue@value",
 			"xform:model/instance/*/*",
 			"xform:model/instance//*",
+			"xform:model/instance//*@xmlns",
 			"mug:DataBindOnly",
 			"xform:model/bind",
 			"xform:model/bind@nodeset",
@@ -3552,6 +3726,7 @@
 			"xform:model/bind@calculate",
 			"xform:model/instance/*/*",
 			"xform:model/instance//*",
+			"xform:model/instance//*@xmlns",
 			"mug:DataBindOnly",
 			"xform:model/bind",
 			"xform:model/bind@nodeset",
@@ -3610,6 +3785,10 @@
 			"xform:repeat@nodeset",
 			"xform:repeat@jr:count",
 			"xform:repeat@jr:noAddRemove",
+			"jr-control:group",
+			"jr-control:repeat",
+			"xform:repeat/*@xmlns",
+			"jr-event:jr-insert",
 			"mug:Group",
 			"mug:Repeat",
 			"mug:DataBindOnly",
@@ -3672,6 +3851,7 @@
 			"mug:SaveToCase",
 			"xform:model/instance/*/*",
 			"xform:model/instance//*",
+			"xform:model/instance//*@xmlns",
 			"vellum-markup:model/instance//*@vellum:role",
 			"vellum-markup:model/instance//*@vellum:case_type",
 			"mug:DataBindOnly"
@@ -3920,6 +4100,7 @@
 			"mug:SaveToCase",
 			"xform:model/instance/*/*",
 			"xform:model/instance//*",
+			"xform:model/instance//*@xmlns",
 			"vellum-markup:model/instance//*@vellum:role",
 			"vellum-markup:model/instance//*@vellum:case_type",
 			"mug:DataBindOnly"
@@ -4202,7 +4383,7 @@
 		],
 		"valueClass": "connect-learn-module",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: `Form.connect.learn_module`; narrow (all four Connect blocks): no leading `_` or `XML` and not `meta` in any case, which Vellum refuses on every Connect block",
+		"dispositionCell": "**HELD**: A positioned learning module keeps its ID, name, description and estimated hours. Its ID follows the question ID grammar.",
 		"slotChanges": [
 			{
 				"direction": "narrow",
@@ -4231,12 +4412,15 @@
 		"area": "questions",
 		"section": "Question types",
 		"item": "a Connect block with an id over 50 characters, a display condition, a blank entity expression or a `time_estimate` of 0; several blocks of one kind in a form; a block inside a group or a repeat",
-		"surfaceKeys": ["mug:ConnectLearnModule", "vellum-plugin:commcareConnect"],
+		"surfaceKeys": [
+			"mug:ConnectLearnModule",
+			"vellum-plugin:commcareConnect",
+			"xform:model/instance/*/*",
+			"xform:model/instance//*"
+		],
 		"valueClass": "beyond-one-of-each-kind",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: Connect blocks as questions at authored positions",
-		"subject": "connect-blocks",
-		"owner": "xform",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: Positioned Connect activities share the form's tree and display conditions. Worker submission checks use the activity ID, row and recipient for each reachable activity.",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -4248,17 +4432,232 @@
 			}
 		},
 		"emission": {
-			"cell": "`vellum:role=\"ConnectLearnModule\"`; COMMCARE_CONNECT",
+			"cell": "A Connect role at its original data path with its display condition and submitted values.",
 			"markers": []
 		},
-		"gates": ["toggle/COMMCARE_CONNECT"]
+		"gates": ["toggle/COMMCARE_CONNECT"],
+		"slotChanges": []
+	},
+	{
+		"id": "questions/connect-assessment-without-score",
+		"area": "questions",
+		"section": "Question types",
+		"item": "a Connect assessment with no calculated score",
+		"surfaceKeys": [
+			"mug:ConnectAssessment",
+			"vellum-plugin:commcareConnect",
+			"xform:model/instance//*"
+		],
+		"valueClass": "connect-assessment-without-score",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: broken at runtime: Connect reads the submitted score as an integer. This assessment has no calculation to supply a score.",
+		"subject": "connect-blocks",
+		"reasons": [
+			{
+				"kind": "broken-at-runtime",
+				"named": "Connect reads the submitted score as an integer. This assessment has no calculation to supply a score."
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "questions/connect-repeats-module-completion-key",
+		"area": "questions",
+		"section": "Question types",
+		"item": "a learning module that can be submitted twice in one form",
+		"surfaceKeys": [
+			"mug:ConnectLearnModule",
+			"vellum-plugin:commcareConnect",
+			"vellum-markup:model/instance//*@vellum:role"
+		],
+		"valueClass": "connect-repeats-module-completion-key",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: broken at runtime: Connect records each learning module once per submission. Give each module its own ID or keep the two activities in separate submissions.",
+		"subject": "connect-blocks",
+		"reasons": [
+			{
+				"kind": "broken-at-runtime",
+				"named": "Connect records each learning module once per submission. Give each module its own ID or keep the two activities in separate submissions."
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "questions/connect-deliveries-share-receiver-key",
+		"area": "questions",
+		"section": "Question types",
+		"item": "a delivery that can send the same recipient twice for one unit in one submission",
+		"surfaceKeys": [
+			"mug:ConnectDeliverUnit",
+			"vellum-plugin:commcareConnect",
+			"vellum-markup:model/instance//*@vellum:role"
+		],
+		"valueClass": "connect-deliveries-share-receiver-key",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: broken at runtime: Connect uses the unit and recipient ID to file each visit in a submission. Give each row a distinct recipient ID or send each visit in a separate form.",
+		"subject": "connect-blocks",
+		"reasons": [
+			{
+				"kind": "broken-at-runtime",
+				"named": "Connect uses the unit and recipient ID to file each visit in a submission. Give each row a distinct recipient ID or send each visit in a separate form."
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "questions/connect-forwarded-ancestor-name",
+		"area": "questions",
+		"section": "Question types",
+		"item": "a group, section or repeat enclosing a Connect activity whose ID is a key the app’s Connect receiver searches for",
+		"surfaceKeys": ["xform:model/instance/*/*", "xform:model/instance//*"],
+		"valueClass": "connect-forwarded-ancestor-name",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: broken at runtime: CommCare HQ forwards this part of the form because it holds an activity. Connect cannot receive it under an ID that it uses for its own data. Give this part of the form another ID in CommCare HQ.",
+		"subject": "connect-blocks",
+		"reasons": [
+			{
+				"kind": "broken-at-runtime",
+				"named": "CommCare HQ forwards this part of the form because it holds an activity. Connect cannot receive it under an ID that it uses for its own data. Give this part of the form another ID in CommCare HQ."
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "questions/connect-unit-id-changed-by-form-editor",
+		"area": "questions",
+		"section": "Question types",
+		"item": "a Connect activity whose stored inner ID differs from its question ID",
+		"surfaceKeys": [
+			"xform:model/instance//*",
+			"mug:ConnectLearnModule",
+			"mug:ConnectAssessment",
+			"mug:ConnectDeliverUnit",
+			"mug:ConnectTask",
+			"vellum-plugin:commcareConnect"
+		],
+		"valueClass": "connect-unit-id-changed-by-form-editor",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: not HQ-editable: The form editor uses the outer question ID for the activity on save. Match that question ID to the saved activity ID and update its form references in CommCare HQ before bringing it in again.",
+		"subject": "connect-blocks",
+		"reasons": [
+			{
+				"kind": "not-hq-editable",
+				"named": "The form editor uses the outer question ID for the activity on save. Match that question ID to the saved activity ID and update its form references in CommCare HQ before bringing it in again."
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "questions/connect-value-that-the-editor-clears",
+		"area": "questions",
+		"section": "Question types",
+		"item": "inline text in a Connect score, recipient or work area that the form editor clears",
+		"surfaceKeys": [
+			"mug:ConnectDeliverUnit",
+			"mug:ConnectAssessment",
+			"vellum-plugin:commcareConnect",
+			"xform:model/instance//*"
+		],
+		"valueClass": "connect-value-that-the-editor-clears",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: not HQ-editable: CommCare HQ’s form editor clears inline text from a calculated Connect value when it saves the form. Set the value as a calculation in the source form, then bring it in again.",
+		"subject": "connect-blocks",
+		"reasons": [
+			{
+				"kind": "not-hq-editable",
+				"named": "CommCare HQ’s form editor clears inline text from a calculated Connect value when it saves the form. Set the value as a calculation in the source form, then bring it in again."
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "questions/connect-estimate-outside-receiver-range",
+		"area": "questions",
+		"section": "Question types",
+		"item": "a learning module with an estimate the form editor or Connect cannot keep, or with no name or description",
+		"surfaceKeys": [
+			"mug:ConnectLearnModule",
+			"vellum-plugin:commcareConnect",
+			"xform:model/instance//*"
+		],
+		"valueClass": "connect-estimate-outside-receiver-range",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: broken at runtime: The form editor saves hours as decimal digits and Connect stores them in a signed 32-bit integer, and its module sync stores a name and description that are never empty (`app_xml.py::get_element_text` reads an empty element as none).",
+		"subject": "connect-blocks",
+		"reasons": [
+			{
+				"kind": "broken-at-runtime",
+				"named": "The form editor saves hours as decimal digits and Connect stores them in a signed 32-bit integer, and its module sync stores a name and description that are never empty (`app_xml.py::get_element_text` reads an empty element as none)."
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
 	},
 	{
 		"id": "questions/several-connect-assessment-blocks-in-one-form-or-one-inside-a",
 		"area": "questions",
 		"section": "Question types",
 		"item": "several Connect assessment blocks in one form, or one inside a repeat (a block per row)",
-		"surfaceKeys": ["mug:ConnectAssessment", "vellum-plugin:commcareConnect"],
+		"surfaceKeys": [
+			"mug:ConnectAssessment",
+			"vellum-plugin:commcareConnect",
+			"vellum-markup:model/instance//*@vellum:role"
+		],
 		"valueClass": "several-connect-assessments",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: broken at runtime: Connect stores one assessment per submission and raises \"Learn Assessment is already completed\" for the second block (commcare-connect `form_receiver/processor.py::process_assessments`)",
@@ -4295,7 +4694,7 @@
 		],
 		"valueClass": "connect-assessment",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: `connect.assessment`",
+		"dispositionCell": "**HELD**: A positioned assessment keeps its ID and score calculation. Each reachable submission supplies at most one assessment.",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
@@ -4329,7 +4728,7 @@
 		],
 		"valueClass": "connect-deliver-unit",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: `connect.deliver_unit`, with an empty `work_area_id`",
+		"dispositionCell": "**HELD**: A positioned delivery keeps its unit ID and name, recipient ID and name, and work area. A deliberately empty recipient remains empty.",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
@@ -4342,7 +4741,7 @@
 			}
 		},
 		"emission": {
-			"cell": "with an empty `<work_area_id/>` (Vellum adds it; equivalent)",
+			"cell": "The recipient and work area leaves remain at the delivery’s saved data path.",
 			"markers": []
 		},
 		"gates": []
@@ -4352,12 +4751,14 @@
 		"area": "questions",
 		"section": "Question types",
 		"item": "Connect Deliver Unit with a `work_area_id` expression or a fixed id",
-		"surfaceKeys": ["mug:ConnectDeliverUnit", "vellum-plugin:commcareConnect"],
+		"surfaceKeys": [
+			"mug:ConnectDeliverUnit",
+			"vellum-plugin:commcareConnect",
+			"xform:model/bind@calculate"
+		],
 		"valueClass": "work-area-id-expression",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: a `work_area_id` expression or a fixed id",
-		"subject": "connect-blocks",
-		"owner": "xform",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: A delivery keeps its work area as an expression, including a fixed ID written as a literal calculation.",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -4369,10 +4770,11 @@
 			}
 		},
 		"emission": {
-			"cell": "with an empty `<work_area_id/>` (Vellum adds it; equivalent)",
+			"cell": "A calculation supplies the delivery’s work_area_id.",
 			"markers": []
 		},
-		"gates": []
+		"gates": [],
+		"slotChanges": []
 	},
 	{
 		"id": "questions/connect-task",
@@ -4389,7 +4791,7 @@
 		],
 		"valueClass": "connect-task",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: `connect.task`",
+		"dispositionCell": "**HELD**: A positioned assigned task keeps its ID, name and description.",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
@@ -4412,7 +4814,11 @@
 		"area": "questions",
 		"section": "Question types",
 		"item": "a Connect Deliver Unit and a Connect Task in one form",
-		"surfaceKeys": ["mug:ConnectDeliverUnit", "mug:ConnectTask"],
+		"surfaceKeys": [
+			"mug:ConnectDeliverUnit",
+			"mug:ConnectTask",
+			"vellum-markup:model/instance//*@vellum:role"
+		],
 		"valueClass": "deliver-unit-beside-task",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: broken at runtime: Connect processes the form's deliver units before its tasks (`commcare-connect` `form_receiver/processor.py::process_deliver_form`), and Nova's gate refuses the pair (`CONNECT_DELIVER_FORM_HOLDS_TASK`)",
@@ -4438,12 +4844,14 @@
 		"area": "questions",
 		"section": "Question types",
 		"item": "Connect learn blocks and Connect deliver blocks in one app",
-		"surfaceKeys": ["mug:ConnectLearnModule", "mug:ConnectDeliverUnit"],
+		"surfaceKeys": [
+			"mug:ConnectLearnModule",
+			"mug:ConnectDeliverUnit",
+			"vellum-markup:model/instance//*@vellum:role"
+		],
 		"valueClass": "learn-beside-deliver",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: an app that is both a learn app and a deliver app; Nova holds one `connectType`",
-		"subject": "connect-blocks",
-		"owner": "xform",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: An app keeps both configured roles and every positioned learning and delivery activity.",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -4455,10 +4863,11 @@
 			}
 		},
 		"emission": {
-			"cell": "same",
+			"cell": "Each activity keeps its role and its own submission values.",
 			"markers": []
 		},
-		"gates": ["toggle/COMMCARE_CONNECT"]
+		"gates": ["toggle/COMMCARE_CONNECT"],
+		"slotChanges": []
 	},
 	{
 		"id": "questions/connect-block-text-read-as-an-instance",
@@ -4469,7 +4878,8 @@
 			"mug:ConnectLearnModule",
 			"mug:ConnectDeliverUnit",
 			"mug:ConnectTask",
-			"vellum-plugin:commcareConnect"
+			"vellum-plugin:commcareConnect",
+			"xform:model/instance//*"
 		],
 		"valueClass": "text-read-as-an-instance",
 		"disposition": "REFUSED",
@@ -4506,7 +4916,8 @@
 			"mug:ConnectLearnModule",
 			"mug:ConnectTask",
 			"mug:ConnectDeliverUnit",
-			"vellum-plugin:commcareConnect"
+			"vellum-plugin:commcareConnect",
+			"vellum-markup:model/instance//*@vellum:role"
 		],
 		"valueClass": "connect-id-over-column-length",
 		"disposition": "REFUSED",
@@ -4529,34 +4940,64 @@
 		"gates": []
 	},
 	{
+		"id": "questions/connect-work-area-update-photo-not-forwarded",
+		"area": "questions",
+		"section": "Question types",
+		"item": "a Connect work-area update whose required photo reaches CommCare HQ",
+		"surfaceKeys": [
+			"mug:ConnectWorkAreaUpdate",
+			"vellum-plugin:commcareConnect",
+			"vellum-markup:model/instance//*@vellum:role"
+		],
+		"valueClass": "connect-work-area-update-photo-not-forwarded",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: broken at runtime: CommCare HQ's Connect forwarder retains the work-area photo filename but drops the attachment map that Connect requires to process the request.",
+		"subject": "connect-work-area-requests",
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": ["toggle/COMMCARE_CONNECT"],
+		"reasons": [
+			{
+				"kind": "broken-at-runtime",
+				"named": "CommCare HQ's Connect forwarder retains the work-area photo filename but drops the attachment map that Connect requires to process the request."
+			}
+		]
+	},
+	{
 		"id": "questions/connect-work-area-update",
 		"area": "questions",
 		"section": "Question types",
-		"item": "Connect Work Area Update",
+		"item": "a malformed Connect work-area update whose element or children the form editor replaces",
 		"surfaceKeys": [
 			"mug:ConnectWorkAreaUpdate",
-			"vellum-plugin:commcareConnect"
+			"vellum-plugin:commcareConnect",
+			"vellum-markup:model/instance//*@vellum:role"
 		],
 		"valueClass": "connect-work-area-update",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `connect.work_area_update`",
-		"subject": "connect-blocks",
-		"owner": "xform",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: not HQ-editable: The form editor rebuilds the work-area update with its expected element and children on save. Review the update in CommCare HQ before bringing the app in again.",
+		"subject": "connect-work-area-requests",
 		"platforms": {
-			"kind": "each",
-			"cell": "RUNS / RUNS",
-			"webApps": {
-				"reading": "runs"
-			},
-			"android": {
-				"reading": "runs"
-			}
+			"kind": "none",
+			"cell": "—"
 		},
 		"emission": {
-			"cell": "same",
+			"cell": "—",
 			"markers": []
 		},
-		"gates": ["toggle/COMMCARE_CONNECT"]
+		"gates": ["toggle/COMMCARE_CONNECT"],
+		"reasons": [
+			{
+				"kind": "not-hq-editable",
+				"named": "The form editor rebuilds the work-area update with its expected element and children on save. Review the update in CommCare HQ before bringing the app in again."
+			}
+		]
 	},
 	{
 		"id": "questions/unknown-body-control-vellum-readonly-e-g-range",
@@ -4708,9 +5149,11 @@
 		"id": "questions/data-parent-data-node-under-another-group-than-its-control",
 		"area": "questions",
 		"section": "Question types",
-		"item": "Data Parent (data node under another group than its control, within one repeat)",
+		"item": "Data Parent (data node under another group than its control, within one repeat): a question's answer under a group, in the order HQ's form designer writes",
 		"surfaceKeys": [
+			"xform:group@ref",
 			"xform:input@ref",
+			"xform:repeat@nodeset",
 			"xform:secret@ref",
 			"xform:select@ref",
 			"xform:select1@ref",
@@ -4718,10 +5161,9 @@
 			"xform:upload@ref"
 		],
 		"valueClass": "data-parent",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `Field.dataParent`",
-		"subject": "question-types",
-		"owner": "xform",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: a question names the group that holds its answer; the answer follows that group's own values, in the order HQ's form designer writes and keeps",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -4734,6 +5176,67 @@
 		},
 		"emission": {
 			"cell": "data tree placement",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "questions/data-parent-at-the-form-root-under-a-grouped-control",
+		"area": "questions",
+		"section": "Question types",
+		"item": "Data Parent at the form's root for a question whose control is inside a group",
+		"surfaceKeys": [
+			"xform:group@ref",
+			"xform:input@ref",
+			"xform:repeat@nodeset",
+			"xform:secret@ref",
+			"xform:select@ref",
+			"xform:select1@ref",
+			"xform:trigger@ref",
+			"xform:upload@ref"
+		],
+		"valueClass": "data-parent-at-the-form-root",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: not HQ-editable: Vellum's parser names the root `#form`, which its own Data Parent check reports as \"Must be valid path\" on every open",
+		"subject": "answer-groups",
+		"reasons": [
+			{
+				"kind": "not-hq-editable",
+				"named": "Vellum error \"Must be valid path\" (`parser.js::parseControlElement` writes `#form`, `mugs/baseSpecs.js` dataParent `validationFunc`)"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "questions/data-parent-on-a-group-or-repeat",
+		"area": "questions",
+		"section": "Question types",
+		"item": "Data Parent on a group or repeat (a group's data node under another group than its control)",
+		"surfaceKeys": ["xform:group@ref", "xform:repeat@nodeset"],
+		"valueClass": "data-parent-on-a-group",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: not HQ-editable: Vellum writes a group's own answers under the group's place in its data tree before it places the group (`form.js::dataTree`), so its save loses them",
+		"subject": "answer-groups",
+		"reasons": [
+			{
+				"kind": "not-hq-editable",
+				"named": "Vellum's save writes a group with a Data Parent without its answers (`form.js::dataTree`)"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
 			"markers": []
 		},
 		"gates": []
@@ -4835,10 +5338,8 @@
 		"item": "data-node `xmlns` on a Hidden Value",
 		"surfaceKeys": ["xform:model/instance//*@xmlns"],
 		"valueClass": "hidden-value-namespace",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: a Hidden Value's data-node namespace (Vellum's \"Special Hidden Value XMLNS attribute\", `mugs/baseSpecs.js`)",
-		"subject": "question-types",
-		"owner": "xform",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: A Hidden Value keeps its submitted namespace in Field.answerNamespace. An absent value inherits the form namespace.",
 		"platforms": {
 			"kind": "not-applicable",
 			"cell": "n/a (submission shape only)",
@@ -4848,7 +5349,8 @@
 			"cell": "`xmlns` on the data node",
 			"markers": []
 		},
-		"gates": []
+		"gates": [],
+		"slotChanges": []
 	},
 	{
 		"id": "questions/vellum-lock-all-locked-question",
@@ -4861,10 +5363,8 @@
 			"vellum-markup:bind@vellum:lock",
 			"vellum-markup:model/instance//*@vellum:lock"
 		],
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `Field.lockedInHq` (privilege `locked_admin_questions` a target precondition; no runtime effect)",
-		"subject": "question-types",
-		"owner": "xform",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: Field.lockedInHq protects the question in the HQ designer. The target must support locked questions.",
 		"platforms": {
 			"kind": "not-applicable",
 			"cell": "n/a"
@@ -4873,7 +5373,39 @@
 			"cell": "the attribute",
 			"markers": []
 		},
-		"gates": ["privilege/locked_admin_questions"]
+		"gates": ["privilege/locked_admin_questions"],
+		"slotChanges": []
+	},
+	{
+		"id": "questions/question-lock-the-designer-cannot-represent",
+		"area": "questions",
+		"section": "Question types",
+		"item": "A lock value the form designer does not treat as a lock on this question",
+		"surfaceKeys": [
+			"vellum-plugin:lock",
+			"vellum-feature:edit_locked_questions",
+			"vellum-markup:bind@vellum:lock",
+			"vellum-markup:model/instance//*@vellum:lock"
+		],
+		"valueClass": "unsupported-question-lock",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: The designer cannot show this lock. Select Locked in the question settings in CommCare HQ and bring the form in again.",
+		"subject": "question-ids",
+		"reasons": [
+			{
+				"kind": "not-hq-editable",
+				"named": "The designer cannot show this lock. Select Locked in the question settings in CommCare HQ and bring the form in again."
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
 	},
 	{
 		"id": "questions/vellum-comment",
@@ -4996,10 +5528,8 @@
 		"item": "bind `required` on a label",
 		"surfaceKeys": ["xform:model/bind@required"],
 		"valueClass": "on-a-label",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: the acknowledge label's required",
-		"subject": "question-logic",
-		"owner": "xform",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: Required expression on the message.",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -5011,10 +5541,11 @@
 			}
 		},
 		"emission": {
-			"cell": "`required=\"true()\"`",
+			"cell": "Required expression on the message.",
 			"markers": []
 		},
-		"gates": []
+		"gates": [],
+		"slotChanges": []
 	},
 	{
 		"id": "questions/vellum-requiredcondition-expr-vellum-requiredcondition-equal-to",
@@ -5125,16 +5656,40 @@
 		"gates": []
 	},
 	{
+		"id": "questions/validation-on-a-hidden-value",
+		"area": "questions",
+		"section": "Binds, actions, model and head content",
+		"item": "A validation condition on a hidden value",
+		"surfaceKeys": ["xform:model/bind@constraint"],
+		"valueClass": "validation-on-hidden-value",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: Vellum’s Hidden Value cannot carry a validation condition.",
+		"subject": "question-logic",
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": [],
+		"reasons": [
+			{
+				"kind": "not-hq-editable",
+				"named": "DataBindOnly.spec.constraintAttr has presence notallowed in Vellum misc.js."
+			}
+		]
+	},
+	{
 		"id": "questions/bind-constraint-on-a-capture-question-or-a-label",
 		"area": "questions",
 		"section": "Binds, actions, model and head content",
 		"item": "bind `constraint` on a geopoint, image, audio, video, signature or file question or a label",
 		"surfaceKeys": ["xform:model/bind@constraint"],
 		"valueClass": "on-capture-or-label",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `Field.validate` on those kinds",
-		"subject": "question-logic",
-		"owner": "xform",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: Validation condition on a location, attachment or message.",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -5146,10 +5701,11 @@
 			}
 		},
 		"emission": {
-			"cell": "`constraint` on every kind that carries validation, `barcode` and `secret` among them (`fieldKindCarriesValidation`)",
+			"cell": "Validation condition on a location, attachment or message.",
 			"markers": []
 		},
-		"gates": []
+		"gates": [],
+		"slotChanges": []
 	},
 	{
 		"id": "questions/validation-message-without-a-validation-condition",
@@ -5550,7 +6106,7 @@
 		"id": "questions/default-on-a-capture-question-or-a-label",
 		"area": "questions",
 		"section": "Binds, actions, model and head content",
-		"item": "a default on an image, audio, video, signature or file question or a label",
+		"item": "a blank default on an image, audio, video, signature or file question, or a default on a label",
 		"surfaceKeys": [
 			"jr-action:setvalue",
 			"jr-event:xforms-ready",
@@ -5560,10 +6116,8 @@
 			"xform:setvalue@value"
 		],
 		"valueClass": "on-capture-or-label",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `Field.default_value` on those kinds",
-		"subject": "question-logic",
-		"owner": "xform",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: Once-only starting value on the answer: blank on an attachment question, any value on a label.",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS (new sessions only) / RUNS (new instances only)",
@@ -5577,7 +6131,34 @@
 			}
 		},
 		"emission": {
-			"cell": "`setvalue xforms-ready`",
+			"cell": "Once-only starting value on the answer.",
+			"markers": []
+		},
+		"gates": [],
+		"slotChanges": []
+	},
+	{
+		"id": "questions/default-other-than-blank-on-a-capture-question",
+		"area": "questions",
+		"section": "Binds, actions, model and head content",
+		"item": "a default other than the blank string on an image, audio, video, signature or file question: a file name, or an expression that can give one",
+		"surfaceKeys": ["xform:model/instance//*", "xform:setvalue@value"],
+		"valueClass": "other-than-blank-on-capture",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: broken at runtime: Web Apps clears the starting file as the form opens and submits nothing for it, and Android looks for the file in the form's own folder and can't open the form. Leaving the starting value blank in the form builder fixes it.",
+		"subject": "question-logic",
+		"reasons": [
+			{
+				"kind": "broken-at-runtime",
+				"named": "Web Apps clears the starting file as the form opens and submits nothing for it (its client sends `clear_answer` for the question); Android's `MediaWidget` looks for the named file in the form's own folder and raises \"Failed to decrypt media\", so the form does not open"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
 			"markers": []
 		},
 		"gates": []
@@ -6222,10 +6803,9 @@
 		"item": "a data root whose element is named other than `data` (Vellum keeps the name it finds, `parser.js::parseDataTree`), so every answer's path starts with that name",
 		"surfaceKeys": ["xform:model/instance/*"],
 		"valueClass": "root-named-other-than-data",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: a form's own root name; Nova writes `data`, and every path of the form's case management names the root",
-		"subject": "form-source",
-		"owner": "xform",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the form’s submitted answer root (`Form.dataRootName`)",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -6237,9 +6817,55 @@
 			}
 		},
 		"emission": {
-			"cell": "Nova writes `data`",
+			"cell": "Nova writes the form’s submitted answer root",
 			"markers": []
 		},
+		"gates": []
+	},
+	{
+		"id": "questions/answer-root-that-the-form-designer-reads-as-its-own-element",
+		"area": "questions",
+		"section": "Binds, actions, model and head content",
+		"item": "An answer root named instance, parsererror or bind, which the form designer reads as one of its own elements. Use a different answer root such as survey and update its answer paths.",
+		"surfaceKeys": ["xform:model/instance/*"],
+		"valueClass": "root-name-reserved-by-designer",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: the form cannot open in the form designer.",
+		"subject": "form-answer-addresses",
+		"reasons": [
+			{
+				"kind": "not-hq-editable",
+				"named": "Vellum parser.js searches the whole XML for instance and parsererror and the head for bind. The first two stop the designer opening. A bind root supplies no nodeset to modeliteration.js::parseBindElement, which calls path.replace and throws."
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "questions/data-root-name-that-workers-cannot-address",
+		"area": "questions",
+		"section": "Binds, actions, model and head content",
+		"item": "A primary instance whose root cannot be addressed by an unqualified XPath name in Core",
+		"surfaceKeys": ["xform:model/instance/*"],
+		"valueClass": "root-name-unaddressable",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: Core cannot parse an answer path anchored at this name",
+		"subject": "form-answer-addresses",
+		"reasons": [
+			{
+				"kind": "broken-at-runtime",
+				"named": "Core Lexer.matchNCName only consumes upper or lower case UTF-16 letters or underscore, followed by the same, decimal digits, dots or hyphens. A qualified name also needs an XPath prefix binding."
+			}
+		],
+		"platforms": { "kind": "none", "cell": "—" },
+		"emission": { "cell": "—", "markers": [] },
 		"gates": []
 	},
 	{
@@ -9412,10 +10038,8 @@
 			"xform:upload/hint@ref"
 		],
 		"valueClass": "on-a-label",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `Field.hint` on a label",
-		"subject": "question-text",
-		"owner": "xform",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: Localized hint on a message.",
 		"platforms": {
 			"kind": "each",
 			"cell": "DIFFERENT (always markdown) / DIFFERENT (plain)",
@@ -9429,10 +10053,11 @@
 			}
 		},
 		"emission": {
-			"cell": "`<hint>` itext",
+			"cell": "Localized hint on a message.",
 			"markers": []
 		},
-		"gates": []
+		"gates": [],
+		"slotChanges": []
 	},
 	{
 		"id": "questions/hint-media-other-than-a-missing-file-the-media-section-refuses",
@@ -9562,10 +10187,8 @@
 			"itext-form:hq/markdown"
 		],
 		"valueClass": "on-capture-or-label",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `Field.help` on those kinds",
-		"subject": "question-text",
-		"owner": "xform",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: Localized help text on an attachment or message.",
 		"platforms": {
 			"kind": "each",
 			"cell": "DIFFERENT / DIFFERENT",
@@ -9577,10 +10200,11 @@
 			}
 		},
 		"emission": {
-			"cell": "`<help>` itext",
+			"cell": "Localized help text on an attachment or message.",
 			"markers": []
 		},
-		"gates": []
+		"gates": [],
+		"slotChanges": []
 	},
 	{
 		"id": "questions/help-media",
@@ -9638,10 +10262,8 @@
 			"xform:model/itext/translation/text/value@form"
 		],
 		"valueClass": "on-capture-or-label",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `Field.help_media` on those kinds",
-		"subject": "question-media",
-		"owner": "xform",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: Help media on an attachment or message.",
 		"platforms": {
 			"kind": "each",
 			"cell": "DIFFERENT (only when help has text) / RUNS",
@@ -9654,10 +10276,11 @@
 			}
 		},
 		"emission": {
-			"cell": "itext media",
+			"cell": "Help media on an attachment or message.",
 			"markers": []
 		},
-		"gates": []
+		"gates": [],
+		"slotChanges": []
 	},
 	{
 		"id": "questions/validation-message-text",
@@ -9692,10 +10315,8 @@
 		"item": "validation message text on a geopoint, image, audio, video, signature or file question or a label",
 		"surfaceKeys": ["xform:model/bind@jr:constraintMsg"],
 		"valueClass": "on-capture-or-label",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: a validation message on those kinds",
-		"subject": "question-text",
-		"owner": "xform",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: Localized message for the question’s validation condition.",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -9707,10 +10328,11 @@
 			}
 		},
 		"emission": {
-			"cell": "itext",
+			"cell": "Localized message for the question’s validation condition.",
 			"markers": []
 		},
-		"gates": []
+		"gates": [],
+		"slotChanges": []
 	},
 	{
 		"id": "questions/validation-message-markdown-form",
@@ -10395,11 +11017,11 @@
 		"id": "questions/a-question-text-label-hint-help-validation-message-repeat-add",
 		"area": "questions",
 		"section": "Itext, markdown and label text",
-		"item": "a question text (label, hint, help, validation message, repeat add caption or choice label) whose itext id is one of those pragma keys other than `Pragma-Form-Descriptor`, and other than `Pragma-Volatility-Entity-Title` or `Pragma-Volatility-Window` in a form with no `Pragma-Volatility-Key` text, where HQ's build keeps the entry: no other itext entry has identical values in every language and form under an id that sorts before it, which HQ's build merges it into, keeping the first id and pointing every reference there (`XForm.normalize_itext`, run on every build by `FormBase.add_stuff_to_xform`; executed) (Vellum lets an author set a text's itext id, `javaRosa/itextWidget.js::iTextIDWidget`)",
+		"item": "a question text (label, hint, help, validation message, repeat add caption or choice label) whose itext id is `Pragma-Volatility-Key`, or `Pragma-Volatility-Entity-Title` or `Pragma-Volatility-Window` in a form with a `Pragma-Volatility-Key` text, where HQ's build keeps the entry: no other itext entry has identical values in every language and form under an id that sorts before it, which HQ's build merges it into, keeping the first id and pointing every reference there (`XForm.normalize_itext`, run on every build by `FormBase.add_stuff_to_xform`; executed) (Vellum lets an author set a text's itext id, `javaRosa/itextWidget.js::iTextIDWidget`)",
 		"surfaceKeys": ["xform:model/itext/translation/text@id"],
 		"valueClass": "pragma-key",
 		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: the form's pragma setting (auto-submit and the others); where `Pragma-Submit-Automatically` is the label of a question (not of a group, repeat or choice), HQ's editor also offers the form as a clickable icon's target (`Form.is_auto_submitting_form`), so which text carries the id is held; the validator refuses a Nova form where a pragma entry's text equals, in every language and form, that of an entry whose id sorts before it, since the build would merge it away (the presence-only pragmas, auto-submit, suppress autosync and skip validation, collide when two carry the same text), naming both",
+		"dispositionCell": "**HELD-NEW**: the form's Web Apps activity notice (its key, title and window), which needs Preview to keep each worker's opens and submissions of the form for the evaluated key and show the notice another worker reads",
 		"subject": "question-text",
 		"owner": "xform",
 		"platforms": {
@@ -10415,6 +11037,33 @@
 		},
 		"emission": {
 			"cell": "the text with that itext id",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "questions/a-question-text-whose-itext-id-is-a-web-apps-presence-pragma",
+		"area": "questions",
+		"section": "Itext, markdown and label text",
+		"item": "a question text (label, hint, help, validation message, repeat add caption or choice label) whose itext id is `Pragma-Submit-Automatically`, `Pragma-Suppress-Autosync` or `Pragma-Skip-Full-Form-Validation`, the pragmas Formplayer reads by their presence alone, where HQ's build keeps the entry (as above)",
+		"surfaceKeys": ["xform:model/itext/translation/text@id"],
+		"valueClass": "pragma-presence",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the form's automatic submission, skipped autosync or changed-answer check (`Form.automaticSubmissionText`, `skipAutomaticSyncText`, `validateChangedAnswersText`), each the identity of the question or choice text that carries it and of every other slot that shares that text; the validator refuses a setting whose text HQ's build would merge into an equal text under an id that sorts before it, or whose sharing slots disagree in any language, format or media, naming both",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS (`FormSession.getPragma`) / IGNORED",
+			"webApps": {
+				"reading": "runs",
+				"note": "`FormSession.getPragma`"
+			},
+			"android": {
+				"reading": "ignored"
+			}
+		},
+		"emission": {
+			"cell": "the text with that itext id, written once and referenced by every slot that shares it",
 			"markers": []
 		},
 		"gates": []

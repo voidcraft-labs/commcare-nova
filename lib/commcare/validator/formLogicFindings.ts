@@ -60,6 +60,7 @@ export interface FormLogicFinding {
 		| "FORM_LINK_DATUM_UNUSED"
 		| "CASE_HASHTAG_ON_CREATE_FORM"
 		| "SELECT_DEFAULT_NOT_AN_OPTION"
+		| "CAPTURE_DEFAULT_NOT_BLANK"
 		| "XPATH_FUNCTION_CONTEXT_UNAVAILABLE"
 		| "XPATH_CARRIER_CONTEXT_UNAVAILABLE"
 		| "SEARCH_RESULTS_NOT_SUPPLIED"
@@ -502,6 +503,13 @@ export function formLogicFinding(
 			}
 			break;
 		}
+		case "capture-default-not-blank":
+			code = "CAPTURE_DEFAULT_NOT_BLANK";
+			if (ctx?.slot.entity === "field") {
+				const field = ctx.form?.fields.get(ctx.slot.uuid);
+				message = `"${field?.id ?? "This question"}" starts with a file. Web Apps clears a starting file as the form opens and submits nothing for it, and Android can't open the form. You can leave its starting value empty.`;
+			}
+			break;
 		case "default-not-a-choice":
 			code = "SELECT_DEFAULT_NOT_AN_OPTION";
 			if (ctx?.slot.entity === "field" && term?.kind === "literal") {

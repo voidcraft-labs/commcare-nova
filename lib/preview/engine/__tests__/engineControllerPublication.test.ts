@@ -21,7 +21,7 @@ import {
 	admittedControllerDoc,
 	applyControllerEdit,
 } from "./fixtures/controllerDoc";
-import { androidDevice } from "./fixtures/previewDevices";
+import { androidDevice, webAppsDevice } from "./fixtures/previewDevices";
 
 /** Hold one real transport request; every released expression still runs in
  * the production dispatcher. Retirement discards the old port's held work. */
@@ -261,17 +261,34 @@ function fixture(sectioned = false) {
 	return { ctrl, store, barrier, form, fields, otherForm, otherField };
 }
 
-async function seed(subject: ReturnType<typeof fixture>) {
+async function seed(
+	subject: ReturnType<typeof fixture>,
+	platform: "android" | "web-apps" = "android",
+) {
 	const { ctrl, form, fields } = subject;
+	if (platform === "web-apps") ctrl.setPreviewDevice(webAppsDevice());
 	expect(await ctrl.activateFormAsync(form)).toBe(true);
 	expect(await ctrl.onValueChangeAsync(fields.name.uuid, "Amina")).toBe(true);
 	expect(await ctrl.onValueChangeAsync(fields.point.uuid, "40 -74 0 0")).toBe(
 		true,
 	);
-	if (fields.visit.kind === "group")
+	if (fields.visit.kind === "group") {
+		/* Android offers each entry after the screen before it: the visit
+		 * count's screen for the first, the first entry's last screen for the
+		 * second. Web Apps shows the whole form on one screen. */
+		if (platform === "android")
+			expect(await ctrl.enterScreenAsync("/data/visit/count")).toBe(true);
+		expect(
+			await ctrl.addRepeatAsync(fields.visits.uuid, "/data/visit/visits"),
+		).toBe(0);
+		if (platform === "android")
+			expect(await ctrl.enterScreenAsync("/data/visit/visits[0]/photo")).toBe(
+				true,
+			);
 		expect(
 			await ctrl.addRepeatAsync(fields.visits.uuid, "/data/visit/visits"),
 		).toBe(1);
+	}
 	expect(
 		await ctrl.setValueAtAsync("/data/visit/visits[1]/note", "Second visit"),
 	).toBe(true);
@@ -969,7 +986,8 @@ describe("same-entry runtime publication", () => {
 		const subject = fixture();
 		const { ctrl, fields } = subject;
 		try {
-			await seed(subject);
+			/* Web Apps removes an entry; Android's form entry has no removal. */
+			await seed(subject, "web-apps");
 			const entryKey = ctrl.entryKey;
 			if (!entryKey) throw new Error("The active entry is missing");
 			const instanceKey = ctrl.getRepeatInstanceKey(
@@ -1340,7 +1358,7 @@ describe("same-entry runtime publication", () => {
 					expect(ctrl.store.getState()).toEqual({});
 				else {
 					expect(ctrl.store.getState()[fields.name.uuid]?.value).toBe("");
-					expect(ctrl.getRepeatCount(fields.visits.uuid)).toBe(1);
+					expect(ctrl.getRepeatCount(fields.visits.uuid)).toBe(0);
 				}
 				expect(ctrl.entryStore.getState().fault).toBeUndefined();
 			} finally {
@@ -1426,7 +1444,7 @@ describe("same-entry runtime publication", () => {
 			barrier.release();
 			expect(await resetting).toBe(true);
 			expect(ctrl.store.getState()[fields.name.uuid]?.value).toBe("");
-			expect(ctrl.getRepeatCount(fields.visits.uuid)).toBe(1);
+			expect(ctrl.getRepeatCount(fields.visits.uuid)).toBe(0);
 			expect(ctrl.entryStore.getState()).toMatchObject({
 				entryKey,
 				ready: true,

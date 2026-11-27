@@ -6,6 +6,7 @@
 
 import type { Element } from "domhandler";
 import { isTag } from "domhandler";
+import { submittedAction } from "@/lib/domain/submittedAnswerName";
 import type { FindingDetail, HqPlace } from "@/lib/publish/hqFindings";
 import { chargeWork, rethrowWorkStop } from "../../workMeter";
 import { FormPath } from "../../xform/formPath";
@@ -26,6 +27,7 @@ import { X } from "./claims";
 import type { ParsedXForm } from "./parse";
 
 export interface DataNode {
+	readonly rootName: string;
 	readonly element: Element;
 	readonly name: string;
 	/** Names from the data root down, the root left out. */
@@ -51,7 +53,7 @@ export function insideRepeat(node: DataNode): boolean {
  *  Nova writes. */
 export function formPathOf(node: DataNode): FormPath | undefined {
 	try {
-		let path = FormPath.root();
+		let path = FormPath.root(node.rootName);
 		for (const name of node.path) path = path.child(name);
 		return path;
 	} catch (error) {
@@ -388,6 +390,7 @@ export function readDataTree(
 		const elementChildren = element.children.filter(isTag);
 		const node: DataNode = {
 			element,
+			rootName: parsed.dataRoot.name,
 			name: element.name,
 			path: parent === null ? [element.name] : [...parent.path, element.name],
 			parent,
@@ -470,14 +473,30 @@ export function readDataTree(
 	};
 	// Nodes CommCare HQ's build or a plugin of the form builder owns, each refused whole with
 	// its bind, setvalues and control, which stand under the refusal of the data tree.
+	const transactionContents = new Set<DataNode>();
+	const envelopeNamespace = elementNamespace(
+		parsed.dataRoot,
+		parsed.scope(parsed.dataRoot),
+	);
 	for (const node of order) {
 		if (refused.has(node)) continue;
+		if (node.parent !== null && transactionContents.has(node.parent)) {
+			transactionContents.add(node);
+			continue;
+		}
 		const namespace = elementNamespace(
 			node.element,
 			parsed.scope(node.element),
 		);
 		const ledger = ledgerRole(node, namespace);
-		if (node.parent === null && appended.has(node.name))
+		const action = submittedAction(splitName(node.name).local, namespace);
+		if (
+			node.parent === null &&
+			appended.has(node.name) &&
+			(node.name !== "case" ||
+				namespace === envelopeNamespace ||
+				namespace === CASE_TRANSACTION_NS)
+		)
 			refuseAtQuestion(
 				node,
 				node.name === "case" ? X.rootQuestionCase : X.rootQuestionUsercase,
@@ -504,6 +523,18 @@ export function readDataTree(
 					undefined,
 					node,
 				);
+		} else if (
+			action === "case" &&
+			namespace === CASE_TRANSACTION_NS &&
+			inSaveToCaseRole(node)
+		) {
+			transactionContents.add(node);
+		} else if (action === "case" || action === "stock") {
+			refuseAtQuestion(
+				node,
+				action === "case" ? X.submittedCase : X.submittedStock,
+				{ name: node.name },
+			);
 		} else if (ignoredButRetained(node.element, parsed))
 			refuseAtQuestion(node, X.ignoreRetain);
 	}
@@ -524,13 +555,6 @@ export function readDataTree(
 			cursor.drop(
 				{ element: node.element, attribute: comment },
 				X.vellumComment,
-			);
-		const lock = attributeNameIn(node.element, parsed, VELLUM_NS, "lock");
-		if (lock !== undefined)
-			cursor.refuse(
-				{ element: node.element, attribute: lock },
-				X.vellumLock.node,
-				formPlace,
 			);
 	}
 	for (const node of top)
@@ -679,9 +703,6 @@ export function readBinds(
 				{ element, attribute: preloadParams },
 				X.bindPreload.preloadParams,
 			);
-		const lock = attributeNameIn(element, parsed, VELLUM_NS, "lock");
-		if (lock !== undefined)
-			cursor.refuse({ element, attribute: lock }, X.vellumLock.bind, formPlace);
 		const logic: Partial<Record<BindFactsLogicKey, string>> = {};
 		for (const name of LOGIC_ATTRIBUTES) {
 			const value = plainAttribute(element, name);
@@ -835,7 +856,7 @@ export function readInstances(
 }
 
 /** The case transaction namespace, which a case block's `case` element is in. */
-const CASE_TRANSACTION_NS = "http://commcarehq.org/case/transaction/v2";
+export const CASE_TRANSACTION_NS = "http://commcarehq.org/case/transaction/v2";
 
 /** The ledger namespace of CommCare's stock transactions. */
 const LEDGER_NS = "http://commcarehq.org/ledger/v1";

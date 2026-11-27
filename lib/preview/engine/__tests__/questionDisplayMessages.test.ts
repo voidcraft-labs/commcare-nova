@@ -13,6 +13,7 @@ import { engineFixtureInput } from "./fixtures/engineInput";
 import { androidDevice } from "./fixtures/previewDevices";
 
 const FORM = testUuid("display-message-form");
+const ADDRESS_PARENT = testUuid("form.stops.collected");
 function visitInput(receiverField = "filename") {
 	const choices = (id: string) => ({
 		kind: "inline",
@@ -41,6 +42,13 @@ function visitInput(receiverField = "filename") {
 						label: "Address",
 						addressLookup: true,
 						sendTopics: ["stop"],
+						submissionPlacement: { parent: ADDRESS_PARENT },
+					},
+					{
+						kind: "group",
+						uuid: ADDRESS_PARENT,
+						id: "collected",
+						children: [{ kind: "text", id: "reference" }],
 					},
 					{
 						kind: "text",
@@ -78,12 +86,12 @@ function visitInput(receiverField = "filename") {
 				],
 			},
 		],
-		{ formUuid: FORM, formType: "survey" },
+		{ formUuid: FORM, formType: "survey", form: { dataRootName: "visit" } },
 	);
 }
 
 describe("a worker question receiving a form update", () => {
-	it("fills an address's own repeat row through the controller and clears absent answers without writing to a second session", async () => {
+	it("commits an address under its submitted group and updates only the receivers in its own repeat row and entry", async () => {
 		const input = visitInput();
 		const store = createBlueprintDocStore();
 		store.getState().load(input.doc);
@@ -101,13 +109,17 @@ describe("a worker question receiving a form update", () => {
 			await Promise.all(
 				controllers.map((controller) => controller.activateFormAsync(FORM)),
 			);
-			await first.setValueAtAsync("/data/stops[0]/plain_region", "north_id");
-			const row = "/data/stops[0]/";
+			const stops = testUuid("form.stops");
+			await Promise.all(
+				controllers.map((controller) => controller.addRepeatAsync(stops)),
+			);
+			await first.setValueAtAsync("/visit/stops[0]/plain_region", "north_id");
+			const row = "/visit/stops[0]/";
+			const address = `${row}collected/address`;
 			const message = { city: "Mtoni", province: "Missing", region: "South" };
 			const value = JSON.stringify(message);
 			const entry = first.entryKey;
 			if (entry === undefined) throw new Error("The form did not open.");
-			const stops = testUuid("form.stops");
 			const target = {
 				fieldUuid: testUuid("form.stops.address"),
 				repeatInstances: [
@@ -118,10 +130,11 @@ describe("a worker question receiving a form update", () => {
 				],
 			};
 			const pending = first.commitAddressAnswer(entry, target, value, message);
-			await first.touchAtAsync(`${row}address`);
+			await first.touchAtAsync(address);
 			await expect(pending).resolves.toBe(true);
 			await first.awaitSettled();
-			expect(first.store.getState()[`${row}address`]?.value).toBe(value);
+			expect(first.store.getState()[address]?.value).toBe(value);
+			expect(first.store.getState()[`${row}address`]).toBeUndefined();
 			expect(first.store.getState()[`${row}city`]?.value).toBe("Mtoni");
 			expect(first.store.getState()[`${row}region`]?.value).toBe("south_id");
 			expect(first.store.getState()[`${row}plain_region`]?.value).toBe("");
@@ -133,13 +146,13 @@ describe("a worker question receiving a form update", () => {
 				filename: "route.pdf",
 			});
 			expect(first.store.getState()[`${row}filename`]?.value).toBe("route.pdf");
-			await first.applyDisplayMessage(`${row}address`, {
+			await first.applyDisplayMessage(address, {
 				province: "North",
 				region: "South",
 			});
 			expect(first.store.getState()[`${row}region`]?.value).toBe("north_id");
 			expect(first.store.getState()[`${row}city`]?.value).toBe("");
-			await first.applyDisplayMessage(`${row}address`, null);
+			await first.applyDisplayMessage(address, null);
 			expect(first.store.getState()[`${row}region`]?.value).toBe("");
 			expect(first.store.getState()[`${row}filename`]?.value).toBe("route.pdf");
 
@@ -151,7 +164,7 @@ describe("a worker question receiving a form update", () => {
 			).resolves.toBe(false);
 			await first.awaitSettled();
 			expect(first.getRepeatCount(stops)).toBe(1);
-			expect(first.store.getState()[`${row}address`]?.value).toBe("");
+			expect(first.store.getState()[address]?.value).toBe("");
 			expect(first.store.getState()[`${row}city`]?.value).toBe("");
 		} finally {
 			for (const controller of controllers) controller.dispose();
@@ -165,13 +178,14 @@ describe("a worker question receiving a form update", () => {
 		(receiverField) => {
 			const input = visitInput(receiverField);
 			const web = new FormEngine(input);
-			web.addRepeat("/data/stops");
+			web.addRepeat("/visit/stops");
+			web.addRepeat("/visit/stops");
 			const paths = web
-				.displayMessageAnswers("/data/stops[1]/document", {
+				.displayMessageAnswers("/visit/stops[1]/document", {
 					filename: "later.pdf",
 				})
 				.map(({ path, value }) => [path, value]);
-			expect(paths).toEqual([["/data/stops[1]/filename", "later.pdf"]]);
+			expect(paths).toEqual([["/visit/stops[1]/filename", "later.pdf"]]);
 			const android = new FormEngine(
 				input,
 				undefined,
@@ -181,8 +195,12 @@ describe("a worker question receiving a form update", () => {
 				undefined,
 				{ device: androidDevice() },
 			);
+			android.addRepeat("/visit/stops");
 			expect(
-				android.displayMessageAnswers("/data/stops[0]/document", {
+				android.store.getState()["/visit/stops[0]/document"],
+			).toBeDefined();
+			expect(
+				android.displayMessageAnswers("/visit/stops[0]/document", {
 					filename: "phone.pdf",
 				}),
 			).toEqual([]);

@@ -519,7 +519,7 @@ def test_a_queue_without_the_readers_holds_nothing_only_a_reader_runs_and_keys_t
     write_files(
         checkout,
         {
-            "proof/connect/test_receiver.py": "def test_receiver():\n    pass\n",
+            "proof/connect/test_editor.py": "def test_edit():\n    pass\n",
             "proof/controls/plain/document.json": "{}",
             "proof/controls/reader/document.json": "{}",
         },
@@ -533,10 +533,8 @@ def test_a_queue_without_the_readers_holds_nothing_only_a_reader_runs_and_keys_t
     every = _build(checkout, tmp_path / "every.json", corpus=corpus)
     without = _build(checkout, tmp_path / "without.json", "--lane-env", "PROOF_READERS=0", corpus=corpus)
     assert {"control:plain", "control:reader", "proof/connect"} <= set(every["classes"]["observed"])
-    assert set(every["classes"]["observed"]) - set(without["classes"]["observed"]) == {
-        "control:reader",
-        "proof/connect",
-    }
+    assert "proof/connect" in without["classes"]["observed"]
+    assert set(every["classes"]["observed"]) - set(without["classes"]["observed"]) == {"control:reader"}
     assert "readers" not in every and without["readers"] is False
     assert lane_blocks.parse_queue(without).readers == lane_readers.NONE
     assert lane_blocks.parse_queue(every).readers == lane_readers.EVERY
@@ -546,12 +544,11 @@ def test_a_queue_without_the_readers_holds_nothing_only_a_reader_runs_and_keys_t
     assert set(apart) <= set(keyed) and all(keyed[group] != apart[group] for group in apart)
     early = _build(checkout, tmp_path / "early.json", "--lane-env", "PROOF_READERS=0", phase="early")
     assert early["readers"] is False
-    # A slice of the readers queues what it observes: the package only Connect's tests fill where it names
-    # Connect, and each control an entry of a reader it names holds.
+    # The Connect editor tests run in every profile. A control still follows the readers of its entries.
     android = _build(checkout, tmp_path / "android.json", "--lane-env", "PROOF_READERS=android", corpus=corpus)
     assert android["readers"] == ["formplayer", "android"]
     assert android["environment"]["PROOF_READERS"] == "formplayer,android"
-    assert "proof/connect" not in android["classes"]["observed"]
+    assert "proof/connect" in android["classes"]["observed"]
     assert {"control:plain", "control:reader"} <= set(android["classes"]["observed"])
     connect = _build(checkout, tmp_path / "connect.json", "--lane-env", "PROOF_READERS=connect", corpus=corpus)
     assert "proof/connect" in connect["classes"]["observed"]
@@ -807,7 +804,7 @@ def test_the_timed_out_single_configuration_gets_two_named_whole_reader_editor_p
         )
         return queue.split([builder.document(name, root)], builder)
 
-    (root / "document.json").write_text(json.dumps({"doc": {"connectType": None}}))
+    (root / "document.json").write_text(json.dumps({"doc": {"connectRoles": []}}))
     first, second, whole = allocated()
     assert (first.name, second.name) == whole.after == lane_blocks.EDITOR_PIECES
     assert first.fresh and second.fresh and not whole.fresh
@@ -819,7 +816,7 @@ def test_the_timed_out_single_configuration_gets_two_named_whole_reader_editor_p
     assert [g.name for g in allocated(readers="0")] == [name]
     assert [g.name for g in allocated(determinism="0")] == [name]
     assert [g.name for g in allocated(split_above=None)] == [name]
-    (root / "document.json").write_text(json.dumps({"doc": {"connectType": "learn"}}))
+    (root / "document.json").write_text(json.dumps({"doc": {"connectRoles": ["learn"]}}))
     assert [g.name for g in allocated()] == [name]
 
 

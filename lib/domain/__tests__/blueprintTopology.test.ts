@@ -2,11 +2,7 @@
 // have separate gates; these candidates exercise topology before those gates.
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import {
-	blueprintDocSchema,
-	NEW_APP_SETTINGS,
-	type PersistableDoc,
-} from "../blueprint";
+import { blueprintDocSchema, type PersistableDoc } from "../blueprint";
 import type { Form } from "../forms";
 import { type Module, plainColumn, simpleSearchInputDef } from "../modules";
 import { proseText } from "../prose";
@@ -29,7 +25,7 @@ function emptyDoc(): PersistableDoc {
 	return {
 		appId: "topology-app",
 		appName: "Topology",
-		connectType: null,
+		connectRoles: [],
 		appSettings: { showSavedForms: false, showIncompleteForms: false },
 		caseTypes: null,
 		modules: {},
@@ -326,76 +322,38 @@ describe("closed blueprint topology", () => {
 		);
 	});
 
-	it("requires Connect configuration to match the app mode", () => {
+	it("requires the submitted activity's role and preserves independent receiver identities across forms", () => {
 		const doc = oneFormDoc();
-		doc.forms[FORM] = {
-			...form(),
-			connect: {
-				learn_module: {
-					id: "training",
-					name: "Training",
-					description: "Training",
-					time_estimate: 10,
-				},
+		const lesson = {
+			kind: "connect_activity" as const,
+			uuid: FIELD,
+			id: "training",
+			activity: {
+				kind: "learning-module" as const,
+				name: "Training",
+				description: "Practice",
+				estimatedHours: 10,
 			},
 		};
+		doc.fields[FIELD] = lesson;
+		doc.fieldOrder[FORM] = [FIELD];
 		expect(messages(doc)).toContain(
-			"Form Connect configuration must match the app Connect mode.",
+			'"training" uses the Connect learn role. You can enable that role or remove the activity.',
 		);
+		doc.connectRoles = ["learn", "deliver"];
+		doc.forms[FORM_2] = { ...form(FORM_2), id: "followup" };
+		doc.formOrder[MODULE] = [FORM, FORM_2];
+		doc.fieldOrder[FORM_2] = [GROUP];
+		doc.fields[GROUP] = { ...lesson, uuid: GROUP };
+		expect(blueprintDocSchema.safeParse(doc).success).toBe(true);
 	});
 
-	it("requires Connect ids to be unique across forms and subkinds", () => {
-		const doc = {
-			...oneFormDoc(),
-			connectType: "learn" as const,
-			appSettings: { ...NEW_APP_SETTINGS, runsOnlyOn: "android" as const },
-			forms: {
-				[FORM]: {
-					...form(),
-					connect: {
-						learn_module: {
-							id: "shared",
-							name: "Training",
-							description: "Training",
-							time_estimate: 10,
-						},
-					},
-				},
-				[FORM_2]: {
-					...form(FORM_2),
-					connect: {
-						assessment: { id: "shared" },
-					},
-				},
-			},
-			formOrder: { [MODULE]: [FORM, FORM_2] },
-			fieldOrder: { [FORM]: [], [FORM_2]: [] },
-		};
-		expect(messages(doc)).toContain(
-			`Connect id shared appears in both forms.${FORM}.connect.learn_module and forms.${FORM_2}.connect.assessment.`,
-		);
-	});
-
-	it.each([
-		{ connect: null, label: "stored null" },
-		{ connect: {}, label: "empty config" },
-		{
-			connect: {
-				learn_module: {
-					name: "Training",
-					description: "Training",
-					time_estimate: 10,
-				},
-			},
-			label: "missing id",
-		},
-	])("rejects a Connect $label instead of repairing it", ({ connect }) => {
+	it("rejects a retired form-level activity record at the current document boundary", () => {
 		const doc = oneFormDoc();
-		doc.connectType = "learn";
-		doc.appSettings = { ...NEW_APP_SETTINGS, runsOnlyOn: "android" };
-		const targetForm = doc.forms[FORM];
-		if (targetForm === undefined) throw new Error("test form missing");
-		Object.assign(targetForm, { connect });
+		doc.connectRoles = ["learn"];
+		doc.forms[FORM] = Object.assign(form(), {
+			connect: { assessment: { id: "quiz" } },
+		});
 		expect(blueprintDocSchema.safeParse(doc).success).toBe(false);
 	});
 

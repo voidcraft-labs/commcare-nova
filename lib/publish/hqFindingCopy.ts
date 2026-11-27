@@ -55,6 +55,7 @@ export const SUBJECT_LABELS: Readonly<Record<Subject, string>> = {
 	"advanced-menus": "Advanced menus",
 	"after-submit": "After a form is sent",
 	"android-app-dependencies": "Android app dependencies",
+	"answer-groups": "Groups that hold answers",
 	"app-document": "The app as stored",
 	"app-logos": "App logos",
 	"app-name": "The app's name",
@@ -81,6 +82,7 @@ export const SUBJECT_LABELS: Readonly<Record<Subject, string>> = {
 	"child-cases": "Child cases",
 	"commcare-version": "CommCare version",
 	"connect-blocks": "CommCare Connect",
+	"connect-work-area-requests": "Work-area requests",
 	"custom-assertions": "Custom assertions",
 	"custom-device-properties": "Custom device properties",
 	"data-registry": "Data registries",
@@ -91,6 +93,7 @@ export const SUBJECT_LABELS: Readonly<Record<Subject, string>> = {
 	expressions: "Expressions",
 	"form-case-management": "Case management",
 	"form-settings": "Form settings",
+	"form-answer-addresses": "Submitted answer addresses",
 	"form-source": "A form's source",
 	"hand-written-content": "Hand-written XML",
 	"hierarchical-locations": "The older organization list",
@@ -161,6 +164,7 @@ export const FINDING_COPY: Readonly<
 			"This uses a destination after the form is sent, which Nova doesn't bring in.",
 	},
 	"android-app-dependencies": {},
+	"answer-groups": {},
 	"app-document": {
 		never:
 			"A menu here has no ID in CommCare HQ, so Nova has nothing to keep it by.",
@@ -234,10 +238,8 @@ export const FINDING_COPY: Readonly<
 			"This form opens a case of its menu's own type, and this project space leaves out the link between the two.",
 	},
 	"commcare-version": {},
-	"connect-blocks": {
-		"not-yet":
-			"A CommCare Connect block here is set up in a way Nova can't hold yet.",
-	},
+	"connect-blocks": {},
+	"connect-work-area-requests": {},
 	"custom-assertions": {
 		never: "This uses custom assertions, which Nova doesn't bring in.",
 	},
@@ -273,9 +275,8 @@ export const FINDING_COPY: Readonly<
 			"This form's case management is set up in a way Nova can't hold yet.",
 	},
 	"form-settings": {},
-	"form-source": {
-		"not-yet": "A form's source here is built in a way Nova can't hold yet.",
-	},
+	"form-answer-addresses": {},
+	"form-source": {},
 	"hand-written-content": {
 		never:
 			"This uses hand-written XML or settings that no CommCare HQ page edits, which Nova doesn't bring in.",
@@ -332,11 +333,8 @@ export const FINDING_COPY: Readonly<
 	"question-ids": {
 		never:
 			"Two questions here share one place in the form's data, so Nova can't tell them apart.",
-		"not-yet": "A question ID here is one Nova can't hold yet.",
 	},
-	"question-logic": {
-		"not-yet": "A question's logic here is something Nova can't hold yet.",
-	},
+	"question-logic": {},
 	"question-media": {
 		"not-yet":
 			"A question here carries a kind of media or label form Nova can't hold yet.",
@@ -348,9 +346,7 @@ export const FINDING_COPY: Readonly<
 		"not-yet":
 			"A question here is of a kind, or is set up in a way, that Nova can't hold yet.",
 	},
-	repeats: {
-		"not-yet": "A repeat group here is set up in a way Nova can't hold yet.",
-	},
+	repeats: {},
 	"save-to-case": {
 		"not-yet": "This uses a Save to Case question, which Nova can't hold yet.",
 	},
@@ -471,6 +467,10 @@ export const FIX_IN_HQ_SENTENCES: Readonly<
 		"breaks-when-run":
 			"A translation uses a media file whose type has no entry in the form’s default language. In CommCare HQ, add a file of that type in the default language or remove it from the translation, then try again.",
 	},
+	"answer-groups": {
+		"hq-refuses":
+			"An answer here is kept under a group CommCare HQ's form designer can't keep it under: at the top level of the form for a question inside a group, which the designer reports as invalid each time it opens the form, or under another group for a whole group, whose answers its next save loses. Keeping the answer with its question in the form designer's Data Parent setting fixes it.",
+	},
 	"app-document": {
 		"hq-refuses":
 			"Part of how this app is stored is something CommCare HQ can't save or build.",
@@ -487,6 +487,12 @@ export const FIX_IN_HQ_SENTENCES: Readonly<
 		"breaks-when-run":
 			"A text here holds a carriage return, where devices end the text's line. Devices don't show the text as written, and they read the part after the carriage return as a line of its own, which can set the wording of another text. Without the carriage return, devices show the whole text.",
 	},
+	"form-answer-addresses": {
+		"hq-refuses":
+			"The form designer uses this answer root to read the form itself. A different root, such as survey, and matching question paths let it open the form.",
+		"breaks-when-run":
+			"Workers cannot read answers under this root. A name such as survey, used at the start of each question path, makes the answers reachable.",
+	},
 	"case-types": {
 		"hq-refuses":
 			"A case type here holds a character CommCare HQ's menu settings can't save.",
@@ -494,6 +500,12 @@ export const FIX_IN_HQ_SENTENCES: Readonly<
 	"commcare-version": {
 		"below-floor":
 			"This app is built for a CommCare version below 2.57, the earliest Nova publishes to.",
+	},
+	"connect-work-area-requests": {
+		"breaks-when-run":
+			"CommCare HQ keeps the photo but sends Connect only its filename. Connect declines the whole submission, including any delivery in it. To record a visit, the delivery can use the work area ID. For an inaccessible area, the worker can send the request through the opportunity's work-area process.",
+		"hq-refuses":
+			"CommCare HQ's form designer replaces part of this work-area request when it saves the form. The worker can send inaccessible-area requests through the opportunity's work-area process. If the form records a visit, its delivery can use the work area ID.",
 	},
 	expressions: {
 		"breaks-when-run":
@@ -524,9 +536,15 @@ export const FIX_IN_HQ_SENTENCES: Readonly<
 		"breaks-when-run":
 			"The app points at a media file here that CommCare HQ doesn't have. Workers meet a missing file there, and Android may not start the app at all.",
 	},
+	"question-logic": {
+		"breaks-when-run":
+			"An attachment question here starts with a file. Web Apps clears that file as the form opens, and Android can't open the form. Leaving its starting value empty in the form designer fixes it.",
+	},
 	"question-ids": {
 		"hq-refuses":
 			"A question ID here is one CommCare HQ's form builder can't keep.",
+		"breaks-when-run":
+			"An answer here is named case, so workers' devices read it as a case change. Renaming it in the form designer, such as case_note, keeps it an answer.",
 	},
 	"text-backslashes": {
 		"breaks-when-run":

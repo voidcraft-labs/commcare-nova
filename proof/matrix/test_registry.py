@@ -156,6 +156,25 @@ def test_a_row_expecting_the_reading_to_leave_a_key_unclaimed_names_the_key():
     _refused([{**holding, "holds": []}], {"made": made}, "names the surface key")
 
 
+def test_a_row_may_name_the_declaration_its_change_is_read_under_and_a_question_place_names_its_form():
+    """Contract: a row whose change leaves its base's declaration unoffered (an answer only Android keeps) names the
+    one it is read under, ``{runsOnlyOn, splitDatetime}``, as a base's is written; a question's place names its
+    menuName, formName and path, as ``lib/publish/hqFindings.ts`` writes one. The plausible failures: a variant
+    read under its base's declaration, which the reading no longer offers, and a question place the judge compares
+    with no finding's, which no reading can meet."""
+    holding = {key: item for key, item in ROW.items() if key not in ("standing", "place")}
+    declared = {**holding, "holds": [], "declaration": {"runsOnlyOn": "android", "splitDatetime": False}}
+    path = _rows([declared])
+    try:
+        (variant,) = registry.load_variants(path, named={"made": made})
+    finally:
+        path.unlink()
+    assert variant.declaration == registry.Declaration("android", False)
+    _refused([{**declared, "declaration": {"runsOnlyOn": "android"}}], {"made": made}, "a declaration is")
+    question = {"kind": "question", "menu": 0, "form": 0, "menuName": "Questions", "name": "Survey", "path": "a"}
+    _refused([{**ROW, "place": question}], {"made": made}, "names its menuName, its formName")
+
+
 def test_a_row_over_a_base_the_registry_lacks_is_refused():
     _refused([{**ROW, "base": "hq-unknown", "id": "hq-unknown/x"}], {"made": made}, "BASES lacks")
 

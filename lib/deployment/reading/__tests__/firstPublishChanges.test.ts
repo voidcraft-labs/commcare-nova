@@ -123,6 +123,8 @@ import {
 import { asMediaAssetId } from "@/lib/domain/multimedia";
 import type { LookupTableDefinition } from "@/lib/lookup/types";
 import {
+	CURRENT_FIRST_PUBLISH_CHANGE_IDS,
+	type CurrentFirstPublishChangeId,
 	FIRST_PUBLISH_CHANGE_IDS,
 	FIRST_PUBLISH_PLATFORM,
 	FIRST_PUBLISH_TOUCHES_WORKERS,
@@ -281,7 +283,7 @@ function withNoFoldedNodes(reading: RegisterReading): Partial<ReadFacts> {
 	};
 }
 
-const applies = (id: FirstPublishChangeId, facts: FirstPublishFacts) =>
+const applies = (id: CurrentFirstPublishChangeId, facts: FirstPublishFacts) =>
 	FIRST_PUBLISH_CHANGES[id].applies(facts);
 
 // ── Readings ─────────────────────────────────────────────────────────────
@@ -551,58 +553,16 @@ function withDeclaredReports(xml: string): string {
 	return serializeXml(document);
 }
 
-/** A survey whose Hidden Value `h` is calculated, beside a question `n` with a default. */
-function calculatedDoc(): BlueprintDoc {
-	return buildDoc({
-		modules: [
-			{
-				name: "Menu",
-				forms: [
-					{
-						name: "Form",
-						type: "survey",
-						fields: [
-							f({ kind: "hidden", id: "h", calculate: "2" }),
-							f({ kind: "text", id: "n", default_value: "'x'" }),
-						],
-					},
-				],
-			},
-		],
-	});
-}
-
-/** A default of `h` before the default of `n`, which reads neither: a source whose
- *  calculate replaces its default before anything reads it. */
-function withOverwrittenDefault(xml: string): string {
-	const document = parseXml(xml);
-	const anchor = findOne(
-		(element: Element) =>
-			element.name === "setvalue" && element.attribs.ref === "/data/n",
-		document.children.filter(isTag),
-		true,
-	);
-	if (anchor === null)
-		throw new Error("The export holds no setvalue that sets n.");
-	prepend(
-		anchor,
-		new Element("setvalue", {
-			event: "xforms-ready",
-			ref: "/data/h",
-			value: "1",
-		}),
-	);
-	return serializeXml(document);
-}
-
 // ── The register's columns ───────────────────────────────────────────────
 
 describe("the register", () => {
 	it("holds every id in registry order, and its touchesWorkers column is the client-safe one", () => {
-		expect(Object.keys(FIRST_PUBLISH_CHANGES)).toEqual([
-			...FIRST_PUBLISH_CHANGE_IDS,
-		]);
-		for (const id of FIRST_PUBLISH_CHANGE_IDS)
+		expect(Object.keys(FIRST_PUBLISH_CHANGES)).toEqual(
+			FIRST_PUBLISH_CHANGE_IDS.filter(
+				(id) => id !== "hidden-value-defaults-dropped",
+			),
+		);
+		for (const id of CURRENT_FIRST_PUBLISH_CHANGE_IDS)
 			expect([id, FIRST_PUBLISH_CHANGES[id].touchesWorkers]).toEqual([
 				id,
 				FIRST_PUBLISH_TOUCHES_WORKERS[id],
@@ -623,7 +583,7 @@ describe("the register", () => {
 		};
 		expect(
 			firstPublishViewFromStored(stored, {
-				connectType: null,
+				connectRoles: [],
 				appSettings: {
 					runsOnlyOn: "android",
 					showIncompleteForms: false,
@@ -632,7 +592,7 @@ describe("the register", () => {
 		).not.toContain(id);
 		expect(
 			firstPublishViewFromStored(stored, {
-				connectType: null,
+				connectRoles: [],
 				appSettings: {
 					runsOnlyOn: "web-apps",
 					showIncompleteForms: false,
@@ -641,13 +601,13 @@ describe("the register", () => {
 		).toContain(id);
 		expect(
 			firstPublishViewFromStored(stored, {
-				connectType: null,
+				connectRoles: [],
 				appSettings: { showIncompleteForms: true },
 			}).ids,
 		).not.toContain(id);
 		expect(
 			firstPublishViewFromStored(stored, {
-				connectType: null,
+				connectRoles: [],
 				appSettings: { showIncompleteForms: false },
 			}).ids,
 		).toContain(id);
@@ -665,22 +625,22 @@ describe("the register", () => {
 
 	it("works out the two Web Apps lines from the declaration, and each line a worker meets on one platform alone from its reading", () => {
 		expect(
-			FIRST_PUBLISH_CHANGE_IDS.filter(
+			CURRENT_FIRST_PUBLISH_CHANGE_IDS.filter(
 				(id) =>
 					FIRST_PUBLISH_CHANGES[id].scope === "declaration" &&
 					FIRST_PUBLISH_CHANGES[id].recorded === undefined,
 			),
 		).toEqual(["web-apps-turned-off", "web-apps-turned-on"]);
 		expect(
-			FIRST_PUBLISH_CHANGE_IDS.filter(
+			CURRENT_FIRST_PUBLISH_CHANGE_IDS.filter(
 				(id) => FIRST_PUBLISH_CHANGES[id].recorded !== undefined,
 			),
 		).toEqual([...FIRST_PUBLISH_PLATFORM.keys()]);
 		for (const id of FIRST_PUBLISH_PLATFORM.keys())
-			expect([id, FIRST_PUBLISH_CHANGES[id].scope]).toEqual([
+			expect([
 				id,
-				"declaration",
-			]);
+				FIRST_PUBLISH_CHANGES[id as CurrentFirstPublishChangeId].scope,
+			]).toEqual([id, "declaration"]);
 	});
 
 	it("maps every generated node's purpose to the entry that declares it, a guard to none", () => {
@@ -725,10 +685,10 @@ describe("the register", () => {
 			.map(([id]) => id);
 		expect(changing.length).toBeGreaterThan(0);
 		for (const id of changing) {
-			expect(FIRST_PUBLISH_CHANGE_IDS).toContain(id);
+			expect(CURRENT_FIRST_PUBLISH_CHANGE_IDS).toContain(id);
 			expect([
 				id,
-				FIRST_PUBLISH_CHANGES[id as FirstPublishChangeId].touchesWorkers,
+				FIRST_PUBLISH_CHANGES[id as CurrentFirstPublishChangeId].touchesWorkers,
 			]).toEqual([id, true]);
 		}
 	});
@@ -760,7 +720,7 @@ describe("the register", () => {
 	});
 
 	it("writes every path as a pointer, and reads a pointer as covering what is under it", () => {
-		for (const id of FIRST_PUBLISH_CHANGE_IDS)
+		for (const id of CURRENT_FIRST_PUBLISH_CHANGE_IDS)
 			for (const path of FIRST_PUBLISH_CHANGES[id].paths)
 				expect(path.startsWith("/") && !path.endsWith("/"), path).toBe(true);
 		expect(pointerCovers("/modules/*/name", "/modules/3/name/en")).toBe(true);
@@ -789,7 +749,7 @@ describe("where each change stands", () => {
 	it("refuses no entry of the register, and declares one change alone app-wide", () => {
 		expect(firstPublishRegisterRefusals(FIRST_PUBLISH_CHANGES)).toEqual([]);
 		expect(
-			FIRST_PUBLISH_CHANGE_IDS.filter(
+			CURRENT_FIRST_PUBLISH_CHANGE_IDS.filter(
 				(id) => "appWide" in FIRST_PUBLISH_CHANGES[id].at,
 			),
 		).toEqual(["forms-and-settings-rewritten"]);
@@ -1849,11 +1809,13 @@ describe("over CommCare HQ's retained sources", () => {
 					...FIRST_PUBLISH_PLATFORM.keys(),
 				]);
 				const recorded = [...FIRST_PUBLISH_PLATFORM.keys()].filter((id) =>
-					FIRST_PUBLISH_CHANGES[id].recorded?.(reading.draft.facts),
+					FIRST_PUBLISH_CHANGES[id as CurrentFirstPublishChangeId].recorded?.(
+						reading.draft.facts,
+					),
 				);
 				for (const runsOnlyOn of ["android", "web-apps", undefined] as const) {
 					const other = firstPublishViewFromStored(stored, {
-						connectType: facts.doc.connectType,
+						connectRoles: facts.doc.connectRoles,
 						appSettings: { ...facts.doc.appSettings, runsOnlyOn },
 					});
 					expect(other.ids.filter((id) => !moving.has(id))).toEqual(
@@ -1882,7 +1844,7 @@ describe("over CommCare HQ's retained sources", () => {
 		} as const;
 		expect(
 			firstPublishViewFromStored(next, {
-				connectType: null,
+				connectRoles: [],
 				appSettings: {
 					runsOnlyOn: undefined,
 					showIncompleteForms: false,
@@ -1895,7 +1857,7 @@ describe("over CommCare HQ's retained sources", () => {
 		});
 		expect(
 			firstPublishViewFromStored(next, {
-				connectType: null,
+				connectRoles: [],
 				appSettings: {
 					runsOnlyOn: "android",
 					showIncompleteForms: false,
@@ -1955,7 +1917,7 @@ describe("over CommCare HQ's retained sources", () => {
 		} as const;
 		expect(
 			firstPublishViewFromStored(stored, {
-				connectType: null,
+				connectRoles: [],
 				appSettings: {
 					runsOnlyOn: "web-apps",
 					showIncompleteForms: false,
@@ -1964,7 +1926,7 @@ describe("over CommCare HQ's retained sources", () => {
 		).not.toContain(id);
 		expect(
 			firstPublishViewFromStored(stored, {
-				connectType: null,
+				connectRoles: [],
 				appSettings: {
 					runsOnlyOn: "android",
 					showIncompleteForms: false,
@@ -1973,7 +1935,7 @@ describe("over CommCare HQ's retained sources", () => {
 		).toContain(id);
 		expect(
 			firstPublishViewFromStored(stored, {
-				connectType: null,
+				connectRoles: [],
 				appSettings: {
 					runsOnlyOn: undefined,
 					showIncompleteForms: false,
@@ -2062,7 +2024,8 @@ function placeStandsAt(place: string, location: string): boolean {
 }
 
 function coveredByItsEntry(record: SameStateRewrite): boolean {
-	const entry = FIRST_PUBLISH_CHANGES[record.register as FirstPublishChangeId];
+	const entry =
+		FIRST_PUBLISH_CHANGES[record.register as CurrentFirstPublishChangeId];
 	return entry?.paths.some((path) => pointerCovers(path, record.path)) === true;
 }
 
@@ -2573,7 +2536,7 @@ const menuBadged = (xpath: string | null): ExportEdits =>
 
 /** The Project data each pair whose document reads a table or holds a file publishes with. */
 const PAIR_PROJECT_DATA: Partial<
-	Record<FirstPublishChangeId, PairProjectData>
+	Record<CurrentFirstPublishChangeId, PairProjectData>
 > = {
 	"empty-rows-guard": {
 		lookups: KINDS as unknown as readonly LookupTableDefinition[],
@@ -2710,7 +2673,9 @@ async function readUnshownHint(
 	);
 }
 
-const PAIRS: Readonly<Record<FirstPublishChangeId, Pair>> = {
+const PAIRS: Readonly<
+	Record<Exclude<FirstPublishChangeId, "hidden-value-defaults-dropped">, Pair>
+> = {
 	"forms-and-settings-rewritten": {
 		on: async () => factsOf(await baseReading()),
 		off: async () => factsOf(await readExport(countDoc(), TARGET)),
@@ -3089,9 +3054,73 @@ const PAIRS: Readonly<Record<FirstPublishChangeId, Pair>> = {
 		labelledDoc("Weight\u00a0(kg)"),
 		{ xml: withLiteralOutputsAsText },
 	),
-	// A Hidden Value's default its calculate replaces before anything reads it.
-	"hidden-value-defaults-dropped": editedPair(calculatedDoc, {
-		xml: withOverwrittenDefault,
+	"hidden-answer-types-respelled": editedPair(
+		() =>
+			buildDoc({
+				modules: [
+					{
+						name: "Visits",
+						forms: [
+							{
+								name: "Visit",
+								type: "survey",
+								fields: [
+									f({
+										kind: "hidden",
+										id: "age",
+										answerType: "int",
+										calculate: "1",
+									}),
+									f({ kind: "text", id: "note" }),
+								],
+							},
+						],
+					},
+				],
+			}),
+		{
+			xml: (xml) => {
+				const root = parseXml(xml);
+				const bind = findOne(
+					(element) =>
+						element.name === "bind" && element.attribs.nodeset === "/data/age",
+					root.children.filter(isTag),
+					true,
+				);
+				if (bind === null) throw new Error("Missing age bind");
+				bind.attribs.type = "xsd:integer";
+				return serializeXml(root);
+			},
+		},
+	),
+
+	// A repeat listing its rows when the form opens, whose condition stands on its container's
+	// bind, where the form builder never writes it, and not on its rows'.
+	"model-iteration-conditions-moved-to-rows": editedPair(openingRowsDoc, {
+		xml: (xml) => {
+			const root = parseXml(xml);
+			const rows = findOne(
+				(element) =>
+					element.name === "bind" &&
+					element.attribs.nodeset === "/data/visits/item",
+				root.children.filter(isTag),
+				true,
+			);
+			if (rows === null) throw new Error("Missing the rows' bind");
+			const condition = rows.attribs.relevant;
+			if (condition === undefined) throw new Error("Missing the condition");
+			delete rows.attribs.relevant;
+			delete rows.attribs["vellum:relevant"];
+			const container = new Element("bind", {
+				nodeset: "/data/visits",
+				relevant: condition,
+			});
+			if (rows.parent === null) throw new Error("Missing the binds' parent");
+			const siblings = rows.parent.children;
+			siblings.splice(siblings.indexOf(rows), 0, container);
+			container.parent = rows.parent;
+			return serializeXml(root);
+		},
 	}),
 	// A label beside a column shown nowhere whose header is blank in every language, which
 	// CommCare HQ's build lists in Android's Sort by as an entry that shows blank.
@@ -3140,6 +3169,48 @@ function ownerRuleReading(): Promise<RegisterReading> {
 	});
 }
 
+/** A repeat of visits whose rows the form lists once when it opens, shown when `asked` is yes. */
+function openingRowsDoc(relevant = "#form/asked = 'yes'"): BlueprintDoc {
+	return buildDoc({
+		modules: [
+			{
+				uuid: testUuid("opening-rows-menu"),
+				name: "Visits",
+				forms: [
+					{
+						uuid: testUuid("opening-rows-form"),
+						name: "Rounds",
+						type: "survey",
+						fields: [
+							f({
+								uuid: testUuid("opening-rows-asked"),
+								kind: "text",
+								id: "asked",
+							}),
+							f({
+								uuid: testUuid("opening-rows-visits"),
+								kind: "repeat",
+								id: "visits",
+								repeat_mode: "query_bound",
+								data_source: { ids_query: "'a b'" },
+								rowTiming: "on-open",
+								relevant,
+								children: [
+									f({
+										uuid: testUuid("opening-rows-note"),
+										kind: "text",
+										id: "note",
+									}),
+								],
+							}),
+						],
+					},
+				],
+			},
+		],
+	});
+}
+
 /** A media map item as CommCare HQ stores one for an image. */
 function mediaMapItem(id: string): Record<string, unknown> {
 	return {
@@ -3152,34 +3223,48 @@ function mediaMapItem(id: string): Record<string, unknown> {
 }
 
 /** The entries whose `applies` reads only what the reader records, each pair a whole reading. */
-const activeChangeIds = FIRST_PUBLISH_CHANGE_IDS.filter(
-	(id) => !retiredSearchFilterNotices.has(id),
-);
+const READER_RECORDED: readonly CurrentFirstPublishChangeId[] =
+	CURRENT_FIRST_PUBLISH_CHANGE_IDS.filter(
+		(id) =>
+			(FIRST_PUBLISH_CHANGES[id].scope === "reading" ||
+				FIRST_PUBLISH_CHANGES[id].recorded !== undefined) &&
+			![
+				"forms-and-settings-rewritten",
+				"connect-app-captures-location",
+				"location-list-setting-reset",
+				"date-and-time-questions-split",
+				"media-paths-joined",
+				"media-files-renamed",
+				"media-references-with-no-file-removed",
+				"broken-pictures-removed",
+				"unused-media-entries-removed",
+			].includes(id),
+	);
 
-const READER_RECORDED: readonly FirstPublishChangeId[] = activeChangeIds.filter(
-	(id) =>
-		(FIRST_PUBLISH_CHANGES[id].scope === "reading" ||
-			FIRST_PUBLISH_CHANGES[id].recorded !== undefined) &&
-		![
-			"forms-and-settings-rewritten",
-			"connect-app-captures-location",
-			"location-list-setting-reset",
-			"date-and-time-questions-split",
-			"media-paths-joined",
-			"media-files-renamed",
-			"media-references-with-no-file-removed",
-			"broken-pictures-removed",
-			"unused-media-entries-removed",
-		].includes(id),
-);
+it("places a moved repeat condition on its container's bind and its rows' bind", async () => {
+	const id = "model-iteration-conditions-moved-to-rows";
+	const [change] = firstPublishChangePlaces(await PAIRS[id].on(), [id]);
+	expect(change?.places).toEqual([
+		"/form/0.0/xform/data/visits/:bind/@relevant",
+		"/form/0.0/xform/data/visits/item/:bind/@relevant",
+	]);
+});
+
+it("places a hidden type rewrite on that question’s type attribute alone", async () => {
+	const id = "hidden-answer-types-respelled";
+	const [change] = firstPublishChangePlaces(await PAIRS[id].on(), [id]);
+	expect(change?.places).toEqual(["/form/0.0/xform/data/age/:bind/@type"]);
+});
 
 describe("each entry", () => {
 	for (const id of retiredSearchFilterNotices)
 		it(`preserves the former source of ${id} without a new notice`, async () => {
-			expect(applies(id, await PAIRS[id].on())).toBe(false);
+			expect(firstPublishChangesFor(await PAIRS[id].on()).ids).not.toContain(
+				id,
+			);
 		});
 
-	for (const id of activeChangeIds)
+	for (const id of CURRENT_FIRST_PUBLISH_CHANGE_IDS)
 		it(`${id} applies on one reading and not on another`, {
 			timeout: 60_000,
 		}, async () => {
@@ -3190,7 +3275,7 @@ describe("each entry", () => {
 			);
 		});
 
-	for (const id of activeChangeIds)
+	for (const id of CURRENT_FIRST_PUBLISH_CHANGE_IDS)
 		it(`${id} stands at places of its own on the reading it applies on`, {
 			timeout: 60_000,
 		}, async () => {
@@ -3229,14 +3314,14 @@ describe("each entry", () => {
 			}
 		});
 
-	for (const id of activeChangeIds.filter(
+	for (const id of CURRENT_FIRST_PUBLISH_CHANGE_IDS.filter(
 		(one) => one !== "forms-and-settings-rewritten",
 	))
 		it(`${id} stands where its first publish changes what only it may change`, {
 			timeout: 60_000,
 		}, async () => {
 			const facts = await PAIRS[id].on();
-			const others = activeChangeIds.filter(
+			const others = CURRENT_FIRST_PUBLISH_CHANGE_IDS.filter(
 				(other) => other !== id && FIRST_PUBLISH_CHANGES[other].applies(facts),
 			);
 			const [placed] = firstPublishChangePlaces(facts, [id]);
@@ -3294,7 +3379,7 @@ describe("each entry", () => {
 		const view = firstPublishChangesFor(await PAIRS["case-names-checked"].on());
 		expect(view.of).toBe("first-publish");
 		expect(view.ids).toEqual(
-			activeChangeIds.filter((id) => view.ids.includes(id)),
+			CURRENT_FIRST_PUBLISH_CHANGE_IDS.filter((id) => view.ids.includes(id)),
 		);
 		expect(view.ids).toContain("case-names-checked");
 		expect(view.touchesWorkers).toBe(true);
@@ -3346,6 +3431,75 @@ describe("each entry", () => {
 		expect(
 			applies("form-text-characters-written-as-outputs", factsOf(on)),
 		).toBe(true);
+	});
+
+	it("reads a repeat's condition on its container as the one its rows hold, joined to theirs", {
+		timeout: 60_000,
+	}, async () => {
+		const withContainer =
+			(container: string, keepRows: boolean) => (xml: string) => {
+				const root = parseXml(xml);
+				const rows = findOne(
+					(element) =>
+						element.name === "bind" &&
+						element.attribs.nodeset === "/data/visits/item",
+					root.children.filter(isTag),
+					true,
+				);
+				if (rows?.parent == null) throw new Error("Missing the rows' bind");
+				if (!keepRows) {
+					delete rows.attribs.relevant;
+					delete rows.attribs["vellum:relevant"];
+				}
+				const bind = new Element("bind", {
+					nodeset: "/data/visits",
+					relevant: container,
+				});
+				const siblings = rows.parent.children;
+				siblings.splice(siblings.indexOf(rows), 0, bind);
+				bind.parent = rows.parent;
+				return serializeXml(root);
+			};
+		const moved = (reading: RegisterReading) =>
+			reading.draft.facts.sameStateRewrites.filter(
+				(record) =>
+					record.register === "model-iteration-conditions-moved-to-rows",
+			);
+		const alone = await readAs(openingRowsDoc(), {
+			xml: withContainer("/data/asked = 'yes'", false),
+		});
+		expect(moved(alone)).toHaveLength(2);
+		expect(moved(alone).every(coveredByItsEntry)).toBe(true);
+		expect(alone.draft.doc.fields).toEqual(
+			(await readExport(openingRowsDoc(), TARGET)).draft.doc.fields,
+		);
+		// Core hides a row where either condition is false, so the repeat holds both.
+		const both = await readAs(openingRowsDoc(), {
+			xml: withContainer("/data/asked != ''", true),
+		});
+		expect(moved(both)).toHaveLength(2);
+		const joined = openingRowsDoc("#form/asked != '' and #form/asked = 'yes'");
+		expect(both.draft.doc.fields).toEqual(
+			(await readExport(joined, TARGET)).draft.doc.fields,
+		);
+		// Nova's own export, with the condition on the rows, records nothing.
+		expect(moved(await readAs(openingRowsDoc()))).toEqual([]);
+		// A path written on the container is taken from the container, though
+		// the repeat's condition is read and written from its rows: it names
+		// the question the absolute one does, kept in its relative spelling.
+		const unspelled = (value: unknown): unknown =>
+			JSON.parse(JSON.stringify(value), (key, held) =>
+				key === "spelling" ? undefined : held,
+			);
+		const exported = (await readExport(openingRowsDoc(), TARGET)).draft.doc
+			.fields;
+		for (const relative of ["../asked = 'yes'", "current()/../asked = 'yes'"]) {
+			const read = await readAs(openingRowsDoc(), {
+				xml: withContainer(relative, false),
+			});
+			expect(moved(read)).toHaveLength(2);
+			expect(unspelled(read.draft.doc.fields)).toEqual(unspelled(exported));
+		}
 	});
 
 	it("reads a Save to Case value in the spelling Nova wrote before as the same write, holding the document the current spelling gives", async () => {
@@ -3542,7 +3696,7 @@ const SHELL_KEY = {
 	"location-list-setting-reset": "location_fixture_restore",
 	"web-apps-turned-off": "cloudcare_enabled",
 	"web-apps-turned-on": "cloudcare_enabled",
-} as const satisfies Partial<Record<FirstPublishChangeId, string>>;
+} as const satisfies Partial<Record<CurrentFirstPublishChangeId, string>>;
 
 function firstPublishBody(
 	facts: FirstPublishFacts,

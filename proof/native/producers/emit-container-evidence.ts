@@ -56,11 +56,14 @@ mkdirSync(output, { recursive: true });
  *   hidden takes that row's record), and the Core run is the evidence for
  *   that refusal, so `held` is the scenario's one admitted refusal
  *   (`EXPECTED_REFUSALS`): any other finding still stops the producer.
+ * - `query-hidden-row-same-answer`: the same transition made by editing a
+ *   single question from yes to no.
  */
 const QUERY_REPEAT_SCENARIOS = [
 	"query-follows",
 	"query-nested-gated",
 	"query-hidden-row",
+	"query-hidden-row-same-answer",
 ] as const;
 type QueryRepeatScenario = (typeof QUERY_REPEAT_SCENARIOS)[number];
 
@@ -77,7 +80,12 @@ const queryRepeat = (id: string, idsQuery: string, children: FieldSpec[]) =>
 	});
 
 function queryRepeatDoc(scenario: QueryRepeatScenario): BlueprintDoc {
-	if (scenario === "query-hidden-row") {
+	if (
+		scenario === "query-hidden-row" ||
+		scenario === "query-hidden-row-same-answer"
+	) {
+		const sameAnswer = scenario === "query-hidden-row-same-answer";
+		const later = sameAnswer ? "#form/first = 'no'" : "#form/later = 'yes'";
 		const hiding = (id: string, extra: Partial<FieldSpec> = {}) =>
 			f({
 				kind: "repeat",
@@ -85,15 +93,14 @@ function queryRepeatDoc(scenario: QueryRepeatScenario): BlueprintDoc {
 				label: proseText(id),
 				repeat_mode: "query_bound",
 				data_source: { ids_query: "'a b c'" },
-				relevant:
-					"if(position() = 0, #form/first = 'yes', #form/later = 'yes')",
+				relevant: `if(position() = 0, #form/first = 'yes', ${later})`,
 				...extra,
 				children: [
 					f({ kind: "hidden", id: "record", calculate: "current()/../@id" }),
 				],
 			} as FieldSpec);
 		return buildDoc({
-			appName: "Containers query-hidden-row",
+			appName: `Containers ${scenario}`,
 			modules: [
 				{
 					name: "M",
@@ -103,7 +110,7 @@ function queryRepeatDoc(scenario: QueryRepeatScenario): BlueprintDoc {
 							type: "survey",
 							fields: [
 								text("first", { default_value: "'yes'" }),
-								text("later"),
+								...(sameAnswer ? [] : [text("later")]),
 								hiding("held", { placement: "model-iteration" }),
 								hiding("counted"),
 							],
@@ -226,6 +233,7 @@ const COUNT_PLACED: Record<QueryRepeatScenario, readonly string[]> = {
 	"query-follows": ["/data/members"],
 	"query-nested-gated": ["/data/page/sites", "/data/page/sites/item/plots"],
 	"query-hidden-row": ["/data/counted"],
+	"query-hidden-row-same-answer": ["/data/counted"],
 };
 
 /** The query repeats a scenario holds in model iteration: the setvalue that
@@ -234,6 +242,7 @@ const MODEL_ITERATED: Record<QueryRepeatScenario, readonly string[]> = {
 	"query-follows": [],
 	"query-nested-gated": [],
 	"query-hidden-row": ["/data/held"],
+	"query-hidden-row-same-answer": ["/data/held"],
 };
 
 /** The refusals a scenario emits on purpose, as `code` at the question
@@ -243,6 +252,9 @@ const EXPECTED_REFUSALS: Record<
 	readonly { readonly code: string; readonly fieldId: string }[]
 > = {
 	"query-hidden-row": [
+		{ code: "QUERY_REPEAT_MODEL_ITERATION_SHAPE", fieldId: "held" },
+	],
+	"query-hidden-row-same-answer": [
 		{ code: "QUERY_REPEAT_MODEL_ITERATION_SHAPE", fieldId: "held" },
 	],
 };

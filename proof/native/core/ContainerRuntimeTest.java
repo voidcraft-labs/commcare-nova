@@ -553,6 +553,22 @@ public class ContainerRuntimeTest {
   }
  }
 
+ /** The same hidden-row transition can come from editing one question. Keeping that same answer's
+  * first and later comparisons distinct lets the worker make the first row under yes and the
+  * other rows under no. The count placement keeps each visible row on its own record. */
+ @Test public void changingOneAnswerCanHideTheFirstRowAndExposeLaterRows()throws Exception {
+  for(boolean source:new boolean[]{false,true}){
+   FormParseInit parsed=load("query-hidden-row-same-answer",source);FormDef form=parsed.getFormDef();enter(parsed,false);
+   String held="/data/held/item",counted="/data/counted/item";
+   assertEquals(1,held(form,held).size());assertEquals(1,held(form,counted).size());
+   answer(form,"/data/first","no");enter(parsed,false);
+   assertEquals(3,held(form,held).size());assertEquals(3,held(form,counted).size());
+   assertFalse(relevant(form,held+"[1]"));assertFalse(relevant(form,counted+"[1]"));
+   assertEquals("a b",eval(form,"join(' ', "+held+"/record)"));
+   assertEquals("b c",eval(form,"join(' ', "+counted+"/record)"));
+  }
+ }
+
  /** `container-query-nested-gated`: a count-placement `sites` query under a group shown only once `show` is yes,
   * and in each site a count-placement `plots` query reading that site's record. Nothing is made while the group
   * is not relevant; once it is, each site's rows are made with the ids of its own query, read on their first

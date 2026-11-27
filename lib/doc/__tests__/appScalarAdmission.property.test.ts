@@ -1,6 +1,6 @@
 /**
  * A batch of app-level scalars alone (the app's name, logo, settings and
- * Connect type) skips the three whole-document admission indexes in
+ * Connect roles) skips the three whole-document admission indexes in
  * `commitVerdicts.ts::prepareMutationCandidate`. Held here: over the
  * documents the oracle corpora draw, drafts and frozen documents alike, the
  * identity, sequence and target admissions find no issue in any such batch,
@@ -44,8 +44,13 @@ const appScalarArbitrary: fc.Arbitrary<Mutation> = fc.oneof(
 		.record({ showSavedForms: fc.boolean(), showIncompleteForms: fc.boolean() })
 		.map((settings): Mutation => ({ kind: "setAppSettings", settings })),
 	fc
-		.constantFrom("learn", "deliver", null)
-		.map((connectType): Mutation => ({ kind: "setConnectType", connectType })),
+		.constantFrom<Extract<Mutation, { kind: "setConnectRoles" }>["roles"]>(
+			[],
+			["learn"],
+			["deliver"],
+			["learn", "deliver"],
+		)
+		.map((roles): Mutation => ({ kind: "setConnectRoles", roles })),
 	fc.constant<Mutation>({ kind: "setAppLogo", logo: null }),
 );
 
@@ -61,7 +66,7 @@ describe("a batch of app-level scalars alone", () => {
 			"setAppLogo",
 			"setAppName",
 			"setAppSettings",
-			"setConnectType",
+			"setConnectRoles",
 		]);
 	});
 

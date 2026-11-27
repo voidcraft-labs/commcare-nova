@@ -3,9 +3,10 @@
  * repeat's rows once, when the form opens, and keeps each row's record id
  * where model iteration writes it; a document that holds that placement over
  * a repeat model iteration can no longer run is refused, naming the first
- * thing that needs its rows to follow the query. The plausible failure is a
- * held model iteration exported over a shape whose rows would take the wrong
- * records, or stay empty.
+ * failure its opening capture can be shown to have: rows that take the
+ * wrong records, a query that needs a record ID no answer holds yet, or a
+ * group an earlier starting value hides. A query, a row condition or a group
+ * condition that can change after opening is ordinary input to the capture.
  */
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
@@ -95,6 +96,69 @@ describe("QUERY_REPEAT_MODEL_ITERATION_SHAPE", () => {
 		expect(finding(doc)).toBeUndefined();
 	});
 
+	describe("row visibility during insertion", () => {
+		const firstRead = "#form/first = 'yes'";
+		const laterRead = "#form/later = 'yes'";
+		const gated = (
+			ids: string,
+			placement: "model-iteration" | "count",
+			later: string,
+			laterField: Partial<FieldSpec> = {},
+		) =>
+			docWith([
+				{ kind: "text", id: "first", default_value: "'yes'" },
+				{ kind: "text", id: "later", ...laterField },
+				queryRepeat({
+					placement,
+					data_source: { ids_query: ids },
+					relevant: `if(position() = 0, ${firstRead}, ${later})`,
+				}),
+			]);
+
+		it("refuses model iteration when a later row can take the hidden first row's ID", () => {
+			const found = finding(gated("'a b c'", "model-iteration", laterRead));
+			expect(found?.details).toMatchObject({ reason: "row-condition" });
+			expect(found?.location.fieldUuid).toBe(REPEAT);
+		});
+
+		it("refuses when one edited answer hides the first row and shows the later rows", () => {
+			const doc = gated("'a b c'", "model-iteration", "#form/first = 'no'");
+			expect(finding(doc)?.details).toMatchObject({ reason: "row-condition" });
+		});
+
+		it("admits when the later answer cannot enter the text that would show its rows", () => {
+			expect(
+				finding(
+					gated("'a b c'", "model-iteration", laterRead, { keypad: "numbers" }),
+				),
+			).toBeUndefined();
+		});
+
+		it.each([
+			["count uses the physical position", "'a b c'", "count", laterRead],
+			[
+				"one row cannot take another's place",
+				"'a'",
+				"model-iteration",
+				laterRead,
+			],
+			[
+				"no rows cannot take another's place",
+				"''",
+				"model-iteration",
+				laterRead,
+			],
+			[
+				"the same question shows every row",
+				"'a b c'",
+				"model-iteration",
+				firstRead,
+			],
+		] as const)("admits a repeat when %s", (_, ids, placement, later) => {
+			expect(finding(gated(ids, placement, later))).toBeUndefined();
+		});
+	});
+
 	it("refuses one inside another repeat, naming it", () => {
 		const doc = docWith([
 			{
@@ -118,48 +182,107 @@ describe("QUERY_REPEAT_MODEL_ITERATION_SHAPE", () => {
 		expect(found && userFacingError(found)).toBe(found?.message);
 	});
 
-	it("refuses one whose query reads an answer", () => {
+	it("words a requested opening over a held count as the unpublished choice it is", () => {
+		const doc = docWith([
+			{
+				kind: "repeat",
+				id: "households",
+				uuid: OUTER,
+				label: "Households",
+				repeat_mode: "user_controlled",
+				children: [queryRepeat({ placement: "count", rowTiming: "on-open" })],
+			},
+		]);
+		const found = finding(doc);
+		expect(found?.details).toMatchObject({
+			reason: "nested",
+			published: "false",
+		});
+		expect(found?.message).toBe(
+			`"Visits to review" takes its rows once, when the form opens, and inside "Households" that would give its rows the wrong records. You can choose As answers change, or keep it outside "Households".`,
+		);
+		expect(found && userFacingError(found)).toBe(found?.message);
+	});
+
+	it("admits one whose query reads an answer, captured as the answer stands at opening", () => {
+		expect(
+			finding(
+				docWith([queryRepeat({ data_source: { ids_query: readsAnswer } })]),
+			),
+		).toBeUndefined();
+	});
+
+	it("refuses one whose query needs a record ID no answer holds yet", () => {
+		const byEnteredId: Expression = {
+			kind: "project",
+			of: {
+				kind: "cases",
+				source: "casedb",
+				where: [eq(prop("visit", "case_id"), term(formField(ANSWER)))],
+			},
+			value: { kind: "literal", value: "@case_id" },
+		};
 		const found = finding(
-			docWith([queryRepeat({ data_source: { ids_query: readsAnswer } })]),
+			docWith([queryRepeat({ data_source: { ids_query: byEnteredId } })]),
 		);
 		expect(found?.details?.reason).toBe("query-reads-answers");
 		expect(found?.message).toBe(
-			`"Visits to review" takes its rows once, when the form opens, as your published app does, so its query would run before any answer it reads is given. ${FOLLOW}, or have its query read no answers.`,
+			`"Visits to review" takes its rows once, when the form opens, as your published app does, before the answer its query matches a record ID against is given, so it would find no records. ${FOLLOW}, or give that answer a starting value.`,
 		);
 		expect(found && userFacingError(found)).toBe(found?.message);
 	});
 
-	it("refuses one with a condition of its own, and names its id where it has no label", () => {
-		const found = finding(
-			docWith([queryRepeat({ label: "", relevant: readsAnswer })]),
-		);
-		expect(found?.details?.reason).toBe("row-condition");
-		expect(found?.message).toBe(
-			`"visits" takes its rows once, when the form opens, as your published app does, and a row made while its condition hides an earlier one would take that row's record. ${FOLLOW}, or show every row.`,
-		);
-		expect(found && userFacingError(found)).toBe(found?.message);
+	it("admits one with a condition of its own: each row holds its condition", () => {
+		expect(
+			finding(docWith([queryRepeat({ label: "", relevant: readsAnswer })])),
+		).toBeUndefined();
 	});
 
-	it("refuses one under a group whose condition can change, naming the group", () => {
-		const found = finding(
-			docWith([
-				{
-					kind: "group",
-					id: "follow_up",
-					uuid: GROUP,
-					label: "Follow-up",
-					relevant: readsAnswer,
-					children: [queryRepeat()],
-				},
-			]),
-		);
+	it("admits one under a group whose condition can change after opening", () => {
+		expect(
+			finding(
+				docWith([
+					{
+						kind: "group",
+						id: "follow_up",
+						uuid: GROUP,
+						label: "Follow-up",
+						relevant: readsAnswer,
+						children: [queryRepeat()],
+					},
+				]),
+			),
+		).toBeUndefined();
+	});
+
+	it("refuses one under a group an earlier starting value hides at opening, naming the group", () => {
+		const doc = docWith([
+			{
+				kind: "group",
+				id: "follow_up",
+				uuid: GROUP,
+				label: "Follow-up",
+				relevant: readsAnswer,
+				children: [queryRepeat()],
+			},
+		]);
+		const size = doc.fields[ANSWER];
+		if (size?.kind !== "int") throw new Error("The form holds its size.");
+		const hidden: BlueprintDoc = {
+			...doc,
+			fields: {
+				...doc.fields,
+				[ANSWER]: { ...size, default_value: term(literal(0)) },
+			},
+		};
+		const found = finding(hidden);
 		expect(found?.details).toMatchObject({
 			reason: "ancestor-condition-changes",
 			groupUuid: GROUP,
 			groupId: "follow_up",
 		});
 		expect(found?.message).toBe(
-			`"Visits to review" takes its rows once, when the form opens, as your published app does, and "Follow-up" around it shows on a condition that can change while the form is filled in, so its rows could stay empty. ${FOLLOW}, or show "Follow-up" on a condition that doesn't change.`,
+			`"Visits to review" takes its rows once, when the form opens, as your published app does, while a starting value hides "Follow-up" around it, so its rows would stay empty. ${FOLLOW}, or show "Follow-up" when the form opens.`,
 		);
 		expect(found && userFacingError(found)).toBe(found?.message);
 	});

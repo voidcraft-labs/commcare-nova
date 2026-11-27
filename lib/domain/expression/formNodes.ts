@@ -61,18 +61,14 @@ export function formNodeGraph(form: FormStructure): FormNodeGraph {
 			}
 			case "connect-learn":
 				return (
-					node.form === form.formUuid && form.connect.learn_module !== undefined
+					form.fields.get(node.activity)?.activityKind === "learning-module"
 				);
 			case "connect-assessment":
-				return (
-					node.form === form.formUuid && form.connect.assessment !== undefined
-				);
+				return form.fields.get(node.activity)?.activityKind === "assessment";
 			case "connect-delivery":
-				return (
-					node.form === form.formUuid && form.connect.deliver_unit !== undefined
-				);
+				return form.fields.get(node.activity)?.activityKind === "delivery";
 			case "connect-task":
-				return node.form === form.formUuid && form.connect.task !== undefined;
+				return form.fields.get(node.activity)?.activityKind === "assigned-task";
 		}
 	}
 	function parent(node: FormNodeRef): FormNodeRef | undefined {
@@ -99,11 +95,9 @@ export function formNodeGraph(form: FormStructure): FormNodeGraph {
 			case "connect-assessment":
 			case "connect-delivery":
 			case "connect-task":
-				return node.role === "block"
-					? root
-					: node.role === "content"
-						? { ...node, role: "block" }
-						: { ...node, role: "content" };
+				return node.role === "content"
+					? fieldNode(node.activity)
+					: { ...node, role: "content" };
 		}
 	}
 	const paths = new Map<string, readonly FormNodeRef[] | undefined>();
@@ -146,47 +140,24 @@ export function formNodeGraph(form: FormStructure): FormNodeGraph {
 		if (path(node) === undefined) return [];
 		switch (node.kind) {
 			case "form-root":
-				return [
-					...authoredChildren(form.formUuid),
-					...(form.connect.learn_module === undefined
-						? []
-						: [
-								{
-									kind: "connect-learn",
-									form: form.formUuid,
-									role: "block",
-								} as const,
-							]),
-					...(form.connect.assessment === undefined
-						? []
-						: [
-								{
-									kind: "connect-assessment",
-									form: form.formUuid,
-									role: "block",
-								} as const,
-							]),
-					...(form.connect.deliver_unit === undefined
-						? []
-						: [
-								{
-									kind: "connect-delivery",
-									form: form.formUuid,
-									role: "block",
-								} as const,
-							]),
-					...(form.connect.task === undefined
-						? []
-						: [
-								{
-									kind: "connect-task",
-									form: form.formUuid,
-									role: "block",
-								} as const,
-							]),
-				];
+				return authoredChildren(form.formUuid);
 			case "field": {
 				const field = form.fields.get(node.uuid);
+				if (field?.activityKind !== undefined) {
+					const nodeKinds = {
+						"learning-module": "connect-learn",
+						assessment: "connect-assessment",
+						delivery: "connect-delivery",
+						"assigned-task": "connect-task",
+					} as const;
+					return [
+						{
+							kind: nodeKinds[field.activityKind],
+							activity: node.uuid,
+							role: "content",
+						},
+					];
+				}
 				if (node.role === "query-wrapper")
 					return [
 						fieldNode(node.uuid),
@@ -206,42 +177,34 @@ export function formNodeGraph(form: FormStructure): FormNodeGraph {
 					: [];
 			}
 			case "connect-learn":
-				return node.role === "block"
-					? [{ ...node, role: "content" }]
-					: node.role === "content"
-						? (["id", "name", "description", "time-estimate"] as const).map(
-								(role) => ({ ...node, role }),
-							)
-						: [];
+				return node.role === "content"
+					? (["id", "name", "description", "time-estimate"] as const).map(
+							(role) => ({ ...node, role }),
+						)
+					: [];
 			case "connect-assessment":
-				return node.role === "block"
-					? [{ ...node, role: "content" }]
-					: node.role === "content"
-						? (["id", "score"] as const).map((role) => ({ ...node, role }))
-						: [];
+				return node.role === "content"
+					? (["id", "score"] as const).map((role) => ({ ...node, role }))
+					: [];
 			case "connect-delivery":
-				return node.role === "block"
-					? [{ ...node, role: "content" }]
-					: node.role === "content"
-						? (
-								[
-									"id",
-									"name",
-									"entity-id",
-									"entity-name",
-									"work-area-id",
-								] as const
-							).map((role) => ({ ...node, role }))
-						: [];
+				return node.role === "content"
+					? (
+							[
+								"id",
+								"name",
+								"entity-id",
+								"entity-name",
+								"work-area-id",
+							] as const
+						).map((role) => ({ ...node, role }))
+					: [];
 			case "connect-task":
-				return node.role === "block"
-					? [{ ...node, role: "content" }]
-					: node.role === "content"
-						? (["name", "description"] as const).map((role) => ({
-								...node,
-								role,
-							}))
-						: [];
+				return node.role === "content"
+					? (["id", "name", "description"] as const).map((role) => ({
+							...node,
+							role,
+						}))
+					: [];
 			case "repeat":
 			case "repeat-row":
 				return [];

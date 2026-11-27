@@ -291,7 +291,7 @@ describe("blueprint schema — logo", () => {
 		const parsed = blueprintDocSchema.parse({
 			appId: "app-1",
 			appName: "Test app",
-			connectType: null,
+			connectRoles: [],
 			appSettings: { showSavedForms: false, showIncompleteForms: false },
 			caseTypes: null,
 			modules: {},
@@ -309,7 +309,7 @@ describe("blueprint schema — logo", () => {
 		const parsed = blueprintDocSchema.parse({
 			appId: "app-1",
 			appName: "Test app",
-			connectType: null,
+			connectRoles: [],
 			appSettings: { showSavedForms: false, showIncompleteForms: false },
 			caseTypes: null,
 			modules: {},

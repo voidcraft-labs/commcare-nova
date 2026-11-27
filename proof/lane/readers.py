@@ -76,7 +76,8 @@ FIXTURES = {"formplayer_runner": frozenset({"formplayer"}), "connect_runtime": f
 # to the lane's own collection both ways: a package named here that still collects an item is a group no queue
 # accounts for, and one left out that collects none is a queued group of no item
 # (``proof.checks.sharding.verify``).
-PACKAGES = {"proof/connect": frozenset({"connect", "formplayer"})}
+# The Connect package also has HQ editor tests that run without a served reader.
+PACKAGES: dict[str, frozenset[str]] = {}
 
 
 class ReadersError(ValueError):
