@@ -48278,13 +48278,7 @@
 	{
 		"id": "hq-search/value-from-a-lookup-table",
 		"base": "hq-search",
-		"entry": "case-search/a-search-value-that-queries-cases-a-table-or-places",
-		"standing": "not-yet",
-		"place": {
-			"kind": "search",
-			"menu": 1,
-			"name": "Active clients"
-		},
+		"entry": "case-search/search-value-from-first-lookup-cell",
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/1/search_config/default_properties/-",
@@ -48293,7 +48287,19 @@
 				"doc_type": "DefaultCaseSearchProperty",
 				"defaultValue": "concat(\"district = '\", instance('item-list:districts')/districts_list/districts[1]/id, \"'\")"
 			}
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 1
+					}
+				],
+				"pointer": "/caseListConfig/searchCondition/clauses/2/right/kind",
+				"value": "table-lookup"
+			}
+		]
 	},
 	{
 		"id": "hq-search/value-from-the-case-database",

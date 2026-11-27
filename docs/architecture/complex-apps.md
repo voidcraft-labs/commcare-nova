@@ -1559,6 +1559,8 @@ answer.
 
 Search value expressions preserve their suite context through native CSQL
 function arguments, including lookup fixture naming and worker/input identities.
+A Search can keep an imported first-row lookup value by table and column identity.
+A publish guards the missing first row and an unrepresentable quote pair.
 A table value can therefore be converted or used in date arithmetic without
 losing its declared instance. Later function arguments are explicitly grouped
 where they can begin with another function: HQ's pinned eulxml lexer otherwise

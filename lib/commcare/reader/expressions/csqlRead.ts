@@ -533,7 +533,7 @@ interface BindState {
 	 *  selection or membership Nova prints so. */
 	readonly proposals: boolean;
 	/** The device values bound to a value that reads a lookup table's row. */
-	readonly tableReads: Set<FormSyntax>;
+	readonly tableReads: Map<FormSyntax, Expression>;
 }
 
 const COMPARISONS: SourceTable<ComparisonKind> = tableOf({
@@ -695,7 +695,7 @@ function bindDevice(node: FormSyntax, state: BindState): Expression {
 			: bound.bound.candidate;
 	const query = deviceQuery(value);
 	if (query !== undefined) refuseWith(DEVICE_QUERY, query);
-	if (readsTableRow(value)) state.tableReads.add(node);
+	if (readsTableRow(value)) state.tableReads.set(node, value);
 	return value;
 }
 
@@ -1895,7 +1895,7 @@ function bindCsql(
 	options: { readonly text: string; readonly proposals: boolean },
 ): {
 	readonly bound: Bound;
-	readonly tableReads: ReadonlySet<FormSyntax>;
+	readonly tableReads: ReadonlyMap<FormSyntax, Expression>;
 } {
 	const state: BindState = {
 		context,
@@ -1903,7 +1903,7 @@ function bindCsql(
 		text: options.text,
 		prefix: markerPrefix(constantTexts(parts)),
 		proposals: options.proposals,
-		tableReads: new Set(),
+		tableReads: new Map(),
 	};
 	const bound = bindCsqlParts(parts, state, rowCaseType(context));
 	return { bound, tableReads: state.tableReads };
@@ -2481,11 +2481,24 @@ export function readSearchFilterRow(
 				rethrowWorkStop(error);
 				continue;
 			}
-			const level = guards(row, tree, prefix);
+			const firstTableReads = new Set(
+				[...tableReads].flatMap(([node, value]) =>
+					value.kind === "table-lookup" && value.where.kind === "match-all"
+						? [node]
+						: [],
+				),
+			);
+			// The bound first-row lookup supplies exactly the named cell.
+			// Its print guards an empty table, where the source would stop.
+			const level =
+				guards(row, tree, prefix) ??
+				(firstTableReads.size > 0
+					? guards(row, tree, prefix, firstTableReads)
+					: undefined);
 			if (level === undefined) {
 				if (
 					tableReads.size > 0 &&
-					guards(row, tree, prefix, tableReads) !== undefined
+					guards(row, tree, prefix, new Set(tableReads.keys())) !== undefined
 				)
 					tableReadDiffers = true;
 				if (!differs) {
@@ -2748,6 +2761,7 @@ function coreNumberText(value: number): string {
 export type SearchRowRuntimeClass =
 	| "conditional-choice"
 	| "case-or-datum-terms"
+	| "first-lookup-cell"
 	| "session-context-drift-term"
 	| "session-context-window-width-term"
 	| "session-context-applanguage-term";
@@ -2797,6 +2811,11 @@ export function searchRowRuntimeClasses(
 			if (expression.kind === "when-input-present")
 				presence.add(expression.input);
 			if (
+				expression.kind === "table-lookup" &&
+				expression.where.kind === "match-all"
+			)
+				found.add("first-lookup-cell");
+			if (
 				expression.kind === "project" &&
 				readChosenCaseProperty(expression) !== undefined
 			)
@@ -2830,6 +2849,7 @@ export function searchRowRuntimeClasses(
 	const order: readonly SearchRowRuntimeClass[] = [
 		"conditional-choice",
 		"case-or-datum-terms",
+		"first-lookup-cell",
 		"session-context-drift-term",
 		"session-context-window-width-term",
 		"session-context-applanguage-term",

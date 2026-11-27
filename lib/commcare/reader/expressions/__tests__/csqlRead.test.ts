@@ -406,18 +406,15 @@ describe("a search filter row's CSQL", () => {
 			});
 		});
 
-		it("claims the row HQ's page writes, which Nova's print does not, under the device query entry", () => {
-			// HQ's page reads the first row's column as `rows[1]/column`, which
-			// Nova prints under its guard for no rows: the device query, never
-			// a row left unrecognized.
+		it("keeps the first lookup cell and adds the empty-table and quote guards", () => {
 			const text = `concat("village = '", instance('item-list:districts')/districts_list/districts[1]/id, "'")`;
 			expect(readSearchFilterRow(text, tableFilter, tableEnv)).toMatchObject({
-				ok: false,
-				claim: {
-					entryId:
-						"case-search/a-search-value-that-queries-cases-a-table-or-places",
-					detail: { name: "_xpath_query", reason: "table-lookup" },
-				},
+				ok: true,
+				predicate: eq(village, firstDistrict),
+				rewrites: expect.arrayContaining([
+					"search-value-guards",
+					"empty-rows-guard",
+				]),
 			});
 		});
 	});

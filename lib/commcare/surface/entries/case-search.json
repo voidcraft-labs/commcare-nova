@@ -5228,6 +5228,29 @@
 		"gates": []
 	},
 	{
+		"id": "case-search/search-value-from-first-lookup-cell",
+		"area": "case-search",
+		"section": "Case search",
+		"subsection": "CSQL in `_xpath_query` values and ancestor-path criteria",
+		"item": "A runtime Search operand reads a column of the lookup table's first row",
+		"surfaceKeys": ["schema:DefaultCaseSearchProperty.defaultValue"],
+		"valueClass": "first-lookup-cell",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the value keeps the lookup table and column identities. Publishing uses the Search guards for an empty table and for unrepresentable quote pairs.",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": { "reading": "runs" },
+			"android": { "reading": "runs" }
+		},
+		"emission": {
+			"cell": "The first row’s selected column inside the device’s Search value guards",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
 		"id": "case-search/a-search-value-that-queries-cases-a-table-or-places",
 		"area": "case-search",
 		"section": "Case search",
