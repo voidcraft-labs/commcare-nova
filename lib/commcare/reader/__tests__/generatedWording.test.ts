@@ -416,6 +416,40 @@ it("rekeys only a unique live legacy Search heading and records both source posi
 		}),
 	);
 
+	body.translation_strategy = "select-known";
+	body.translations = {
+		en: { [oldKey]: "Find a client", [currentKey]: "Other saved words" },
+	};
+	const fallback = await read();
+	if (fallback.kind !== "read") throw Error(JSON.stringify(fallback.findings));
+	expect(expandDoc(fallback.draft.doc).translations?.en[currentKey]).toBe(
+		"Find a client",
+	);
+	expect(
+		expandDoc(fallback.draft.doc).translations?.es?.[currentKey],
+	).toBeUndefined();
+	expect(
+		fallback.draft.facts.sameStateRewrites.filter(
+			({ register }) => register === changes,
+		),
+	).toHaveLength(3);
+	body.translations = {
+		en: { [oldKey]: "Find a client", [currentKey]: "Other saved words" },
+		es: { [currentKey]: "Otros datos" },
+	};
+	const competing = await read();
+	if (competing.kind !== "account")
+		throw Error(
+			"A separate dormant second-language override needs its own proof",
+		);
+	expect(competing.findings).toContainEqual(
+		expect.objectContaining({
+			code: "application-and-settings/translations-generated-key-anything-else",
+			detail: { name: oldKey },
+		}),
+	);
+	body.translations = { en: { [oldKey]: "Find a client" } };
+
 	menus[0].search_config.properties[0].label.es = "Datos personales";
 	const bilingual = await read();
 	if (bilingual.kind !== "read")

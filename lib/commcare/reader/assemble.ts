@@ -1572,6 +1572,7 @@ function sourceSearchGroupKey(
 			readonly destination?: string;
 			readonly owner?: string;
 			readonly unit?: TranslationUnitId;
+			readonly missingSpanishLabel?: true;
 	  }
 	| undefined {
 	if (!module) return;
@@ -1619,18 +1620,20 @@ function sourceSearchGroupKey(
 	const row = rows[index];
 	const labels =
 		isJsonObject(row) && isJsonObject(row.label) ? row.label : undefined;
-	// Preserve explicit ordinary labels in all build languages. Missing or
-	// blank ordinary labels can also consume the default table's override.
+	const readable = (label: unknown) =>
+		typeof label === "string" &&
+		holdText(label) === label &&
+		hqDeviceText(label).trim() !== "";
+	const missingSpanishLabel =
+		codes.length === 2 &&
+		codes[0] === "en" &&
+		codes[1] === "es" &&
+		labels !== undefined &&
+		readable(labels.en) &&
+		!Object.hasOwn(labels, "es");
 	if (
 		!labels ||
-		!codes.every((code) => {
-			const label = labels[code];
-			return (
-				typeof label === "string" &&
-				holdText(label) === label &&
-				hqDeviceText(label).trim() !== ""
-			);
-		})
+		(!missingSpanishLabel && !codes.every((code) => readable(labels[code])))
 	)
 		return legacy;
 	const groupPosition = rows
@@ -1647,6 +1650,7 @@ function sourceSearchGroupKey(
 				destination: searchGroupLocaleId(menu, canonicalKey),
 				owner: `${module.json.pointer}/search_config/properties/${index}/group_key`,
 				unit: generatedWordingId(typed.uuid, "searchGroupHeading"),
+				...(missingSpanishLabel && { missingSpanishLabel }),
 			};
 }
 
@@ -1876,10 +1880,26 @@ function decideGeneratedKeys(
 			const destination = sourceGroup.destination;
 			const copies =
 				destination === undefined ? [] : (stored.get(destination) ?? []);
-			// The destination is unused in the source. With one language the
-			// live heading can take that key without changing any fallback.
+			const source = ctx.input.source.raw;
+			const build = source.build_langs;
+			// On this native bilingual shape the Spanish key is absent in both
+			// builds. The default table still picks the same English override.
+			const bilingualFallback =
+				sourceGroup.missingSpanishLabel === true &&
+				held.language === "en" &&
+				source.translation_strategy === "select-known" &&
+				Array.isArray(build) &&
+				build.length === 2 &&
+				build[0] === "en" &&
+				build[1] === "es" &&
+				(source.build_profiles === undefined ||
+					(isJsonObject(source.build_profiles) &&
+						Object.keys(source.build_profiles).length === 0)) &&
+				(stored.get(held.key)?.length ?? 0) === 1 &&
+				copies.length === 1;
+
 			const dormant =
-				reading.languages.codes.length === 1 &&
+				(reading.languages.codes.length === 1 || bilingualFallback) &&
 				copies.length === 1 &&
 				copies[0].language === held.language &&
 				typeof copies[0].value === "string" &&
@@ -1893,6 +1913,7 @@ function decideGeneratedKeys(
 				sourceGroup.unit !== undefined &&
 				target.position?.menu === target.module?.index &&
 				(copies.length === 0 || dormant !== undefined) &&
+				(sourceGroup.missingSpanishLabel !== true || bilingualFallback) &&
 				table.wordingUnits?.[destination] === sourceGroup.unit &&
 				holdText(held.value) === held.value &&
 				hqDeviceText(held.value).trim() !== ""

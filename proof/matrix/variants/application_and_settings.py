@@ -208,6 +208,20 @@ def translation_competes_with_a_legacy_heading_in_two_languages(authoring, app_i
     ops.set_json(authoring, app_id, "/build_langs", ["en", "es"])
 
 
+def a_legacy_search_group_competes_with_a_second_language_override(authoring, app_id):
+    """The dormant key has separate words in the second build language."""
+    from proof.hq import operations
+
+    translation_competes_with_a_legacy_heading_in_two_languages(authoring, app_id)
+    app = operations.held_app(authoring.state, app_id)
+    translations = dict(app.translations)
+    translations["es"] = {
+        **translations.get("es", {}),
+        "search_property.m0.group_header_0": "Otros datos",
+    }
+    ops.set_json(authoring, app_id, "/translations", translations)
+
+
 def translation_duplicates_a_saved_legacy_search_group_heading(authoring, app_id):
     """The live heading and its dormant current key store the same wording."""
     translation_overrides_a_saved_legacy_search_group_heading(authoring, app_id)

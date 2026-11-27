@@ -25513,12 +25513,35 @@
 	{
 		"id": "hq-search/translation-competes-with-a-legacy-heading-in-two-languages",
 		"base": "hq-search",
-		"entry": "application-and-settings/translations-generated-key-anything-else",
-		"standing": "not-yet",
-		"place": { "kind": "app" },
+		"entry": "application-and-settings/translations-generated-wording",
 		"change": {
 			"op": "named",
 			"name": "translation_competes_with_a_legacy_heading_in_two_languages"
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/searchInputGroups/0/label",
+				"value": "Local details"
+			}
+		]
+	},
+	{
+		"id": "hq-search/translation-competes-with-a-legacy-heading-and-a-second-language-override",
+		"base": "hq-search",
+		"entry": "application-and-settings/translations-generated-key-anything-else",
+		"standing": "not-yet",
+		"place": {
+			"kind": "app"
+		},
+		"change": {
+			"op": "named",
+			"name": "a_legacy_search_group_competes_with_a_second_language_override"
 		}
 	},
 	{
