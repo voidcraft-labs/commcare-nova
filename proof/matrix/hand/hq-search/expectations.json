@@ -261,5 +261,34 @@
 				"value": "Clinic visit arranged"
 			}
 		]
+	},
+	{
+		"id": "address-note-entered",
+		"entry": "questions/text-input-xsd-string",
+		"form": {
+			"menu": 4,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"data": {
+					"case_id": "client-one"
+				}
+			},
+			"answers": [
+				{
+					"path": "/data/address_note",
+					"value": "Confirmed the address"
+				}
+			],
+			"expressions": ["/data/address_note"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "Confirmed the address"
+			}
+		]
 	}
 ]
