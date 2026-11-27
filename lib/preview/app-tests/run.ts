@@ -1,3 +1,4 @@
+import { CaptureSubmissionRejectedError } from "@/lib/case-store";
 import type { AppTestScope } from "@/lib/db/appTests";
 import { workerWording } from "@/lib/doc/localizationWorkspace";
 import {
@@ -8,6 +9,7 @@ import {
 	orderedOrganizationLevels,
 	type Uuid,
 } from "@/lib/domain";
+import { authoredBoundedFlatClose } from "@/lib/domain/boundedFlatClose";
 import { caseMapSources } from "@/lib/domain/caseMap";
 import {
 	type GeneratedWordingRole,
@@ -71,7 +73,7 @@ import {
 } from "../searchClaims";
 import { searchAfterClear } from "../searchStanding";
 import { projectWorkerModule } from "../workerModule";
-import type { AppTestContext } from "./context";
+import { type AppTestContext, readAppTestDeviceCaseDatabase } from "./context";
 import {
 	appTestDataRefusal,
 	appTestRefusalSentence,
@@ -229,12 +231,54 @@ async function appTestCompletedSearch(
  * (Back to a form, a linked form, another search) carries none and takes its
  * own.
  */
+async function readAppTestFlatClose(
+	context: AppTestContext,
+	scope: AppTestScope,
+	caseType: string,
+	caseIds: readonly string[],
+	automaticMaximum?: number,
+) {
+	try {
+		const cases = await context.store.readFlatCloseSelection({
+			appId: scope.appId,
+			restoreScope: context.restoreScope,
+			caseType,
+			caseIds,
+			automaticMaximum,
+		});
+		if (!cases)
+			throw new AppTestActionError(
+				"The selected records are no longer available.",
+			);
+		return cases;
+	} catch (error) {
+		if (error instanceof CaptureSubmissionRejectedError)
+			throw new AppTestActionError(error.message);
+		throw error;
+	}
+}
+
 async function appTestFormContext(
 	context: AppTestContext,
 	scope: AppTestScope,
 	state: AppTestSessionState,
 	screen: FormScreen,
 ) {
+	const flatClose = authoredBoundedFlatClose(
+		context.doc,
+		screen.moduleUuid,
+		screen.formUuid,
+	);
+	if (flatClose && !screen.entry) {
+		const selected = await readAppTestFlatClose(
+			context,
+			scope,
+			flatClose.caseType,
+			screen.caseIds,
+			flatClose.selection.autoSelect ? flatClose.selection.maximum : undefined,
+		);
+		screen = { ...screen, entryCases: selected };
+	}
 	let searches = screen.searches;
 	let searchResults = screen.searchResults;
 	if (searches === undefined) {
@@ -1239,10 +1283,10 @@ async function advanceAppTestOnScreen(
 			};
 			break;
 		case "sync": {
-			const deviceCases = await context.store.readDeviceCaseDatabase({
-				appId: scope.appId,
-				restoreScope: context.restoreScope,
-			});
+			const deviceCases = await readAppTestDeviceCaseDatabase(
+				context,
+				scope.appId,
+			);
 			const rowById = new Map(
 				deviceCases.rows.map((row) => [row.case_id, row]),
 			);
@@ -1495,6 +1539,46 @@ async function advanceAppTestOnScreen(
 			break;
 		}
 		case "select": {
+			if (screen.kind === "records" && !screen.formEntry) {
+				const flatClose = authoredBoundedFlatClose(
+					context.doc,
+					screen.moduleUuid,
+					context.doc.formOrder[screen.moduleUuid]?.[0],
+				);
+				if (flatClose?.selection.autoSelect)
+					throw new AppTestActionError(
+						"This list chooses eligible records automatically.",
+					);
+				if (flatClose) {
+					const selected = await readAppTestFlatClose(
+						context,
+						scope,
+						flatClose.caseType,
+						action.caseIds,
+					);
+					const rows = new Map(selected.rows.map((row) => [row.case_id, row]));
+					const ordered = action.caseIds.map((id) => {
+						const row = rows.get(id);
+						if (!row) throw new Error("An admitted flat-close row is missing.");
+						return { ...row, calculated: {} };
+					});
+					next = {
+						...selectAppTestRecords(context, state, ordered),
+						history: [
+							...state.history,
+							appTestHistoryEntry(screen, state.selections),
+						],
+					};
+					extra = {
+						selected: ordered.map((row) => ({
+							id: row.case_id,
+							name: row.case_name,
+							values: Object.fromEntries(caseRowToFormPreload(row)),
+						})),
+					};
+					break;
+				}
+			}
 			const read = await appTestRecords(context, scope, state);
 			if (
 				read.result?.kind !== "rows" ||

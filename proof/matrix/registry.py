@@ -132,6 +132,7 @@ class Base:
 # Every base, one module of proof/matrix/bases/ each. Imported after the two classes above, which each module
 # builds its BASE from.
 from proof.matrix.bases import (  # noqa: E402
+    bounded_flat_close,
     case_lists,
     connect_deliver,
     connect_learn,
@@ -186,6 +187,7 @@ BASES: tuple[Base, ...] = (
     project_languages.BASE,
     menus.BASE,
     names.BASE,
+    bounded_flat_close.BASE,
     case_lists.BASE,
     legacy_related_case_text.BASE,
     legacy_search_group_wording.BASE,

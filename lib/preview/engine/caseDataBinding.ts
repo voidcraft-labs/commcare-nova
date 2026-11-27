@@ -77,8 +77,10 @@ import {
 	userPropertySlugsByUuid,
 } from "@/lib/domain";
 import { blueprintDocSchema } from "@/lib/domain/blueprint";
+import { authoredBoundedFlatClose } from "@/lib/domain/boundedFlatClose";
 import { resolveCaseFormContext } from "@/lib/domain/caseFormContext";
 import { isAdvancedCaseIndexIdentifier } from "@/lib/domain/caseOperationIdentifiers";
+import { STANDARD_CASE_SELECTION_MAXIMUM } from "@/lib/domain/caseSelectionLimits";
 import type { Expression } from "@/lib/domain/expression";
 import { unhandledKindMessage } from "@/lib/domain/expression/errors";
 import { caseQueryReadingFor } from "@/lib/domain/expression/temporalType";
@@ -918,6 +920,36 @@ export async function loadCasesAction(
 				kind: "error",
 				message: "This list no longer chooses cases automatically.",
 			};
+		const boundedFlatClose =
+			selection.maximum > STANDARD_CASE_SELECTION_MAXIMUM;
+		if (boundedFlatClose) {
+			const blueprint = prepared.context.blueprint;
+			const doc = blueprint && hydratePersistedBlueprint(blueprint);
+			const savedModule =
+				doc && moduleUuid ? doc.modules[moduleUuid] : undefined;
+			const profile =
+				doc && savedModule
+					? authoredBoundedFlatClose(
+							doc,
+							savedModule.uuid,
+							doc.formOrder[savedModule.uuid]?.[0],
+						)
+					: undefined;
+			if (
+				!savedModule ||
+				!profile?.selection.autoSelect ||
+				profile.caseType !== caseType ||
+				!previewPlatformRules(prepared.context.device.platform)
+					.severalCaseSelection ||
+				canonicalJsonDigest(savedModule.caseListConfig) !==
+					canonicalJsonDigest(prepared.read.caseListConfig)
+			)
+				return {
+					kind: "error",
+					message:
+						"The current list settings have not saved. Try again once they save.",
+				};
+		}
 		return await readCases(
 			prepared.store,
 			{
@@ -925,11 +957,15 @@ export async function loadCasesAction(
 				page: undefined,
 				datumOrder: true,
 				automaticMaximum: selection.maximum,
+				...(boundedFlatClose && { boundedFlatClose: true }),
 			},
 			retain,
 		);
 	} catch (err) {
-		if (err instanceof SearchDetailFrameTooLarge)
+		if (
+			err instanceof SearchDetailFrameTooLarge ||
+			err instanceof CaptureSubmissionRejectedError
+		)
 			return { kind: "error", message: err.message };
 		// A Project-membership denial (`resolveAppScope` → `AppAccessError`)
 		// is expected, not a fault: collapse it to the IDOR-safe not-found
@@ -2512,7 +2548,15 @@ export async function submitFormAction(
 		);
 		const binding = projection.formOpening;
 		const committed = hydratePersistedBlueprint(authorized.app.blueprint);
-		if (!binding && formNeedsOpeningEvidence(committed, projection.formUuid)) {
+		const module = moduleUuidOfForm(committed, projection.formUuid);
+		const boundedFlatClose =
+			module !== undefined &&
+			!!authoredBoundedFlatClose(committed, module, projection.formUuid);
+		if (
+			!binding &&
+			(boundedFlatClose ||
+				formNeedsOpeningEvidence(committed, projection.formUuid))
+		) {
 			throw new CaptureSubmissionRejectedError(
 				"Reopen this form to load its opening records before submitting.",
 			);
@@ -2541,7 +2585,7 @@ export async function submitFormAction(
 		if (
 			opening &&
 			(!opening.complete ||
-				binding?.module !== moduleUuidOfForm(committed, projection.formUuid) ||
+				binding?.module !== module ||
 				("caseIds" in normalizedMutation &&
 					(normalizedMutation.caseIds.length !==
 						opening.primaryCaseIds.length ||
@@ -2553,6 +2597,16 @@ export async function submitFormAction(
 				"The selected records changed. Reopen the form to choose them again.",
 			);
 		}
+		const boundedOpening = opening?.boundedFlatClose;
+		if (
+			boundedFlatClose !== (boundedOpening !== undefined) ||
+			(boundedOpening &&
+				(!previewPlatformRules(admitted.device.platform).severalCaseSelection ||
+					boundedOpening.expiresAt <= Date.now()))
+		)
+			throw new CaptureSubmissionRejectedError(
+				"Reopen this form to choose the records again.",
+			);
 		const built = await buildSubmissionOperationProgram({
 			opening,
 			appId,
@@ -2625,6 +2679,7 @@ export async function submitFormAction(
 					);
 		const result = await store.applySubmission({
 			...envelope,
+			...(opening?.boundedFlatClose && ({ boundedFlatClose: true } as const)),
 			submissionReceipt: {
 				...envelope.submissionReceipt,
 				openingCarryScope: run

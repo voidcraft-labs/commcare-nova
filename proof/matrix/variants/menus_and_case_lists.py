@@ -286,6 +286,21 @@ def form_condition_reading_the_case_on_the_first_menu(authoring, app_id):
     )
 
 
+def limit_101_outside_flat_close(authoring, app_id):
+    """The same list with an ordinary Case Management close HQ does not execute."""
+    from corehq.apps.app_manager.xform_builder import XFormBuilder
+
+    def ordinary_source(name):
+        xform = XFormBuilder(name)
+        xform.new_question("outcome", None, None, calculate="'done'")
+        return xform.tostring(xml_declaration=True).decode("utf-8")
+
+    ops.upload_form_source(authoring, app_id, 0, 0, ordinary_source, "ordinary close without a form-owned block")
+    ops.set_json(authoring, app_id, "/modules/0/forms/0/actions/close_case/condition/type", "always")
+    # The upload keeps the previous designer cache. The ordinary source owns no Save to Case rows.
+    ops.set_json(authoring, app_id, "/modules/0/forms/0/case_references_data/save", {})
+
+
 def multi_select_above_a_hundred(authoring, app_id):
     """Patients' list choosing up to 500 patients."""
     _set_each(

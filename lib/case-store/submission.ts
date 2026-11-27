@@ -305,6 +305,8 @@ export interface ApplySubmissionArgs {
 	readonly connect?: ConnectSubmissionProgram;
 	readonly appId: string;
 	readonly ordinary: OrdinarySubmissionAction;
+	/** Server-derived only after verifying a bounded flat close's signed opening. */
+	readonly boundedFlatClose?: true;
 	readonly operations?: CaseOperationProgram;
 	/**
 	 * Every submission claims this durable entry receipt before an ordinary or

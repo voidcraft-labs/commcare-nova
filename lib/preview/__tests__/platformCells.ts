@@ -203,6 +203,8 @@ export const PLATFORM_CELLS: Readonly<
 		structural("several-cases"),
 	"menus-and-case-lists/detail-max-select-value-on-a-multi-select-basic-list@android":
 		structural("several-cases"),
+	"menus-and-case-lists/detail-max-select-value-for-flat-close@android":
+		structural("several-cases"),
 	"expressions-and-data/selected-cases-search-selected-cases-parent-selected-cases-jr@android":
 		structural("several-cases"),
 	"menus-and-case-lists/detail-auto-select-multi-select@android":

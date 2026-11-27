@@ -62,6 +62,8 @@ export interface PreviewPlatformRules {
 	readonly questionProseForms: "extended-first" | "markdown-first";
 	/** The companion-app action on a case list (case-list-android-lookup). */
 	readonly caseListDeviceLookup: boolean;
+	/** The native several-case datum, including the bounded flat close. */
+	readonly severalCaseSelection: boolean;
 	/** Core Selection.attachChoice; Formplayer PromptToJson.parseQuestionAnswer;
 	 * Android FormHierarchyBuilder.getQuestionDisplayText and instance restore. */
 	readonly unavailableInlineChoice: "display" | "summary-or-restore";
@@ -618,6 +620,8 @@ export const PREVIEW_PLATFORM_RULES = {
 		caseListDeviceLookup:
 			platformBehavior("case-list-android-lookup", "web-apps").reading ===
 			"runs",
+		severalCaseSelection:
+			platformBehavior("several-cases", "web-apps").reading === "runs",
 		unavailableInlineChoice: "display",
 		appHome: "root-menu",
 		postSubmitAppHome: "root-menu",
@@ -735,6 +739,8 @@ export const PREVIEW_PLATFORM_RULES = {
 		caseListDeviceLookup:
 			platformBehavior("case-list-android-lookup", "android").reading ===
 			"runs",
+		severalCaseSelection:
+			platformBehavior("several-cases", "android").reading === "runs",
 		unavailableInlineChoice: "summary-or-restore",
 		appHome: "device-home",
 		postSubmitAppHome: "device-home",

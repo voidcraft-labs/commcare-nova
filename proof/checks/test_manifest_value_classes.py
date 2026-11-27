@@ -79,6 +79,53 @@ def test_each_positive_reader_has_a_held_value_class(manifest):
         assert entry.disposition == "HELD" and entry.value_class
 
 
+def test_the_positive_flat_close_class_uses_the_actual_close_form(manifest):
+    source = b"""<h:html xmlns:h="http://www.w3.org/1999/xhtml" xmlns="http://www.w3.org/2002/xforms"
+        xmlns:vellum="http://commcarehq.org/xforms/vellum" xmlns:jr="http://openrosa.org/javarosa">
+    <h:head><model><instance><data xmlns="urn:test"><done/>
+    <nova_selected_cases vellum:role="Repeat">
+      <item><nova_operations><nova_close_selected_cases vellum:role="SaveToCase">
+        <case xmlns="http://commcarehq.org/case/transaction/v2"><close/></case>
+      </nova_close_selected_cases></nova_operations></item>
+    </nova_selected_cases>
+    </data></instance>
+    <instance id="selected_cases" src="jr://instance/selected-entities/selected_cases"/>
+    <bind nodeset="/data/done" calculate="'yes'"/>
+    <bind nodeset="/data/nova_selected_cases/item/nova_operations/nova_close_selected_cases/case/@case_id"
+          calculate="current()/../../../../@id"/></model></h:head><h:body>
+    <repeat nodeset="/data/nova_selected_cases/item" jr:count="/data/nova_selected_cases/@count"/>
+    </h:body></h:html>"""
+    def holds(maximum=101, *, form_source=source, web_apps=True):
+        app = _with_forms({
+            "doc_type": "Application",
+            "cloudcare_enabled": web_apps,
+            "modules": [{
+                "doc_type": "Module",
+                "case_type": "patient",
+                "case_details": {"doc_type": "DetailPair", "short": {
+                    "doc_type": "Detail",
+                    "multi_select": True,
+                    "max_select_value": maximum,
+                }},
+                "forms": [{
+                    "doc_type": "Form", "unique_id": "close", "requires": "case",
+                    "actions": {"close_case": {"condition": {"type": "always"}}},
+                }],
+            }],
+        }, close=form_source)
+        found = manifest_usage.Uses()
+        manifest_usage.app_json_uses(app, manifest, "app.json", found)
+        use, = [use for use in found.uses if use.key == "schema:Detail.max_select_value"]
+        return classes.bounded_flat_close_maximum(use, manifest)
+
+    assert holds() is True
+    assert holds(102) is False
+    assert holds(form_source=source.replace(b"<close/>", b"<update/>")) is False
+    assert holds(form_source=source.replace(b"jr:count", b"unused")) is False
+    assert holds(web_apps=False) is False
+    assert holds(form_source=source.replace(b"'yes'", b"../record")) is False
+
+
 def test_a_configured_project_search_uses_an_endpoint_datum_and_owns_its_parameter_row(manifest):
     def source(endpoint, name):
         return {

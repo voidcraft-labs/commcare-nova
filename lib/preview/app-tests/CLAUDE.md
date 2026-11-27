@@ -286,6 +286,8 @@ offering condition; a returned module menu evaluates its offerings normally.
 Back from the form
 returns to the original Results/Details destination, not the transient chooser.
 
+The bounded 101-case close is tested in the same isolated namespace as other case submissions. Its manual action accepts the ordered set across Results pages and checks every selected record against the worker's current list. The automatic action uses datum order and refuses overflow. The entry retains a scoped selected-case snapshot and leaves the full device restore idle. The store commits its one close receipt atomically.
+
 Form observations return only the current page’s questions, available sections,
 the canonical presentation hierarchy and whether Submit is offered. Presentation
 nodes preserve containers and repeat-instance boundaries in worker order.

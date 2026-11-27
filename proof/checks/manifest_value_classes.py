@@ -13353,9 +13353,89 @@ def _basic_multi_select_maximum(use):
     return _max_select_number(detail.get("max_select_value"))
 
 
+def _flat_close_has_only_its_selected_case_block(xform):
+    """Recognize a close on each selected row, including its actual case-id bind."""
+    if (xform.body is None or len(xform.model_repeats) != 1 or len(xform.save_to_case) != 1
+            or any(_local(node) not in ("body", "group", "repeat") for node in xform.body_elements)):
+        return False
+    wrapper, = xform.model_repeats
+    block, = xform.save_to_case
+    path = xform.paths.get(wrapper)
+    block_path = xform.paths.get(block)
+    if (path != f"/{_local(xform.data_root)}/nova_selected_cases"
+            or block_path != f"{path}/item/nova_operations/nova_close_selected_cases"):
+        return False
+    controls = [node for node in xform.body_elements if _local(node) == "repeat"]
+    if (len(controls) != 1 or controls[0].get("nodeset") != f"{path}/item"
+            or controls[0].get(f"{{{JAVAROSA}}}count") != f"{path}/@count"
+            or ("selected_cases", "jr://instance/selected-entities/selected_cases") not in xform.declared_instances):
+        return False
+    case = block.find(f"{{{CASE}}}case")
+    if case is None or _children(block) != [case] or [node.tag for node in _children(case)] != [f"{{{CASE}}}close"]:
+        return False
+    reference = xform.bind(f"{block_path}/case/@case_id")
+    if reference is None or reference.get("calculate") != "current()/../../../../@id":
+        return False
+    # A condition on any emitted container would make this a different workflow.
+    return not any(bind.get("relevant") for nodes in xform.binds.values() for bind in nodes)
+
+
+def bounded_flat_close_maximum(use, manifest):
+    """One ordinary unconditional own-case close supplies a manually or automatically chosen 101-case datum."""
+    value = _basic_multi_select_maximum(use)
+    if value != 101:
+        return value if value is None else False
+    at = _json(use)
+    app = at.app
+    modules = app.modules
+    if len(modules) != 1 or app.doc.get("cloudcare_enabled") is not True or app.doc.get("case_sharing"):
+        return False
+    module = modules[0]
+    forms = _forms(module)
+    detail = at.owner
+    search = module.get("search_config") or {}
+    if (len(forms) != 1 or (module.get("parent_select") or {}).get("active") or module.get("root_module_id")
+            or module.get("module_filter") or module.get("session_endpoint_id")
+            or module.get("case_list_session_endpoint_id") or detail.get("filter") or detail.get("lookup_enabled")
+            or detail.get("case_tile_template") or detail.get("persist_case_context")
+            or (module.get("case_list") or {}).get("show")
+            or (module.get("case_list_form") or {}).get("form_id")
+            or search.get("properties") or search.get("auto_launch") or search.get("inline_search")):
+        return False
+    form = forms[0]
+    actions = _actions(form)
+    if (_requires(form) != "case" or (form.get("doc_type") or "Form") != "Form"
+            or form.get("form_filter") or form.get("session_endpoint_id")
+            or form.get("post_form_workflow") not in (None, "", "default")
+            or _active(actions.get("open_case"))
+            or any(_active(actions.get(name)) and actions[name].get("update")
+                   for name in ("update_case", "usercase_update"))
+            or any((actions.get(name) or {}).get("preload") for name in ("case_preload", "usercase_preload", "load_from_form"))
+            or any(_active(child) for child in _subcases(form))):
+        return False
+    xform = app.xform(form)
+    if xform is None:
+        return None
+    if not _flat_close_has_only_its_selected_case_block(xform):
+        return False
+    generated = xform.paths[xform.model_repeats[0]]
+    for nodeset, binds in xform.binds.items():
+        if nodeset.startswith((f"{generated}/", f"{generated}/@")):
+            continue
+        for bind in binds:
+            if any(bind.get(name) for name in ("relevant", "constraint", "required")):
+                return False
+            calculate = bind.get("calculate")
+            if calculate and _literal(app, calculate) is not True:
+                tokens = xpath_tokens(calculate) or ()
+                if len(tokens) != 1 or tokens[0].kind not in ("STR", "NUM"):
+                    return False
+    return True
+
+
 def max_select_value_above_100(use, manifest):
     value = _basic_multi_select_maximum(use)
-    return value if value is None else 100 < value <= 2_147_483_647
+    return value if value is None else 101 < value <= 2_147_483_647
 
 
 def multi_select_maximum_exceeds_java_int(use, manifest):
@@ -14482,6 +14562,7 @@ VALUE_CLASSES = {
 # A positive class may need an observation beyond the use at its own source.
 # It grants HELD only when that observation establishes the supported class.
 POSITIVE_VALUE_CLASSES = {
+    "menus-and-case-lists/detail-max-select-value-for-flat-close": bounded_flat_close_maximum,
     "case-search/address-picker-on-a-search-screen": ordinary_address_search_marker,
     "case-search/case-search-endpoint-id": configured_search_endpoint,
     "case-search/default-filter-orders-the-records-the-search-sends": named_search_order,

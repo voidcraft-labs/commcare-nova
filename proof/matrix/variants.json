@@ -11311,6 +11311,21 @@
 		}
 	},
 	{
+		"id": "hq-bounded-flat-close/ordinary-close-is-inert",
+		"base": "hq-bounded-flat-close",
+		"entry": "menus-and-case-lists/detail-max-select-value-101-outside-flat-close",
+		"standing": "not-yet",
+		"place": {
+			"kind": "case-list",
+			"menu": 0,
+			"name": "Records"
+		},
+		"change": {
+			"op": "named",
+			"name": "limit_101_outside_flat_close"
+		}
+	},
+	{
 		"id": "hq-case-lists/multi-select-above-a-hundred",
 		"base": "hq-case-lists",
 		"entry": "menus-and-case-lists/detail-max-select-value-above-100",

@@ -6,6 +6,7 @@ import { Button } from "@/components/shadcn/button";
 import { useReconcilerContext } from "@/lib/collab/context";
 import { useBlueprintDocApi } from "@/lib/doc/hooks/useBlueprintDoc";
 import { CASE_LOADING_FORM_TYPES } from "@/lib/domain";
+import { authoredBoundedFlatClose } from "@/lib/domain/boundedFlatClose";
 import type { ActivityFact } from "@/lib/domain/connectSubmissionFacts";
 import { entrySelectionSettings } from "@/lib/domain/formEntryCases";
 import { parentCaseConstraint } from "@/lib/preview/caseSelectionNavigation";
@@ -126,7 +127,11 @@ export function FormEntryScreen({
 	}
 	if (
 		mode !== "preview" ||
-		!(walks || formNeedsOpeningEvidence(doc, screen.formUuid))
+		!(
+			walks ||
+			authoredBoundedFlatClose(doc, screen.moduleUuid, screen.formUuid) ||
+			formNeedsOpeningEvidence(doc, screen.formUuid)
+		)
 	)
 		return (
 			<FormScreen
@@ -189,6 +194,11 @@ function ConfiguredFormEntry({
 		[menuSource, screen.moduleUuid, selections],
 	);
 	const form = doc.forms[screen.formUuid];
+	const boundedFlatClose = authoredBoundedFlatClose(
+		doc,
+		screen.moduleUuid,
+		screen.formUuid,
+	);
 	// A second entry keeps its own choices, as a form with its own does.
 	const ownChoices = entrySelectionSettings(form) !== undefined;
 	const held = ownChoices
@@ -321,7 +331,9 @@ function ConfiguredFormEntry({
 											selection: row.selectionUuid,
 											caseId: row.caseId,
 										})),
-										afterSubmission: unsyncedEntries(),
+										...(!boundedFlatClose && {
+											afterSubmission: unsyncedEntries(),
+										}),
 									}),
 						},
 						device,

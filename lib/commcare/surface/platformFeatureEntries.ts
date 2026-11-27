@@ -62,6 +62,7 @@ export const PLATFORM_FEATURE_ENTRIES = {
 		"menus-and-case-lists/detail-multi-select",
 		"menus-and-case-lists/detail-auto-select-multi-select",
 		"menus-and-case-lists/detail-max-select-value-on-a-multi-select-basic-list",
+		"menus-and-case-lists/detail-max-select-value-for-flat-close",
 		"expressions-and-data/selected-cases-search-selected-cases-parent-selected-cases-jr",
 	],
 	"search-field-single-date": ["case-search/input-date"],

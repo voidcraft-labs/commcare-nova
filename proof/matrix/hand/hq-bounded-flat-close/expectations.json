@@ -1,0 +1,31 @@
+[
+	{
+		"id": "selected-records-have-one-close-row-each",
+		"entry": "menus-and-case-lists/detail-max-select-value-for-flat-close",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"command": "m0-f0",
+				"data": {
+					"selected_cases": ["sample-two", "sample-one"]
+				}
+			},
+			"expressions": [
+				"/data/outcome",
+				"count(/data/nova_selected_cases/item/nova_operations/nova_close_selected_cases)",
+				"string(/data/nova_selected_cases/item[1]/@id)",
+				"string(/data/nova_selected_cases/item[2]/@id)"
+			]
+		},
+		"expect": [
+			{ "pointer": "/values/0/value", "value": "done" },
+			{ "pointer": "/values/1/value", "value": "2" },
+			{ "pointer": "/values/2/value", "value": "sample-two" },
+			{ "pointer": "/values/3/value", "value": "sample-one" }
+		]
+	}
+]

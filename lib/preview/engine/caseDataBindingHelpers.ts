@@ -584,6 +584,7 @@ export async function readCases(
 		datumOrder?: true;
 		/** The authored maximum for an automatic device selection. */
 		automaticMaximum?: number;
+		boundedFlatClose?: true;
 		/**
 		 * Read as this worker's device would. Passed by the RUNNING preview and
 		 * by nothing else — the case workspace and the sample-data surfaces read
@@ -732,6 +733,7 @@ export async function readCases(
 		const { rows, totalCount } = await store.queryAutomaticSelection(
 			countArgs,
 			args.automaticMaximum,
+			...(args.boundedFlatClose ? [true as const] : []),
 		);
 		if (totalCount === 0)
 			return emptyCaseResult(store, args, composedQuery, undefined, 0);
@@ -3433,6 +3435,7 @@ export function schemaHealingCaseStore(
 		withSchemaHeal(args, run);
 	return {
 		query: (a) => heal(() => store.query(a)),
+		readFlatCloseSelection: (a) => heal(() => store.readFlatCloseSelection(a)),
 		queryAutomaticSelection: (...args) =>
 			heal(() => store.queryAutomaticSelection(...args)),
 		// Un-healed: this raw restore read does not consult a case-type schema,

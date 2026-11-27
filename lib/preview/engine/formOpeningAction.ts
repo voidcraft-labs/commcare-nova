@@ -1,6 +1,7 @@
 "use server";
 
 import { z } from "zod";
+import { FlatClosePayloadTooLargeError } from "@/lib/case-store/flatCloseBudget";
 import { AppAccessError } from "@/lib/db/appAccess";
 import {
 	hydratePersistedBlueprint,
@@ -15,6 +16,7 @@ import {
 	formCaseSelections,
 	ownFormSelectionIndex,
 } from "@/lib/domain/advancedEntryDatums";
+import { authoredBoundedFlatClose } from "@/lib/domain/boundedFlatClose";
 import { formStructure } from "@/lib/domain/expression/formStructure";
 import {
 	entrySelectionSettings,
@@ -85,6 +87,7 @@ const requestSchema = z.strictObject({
 	blueprintDigest: z.string().regex(/^[0-9a-f]{64}$/),
 	persona: uuidSchema.optional(),
 	bound: z.array(z.string().min(1)).optional(),
+	boundedFlatClose: z.literal(true).optional(),
 	parentChoices: z.record(uuidSchema, z.array(z.string().min(1))).optional(),
 	previous: signedOpeningSchema.optional(),
 	restore: z.literal(true).optional(),
@@ -202,12 +205,83 @@ async function readOpening(
 			blueprintDigest: args.blueprintDigest,
 		};
 		const secret = process.env.BETTER_AUTH_SECRET ?? "";
+		const previous =
+			args.previous &&
+			(await verifyFormOpening(secret, audience, args.previous));
+		const profile = authoredBoundedFlatClose(doc, args.module, args.form);
+		if (profile || args.boundedFlatClose || previous?.boundedFlatClose) {
+			if (
+				!profile ||
+				!platformRules.severalCaseSelection ||
+				args.choice ||
+				args.carried?.length ||
+				Object.keys(args.parentChoices ?? {}).length ||
+				args.afterSubmission?.length ||
+				(previous &&
+					(!previous.boundedFlatClose || !args.restore || args.bound)) ||
+				(!previous && (args.restore || args.resumeInto))
+			)
+				return reopen;
+			if (previous?.boundedFlatClose && args.resumeInto) {
+				if (!previous.complete || !platformRules.resumeDraftAcrossRuns)
+					return reopen;
+				return {
+					kind: "receipt-run-ready",
+					transition: signReceiptRunTransition(secret, audience, {
+						from: args.run,
+						to: args.resumeInto,
+						entry: args.entry,
+					}),
+				} as const;
+			}
+			const caseIds = previous?.primaryCaseIds ?? args.bound ?? [];
+			const expiresAt =
+				previous?.boundedFlatClose?.expiresAt ??
+				Date.now() + 24 * 60 * 60 * 1000;
+			if (
+				!caseIds.length ||
+				!validSelectionIds(caseIds, profile.selection.maximum) ||
+				expiresAt <= Date.now()
+			)
+				return unavailable;
+			const cases = await context.store.readFlatCloseSelection({
+				appId: args.app,
+				caseIds,
+				caseType: profile.caseType,
+				restoreScope: context.restoreScope,
+				...(!previous &&
+					profile.selection.autoSelect && {
+						automaticMaximum: profile.selection.maximum,
+					}),
+			});
+			if (!cases) return unavailable;
+			const projection: FormOpeningProjection = previous ?? {
+				cases: openingCaseData(cases),
+				lookup: { projectRevision: "0", definitions: [], rowsByTable: {} },
+				choices: [],
+				primaryCaseIds: caseIds,
+				datums: {},
+				resolvedEntries: {},
+				sessionData: {},
+				complete: true,
+				boundedFlatClose: { expiresAt },
+			};
+			return {
+				kind: "opening",
+				projection,
+				evidence:
+					args.previous ??
+					(await signFormOpening(secret, audience, projection)),
+				next: undefined,
+				activityNotice: undefined,
+			} as const;
+		}
 		let prior: FormOpeningProjection;
 		/* The cases the submission that opened this entry left on the device,
 		 * which its list no longer need show (a case it closed). */
 		let submittedCaseIds = new Set<string>();
-		if (args.previous) {
-			prior = await verifyFormOpening(secret, audience, args.previous);
+		if (previous) {
+			prior = previous;
 			if (
 				args.bound ||
 				args.parentChoices ||
@@ -618,7 +692,8 @@ async function readOpening(
 	} catch (error) {
 		if (
 			error instanceof InvalidWebActivityWindowError ||
-			error instanceof FormEvaluationInputError
+			error instanceof FormEvaluationInputError ||
+			error instanceof FlatClosePayloadTooLargeError
 		)
 			return { kind: "error", message: error.message } as const;
 		if (error instanceof AppAccessError)

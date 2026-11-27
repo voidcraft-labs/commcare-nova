@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { PersistableDoc, Uuid } from "@/lib/domain";
 import { uuidSchema } from "@/lib/domain";
+import { BOUNDED_FLAT_CLOSE_MAXIMUM } from "@/lib/domain/caseSelectionLimits";
 import {
 	appLanguageIdentitySchema,
 	type LanguageTag,
@@ -241,7 +242,10 @@ function actionSchema<R extends z.ZodType<string>>(reference: R) {
 		z.strictObject({ kind: z.literal("form"), formUuid: reference }),
 		z.strictObject({
 			kind: z.literal("select"),
-			caseIds: z.array(z.string().min(1).max(255)).min(1).max(100),
+			caseIds: z
+				.array(z.string().min(1).max(255))
+				.min(1)
+				.max(BOUNDED_FLAT_CLOSE_MAXIMUM),
 		}),
 		z.strictObject({ kind: z.literal("clearSearch") }),
 		z.strictObject({

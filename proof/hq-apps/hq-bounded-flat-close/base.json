@@ -1,0 +1,20 @@
+{
+	"id": "hq-bounded-flat-close",
+	"configuration": {
+		"flags": [
+			"CASE_SEARCH_ADVANCED"
+		],
+		"namedPrivileges": [
+			"CLOUDCARE",
+			"VELLUM_SAVE_TO_CASE"
+		],
+		"commcareVersion": "2.57.0",
+		"commtrack": false,
+		"syncCasesOnFormEntry": false,
+		"caseSearchEnabled": false
+	},
+	"declaration": "preselected",
+	"exhibits": [
+		"menus-and-case-lists/detail-max-select-value-for-flat-close"
+	]
+}

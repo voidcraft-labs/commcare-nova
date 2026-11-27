@@ -41,6 +41,7 @@ import {
 	readCasePropertyNameSchema,
 } from "./casePropertyName";
 import type { CasePropertyDataType } from "./casePropertyTypes";
+import { BOUNDED_FLAT_CLOSE_MAXIMUM } from "./caseSelectionLimits";
 import { COMMCARE_DATE_PATTERN_REGEX } from "./commCareDatePattern";
 import { detailTabSpans, detailTabsSchema } from "./detailTabSchema";
 import { entryPointSchema } from "./entryPoints";
@@ -3406,13 +3407,13 @@ export type CaseTileLayout = z.infer<typeof caseTileLayoutSchema>;
  * stored, so legacy documents remain byte-identical and there is no second
  * spelling such as `{ kind: "single" }`.
  *
- * The upper bound is a Nova product invariant shared by Builder, Preview,
- * submission, and both export paths. The runtime still defends the received
- * set, but an authored app can never request a larger batch.
+ * The maximum above the ordinary authoring range is conditional on the
+ * bounded flat-close topology. The document validator owns that cross-form
+ * condition; the runtime enforces its own independent resource limits.
  */
 export const caseSelectionSchema = z.strictObject({
 	kind: z.literal("multiple"),
-	maximum: persistableJsonPositiveIntegerSchema.max(100),
+	maximum: persistableJsonPositiveIntegerSchema.max(BOUNDED_FLAT_CLOSE_MAXIMUM),
 	autoSelect: z.literal(true).optional(),
 });
 export type CaseSelection = z.infer<typeof caseSelectionSchema>;

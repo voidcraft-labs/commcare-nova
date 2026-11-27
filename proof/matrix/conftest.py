@@ -6,6 +6,7 @@ which is what a stored outcome of the package is keyed by
 whose captured first publish the base ``hq-nova-then-builder`` applies before
 it saves every form in HQ's form builder, and location-direct, whose first publish
 the owner-rules base uses. The existing-adoption language witness also reads hq-languages.
+The bounded flat close reuses the unconditional form proved by targeted-several-case-close.
 """
 
 from __future__ import annotations
@@ -13,7 +14,7 @@ from __future__ import annotations
 import pytest
 
 # Every corpus document a test of this package reads, by id, and no other.
-DOCUMENTS = ("location-direct", "targeted-save-to-case-shapes", "hq-languages")
+DOCUMENTS = ("location-direct", "targeted-save-to-case-shapes", "hq-languages", "targeted-several-case-close")
 
 
 class _Named(dict):
