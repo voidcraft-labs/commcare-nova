@@ -74,7 +74,7 @@ def test_installed_android_compares_the_direct_external_id_day_before_saving(hq,
                 before = datetime.now(timezone.utc).replace(second=0, microsecond=0)
                 result = observe.app(
                     served, blobs, label=f"edit-external-id-{label}", archive=archive,
-                    commands=["m0-f3"], questions={QUESTION: [moment]} if moment else {},
+                    commands=["m0-f3"], questions={QUESTION: [moment] if moment else []},
                     delivered=True, sent=sent, stored=stored, installation_languages=("en",),
                 )
                 after = datetime.now(timezone.utc).replace(second=0, microsecond=0)
