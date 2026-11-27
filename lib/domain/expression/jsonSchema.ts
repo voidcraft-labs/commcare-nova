@@ -93,7 +93,7 @@ export type CaseTypePropertyJsonSchema =
 			type: "string";
 			format?: string;
 			pattern?: string;
-			anyOf?: readonly [{ readonly format: "date" }, { readonly const: "" }];
+			anyOf?: [{ format: "date" }, { const: "" }];
 			/**
 			 * Lossless data-type marker for string flavors whose VALIDATION
 			 * shape is identical to plain text (`single_select` — no enum,
