@@ -245,20 +245,22 @@ function positionOfNumber(predicate: FormSyntax): boolean {
 	);
 }
 
-/** Core truncates a numeric predicate before comparing it with the one-based
- * row counter. Keep this to one bare nonnegative number with an in-range
- * ordinal on a declared lookup fixture. */
+/** Core truncates a bare numeric predicate and saturates to a Java int
+ * before comparing it with the one-based row counter of a declared fixture. */
 function lookupPredicateText(
 	nodeset: string,
 	predicate: FormSyntax,
 	declared: boolean,
 ): string {
 	const text = nodeset.slice(predicate.from, predicate.to);
-	if (!declared || predicate.kind !== "number") return text;
-	const ordinal = Math.trunc(predicate.value);
-	return ordinal >= 0 && ordinal <= 2_147_483_647
-		? `position() = ${ordinal}`
-		: text;
+	if (
+		!declared ||
+		predicate.kind !== "number" ||
+		!Number.isFinite(predicate.value) ||
+		predicate.value < 0
+	)
+		return text;
+	return `position() = ${Math.min(Math.trunc(predicate.value), 2_147_483_647)}`;
 }
 
 /** A ref that is one name step: the column's or the property's name. */

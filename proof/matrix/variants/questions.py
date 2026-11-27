@@ -2417,6 +2417,11 @@ def itemset_filter_overflow_row_index(authoring, app_id):
     _itemset_filter_numeric_row(authoring, app_id, "2147483648", "itemset-filter-overflow-row-index")
 
 
+def itemset_filter_grouped_row_index(authoring, app_id):
+    """A grouped filter stays outside the bare numeric spelling."""
+    _itemset_filter_numeric_row(authoring, app_id, "(2)", "itemset-filter-grouped-row-index")
+
+
 def itemset_over_cases(authoring, app_id):
     """The district select's choices read from every case the worker holds (``instance('casedb')``), declared in
     the model, in place of the table."""

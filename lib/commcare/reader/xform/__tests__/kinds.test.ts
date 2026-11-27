@@ -783,6 +783,8 @@ describe("a select's choices", () => {
 			["[2.99]", 2],
 			["[0]", 0],
 			["[0.5]", 0],
+			["[2147483648]", 2147483647],
+			["[4294967297]", 2147483647],
 		])(
 			"reads and republishes fixture row %s as its exact position",
 			async (predicate, ordinal) => {
@@ -835,7 +837,6 @@ describe("a select's choices", () => {
 			"[-1]",
 			"[(2)]",
 			"[(2.5)]",
-			"[2147483648]",
 			"[last() - 1]",
 			"[district_name != &apos;&apos;][2]",
 		])(

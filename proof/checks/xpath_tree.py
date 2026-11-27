@@ -23,6 +23,7 @@ Pure: it reads the texts it is given and imports neither HQ nor Django.
 from __future__ import annotations
 
 from functools import cache
+from math import isfinite
 
 from proof.rules import _xpath
 
@@ -272,8 +273,8 @@ def fixture_itemset_number(text, instances):
         return None
     source, (_, number) = shape
     tokens = _xpath.tokens(text)
-    if 0 <= number < 2_147_483_648 and [one.kind for one in tokens[-3:]] == ["LBRACK", "NUM", "RBRACK"]:
-        return source, number, int(number)
+    if isfinite(number) and number >= 0 and [one.kind for one in tokens[-3:]] == ["LBRACK", "NUM", "RBRACK"]:
+        return source, number, min(int(number), 2_147_483_647)
     return source, number, None
 
 

@@ -24396,6 +24396,29 @@
 	{
 		"id": "hq-lookups/itemset-filter-overflow-row-index",
 		"base": "hq-lookups",
+		"entry": "questions/itemset-filter-lifting-into-predicate",
+		"change": {
+			"op": "named",
+			"name": "itemset_filter_overflow_row_index"
+		},
+		"holds": [
+			{
+				"key": ["field", { "$xmlns": [0, 0] }, ["village"]],
+				"pointer": "/optionsSource/filter",
+				"value": {
+					"kind": "eq",
+					"left": { "kind": "call", "fn": "position", "args": [] },
+					"right": {
+						"kind": "term",
+						"term": { "kind": "literal", "value": 2147483647 }
+					}
+				}
+			}
+		]
+	},
+	{
+		"id": "hq-lookups/itemset-filter-grouped-row-index",
+		"base": "hq-lookups",
 		"entry": "questions/itemset-filter-outside-predicate",
 		"standing": "not-yet",
 		"place": {
@@ -24408,7 +24431,7 @@
 		},
 		"change": {
 			"op": "named",
-			"name": "itemset_filter_overflow_row_index"
+			"name": "itemset_filter_grouped_row_index"
 		}
 	},
 	{
