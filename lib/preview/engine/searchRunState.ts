@@ -58,7 +58,7 @@ export function applySearchAddressMessage(
 	inputs: readonly SearchInputDef[],
 	source: Uuid,
 	message: QuestionMessage,
-	choices: ReadonlyMap<Uuid, readonly LookupChoice[]> | undefined,
+	choices: ReadonlyMap<string, readonly LookupChoice[] | undefined> | undefined,
 	rules: Pick<PreviewPlatformRules, "searchAddressPicker">,
 ): SearchInputValues {
 	if (!rules.searchAddressPicker) return previous;
