@@ -100,6 +100,11 @@ test("submits a bounded 101-record selection from manual pages and automatic sel
 				preview.getByRole("heading", { name: "101 cases selected" }),
 			).toBeVisible();
 			await form.click();
+			if (!closes)
+				await preview
+					.getByRole("textbox", { name: "Outcome", exact: true })
+					.fill("Reviewed");
+
 			const submit = preview.getByRole("button", {
 				name: "Submit",
 				exact: true,

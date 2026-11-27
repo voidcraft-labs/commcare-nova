@@ -288,9 +288,9 @@ def test_basic_automatic_multi_selection_uses_the_whole_datum_and_refuses_overfl
 
 
 
-@pytest.mark.parametrize("followup", [False, True])
+@pytest.mark.parametrize("kind", ["close", "followup", "answer"])
 def test_the_authored_bounded_case_list_selects_101_and_refuses_the_102nd(
-    hq, formplayer_runner, formplayer_documents, evidence, followup,
+    hq, formplayer_runner, formplayer_documents, evidence, kind,
 ):
     import json
     from dataclasses import replace
@@ -303,6 +303,7 @@ def test_the_authored_bounded_case_list_selects_101_and_refuses_the_102nd(
     from proof.matrix.authoring import Authoring
     from proof.observe import casedata, publish
 
+    followup = kind != "close"
     witness = json.loads((Path(__file__).parent / "fixtures" / "bounded-flat-close-case-list.json").read_text())
     doc = formplayer_documents["hq-bounded-flat-close"]
     database = casedata.document_case_database(doc)
@@ -316,7 +317,8 @@ def test_the_authored_bounded_case_list_selects_101_and_refuses_the_102nd(
             assert refusal is None, refusal
             if followup:
                 author = Authoring(unit, {}, doc.id, operation=unit.operation)
-                registry.named_change("limit_101_outside_flat_close")(author, app_id)
+                change = "limit_101_with_visible_question" if kind == "answer" else "limit_101_outside_flat_close"
+                registry.named_change(change)(author, app_id)
         for batch, count in (("at-maximum", witness["selectedCount"]), ("overflow", witness["overflowCount"])):
             overflow = batch == "overflow"
             supplied = replace(database, cases=cases[:count])
@@ -341,13 +343,17 @@ def test_the_authored_bounded_case_list_selects_101_and_refuses_the_102nd(
                             assert screen_kind(page) == "form" and page["title"] == witness["form"], page
                             ids = {case.case_id for case in supplied.cases}
                             before = _held(served.domain, sorted(ids)) if followup else None
-                            result = web.submit(page["session_id"], {})
+                            answers = {}
+                            if kind == "answer":
+                                question, = [node for node in page["tree"] if node.get("type") == "question"]
+                                answers[question["ix"]] = "Reviewed"
+                            result = web.submit(page["session_id"], answers)
                             assert result["status"] == "success", result
                             (submission,) = served.hq.submissions
                             if followup:
                                 payload = etree.fromstring(submission.instance, PARSER)
                                 assert not list(payload.iter(CASE))
-                                assert payload.findtext("{*}outcome") == "done"
+                                assert payload.findtext("{*}outcome") == ("Reviewed" if kind == "answer" else "done")
                                 assert _held(served.domain, sorted(ids)) == before
                                 observations[batch] = {"caseTransactions": 0, "offered": count}
                             else:

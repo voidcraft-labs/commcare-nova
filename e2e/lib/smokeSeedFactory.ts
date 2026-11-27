@@ -1154,9 +1154,22 @@ export async function createSmokeBuilders(
 										name: formName,
 										type,
 										postSubmit: "app_home",
-										fields: [
-											f({ kind: "hidden", id: "ready", calculate: "'yes'" }),
-										],
+										fields:
+											type === "close"
+												? [
+														f({
+															kind: "hidden",
+															id: "ready",
+															calculate: "'yes'",
+														}),
+													]
+												: [
+														f({
+															kind: "text",
+															id: "outcome",
+															label: "Outcome",
+														}),
+													],
 									},
 								],
 							},

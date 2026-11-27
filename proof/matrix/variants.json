@@ -11743,10 +11743,48 @@
 	{
 		"id": "hq-bounded-flat-close/large-selection-with-interactive-question",
 		"base": "hq-bounded-flat-close",
+		"entry": "menus-and-case-lists/detail-max-select-value-for-flat-followup",
+		"change": {
+			"op": "named",
+			"name": "limit_101_with_visible_question"
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/selection/maximum",
+				"value": 101
+			},
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [0, 0]
+					}
+				],
+				"pointer": "/type",
+				"value": "followup"
+			}
+		]
+	},
+	{
+		"id": "hq-bounded-flat-close/large-selection-with-two-interactive-questions",
+		"base": "hq-bounded-flat-close",
 		"entry": "menus-and-case-lists/detail-max-select-value-101-outside-flat-close",
 		"standing": "not-yet",
-		"place": { "kind": "case-list", "menu": 0, "name": "Records" },
-		"change": { "op": "named", "name": "limit_101_with_visible_question" }
+		"place": {
+			"kind": "case-list",
+			"menu": 0,
+			"name": "Records"
+		},
+		"change": {
+			"op": "named",
+			"name": "limit_101_with_two_visible_questions"
+		}
 	},
 	{
 		"id": "hq-case-lists/multi-select-above-a-hundred",

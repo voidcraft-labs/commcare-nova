@@ -64,17 +64,36 @@ export function boundedFlatSelectionForm(
 		own.name ||
 		own.owner ||
 		own.writes?.length ||
-		own.links?.length ||
-		(doc.fieldOrder[form] ?? []).some(
-			(uuid) =>
-				doc.fields[uuid]?.kind !== "hidden" ||
-				expressionSlotValues(doc, { entity: "field", uuid }).some(
-					({ expression }) =>
-						expression.kind !== "term" || expression.term.kind !== "literal",
-				),
-		)
+		own.links?.length
 	)
 		return undefined;
+	let answers = 0;
+	for (const uuid of doc.fieldOrder[form] ?? []) {
+		const field = doc.fields[uuid];
+		const slots = expressionSlotValues(doc, { entity: "field", uuid });
+		if (
+			field?.kind === "hidden" &&
+			slots.every(
+				({ expression }) =>
+					expression.kind === "term" && expression.term.kind === "literal",
+			)
+		)
+			continue;
+		if (
+			owner.type !== "followup" ||
+			field?.kind !== "text" ||
+			answers !== 0 ||
+			slots.length !== 0 ||
+			field.addressLookup ||
+			field.androidApp ||
+			field.receiveFrom ||
+			field.sendTopics ||
+			field.keypad
+		)
+			return undefined;
+		answers++;
+	}
+
 	return { caseType: menu.caseType, selection };
 }
 
