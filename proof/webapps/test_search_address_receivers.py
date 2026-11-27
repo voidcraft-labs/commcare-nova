@@ -66,6 +66,7 @@ def _rebuild_reviewed_receivers(project):
     """Read the HQ save through Nova's normal review and send the generated app back."""
     from corehq import privileges
 
+    from proof.hq import redis as hq_redis
     from proof.hq.conftest import nova_shaped_upload
     from proof.hq.seams import also_granted, api_rate_limits
     from proof.matrix.author import Authoring, READER
@@ -76,7 +77,7 @@ def _rebuild_reviewed_receivers(project):
     document = project.document
     base = next(base for base in BASES if base.id == document.id)
     author = Authoring(unit, {document.id: document}, document.id, operation=unit.operation)
-    with unit.committing(), also_granted(privileges.API_ACCESS), api_rate_limits(unit):
+    with hq_redis.shared(None), unit.committing(), also_granted(privileges.API_ACCESS), api_rate_limits(unit):
         with author.step("search-receiver:api-user"):
             credential = operations.seed_api_user(unit, READER)
 

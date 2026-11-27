@@ -748,6 +748,8 @@
 		"hq-search/slider-field",
 		"hq-search/translation-overrides-a-saved-legacy-search-group-heading",
 		"hq-search/translation-overrides-a-search-group-heading",
+		"hq-search/two-fields-receive-from-the-address-picker",
+		"hq-search/value-received",
 		"hq-search/value-received-on-a-barcode-field",
 		"hq-search/value-received-with-invalid-topic",
 		"hq-search/visits-form-reads-a-search-field",
