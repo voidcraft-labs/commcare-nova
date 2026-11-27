@@ -90,6 +90,8 @@ import {
 	storageDatetimeValue,
 	storageTimeValue,
 } from "@/lib/domain/temporalValues";
+import { compareEqual } from "@/lib/preview/xpath/coerce";
+import { evaluateInDeviceZone } from "@/lib/preview/xpath/coreDays";
 import {
 	type ResolvedCaseOperationTypeStep,
 	validateCaseOperationTargetDescriptor,
@@ -119,6 +121,7 @@ import {
 } from "../sql/compileRestoreScope";
 import type { FormFieldBindingValue, TermBindings } from "../sql/compileTerm";
 import type { Database, JsonObject, JsonValue } from "../sql/database";
+import { resolveViewerTimeZone } from "../sql/viewerTimeZone";
 import type { CaseUpdate } from "../store";
 import type {
 	ApplySubmissionArgs,
@@ -2143,6 +2146,7 @@ async function resolveOperationProgram(
 		opening &&
 		new Map(opening.cases.rows.map((row) => [row.case_id, row.case_type]));
 	const resolvedInstances: ResolvedInstance[] = [];
+	let numericComparisonZone: string | undefined;
 	for (const [index, openedInstance] of instances.entries()) {
 		let instance = openedInstance;
 		let operation = instance.envelope.operation;
@@ -2805,7 +2809,30 @@ async function resolveOperationProgram(
 							: write.property === "location_id"
 								? (stored?.locationId ?? "")
 								: storedText(stored?.properties[write.property]);
-				if (before === storedText(value)) continue;
+				const source = caseWriteValueField(write.value);
+				const evaluated = bag?.writes.get(writeIndex);
+				// HQ compares the casedb's untyped text with the question's
+				// typed node before its untyped case leaf renders the answer.
+				const numericTextWrite =
+					!isScalarColumnWrite(write.property) &&
+					!isFacetWriteThroughIndex(write) &&
+					writeDataType(program, instance.envelope, writeIndex) === "text" &&
+					source?.link === false &&
+					program.formFieldHeld?.get(source.field) === "number" &&
+					typeof evaluated === "number";
+				if (numericTextWrite) {
+					numericComparisonZone ??= resolveViewerTimeZone(
+						program.viewerTimeZone,
+					);
+					if (
+						evaluateInDeviceZone(numericComparisonZone, () =>
+							compareEqual(before, evaluated, program.dayNumberEpoch ?? "utc"),
+						)
+					)
+						continue;
+				} else if (before === storedText(value)) {
+					continue;
+				}
 			}
 			if (write.via !== undefined) {
 				viaWrites.push({
@@ -3111,6 +3138,24 @@ async function applyOperationEffects(
 					entry.preparedLaterOwner,
 				);
 		} else {
+			const overwrite = entry.instance.envelope.requiredDateRetypeProperty;
+			if (
+				overwrite !== undefined &&
+				(!createdInEnvelope.has(entry.caseId) || operation.target.kind !== "op")
+			) {
+				throw new SubmissionRejectedError({
+					kind: "retype-not-portable",
+					operationUuid: operation.uuid,
+					caseId: entry.caseId,
+					toCaseType: operation.retype ?? operation.caseType,
+					failures: [
+						{
+							path: `/${overwrite}`,
+							message: "The case was not created by this submission.",
+						},
+					],
+				});
+			}
 			await applyMutationEffect(trx, host, appId, entry, operation, device);
 		}
 
@@ -3458,8 +3503,8 @@ async function applyMutationEffect(
  * emits, where the case ends as the DESTINATION type carrying the
  * written properties. Nova's storage invariant holds in two separately
  * reported steps: the RETAINED document (the stored properties minus
- * source-schema orphans, the same proof the update merge sheds by)
- * must validate under the destination schema — failure is the
+ * source-schema orphans and the proven fresh case's required date
+ * replacement) must validate under the destination schema — failure is the
  * wirePortable rejection (`retype-not-portable`) — and the FINAL
  * document (retained + destination-typed writes, minus blank-write
  * removals) must also validate, where a failure is genuine invalid
@@ -3492,9 +3537,28 @@ async function applyRetypeEffect(
 		appId,
 		row.case_type,
 	);
+	const part = partitionWrites(entry.writes);
+	const { patch, removals, scalars } = part;
+	const overwritten = entry.instance.envelope.requiredDateRetypeProperty;
+	if (
+		overwritten !== undefined &&
+		(!Object.hasOwn(patch, overwritten) ||
+			typeof patch[overwritten] !== "string" ||
+			patch[overwritten] === "")
+	) {
+		throw new SubmissionRejectedError({
+			kind: "retype-not-portable",
+			operationUuid,
+			caseId: entry.caseId,
+			toCaseType,
+			failures: [
+				{ path: `/${overwritten}`, message: "The required date was missing." },
+			],
+		});
+	}
 	const retained: JsonObject = {};
 	for (const [key, value] of Object.entries(row.properties)) {
-		if (sourceDeclared.has(key)) retained[key] = value;
+		if (key !== overwritten && sourceDeclared.has(key)) retained[key] = value;
 	}
 	try {
 		await host.validateProperties(trx, {
@@ -3515,8 +3579,6 @@ async function applyRetypeEffect(
 		throw err;
 	}
 
-	const part = partitionWrites(entry.writes);
-	const { patch, removals, scalars } = part;
 	await noteDeviceExternalId(trx, host, appId, entry.caseId, part, device);
 	const finalDocument: JsonObject = { ...retained, ...patch };
 	for (const key of removals) delete finalDocument[key];

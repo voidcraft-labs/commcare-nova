@@ -4,6 +4,7 @@ import pytest
 
 from proof.editors import pages
 from proof.hq import operations
+from proof.matrix.registry import load_variants
 from proof.observe import casedata
 from proof.observe.search_address import (
     address_default_database,
@@ -45,6 +46,7 @@ def test_saved_address_default_stays_out_of_signed_web_search(
     hq, formplayer_runner, editor_driver, webapps_documents, evidence
 ):
     document = webapps_documents["hq-search"]
+    variant = next(row for row in load_variants() if row.id == "hq-search/address-picker-with-stored-default")
     address = {
         "eval": """() => document.querySelector('#village_mapbox input.mapboxgl-ctrl-geocoder--input')?.value"""
     }
@@ -56,7 +58,7 @@ def test_saved_address_default_stays_out_of_signed_web_search(
         steps.SCREEN,
     ]
     with webapps_hq.authored_project(document, "A", configure=enable_address_search) as project:
-        menu_id = save_address_default(project)
+        menu_id = save_address_default(project, variant.change)
         saved = pages.fresh_section_save(editor_driver, project.unit, pages.CASE_LIST, project.app_id, menu_id)
         menu = operations.held_app(project.unit, project.app_id).get_module_by_unique_id(menu_id)
         field = next(field for field in menu.search_config.properties if field.name == "village")

@@ -26,21 +26,9 @@ import { loadAppInTransaction } from "./apps";
 import { type AppDatabase, withAppTx } from "./pg";
 
 /** The App Test runtime a journey was started under. A journey pins its
- * document, so a runtime that reads that document differently refuses to
- * continue a journey started under an earlier one
- * (`lib/preview/app-tests/CLAUDE.md`). Version 19 does so for four reasons:
- * a query repeat's wrapper name; a date and time saved to a case, which is
- * the text CommCare HQ stores for its moment (UTC, six fraction digits and
- * `Z`) where a journey started under version 18 stored the viewer's offset;
- * the Search screen, which opens as Core's query manager is built (its
- * choice lists read and a starting choice they do not offer let go, a menu
- * that opens on its search or its results refusing there, and the
- * assigned-case exclusion refusing only where Results are read); and a menu
- * that needs a parent case, which asks for it before its screen only
- * where Core does, goes on at the parent's row unless the datum it chooses
- * for names a details screen, and lets every case chosen after a screen go
- * when Back returns to it, so the walk past it asks for the parent again. */
-export const RUNTIME_VERSION = 19;
+ * document, so changes to how the runtime reads or runs it require a fresh
+ * journey. See `lib/preview/app-tests/CLAUDE.md` for the version history. */
+export const RUNTIME_VERSION = 20;
 const MAX_STEPS = 200;
 const MAX_ACTIVE_TESTS = 8;
 type JsonRecord = Record<string, unknown>;

@@ -17,18 +17,15 @@ def enable_address_search(config):
     )
 
 
-def save_address_default(project):
+def save_address_default(project, change):
     """Use the matrix's exact non-excluded prompt, with no attached receiver."""
     from corehq.apps.app_manager.models.case_search import CaseSearchProperty
 
-    from proof.matrix.registry import load_variants
-
-    variant = next(row for row in load_variants() if row.id == "hq-search/address-picker-with-stored-default")
     app = operations.held_app(project.unit, project.app_id)
     menu = app.modules[0]
-    assert variant.change["pointer"] == "/modules/0/search_config/properties/1"
+    assert change["pointer"] == "/modules/0/search_config/properties/1"
     assert menu.search_config.properties[1].name == "village"
-    menu.search_config.properties[1] = CaseSearchProperty.wrap(dict(variant.change["value"]))
+    menu.search_config.properties[1] = CaseSearchProperty.wrap(dict(change["value"]))
     app.cloudcare_enabled = True
     app.save()
     return menu.unique_id

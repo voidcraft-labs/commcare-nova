@@ -3719,6 +3719,131 @@ describe("retype", () => {
 		expect(rows[0]?.properties).not.toHaveProperty("external_id");
 	});
 
+	it.each([
+		["answered", "2025-12-01"],
+		["blank", ""],
+	] as const)(
+		"applies the fresh retype's required date with a %s answer",
+		async (_, date) => {
+			const store = makeStore();
+			await seedSessionPatient(store, { notes: "an unrelated case" });
+			const envelope = {
+				appId: APP_ID,
+				ordinary: { kind: "none" } as const,
+				operations: rootProgram([
+					envOp(
+						operation({
+							uuid: OP_A,
+							id: "made",
+							action: "create",
+							caseType: "patient_v2",
+							target: { kind: "new" },
+							name: term(literal("Fresh case")),
+							writes: [{ property: "seen_on", value: term(literal("blue")) }],
+						}),
+					),
+					envOp(
+						operation({
+							uuid: OP_B,
+							id: "retyped",
+							action: "update",
+							caseType: "patient_v2",
+							target: { kind: "op", opUuid: OP_A },
+							retype: "patient",
+							writes: [{ property: "seen_on", value: term(literal(date)) }],
+						}),
+						{ requiredDateRetypeProperty: "seen_on" },
+					),
+				]),
+			};
+			const patients = () =>
+				store.query({
+					reading: SEARCH_READING,
+					appId: APP_ID,
+					caseType: "patient",
+				});
+			if (date === "") {
+				const err = await rejection(submit(store, envelope));
+				expect(err.rejection).toMatchObject({
+					kind: "retype-not-portable",
+					operationUuid: OP_B,
+					failures: [
+						{ path: "/seen_on", message: "The required date was missing." },
+					],
+				});
+				expect(await patients()).toMatchObject([{ case_id: SESSION_CASE_ID }]);
+				expect(
+					await store.query({
+						reading: SEARCH_READING,
+						appId: APP_ID,
+						caseType: "patient_v2",
+					}),
+				).toEqual([]);
+			} else {
+				const result = await submit(store, envelope);
+				const id = result.operations[0]?.caseId;
+				expect(result.operations[1]?.caseId).toBe(id);
+				expect(
+					(await patients()).find((row) => row.case_id === id)?.properties,
+				).toEqual({ seen_on: date });
+			}
+			expect((await patientRow(store, SESSION_CASE_ID))?.properties).toEqual({
+				notes: "an unrelated case",
+			});
+		},
+	);
+
+	it("keeps a pre-existing unparseable value when the typed retype fails", async () => {
+		const store = makeStore();
+		const properties = { seen_on: "blue", notes: "retained text" };
+		await store.insert({
+			appId: APP_ID,
+			row: {
+				case_id: SESSION_CASE_ID,
+				case_type: "patient_v2",
+				case_name: "Existing",
+				status: "open",
+				properties: JSON.stringify(properties),
+			},
+		});
+		const err = await rejection(
+			submit(store, {
+				appId: APP_ID,
+				ordinary: { kind: "none" },
+				operations: rootProgram([
+					envOp(
+						operation({
+							uuid: OP_A,
+							action: "update",
+							caseType: "patient_v2",
+							target: { kind: "session" },
+							retype: "patient",
+						}),
+					),
+				]),
+			}),
+		);
+		expect(err.rejection).toMatchObject({
+			kind: "retype-not-portable",
+			operationUuid: OP_A,
+			failures: [expect.objectContaining({ path: "/seen_on" })],
+		});
+		expect(
+			await store.query({
+				reading: SEARCH_READING,
+				appId: APP_ID,
+				caseType: "patient_v2",
+			}),
+		).toMatchObject([{ case_id: SESSION_CASE_ID, properties }]);
+		expect(
+			await store.query({
+				reading: SEARCH_READING,
+				appId: APP_ID,
+				caseType: "patient",
+			}),
+		).toEqual([]);
+	});
+
 	it("rejects a retype whose retained document the destination schema cannot hold", async () => {
 		const store = makeStore();
 		// `age` survives the retype but `narrow` declares only `notes` —

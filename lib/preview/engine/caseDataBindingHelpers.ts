@@ -1,4 +1,5 @@
 import { workerLookupSchemas } from "@/lib/case-store/sql/compileLookup";
+import { requiredDateRetypeOverwrite } from "@/lib/domain/caseRetype";
 import { connectActivitySites } from "@/lib/domain/connectActivitySites";
 import type { ConnectSubmissionProgram } from "@/lib/domain/connectSubmissionFacts";
 import { USERCASE_CASE_TYPE } from "@/lib/domain/usercase";
@@ -2924,6 +2925,16 @@ export function buildCaseOperationProgramFromDoc(args: {
 			guardConditions.push(ownOpenCondition);
 		}
 		const snapshot = snapshotTypes.get(operation.uuid);
+		const producer =
+			operation.action === "update" && operation.target.kind === "op"
+				? operationsByUuid.get(operation.target.opUuid)
+				: undefined;
+		const requiredDateRetypeProperty = requiredDateRetypeOverwrite(
+			doc,
+			formUuid,
+			operation,
+			producer,
+		);
 		const viaCaseTypes = viaDestinationTypes(
 			operation,
 			actualType,
@@ -2937,6 +2948,9 @@ export function buildCaseOperationProgramFromDoc(args: {
 				links: snapshot?.links ?? new Map<number, string>(),
 			},
 			...(viaCaseTypes.size > 0 && { viaCaseTypes }),
+			...(requiredDateRetypeProperty !== undefined && {
+				requiredDateRetypeProperty,
+			}),
 			...(parentUserCaseTypes && { parentUserCaseTypes }),
 			...(operation.writes?.some(
 				(write) => externalIdDayValue(operation, write) !== undefined,
@@ -3038,6 +3052,7 @@ export function buildCaseOperationProgramFromDoc(args: {
 					([uuid, field]) => [uuid, field.type],
 				),
 			),
+			dayNumberEpoch: previewPlatformRules(args.device.platform).dayNumberEpoch,
 			formFieldHeld: new Map(
 				[...(formExpressionFacts(doc, formUuid)?.fields ?? [])].flatMap(
 					([uuid, field]) =>

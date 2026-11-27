@@ -695,6 +695,7 @@ def test_saved_address_default_stays_out_of_an_installed_android_search(
     from urllib.parse import parse_qs, urlsplit
 
     from proof.android import observe
+    from proof.matrix.registry import load_variants
     from proof.observe import services
     from proof.observe.record import Blobs
     from proof.observe.search_address import (
@@ -706,9 +707,10 @@ def test_saved_address_default_stays_out_of_an_installed_android_search(
     from proof.webapps import hq as webapps_hq
 
     document = android_documents["hq-search"]
+    variant = next(row for row in load_variants() if row.id == "hq-search/address-picker-with-stored-default")
     command = "search_command.m0"
     with webapps_hq.authored_project(document, "A", configure=enable_address_search) as project:
-        save_address_default(project)
+        save_address_default(project, variant.change)
         with project.released(services.formplayer(), database=address_default_database(document)) as release:
             archive = observe.release_archive(release)
             built = built_address_default(archive)

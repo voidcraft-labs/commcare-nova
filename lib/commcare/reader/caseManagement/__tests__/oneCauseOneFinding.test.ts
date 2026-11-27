@@ -61,7 +61,14 @@ import {
 	plainColumn,
 	type Uuid,
 } from "@/lib/domain";
-import { eq, formField, literal, prop, term } from "@/lib/domain/expression";
+import {
+	eq,
+	formField,
+	literal,
+	matchAll,
+	prop,
+	term,
+} from "@/lib/domain/expression";
 import { DERIVED_WIRE_IDENTITY } from "../../../wireIdentity";
 import {
 	type ExportEdits,
@@ -118,6 +125,7 @@ interface AppOptions {
 	}[];
 	/** A second menu, of case type `visit`, whose case list shows `kept`. */
 	readonly visitMenu?: true;
+	readonly nestedSource?: boolean;
 }
 
 function app(
@@ -171,7 +179,13 @@ function app(
 							name: "Visit",
 							type: options.type ?? "followup",
 							fields: [
-								f({ kind: "text", id: "note", uuid: NOTE }),
+								options.nestedSource
+									? f({
+											kind: "group",
+											id: "source_group",
+											children: [f({ kind: "text", id: "note", uuid: NOTE })],
+										})
+									: f({ kind: "text", id: "note", uuid: NOTE }),
 								f({ kind: "date", id: "day", uuid: DAY } as never),
 								f({
 									kind: "multi_select",
@@ -836,6 +850,105 @@ describe("a change of a case's type to one that holds none of a property", () =>
 		const outcome = await readBack(doc);
 		expect(account(outcome)).toEqual([]);
 		expect(outcome.kind).toBe("read");
+	});
+});
+
+describe("a survey's required date replaces a newly created case's text", () => {
+	function retypeDoc(
+		mode:
+			| "required"
+			| "optional"
+			| "conditional-write"
+			| "hidden"
+			| "nested-source"
+			| "linked-producer",
+	) {
+		const parent = create("one-cause-retype-parent", "parent_case", {
+			caseType: "patient",
+		});
+		const doc = app(
+			[
+				...(mode === "linked-producer" ? [parent] : []),
+				visitCreate({
+					caseType: "patient",
+					writes: [{ property: "kept", value: answer }],
+					...(mode === "linked-producer" && {
+						links: [
+							{
+								identifier: "parent",
+								targetType: "patient",
+								relationship: "child",
+								target: { kind: "op", opUuid: parent.uuid },
+							},
+						],
+					}),
+				}),
+				update("one-cause-u1", "again", {
+					target: { kind: "op", opUuid: VISIT },
+					retype: "visit",
+					writes: [
+						{
+							property: "kept",
+							value: term(formField(DAY)),
+							...(mode === "conditional-write" && { condition: onYes }),
+						},
+					],
+				}),
+			],
+			{
+				type: "survey",
+				visit: [{ name: "kept", data_type: "date" }, { name: "photo" }],
+				nestedSource: mode === "nested-source",
+			},
+		);
+		const day = doc.fields[DAY];
+		if (day?.kind !== "date")
+			throw new Error("The survey must hold its date question.");
+		const menuUuid = doc.moduleOrder[0];
+		return {
+			...doc,
+			modules: {
+				...doc.modules,
+				[menuUuid]: { ...doc.modules[menuUuid], caseType: undefined },
+			},
+			fields: {
+				...doc.fields,
+				[DAY]: {
+					...day,
+					...(mode !== "optional" && { required: matchAll() }),
+					...(mode === "hidden" && { relevant: onYes }),
+				},
+			},
+		};
+	}
+
+	it("admits an unconditional date before export and holds it when reading the wire", async () => {
+		const doc = retypeDoc("required");
+		expect(gateCodes(doc)).toEqual([]);
+		const outcome = await readBack(doc);
+		expect(account(outcome)).toEqual([]);
+		if (outcome.kind !== "read")
+			throw new Error("Expected the required overwrite to read.");
+		expect(outcome.draft.doc.forms[FORM]?.caseOperations?.[1]).toMatchObject({
+			action: "update",
+			retype: "visit",
+			writes: [{ property: "kept" }],
+		});
+	});
+
+	it.each([
+		"optional",
+		"conditional-write",
+		"hidden",
+		"nested-source",
+		"linked-producer",
+	] as const)("refuses a date with %s scope", async (mode) => {
+		const doc = retypeDoc(mode);
+		expect(gateCodes(doc)).toContain("CASE_OPERATION_RETYPE_UNSAFE");
+		const outcome = await readBack(doc);
+		expect(account(outcome)).toEqual([
+			`${RETYPE_CONVERTS} @question:nova_operations/again`,
+		]);
 	});
 });
 

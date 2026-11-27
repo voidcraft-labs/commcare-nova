@@ -156,6 +156,8 @@ export interface EnvelopeCaseOperation {
 	readonly viaCaseTypes?: ReadonlyMap<number, string>;
 	/** An untyped basic external-ID leaf serializes the datetime's calendar day. */
 	readonly basicExternalIdDay?: true;
+	/** A proven text-to-date overwrite on this submission's fresh case. */
+	readonly requiredDateRetypeProperty?: string;
 	/** The required basic parent/user block persists even without a relevant leaf. */
 	readonly parentUserCaseTypes?: readonly [
 		intermediate: string,
@@ -265,6 +267,8 @@ export interface CaseOperationProgram {
 	/** What CommCare holds each answer as (`TermCompileContext.formFieldHeld`):
 	 * the truth of an answer read where a condition belongs. */
 	readonly formFieldHeld?: ReadonlyMap<Uuid, ScalarHeld>;
+	/** The worker platform's epoch for the date fallback in numeric answer comparisons. */
+	readonly dayNumberEpoch?: "utc" | "device-zone";
 	/** Organization hierarchy used only by owner-location-at-level terms. */
 	readonly organizationLevels?: Readonly<Record<string, OrganizationLevel>>;
 	/** The places of the worker's `locations` fixture, by id, among which an

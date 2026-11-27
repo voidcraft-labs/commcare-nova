@@ -36,7 +36,10 @@ import {
 	prepareCaseScalarTextValue,
 	type Uuid,
 } from "@/lib/domain";
-import { planCaseRetype } from "@/lib/domain/caseRetype";
+import {
+	planCaseRetype,
+	requiredDateRetypeOverwrite,
+} from "@/lib/domain/caseRetype";
 import {
 	actingUser,
 	and,
@@ -279,6 +282,10 @@ export const SAVE_TO_CASE_CLAIMS = defineClaims("caseManagement.saveToCase", {
 		MUG,
 	),
 	dateRetype: take(`${Q}/a-savetocase-retype-that-keeps-a-date-as-text`, MUG),
+	requiredDateRetype: take(
+		`${Q}/a-fresh-case-retype-that-overwrites-text-with-a-required-date`,
+		MUG,
+	),
 	/** A `case_type` row that gives a case a type holding one of the earlier
 	 *  type's properties as another type (`index.ts::settleCaseChanges`). */
 	retypeConverts: refuse(
@@ -4867,7 +4874,8 @@ export function settleSaveToCase(ctx: ReadContext, form: DraftForm): void {
 	const xform = form.xform;
 	const settled = ctx.doc ?? doc;
 	if (xform !== null) {
-		for (const operation of settled.forms[form.uuid]?.caseOperations ?? []) {
+		const operations = settled.forms[form.uuid]?.caseOperations ?? [];
+		for (const operation of operations) {
 			if (operation.action !== "update" || operation.retype === undefined)
 				continue;
 			const block = reading.proposals.find(
@@ -4886,6 +4894,24 @@ export function settleSaveToCase(ctx: ReadContext, form: DraftForm): void {
 					SAVE_TO_CASE_CLAIMS.dateRetype,
 					[MUG],
 				);
+			else if (operation.target.kind === "op") {
+				const producerUuid = operation.target.opUuid;
+				const producer = operations.find((one) => one.uuid === producerUuid);
+				if (
+					requiredDateRetypeOverwrite(
+						settled,
+						form.uuid,
+						operation,
+						producer,
+						plan,
+					) !== undefined
+				)
+					xform.cursor.within(
+						{ element: block.element },
+						SAVE_TO_CASE_CLAIMS.requiredDateRetype,
+						[MUG],
+					);
+			}
 		}
 	}
 	REFUSED_BLOCKS.set(

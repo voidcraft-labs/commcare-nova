@@ -3734,6 +3734,32 @@
 		"gates": []
 	},
 	{
+		"id": "questions/a-fresh-case-retype-that-overwrites-text-with-a-required-date",
+		"area": "questions",
+		"section": "Question types",
+		"item": "A Save to Case change of a newly created case that always replaces a text property with a required date",
+		"surfaceKeys": ["mug:SaveToCase"],
+		"valueClass": "fresh-retype-overwrites-with-required-date",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: a form creates a case without links and writes text from a root question. The form writes the case type and the replacement from a visible, required root date together. Android saves the day shown by its untouched ordinary date picker.",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "One case_type and date update",
+			"markers": ["printed"]
+		},
+		"slotChanges": [],
+		"gates": []
+	},
+	{
 		"id": "questions/a-savetocase-change-of-a-case-s-type-to-a-type-that-holds-one-of-its-properties-as-another-type",
 		"area": "questions",
 		"section": "Question types",
@@ -3741,7 +3767,7 @@
 		"surfaceKeys": ["mug:SaveToCase"],
 		"valueClass": "type-change-to-a-type-holding-a-property-as-another-type",
 		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: a change of a case's type that keeps a value the later type holds as another type: a device and CommCare HQ's server change only the case's type and keep every property as it is (Core's `CaseXmlParser.updateCase`, `setTypeId`; HQ's `update_strategy.py::SqlCaseUpdateStrategy._apply_update_action`, `_update_known_properties`, which leaves `case_json` as it was), while Nova keeps a case's properties typed by its case type and changes a case's type only where every property the earlier type holds is kept unchanged by the later one. Same-type properties and dates carried as text keep their stored values (`lib/domain/caseRetype.ts::planCaseRetype`, `CASE_OPERATION_RETYPE_UNSAFE`). A property the later type holds nowhere, or holds only through a read that no writer of its own and no declaration types, is carried onto it as the earlier type types it (`caseManagement/catalog.ts::carryRetypedProperties`)",
+		"dispositionCell": "**HELD-NEW**: a change of a case's type that keeps a value the later type holds as another type: a device and CommCare HQ's server change only the case's type and keep every property as it is (Core's `CaseXmlParser.updateCase`, `setTypeId`; HQ's `update_strategy.py::SqlCaseUpdateStrategy._apply_update_action`, `_update_known_properties`, which leaves `case_json` as it was), while Nova checks the destination types of all surviving values. The optional-date control can send an empty property, which is distinct from absence. A distinct required-date shape keeps an explicit replacement. Same-type properties and dates carried as text keep their stored values (`lib/domain/caseRetype.ts::planCaseRetype`, `CASE_OPERATION_RETYPE_UNSAFE`). A property the later type holds nowhere, or holds only through a read that no writer of its own and no declaration types, is carried onto it as the earlier type types it (`caseManagement/catalog.ts::carryRetypedProperties`)",
 		"subject": "save-to-case",
 		"owner": "forms-and-case-management",
 		"platforms": {

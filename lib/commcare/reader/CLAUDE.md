@@ -1109,3 +1109,10 @@ automatic clear, or an address subscription. The Reader takes the exact
 expression. HQ keeps the setting. Web Apps opens Mapbox blank and leaves
 the address out of the manual request, and Android leaves the picker and its
 default out before the query manager seeds answers.
+
+A Save to Case survey can retype its freshly created, unlinked case where
+the single property goes from a root text question to a visible, required
+root date question. The shared validator checks that shape and the reader
+claims it at the retype block. An optional or conditional write remains held. CommCare HQ
+stores an explicitly empty leaf, which Nova's typed date storage would
+otherwise remove.

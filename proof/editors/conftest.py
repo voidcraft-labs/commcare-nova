@@ -92,6 +92,7 @@ DOCUMENTS = (
     "hq-expressions",
     "hq-advanced",
     "hq-lookups",
+    "hq-questions",
     "case-operation-query",
     "case-choice-attendance",
     "case-list-inline",

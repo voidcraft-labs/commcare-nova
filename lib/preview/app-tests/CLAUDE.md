@@ -117,7 +117,10 @@ and refusing the assigned-case exclusion only where Results are read; and it
 walks a menu's parent case as Preview does (`parentCaseSelection.ts`), asking
 for it before the menu's screen only where Core does, going on at the
 parent's row unless the datum it chooses for names a details screen, and
-letting every case chosen after a screen go when Back returns to it. A session's
+letting every case chosen after a screen go when Back returns to it. Runtime
+version 20 covers the Step 7 model and worker behavior, including Search
+result and Details context, Android picker answers on screen exit, and
+numeric comparison before an only-if-changed case write. A session's
 platform is its own `platform`, else the start's, else the one the saved app
 previews on by default (`context.ts::appTestPlatform`, which refuses a platform
 the app does not declare with `platformUnavailableSentence`); the session keeps

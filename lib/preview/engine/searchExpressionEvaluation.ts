@@ -39,7 +39,7 @@ import type {
 } from "@/lib/domain/expression/types";
 import type { Uuid } from "@/lib/domain/uuid";
 import { toBoolean, xpathToString } from "@/lib/preview/xpath/coerce";
-import { evaluateTextInDeviceZone } from "@/lib/preview/xpath/coreDays";
+import { evaluateInDeviceZone } from "@/lib/preview/xpath/coreDays";
 import { evaluate, evaluateRuntime } from "@/lib/preview/xpath/evaluator";
 import { invokeGeneratedJavaRosaFunction } from "@/lib/preview/xpath/generatedJavaRosaFunctions";
 import type { XPathInstance } from "@/lib/preview/xpath/runtimeValues";
@@ -439,7 +439,7 @@ export function resolveSearchInputDefaults(
 			),
 		);
 		const context = evaluation;
-		const value = evaluateTextInDeviceZone(deviceTimeZone, () =>
+		const value = evaluateInDeviceZone(deviceTimeZone, () =>
 			xpathToString(evaluate(xpath, context)),
 		);
 		if (input.kind !== "hidden" && input.type === "date-range") {
