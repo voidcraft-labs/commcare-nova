@@ -83,6 +83,7 @@ from proof.checks.changes import (
     SEARCH_GROUP_WORDING_PATH,
     SEARCH_GROUP_WORDING_DUPLICATE_PATH,
     SEARCH_GROUP_WORDING_REPLACED_PATH,
+    SEARCH_GROUP_WORDING_REMOVED_DORMANT_PATH,
     legacy_related_case_formula,
 )
 from proof.checks.differences import Difference, pointer_token
@@ -360,7 +361,7 @@ def held_media(document, a_map, b_map, held_paths, suites=(None, None)) -> list[
 
 
 def preserved_search_group_wording(a, b):
-    """Each preserved heading (menu, row, language, old key, new key, already-saved wording)."""
+    """Locate a preserved heading and the dormant destinations its rekey replaced or discarded."""
 
     def groups(module):
         search = module.get("search_config")
@@ -394,11 +395,25 @@ def preserved_search_group_wording(a, b):
         canonical = groups(after)
         for index, (old, labels, members) in groups(before).items():
             new = f"group_header_{index}"
-            if (not LEGACY_SEARCH_GROUP_KEY.fullmatch(old) or POSITIONAL_SEARCH_GROUP_KEY.fullmatch(old)
-                    or canonical.get(index) != (new, labels, members)
+            bilingual_fallback = (
+                isinstance(labels, dict)
+                and isinstance(labels.get("en"), str) and bool(labels["en"].strip())
+                and "es" not in labels
+                and a.get("langs") == a.get("build_langs") == ["en", "es"]
+                and languages == {"en", "es"}
+                and a.get("translation_strategy") == "select-known"
+                and canonical.get(index) in (
+                    (new, labels, members),
+                    (new, {**labels, "es": labels["en"]}, members),
+                )
+            )
+            if (not LEGACY_SEARCH_GROUP_KEY.fullmatch(old)
+                    or POSITIONAL_SEARCH_GROUP_KEY.fullmatch(old)
                     or not isinstance(labels, dict)
-                    or not all(isinstance(labels.get(code), str) and labels[code].strip()
-                               for code in languages)):
+                    or not (bilingual_fallback or (
+                        canonical.get(index) == (new, labels, members)
+                        and all(isinstance(labels.get(code), str) and labels[code].strip() for code in languages)
+                    ))):
                 continue
             before_fields = before["search_config"]["properties"]
             if any(row.get("name") == new or row.get("group_key") == new for row in before_fields):
@@ -413,14 +428,33 @@ def preserved_search_group_wording(a, b):
                 wording = source.get(old)
                 if not isinstance(wording, str) or not wording.strip() or target.get(new) != wording:
                     continue
-                previous = None
-                if saved_destinations:
+                previous = discarded = None
+                if bilingual_fallback:
+                    if code != "en" or not 1 <= len(saved_destinations) <= 2:
+                        continue
+                    spanish_before = originals.get("es", {})
+                    spanish_after = published.get("es", {})
+                    if not isinstance(spanish_before, dict) or not isinstance(spanish_after, dict):
+                        continue
+                    if old in spanish_before or old in spanish_after or new in spanish_after:
+                        continue
+                    previous = source.get(new)
+                    if not isinstance(previous, str) or not previous.strip():
+                        continue
+                    if new in spanish_before:
+                        spanish = spanish_before[new]
+                        if not isinstance(spanish, str) or not spanish.strip():
+                            continue
+                        discarded = ("es", spanish)
+                    if len(saved_destinations) != 1 + (discarded is not None):
+                        continue
+                elif saved_destinations:
                     if len(languages) != 1 or len(saved_destinations) != 1:
                         continue
                     (destination_code, previous), = saved_destinations
                     if destination_code != code or not isinstance(previous, str) or not previous.strip():
                         continue
-                found.add((str(menu), str(index), code, old, new, previous))
+                found.add((str(menu), str(index), code, old, new, previous, discarded))
     return found
 
 def compare_sources(document, a, b, held_paths=frozenset(), suites=(None, None)) -> list[Difference]:
@@ -429,7 +463,7 @@ def compare_sources(document, a, b, held_paths=frozenset(), suites=(None, None))
     walk = _Walk(document, _languages(a, b), frozenset(held_paths))
     walk.compare(a, b)
     rekeyed = {}
-    for _, _, language, old, new, previous in preserved_search_group_wording(a, b):
+    for _, _, language, old, new, previous, discarded in preserved_search_group_wording(a, b):
         pointer = f"/translations/{pointer_token(language)}"
         if previous is None:
             rekeyed[f"{pointer}/{old}"] = rekeyed[f"{pointer}/{new}"] = SEARCH_GROUP_WORDING_PATH
@@ -437,6 +471,9 @@ def compare_sources(document, a, b, held_paths=frozenset(), suites=(None, None))
             rekeyed[f"{pointer}/{old}"] = SEARCH_GROUP_WORDING_DUPLICATE_PATH
         else:
             rekeyed[f"{pointer}/{old}"] = rekeyed[f"{pointer}/{new}"] = SEARCH_GROUP_WORDING_REPLACED_PATH
+        if discarded is not None:
+            code, _ = discarded
+            rekeyed[f"/translations/{pointer_token(code)}/{new}"] = SEARCH_GROUP_WORDING_REMOVED_DORMANT_PATH
     return [
         replace(row, path=rekeyed[row.at]) if row.at in rekeyed else row
         for row in walk.found

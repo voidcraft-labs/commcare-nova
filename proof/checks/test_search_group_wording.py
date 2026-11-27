@@ -101,6 +101,46 @@ def test_build_move_needs_the_right_group_prompt_and_equal_locale_strings():
 
 
 
+def test_bilingual_dormant_key_removal_requires_the_same_owned_heading():
+    from copy import deepcopy
+
+    from proof.checks.source import compare_sources
+
+    before = {
+        "langs": ["en", "es"],
+        "build_langs": ["en", "es"],
+        "translation_strategy": "select-known",
+        "translations": {"en": {OLD_LOCALE: TITLE, NEW_LOCALE: "Dormant"}, "es": {NEW_LOCALE: "Otros datos"}},
+        "modules": [{
+            "search_config": {
+                "properties": [
+                    {"is_group": True, "name": OLD, "group_key": OLD, "label": {"en": "Details"}},
+                    {"name": "name", "group_key": OLD},
+                ],
+            },
+        }],
+    }
+    after = deepcopy(before)
+    after["translations"] = {"en": {NEW_LOCALE: TITLE}}
+    heading, member = after["modules"][0]["search_config"]["properties"]
+    heading.update(name=NEW, group_key=NEW, label={"en": "Details", "es": "Details"})
+    member["group_key"] = NEW
+    changes_id = changes.LEGACY_SEARCH_GROUP_WORDING
+    removed_path = f"/app/translations/es/{NEW_LOCALE}"
+    places = {changes_id: (*PLACES[changes_id], removed_path)}
+    rows = compare_sources("search", before, after)
+    removed, = [row for row in rows if row.path == changes.SEARCH_GROUP_WORDING_REMOVED_DORMANT_PATH]
+    assert removed in _held(rows, changes.NO_SITES, places)
+    assert removed not in _held(rows, changes.NO_SITES, PLACES)
+    without_heading_change = [row for row in rows if row.at != "/modules/0/search_config/properties/0/name"]
+    assert removed not in _held(without_heading_change, changes.NO_SITES, places)
+    after["translations"]["es"] = {NEW_LOCALE: "Different wording"}
+    assert not any(
+        row.path == changes.SEARCH_GROUP_WORDING_REMOVED_DORMANT_PATH
+        for row in compare_sources("search", before, after)
+    )
+
+
 def _query(group, title, *, command="search_command.m0", nested=False):
     answer = {
         "type": "query", "queryKey": command + "_results",

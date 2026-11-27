@@ -157,6 +157,7 @@ LEGACY_SEARCH_GROUP_WORDING = "legacy-search-group-wording-rekeyed"
 SEARCH_GROUP_WORDING_PATH = "/translations/*/search_group_heading"
 SEARCH_GROUP_WORDING_DUPLICATE_PATH = "/translations/*/identical_search_group_heading"
 SEARCH_GROUP_WORDING_REPLACED_PATH = "/translations/*/replaced_dormant_search_group_heading"
+SEARCH_GROUP_WORDING_REMOVED_DORMANT_PATH = "/translations/*/removed_dormant_search_group_heading"
 LEGACY_SEARCH_GROUP_KEY = re.compile(r"[A-Za-z][A-Za-z0-9_-]*")
 POSITIONAL_SEARCH_GROUP_KEY = re.compile(r"group_header_([0-9]+)")
 SEARCH_ORDER_SUFFIX = "search-order-unused-suffix-removed"
@@ -520,7 +521,7 @@ class Sites:
       submitted instance, or question binding on the side that produced it;
     - ``media``: each media resource of a built media suite by the media path it installs (``jr://file/...``);
     - ``search_groups``: one pair of legacy/current locale keys and its witnessed languages by actual source menu/row.
-    - ``search_group_duplicates``: previous wording stored under the normalized heading key for a source locale.
+    - ``search_group_duplicates``: previous wording stored under the normalized heading key, as language and value pairs.
     - ``search_order_rows``: each menu's ordered sort occurrence in A by the original literal and the position
       in its real stored default-properties array.
     """
@@ -986,6 +987,7 @@ def _search_group_wording_pair(difference, places, siblings) -> bool:
     """Require both exact locale places and the captured owner of the normalized group."""
     if difference.check != "source" or difference.path not in (
         SEARCH_GROUP_WORDING_PATH, SEARCH_GROUP_WORDING_DUPLICATE_PATH, SEARCH_GROUP_WORDING_REPLACED_PATH,
+        SEARCH_GROUP_WORDING_REMOVED_DORMANT_PATH,
     ):
         return False
 
@@ -1007,6 +1009,34 @@ def _search_group_wording_pair(difference, places, siblings) -> bool:
         return False
     language, menu, _ = found
     owned = {tuple(unescaped(place)) for place in places}
+
+    if difference.path == SEARCH_GROUP_WORDING_REMOVED_DORMANT_PATH:
+        if (language != "es" or difference.kind != "removed" or difference.after is not None
+                or not isinstance(difference.before, str) or not difference.before.strip()
+                or POSITIONAL_SEARCH_GROUP_KEY.fullmatch(found[2]) is None
+                or ("app", *unescaped(difference.at)) not in owned):
+            return False
+        canonical = found[2]
+        english_destination = ("app", "translations", "en", f"search_property.m{menu}.{canonical}")
+        row = POSITIONAL_SEARCH_GROUP_KEY.fullmatch(canonical)[1]
+        owner = ("menu", menu, "search_config", "properties", row, "group_key")
+        return english_destination in owned and owner in owned and any(
+            other.check == difference.check and other.document == difference.document
+            and other.artifact == difference.artifact
+            and other.path in (SEARCH_GROUP_WORDING_REPLACED_PATH, SEARCH_GROUP_WORDING_DUPLICATE_PATH)
+            and other.kind == "removed"
+            and len(steps := unescaped(other.at)) == 3 and steps[:2] == ["translations", "en"]
+            and steps[2].startswith(f"search_property.m{menu}.")
+            and any(
+                field.check == difference.check and field.document == difference.document
+                and field.artifact == difference.artifact and field.kind == "changed"
+                and field.at == f"/modules/{menu}/search_config/properties/{row}/name"
+                and steps[2] == f"search_property.m{menu}.{field.before}" and field.after == canonical
+                for field in siblings
+            )
+            and _search_group_wording_pair(other, places, siblings)
+            for other in siblings
+        )
 
     def same_group_move(removed, old, new):
         at = POSITIONAL_SEARCH_GROUP_KEY.fullmatch(new)

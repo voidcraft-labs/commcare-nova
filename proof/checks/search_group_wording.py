@@ -13,7 +13,7 @@ class Move:
     row: str
     old: str
     new: str
-    duplicate: tuple[str, str] | None = None
+    duplicate: tuple[str, ...] = ()
 
     def locale(self, key):
         return f"search_property.m{self.menu}.{key}"
@@ -51,11 +51,11 @@ def source_sites(document, records, configuration):
     duplicates = {}
     if all(isinstance(app, dict) for app in apps):
         pairs = {}
-        for menu, row, language, old, new, duplicate in source.preserved_search_group_wording(*apps):
+        for menu, row, language, old, new, duplicate, discarded in source.preserved_search_group_wording(*apps):
             if (menu, row) in owners:
                 pairs.setdefault((menu, row, old, new), set()).add(language)
                 if duplicate is not None:
-                    duplicates[menu, row] = (language, duplicate)
+                    duplicates[menu, row] = (language, duplicate, *(discarded or ()))
         for (menu, row, old, new), languages in pairs.items():
             owners[menu, row] = (old, new, *sorted(languages))
     return changes.Sites(search_groups=owners, search_group_duplicates=duplicates)
@@ -76,7 +76,7 @@ def _moves(places, sites):
         prefix = f"search_property.m{menu}."
         if old.startswith(prefix) and new == f"{prefix}group_header_{row}":
             yield Move(menu, row, old[len(prefix):], new[len(prefix):],
-                       sites.search_group_duplicates.get((menu, row)))
+                       sites.search_group_duplicates.get((menu, row), ()))
 
 
 def _changed(row, before, after):
@@ -157,19 +157,23 @@ def _build(difference, rows, sites, move):
         if paired:
             return difference.kind == ("removed" if difference.at == old else "added")
         language = artifact.split(":", 1)[1]
-        if move.duplicate is None or language not in (move.duplicate[0], "default"):
+        prior = dict(zip(move.duplicate[::2], move.duplicate[1::2], strict=True))
+        possible = tuple(prior.values()) if language == "default" else (prior[language],) if language in prior else ()
+        if not possible:
             return False
-        previous = move.duplicate[1]
         removed = [row for row in locale_rows if row.at == old and row.kind == "removed"
                    and isinstance(row.before, str) and row.before.strip() and row.after is None]
         changed = [row for row in locale_rows if row.at == new]
         if len(removed) != 1:
             return False
         if not changed:
-            return difference == removed[0] and removed[0].before == previous
-        return (len(changed) == 1 and difference in (removed[0], changed[0])
-                and previous != removed[0].before and _changed(changed[0], previous, removed[0].before))
-    if not paired and move.duplicate is None:
+            return difference == removed[0] and removed[0].before in possible
+        return (
+            len(changed) == 1 and difference in (removed[0], changed[0])
+            and changed[0].before in possible and changed[0].before != removed[0].before
+            and _changed(changed[0], changed[0].before, removed[0].before)
+        )
+    if not paired and not move.duplicate:
         return False
     old, new = f"{old}.hint", f"{new}.hint"
     return (
