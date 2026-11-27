@@ -456,8 +456,11 @@ it("uses the originating offered Search page when restoring a standalone case De
 	};
 	const run = async (inputValues: Record<string, string>) => {
 		const submission = crypto.randomUUID();
+		const previewRun = crypto.randomUUID();
+		const runScope = { previewRun };
 		const results = await loadCasesAction({
 			...request,
+			...runScope,
 			searchSubmission: submission,
 			inputValues,
 		});
@@ -467,7 +470,7 @@ it("uses the originating offered Search page when restoring a standalone case De
 		expect(results.rows[0].calculated[columnUuid]).toBe("local row");
 		return {
 			chosen: results.rows[0].case_id,
-			opening: { submission, receipt: results.resultReceipt },
+			opening: { ...runScope, submission, receipt: results.resultReceipt },
 		};
 	};
 	const answered = await run({ name: "Asha" });
@@ -503,6 +506,12 @@ it("uses the originating offered Search page when restoring a standalone case De
 		kind: "row",
 		row: { calculated: { [columnUuid]: "entered=[]" } },
 	});
+	expect(
+		await reopen(answered.chosen, {
+			...answered.opening,
+			previewRun: unanswered.opening.previewRun,
+		}),
+	).toMatchObject({ kind: "error" });
 	expect(await reopen(answered.chosen)).toMatchObject({
 		kind: "row",
 		row: { calculated: { [columnUuid]: "local row" } },
