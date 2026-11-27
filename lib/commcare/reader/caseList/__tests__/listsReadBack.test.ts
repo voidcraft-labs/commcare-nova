@@ -16,6 +16,7 @@ import { isDeepStrictEqual } from "node:util";
 import { expect, it } from "vitest";
 import { recordDialectRoundTrip } from "@/lib/agent/authoring/recordRoundTrip";
 import { manifestFor } from "@/lib/commcare/__tests__/compilerEvidence";
+import { readingAppStrings } from "@/lib/deployment/reading/appStrings";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import { ensureReferenceIndex } from "@/lib/doc/referenceIndex";
 import {
@@ -24,7 +25,7 @@ import {
 	levelDescendantCases,
 	levelOwnsCases,
 } from "@/lib/domain";
-import type { CorpusDocument } from "@/proof/corpus/documents";
+import { type CorpusDocument, lookupContextOf } from "@/proof/corpus/documents";
 import { publishFindings } from "@/proof/corpus/editBatches";
 import { producerDocuments } from "@/proof/corpus/producers";
 import { targetedDocuments } from "@/proof/targeted/index";
@@ -186,6 +187,7 @@ async function listsReadBack(
 			knownCaseTypes: knownCaseTypesOf(doc),
 			recordDialect: recordDialectRoundTrip,
 			lookup: lookupCatalog(document),
+			appStrings: readingAppStrings(lookupContextOf(document.lookup)),
 			organization: { levelCodes: levels.map((level) => level.code), levels },
 			media: {
 				resolve: (path): ReaderMediaResolution => {
@@ -222,8 +224,12 @@ it("reads back every menu's list and search in each document the proof lane publ
 		// A document Nova's publish refuses never reaches CommCare HQ.
 		if (publishFindings(doc, document.lookup).length > 0) continue;
 		read++;
-		const why = await listsReadBack(document, doc);
-		if (why !== null) failures.push(`${document.id}: ${why}`);
+		try {
+			const why = await listsReadBack(document, doc);
+			if (why !== null) failures.push(`${document.id}: ${why}`);
+		} catch (error) {
+			throw new Error(`${document.id}: list read-back threw`, { cause: error });
+		}
 	}
 	expect(read).toBeGreaterThan(100);
 	expect(failures).toEqual([]);
