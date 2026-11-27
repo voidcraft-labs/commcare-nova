@@ -280,12 +280,18 @@ describe("a date-and-time question saved straight to a case", () => {
 			writes.name = writes.external_id;
 			delete writes.external_id;
 		});
-		const unsupported = await read(rename);
+		const nameReading = await read(rename);
+		if (nameReading.kind !== "read")
+			throw new Error(JSON.stringify(nameReading.findings));
+		expect(nameReading.draft.declaration).toMatchObject({
+			kind: "choices",
+			choices: [
+				expect.objectContaining({ runsOnlyOn: "android", split: false }),
+			],
+		});
 		expect(
-			unsupported.kind === "account"
-				? unsupported.findings.map(({ code }) => code)
-				: [],
-		).toContain(`${F}/a-date-and-time-saved-straight-in-no-shape-nova-keeps`);
+			update(exportedBody(nameReading.draft.doc).modules, 3),
+		).toHaveProperty("name.question_path", "/data/seen_at");
 	});
 	it("to the worker's record is refused under its own entry", async () => {
 		const body = exportedBody(visits("date"));
