@@ -26,6 +26,7 @@
 		"hq-advanced/load-writes-a-banner",
 		"hq-advanced/load-writes-a-label",
 		"hq-advanced/load-writes-a-label-and-closes",
+		"hq-advanced/load-writes-a-label-preloaded-from-an-earlier-case",
 		"hq-advanced/load-writes-a-preloaded-label",
 		"hq-advanced/load-writes-an-interactive-label",
 		"hq-advanced/member-opened-under-a-member-against-the-menu-s-household",

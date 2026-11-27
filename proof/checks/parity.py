@@ -825,13 +825,22 @@ def _advanced_own_label_write(use):
     if ((load.get("close_condition") or {}).get("type") in {"if", "always"}
             and control.get("appearance") not in {"minimal", "selectable"}):
         return OTHER_ADVANCED_LABEL
-    if any(
-        source is form_source.node(path)
+    preloads = [
+        (row, prop)
         for row in actions.get("load_update_cases") or ()
         if isinstance(row, dict) and isinstance(row.get("preload"), dict)
-        for path in row["preload"]
-    ):
-        return OTHER_ADVANCED_LABEL
+        for path, prop in row["preload"].items()
+        if source is form_source.node(path)
+    ]
+    if preloads:
+        (initial_load, initial_property) = preloads[0]
+        if (len(preloads) != 1 or initial_load is not load
+                or not isinstance(initial_property, str) or not re.fullmatch(r"[a-zA-Z_][a-zA-Z0-9_]*", initial_property)
+                or initial_property in HQ_CASE_RESERVED_WORDS
+                or initial_property in {"name", "owner_id", "case_name", "external_id", "location_id", "hq_user_id"}
+                or control.get("appearance") not in {"minimal", "selectable"}
+                or (load.get("close_condition") or {}).get("type") in {"if", "always"}):
+            return OTHER_ADVANCED_LABEL
     kept = {None, "", "minimal", "selectable", "floating-good", "floating-caution", "floating-bad"}
     return PASSIVE_LABEL_WRITE if control.get("appearance") in kept else OTHER_ADVANCED_LABEL
 

@@ -967,7 +967,11 @@ function readProperties(
 		/** The selected record carries a passive label only on its ordinary update. */
 		readonly ownLoad?: {
 			readonly closes: boolean;
-			readonly preloadedLabels: ReadonlySet<DraftField>;
+			readonly sourceLoad: Readonly<Record<string, unknown>>;
+			readonly preloadedLabels: ReadonlyMap<
+				DraftField,
+				Readonly<Record<string, unknown>> | null
+			>;
 		};
 	} = {},
 ): {
@@ -1116,18 +1120,25 @@ function readProperties(
 			typeof storedPath === "string"
 				? fieldAt(r.form, storedPath)
 				: undefined;
+		const passive =
+			source?.kind === "label" &&
+			source.field.askForConfirmation !== true &&
+			source.field.banner === undefined;
+		const preload = source && options.ownLoad?.preloadedLabels.get(source);
 		const label =
 			source?.kind === "label" &&
 			source.parent === null &&
 			source.dataParent === null &&
-			((source.field.askForConfirmation !== true &&
-				source.field.banner === undefined) ||
+			(passive ||
 				(!options.ownLoad?.closes &&
 					caseWriteLabelSavesEmpty(
 						source.field.askForConfirmation,
 						source.field.banner,
 					))) &&
-			!options.ownLoad?.preloadedLabels.has(source) &&
+			(preload === undefined ||
+				(passive &&
+					!options.ownLoad?.closes &&
+					preload === options.ownLoad?.sourceLoad)) &&
 			!source.expressions.some(
 				(expression) => expression.slot === "default_value",
 			)
@@ -1829,12 +1840,23 @@ function readOrdinaryAdvancedActions(
 	const storedLoads = Array.isArray(actions.load_update_cases)
 		? actions.load_update_cases
 		: [];
-	const preloadedLabels = new Set<DraftField>();
+	const preloadedLabels = new Map<
+		DraftField,
+		Readonly<Record<string, unknown>> | null
+	>();
 	for (const load of storedLoads) {
 		if (!isJsonObject(load) || !isJsonObject(load.preload)) continue;
-		for (const path of Object.keys(load.preload)) {
+		for (const [path, property] of Object.entries(load.preload)) {
 			const field = fieldAt(form, path);
-			if (field?.kind === "label") preloadedLabels.add(field);
+			if (field?.kind !== "label") continue;
+			const direct =
+				typeof property === "string" &&
+				isAdvancedOwnLabelProperty(property) &&
+				holdsAsOpeningAssignment([], property);
+			preloadedLabels.set(
+				field,
+				direct && !preloadedLabels.has(field) ? load : null,
+			);
 		}
 	}
 	const storedOpens = Array.isArray(actions.open_cases)
@@ -2163,7 +2185,7 @@ function readOrdinaryAdvancedActions(
 				...(last &&
 					!automatic &&
 					caseType !== "commcare-user" && {
-						ownLoad: { closes, preloadedLabels },
+						ownLoad: { closes, sourceLoad: load, preloadedLabels },
 					}),
 			},
 		);

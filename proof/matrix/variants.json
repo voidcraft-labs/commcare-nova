@@ -2081,18 +2081,35 @@
 	{
 		"id": "hq-advanced/load-writes-a-preloaded-label",
 		"base": "hq-advanced",
+		"entry": "forms-and-case-writes/an-advanced-follow-up-update-from-its-root-passive-label",
+		"change": { "op": "named", "name": "load_writes_a_preloaded_label" },
+		"holds": [
+			{
+				"key": ["form", { "$xmlns": [1, 0] }],
+				"pointer": "/caseOperations/0/placement/tag",
+				"value": "load_member1"
+			},
+			{
+				"key": ["form", { "$xmlns": [1, 0] }],
+				"pointer": "/openingAssignments/1/property",
+				"value": "notes"
+			},
+			{
+				"key": ["form", { "$xmlns": [1, 0] }],
+				"pointer": "/openingAssignments/1/source/kind",
+				"value": "own"
+			}
+		]
+	},
+	{
+		"id": "hq-advanced/load-writes-a-label-preloaded-from-an-earlier-case",
+		"base": "hq-advanced",
 		"entry": "forms-and-case-writes/an-advanced-load-s-update-or-preload-or-an-open-action-s-name-or",
 		"standing": "not-yet",
-		"place": {
-			"kind": "form",
-			"menu": 1,
-			"form": 0,
-			"menuName": "Member visits",
-			"name": "Untitled Form"
-		},
+		"place": { "kind": "form", "menu": 1, "form": 0, "name": "Member visit" },
 		"change": {
 			"op": "named",
-			"name": "load_writes_a_preloaded_label"
+			"name": "load_writes_a_label_preloaded_from_an_earlier_case"
 		}
 	},
 	{
