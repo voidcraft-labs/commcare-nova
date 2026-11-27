@@ -426,6 +426,21 @@ export function searchChoiceColumnOrder(
 	);
 }
 
+/** A choice can order a text column against the length of another text
+ * value on the same fixture row. Core compares the column numerically. */
+export function searchChoiceColumnLengthOrder(
+	kind: ComparisonKind,
+	left: Expression,
+	right: Expression,
+): boolean {
+	return (
+		right.kind === "call" &&
+		right.fn === "string-length" &&
+		right.args.length === 1 &&
+		searchChoiceColumnOrder(kind, left, right.args[0])
+	);
+}
+
 /** Core coerces these session operands before comparing them. */
 export function searchSessionTextOrder(
 	kind: ComparisonKind,

@@ -98,6 +98,7 @@ import {
 	restoredColumnCountMatch,
 	sameTypeRestoredScaledComparison,
 	sameTypeRestoredThreshold,
+	searchChoiceColumnLengthOrder,
 	searchChoiceColumnOrder,
 	searchDefaultSessionPairOrder,
 	searchSessionTextOrder,
@@ -4386,6 +4387,8 @@ function checkComparison(
 			left.kind === "term" &&
 			left.term.kind === "table-column" &&
 			((rightType === "text" && searchChoiceColumnOrder(kind, left, right)) ||
+				(rightType === "int" &&
+					searchChoiceColumnLengthOrder(kind, left, right)) ||
 				(kind === "gt" &&
 					right.kind === "term" &&
 					right.term.kind === "literal" &&
