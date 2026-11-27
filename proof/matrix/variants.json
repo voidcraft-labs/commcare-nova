@@ -39413,7 +39413,23 @@
 		},
 		"change": {
 			"op": "named",
-			"name": "save_to_case_worker_in_nested_query_repeat"
+			"name": "save_to_case_worker_in_query_repeat"
+		},
+		"second": {
+			"entry": "questions/model-iteration-repeat-nested-in-another-repeat-of-any-kind",
+			"standing": "fix-in-hq",
+			"place": {
+				"kind": "question",
+				"menu": 0,
+				"form": 0,
+				"menuName": "Questions",
+				"formName": "Survey",
+				"path": "members/rounds"
+			},
+			"change": {
+				"op": "named",
+				"name": "nest_save_to_case_worker_query_repeat"
+			}
 		}
 	},
 	{

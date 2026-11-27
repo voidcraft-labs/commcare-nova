@@ -3042,9 +3042,8 @@ def save_to_case_worker_in_query_repeat(authoring, app_id):
     _edit(authoring, app_id, "save-to-case-worker-in-query-repeat", transform)
 
 
-def save_to_case_worker_in_nested_query_repeat(authoring, app_id):
-    """A query-driven repeat inside another repeat submits more than one worker scope."""
-    save_to_case_worker_in_query_repeat(authoring, app_id)
+def nest_save_to_case_worker_query_repeat(authoring, app_id):
+    """Move the query repeat carrying the worker change inside the members repeat."""
     note_end = ROUNDS_CLOSE.split("</repeat>", 1)[0].rstrip()
     group = '<group ref="/data/rounds/item/nova_operations"/>'
     with_block = note_end + "\n" + group + ROUNDS_CLOSE[len(note_end):]
