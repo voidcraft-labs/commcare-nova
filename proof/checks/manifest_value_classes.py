@@ -13002,6 +13002,28 @@ def _basic_multi_select_maximum(use):
     return _max_select_number(detail.get("max_select_value"))
 
 
+def _flat_close_has_only_its_selected_case_block(xform):
+    """Recognize a close on each selected row, including its actual case-id bind."""
+    if (xform.body is None or len(xform.model_repeats) != 1 or len(xform.save_to_case) != 1
+            or any(_local(node) not in ("body", "group", "repeat") for node in xform.body_elements)):
+        return False
+    wrapper, = xform.model_repeats
+    block, = xform.save_to_case
+    path = xform.paths.get(wrapper)
+    block_path = xform.paths.get(block)
+    if (path != f"/{_local(xform.data_root)}/nova_selected_cases"
+            or block_path != f"{path}/item/nova_operations/nova_close_selected_cases"):
+        return False
+    case = block.find(f"{{{CASE}}}case")
+    if case is None or _children(block) != [case] or [node.tag for node in _children(case)] != [f"{{{CASE}}}close"]:
+        return False
+    reference = xform.bind(f"{block_path}/case/@case_id")
+    if reference is None or reference.get("calculate") != "current()/../../../../@id":
+        return False
+    # A condition on any emitted container would make this a different workflow.
+    return not any(bind.get("relevant") for nodes in xform.binds.values() for bind in nodes)
+
+
 def bounded_flat_close_maximum(use, manifest):
     """One ordinary unconditional own-case close supplies a manually or automatically chosen 101-case datum."""
     runtime = _xml(use)
@@ -13030,17 +13052,21 @@ def bounded_flat_close_maximum(use, manifest):
     actions = _actions(form)
     if (_requires(form) != "case" or (form.get("doc_type") or "Form") != "Form"
             or form.get("form_filter") or form.get("post_form_workflow") not in (None, "", "default")
-            or _condition(actions.get("close_case")) != "always"
-            or any(_active(actions.get(name)) for name in ("open_case", "update_case", "usercase_update"))
+            or _active(actions.get("open_case"))
+            or any(_active(actions.get(name)) and actions[name].get("update")
+                   for name in ("update_case", "usercase_update"))
             or any((actions.get(name) or {}).get("preload") for name in ("case_preload", "usercase_preload", "load_from_form"))
             or any(_active(child) for child in _subcases(form))):
         return False
     xform = app.xform(form)
     if xform is None:
         return None
-    if xform.body is None or _children(xform.body) or xform.model_repeats:
+    if not _flat_close_has_only_its_selected_case_block(xform):
         return False
-    for binds in xform.binds.values():
+    generated = xform.paths[xform.model_repeats[0]]
+    for nodeset, binds in xform.binds.items():
+        if nodeset.startswith((f"{generated}/", f"{generated}/@")):
+            continue
         for bind in binds:
             if any(bind.get(name) for name in ("relevant", "constraint", "required")):
                 return False
