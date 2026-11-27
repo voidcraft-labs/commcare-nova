@@ -95,6 +95,7 @@ import {
 	recordPositionVerdict,
 	restoredCasePropertyMatch,
 	sameTypeRestoredThreshold,
+	searchChoiceColumnOrder,
 	searchSessionTextOrder,
 	TEXT_SHAPED_TYPES,
 	TIME_ORDERING_MESSAGE,
@@ -4366,8 +4367,7 @@ function checkComparison(
 			searchSessionTextOrder(kind, left, right)
 		)
 			return;
-		// A Search choice filter orders its text column by the device's
-		// numeric coercion. The comparison stays on that fixture row.
+		// A Search choice filter orders its own text values by device numeric coercion.
 		if (
 			"profile" in ctx &&
 			ctx.slot.slot === "search_input_options" &&
@@ -4375,12 +4375,13 @@ function checkComparison(
 			leftType === "text" &&
 			left.kind === "term" &&
 			left.term.kind === "table-column" &&
-			right.kind === "term" &&
-			right.term.kind === "literal" &&
-			typeof right.term.value === "string" &&
-			right.term.value.trim() !== "" &&
-			right.term.data_type === undefined &&
-			literalShape(right.term.value) === undefined
+			((rightType === "text" && searchChoiceColumnOrder(kind, left, right)) ||
+				(right.kind === "term" &&
+					right.term.kind === "literal" &&
+					typeof right.term.value === "string" &&
+					right.term.value.trim() !== "" &&
+					right.term.data_type === undefined &&
+					literalShape(right.term.value) === undefined))
 		)
 			return;
 		const leftOrdered = leftType === ANY_TYPE || ORDERED_TYPES.has(leftType);

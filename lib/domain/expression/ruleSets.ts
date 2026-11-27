@@ -349,6 +349,22 @@ export function readsRestoredCaseTypeQuery(expression: Expression): boolean {
 	return reads;
 }
 
+/** Core numerically coerces two text columns on the same fixture row. */
+export function searchChoiceColumnOrder(
+	kind: ComparisonKind,
+	left: Expression,
+	right: Expression,
+): boolean {
+	return (
+		kind === "gt" &&
+		left.kind === "term" &&
+		left.term.kind === "table-column" &&
+		right.kind === "term" &&
+		right.term.kind === "table-column" &&
+		left.term.tableId === right.term.tableId
+	);
+}
+
 /** Core coerces these session operands before comparing them. */
 export function searchSessionTextOrder(
 	kind: ComparisonKind,

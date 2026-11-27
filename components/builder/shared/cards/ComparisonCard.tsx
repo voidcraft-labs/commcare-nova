@@ -23,7 +23,7 @@ import { CaseTypeValuePicker } from "../CaseTypeValuePicker";
 import { staticSelectSubject } from "../choiceValueModel";
 import {
 	comparesCaseType,
-	comparesWorkerValueInSearchDefault,
+	comparesNumericallyOrderedSearchText,
 	possibleRowCaseTypes,
 	replaceComparisonSubject,
 } from "../comparisonModel";
@@ -71,13 +71,13 @@ export function ComparisonCard({ value, onChange, path }: ComparisonCardProps) {
 	// checker `checkComparison` validates against, so the offered set
 	// is exactly the accept set.
 	const subjectType = useResolvedType(value.left);
-	const workerNameOrder = comparesWorkerValueInSearchDefault(
+	const numericTextOrder = comparesNumericallyOrderedSearchText(
 		ctx,
 		value.kind,
 		value.left,
 		value.right,
 	);
-	const constraintKind = workerNameOrder ? "eq" : value.kind;
+	const constraintKind = numericTextOrder ? "eq" : value.kind;
 	const objectConstraint = comparisonObjectConstraint(
 		constraintKind,
 		subjectType,

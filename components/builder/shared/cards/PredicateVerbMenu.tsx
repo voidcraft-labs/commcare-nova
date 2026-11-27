@@ -93,7 +93,7 @@ import {
 	isAnsweredDefault,
 	isFormAnswer,
 } from "../answeredCondition";
-import { comparesWorkerValueInSearchDefault } from "../comparisonModel";
+import { comparesNumericallyOrderedSearchText } from "../comparisonModel";
 import {
 	predicateEditContextFrom,
 	usePredicateEditContext,
@@ -448,7 +448,7 @@ export function buildComparison(
 			);
 		}
 		if (
-			comparesWorkerValueInSearchDefault(
+			comparesNumericallyOrderedSearchText(
 				ctx,
 				kind,
 				preserved.left,
@@ -1110,7 +1110,7 @@ function verbSubjectAdmitted(
 		entry.subjectGate === undefined ||
 		entry.subjectGate(subjectType, subject) ||
 		(entry.id === "gt" &&
-			comparesWorkerValueInSearchDefault(ctx, "gt", subject, objectOf(value)))
+			comparesNumericallyOrderedSearchText(ctx, "gt", subject, objectOf(value)))
 	);
 }
 
