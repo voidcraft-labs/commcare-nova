@@ -3201,7 +3201,7 @@
 		"surfaceKeys": ["schema:Detail.filter"],
 		"valueClass": "lifts-into-predicate",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: `caseListConfig.filter`. An ordinary device list can require at least one or at least two restored cases of its own type. The second case must be visible to the same worker.",
+		"dispositionCell": "**HELD**: `caseListConfig.filter`. An ordinary device list can require its worker to have a minimum number of restored cases of the list’s own type.",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",

@@ -307,6 +307,10 @@ def test_first_case_list_row_already_witnesses_its_restored_case_type(hq, core_r
         assert visible_ids("another-case-required", COUNT_CASES, one) == set()
         two = restore_of(("one", "two"))
         assert visible_ids("another-case-witnesses-type", COUNT_CASES, two) == {"one", "two"}
+        higher_threshold = COUNT_CASES.replace("> 1", "> 2")
+        assert visible_ids("two-with-another-type", higher_threshold, restore_of(("one", "two"), "other")) == set()
+        three = restore_of(("one", "two", "three"))
+        assert visible_ids("three-fulfill-the-threshold", higher_threshold, three) == {"one", "two", "three"}
 
         one_with_neighbor = visible_rows("case-count-one", None, restore_of(("one",), "other"), count_column=True)
         assert {key: fields[-1] for key, fields in one_with_neighbor.items()} == {"one": "1"}

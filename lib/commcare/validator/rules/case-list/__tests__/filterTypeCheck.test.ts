@@ -65,7 +65,8 @@ describe("case-list filter type admission", () => {
 			],
 		});
 		expect(findings(candidate(gt(restored, literal(1))))).toEqual([]);
-		expect(findings(candidate(gt(restored, literal(2))))).toMatchObject([
+		expect(findings(candidate(gt(restored, literal(2))))).toEqual([]);
+		expect(findings(candidate(gt(restored, literal(2.5))))).toMatchObject([
 			{
 				code: "CASE_LIST_FILTER_TYPE_ERROR",
 				details: { checkReason: "device-list-restored-type-presence" },

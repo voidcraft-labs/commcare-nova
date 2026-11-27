@@ -811,7 +811,7 @@ export function checkExpression(
 			errors.push(
 				refusal(
 					"arm-unavailable",
-					"A case list can check for one or two restored cases of its own type.",
+					"A case list can compare its restored case count with a nonnegative whole number.",
 					"device-list-restored-type-presence",
 				),
 			);
