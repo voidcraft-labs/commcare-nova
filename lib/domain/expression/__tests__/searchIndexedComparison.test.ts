@@ -111,4 +111,30 @@ describe("searchIndexedComparison", () => {
 			),
 		).toBeUndefined();
 	});
+
+	it("tests a static whole number against a custom date's stored text", () => {
+		const dob = term(prop("client", "dob"));
+		const three = term(literal(3));
+		expect(searchIndexedComparison(true, dob, "date", three, "int")).toBe(
+			"exact-text",
+		);
+		expect(
+			searchIndexedComparison(false, dob, "date", three, "int"),
+		).toBeUndefined();
+		expect(
+			searchIndexedComparison(true, dob, "date", answer, "int"),
+		).toBeUndefined();
+		expect(
+			searchIndexedComparison(true, dob, "date", term(literal(3.5)), "decimal"),
+		).toBeUndefined();
+		expect(
+			searchIndexedComparison(
+				true,
+				term(prop("client", "date_opened")),
+				"date",
+				three,
+				"int",
+			),
+		).toBeUndefined();
+	});
 });

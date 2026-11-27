@@ -189,7 +189,10 @@ refuses a row left holding a device-only read no value arrived for. Any other
 node no value arrived for compiles through the ordinary bindings
 (`TermBindings.searchInputs`, `sessionContext`), which leave the CSQL path
 otherwise. A read keyed by case ids (the registered case) compiles no row of
-the search. `value-list` compiles to `<anchor's stored text> in (<item>, …)`,
+the search. Equality with a whole-number literal on a custom date field
+reads its exact stored text. For example, `dob = 3` matches a retained `3`,
+and `003`, `3.0` and calendar dates have different spellings.
+`value-list` compiles to `<anchor's stored text> in (<item>, …)`,
 HQ's exact `terms` on the text a case holds (`compileTerm.ts::compileStoredText`:
 `properties->>'p'` uncast, a system anchor its column, a multi-select its
 choices joined by spaces), each item bound as the text the device sends and

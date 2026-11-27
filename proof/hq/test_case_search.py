@@ -509,6 +509,7 @@ def test_numeric_search_equality_reads_the_exact_stored_custom_property(hq):
         "untyped": "3",
         "padded": "003",
         "decimal": "3.0",
+        "four": "4",
         "epoch-day": "1970-01-04",
         "ordinary-day": "2024-03-10",
         "missing": None,
@@ -536,6 +537,7 @@ def test_numeric_search_equality_reads_the_exact_stored_custom_property(hq):
 
         cases_seen = [match(expression) for expression in (
             "dob = 3", "dob = '3'", "dob = '003'", "dob = '3.0'", "dob = '1970-01-04'", "dob != 3",
+            "dob > 3",
         )]
         if out := os.environ.get("PROOF_OUT"):
             directory = Path(out, "hq")
@@ -544,6 +546,7 @@ def test_numeric_search_equality_reads_the_exact_stored_custom_property(hq):
         assert [case["matches"] for case in cases_seen] == [
             ["untyped"], ["untyped"], ["padded"], ["decimal"], ["epoch-day"],
             sorted(set(cases) - {"untyped"}),
+            ["four"],
         ]
 
 
