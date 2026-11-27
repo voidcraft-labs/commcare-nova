@@ -39989,18 +39989,57 @@
 	{
 		"id": "hq-search/address-picker-with-a-device-id-default",
 		"base": "hq-search",
-		"entry": "case-search/appearance-address-geocoder-broadcast-emitted-input-address",
-		"standing": "not-yet",
-		"place": { "kind": "search", "menu": 0, "name": "Clients" },
+		"entry": "case-search/address-picker-with-a-saved-text-default",
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/searchInputs/1/savedDefault",
+				"value": {
+					"prefix": "Old ",
+					"worker": "deviceid"
+				}
+			}
+		],
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/0/search_config/properties/1",
 			"value": {
 				"doc_type": "CaseSearchProperty",
 				"name": "village",
-				"label": { "en": "Village" },
+				"label": {
+					"en": "Village"
+				},
 				"appearance": "address",
 				"default_value": "concat('Old ', instance('commcaresession')/session/context/deviceid)"
+			}
+		}
+	},
+	{
+		"id": "hq-search/address-picker-with-an-app-version-default",
+		"base": "hq-search",
+		"entry": "case-search/appearance-address-geocoder-broadcast-emitted-input-address",
+		"standing": "not-yet",
+		"place": {
+			"kind": "search",
+			"menu": 0,
+			"name": "Clients"
+		},
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/0/search_config/properties/1",
+			"value": {
+				"doc_type": "CaseSearchProperty",
+				"name": "village",
+				"label": {
+					"en": "Village"
+				},
+				"appearance": "address",
+				"default_value": "concat('Old ', instance('commcaresession')/session/context/appversion)"
 			}
 		}
 	},

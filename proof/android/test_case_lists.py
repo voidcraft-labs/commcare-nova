@@ -694,6 +694,7 @@ def test_grouped_search_uses_plain_ordered_fields_on_android(android_documents, 
     "address-picker-with-a-calculated-default",
     "address-picker-with-a-session-derived-default",
     "address-picker-with-a-worker-id-default",
+    "address-picker-with-a-device-id-default",
 ])
 def test_saved_address_default_stays_out_of_an_installed_android_search(
     android_documents, hq, android_walk_evidence, variant_name

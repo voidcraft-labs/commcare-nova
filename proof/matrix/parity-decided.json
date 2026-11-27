@@ -709,6 +709,7 @@
 		"hq-search/address-field",
 		"hq-search/address-fills-a-single-choice-by-position",
 		"hq-search/address-picker-with-a-calculated-default",
+		"hq-search/address-picker-with-a-device-id-default",
 		"hq-search/address-picker-with-a-session-derived-default",
 		"hq-search/address-picker-with-a-worker-id-default",
 		"hq-search/address-picker-with-stored-default",
