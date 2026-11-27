@@ -471,18 +471,25 @@ def test_tile_group_expression_in_the_connection_name_has_no_parent_value(
     document = webapps_documents[GROUP_FILTER]
     database = casedata.database_of_restore((document.root / "restore.xml").read_bytes())
     observed = {}
-    with webapps_hq.project(document, "maximum") as project:
-        for identifier in ("parent/parent", "parent"):
-            posted = _edit_tile_group_identifier(project, editor_driver, identifier)
-            assert json.loads(posted["case_tile_group"])["index_identifier"] == identifier
-            with project.released(formplayer_runner, database=database, label=f"group-{len(observed)}") as release:
+    for identifier in ("parent", "parent/parent"):
+        with webapps_hq.project(document, "maximum") as project:
+            if identifier != "parent":
+                posted = _edit_tile_group_identifier(project, editor_driver, identifier)
+                assert json.loads(posted["case_tile_group"])["index_identifier"] == identifier
+            with project.released(formplayer_runner, database=database) as release:
                 run = Session(release, editor_driver).run([
                     *steps.open_app("Grouped visits"), *steps.choose("Visits"), steps.SCREEN,
                 ])
-            assert run.page_errors == []
-            listing = run.screens[0]["list"]
-            assert listing["tiles"] is True
-            observed[identifier] = [_card(row) for row in listing["rows"]]
+        screen = run.screens[0]
+        native = [reply.json() for reply in run.answered("navigate_menu")]
+        evidence(f"tile-grouping-locator-{len(observed)}", {
+            "identifier": identifier, "screen": screen, "native": native, "pageErrors": run.page_errors,
+        })
+        assert run.page_errors == []
+        assert "list" in screen, (screen, native[-1:] if native else native)
+        listing = screen["list"]
+        assert listing["tiles"] is True
+        observed[identifier] = [_card(row) for row in listing["rows"]]
 
     assert [identity for identity, _ in observed["parent"]] == [
         "row-targeted-ada-visit", "row-targeted-ben-visit", "row-targeted-eve-visit",
