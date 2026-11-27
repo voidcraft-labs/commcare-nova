@@ -48,8 +48,8 @@ def set_named_answer_root(published, name):
             if "/survey/" in value:
                 element.set(key, value.replace("/survey/", f"/{name}/"))
     write = form.actions.open_case.name_update
-    assert write.question_path == "/survey/name"
-    write.question_path = f"/{name}/name"
+    assert write.question_path.startswith("/survey/")
+    write.question_path = write.question_path.replace("/survey/", f"/{name}/", 1)
     form.source = etree.tostring(tree, encoding="unicode")
     model.save()
 
