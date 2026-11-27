@@ -1511,7 +1511,11 @@ def test_standalone_search_detail_displays_the_submitted_date(
         {"eval": """() => {
             const field = document.querySelector('#query-list-contents input.date');
             if (!field) throw new Error('The Search date did not open');
-            window.jQuery(field).val('03/09/2025').trigger('change.td');
+            field.focus();
+            field.value = '03/09/2025';
+            field.dispatchEvent(new Event('input', {bubbles: true}));
+            field.dispatchEvent(new Event('change', {bubbles: true}));
+            field.blur();
         }"""},
         {"awaitRequest": {"method": "POST", "pathname": steps.NAVIGATE}, "sinceMark": True},
         steps.SETTLE,
