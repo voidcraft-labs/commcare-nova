@@ -34,8 +34,9 @@ each failing by base with what is missing:
    on A alone and an ``<id>:after`` one run on B and the archive, whose values
    differ, but for a row that names a media reference a trace read, a value
    a search sent HQ, the count of cases HQ answered a search with, a form's
-   title, a menu's entry, a Web Apps home tile, a case list's headers and
-   offered sorts, or an Android install and its missing-resource request.
+   title, a menu's entry, a Web Apps home tile or a question's renamed image
+   URL, a case list's headers and offered sorts, or an Android install and its
+   missing-resource request.
    Core's evaluate cannot observe those on A (``_shows_a_value``);
 6. a multi-select question an expression tests has an expectation answering
    it with two choices;
@@ -102,9 +103,11 @@ FORM_TITLE = ("title", "form")
 # archive alone (``proof/observe/intent.py``).
 SCREEN_ONLY = frozenset({"choices", "headers"})
 
-# Core's form evaluation does not install Android or display the reader's rendered menu icon. Keep the
-# causal qualifier: a generic install failure or an unclassified media change needs its own review.
-MISSING_PICTURE_OBSERVATIONS = {
+# Core's form evaluation cannot see a missing Android install resource, a rendered menu icon, or the
+# URL Web Apps displays for a renamed question image. Proof 3 verifies these native observations.
+# An unclassified media change or install failure still needs its own review.
+NATIVE_PICTURE_OBSERVATIONS = {
+    ("webapps@B", "/runs/*/screens/*/form/questions/*/media/*/src:renamed-file", "changed"),
     ("formplayer@B", "/runs/*/steps/*/response/commands/*/imageUri:broken-picture", "removed"),
     ("formplayer@local.ccz", "/runs/*/steps/*/response/commands/*/imageUri:broken-picture", "removed"),
     ("webapps@B", "/runs/*/screens/*/commands/*/image:broken-picture", "changed"),
@@ -120,18 +123,14 @@ def _native_screen_only(row):
     or the installed app's list headers and sort chooser. A question's label and the instance it submits
     are available to evaluate even where the native reader is the only one with a registered row."""
     artifact, path = row.get("artifact", ""), row.get("path", "")
-    if (artifact, path, row.get("kind")) in MISSING_PICTURE_OBSERVATIONS:
+    if (artifact, path, row.get("kind")) in NATIVE_PICTURE_OBSERVATIONS:
         return True
     reader = artifact.partition("@")[0]
     steps = path.split("/")[1:]
     if steps:
         steps[-1] = steps[-1].partition(":")[0]
     if reader == "webapps":
-        return (
-            steps == ["home", "releaseListed"]
-            or (len(steps) == 3 and steps[:2] == ["home", "tiles"])
-            or (steps[:-1] == ["runs", "*", "screens", "*", "form", "questions", "*", "media", "*"] and steps[-1] == "src")
-        )
+        return steps == ["home", "releaseListed"] or (len(steps) == 3 and steps[:2] == ["home", "tiles"])
     if reader == "formplayer" and steps[:4] == ["runs", "*", "steps", "*"]:
         content = steps[4:]
         if content in (["response", "commands", "*", "displayText"], ["response", "headers", "*"]):
@@ -643,7 +642,7 @@ def test_a_change_shown_only_on_a_menu_or_a_lists_headers_needs_no_value_pair():
 
 def test_native_screen_differences_do_not_require_values_core_cannot_observe():
     def shown(reader, path):
-        return _shows_a_value({"check": "proof3", "artifact": reader + "@B", "path": path})
+        return _shows_a_value({"check": "proof3", "artifact": reader + "@B", "path": path, "kind": "changed"})
 
     assert not shown("webapps", "/home/tiles/incomplete")
     assert not shown("webapps", "/home/releaseListed")
@@ -668,6 +667,16 @@ def test_native_screen_differences_do_not_require_values_core_cannot_observe():
     assert shown("formplayer", "/runs/*/steps/*/submissions/*/instance/data/meta[*]/location[*]:empty")
     assert shown("case_blocks", "/runs/*/cases/*/name")
     assert shown("trace", "/runs/*/trace/*/submission/data/nova_datetime_*[*]/text()")
+
+
+def test_only_the_verified_browser_image_rename_needs_no_core_value_pair():
+    src = "/runs/*/screens/*/form/questions/*/media/*/src"
+    row = {"check": "proof3", "artifact": "webapps@B", "path": src + ":renamed-file", "kind": "changed"}
+    assert not _shows_a_value(row)
+    assert _shows_a_value({**row, "path": src})
+    assert _shows_a_value({**row, "kind": "removed"})
+    assert _shows_a_value({**row, "artifact": "webapps@local.ccz"})
+    assert _shows_a_value({**row, "path": "/runs/*/screens/*/form/questions/*/answer"})
 
 
 def test_a_missing_menu_picture_is_observed_on_its_native_widget_or_during_installation():

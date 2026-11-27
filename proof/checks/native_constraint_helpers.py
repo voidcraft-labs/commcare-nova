@@ -1,8 +1,8 @@
 """Prove an added native instance node is the reviewed validation's own hidden helper."""
 
 import json
-from dataclasses import replace
-from functools import cache
+from dataclasses import dataclass, replace
+from functools import cache, cached_property
 
 from lxml import etree
 
@@ -13,16 +13,18 @@ from proof.checks import (
     xpath_tree,
 )
 from proof.checks.compare.xml_tree import XmlNotWellFormed, parse_xml
-from proof.checks.formplayer_case_names import bindings_at, children_named, setvalue_targets
+from proof.checks.formplayer_case_names import CASE, absolute_ref, bindings_at, children_named, setvalue_targets
 from proof.checks.formplayer_places import XML_CHILD
 from proof.checks.manifest_value_classes import (
     JAVAROSA,
+    QUESTION_CONTROLS,
     XFORMS,
+    XHTML,
     Form,
     _constraint_carrier_name,
     _protected_message_values,
 )
-from proof.checks.xform_parts import node_steps
+from proof.checks.xform_parts import itext_id, node_steps
 
 COUNT = "validation-counts-moved"
 MESSAGE = "validation-messages-composed"
@@ -97,7 +99,69 @@ def _count(old, new, source, path, old_bind, new_bind, helper):
     return collection
 
 
-def _message(old, new, source, path, old_bind, new_bind, helper):
+SESSION_CASE = "instance('commcaresession')/session/data/case_id"
+CASE_NAME = f"instance('casedb')/casedb/case[@case_id = {SESSION_CASE}]/case_name"
+
+
+@dataclass(frozen=True)
+class MessageOutput:
+    steps: tuple[str, ...]
+    selected_case: bool = False
+
+
+def _case_name_field(form, targets):
+    """Where this opening records the selected case name from the same two external instances."""
+    for identifier, src in (("casedb", "jr://instance/casedb"), ("commcaresession", "jr://instance/session")):
+        node = _one([i for i in form.model.findall("{*}instance") if i.get("id") == identifier])
+        if (
+            node is None
+            or node.tag != XF + "instance"
+            or dict(node.attrib) != {"id": identifier, "src": src}
+            or len(node)
+        ):
+            return None
+    case_id = "/data/case/@case_id"
+    bind = _one(bindings_at(form.model, case_id))
+    if bind is None or bind.get("calculate") != SESSION_CASE or case_id in targets:
+        return None
+    action = _one([v for v in form.model.findall(XF + "setvalue") if xpath_tree.same(v.get("value") or "", CASE_NAME)])
+    if action is None or action.get("event") != "xforms-ready" or set(action.attrib) != {"event", "ref", "value"}:
+        return None
+    field = action.get("ref")
+    steps = node_steps(field)
+    if (
+        not steps
+        or steps[-1].startswith("@")
+        or targets[field] != 1
+        or form.in_repeat(field)
+        or form.question_controls(field)
+    ):
+        return None
+    bind = _one(bindings_at(form.model, field))
+    if (
+        bind is None
+        or set(bind.attrib) - {"type", "nodeset"}
+        or (bind.get("type") is not None and (bind.get("type") != "xsd:string" or bind.nsmap.get("xsd") != XSD))
+        or not _leaf(_node(form.data_root, steps[1:]), "")
+    ):
+        return None
+    return steps[1:]
+
+
+def _has_long_alert(translation, identifier):
+    # FormEntryPrompt.localizeText calls getQuestionText, which prefers the long form.
+    # Core keys itext by the flattened ID, including a separate text named "<id>;long".
+    long_id = identifier + ";long"
+    for text in translation.findall("{*}text"):
+        base = text.get("id")
+        for value in text.findall("{*}value"):
+            form = value.get("form")
+            if (f"{base};{form}" if form else base) == long_id:
+                return True
+    return False
+
+
+def _message(old, new, source, path, old_bind, new_bind, helper, targets):
     # Only the empty, permanently irrelevant/readonly carrier for the exact old message.
     if dict(helper.attrib) != {
         "nodeset": path,
@@ -121,7 +185,7 @@ def _message(old, new, source, path, old_bind, new_bind, helper):
         return False
     label = control[0]
     message = old_bind.get(MSG)
-    if label.tag != XF + "label" or dict(label.attrib) != {"ref": message} or len(label) or (label.text or "").strip():
+    if label.tag != XF + "label" or set(label.attrib) != {"ref"} or len(label) or (label.text or "").strip():
         return False
     # A control alert takes precedence over its bind (Core FormEntryPrompt.getConstraintText).
     # The original can show this same itext directly. A protected message uses its bind alone.
@@ -137,11 +201,8 @@ def _message(old, new, source, path, old_bind, new_bind, helper):
         )
     ):
         return False
-    read = xpath_tree.tree(message or "")
-    if not read or read[:2] != ("call", "jr:itext") or len(read[2]) != 1 or read[2][0][0] != "str":
-        return False
-    base = read[2][0][1]
-    if "'" in base or not _protected_message_values(new, base):
+    old_id, base = itext_id(message), itext_id(label.get("ref"))
+    if not old_id or not base or "'" in base or not _protected_message_values(new, base):
         return False
     if not old_bind.get("constraint") or not xpath_tree.same(
         old_bind.get("constraint"), new_bind.get("constraint") or ""
@@ -165,13 +226,15 @@ def _message(old, new, source, path, old_bind, new_bind, helper):
         return False
     references = set()
     for translation in old.translations:
+        if old_alerts and _has_long_alert(translation, old_id):
+            return False
         groups = [
-            _one([x for x in t.findall(XF + "text") if x.get("id") == base])
-            for t in (translation, new_languages[translation.get("lang")])
+            _one([x for x in t.findall("{*}text") if x.get("id") == identifier])
+            for t, identifier in ((translation, old_id), (new_languages[translation.get("lang")], base))
         ]
         if any(g is None for g in groups):
             return False
-        originals = [_one([v for v in group.findall(XF + "value") if v.get("form") is None]) for group in groups]
+        originals = [_one([v for v in group.findall("{*}value") if v.get("form") is None]) for group in groups]
         for v in originals:
             if (
                 v is None
@@ -191,7 +254,7 @@ def _message(old, new, source, path, old_bind, new_bind, helper):
             return False
         for i, text in ((0, a.text), (2, a[0].tail)):
             for suffix in ("", ";markdown"):
-                v = _one([v for v in groups[1].findall(XF + "value") if v.get("form") == f"__nova_piece_{i}{suffix}"])
+                v = _one([v for v in groups[1].findall("{*}value") if v.get("form") == f"__nova_piece_{i}{suffix}"])
                 if v is None or json.loads(v.text) != {"v": text}:
                     return False
     # A message can show a sibling's value, such as a previous meter reading. All
@@ -200,18 +263,25 @@ def _message(old, new, source, path, old_bind, new_bind, helper):
         return False
     reference = references.pop()
     steps = node_steps(reference)
-    if not steps or len(steps) != 2:
-        return False
-    for form in (old, new):
-        node = _one(_children(form.data_root, steps[1]) or [])
-        if node is None or node.attrib or len(node):
+    if xpath_tree.same(reference, CASE_NAME):
+        a, b = (_case_name_field(form, held) for form, held in zip((old, new), targets, strict=True))
+        if not a or a != b:
             return False
+        output = MessageOutput(a, selected_case=True)
+    elif steps and len(steps) == 2 and not steps[-1].startswith("@"):
+        for form in (old, new):
+            node = _node(form.data_root, steps[1:])
+            if node is None or node.attrib or len(node) or form.in_repeat(reference):
+                return False
+        output = MessageOutput(steps[1:])
+    else:
+        return False
     expect = (
         f"if(jr:itext('{base};__nova_mode') = 'media', jr:itext('{base}'), if(count({reference}) > 1, '', "
         f"concat(json-property(jr:itext('{base};__nova_piece_0'), 'v'), {reference}, "
         f"json-property(jr:itext('{base};__nova_piece_2'), 'v'))))"
     )
-    return steps[1] if xpath_tree.same(expect, new_bind.get(MSG) or "") else None
+    return output if xpath_tree.same(expect, new_bind.get(MSG) or "") else None
 
 
 def _native(trace, run, step, sub):
@@ -232,6 +302,66 @@ def _native(trace, run, step, sub):
     return root, runs[run].get("script")
 
 
+class _InstalledForm(Form):
+    """The locale source and control bindings that Core reads from this installed form."""
+
+    @cached_property
+    def model(self):
+        # Core uses the first model. Every bind it applies must name a fixed path we can place:
+        # even a bind without a calculation can override a carrier's relevance or readonly flag.
+        model = super().model
+        if model is not next(self.root.iter("{*}model"), None) or model is None:
+            return None
+        if any(absolute_ref(b.get("nodeset") or "", "/data") is None for b in model.findall("{*}bind")):
+            return None
+        return model
+
+    @cached_property
+    def translations(self):
+        # Each direct itext installs a new Localizer. Admit only one source.
+        itext = _one(self.model.findall("{*}itext"))
+        return tuple(itext.findall("{*}translation")) if itext is not None else ()
+
+    @cached_property
+    def controls(self):
+        body = self.root.find(f"{{{XHTML}}}body")
+        if body is None:
+            return None
+        contexts, found = {body: "/data"}, {}
+        for control in body.iterdescendants():
+            if not isinstance(control.tag, str):
+                continue
+            kind = etree.QName(control).localname
+            context = contexts[control.getparent()]
+            contexts[control] = context
+            if kind not in QUESTION_CONTROLS:
+                continue
+            if (identifier := control.get("bind")) is not None:
+                bind = _one([b for b in self.model.findall("{*}bind") if b.get("id") == identifier])
+                if bind is None:
+                    return None
+                ref, context = bind.get("nodeset"), "/data"
+            else:
+                ref = control.get("nodeset" if kind == "repeat" else "ref")
+                if ref is None and kind != "repeat":
+                    continue  # An unbound group passes its parent's context to its children.
+            resolved = context if ref == "." else absolute_ref(ref or "", context)
+            if resolved is None:
+                return None
+            found.setdefault(resolved, []).append(control)
+            if kind in {"group", "repeat"}:
+                contexts[control] = resolved
+        return found
+
+    @cached_property
+    def repeat_paths(self):
+        return {self.paths[node] for node in self.model_repeats} | {
+            path
+            for path, controls in self.controls.items()
+            if any(etree.QName(c).localname == "repeat" for c in controls)
+        }
+
+
 def _definitions(files, differing, positions):
     installed = native_question_split.installed_paths(files, differing)
     forms = {}
@@ -239,8 +369,8 @@ def _definitions(files, differing, positions):
         namespace, path = installed[pos]
         root = _xml(files.get(path))
         if root is not None:
-            form = Form(root, path)
-            if form.xmlns == namespace:
+            form = _InstalledForm(root, path)
+            if form.xmlns == namespace and form.data_root.tag == f"{{{namespace}}}data" and form.controls is not None:
                 forms[pos] = form
     return forms
 
@@ -253,7 +383,8 @@ def _address(d):
         return None
     at = changes.unescaped(d.at)
     if (
-        len(at) != 9
+        len(at) < 9
+        or (family == COUNT and len(at) != 9)
         or at[0] != "runs"
         or at[2] != "steps"
         or at[7] != "data"
@@ -261,8 +392,8 @@ def _address(d):
         or not at[3].isdigit()
     ):
         return None
-    child = XML_CHILD.fullmatch(at[8])
-    if child is None or child[2] != "1":
+    children = [XML_CHILD.fullmatch(token) for token in at[8:]]
+    if any(child is None or child[2] != "1" for child in children):
         return None
     if d.path.startswith(OPEN) and at[4:7] == ["response", "instanceXml", "output"]:
         sub = None
@@ -270,7 +401,7 @@ def _address(d):
         sub = int(at[5])
     else:
         return None
-    return family, child[1], int(at[1]), int(at[3]), sub
+    return family, tuple(child[1] for child in children), int(at[1]), int(at[3]), sub
 
 
 def _cardinality(root, counted):
@@ -280,23 +411,41 @@ def _cardinality(root, counted):
 
 
 def _children(root, name):
-    return children_named(root, f"{{{etree.QName(root).namespace}}}{name}")
+    return children_named(root, f"{{{etree.QName(root).namespace}}}{name}") if root is not None else None
 
 
-def _value(d, a, b, name, source, counted, output):
+def _node(root, steps):
+    """Every named step must exist exactly once in the primary instance's namespace."""
+    for step in steps:
+        root = _one(_children(root, step) or [])
+    return root
+
+
+def _value(d, a, b, script, name, source, counted, output):
     # The count bind only applies when its source exists. Both this worker's instances must
     # contain that very question exactly once, as in the respective installed templates.
-    if any(_one(_children(root, source) or []) is None for root in (a, b)):
+    left, right = (_node(root, source) for root in (a, b))
+    if (
+        left is None
+        or right is None
+        or (output and not (_leaf(left, left.text or "") and _leaf(right, left.text or "")))
+    ):
         return False
-    tags = [f"{{{etree.QName(root).namespace}}}{name}" for root in (a, b)]
-    actual = _one(_children(b, name) or [])
+    tags = [f"{{{etree.QName(root).namespace}}}{name[-1]}" for root in (a, b)]
+    actual = _node(b, name)
     reported = _xml(d.after)
-    if _children(a, name) != [] or actual is None or reported is None or reported.tag not in tags:
+    if _children(_node(a, name[:-1]), name[-1]) != [] or actual is None or reported is None or reported.tag not in tags:
         return False
     if output:
-        old, new = (_one(_children(r, output) or []) for r in (a, b))
+        old, new = (_node(r, output.steps) for r in (a, b))
         if old is None or not _leaf(old, old.text or "") or not _leaf(new, old.text or ""):
             return False
+        if output.selected_case:
+            selected = _one([s["entity"] for s in script if isinstance(s, dict) and "entity" in s])
+            cases = [_one(children_named(root, CASE + "case") or []) for root in (a, b)]
+            # Its installed preload starts empty. A filled scalar witnesses the ready action.
+            if not old.text or not selected or any(case is None or case.get("case_id") != selected for case in cases):
+                return False
     expected = ""
     if counted:
         old_count = _cardinality(a, counted)
@@ -323,14 +472,16 @@ def helper_sites(
         for pointer in declared.get(family, ()):
             who = changes.unescaped(pointer)
             if (
-                len(who) == 5
+                len(who) >= 5
+                and (family == MESSAGE or len(who) == 5)
                 and who[0] == "form"
                 and who[2:4] == ["xform", "data"]
-                and node_steps("/" + "/".join(who[3:]))
+                and node_steps("/" + "/".join(who[3:])) == tuple(who[3:])
+                and not who[-1].startswith("@")
             ):
                 pos = who[1].split(".")
                 if len(pos) == 2 and all(v.isascii() and v.isdigit() for v in pos):
-                    places.setdefault((family, who[1]), set()).add(who[4])
+                    places.setdefault((family, who[1]), set()).add(tuple(who[4:]))
     if not places or not any(d.kind == "added" and d.path in CANDIDATES for d in differences):
         return {}, differences
     positions = {p for _, p in places}
@@ -341,13 +492,15 @@ def helper_sites(
     @cache
     def definition(family, pos, name):
         old, new = old_forms[pos], new_forms[pos]
-        path = "/data/" + name
-        template = _one(_children(new.data_root, name) or [])
+        path = "/data/" + "/".join(name)
+        template = _node(new.data_root, name)
         if (
-            _children(old.data_root, name) != []
+            any(form.in_repeat(path) for form in (old, new))
+            or _children(_node(old.data_root, name[:-1]), name[-1]) != []
             or bindings_at(old.model, path)
+            or old.question_controls(path)
             or not _leaf(template, "")
-            or template.tag != f"{{{new.xmlns}}}{name}"
+            or template.tag != f"{{{new.xmlns}}}{name[-1]}"
         ):
             return None
         helper = _one(bindings_at(new.model, path))
@@ -356,13 +509,15 @@ def helper_sites(
             return None
         matches = []
         for other in places[family, pos] - {name}:
-            source = "/data/" + other
+            if other[:-1] != name[:-1]:
+                continue
+            source = "/data/" + "/".join(other)
             a, b = (_one(bindings_at(form.model, source)) for form in (old, new))
             if (
                 a is None
                 or b is None
                 or any(source in held for held in targets)
-                or any(_one(_children(form.data_root, other) or []) is None for form in (old, new))
+                or any(_node(form.data_root, other) is None for form in (old, new))
                 or len(old.question_controls(source)) != 1
                 or len(new.question_controls(source)) != 1
             ):
@@ -371,7 +526,7 @@ def helper_sites(
                 counted = _count(old, new, source, path, a, b, helper)
                 if counted:
                     matches.append((other, counted, None))
-            elif output := _message(old, new, source, path, a, b, helper):
+            elif output := _message(old, new, source, path, a, b, helper, targets):
                 matches.append((other, (), output))
         return _one(matches)
 
@@ -398,14 +553,14 @@ def helper_sites(
         if not pos or name not in places.get((family, pos), ()):
             return None
         witness = definition(family, pos, name)
-        if witness is None or not _value(d, a, b, name, *witness):
+        if witness is None or not _value(d, a, b, script_a, name, *witness):
             return None
         return (":reviewed-count" if family == COUNT else ":reviewed-message"), (
             "form",
             pos,
             "xform",
             "data",
-            name,
+            *name,
         )
 
     found, sites = [], {}

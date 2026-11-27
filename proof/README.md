@@ -4914,8 +4914,18 @@ The rules whose readers reach past HQ's build and Core:
   The two native menu readers use the same within-build file identities. A Formplayer question's renamed
   caption image remains a difference. The first-publish judge attributes it to `media-files-renamed` only
   at the question's observed binding and when its destination is the digest-named file with the bytes HQ
-  served at the original path. At B those bytes must be in the upload HQ matched for the image, and on the
-  local side they must be in the archive.
+  served at the original path. On the first publish, HQ must match the image in the upload. The local
+  archive must carry the file with those bytes. After a person replaces a picture in HQ, the judge starts
+  with the file HQ returned after that save. On the next publish, HQ must match the upload or serve the bytes
+  named in the verified media receipt for a reused file. Both builds must install the referenced file from
+  the multimedia document in their own app’s mapping, or from the archive for a local export. A media
+  suite that differs from the release cannot establish a rename. Formplayer’s captions must come from
+  the same script, effective language, navigation requests and selections. A multi-select token must name
+  the case the walk selected from that list. The reviewed form and each installed form must bind the URI
+  to the question’s label in that language. Web Apps must display the image in that question, in the
+  same viewport and script, at the app and selections where Formplayer opened the form. Where the
+  comparison moves a widget, it keeps the raw addresses for this check. Newly reachable worker runs
+  keep their ordinary comparison against the published release.
 
 - **`hidden-sort-header`** applies to the list of cases Formplayer sends to Web Apps. A table can carry
   a single no-break space or an empty header for a sortable column whose two width hints are zero.

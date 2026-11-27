@@ -739,11 +739,29 @@ def _newly_listed(before, after, a, b, traces, published):
     a["runs"] = workers + a["runs"]
 
 
+def _question_image_addresses(record):
+    """Concrete comparison pointers to the image objects on form question widgets."""
+    for r, run in enumerate(record.get("runs") or ()):
+        for s, screen in enumerate(run.get("screens") or ()):
+            for q, question in enumerate((screen.get("form") or {}).get("questions") or ()):
+                for m, media in enumerate(question.get("media") or ()):
+                    if media.get("kind") == "img":
+                        yield f"/runs/{r}/screens/{s}/form/questions/{q}/media/{m}/src", media
+
+
 def webapps_differences(
     before, after, *, check, document, artifact, traces=None, published=None, splits=None, reviewed_sites=None,
+    question_images=None,
 ):
-    """Every difference between the client's screens on two states, as ``artifact``: ``before`` the baseline's."""
+    """Every difference between the client's screens on two states, as ``artifact``: ``before`` the baseline's.
+
+    When requested, retain the raw address on each side for image widgets still paired by the comparison.
+    A newly reachable worker's substitute baseline comes from ordinary B, so it has no raw address in A.
+    """
     shown_before, shown_after = comparable_screens(before), comparable_screens(after)
+    if question_images is not None:
+        original_before = {id(image): (at, image) for at, image in _question_image_addresses(shown_before)}
+        original_after = {id(image): (at, image) for at, image in _question_image_addresses(shown_after)}
     if traces is not None:
         _newly_listed(before, after, shown_before, shown_after, traces, published)
     if splits and traces:
@@ -753,6 +771,12 @@ def webapps_differences(
         if reviewed_sites is not None:
             reviewed_sites.update({(artifact, at): place for at, place in sites.items()})
     one_screen(shown_before, shown_after)
+    if question_images is not None:
+        right = dict(_question_image_addresses(shown_after))
+        for at, image in _question_image_addresses(shown_before):
+            left_origin, right_origin = original_before.get(id(image)), original_after.get(id(right.get(at)))
+            if left_origin and right_origin:
+                question_images[at] = (left_origin[0], right_origin[0])
     return compare_json(
         shown_before, shown_after, check=check, document=document, artifact=artifact, data_maps=SCREEN_DATA_MAPS
     )

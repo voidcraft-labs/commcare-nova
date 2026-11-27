@@ -1191,7 +1191,7 @@ def _archive_forms(path) -> dict:
 
 def served_equivalence(
     document, records, name, observed, sessions, *, has_local, local_ccz=None, always_b=False, menus=None,
-    catalog_advisory=None, local_files=None, splits=None, reviewed_sites=None, declared=None,
+    catalog_advisory=None, local_files=None, splits=None, reviewed_sites=None, declared=None, question_images=None,
 ):
     """Proof 3's differences in what Formplayer and the Web Apps client make of one configuration's states.
 
@@ -1362,7 +1362,7 @@ def served_equivalence(
                     artifact=f"{WEBAPPS}@B",
                     traces=(trace_a, trace_b),
                     published=published,
-                    splits=splits.get("B"), reviewed_sites=reviewed_sites,
+                    splits=splits.get("B"), reviewed_sites=reviewed_sites, question_images=question_images,
                 )
             if opportunity is not None:
                 found += connect.differences(
@@ -1533,7 +1533,15 @@ def advised_picker_names(app, hq_files, local_files, labels):
 def document_behavior(document, records, *, native_sites=None):
     """Proof 3's differences on one document: each configuration it is exported under, judged from its records,
     each against the local archive Nova compiles for that configuration's project space."""
-    from proof.checks import android, changes, native_question_split, observations, repeated_case_names, served_places
+    from proof.checks import (
+        android,
+        caption_images,
+        changes,
+        native_question_split,
+        observations,
+        repeated_case_names,
+        served_places,
+    )
 
     found = []
     compared = set()
@@ -1597,6 +1605,8 @@ def document_behavior(document, records, *, native_sites=None):
                         (before.get("releaseDiffers") or {}).get("differing") or (),
                         (states[side].get("releaseDiffers") or {}).get("differing") or (),
                     )
+        saved_read = served_places.review_read(document) == "saved"
+        question_images = {} if saved_read and document.hq_side.get("mediaReplaced") else None
         served = served_equivalence(
             document.id,
             records,
@@ -1612,10 +1622,18 @@ def document_behavior(document, records, *, native_sites=None):
             splits=splits,
             reviewed_sites=reviewed_sites,
             declared=declared,
+            question_images=question_images,
         )
-        native = verified_webapps_media_renames(
-            document, name, records, verified_caption_renames(document, name, records, local_files, served)
-        )
+        if saved_read:
+            native = caption_images.saved_renames(
+                document, name, records, observed, local_files, served, before,
+                (records.configurations[name].b_aligned or {}).get("served") or {}, reviewed_sites,
+                sessions=sessions, question_images=question_images,
+            )
+        else:
+            native = verified_webapps_media_renames(
+                document, name, records, verified_caption_renames(document, name, records, local_files, served),
+            )
         if _served_a(records, name) is not None and (
             (records.configurations[name].b_aligned or {}).get("served") or {}
         ).get("local"):

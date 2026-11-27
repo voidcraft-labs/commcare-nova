@@ -308,3 +308,25 @@ def test_existing_repeat_retry_and_reconciliation_must_still_belong_to_the_same_
     else:
         assert [r.path for r in rows] == ["/runs/*/reviewedDateTime/*"]
         assert len(sites) == 1
+
+
+def test_image_comparison_keeps_the_original_widget_addresses_after_a_date_time_split():
+    from proof.checks.served import webapps_differences
+
+    (fa, a), (fb, b) = observations("a"), observations("b")
+    for record, src in ((a, "old.png"), (b, "new.png")):
+        for screen in record["runs"][0]["screens"]:
+            screen["form"]["questions"][-1]["media"] = [{"kind": "img", "src": src}]
+
+    addresses = {}
+    rows = webapps_differences(
+        a, b, check="proof3", document="doc", artifact="webapps@B",
+        traces=(fa, fb), splits=SPLITS, question_images=addresses,
+    )
+    assert any(row.path == "/runs/*/reviewedDateTime/*" for row in rows)
+    images = [row for row in rows if row.path == "/runs/*/screens/*/form/questions/*/media/*/src"]
+    assert [(d.before, d.after) for d in images] == [("old.png", "new.png")] * 2
+    for s, row in enumerate(images):
+        at = f"/runs/0/screens/{s}/form/questions/2/media/0/src"
+        assert row.at == at
+        assert addresses[at] == (at, at.replace("/questions/2/", "/questions/3/"))
