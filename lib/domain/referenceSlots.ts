@@ -778,6 +778,15 @@ export const FORM_REFERENCE_SLOTS = [
 	},
 	{
 		entity: "form",
+		slot: "case_operation_placement_external_id_day_field",
+		path: "caseOperations[].placement.externalIdCalendarDayField",
+		// The published Basic slot keeps the identity of the same direct
+		// datetime answer the typed external ID write reads.
+		kind: "entity-uuid",
+		formTypes: FORM_TYPES,
+	},
+	{
+		entity: "form",
 		slot: "case_operation_link_target_type",
 		path: "caseOperations[].links[].targetType",
 		kind: "case-type-ref",
