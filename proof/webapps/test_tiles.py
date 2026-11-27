@@ -472,7 +472,7 @@ def test_tile_group_expression_in_the_connection_name_has_no_parent_value(
     database = casedata.database_of_restore((document.root / "restore.xml").read_bytes())
     observed = {}
     with webapps_hq.project(document, "maximum") as project:
-        for identifier in ("parent", "parent/parent"):
+        for identifier in ("parent/parent", "parent"):
             posted = _edit_tile_group_identifier(project, editor_driver, identifier)
             assert json.loads(posted["case_tile_group"])["index_identifier"] == identifier
             with project.released(formplayer_runner, database=database, label=f"group-{len(observed)}") as release:
