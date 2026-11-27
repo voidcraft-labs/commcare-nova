@@ -371,15 +371,17 @@ it("rekeys only a unique live legacy Search heading and records both source posi
 	).toBe("Find a client");
 	(body.translations as Record<string, Record<string, string>>).en[currentKey] =
 		"Other saved words";
-	const conflict = await read();
-	if (conflict.kind !== "account")
-		throw Error("Two stored values need a placed finding");
-	expect(conflict.findings).toContainEqual(
-		expect.objectContaining({
-			code: "application-and-settings/translations-generated-key-anything-else",
-			detail: { name: oldKey },
-		}),
+	const dormant = await read();
+	if (dormant.kind !== "read") throw Error(JSON.stringify(dormant.findings));
+	expect(expandDoc(dormant.draft.doc).translations?.en[currentKey]).toBe(
+		"Find a client",
 	);
+	expect(
+		dormant.draft.facts.sameStateRewrites.filter(
+			(row) => row.register === changes,
+		),
+	).toHaveLength(3);
+
 	(body.translations as Record<string, Record<string, string>>).en[currentKey] =
 		"Find a client";
 	const duplicate = await read();

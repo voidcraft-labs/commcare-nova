@@ -1752,6 +1752,14 @@ def test_legacy_search_group_wording_requires_the_exact_source_pair_and_owning_r
     assert held(duplicate) == [f"/translations/en/{old}"]
     assert not held(duplicate, {change: places[::2]})
     assert not held([row for row in duplicate if not row.at.endswith("/group_key")])
+    dormant_before = app("g", old, extra={new: "Dormant words"})
+    replaced = compare(dormant_before, b)
+    assert held(replaced) == held(paired)
+    assert not held([row for row in replaced if row.at == f"/translations/en/{new}"])
+
+    in_use = app("g", old, extra={new: "Dormant words"})
+    in_use["modules"][0]["search_config"]["properties"].append({"name": "another", "group_key": "group_header_0"})
+    assert not held(compare(in_use, b))
     sibling_old = "search_property.m0.unrelated"
     sibling_new = "search_property.m0.group_header_42"
     with_siblings = compare(
@@ -1780,7 +1788,6 @@ def test_legacy_search_group_wording_requires_the_exact_source_pair_and_owning_r
     for before, after in (
         (a, app("group_header_0", new, "Different words")),
         (a, app("group_header_0", new, extra={old: wording})),
-        (app("g", old, extra={new: "Dormant words"}), b),
         (a, app("group_header_0", new.replace(".m0.", ".m1."))),
         (a, app("group_header_0", new.replace("group_header_0", "unrelated"))),
         (a, app("group_header_0", new, field_group="different_group")),

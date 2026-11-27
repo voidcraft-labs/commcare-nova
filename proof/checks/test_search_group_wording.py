@@ -68,6 +68,12 @@ def test_build_move_needs_the_right_group_prompt_and_equal_locale_strings():
     duplicate_rows = [*rows[:4], *rows[5:]]
     duplicate = replace(sites, search_group_duplicates={("0", "0"): ("en", TITLE)})
     assert _held(duplicate_rows, duplicate) == duplicate_rows
+    dormant = "Dormant words"
+    dormant_sites = replace(sites, search_group_duplicates={("0", "0"): ("en", dormant)})
+    dormant_rows = [*rows[:4], replace(rows[4], kind="changed", before=dormant), *rows[5:]]
+    assert _held(dormant_rows, dormant_sites) == dormant_rows
+    wrong_previous = [*dormant_rows[:4], replace(dormant_rows[4], before="Other words"), *dormant_rows[5:]]
+    assert wrong_previous[4] not in _held(wrong_previous, dormant_sites)
     altered_duplicate = [*duplicate_rows[:3], replace(duplicate_rows[3], before="Other words"), *duplicate_rows[4:]]
     assert altered_duplicate[3] not in _held(altered_duplicate, duplicate)
     alternate_hint = replace(rows[5], before="Real instructions"), replace(rows[6], after="Real instructions")

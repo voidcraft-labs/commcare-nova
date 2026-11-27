@@ -1320,6 +1320,30 @@
 				"kind": "removed"
 			},
 			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/translations/*/replaced_dormant_search_group_heading",
+				"kind": "removed"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/translations/*/replaced_dormant_search_group_heading",
+				"kind": "changed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "*/app_strings:*",
+				"path": "/search_property.m*.*",
+				"kind": "changed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "app_strings:*",
+				"path": "/search_property.m*.*",
+				"kind": "changed"
+			},
+			{
 				"check": "proof2",
 				"artifact": "app_strings:*",
 				"path": "/search_property.m*.*",

@@ -181,6 +181,13 @@ def translation_competes_with_a_saved_legacy_search_group_heading(authoring, app
         ops.upload_commcare_translation(authoring.state, app_id, "search_property.m0.group_header_0", "Other saved words")
 
 
+def translation_competes_with_a_legacy_heading_in_two_languages(authoring, app_id):
+    """A competing key with a second build language needs its own fallback evidence."""
+    translation_competes_with_a_saved_legacy_search_group_heading(authoring, app_id)
+    ops.set_json(authoring, app_id, "/langs", ["en", "es"])
+    ops.set_json(authoring, app_id, "/build_langs", ["en", "es"])
+
+
 def translation_duplicates_a_saved_legacy_search_group_heading(authoring, app_id):
     """The live heading and its dormant current key store the same wording."""
     translation_overrides_a_saved_legacy_search_group_heading(authoring, app_id)
