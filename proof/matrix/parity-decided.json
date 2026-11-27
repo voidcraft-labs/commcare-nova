@@ -633,6 +633,7 @@
 		"hq-questions/save-to-case-without-role",
 		"hq-questions/save-to-case-worker-in-repeat",
 		"hq-questions/save-to-case-worker-under-condition",
+		"hq-questions/save-to-case-worker-in-query-repeat",
 		"hq-questions/save-to-case-worker-under-repeat-condition",
 		"hq-questions/second-default",
 		"hq-questions/secret-numeric",

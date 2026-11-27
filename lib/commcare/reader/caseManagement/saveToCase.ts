@@ -1832,8 +1832,7 @@ function readBlock(
 		if (
 			target.kind === "worker-record" &&
 			block.repeat !== null &&
-			(conditionWrapper !== undefined ||
-				block.repeat.field.repeat_mode === "query_bound" ||
+			(block.repeat.field.repeat_mode === "query_bound" ||
 				enclosingRepeat(xform, block.repeat) !== null)
 		)
 			return fail(SAVE_TO_CASE_CLAIMS.workerFacet);

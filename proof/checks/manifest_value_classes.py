@@ -12038,9 +12038,13 @@ def worker_record_save_to_case_shape(use):
         if (
             len(scopes) != 1
             or any(form.paths[node] in scopes for node in form.model_repeats)
-            or _local(parent).startswith("nova_condition_")
         ):
             return "repeat-held"
+        if _local(parent).startswith("nova_condition_"):
+            guard = form.bind(form.paths[parent])
+            if guard is None or not guard.get("relevant"):
+                return None
+            parent = parent.getparent()
         if _local(parent).startswith("nova_operations") and len(form.save_to_case) == 1:
             return "repeat"
         return None
