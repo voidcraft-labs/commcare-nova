@@ -570,7 +570,11 @@ that leaves the rest of the order intact. The receiver also ignores a suffix
 after an explicit comparison. A literal with a single nonempty suffix on a
 supported term is written without that suffix and records
 `search-order-unused-suffix-removed` at its saved value. A blank comparison
-resets the preceding sort and remains held.
+resets the preceding sort and remains held. A single literal default order
+over a custom property with no competing order or request control on the
+built-in Search path gets an exact refusal for an unmapped comparison
+(`case_search/models.py::_parse_commcare_sort_properties`,
+`es/mappings/case_search_mapping.py::CASE_SEARCH_MAPPING`).
 
 `matchingResolver` answers a key the map holds with its UUID and gives any other key a UUID the
 map holds under no key (`identity.ts::freeEntityUuid`): a map holds a renamed entity's UUID, minted

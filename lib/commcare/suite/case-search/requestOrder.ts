@@ -64,6 +64,22 @@ function orderKeyRefusal(key: string): "reserved" | "device-only" | undefined {
 	if (isDeviceOnlyCaseProperty(key)) return "device-only";
 }
 
+/** The built-in receiver cannot sort on an unmapped index subfield. The
+ * analyzed phonetic field exists, so its behavior is outside this finding. */
+export function unmappedSingleOrderComparison(text: string): boolean {
+	const [key, comparison, ...more] = text.replace(/^[+-]+/, "").split(":");
+	return (
+		key !== undefined &&
+		comparison !== undefined &&
+		more.length === 0 &&
+		!SERVER_ORDER_RECORD_KEYS.has(key) &&
+		orderKeyRefusal(key) === undefined &&
+		authoredCasePropertyNameSchema.safeParse(key).success &&
+		/^[A-Za-z][A-Za-z0-9_-]*$/.test(comparison) &&
+		!["exact", "numeric", "date", "phonetic"].includes(comparison)
+	);
+}
+
 function orderRefusal(keys: readonly string[]) {
 	const reasons = keys.map(orderKeyRefusal);
 	if (reasons.includes("reserved")) return "reserved";

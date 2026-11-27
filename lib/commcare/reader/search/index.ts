@@ -40,6 +40,7 @@ import {
 	readRequestOrderText,
 	requestOrderText,
 	requestOrderTextRefusal,
+	unmappedSingleOrderComparison,
 } from "../../suite/case-search/requestOrder";
 import { simpleArmNeedsXPathQueryEmission } from "../../suite/case-search/simpleArmDerivation";
 import { rethrowWorkStop } from "../../workMeter";
@@ -183,6 +184,10 @@ export const SEARCH_CLAIMS = defineClaims("search", {
 	),
 	sortDeviceOnly: refuse(
 		`${S}a-server-order-naming-a-property-only-devices-hold`,
+		"schema:DefaultCaseSearchProperty.property",
+	),
+	unmappedOrderComparison: refuse(
+		`${S}default-order-with-an-unmapped-comparison`,
 		"schema:DefaultCaseSearchProperty.property",
 	),
 	sortKey: refuse(
@@ -378,6 +383,19 @@ function readDefaultFilters(
 	const filters: SearchFilter[] = [];
 	const stored = cursor.peek("default_properties");
 	const entries = objectMembers(stored) ?? [];
+	const dedicatedOrder = cursor.peek("custom_sort_properties");
+	const singleBuiltInOrder =
+		module.json.peek("doc_type") === "Module" &&
+		!cursor.peek("case_search_endpoint_id") &&
+		!cursor.peek("data_registry") &&
+		(dedicatedOrder === undefined ||
+			(Array.isArray(dedicatedOrder) && dedicatedOrder.length === 0)) &&
+		entries.filter((entry) => entry.property === "commcare_sort").length ===
+			1 &&
+		entries.every(
+			(entry) =>
+				entry.property === "commcare_sort" || entry.property === "_xpath_query",
+		);
 	const markersOnly =
 		!hasPrompts &&
 		entries.length > 0 &&
@@ -452,6 +470,7 @@ function readDefaultFilters(
 			// A literal order is held among the filters, where it arrived; one
 			// naming a property Nova reserves is refused under its own entry.
 			let sortRefusal: ReturnType<typeof requestOrderTextRefusal>;
+			let unmappedComparison = false;
 			if (property === "commcare_sort") {
 				const syntax = readFormSyntax(value);
 				const text =
@@ -462,6 +481,10 @@ function readDefaultFilters(
 					text === undefined ? undefined : readRequestOrderText(text);
 				sortRefusal =
 					text === undefined ? undefined : requestOrderTextRefusal(text);
+				unmappedComparison =
+					text !== undefined &&
+					singleBuiltInOrder &&
+					unmappedSingleOrderComparison(text);
 				if (parsedOrder !== undefined) {
 					const { order, removedSuffix } = parsedOrder;
 					const occurrence = names.get(property)?.length ?? 0;
@@ -516,7 +539,14 @@ function readDefaultFilters(
 					? C.sortReserved
 					: sortRefusal === "device-only"
 						? C.sortDeviceOnly
-						: keyFinding(property, value, ownersExpression, relatedPropertySet);
+						: unmappedComparison
+							? C.unmappedOrderComparison
+							: keyFinding(
+									property,
+									value,
+									ownersExpression,
+									relatedPropertySet,
+								);
 			if (claim === undefined) {
 				if (
 					property === "case_type" ||

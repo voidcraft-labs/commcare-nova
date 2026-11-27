@@ -688,6 +688,7 @@
 		"hq-search/default-filter-naming-an-endpoint",
 		"hq-search/default-filter-reading-a-form-answer",
 		"hq-search/default-filter-sorting-by-a-saved-status",
+		"hq-search/default-filter-sorting-by-an-unknown-comparison",
 		"hq-search/default-filter-sorting-by-case-location",
 		"hq-search/default-filter-with-no-value",
 		"hq-search/field-from-a-mobile-report",

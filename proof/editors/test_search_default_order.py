@@ -71,13 +71,24 @@ def test_the_case_list_save_keeps_literal_sort_terms_the_receiver_interprets(hq,
         reset_columns = [next(iter(term)) for term in reset.es_query["sort"]]
         assert [column.rsplit(".", 1)[-1] for column in reset_columns] == ["numeric", "date", "exact", "date"]
 
+        single_saved, single = saved_query(["++priority:exact"])
+        single_ids = [hit["_id"] for hit in single.run().raw_hits]
+        assert len(single_ids) == 2 and single_ids[0] == "c" and single_ids[1] in {"a", "b"}
+
         invalid_saved, invalid = saved_query(["++priority:unknown"])
         with pytest.raises(ESError, match=r"(?i)No mapping found.+value\.unknown") as refused:
             invalid.run()
+
+        masked_saved, masked = saved_query(["++priority:unknown", "+priority::ignored", "-visit:date"])
+        masked_ids = [hit["_id"] for hit in masked.run().raw_hits]
+        assert masked.es_query["sort"] == reset.es_query["sort"]
+        assert masked_ids == reset_ids
 
     write_evidence("search-default-control-probe", {
         "canonical": {"saved": saved, "caseIds": canonical_ids},
         "ignoredSuffix": {"saved": suffix_saved, "caseIds": suffix_ids},
         "reset": {"saved": reset_saved, "caseIds": reset_ids, "sortColumns": reset_columns},
+        "validSingle": {"saved": single_saved, "caseIds": single_ids},
         "invalid": {"saved": invalid_saved, "response": str(refused.value)},
+        "maskedByReset": {"saved": masked_saved, "caseIds": masked_ids},
     })
