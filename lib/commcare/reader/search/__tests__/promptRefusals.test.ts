@@ -155,6 +155,34 @@ it.each([
 	},
 );
 
+it("keeps a raw publisher collision outside unmatched-topic admission", async () => {
+	const body = exportedBody(PROMPTS);
+	sharedAddress(body);
+	promptsOf(body)[0].name = "home||city";
+	promptsOf(body)[1].receiver_expression = "home||city";
+	const outcome = readHqApp(await inputFor(body), { claims: "full" });
+	if (outcome.kind !== "account")
+		throw new Error(
+			"Expected the saved publisher and receiver to need review.",
+		);
+	expect(outcome.defects).toEqual([]);
+	const receiverEntry = `${S}receiver-expression`;
+	expect(outcome.findings).toEqual(
+		expect.arrayContaining([
+			expect.objectContaining({ code: receiverEntry, standing: "not-yet" }),
+		]),
+	);
+	expect(
+		[...outcome.claims.records()].filter(
+			(record) =>
+				record.where ===
+				"/modules/0/search_config/properties/1/receiver_expression",
+		),
+	).toEqual([
+		expect.objectContaining({ entry: receiverEntry, standing: "not-yet" }),
+	]);
+});
+
 it("keeps an unmatched topic byte for byte beside a live address subscription", async () => {
 	const { doc } = await documentOf((body) => {
 		sharedAddress(body);
