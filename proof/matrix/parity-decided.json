@@ -78,11 +78,11 @@
 		"hq-case-lists/audio-column",
 		"hq-case-lists/automatic-fixed-text-callout",
 		"hq-case-lists/calculated-callout",
-		"hq-case-lists/callout-with-a-multi-step-field-argument",
 		"hq-case-lists/calculation-loading-faster",
 		"hq-case-lists/call-link-on-the-detail",
 		"hq-case-lists/callout-name-with-the-callout-off",
 		"hq-case-lists/callout-on-case-detail",
+		"hq-case-lists/callout-with-a-multi-step-field-argument",
 		"hq-case-lists/callout-with-worker-name",
 		"hq-case-lists/case-detail-custom-tile",
 		"hq-case-lists/case-detail-template-tile",
@@ -337,7 +337,8 @@
 		"hq-lookups/itemset-filter-numeric-row-index",
 		"hq-lookups/itemset-filter-position-of-scalar",
 		"hq-lookups/itemset-filters-available-cases-by-survey-readiness",
-		"hq-lookups/itemset-property-as-label"
+		"hq-lookups/itemset-property-as-label",
+		"hq-lookups/itemset-sort"
 	],
 	"hq-media": [
 		"hq-media/form-media-for-every-language",
