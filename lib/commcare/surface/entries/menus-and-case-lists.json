@@ -3201,7 +3201,7 @@
 		"surfaceKeys": ["schema:Detail.filter"],
 		"valueClass": "lifts-into-predicate",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: `caseListConfig.filter`. An ordinary device list can preserve a check that its own case type is present in the worker’s restore. Each candidate already satisfies that check.",
+		"dispositionCell": "**HELD**: `caseListConfig.filter`. An ordinary device list can require at least one or at least two restored cases of its own type. The second case must be visible to the same worker.",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",

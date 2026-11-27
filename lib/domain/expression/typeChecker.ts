@@ -93,7 +93,7 @@ import {
 	readsRestoredCaseTypeQuery,
 	recordPositionVerdict,
 	restoredCasePropertyMatch,
-	sameTypeRestoredPresence,
+	sameTypeRestoredThreshold,
 	searchSessionTextOrder,
 	TEXT_SHAPED_TYPES,
 	TIME_ORDERING_MESSAGE,
@@ -801,15 +801,15 @@ export function checkExpression(
 	) {
 		const row = ctx.rows[0];
 		if (
-			!sameTypeRestoredPresence(
+			sameTypeRestoredThreshold(
 				expression,
 				row?.kind === "case" ? row.caseType : undefined,
-			)
+			) === undefined
 		)
 			errors.push(
 				refusal(
 					"arm-unavailable",
-					"A case list can check whether its own type is present among the worker’s restored cases.",
+					"A case list can check for one or two restored cases of its own type.",
 					"device-list-restored-type-presence",
 				),
 			);

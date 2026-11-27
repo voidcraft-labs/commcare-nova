@@ -260,11 +260,15 @@ def test_first_case_list_row_already_witnesses_its_restored_case_type(hq, core_r
     from proof.observe.build import arrange
 
     case_ns = f"{{{CASE_XMLNS}}}"
-    restored = etree.fromstring(person_cases(SESSION_RESTORE.read_bytes(), ["one"]))
-    restored.find(f".//{case_ns}create/{case_ns}case_type").text = "client"
-    restore = etree.tostring(restored)
+    def restore_of(clients, *other):
+        names = (*clients, *other)
+        restored = etree.fromstring(person_cases(SESSION_RESTORE.read_bytes(), names))
+        for case in restored.iter(f"{case_ns}case"):
+            if case.get("case_id") in clients:
+                case.find(f"{case_ns}create/{case_ns}case_type").text = "client"
+        return etree.tostring(restored)
 
-    def visible_ids(name, list_filter):
+    def visible_ids(name, list_filter, restore):
         app = _search_app(state.domain, list_filter)
         app.modules[0].search_config = CaseSearch()
         app._id = f"list-count-{name}"
@@ -286,6 +290,10 @@ def test_first_case_list_row_already_witnesses_its_restored_case_type(hq, core_r
         }
 
     with hq_check(Configuration()) as (state, _):
-        assert visible_ids("plain", None) == {"case_one"}
-        assert visible_ids("same-type-exists", COUNT_CASES.replace("> 1", "> 0")) == {"case_one"}
-        assert visible_ids("another-case-required", COUNT_CASES) == set()
+        one = restore_of(("one",))
+        assert visible_ids("plain", None, one) == {"case_one"}
+        assert visible_ids("same-type-exists", COUNT_CASES.replace("> 1", "> 0"), one) == {"case_one"}
+        assert visible_ids("another-type-is-not-a-witness", COUNT_CASES, restore_of(("one",), "other")) == set()
+        assert visible_ids("another-case-required", COUNT_CASES, one) == set()
+        two = restore_of(("one", "two"))
+        assert visible_ids("another-case-witnesses-type", COUNT_CASES, two) == {"case_one", "case_two"}

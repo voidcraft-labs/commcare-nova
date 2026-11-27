@@ -8990,6 +8990,23 @@
 	{
 		"id": "hq-case-lists/filter-counts-more-than-one-restored-case",
 		"base": "hq-case-lists",
+		"entry": "menus-and-case-lists/detail-filter-value-lifts-into-predicate",
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/0/case_details/short/filter",
+			"value": "count(instance('casedb')/casedb/case[@case_type = 'patient']) > 1"
+		},
+		"holds": [
+			{
+				"key": ["module", { "$menu": 0 }],
+				"pointer": "/caseListConfig/filter/right/term/value",
+				"value": 1
+			}
+		]
+	},
+	{
+		"id": "hq-case-lists/filter-counts-more-than-two-restored-case",
+		"base": "hq-case-lists",
 		"entry": "menus-and-case-lists/detail-filter-value-outside-predicate",
 		"standing": "not-yet",
 		"place": {
@@ -9000,7 +9017,7 @@
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/0/case_details/short/filter",
-			"value": "count(instance('casedb')/casedb/case[@case_type = 'patient']) > 1"
+			"value": "count(instance('casedb')/casedb/case[@case_type = 'patient']) > 2"
 		}
 	},
 	{
