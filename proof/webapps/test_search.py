@@ -1370,3 +1370,53 @@ def test_standalone_search_detail_with_a_missing_prompt_keeps_fixed_text(
                 assert {"header": "Submitted village", "value": "Entered []"} in run.screens[-1]["detail"]["rows"], (
                     label, run.screens,
                 )
+
+
+@pytest.mark.parametrize("village_answer", ["north", ""], ids=["answered", "missing"])
+def test_an_unguarded_answer_on_a_search_first_result_list(
+    hq, formplayer_runner, editor_driver, webapps_documents, evidence, village_answer,
+):
+    from proof.hq import operations
+    from proof.matrix import ops, registry
+    from proof.matrix.authoring import Authoring
+    from proof.observe.search_address import enable_address_search
+
+    document = webapps_documents["hq-search"]
+    variant = next(row for row in registry.load_variants() if row.id == "hq-search/search-input-in-the-results-detail")
+    data = casedata.document_case_database(document)
+    client = next(case for case in data.cases if case.case_type == "client")
+    client = dataclasses.replace(client, name="Result details witness", properties=(
+        ("village", "north"), ("last_visit", "2025-01-01"),
+    ))
+    data = dataclasses.replace(data, cases=(client,))
+    with webapps_hq.authored_project(document, "A", configure=enable_address_search) as project:
+        authoring = Authoring(project.unit, {}, document.id, operation=project.unit.operation)
+        ops.set_json(authoring, project.app_id, variant.change["pointer"], variant.change["value"])
+        app = operations.held_app(project.unit, project.app_id)
+        app.cloudcare_enabled = True
+        app.save()
+        module = app.modules[0]
+        assert module.search_config.auto_launch and not module.search_config.inline_search
+        assert module.case_details.short.columns[1].field == variant.change["value"]
+        with project.released(
+            formplayer_runner, database=data, driver=editor_driver,
+            saves=((pages.CASE_LIST, project.module_id(0)),), label="search-first-result-prompt",
+        ) as release:
+            run = Session(release, editor_driver).run([
+                *steps.open_app("Client search"), *steps.choose("Clients"),
+                *steps.choose("Followup Form"), *steps.arrive(any_screen=True),
+                steps.SCREEN, *steps.type_prompt(0, "Result details witness"),
+                *(steps.type_prompt(1, village_answer) if village_answer else []), *steps.run_search(),
+                *steps.arrive(any_screen=True), steps.SCREEN,
+            ])
+            observed = {
+                "stored": release.doc["modules"][0]["case_details"]["short"]["columns"][1],
+                "screens": run.screens, "pageErrors": run.page_errors,
+                "dialogs": run.dialogs, "outcomes": run.outcomes,
+            }
+            evidence("search-first-result-prompt", observed)
+            assert not run.page_errors and not run.dialogs, observed
+            assert observed["stored"]["field"] == variant.change["value"], observed
+            row, = run.screens[-1]["list"]["rows"]
+            assert row["id"] == f"row-{client.case_id}", observed
+            assert row["cells"][1]["text"] == village_answer, observed
