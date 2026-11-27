@@ -1035,6 +1035,9 @@ A change that holds one removes its line.
   (`caseManagement/saveToCase.ts::readBlock`). CommCare keeps a name and an external id as the case's
   own value, and the gate holds a link only in a property of its own
   (`CAPTURE_CASE_WRITE_STANDARD_PROPERTY`).
+- **An Advanced follow-up with two manual case choices** can use a direct property of the
+  earlier case to fill one passive root label. A write from that label stays with the later
+  selected case. Competing starting values on the same label keep the specific finding.
 - **A fresh root Save to Case create with a later guarded owner** holds both owner leaves
   in its one case block. The reader keeps the initial owner on creation and reads the
   later owner and its condition separately. The generated scalar guard checks the later
