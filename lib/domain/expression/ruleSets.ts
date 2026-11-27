@@ -403,9 +403,9 @@ export function searchSessionTextOrder(
 	right: Expression,
 ): boolean {
 	return (
-		kind === "gt" &&
 		left.kind === "term" &&
 		left.term.kind === "session-context" &&
+		(kind === "gt" || (kind === "lt" && left.term.field === "deviceid")) &&
 		(left.term.field === "username" ||
 			left.term.field === "userid" ||
 			left.term.field === "deviceid") &&

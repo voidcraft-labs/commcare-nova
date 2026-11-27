@@ -2100,7 +2100,7 @@ export const SLOT_ENTRIES: Readonly<Record<RegisteredSlotName, SlotRow>> = {
 					walkExpression(bound, {
 						visitExpression(expression) {
 							if (
-								expression.kind === "gt" &&
+								(expression.kind === "gt" || expression.kind === "lt") &&
 								searchSessionTextOrder(
 									expression.kind,
 									expression.left,

@@ -40203,6 +40203,30 @@
 	{
 		"id": "hq-search/button-compares-the-declared-device-id-below-text",
 		"base": "hq-search",
+		"entry": "case-search/search-button-display-condition-lifting-into-predicate",
+		"change": {
+			"op": "named",
+			"name": "search_button_compares_device_id_below_with_session"
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseSearchConfig/searchButtonDisplayCondition/left/term",
+				"value": {
+					"kind": "session-context",
+					"field": "deviceid"
+				}
+			}
+		]
+	},
+	{
+		"id": "hq-search/button-orders-one-session-value-against-another",
+		"base": "hq-search",
 		"entry": "case-search/search-button-display-condition-outside-predicate",
 		"standing": "not-yet",
 		"place": {
@@ -40212,7 +40236,7 @@
 		},
 		"change": {
 			"op": "named",
-			"name": "search_button_compares_device_id_below_with_session"
+			"name": "search_button_orders_two_session_values"
 		}
 	},
 	{
@@ -44052,6 +44076,30 @@
 	{
 		"id": "hq-search/owner-exclusion-using-a-less-than-device-id-comparison",
 		"base": "hq-search",
+		"entry": "case-search/blacklisted-owner-ids-expression-lifting-into-valueexpression",
+		"change": {
+			"op": "named",
+			"name": "owner_exclusion_on_a_less_than_device_id"
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 1
+					}
+				],
+				"pointer": "/caseSearchConfig/excludedOwnerIds/cond/left/term",
+				"value": {
+					"kind": "session-context",
+					"field": "deviceid"
+				}
+			}
+		]
+	},
+	{
+		"id": "hq-search/owner-exclusion-orders-two-session-values",
+		"base": "hq-search",
 		"entry": "case-search/blacklisted-owner-ids-expression-outside-valueexpression",
 		"standing": "not-yet",
 		"place": {
@@ -44061,7 +44109,7 @@
 		},
 		"change": {
 			"op": "named",
-			"name": "owner_exclusion_on_a_less_than_device_id"
+			"name": "owner_exclusion_orders_two_session_values"
 		}
 	},
 	{
@@ -46362,6 +46410,82 @@
 	{
 		"id": "hq-search/starting-value-using-a-less-than-device-id-comparison",
 		"base": "hq-search",
+		"entry": "case-search/default-value-ordering-the-worker-name",
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/0/search_config/properties/1",
+			"value": {
+				"name": "village",
+				"label": {
+					"en": "Village"
+				},
+				"hint": {},
+				"hidden": false,
+				"allow_blank_value": false,
+				"exclude": false,
+				"required": {
+					"test": null,
+					"text": {},
+					"doc_type": "Assertion"
+				},
+				"validations": [],
+				"itemset": {
+					"doc_type": "Itemset"
+				},
+				"is_group": false,
+				"doc_type": "CaseSearchProperty",
+				"default_value": "if(instance('commcaresession')/session/context/deviceid < 'm', 'north', 'south')"
+			}
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/searchInputs/1/default",
+				"value": {
+					"kind": "if",
+					"cond": {
+						"kind": "lt",
+						"left": {
+							"kind": "term",
+							"term": {
+								"kind": "session-context",
+								"field": "deviceid"
+							}
+						},
+						"right": {
+							"kind": "term",
+							"term": {
+								"kind": "literal",
+								"value": "m"
+							}
+						}
+					},
+					"then": {
+						"kind": "term",
+						"term": {
+							"kind": "literal",
+							"value": "north"
+						}
+					},
+					"else": {
+						"kind": "term",
+						"term": {
+							"kind": "literal",
+							"value": "south"
+						}
+					}
+				}
+			}
+		]
+	},
+	{
+		"id": "hq-search/starting-value-orders-two-session-values",
+		"base": "hq-search",
 		"entry": "case-search/default-value-outside-valueexpression",
 		"standing": "not-yet",
 		"place": {
@@ -46392,7 +46516,7 @@
 				},
 				"is_group": false,
 				"doc_type": "CaseSearchProperty",
-				"default_value": "if(instance('commcaresession')/session/context/deviceid < 'm', 'north', 'south')"
+				"default_value": "if(instance('commcaresession')/session/context/deviceid < instance('commcaresession')/session/context/userid, 'north', 'south')"
 			}
 		}
 	},

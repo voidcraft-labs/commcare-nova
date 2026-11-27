@@ -5806,7 +5806,10 @@ def _orders_worker_identity(node):
     def contains_order(node):
         if not isinstance(node, tuple):
             return False
-        if len(node) == 3 and node[0] == "GT" and node[1] in worker_paths:
+        if len(node) == 3 and (
+            (node[0] == "GT" and node[1] in worker_paths)
+            or (node[0] == "LT" and node[1] == worker_paths[2])
+        ):
             literal = node[2]
             if isinstance(literal, tuple) and len(literal) == 2 and literal[0] == "str":
                 value = literal[1]
