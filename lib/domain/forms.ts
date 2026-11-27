@@ -618,6 +618,7 @@ export type CaseTypeCalculation = z.infer<typeof caseTypeCalculationSchema>;
 const ownerAfterCreateSchema = z.strictObject({
 	value: valueSchema,
 	condition: conditionSchema,
+	keepOwnerTextAfterWrites: z.literal(true).optional(),
 });
 export type OwnerAfterCreate = z.infer<typeof ownerAfterCreateSchema>;
 

@@ -2203,6 +2203,21 @@ def save_to_case_create_with_conditioned_owner_update(authoring, app_id):
     )
 
 
+def save_to_case_create_with_other_unchecked_owner(authoring, app_id):
+    """The case-name guard does not check this separate owner calculation."""
+    _save_to_case(
+        authoring, app_id, "save-to-case-create-with-other-unchecked-owner",
+        (STC_UPDATE, "<update><head/><owner_id/></update>", 1),
+        (
+            STC_HEAD_BIND,
+            STC_HEAD_BIND
+            + f'<bind nodeset="{MAKE}/update/owner_id" calculate="concat(/data/full_name, &apos;x&apos;)"'
+            ' relevant="/data/age &gt; 5"/>',
+            1,
+        ),
+    )
+
+
 def save_to_case_fresh_create_with_later_owner(authoring, app_id):
     """A fresh root create with a later guarded owner inside the same case block."""
     condition = "/data/age &gt; 5"

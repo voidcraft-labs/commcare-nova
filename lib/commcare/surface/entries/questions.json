@@ -4283,7 +4283,7 @@
 		"surfaceKeys": ["xform:model/bind@relevant"],
 		"valueClass": "guarded-owner-after-fresh-create",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: A standalone fresh create retains its initial owner and changes it only when the later owner condition holds. Sibling properties save either way.",
+		"dispositionCell": "**HELD**: A standalone fresh create retains its initial owner and changes it only when the later owner condition holds. Sibling properties save either way. A later owner after the sibling writes can also keep the submitted text when the checked create name uses that same root Text answer.",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",

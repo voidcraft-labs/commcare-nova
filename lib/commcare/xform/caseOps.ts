@@ -1316,17 +1316,21 @@ export function buildCaseOperations(
 			  }
 			| undefined;
 		const optionalScalarTextPaths: FormPath[] = [];
+		const keepLaterOwnerTextAfterWrites =
+			operation.ownerAfterCreate?.keepOwnerTextAfterWrites === true;
 		const updateChildren: Element[] = [];
 		if (rename !== undefined) updateChildren.push(el("case_name", {}));
 		if (operation.retype !== undefined)
 			updateChildren.push(el("case_type", {}));
 		if (
 			(!create && operation.owner !== undefined) ||
-			operation.ownerAfterCreate !== undefined
+			(operation.ownerAfterCreate !== undefined &&
+				!keepLaterOwnerTextAfterWrites)
 		) {
 			updateChildren.push(el("owner_id", {}));
 		}
 		for (const write of writes) updateChildren.push(el(write.property, {}));
+		if (keepLaterOwnerTextAfterWrites) updateChildren.push(el("owner_id", {}));
 
 		const caseChildren: Element[] = [];
 		if (create) {
@@ -1573,6 +1577,7 @@ export function buildCaseOperations(
 					),
 				);
 			}
+			let laterOwnerBind: Element | undefined;
 			const later = operation.ownerAfterCreate;
 			const owner = create ? later?.value : operation.owner;
 			if (owner !== undefined) {
@@ -1585,41 +1590,40 @@ export function buildCaseOperations(
 					: "case_operation_owner_condition";
 				if (ownerCondition === undefined)
 					requiredScalarTextPaths.push(ownerPath);
-				else
+				else if (!keepLaterOwnerTextAfterWrites)
 					conditionalOwner = {
 						path: ownerPath,
 						condition: ownerCondition,
 						slot,
 					};
-				blockBinds.push(
-					xel(
-						"bind",
-						{
-							xpath: {
-								nodeset: ownerPath.toWire(),
-								...(ownerCondition !== undefined && {
-									relevant: emitExpression(
-										ownerCondition,
-										ownerPath,
-										ownSlot(slot),
-									),
-								}),
-								calculate: caseScalarTextValueCalculation(
-									emitExpression(
-										owner,
-										ownerPath,
-										ownSlot(
-											create
-												? "case_operation_later_owner"
-												: "case_operation_owner",
-										),
-									),
-								),
-							},
-						},
-						context,
+				const value = emitExpression(
+					owner,
+					ownerPath,
+					ownSlot(
+						create ? "case_operation_later_owner" : "case_operation_owner",
 					),
 				);
+				const bind = xel(
+					"bind",
+					{
+						xpath: {
+							nodeset: ownerPath.toWire(),
+							...(ownerCondition !== undefined && {
+								relevant: emitExpression(
+									ownerCondition,
+									ownerPath,
+									ownSlot(slot),
+								),
+							}),
+							calculate: keepLaterOwnerTextAfterWrites
+								? value
+								: caseScalarTextValueCalculation(value),
+						},
+					},
+					context,
+				);
+				if (keepLaterOwnerTextAfterWrites) laterOwnerBind = bind;
+				else blockBinds.push(bind);
 			}
 			for (const write of writes) {
 				const writePath = updatePath.child(write.property);
@@ -1713,6 +1717,7 @@ export function buildCaseOperations(
 				}
 				blockBinds.push(xel("bind", { xpath: attributes }, context));
 			}
+			if (laterOwnerBind !== undefined) blockBinds.push(laterOwnerBind);
 		}
 		if (closesHere) {
 			const condition = own ? ownCloseCondition() : operation.closeCondition;

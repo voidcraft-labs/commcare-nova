@@ -842,6 +842,7 @@ export interface ProposedBlock {
 	readonly ownerAfterCreate?: {
 		readonly owner: ProposedOwner;
 		readonly condition: { readonly text: string; readonly site: ClaimSite };
+		readonly keepOwnerTextAfterWrites?: true;
 	};
 	readonly closeCondition?: { readonly text: string; readonly site: ClaimSite };
 	readonly place: HqPlace;
@@ -2029,10 +2030,26 @@ function readBlock(
 			}
 			if (property === "owner_id") {
 				if (creates && bind.attribs.relevant !== undefined) {
+					const guardedOwner =
+						rows[0] === row &&
+						untrimmed(text).trimmed &&
+						laterOwnerGuardIsHeld(xform, block, bind.attribs.relevant);
+					const sharedName = name?.readsField;
+					// The existing create-name guard checks the same answer after the
+					// device's trim. Keep the text submitted by HQ and the row order.
+					const keepOwnerTextAfterWrites =
+						rows.length > 1 &&
+						rows.at(-1) === row &&
+						sharedName?.field.kind === "text" &&
+						name !== undefined &&
+						name.keepNameText !== true &&
+						fieldIdsOf(sharedName).length === 1 &&
+						text === `/${root}/${fieldIdsOf(sharedName)[0]}` &&
+						calc("case/create/case_name") !== undefined &&
+						untrimmed(calc("case/create/case_name") as string).trimmed &&
+						!laterOwnerGuardIsHeld(xform, block, bind.attribs.relevant);
 					if (
-						rows[0] !== row ||
-						!untrimmed(text).trimmed ||
-						!laterOwnerGuardIsHeld(xform, block, bind.attribs.relevant) ||
+						(!guardedOwner && !keepOwnerTextAfterWrites) ||
 						target.kind !== "new" ||
 						target.idFrom !== undefined ||
 						target.authoredId !== undefined ||
@@ -2048,6 +2065,9 @@ function readBlock(
 							at: { element: bind, attribute: "relevant" },
 						};
 					ownerAfterCreate = {
+						...(keepOwnerTextAfterWrites && {
+							keepOwnerTextAfterWrites: true as const,
+						}),
 						owner: readOwner(untrimmed(text).text, root, {
 							element: bind,
 							attribute: "calculate",
@@ -4187,6 +4207,9 @@ function operationOf(
 			}),
 			...(one.ownerAfterCreate !== undefined && {
 				ownerAfterCreate: {
+					...(one.ownerAfterCreate.keepOwnerTextAfterWrites && {
+						keepOwnerTextAfterWrites: true as const,
+					}),
 					value:
 						one.ownerAfterCreate.owner.kind === "unowned"
 							? unowned()

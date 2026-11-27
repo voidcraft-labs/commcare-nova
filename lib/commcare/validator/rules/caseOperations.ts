@@ -960,6 +960,34 @@ function validateOperation(
 		);
 	}
 	if (operation.ownerAfterCreate !== undefined) {
+		const laterOwner = operation.ownerAfterCreate;
+		const name =
+			operation.name?.kind === "term" ? operation.name.term : undefined;
+		const answer =
+			laterOwner.value.kind === "term" ? laterOwner.value.term : undefined;
+		const sharedRootText =
+			operation.action === "create" &&
+			operation.keepNameText !== true &&
+			(operation.writes?.length ?? 0) > 0 &&
+			name?.kind === "field" &&
+			name.filters === undefined &&
+			name.role === undefined &&
+			answer?.kind === "field" &&
+			answer.filters === undefined &&
+			answer.role === undefined &&
+			name.uuid === answer.uuid &&
+			ctx.doc.fieldOrder[ctx.formUuid]?.includes(name.uuid) === true &&
+			ctx.fields.get(name.uuid)?.kind === "text";
+		if (laterOwner.keepOwnerTextAfterWrites && !sharedRootText)
+			errors.push(
+				opError(
+					ctx,
+					operation,
+					"CASE_OPERATION_OWNER_CONDITION_INVALID",
+					"An unchanged later owner needs the same root Text answer as the case name and a saved property before it.",
+					{ reason: "standalone-fresh-create" },
+				),
+			);
 		if (
 			!canSetOwnerAfterCreate(
 				operation,

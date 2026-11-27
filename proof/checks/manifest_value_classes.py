@@ -12682,7 +12682,6 @@ def guarded_owner_after_fresh_create(use):
         or holder.get(f"{{{VELLUM}}}role") != "SaveToCase"
         or holder.get(f"{{{VELLUM}}}case_type") in (None, "", USER_CASE_TYPE)
         or [_local(action) for action in case] != ["create", "update"]
-        or next(iter(update), None) is not node
         or update.find(f"{{{CASE}}}case_type") is not None
         or form.in_repeat(form.paths[holder])
     ):
@@ -12707,9 +12706,21 @@ def guarded_owner_after_fresh_create(use):
     def text_bound(path):
         return f"string-length({path}) > 0 and string-length({path}) <= 255"
 
-    expected = (f"if((not({condition}) or {text_bound(sibling + '/update/owner_id')})"
-                f" and {text_bound(sibling + '/create/case_name')} and {text_bound(sibling + '/create/owner_id')},"
-                f" {sibling}/@case_id, '')")
+    bounds = f"{text_bound(sibling + '/create/case_name')} and {text_bound(sibling + '/create/owner_id')}"
+    if next(iter(update), None) is node:
+        bounds = f"(not({condition}) or {text_bound(sibling + '/update/owner_id')}) and {bounds}"
+    elif len(update) > 1 and update[-1] is node:
+        # The same root answer is already checked by the trimmed create name.
+        answer = bind.get("calculate")
+        match = re.fullmatch(r"/[A-Za-z_][A-Za-z0-9_]*/[A-Za-z_][A-Za-z0-9_]*", answer)
+        name = form.bind(f"{block_path}/case/create/case_name")
+        trim = f"replace({answer}, '^[\\x00-\\x20]+|[\\x00-\\x20]+$', '')"
+        if (match is None or form.node(answer) is None or name is None
+                or expression_tree(name.get("calculate") or "") != expression_tree(trim)):
+            return False
+    else:
+        return False
+    expected = f"if({bounds}, {sibling}/@case_id, '')"
     expected_tree = expression_tree(expected)
     return expected_tree is not None and expression_tree(guard.get("calculate") or "") == expected_tree
 

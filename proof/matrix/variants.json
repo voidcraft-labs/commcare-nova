@@ -38852,6 +38852,22 @@
 	{
 		"id": "hq-questions/save-to-case-create-with-conditioned-owner-update",
 		"base": "hq-questions",
+		"entry": "questions/savetocase-guarded-owner-after-fresh-create",
+		"change": {
+			"op": "named",
+			"name": "save_to_case_create_with_conditioned_owner_update"
+		},
+		"holds": [
+			{
+				"key": ["form", { "$xmlns": [0, 0] }],
+				"pointer": "/caseOperations/0/ownerAfterCreate/keepOwnerTextAfterWrites",
+				"value": true
+			}
+		]
+	},
+	{
+		"id": "hq-questions/save-to-case-create-with-other-unchecked-owner",
+		"base": "hq-questions",
 		"entry": "questions/savetocase-update-owner-condition",
 		"standing": "not-yet",
 		"place": {
@@ -38864,7 +38880,7 @@
 		},
 		"change": {
 			"op": "named",
-			"name": "save_to_case_create_with_conditioned_owner_update"
+			"name": "save_to_case_create_with_other_unchecked_owner"
 		}
 	},
 	{

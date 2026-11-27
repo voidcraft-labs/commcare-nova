@@ -2390,6 +2390,7 @@ export const NON_REFERENCE_FORM_PATHS: Readonly<
 	"caseOperations[].writes[].onlyIfChanged": "config",
 	"caseOperations[].nameOnlyIfChanged": "config",
 	"caseOperations[].keepNameText": "config",
+	"caseOperations[].ownerAfterCreate.keepOwnerTextAfterWrites": "config",
 	"caseOperations[].renameOnlyIfChanged": "config",
 	"caseOperations[].ownerOnlyIfChanged": "config",
 	// Imported case-type calculations contain literal pieces only.
