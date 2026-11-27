@@ -1489,6 +1489,18 @@ export const FIRST_PUBLISH_CHANGES: Readonly<
 		},
 		paths: ["/modules/*/search_config/default_properties/*/defaultValue"],
 	},
+	"search-address-receiver-suffix-removed": {
+		touchesWorkers: false,
+		scope: "reading",
+		applies: sameStateRecorded("search-address-receiver-suffix-removed"),
+		at: {
+			kinds: ["menu"],
+			places: (facts) =>
+				recordedPlaces(facts, "search-address-receiver-suffix-removed"),
+		},
+		paths: ["/modules/*/search_config/properties/*/receiver_expression"],
+	},
+
 	/**
 	 * A sort rule over a property the list doesn't show, written as a hidden
 	 * column, recorded by `caseList/order.ts` where a sort element names a

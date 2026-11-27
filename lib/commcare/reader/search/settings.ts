@@ -1818,6 +1818,13 @@ function searchDifference(
 	const uuidAt = new Map(
 		prompts.map((prompt) => [prompt.cursor.pointer, prompt.uuid]),
 	);
+	const savedReceivers = new Map(
+		prompts.flatMap(({ cursor, canonicalReceiver }) =>
+			canonicalReceiver === undefined
+				? []
+				: [[cursor.pointer, canonicalReceiver] as const],
+		),
+	);
 	let firstField: string | undefined;
 	for (const [index, prompt] of promptsA.entries()) {
 		let projected = promptsB[index] as JsonObject;
@@ -1877,13 +1884,18 @@ function searchDifference(
 				validations: [{ ...ours[0], test: stored[0].test }],
 			};
 		}
-		const key = promptDifference(
-			codes,
-			source,
-			prompt.one,
-			projected,
-			validationTexts.get(prompt.pointer),
-		);
+		const savedReceiver = savedReceivers.get(prompt.pointer);
+		const key =
+			savedReceiver !== undefined &&
+			projected.receiver_expression !== savedReceiver
+				? "schema:CaseSearchProperty.receiver_expression"
+				: promptDifference(
+						codes,
+						source,
+						prompt.one,
+						projected,
+						validationTexts.get(prompt.pointer),
+					);
 		fields?.set(prompt.pointer, key);
 		if (key !== undefined && fields === undefined) return key;
 		firstField ??= key;
