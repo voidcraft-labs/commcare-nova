@@ -73,6 +73,7 @@ import {
 	type ReadSourceNames,
 	type ReadXForm,
 } from "./index";
+import { stripXsd } from "./kinds";
 import {
 	effectiveLoadOrder,
 	type LoadStep,
@@ -368,16 +369,25 @@ function settleBothSources(ctx: ReadContext, form: DraftForm): void {
 		const bind = xform.binds.get(field.node);
 		if (
 			field.bothSources.typeDeferred &&
-			bind !== undefined &&
+			bind?.type !== undefined &&
 			sites.type !== undefined &&
 			sites.type.key !== null
-		)
+		) {
+			const typeSite = { element: bind.element, attribute: "type" };
 			ctx.accounting.claimEntry(
-				{ element: bind.element, attribute: "type" },
+				typeSite,
 				sites.type.entry,
 				sites.type.key,
 				field.place,
 			);
+			if (stripXsd(bind.type) === "string")
+				ctx.accounting.claimEntry(
+					typeSite,
+					sites.type.entry,
+					"jr-type:string",
+					field.place,
+				);
+		}
 	}
 }
 

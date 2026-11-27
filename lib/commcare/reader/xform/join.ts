@@ -692,9 +692,12 @@ export function joinForm(input: JoinInput): JoinedForm {
 			bind?.type !== undefined &&
 			typeClaim !== undefined &&
 			!(bothSources && typeClaim === sites.type)
-		)
-			cursor.take({ element: bind.element, attribute: "type" }, typeClaim)
-				.value;
+		) {
+			const typeSite = { element: bind.element, attribute: "type" };
+			cursor.take(typeSite, typeClaim).value;
+			if (row.kind === "hidden" && facts.bindType === "string")
+				cursor.within(typeSite, typeClaim, ["jr-type:string"]);
+		}
 		const field = make(
 			node,
 			parent,

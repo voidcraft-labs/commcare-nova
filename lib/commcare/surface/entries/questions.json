@@ -1246,7 +1246,8 @@
 			"mug:DataBindOnly",
 			"xform:model/bind",
 			"xform:model/bind@nodeset",
-			"xform:model/bind@type"
+			"xform:model/bind@type",
+			"jr-type:string"
 		],
 		"valueClass": "hidden-value-with-one-value-source",
 		"disposition": "HELD",
@@ -1273,7 +1274,11 @@
 		"area": "questions",
 		"section": "Question types",
 		"item": "Hidden Value with neither",
-		"surfaceKeys": ["mug:DataBindOnly", "xform:model/bind@type"],
+		"surfaceKeys": [
+			"mug:DataBindOnly",
+			"xform:model/bind@type",
+			"jr-type:string"
+		],
 		"valueClass": "hidden-value-without-value-source",
 		"disposition": "HELD",
 		"dispositionCell": "**HELD**: `hidden`",
@@ -1299,7 +1304,11 @@
 		"area": "questions",
 		"section": "Question types",
 		"item": "Hidden Value with both `calculate` and a default, by any expression spelling of its setvalue, where a runtime can read the default: a later load-time setvalue reads it, directly or through a calculation, or the Hidden Value stands in a repeat",
-		"surfaceKeys": ["mug:DataBindOnly", "xform:model/bind@type"],
+		"surfaceKeys": [
+			"mug:DataBindOnly",
+			"xform:model/bind@type",
+			"jr-type:string"
+		],
 		"valueClass": "hidden-value-with-calculate-and-default",
 		"disposition": "HELD",
 		"dispositionCell": "**HELD**: independent starting answer and calculation",
@@ -1327,7 +1336,11 @@
 		"area": "questions",
 		"section": "Question types",
 		"item": "Hidden Value with both `calculate` and a default, by any expression spelling of its setvalue, outside every repeat, where no later load-time setvalue reads the default, directly or through a calculation",
-		"surfaceKeys": ["mug:DataBindOnly", "xform:model/bind@type"],
+		"surfaceKeys": [
+			"mug:DataBindOnly",
+			"xform:model/bind@type",
+			"jr-type:string"
+		],
 		"valueClass": "hidden-value-default-overwritten-before-any-read",
 		"disposition": "HELD",
 		"dispositionCell": "**HELD**: independent starting answer and calculation, including a starting answer the calculation replaces before any read",
