@@ -452,6 +452,12 @@ test("a Search requirement can change which restored case type it counts", async
 	await page
 		.getByRole("button", { name: "Edit condition", exact: true })
 		.click();
+	await page
+		.getByRole("button", {
+			name: "Edit count of cases on this device",
+			exact: true,
+		})
+		.click();
 	const source = page.getByRole("combobox", { name: "Records to count" });
 	await expect(source).toContainText("patient");
 	await source.click();
