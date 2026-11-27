@@ -20972,6 +20972,15 @@
 	{
 		"id": "hq-case-management/save-to-case-own-case-beside",
 		"base": "hq-case-management",
+		"entry": "questions/a-basic-own-text-write-after-an-authored-update",
+		"change": {
+			"op": "named",
+			"name": "save_to_case_own_case_beside"
+		}
+	},
+	{
+		"id": "hq-case-management/save-to-case-own-case-beside-a-fixed-write",
+		"base": "hq-case-management",
 		"entry": "questions/a-savetocase-change-of-the-form-s-own-case-beside-the-form-s-own-change-of-it",
 		"standing": "not-yet",
 		"place": {
@@ -20983,11 +20992,20 @@
 		},
 		"change": {
 			"op": "named",
-			"name": "save_to_case_own_case_beside"
+			"name": "save_to_case_own_case_beside_a_fixed_write"
 		}
 	},
 	{
 		"id": "hq-case-management/save-to-case-positioned-beside-own",
+		"base": "hq-case-management",
+		"entry": "questions/a-basic-own-text-write-after-an-authored-update",
+		"change": {
+			"op": "named",
+			"name": "save_to_case_positioned_beside_own"
+		}
+	},
+	{
+		"id": "hq-case-management/save-to-case-positioned-fixed-write-beside-own",
 		"base": "hq-case-management",
 		"entry": "questions/a-positioned-case-change-coupled-to-an-hq-case-action",
 		"standing": "not-yet",
@@ -21001,7 +21019,7 @@
 		},
 		"change": {
 			"op": "named",
-			"name": "save_to_case_positioned_beside_own"
+			"name": "save_to_case_positioned_fixed_write_beside_own"
 		}
 	},
 	{

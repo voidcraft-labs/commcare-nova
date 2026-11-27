@@ -541,7 +541,7 @@ ITEMSET_FILTER = "questions/itemset-filter-outside-predicate"
 ITEMSET_PREDICATE = "questions/itemset-filter-lifting-into-predicate"
 HELD_AVAILABLE_CASES = "questions/itemset-over-casedb-in-nova-s-case-choices-shape"
 ITEMSET_NODESETS = frozenset({"xform:select1/itemset@nodeset", "xform:select/itemset@nodeset"})
-OWN_CASE_BESIDE = "questions/a-savetocase-change-of-the-form-s-own-case-beside-the-form-s-own-change-of-it"
+BASIC_OWN_TEXT_OVERLAP = "questions/a-basic-own-text-write-after-an-authored-update"
 DATE_TO_TEXT = "questions/a-savetocase-retype-that-keeps-a-date-as-text"
 RETYPE_CONVERTS = "questions/a-savetocase-change-of-a-case-s-type-to-a-type-that-holds-one-of-its-properties-as-another-type"
 REQUIRED_DATE_RETYPE = "questions/a-fresh-case-retype-that-overwrites-text-with-a-required-date"
@@ -895,7 +895,7 @@ def _forms_variant_uses(found, held, entries):
     """Source facts retained variants can decide without the full corpus's runtime observations."""
     wanted = {
         AUTOMATIC_MULTI, LOCATION_WRITE, HYPHEN_TAG, EXTENDED_OPEN_INDEX, UNICODE_OPEN_INDEX, SHADOW_LOAD, SUPPLY_POINT,
-        OWN_CASE_BESIDE, LOOKUP_COUNT, BARE_LOOKUP_COUNT, GUARDED_LOOKUP_FALLBACK, ITEMSET_FILTER, ITEMSET_PREDICATE, HELD_AVAILABLE_CASES,
+        BASIC_OWN_TEXT_OVERLAP, LOOKUP_COUNT, BARE_LOOKUP_COUNT, GUARDED_LOOKUP_FALLBACK, ITEMSET_FILTER, ITEMSET_PREDICATE, HELD_AVAILABLE_CASES,
         PARENT_USER_WRITE, FIRST_ADVANCED_PARENT_WRITE,
         *REGISTRATION_ENTRIES, *RETYPE_ENTRIES,
         CONDITIONAL_WORKER_UPDATE, REPEATED_WORKER_UPDATE, HELD_REPEATED_WORKER_UPDATE, LATER_OWNER_ON_FRESH_CREATE,
@@ -931,10 +931,10 @@ def _forms_variant_uses(found, held, entries):
                     yield Decided(block, manifest_usage.HELD, (by_id[REQUIRED_DATE_RETYPE],))
                 elif not required and RETYPE_CONVERTS in wanted:
                     yield Decided(block, manifest_usage.HELD_NEW, (by_id[RETYPE_CONVERTS],))
-        if (OWN_CASE_BESIDE in wanted and use.key == "vellum-markup:model/instance//*@vellum:role"
+        if (BASIC_OWN_TEXT_OVERLAP in wanted and use.key == "vellum-markup:model/instance//*@vellum:role"
                 and save_to_case_before_optional_own_update(use)):
             block = manifest_usage.Use("mug:SaveToCase", use.artifact, use.where.rsplit("/", 1)[0], at)
-            yield Decided(block, manifest_usage.HELD_NEW, (by_id[OWN_CASE_BESIDE],))
+            yield Decided(block, manifest_usage.HELD, (by_id[BASIC_OWN_TEXT_OVERLAP],))
         if (wanted.intersection((CONDITIONAL_WORKER_UPDATE, REPEATED_WORKER_UPDATE, HELD_REPEATED_WORKER_UPDATE))
                 and use.key == "vellum-markup:model/instance//*@vellum:role"):
             shape = worker_record_save_to_case_shape(use)

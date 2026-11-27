@@ -94,6 +94,7 @@ import {
 	SchemaNotSyncedError,
 } from "@/lib/case-store/errors";
 import { CaseSearchUnavailableError } from "@/lib/case-store/searchRequest";
+import { basicOwnTextOverlap } from "@/lib/commcare/placement";
 import {
 	formSharingPlan,
 	planFormCaseWire,
@@ -2080,6 +2081,7 @@ function caseOperationAnswerScopes(
 	formUuid: Uuid,
 	answers: SubmissionOperationAnswers,
 	operations: readonly CaseOperation[],
+	appendedRoot?: readonly Uuid[],
 ): Pick<CaseOperationProgram, "scopes" | "scopeOrder" | "effectOrder"> {
 	const bindings = (entries: readonly SubmissionAnswerEntry[]) => {
 		const formFields = new Map<Uuid, SubmissionAnswerEntry["value"]>();
@@ -2120,7 +2122,7 @@ function caseOperationAnswerScopes(
 			iterations: (supplied.get(repeat)?.iterations ?? []).map(bindings),
 		})),
 	];
-	const layout = caseEffectLayout(doc, formUuid, operations);
+	const layout = caseEffectLayout(doc, formUuid, operations, appendedRoot);
 	if (!layout && !repeats.some((scope) => scope.parentRepeat !== undefined))
 		return { scopes };
 
@@ -2812,6 +2814,8 @@ export function buildCaseOperationProgramFromDoc(args: {
 	 * operation that names the case it creates inherits that condition, as a
 	 * consumer of any conditional create inherits its producer's. */
 	const ownOpenCondition = ownCase?.openCondition;
+	const overlap =
+		entryUuid === formUuid ? basicOwnTextOverlap(doc, formUuid) : undefined;
 	/* A question's answer saved as it is to the own case of a form that
 	 * updates it, or to the worker's record, saves nothing while the question
 	 * takes no part in the submission, as the wire's `count(path) > 0`
@@ -2865,6 +2869,8 @@ export function buildCaseOperationProgramFromDoc(args: {
 			if (day !== undefined) return !absentRootFields.has(day.field);
 			const answer = caseWriteValueField(write.value);
 			return (
+				(overlap?.own === operation.uuid &&
+					overlap.property === write.property) ||
 				answer === undefined ||
 				answer.link ||
 				!absentRootFields.has(answer.field as string)
@@ -2938,10 +2944,12 @@ export function buildCaseOperationProgramFromDoc(args: {
 				const field =
 					answer === undefined ? undefined : doc.fields[answer.field];
 				if (
-					write.via === undefined &&
-					answer?.link === false &&
-					field?.kind === "label" &&
-					caseWriteLabelSavesEmpty(field.askForConfirmation, field.banner)
+					(overlap?.own === operation.uuid &&
+						overlap.property === write.property) ||
+					(write.via === undefined &&
+						answer?.link === false &&
+						field?.kind === "label" &&
+						caseWriteLabelSavesEmpty(field.askForConfirmation, field.banner))
 				) {
 					emptyTextWrites.add(index);
 				}
@@ -3002,6 +3010,7 @@ export function buildCaseOperationProgramFromDoc(args: {
 		formUuid,
 		answers,
 		envelopeOperations.map(({ operation }) => operation),
+		overlap?.appended,
 	);
 
 	/* The same staleness one level finer. A peer can add a FIELD an operation

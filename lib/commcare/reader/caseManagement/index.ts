@@ -36,6 +36,7 @@ import {
 	menuMayLoadRegistryCase,
 } from "../../hq/publishedCaseBlocks";
 import {
+	basicOwnTextOverlap,
 	type PlacementSubject,
 	placedBasic,
 	planPlacements,
@@ -812,6 +813,18 @@ function settleCaseChanges(
 					formName: formDoc.name,
 				})),
 	];
+	const overlap = basicOwnTextOverlap(doc, form.uuid);
+	if (overlap !== undefined) {
+		const authored = saveToCaseReading(form)?.proposals.find(
+			(one) => one.uuid === overlap.authored,
+		);
+		if (authored !== undefined)
+			form.xform?.cursor.within(
+				{ element: authored.block.element },
+				SAVE_TO_CASE_CLAIMS.basicOwnTextOverlap,
+				["mug:SaveToCase"],
+			);
+	}
 	const operationOf = (finding: { readonly details?: unknown }) => {
 		const uuid = detail(finding, "operationUuid");
 		return operations.find((one) => one.uuid === uuid);

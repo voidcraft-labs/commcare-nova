@@ -99,6 +99,12 @@ def test_an_authored_update_precedes_case_management_for_the_same_case(
             ("no", [None], "", 1),
         ])
         authoring = Authoring(unit, {}, base=BASE, operation=unit.operation)
+        with unit.fork():
+            named_change("save_to_case_positioned_beside_own")(authoring, app_id)
+            positioned = _worker(unit, app_id, document, formplayer_runner, "positioned", [
+                ("yes", [AUTHORED, MANAGED], MANAGED, 2),
+                ("no", [AUTHORED, None], "", 2),
+            ])
         named_change("save_to_case_own_case_beside")(authoring, app_id)
         paired = _worker(unit, app_id, document, formplayer_runner, "paired", [
             ("yes", [AUTHORED, MANAGED], MANAGED, 2),
@@ -111,4 +117,4 @@ def test_an_authored_update_precedes_case_management_for_the_same_case(
         authored_only = _worker(unit, app_id, document, formplayer_runner, "authored-only", [
             ("no", [AUTHORED], AUTHORED, 1),
         ])
-    evidence("own-case-overlap", {"ordinary": ordinary, "paired": paired, "authoredOnly": authored_only})
+    evidence("own-case-overlap", {"ordinary": ordinary, "paired": paired, "positioned": positioned, "authoredOnly": authored_only})

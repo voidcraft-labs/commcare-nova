@@ -303,6 +303,10 @@ export const SAVE_TO_CASE_CLAIMS = defineClaims("caseManagement.saveToCase", {
 	/** A form whose Save to Case block writes a property of the form's own
 	 *  case the form's own change also writes, or closes that case beside it
 	 *  (`index.ts::settleCaseChanges`). */
+	basicOwnTextOverlap: take(
+		`${Q}/a-basic-own-text-write-after-an-authored-update`,
+		MUG,
+	),
 	ownCaseBeside: refuse(
 		`${Q}/a-savetocase-change-of-the-form-s-own-case-beside-the-form-s-own-change-of-it`,
 		MUG,

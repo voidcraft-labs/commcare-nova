@@ -162,12 +162,14 @@ type CaseEffectLayoutNode =
 
 /** The case blocks' order in the authored submission template. The root's
  * generated ordinary group leads; a repeat's group comes after its children.
- * A live submission expands a repeat node in concrete row order. Documents
- * without positioned blocks keep their established operation-group order. */
+ * A live submission expands a repeat node in concrete row order. The caller
+ * supplies an appended root sequence only where the wire plan proves Case
+ * Management adds it after the authored content. */
 export function caseEffectLayout(
 	doc: BlueprintDoc,
 	formUuid: Uuid,
 	operations: readonly CaseOperation[],
+	appendedRoot?: readonly Uuid[],
 ): readonly CaseEffectLayoutNode[] | undefined {
 	const { children, parents } = submissionLayout(
 		formUuid,
@@ -179,11 +181,13 @@ export function caseEffectLayout(
 		const field = doc.fields[uuid];
 		if (field?.kind === "case_change") positions.set(field.operationUuid, uuid);
 	}
-	if (positions.size === 0) return undefined;
+	if (positions.size === 0 && !appendedRoot?.length) return undefined;
 
+	const appendedIds = new Set(appendedRoot);
 	const positioned = new Map<Uuid, CaseOperation>();
 	const generated = new Map<Uuid | undefined, CaseOperation[]>();
 	for (const operation of operations) {
+		if (appendedIds.has(operation.uuid)) continue;
 		const fieldUuid = positions.get(operation.uuid);
 		if (fieldUuid !== undefined) positioned.set(fieldUuid, operation);
 		else {
@@ -214,7 +218,16 @@ export function caseEffectLayout(
 		}
 		return nodes;
 	};
-	return [...generatedAt(), ...walk(formUuid)];
+	const layout = [...generatedAt(), ...walk(formUuid)];
+	if (appendedRoot?.length) {
+		const operationsByUuid = new Map(operations.map((one) => [one.uuid, one]));
+		const appended = appendedRoot.flatMap((uuid) => {
+			const operation = operationsByUuid.get(uuid);
+			return operation === undefined ? [] : [operation];
+		});
+		layout.push({ kind: "generated", operations: appended });
+	}
+	return layout;
 }
 
 function caseOperationsInLayout(

@@ -3484,11 +3484,11 @@ def save_to_case_worker_overlapping(authoring, app_id):
     save_to_case_worker_twice(authoring, app_id, "last_visit_note")
 
 
-def save_to_case_own_case_beside(authoring, app_id):
+def save_to_case_own_case_beside(authoring, app_id, *, first_value="/data/new_member"):
     """In hq-case-management's third follow-up form, which writes the household's ``note``, a Save to Case update
     of the household writing ``note`` too."""
     block = _block(
-        "again", "household", "<update><note/></update>", MENU_CASE, [("update/note", 'calculate="/data/new_member"')]
+        "again", "household", "<update><note/></update>", MENU_CASE, [("update/note", f'calculate="{first_value}"')]
     )
     _edit(
         authoring,
@@ -3501,11 +3501,11 @@ def save_to_case_own_case_beside(authoring, app_id):
     )
 
 
-def save_to_case_positioned_beside_own(authoring, app_id):
+def save_to_case_positioned_beside_own(authoring, app_id, *, first_value="/data/new_member"):
     """In the same household visit, the update stands in the authored form itself beside the managed write."""
     data, binds = _block(
         "again", "household", "<update><note/></update>", MENU_CASE,
-        [("update/note", 'calculate="/data/new_member"')], group="/data",
+        [("update/note", f'calculate="{first_value}"')], group="/data",
     )
     _change(
         authoring, app_id, "save-to-case-positioned-beside-own",
@@ -3514,6 +3514,14 @@ def save_to_case_positioned_beside_own(authoring, app_id):
         ("</instance>\n", f"</instance>\n{SESSION_INSTANCE}\n", 1),
         form=2,
     )
+
+
+def save_to_case_own_case_beside_a_fixed_write(authoring, app_id):
+    save_to_case_own_case_beside(authoring, app_id, first_value="'fixed'")
+
+
+def save_to_case_positioned_fixed_write_beside_own(authoring, app_id):
+    save_to_case_positioned_beside_own(authoring, app_id, first_value="'fixed'")
 
 
 # More questions ------------------------------------------------------------------------------------------------------

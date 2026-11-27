@@ -3632,6 +3632,28 @@
 		"gates": []
 	},
 	{
+		"id": "questions/a-basic-own-text-write-after-an-authored-update",
+		"area": "questions",
+		"section": "Question types",
+		"item": "An authored case update and a Basic Case Management update of one Text property of the selected case",
+		"surfaceKeys": ["mug:SaveToCase"],
+		"valueClass": "basic-own-optional-text-after-authored-update",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: a basic single-case follow-up keeps one root authored update and the later Case Management update. Both read root Text answers. A blank optional answer still clears the earlier value.",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": { "reading": "runs" },
+			"android": { "reading": "runs" }
+		},
+		"emission": {
+			"cell": "authored Save to Case and native basic update",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
 		"id": "questions/a-savetocase-change-of-the-form-s-own-case-beside-the-form-s-own-change-of-it",
 		"area": "questions",
 		"section": "Question types",

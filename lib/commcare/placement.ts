@@ -32,8 +32,11 @@ import {
 	type AdvancedPlacement,
 	type BlueprintDoc,
 	type CaseOperation,
+	type CaseOperationWrite,
 	type CasePlacement,
 	type FormCaseSelection,
+	effectiveCaseTypes,
+	isStandardCaseListProperty,
 	opensWithWorkerValue,
 	operationSavesOnlyChanged,
 	type PlacementIneligibility,
@@ -55,6 +58,7 @@ import {
 } from "@/lib/domain/advancedEntryDatums";
 import {
 	appendedNameTaken,
+	bareRead,
 	basicCaseSlots,
 	type CaseSlotFacts,
 	type ConditionScope,
@@ -1121,6 +1125,138 @@ export function planPlacements(
 	};
 	forms.set(key, plan);
 	return plan;
+}
+
+/**
+ * HQ appends a basic form's Case Management update after its authored blocks.
+ * Keep this overlap only when both sides write one ordinary Text property of
+ * the same selected case. Other blocks may create fresh child cases but
+ * cannot change the selected case's identity, type or lifecycle.
+ */
+export function basicOwnTextOverlap(doc: BlueprintDoc, formUuid: Uuid) {
+	const facts = caseSlotFacts(doc, formUuid);
+	const own = facts.own;
+	const caseType = facts.module?.caseType;
+	if (
+		facts.form.type !== "followup" ||
+		facts.form.shadowOf !== undefined ||
+		facts.severalCases ||
+		facts.operations.length < 2 ||
+		own === undefined ||
+		own.action !== "own" ||
+		own.name !== undefined ||
+		own.owner !== undefined ||
+		own.links?.length ||
+		caseType === undefined ||
+		own.writes?.length !== 1
+	)
+		return undefined;
+
+	const prop = own.writes[0].property;
+	const isPlainTextWrite = (
+		write: CaseOperationWrite | undefined,
+		optional: boolean,
+	) => {
+		if (
+			write === undefined ||
+			write.property !== prop ||
+			write.via !== undefined ||
+			write.condition !== undefined ||
+			write.onlyIfChanged
+		)
+			return false;
+		const answer = bareRead(write.value);
+		const field = answer === undefined ? undefined : doc.fields[answer];
+		return (
+			answer !== undefined &&
+			doc.fieldParent[answer] === formUuid &&
+			field?.kind === "text" &&
+			field.relevant === undefined &&
+			(!optional || field.required === undefined)
+		);
+	};
+	if (
+		isStandardCaseListProperty(prop) ||
+		!isPlainTextWrite(own.writes[0], true) ||
+		!effectiveCaseTypes(doc)
+			.find((type) => type.name === caseType)
+			?.properties.some(
+				(property) =>
+					property.name === prop && (property.data_type ?? "text") === "text",
+			)
+	)
+		return undefined;
+
+	const plan = planPlacements(doc, formUuid);
+	if (
+		plan.formKind !== "basic" ||
+		plan.placements.get(own.uuid)?.placement.kind !== "basic"
+	)
+		return undefined;
+
+	const authored = facts.operations.filter(
+		(operation) =>
+			plan.placements.get(operation.uuid)?.placement.kind === "save-to-case",
+	);
+	const early = authored[0];
+	if (
+		authored.length !== 1 ||
+		early?.action !== "update" ||
+		early.target.kind !== "session" ||
+		early.caseType !== caseType ||
+		early.forEach !== undefined ||
+		early.condition !== undefined ||
+		early.rename !== undefined ||
+		early.owner !== undefined ||
+		early.retype !== undefined ||
+		early.closeAfter ||
+		early.links?.length ||
+		early.writes?.length !== 1 ||
+		!isPlainTextWrite(early.writes[0], false) ||
+		Object.values(doc.forms).some((form) => form.shadowOf?.form === formUuid)
+	)
+		return undefined;
+
+	if (
+		facts.positionedOperations.has(early.uuid) &&
+		!(facts.submittedChildren.get(formUuid) ?? []).some((uuid) => {
+			const field = doc.fields[uuid];
+			return (
+				field?.kind === "case_change" && field.operationUuid === early.uuid
+			);
+		})
+	)
+		return undefined;
+
+	const children = facts.operations.filter(
+		(operation) => operation !== own && operation !== early,
+	);
+	for (const child of children) {
+		const planned = plan.placements.get(child.uuid);
+		if (
+			child.action === "own" ||
+			child.forEach !== undefined ||
+			child.caseType === caseType ||
+			planned?.placement.kind !== "basic" ||
+			planned.placement.slot !== "subcase" ||
+			(child.action === "create" && child.target.kind !== "new") ||
+			(child.action === "create" &&
+				child.target.kind === "new" &&
+				(child.target.idFrom !== undefined ||
+					child.target.expr !== undefined)) ||
+			(child.action === "close" &&
+				(child.target.kind !== "op" ||
+					child.target.opUuid !== planned.sharesWith)) ||
+			child.action === "update"
+		)
+			return undefined;
+	}
+	return {
+		authored: early.uuid,
+		own: own.uuid,
+		property: prop,
+		appended: [...children.map(({ uuid }) => uuid), own.uuid],
+	};
 }
 
 /**

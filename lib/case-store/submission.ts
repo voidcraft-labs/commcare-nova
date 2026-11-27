@@ -158,7 +158,7 @@ export interface EnvelopeCaseOperation {
 	readonly basicExternalIdDay?: true;
 	/** A present, blank calendar-day source clears this Basic follow-up's case name. */
 	readonly basicOwnNameDay?: true;
-	/** Relevant labels with an installed empty answer still emit an empty leaf. */
+	/** A present Case Management text leaf or participating label saves its empty value. */
 	readonly emptyTextWrites?: ReadonlySet<number>;
 	/** A proven text-to-date overwrite on this submission's fresh case. */
 	readonly requiredDateRetypeProperty?: string;

@@ -12469,7 +12469,8 @@ def save_to_case_before_optional_own_update(use):
             or source.get("requires") != "case"
             or ((menu.get("case_details") or {}).get("short") or {}).get("multi_select")
             or not menu.get("case_type") or block.get(f"{{{VELLUM}}}case_type") != menu["case_type"]
-            or block.getparent().getparent() is not form.data_root):
+            or (block.getparent() is not form.data_root
+                and block.getparent().getparent() is not form.data_root)):
         return False
     blocks = [node for node in form.data_root.iter() if node.get(f"{{{VELLUM}}}role") == "SaveToCase"]
     if blocks != [block]:
@@ -12487,9 +12488,11 @@ def save_to_case_before_optional_own_update(use):
     authored = _one_save_to_case_write(form, block, case)
     if authored is None:
         return False
-    property_name, _ = authored
-    write = (own.get("update") or {}).get(property_name) or {}
-    if (property_name in SAVE_TO_CASE_RESERVED_UPDATE_KEYS or write.get("update_mode") != "always"
+    property_name, authored_type = authored
+    updates = own.get("update") or {}
+    write = updates.get(property_name) or {}
+    if (authored_type != "string" or len(updates) != 1
+            or property_name in SAVE_TO_CASE_RESERVED_UPDATE_KEYS or write.get("update_mode") != "always"
             or not form.controls.get(write.get("question_path"))):
         return False
     answer_path = expression_tree(write["question_path"])
@@ -12497,7 +12500,11 @@ def save_to_case_before_optional_own_update(use):
             or any(step[0] != "child" or step[2] != 0 for step in answer_path[4])):
         return False
     answer = form.bind(write["question_path"])
-    if answer is not None and (answer.get("required") or "").strip() not in ("", "false()", "false"):
+    if answer is not None and (
+        (answer.get("required") or "").strip()
+        or answer.get("relevant")
+        or _data_type(answer.get("type", "string")) != "string"
+    ):
         return False
     target = form.bind(f"{form.paths[block]}/case/@case_id")
     if target is None:

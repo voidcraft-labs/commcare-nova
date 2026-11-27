@@ -10,6 +10,7 @@ import {
 	ownCaseOperationFindings,
 } from "@/lib/commcare/ownCaseOperationFindings";
 import {
+	basicOwnTextOverlap,
 	placementIneligibility,
 	planPlacements,
 } from "@/lib/commcare/placement";
@@ -337,6 +338,7 @@ function mixedPositionOrderDependency(
 	operations: readonly CaseOperation[],
 	positioned: ReadonlySet<Uuid>,
 	operation: TargetedCaseOperation,
+	overlap: ReturnType<typeof basicOwnTextOverlap>,
 ): CaseOperation | undefined {
 	const { placements } = planPlacements(doc, formUuid);
 	const formType = doc.forms[formUuid]?.type;
@@ -356,7 +358,11 @@ function mixedPositionOrderDependency(
 		]);
 	const properties = writesOf(operation);
 	return operations.find((other) => {
-		if (positioned.has(other.uuid)) return false;
+		if (
+			positioned.has(other.uuid) ||
+			(overlap?.authored === operation.uuid && overlap.own === other.uuid)
+		)
+			return false;
 		const placement = placements.get(other.uuid)?.placement.kind;
 		if (placement !== "basic" && placement !== "advanced") return false;
 		if (
@@ -418,6 +424,8 @@ export function validateCaseOperations(
 		moduleName: module.name,
 		caseType: module.caseType,
 	});
+	const overlap =
+		operations.length === 0 ? undefined : basicOwnTextOverlap(doc, formUuid);
 	const positions = new Set<Uuid>();
 	// Position checks need submitted order and the enclosing repeat, even
 	// when an ID in that tree cannot yet be used as an XForm element name.
@@ -498,6 +506,7 @@ export function validateCaseOperations(
 						operations,
 						positioned,
 						operation,
+						overlap,
 					)
 				: undefined;
 		positions.add(field.operationUuid);
@@ -541,7 +550,7 @@ export function validateCaseOperations(
 	const seenUuids = new Set<Uuid>();
 	const seenIds = new Set<string>();
 	const priorCreates = new Map<Uuid, CaseOperation>();
-	errors.push(...ownCaseIndependenceFindings(ctx, operations));
+	errors.push(...ownCaseIndependenceFindings(ctx, operations, overlap));
 	errors.push(...workerRecordFindings(ctx, operations));
 	for (const violation of caseOperationTargetTypeOrderViolations(
 		doc,
@@ -1979,6 +1988,7 @@ function closeBesideEmptyBasicFollowup(
 function ownCaseIndependenceFindings(
 	ctx: OperationRuleContext,
 	operations: readonly CaseOperation[],
+	overlap: ReturnType<typeof basicOwnTextOverlap>,
 ): ValidationError[] {
 	const own = operations.find((operation) => operation.action === "own");
 	if (own === undefined) return [];
@@ -2022,6 +2032,11 @@ function ownCaseIndependenceFindings(
 		if (own.owner !== undefined && operation.owner !== undefined)
 			duplicate(operation, "owner_id");
 		for (const write of operation.writes ?? []) {
+			if (
+				overlap?.authored === operation.uuid &&
+				overlap.property === write.property
+			)
+				continue;
 			const key = caseWriteKeyOf(write);
 			if (
 				(own.name !== undefined &&
