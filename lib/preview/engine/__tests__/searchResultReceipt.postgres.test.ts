@@ -794,7 +794,9 @@ async function testStandaloneDetails(branch: (typeof detailVariants)[number]) {
 		...request,
 		previewRun: answered.opening.previewRun,
 		searchSubmission: crypto.randomUUID(),
-		inputValues: { [inputName]: date ? "2024-11-03" : "Nobody on this page" },
+		inputValues: range
+			? { "dob:from": "2024-11-01", "dob:to": "2024-11-30" }
+			: { [inputName]: date ? "2024-11-03" : "Nobody on this page" },
 	});
 	expect(empty).toMatchObject({ kind: "empty" });
 	expect(empty).not.toHaveProperty("resultReceipt");
