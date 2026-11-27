@@ -54,9 +54,7 @@ export interface SearchResultDetailFrame {
 	readonly answers: readonly SearchResultDetailAnswer[];
 }
 
-type KeptSearchResult = SearchResultsSnapshot & {
-	readonly detail?: SearchResultDetailFrame;
-};
+type ReceiptKind = "form" | "detail";
 
 async function withCurrentAudience<T>(
 	scope: SearchReceiptScope,
@@ -65,7 +63,7 @@ async function withCurrentAudience<T>(
 		key: Omit<OpeningDataKey, "contentDigest">,
 		tx: QueryExecutorProvider,
 	) => T | Promise<T>,
-	requireLiveSession = false,
+	kind: ReceiptKind,
 ): Promise<T | undefined> {
 	const { appId, moduleUuid, caseType, submission } = scope;
 	const { device, identity, sessionId } = context;
@@ -81,7 +79,7 @@ async function withCurrentAudience<T>(
 			);
 			if (access.projectId !== projectId) throw new AppAccessError("not_found");
 			if (
-				requireLiveSession &&
+				kind === "detail" &&
 				(await lockCurrentProjectGrant(
 					tx,
 					identity.actorUserId,
@@ -108,7 +106,9 @@ async function withCurrentAudience<T>(
 			return read(
 				{
 					audienceDigest: canonicalJsonDigest([
-						"nova.preview.search.response.v1",
+						kind === "detail"
+							? "nova.preview.search.detail.v1"
+							: "nova.preview.search.response.v1",
 						appId,
 						projectId,
 						identity.actorUserId,
@@ -144,18 +144,33 @@ export async function keepSearchResult(
 	scope: SearchReceiptScope,
 	context: Context,
 	instance: SearchResultsSnapshot,
-	detail?: SearchResultDetailFrame,
+): Promise<string> {
+	return keepSearchResponse(scope, context, instance, "form");
+}
+
+/** A result Detail keeps only the offered case IDs and the referenced prompts. */
+export async function keepSearchResultDetail(
+	scope: SearchReceiptScope,
+	context: Context,
+	frame: SearchResultDetailFrame,
+): Promise<string> {
+	return keepSearchResponse(scope, context, frame, "detail");
+}
+
+async function keepSearchResponse(
+	scope: SearchReceiptScope,
+	context: Context,
+	value: SearchResultsSnapshot | SearchResultDetailFrame,
+	kind: ReceiptKind,
 ): Promise<string> {
 	const key = await withCurrentAudience(
 		scope,
 		context,
 		(current) => current,
-		detail !== undefined,
+		kind,
 	);
 	if (key === undefined) throw new Error("Search response scope is missing.");
-	const snapshot: KeptSearchResult =
-		detail === undefined ? instance : { ...instance, detail };
-	const bytes = await compress(JSON.stringify(snapshot));
+	const bytes = await compress(JSON.stringify(value));
 	const contentDigest = bytesDigest(bytes);
 	await putFormOpeningData({ ...key, contentDigest }, bytes);
 	return contentDigest;
@@ -166,9 +181,9 @@ export async function readKeptSearchResult(
 	context: Context,
 	receipt: string | undefined,
 ): Promise<SearchResultsSnapshot | undefined> {
-	const snapshot = await readKeptSearchResponse(scope, context, receipt);
-	if (snapshot === undefined) return;
-	return { rows: snapshot.rows, totalMatches: snapshot.totalMatches };
+	return (await readKeptSearchResponse(scope, context, receipt, "form")) as
+		| SearchResultsSnapshot
+		| undefined;
 }
 
 /** Open only the prompt and primary result named by the originating response.
@@ -198,32 +213,29 @@ export async function readKeptSearchResultDetails(
 	receipt: string | undefined,
 	caseId: string,
 ): Promise<readonly SearchResultDetailAnswer[] | undefined> {
-	const snapshot = await readKeptSearchResponse(scope, context, receipt, true);
-	const frame = snapshot?.detail;
-	if (
-		!frame?.visibleCaseIds.includes(caseId) ||
-		!snapshot?.rows.some((row) => row.case_id === caseId)
-	)
-		return;
-	return frame.answers;
+	const frame = (await readKeptSearchResponse(
+		scope,
+		context,
+		receipt,
+		"detail",
+	)) as SearchResultDetailFrame | undefined;
+	return frame?.visibleCaseIds.includes(caseId) ? frame.answers : undefined;
 }
 
 async function readKeptSearchResponse(
 	scope: SearchReceiptScope,
 	context: Context,
 	receipt: string | undefined,
-	requireLiveSession = false,
-): Promise<KeptSearchResult | undefined> {
+	kind: ReceiptKind,
+): Promise<unknown> {
 	const parsed = digestKey.safeParse(receipt);
 	if (!parsed.success) return;
 	const bytes = await withCurrentAudience(
 		scope,
 		context,
 		(key, tx) => getFormOpeningData({ ...key, contentDigest: parsed.data }, tx),
-		requireLiveSession,
+		kind,
 	);
 	if (bytes === undefined || bytesDigest(bytes) !== parsed.data) return;
-	return JSON.parse(
-		(await decompress(bytes)).toString("utf8"),
-	) as KeptSearchResult;
+	return JSON.parse((await decompress(bytes)).toString("utf8"));
 }

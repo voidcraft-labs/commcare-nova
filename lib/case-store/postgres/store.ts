@@ -1303,20 +1303,33 @@ export class PostgresCaseStore implements CaseStore {
 	async querySearchResults(
 		args: QueryArgs,
 		grouping?: string,
-		captureInstance?: true,
+		capture?: true | "offered-primary-ids",
 	): Promise<SearchResultsPage> {
 		return this.withCaseSelect(args, async (built, tx, response) => {
 			if (response === undefined)
 				throw new Error("A search result page requires a completed request.");
 			const primaryCount = response.primary.length;
-			const instance = captureInstance
-				? await this.readSearchInstanceByIds(
-						response.tx,
-						args.appId,
-						response.primary,
-						response.supporting,
-					)
-				: undefined;
+			const instance =
+				capture === true
+					? await this.readSearchInstanceByIds(
+							response.tx,
+							args.appId,
+							response.primary,
+							response.supporting,
+						)
+					: undefined;
+			const primary =
+				capture === "offered-primary-ids"
+					? new Set(response.primary)
+					: undefined;
+			const receiptData = (rows: readonly CaseRowWithCalculated[]) => ({
+				...(instance && { instance }),
+				...(primary && {
+					offeredPrimaryIds: rows.flatMap(({ case_id }) =>
+						primary.has(case_id) ? [case_id] : [],
+					),
+				}),
+			});
 			const limit = args.limit;
 			const offset = Math.max(0, args.offset ?? 0);
 			const clamp = (total: number) =>
@@ -1339,11 +1352,12 @@ export class PostgresCaseStore implements CaseStore {
 				const position = clamp(page.totalGroups);
 				if (position !== offset && page.totalGroups)
 					page = await pageAt(position);
+				const rows = page.groups.flatMap((group) => group.rows);
 				return {
 					primaryCount,
-					...(instance && { instance }),
+					...receiptData(rows),
 					totalRows: page.totalRows,
-					rows: page.groups.flatMap((group) => group.rows),
+					rows,
 					offset: position,
 					grouped: page,
 				};
@@ -1354,14 +1368,15 @@ export class PostgresCaseStore implements CaseStore {
 				.executeTakeFirstOrThrow();
 			const totalRows = Number(counted.total);
 			const position = clamp(totalRows);
+			const rows = totalRows
+				? await this.readCasePage({ ...args, offset: position }, built)
+				: [];
 			return {
 				primaryCount,
-				...(instance && { instance }),
+				...receiptData(rows),
 				totalRows,
 				offset: position,
-				rows: totalRows
-					? await this.readCasePage({ ...args, offset: position }, built)
-					: [],
+				rows,
 			};
 		});
 	}

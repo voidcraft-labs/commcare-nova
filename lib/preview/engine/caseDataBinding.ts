@@ -197,6 +197,7 @@ import {
 } from "./searchInputValidation";
 import {
 	keepSearchResult,
+	keepSearchResultDetail,
 	readKeptSearchResult,
 	readKeptSearchResultDetails,
 } from "./searchResultReceipt";
@@ -850,43 +851,43 @@ export async function loadCasesAction(
 			doc && module && prepared.context.device.platform === "web-apps"
 				? searchResultDetailColumns(doc, module)
 				: [];
-		const captureDetail =
-			detailColumns.length > 0 && prepared.read.inputValues !== undefined;
-		const retain: Parameters<typeof readCases>[2] =
-			submission !== undefined &&
-			moduleUuid !== undefined &&
-			module &&
-			(moduleFormsReadSearch(module) || captureDetail)
-				? (instance, visibleRows) => {
-						const visible = new Set(visibleRows.map((row) => row.case_id));
-						return keepSearchResult(
-							{ appId, moduleUuid, caseType, submission },
-							prepared.context,
-							searchResultsSnapshotFromInstance(instance),
-							captureDetail
-								? {
-										visibleCaseIds: instance.primaryIds.filter((id) =>
-											visible.has(id),
-										),
-										answers: [
-											...new Map(
-												detailColumns.map(({ inputUuid, inputName }) => [
-													inputUuid,
-													{
-														inputUuid,
-														answer: args.defaultSearch
-															? null
-															: prepared.read.inputValues?.get(inputName) ||
-																null,
-													},
-												]),
-											).values(),
-										],
-									}
-								: undefined,
-						);
-					}
+		const scope =
+			submission !== undefined && moduleUuid !== undefined
+				? { appId, moduleUuid, caseType, submission }
 				: undefined;
+		const answers = prepared.read.inputValues;
+		let retain: Parameters<typeof readCases>[2];
+		if (scope && module && moduleFormsReadSearch(module))
+			retain = {
+				kind: "instance",
+				keep: (instance) =>
+					keepSearchResult(
+						scope,
+						prepared.context,
+						searchResultsSnapshotFromInstance(instance),
+					),
+			};
+		else if (scope && answers && detailColumns.length > 0)
+			retain = {
+				kind: "detail",
+				keep: (visibleCaseIds) =>
+					keepSearchResultDetail(scope, prepared.context, {
+						visibleCaseIds,
+						answers: [
+							...new Map(
+								detailColumns.map(({ inputUuid, inputName }) => [
+									inputUuid,
+									{
+										inputUuid,
+										answer: args.defaultSearch
+											? null
+											: answers.get(inputName) || null,
+									},
+								]),
+							).values(),
+						],
+					}),
+			};
 		if (!args.automaticSelection)
 			return await readCases(prepared.store, prepared.read, retain);
 		const selection = prepared.read.caseListConfig?.selection;

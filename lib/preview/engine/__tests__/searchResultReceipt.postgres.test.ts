@@ -16,7 +16,7 @@ import {
 } from "../caseDataBinding";
 import { resolveAuthorizedPreviewContext } from "../previewAuthorization";
 import {
-	keepSearchResult,
+	keepSearchResultDetail,
 	readKeptSearchResultDetail,
 } from "../searchResultReceipt";
 import { webAppsDevice } from "./fixtures/previewDevices";
@@ -209,12 +209,6 @@ it("opens a form on the same search response that supplied Results", async () =>
 	};
 	const prompt = testUuid("search-response-name");
 	const unanswered = testUuid("search-response-unanswered");
-	const offeredRow = opening.snapshot.rows[0];
-	if (!offeredRow) throw new Error("The fixture result was not offered.");
-	const primary = {
-		rows: [offeredRow, { ...offeredRow, case_id: "filtered-by-device" }],
-		totalMatches: 2,
-	};
 	const frame = {
 		visibleCaseIds: ["served"],
 		answers: [
@@ -222,10 +216,9 @@ it("opens a form on the same search response that supplied Results", async () =>
 			{ inputUuid: unanswered, answer: null },
 		],
 	};
-	const detailReceipt = await keepSearchResult(
+	const detailReceipt = await keepSearchResultDetail(
 		resultScope,
 		context,
-		primary,
 		frame,
 	);
 	frame.answers[0].answer = "later draft";
@@ -289,7 +282,7 @@ it("opens a form on the same search response that supplied Results", async () =>
 			...form,
 			resultReceipt: detailReceipt,
 		}),
-	).toEqual({ kind: "data", snapshot: primary });
+	).toMatchObject({ kind: "invalid-search" });
 
 	expect(
 		await readKeptSearchResultDetail(
