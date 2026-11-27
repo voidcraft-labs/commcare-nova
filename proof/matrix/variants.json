@@ -44215,6 +44215,82 @@
 	{
 		"id": "hq-search/starting-value-of-an-ordered-text",
 		"base": "hq-search",
+		"entry": "case-search/default-value-ordering-the-worker-name",
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/searchInputs/1/default",
+				"value": {
+					"kind": "if",
+					"cond": {
+						"kind": "gt",
+						"left": {
+							"kind": "term",
+							"term": {
+								"kind": "session-context",
+								"field": "username"
+							}
+						},
+						"right": {
+							"kind": "term",
+							"term": {
+								"kind": "literal",
+								"value": "m"
+							}
+						}
+					},
+					"then": {
+						"kind": "term",
+						"term": {
+							"kind": "literal",
+							"value": "north"
+						}
+					},
+					"else": {
+						"kind": "term",
+						"term": {
+							"kind": "literal",
+							"value": "south"
+						}
+					}
+				}
+			}
+		],
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/0/search_config/properties/1",
+			"value": {
+				"name": "village",
+				"label": {
+					"en": "Village"
+				},
+				"hint": {},
+				"hidden": false,
+				"allow_blank_value": false,
+				"exclude": false,
+				"required": {
+					"test": null,
+					"text": {},
+					"doc_type": "Assertion"
+				},
+				"validations": [],
+				"itemset": {
+					"doc_type": "Itemset"
+				},
+				"is_group": false,
+				"doc_type": "CaseSearchProperty",
+				"default_value": "if(instance('commcaresession')/session/context/username > 'm', 'north', 'south')"
+			}
+		}
+	},
+	{
+		"id": "hq-search/starting-value-ordering-a-worker-id",
+		"base": "hq-search",
 		"entry": "case-search/default-value-outside-valueexpression",
 		"standing": "not-yet",
 		"place": {
@@ -44245,7 +44321,7 @@
 				},
 				"is_group": false,
 				"doc_type": "CaseSearchProperty",
-				"default_value": "if(instance('commcaresession')/session/context/username > 'm', 'north', 'south')"
+				"default_value": "if(instance('commcaresession')/session/context/userid > 'm', 'north', 'south')"
 			}
 		}
 	},

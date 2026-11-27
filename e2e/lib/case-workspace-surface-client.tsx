@@ -33,6 +33,7 @@ import {
 	dateLiteral,
 	eq,
 	gt,
+	ifExpr,
 	input,
 	literal,
 	lt,
@@ -159,6 +160,16 @@ if (scenario === "search-text")
 		simpleSearchInputDef(searchId, "name", "Name", "text", "case_name", {
 			mode: { kind: "exact" },
 			default: term(literal("Maya")),
+		}),
+	];
+if (scenario === "search-ordered-default")
+	config.searchInputs = [
+		simpleSearchInputDef(searchId, "region", "Region", "text", "region", {
+			default: ifExpr(
+				eq(sessionContext("username"), literal("20")),
+				term(literal("north")),
+				term(literal("south")),
+			),
 		}),
 	];
 if (scenario === "search-clone")
