@@ -45,6 +45,7 @@ import { z } from "zod";
 import { fixedSearchRangeExpression } from "@/lib/commcare/searchRangeStartingValue";
 import { RESERVED_SEARCH_INPUT_NAMES } from "@/lib/commcare/suite/case-search/reservedInputNames";
 import { columnNotOnListMessage } from "@/lib/commcare/validator/rules/case-list/columnNotOnList";
+import { deepEqual } from "@/lib/doc/deepEqual";
 import {
 	addressSearchInputSchema,
 	advancedDateRangeSearchInputSchema,
@@ -382,7 +383,7 @@ const linkColumnInputArm = linkColumnArm.omit(columnToolOwnedSlots).extend({
 	),
 });
 const calculatedColumnInputArm = calculatedColumnArm
-	.omit(columnToolOwnedSlots)
+	.omit({ ...columnToolOwnedSlots, inlineResultProperty: true })
 	.extend({
 		...columnInputSlots,
 		sort: columnSortInput(
@@ -906,6 +907,13 @@ export function stampColumnUuid(
 	return bindWorkerColumn(
 		{
 			...body,
+			// The typed calculation stays editable without teaching tools a native spelling.
+			...(body.kind === "calculated" &&
+				previous?.kind === "calculated" &&
+				previous.inlineResultProperty &&
+				deepEqual(previous.expression, body.expression) && {
+					inlineResultProperty: true,
+				}),
 			...((body.kind === "image-map" || body.kind === "id-mapping") && {
 				mapping: body.mapping.map((row) => {
 					if (row.uuid !== undefined) return row;

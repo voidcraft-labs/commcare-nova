@@ -1047,6 +1047,14 @@ A change that holds one removes its line.
   and a case type outside the grammar or over 255 characters, under
   `questions/a-savetocase-case-type-outside-the-case-type-grammar-or-longer-than-255-characters`.
 
+A plain Short calculation can read one declared text property from the primary result with
+the same case ID as the selected row. The reader recognizes the whole XPath, keeps the typed
+property identity and preserves that calculation on both exports. It admits the qualifier only
+for visible, unsorted Short columns on the default inline Results instance, where every actual
+session datum that uses that detail is supplied by the preceding query from the same menu.
+Long, keyed registration returns, other instances and wider result queries stay held. Running
+Preview projects the marked property only from a completed Search result set.
+
 The first-publish comparison carries the actual source that a registered change rewrites. A saved-form title uses the same trimmed text Core reads. A dropped default or changed XForm expression uses the reader’s parsed spelling rules. An untranslated slot identifies its field, choice and language. These facts live in the reading and let a second request distinguish another worker-facing change at the same place.
 
 Proof locations describe where an export changes, including the resulting case property. A review binds the source question, case operation and write slot or the earlier date/time row the reader recognized. Native source exports can rekey form attachment IDs on every call. Those IDs and unrelated actions never enter a case consequence. Stored object-valued settings use a fixed-size digest of their recorded operand.

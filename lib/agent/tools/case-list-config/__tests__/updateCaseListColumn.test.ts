@@ -13,8 +13,10 @@ import {
 	plainColumn,
 } from "@/lib/domain";
 import { caseMappingTextUnit } from "@/lib/domain/caseMappingRows";
+import { literal, prop, term } from "@/lib/domain/expression";
 import { generatedWordingId } from "@/lib/domain/generatedWording";
 import { translationSourceFingerprint } from "@/lib/domain/localization";
+import { columnUpdateInputSchema, stampColumnUuid } from "../shared";
 import { updateCaseListColumnTool } from "../updateCaseListColumn";
 import { MOD_A, makeCaseListDoc, makeCaseListFixture } from "./fixtures";
 
@@ -76,6 +78,38 @@ function mappingOf(doc: BlueprintDoc): Extract<Column, { kind: "id-mapping" }> {
 }
 
 describe("updateCaseListColumn", () => {
+	it("keeps the imported inline spelling when the replacement keeps its calculation", () => {
+		const body = {
+			kind: "calculated",
+			header: "Home village",
+			visibleInDetail: false,
+			expression: term(prop("client", "village")),
+		} as const;
+		const current: Column = {
+			...body,
+			uuid: TARGET_UUID,
+			inlineResultProperty: true,
+		};
+		expect(
+			columnUpdateInputSchema.safeParse({ ...body, inlineResultProperty: true })
+				.success,
+		).toBe(false);
+		const label = columnUpdateInputSchema.parse({ ...body, header: "Village" });
+		const changed = columnUpdateInputSchema.parse({
+			...body,
+			expression: term(literal("Current village")),
+		});
+		expect(
+			stampColumnUuid(label, TARGET_UUID, undefined, current),
+		).toMatchObject({
+			header: "Village",
+			inlineResultProperty: true,
+		});
+		expect(
+			stampColumnUuid(changed, TARGET_UUID, undefined, current),
+		).not.toHaveProperty("inlineResultProperty");
+	});
+
 	it("keeps each mapping row's identity, and so its translations, when the update omits it", async () => {
 		const before = fixtureWithMapping();
 		const units = mappingOf(before).mapping.map((row) =>

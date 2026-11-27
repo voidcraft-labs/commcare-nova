@@ -2535,6 +2535,7 @@ export const NON_REFERENCE_MODULE_PATHS: Readonly<
 	// A table or place field shown as HQ's direct property field, and a
 	// placed cell only Android draws.
 	"caseListConfig.columns[].rowField": "config",
+	"caseListConfig.columns[].inlineResultProperty": "config",
 	"caseListConfig.columns[].tile.androidOnly": "config",
 	"caseListConfig.columns[].visibleInList": "config",
 	"caseListConfig.columns[].visibleInDetail": "config",

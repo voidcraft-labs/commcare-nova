@@ -10,6 +10,10 @@ import {
 	detailColumnRowScope,
 } from "@/lib/domain/expression/detailRowScope";
 import { resolveSearchResultDetailRoute } from "@/lib/domain/searchResultDetail";
+import {
+	inlineResultPropertyColumnSupported,
+	inlineResultPropertyPlacementsSupported,
+} from "../../../suite/case-list/inlineResultPropertyPlacements";
 import { type ValidationError, validationError } from "../../errors";
 import {
 	checkErrorDetails,
@@ -27,6 +31,7 @@ export function calculatedColumnTypeCheck(
 	const columns = mod.caseListConfig?.columns ?? [];
 
 	const errors: ValidationError[] = [];
+	let inlineResultPlacements: boolean | undefined;
 
 	for (let index = 0; index < columns.length; index++) {
 		const column = columns[index];
@@ -81,6 +86,28 @@ export function calculatedColumnTypeCheck(
 			}
 		}
 		if (column.kind !== "calculated") continue;
+		if (column.inlineResultProperty) {
+			inlineResultPlacements ??= inlineResultPropertyPlacementsSupported(
+				doc,
+				mod,
+			);
+			if (
+				!inlineResultPlacements ||
+				!inlineResultPropertyColumnSupported(doc, mod, column)
+			)
+				errors.push(
+					validationError(
+						"CASE_LIST_CALCULATED_COLUMN_TYPE_ERROR",
+						"module",
+						"This calculation displays a text property in this menu’s Search results. Keep it on the results list or replace the calculation.",
+						{ moduleUuid, moduleName: mod.name },
+						{
+							columnUuid: column.uuid,
+							slot: `caseListConfig.columns[${index}].inlineResultProperty`,
+						},
+					),
+				);
+		}
 		if (
 			column.searchResultDetail &&
 			!resolveSearchResultDetailRoute(mod, column, column.searchResultDetail)
