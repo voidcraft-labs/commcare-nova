@@ -1,7 +1,11 @@
 """Formplayer reads existing Advanced links and submits links from HQ-built open actions."""
 
+import io
+from zipfile import ZipFile
+
 import pytest
 
+from proof.editors import pages
 from proof.editors.conftest import ADVANCED_APP, publish_hq_app
 from proof.editors.test_advanced_index_identifier import PARENT, _worker_case, _worker_database
 from proof.editors.test_advanced_unicode_transport import _profiles
@@ -91,15 +95,28 @@ def _assert_produced_index(raw, name):
 
 
 @pytest.mark.reader("formplayer")
-@pytest.mark.parametrize("name", ["probe", "probeé", "Ωprobe"], ids=["ascii", "accented", "greek"])
-def test_formplayer_opens_and_submits_advanced_index_producer(hq, formplayer_runner, evidence, name):
+@pytest.mark.parametrize("name", ["aprobe", "probeé", "Ωprobe", "აprobe"], ids=["ascii", "accented", "greek", "georgian"])
+def test_formplayer_opens_and_submits_advanced_index_producer(hq, formplayer_runner, editor_driver, evidence, name):
     from corehq.form_processor.models import CommCareCase
+    from lxml import etree
     from proof.formplayer.test_receiving_answers import _questions
 
     database = _worker_database(_worker_case(PARENT, "clinic", "Selected clinic"))
     with hq_check(Configuration(privileges={"CHILD_CASES", "CLOUDCARE"})) as (state, _):
         app_id = _advanced_index_producer(state, name, web_apps=True)
+        form_id = operations.held_app(state, app_id).modules[1].forms[1].unique_id
+        saved = pages.fresh_section_save(editor_driver, state, pages.ADVANCED_CASE_MANAGEMENT, app_id, form_id)
+        assert saved.save is not None and saved.save.status == 200 and not saved.refused, (saved.unsent, saved.alerts)
+        app = operations.held_app(state, app_id)
+        assert app.cloudcare_enabled
+        index, = app.get_form(form_id).actions.open_cases[0].case_indices
+        assert (index.reference_id, index.relationship) == (name, "child")
+
         with serve(state, None, app_id, runner=formplayer_runner, database=database, platforms={"web-apps"}) as served:
+            with ZipFile(io.BytesIO(served.archive())) as archive:
+                source = etree.fromstring(archive.read("modules-1/forms-1.xml"))
+            [link] = source.xpath("//*[local-name()='index']/*[local-name()=$name]", name=name)
+            assert link.get("case_type") == "clinic"
             with served.run("advanced-index-producer"):
                 web = apps.web(formplayer_runner, served)
                 menu = _open_command(web, web.navigate(), "Manage Supply Points")
@@ -113,7 +130,12 @@ def test_formplayer_opens_and_submits_advanced_index_producer(hq, formplayer_run
                     assert form.get("status") == "error", form
                     assert "SAXParseException" in form.get("exception", ""), form
                     assert not served.hq.submissions
-                    evidence("advanced-index-cannot-open", {"name": name, "error": form["exception"]})
+                    evidence("advanced-index-cannot-open", {
+                        "saved": index.reference_id,
+                        "built": etree.QName(link).localname,
+                        "error": form["exception"],
+                        "submissions": len(served.hq.submissions),
+                    })
                     return
                 assert screen_kind(form) == "form", form
                 question, = _questions(form["tree"])
