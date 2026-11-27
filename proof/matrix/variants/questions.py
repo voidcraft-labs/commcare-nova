@@ -1906,6 +1906,15 @@ def save_to_case_bare_calculated_name(authoring, app_id):
     )
 
 
+def save_to_case_bare_name_with_literal_prefix(authoring, app_id):
+    """A literal prefix falls outside the admitted answer-leading bare name."""
+    _save_to_case(
+        authoring, app_id, "save-to-case-bare-name-with-literal-prefix",
+        (STC_NAME_BIND, f'<bind nodeset="{MAKE}/create/case_name" '
+                       'calculate="concat(&apos;Mrs &apos;, /data/full_name)"/>', 1),
+    )
+
+
 def save_to_case_type_expression(authoring, app_id):
     """The create's case type calculated ``concat('house', 'hold')``."""
     _save_to_case(

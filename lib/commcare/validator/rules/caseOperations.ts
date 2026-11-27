@@ -698,8 +698,18 @@ function validateOperation(
 	if (operation.action === "create" && operation.typeChoice !== undefined)
 		validateCreateTypeChoice(ctx, operation, errors);
 	if (operation.action === "create" && operation.keepNameText) {
-		const name =
-			operation.name?.kind === "term" ? operation.name.term : undefined;
+		const calculation = operation.name;
+		const suffix =
+			calculation?.kind === "concat" ? calculation.parts[1] : undefined;
+		const answer =
+			calculation?.kind === "concat" &&
+			calculation.parts.length === 2 &&
+			suffix?.kind === "term" &&
+			suffix.term.kind === "literal" &&
+			typeof suffix.term.value === "string"
+				? calculation.parts[0]
+				: calculation;
+		const name = answer?.kind === "term" ? answer.term : undefined;
 		if (
 			ctx.form.type !== "survey" ||
 			ctx.module.caseType ||
@@ -722,7 +732,7 @@ function validateOperation(
 					ctx,
 					operation,
 					"CASE_OPERATION_TARGET_INVALID",
-					"The unchanged case name needs a Text question at the top level of a standalone Survey.",
+					"An unchanged case name needs a root Text question in a standalone Survey. It can append literal text.",
 				),
 			);
 	}

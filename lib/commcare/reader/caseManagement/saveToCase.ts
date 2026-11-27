@@ -1871,6 +1871,29 @@ function readBlock(
 					);
 		const nameField =
 			namePath === undefined ? undefined : fieldAt(xform, namePath);
+		// The bare case name may append literal text to a root Text answer.
+		// Keeping the calculation preserves HQ's submitted text byte for byte.
+		const bareNameAnswer =
+			nameNode?.kind === "call" &&
+			nameNode.name === "concat" &&
+			nameNode.args.length === 2 &&
+			nameNode.args[1].kind === "string"
+				? nameNode.args[0]
+				: nameNode;
+		const bareNamePath =
+			bareNameAnswer === undefined
+				? undefined
+				: resolveContextPath(
+						bareNameAnswer,
+						[...casePath, "create", "case_name"],
+						root,
+					);
+		const bareNameIsRootText =
+			bareNamePath?.length === 1 &&
+			fieldAt(xform, bareNamePath)?.field.kind === "text" &&
+			bareNameAnswer !== undefined &&
+			unwrapped.text.slice(bareNameAnswer.from, bareNameAnswer.to) ===
+				`/${root}/${bareNamePath[0]}`;
 		name = {
 			text: unwrapped.text,
 			site: site("case/create/case_name", "calculate"),
@@ -1879,9 +1902,7 @@ function readBlock(
 			...(!unwrapped.trimmed &&
 				trimmed === undefined &&
 				block.repeat === null &&
-				nameField?.field.kind === "text" &&
-				namePath?.length === 1 &&
-				nameText === `/${root}/${namePath[0]}` &&
+				bareNameIsRootText &&
 				form.form.type === "survey" &&
 				ctx.draft.modules[form.menu]?.docType === "Module" &&
 				!ctx.draft.modules[form.menu]?.module.caseType &&

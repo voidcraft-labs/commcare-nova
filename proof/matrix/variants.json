@@ -38048,6 +38048,24 @@
 	{
 		"id": "hq-questions/save-to-case-bare-calculated-name",
 		"base": "hq-questions",
+		"entry": "questions/savetocase-create-case-type-literal-case-name-owner-id-uuid-case",
+		"change": { "op": "named", "name": "save_to_case_bare_calculated_name" },
+		"holds": [
+			{
+				"key": ["form", { "$xmlns": [0, 0] }],
+				"pointer": "/caseOperations/0/keepNameText",
+				"value": true
+			},
+			{
+				"key": ["form", { "$xmlns": [0, 0] }],
+				"pointer": "/caseOperations/0/name/parts/1/term/value",
+				"value": " "
+			}
+		]
+	},
+	{
+		"id": "hq-questions/save-to-case-bare-name-with-literal-prefix",
+		"base": "hq-questions",
 		"entry": "questions/savetocase-block-outside-nova-s-own-block-shape",
 		"standing": "not-yet",
 		"place": {
@@ -38060,7 +38078,7 @@
 		},
 		"change": {
 			"op": "named",
-			"name": "save_to_case_bare_calculated_name"
+			"name": "save_to_case_bare_name_with_literal_prefix"
 		}
 	},
 	{
