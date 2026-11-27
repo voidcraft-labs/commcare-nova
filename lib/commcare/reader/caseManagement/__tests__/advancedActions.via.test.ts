@@ -10,11 +10,10 @@
  * load with no `case_index`, steps each `parent` or `host` are the own case's
  * write through `via`, which Nova's emitter prints back as the same key
  * (`casePlacementPlan.ts::planFormCaseWire`'s update map): the reading holds
- * it with no finding, into a document the commit gate admits. Every other
- * such key is one finding, at its key, under the entry that says why: a
- * load other than the own (`loadupdateaction-case-properties-key-with-on-a-
- * load-with-no-case`), a step other than `parent` or `host` (the same), a
- * step whose case type nothing in the app fixes
+ * it with no finding, into a document the commit gate admits. The first
+ * manually chosen case may also write through a declared parent or host.
+ * Other load positions, unsupported index names, and index destinations
+ * whose case type is unknown get a finding at their key
  * (`index-path-through-a-case-type-the-app-does-not-fix`). A key HQ's
  * server stores apart (`location_id`) is the case above's write as any other
  * key is, and its `name` and `owner_id` are writes of the case above's
@@ -224,7 +223,7 @@ describe("a write through the own load's parent link", () => {
 		]);
 	});
 
-	it("refuses a key through an index on a load other than the form's own", async () => {
+	it("refuses an unknown parent type on the first manually chosen case", async () => {
 		// The household's load, first of the chain, chosen with no `case_index`.
 		const outcome = await reading(memberFollowup(), (loads) => {
 			const own = loads[loads.length - 1] as Load;
@@ -234,7 +233,7 @@ describe("a write through the own load's parent link", () => {
 		});
 		expect(outcome.defects).toEqual([]);
 		const findings = outcome.kind === "account" ? outcome.findings : [];
-		expect(findings.map((one) => one.code)).toEqual([ELSEWHERE]);
+		expect(findings.map((one) => one.code)).toEqual([UNKNOWN]);
 		expect(findings[0]?.detail?.name).toBe("parent/remark");
 	});
 });
