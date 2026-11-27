@@ -105,14 +105,20 @@ describe("proof/first-publish-changes.json", () => {
 					"/translations/*/*",
 					"/modules/*/search_config/properties/*/group_key",
 				]);
-				expect(source).toEqual(
-					["removed", "added"].map((kind) => ({
+				expect(source).toEqual([
+					...["removed", "added"].map((kind) => ({
 						check: "source",
 						artifact: "app.json",
 						path: "/translations/*/search_group_heading",
 						kind,
 					})),
-				);
+					{
+						check: "source",
+						artifact: "app.json",
+						path: "/translations/*/identical_search_group_heading",
+						kind: "removed",
+					},
+				]);
 				continue;
 			}
 			for (const row of source)
