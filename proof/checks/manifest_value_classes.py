@@ -13029,6 +13029,15 @@ def _basic_accented_update(at, slot, key, name):
     return len(controls) == 1 and _local(controls[0]) == "input" and bind_type == "string"
 
 
+def basic_accented_update_names(use):
+    """Exact property members of a Basic update map that the stock Android form can write."""
+    at = _json(use)
+    if at is None or use.key != "schema:UpdateCaseAction.update":
+        return ()
+    return tuple(name for slot, key, name in _written_properties(at) or ()
+                 if _basic_accented_update(at, slot, key, name))
+
+
 def non_ascii_core_name_key(use, manifest):
     """Non-ASCII XML names outside the witnessed basic runtime refusal."""
     at = _json(use)
