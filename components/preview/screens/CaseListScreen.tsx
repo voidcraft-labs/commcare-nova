@@ -132,7 +132,7 @@ import {
 	visibleSearchInputs,
 } from "@/lib/domain";
 import { menuEmittedAdvanced } from "@/lib/domain/advancedEntryDatums";
-import { authoredBoundedFlatClose } from "@/lib/domain/boundedFlatClose";
+import { authoredBoundedFlatSelection } from "@/lib/domain/boundedFlatClose";
 import { resolveCaseFormContext } from "@/lib/domain/caseFormContext";
 import { effectiveFilterForEmission } from "@/lib/domain/expression/simplify";
 import type { Expression } from "@/lib/domain/expression/types";
@@ -3264,7 +3264,7 @@ export function CaseListScreen({
 		}
 		const flatClose =
 			moduleUuid &&
-			authoredBoundedFlatClose(
+			authoredBoundedFlatSelection(
 				menuSource.doc,
 				moduleUuid,
 				menuSource.doc.formOrder[moduleUuid]?.[0],

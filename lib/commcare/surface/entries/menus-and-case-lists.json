@@ -3530,6 +3530,33 @@
 		"gates": []
 	},
 	{
+		"id": "menus-and-case-lists/detail-max-select-value-for-flat-followup",
+		"area": "menus-and-case-lists",
+		"section": "Case list and case detail",
+		"subsection": "Detail screens",
+		"item": "`Detail.max_select_value` of 101 on a single Web Apps list with one follow-up form with no record writes",
+		"surfaceKeys": ["schema:Detail.max_select_value"],
+		"valueClass": "101-on-a-web-apps-flat-followup-without-writes",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: `selection.maximum` of 101 for the bounded Web Apps follow-up, with no record changes",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / UNAVAILABLE",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "unavailable"
+			}
+		},
+		"emission": {
+			"cell": "`max_select_value`",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
 		"id": "menus-and-case-lists/detail-max-select-value-101-outside-flat-close",
 		"area": "menus-and-case-lists",
 		"section": "Case list and case detail",

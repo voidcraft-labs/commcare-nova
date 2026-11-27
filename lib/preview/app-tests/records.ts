@@ -7,7 +7,7 @@ import {
 	type Uuid,
 } from "@/lib/domain";
 import { menuEmittedAdvanced } from "@/lib/domain/advancedEntryDatums";
-import { authoredBoundedFlatClose } from "@/lib/domain/boundedFlatClose";
+import { authoredBoundedFlatSelection } from "@/lib/domain/boundedFlatClose";
 import { caseListRegistrationAdmission } from "../caseListRegistration";
 import { readCases } from "../engine/caseDataBindingHelpers";
 import { searchOutcomeFromLoad } from "../engine/searchPhase";
@@ -127,7 +127,7 @@ export async function appTestRecords(
 	const screen = next.screen;
 	const boundedFlatClose =
 		!screen.formEntry &&
-		!!authoredBoundedFlatClose(
+		!!authoredBoundedFlatSelection(
 			context.doc,
 			screen.moduleUuid,
 			context.doc.formOrder[screen.moduleUuid]?.[0],

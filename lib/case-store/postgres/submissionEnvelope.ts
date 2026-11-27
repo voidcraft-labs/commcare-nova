@@ -1384,14 +1384,14 @@ function flatCloseSelectionOf(
 	const orderedScope = program?.scopeOrder?.[0];
 	const orderedEffect = program?.effectOrder?.[0];
 	if (
-		ordinary.kind !== "close" ||
+		(ordinary.kind !== "close" && ordinary.kind !== "followup") ||
 		ordinary.selection.kind !== "multiple" ||
 		ordinary.additionalCaseTypes?.length ||
 		!opening ||
 		!opening.currentOwnerIds.length ||
 		opening.submittedCaseIds?.length ||
 		!program ||
-		program.ownCase?.formType !== "close" ||
+		program.ownCase?.formType !== ordinary.kind ||
 		program.ownCase.caseType !== ordinary.caseType ||
 		program.ownCase.closeCondition !== undefined ||
 		program.ownCase.openCondition !== undefined ||
@@ -1422,7 +1422,7 @@ function flatCloseSelectionOf(
 		caseIds.length > FLAT_CLOSE_CASE_EFFECTS
 	)
 		throw new CaptureSubmissionRejectedError(
-			"This form could not close the selected records together.",
+			"This form could not use the selected records together.",
 		);
 
 	const openedIds = new Set(opening.cases.rows.map((row) => row.case_id));
@@ -1438,6 +1438,7 @@ function flatCloseSelectionOf(
 		caseIds,
 		caseType: ordinary.caseType,
 		ownerIds: opening.currentOwnerIds,
+		withoutEffects: ordinary.kind === "followup",
 	};
 }
 
@@ -1497,7 +1498,7 @@ export async function executeSubmissionEnvelope(
 	const reachedWriteCaseIds = new Set<string>();
 	let registeredCaseId: string | undefined;
 
-	if (operations !== undefined) {
+	if (operations !== undefined && !prepared.flatClose?.withoutEffects) {
 		const program = await resolveOperationProgram(
 			trx,
 			host,

@@ -14,7 +14,7 @@ import {
 	personaUserData,
 	type Uuid,
 } from "@/lib/domain";
-import { authoredBoundedFlatClose } from "@/lib/domain/boundedFlatClose";
+import { authoredBoundedFlatSelection } from "@/lib/domain/boundedFlatClose";
 import {
 	type AppLanguageIdentity,
 	effectiveAppLocalization,
@@ -240,7 +240,7 @@ export function readAppTestDeviceCaseDatabase(
 	const module = context.doc.moduleOrder[0];
 	if (
 		module &&
-		authoredBoundedFlatClose(
+		authoredBoundedFlatSelection(
 			context.doc,
 			module,
 			context.doc.formOrder[module]?.[0],

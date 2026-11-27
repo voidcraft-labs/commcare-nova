@@ -157,7 +157,7 @@ a custom text property, the case executor compares the old lexical value
 with the typed answer using Core's number coercion. It renders the answer
 as submission text for storage when the comparison finds a change.
 
-The bounded flat close has separate limits of 101 selected records, 101 physical close effects and 256 KiB of compact selected-case data with direct indices and property types. It checks the projected bytes before the relationship lock and again with the selected cases locked. Each raw database projection is measured and returned in one SQL snapshot. The bounded path locks schema keys without reading raw validator documents and performs the unconditional status change after checking the locked row and stored schema. The receipt replays before recalculating the live budget.
+The bounded flat close has separate limits of 101 selected records, 101 physical close effects and 256 KiB of compact selected-case data with direct indices and property types. A bounded follow-up uses the same authorized opening and selection recheck and records the submission without case changes. It checks the projected bytes before the relationship lock and again with the selected cases locked. Each raw database projection is measured and returned in one SQL snapshot. The bounded path locks schema keys without reading raw validator documents and performs the unconditional status change after checking the locked row and stored schema. The receipt replays before recalculating the live budget.
 
 
 An entry-supplied creation ID must be unused when the submitting transaction

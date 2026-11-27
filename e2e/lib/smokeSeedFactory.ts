@@ -1121,8 +1121,16 @@ export async function createSmokeBuilders(
 		},
 		"bounded-flat-close": async () => {
 			const apps = [];
-			for (const autoSelect of [false, true]) {
-				const name = autoSelect ? "Automatic flat close" : "Manual flat close";
+			const scenarios = [
+				[false, "close"],
+				[true, "close"],
+				[false, "followup"],
+				[true, "followup"],
+			] as const;
+			for (const [autoSelect, type] of scenarios) {
+				const name = `${autoSelect ? "Automatic" : "Manual"} flat ${type}`;
+				const formName =
+					type === "close" ? "Close these records" : "Review these records";
 				const appId = await seedRuntimeApp(name, (appId) =>
 					buildDoc({
 						appId,
@@ -1143,8 +1151,8 @@ export async function createSmokeBuilders(
 								},
 								forms: [
 									{
-										name: "Close these records",
-										type: "close",
+										name: formName,
+										type,
 										postSubmit: "app_home",
 										fields: [
 											f({ kind: "hidden", id: "ready", calculate: "'yes'" }),
@@ -1168,7 +1176,13 @@ export async function createSmokeBuilders(
 					});
 					caseIds.push(saved.caseId);
 				}
-				apps.push({ appId, caseIds, autoSelect });
+				apps.push({
+					appId,
+					caseIds,
+					autoSelect,
+					formName,
+					closes: type === "close",
+				});
 			}
 			return { boundedFlatCloseApps: apps };
 		},

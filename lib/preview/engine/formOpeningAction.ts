@@ -16,7 +16,7 @@ import {
 	formCaseSelections,
 	ownFormSelectionIndex,
 } from "@/lib/domain/advancedEntryDatums";
-import { authoredBoundedFlatClose } from "@/lib/domain/boundedFlatClose";
+import { authoredBoundedFlatSelection } from "@/lib/domain/boundedFlatClose";
 import { formStructure } from "@/lib/domain/expression/formStructure";
 import {
 	entrySelectionSettings,
@@ -208,7 +208,7 @@ async function readOpening(
 		const previous =
 			args.previous &&
 			(await verifyFormOpening(secret, audience, args.previous));
-		const profile = authoredBoundedFlatClose(doc, args.module, args.form);
+		const profile = authoredBoundedFlatSelection(doc, args.module, args.form);
 		if (profile || args.boundedFlatClose || previous?.boundedFlatClose) {
 			if (
 				!profile ||

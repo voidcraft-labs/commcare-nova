@@ -290,15 +290,29 @@ def limit_101_outside_flat_close(authoring, app_id):
     """The same list with an ordinary Case Management close HQ does not execute."""
     from corehq.apps.app_manager.xform_builder import XFormBuilder
 
-    def ordinary_source(name):
-        xform = XFormBuilder(name)
+    def ordinary_source(_root, held):
+        xform = XFormBuilder(held.default_name())
         xform.new_question("outcome", None, None, calculate="'done'")
-        return xform.tostring(xml_declaration=True).decode("utf-8")
+        xml = xform.tostring(xml_declaration=True).decode("utf-8")
+        return xml.replace(xform.xmlns, held.xmlns, 1)
 
-    ops.upload_form_source(authoring, app_id, 0, 0, ordinary_source, "ordinary close without a form-owned block")
+    ops.set_form_source(authoring, app_id, 0, 0, ordinary_source, what="ordinary close without a form-owned block")
     ops.set_json(authoring, app_id, "/modules/0/forms/0/actions/close_case/condition/type", "always")
     # The upload keeps the previous designer cache. The ordinary source owns no Save to Case rows.
     ops.set_json(authoring, app_id, "/modules/0/forms/0/case_references_data/save", {})
+
+
+def limit_101_with_visible_question(authoring, app_id):
+    """An ordinary form with a question stays outside the bounded follow-up."""
+    from corehq.apps.app_manager.xform_builder import XFormBuilder
+
+    def ordinary_source(name):
+        xform = XFormBuilder(name)
+        xform.new_question("outcome", "input", "Outcome")
+        return xform.tostring(xml_declaration=True).decode("utf-8")
+
+    limit_101_outside_flat_close(authoring, app_id)
+    ops.upload_form_source(authoring, app_id, 0, 0, ordinary_source, "ordinary interactive question")
 
 
 def multi_select_above_a_hundred(authoring, app_id):

@@ -9,7 +9,7 @@ import {
 	orderedOrganizationLevels,
 	type Uuid,
 } from "@/lib/domain";
-import { authoredBoundedFlatClose } from "@/lib/domain/boundedFlatClose";
+import { authoredBoundedFlatSelection } from "@/lib/domain/boundedFlatClose";
 import { caseMapSources } from "@/lib/domain/caseMap";
 import {
 	type GeneratedWordingRole,
@@ -264,7 +264,7 @@ async function appTestFormContext(
 	state: AppTestSessionState,
 	screen: FormScreen,
 ) {
-	const flatClose = authoredBoundedFlatClose(
+	const flatClose = authoredBoundedFlatSelection(
 		context.doc,
 		screen.moduleUuid,
 		screen.formUuid,
@@ -1540,7 +1540,7 @@ async function advanceAppTestOnScreen(
 		}
 		case "select": {
 			if (screen.kind === "records" && !screen.formEntry) {
-				const flatClose = authoredBoundedFlatClose(
+				const flatClose = authoredBoundedFlatSelection(
 					context.doc,
 					screen.moduleUuid,
 					context.doc.formOrder[screen.moduleUuid]?.[0],
