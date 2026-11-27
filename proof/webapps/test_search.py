@@ -700,7 +700,7 @@ def test_search_lookup_filter_orders_text_as_numbers(
     evidence("lookup-number-order", observed)
 
 
-def test_a_saved_search_choice_reads_open_cases_from_the_worker_restore(
+def test_a_stored_search_choice_reads_open_cases_from_the_worker_restore(
     hq, formplayer_runner, editor_driver, webapps_documents, evidence,
 ):
     from proof.hq import operations
@@ -729,7 +729,6 @@ def test_a_saved_search_choice_reads_open_cases_from_the_worker_restore(
         app.save()
         with project.released(
             formplayer_runner, database=dataclasses.replace(seed, cases=cases),
-            driver=editor_driver, saves=((pages.CASE_LIST, project.module_id(0)),),
             label="search-choices-from-case-data",
         ) as release:
             run = Session(release, editor_driver).run([
