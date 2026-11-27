@@ -1244,6 +1244,7 @@ export interface CaseStore extends SchemaCaseStore {
 	queryAutomaticSelection(
 		args: QueryArgs,
 		maximum: number,
+		boundedFlatClose?: true,
 	): Promise<{ rows: readonly CaseRowWithCalculated[]; totalCount: number }>;
 
 	/**

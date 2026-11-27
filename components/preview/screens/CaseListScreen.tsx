@@ -132,6 +132,7 @@ import {
 	visibleSearchInputs,
 } from "@/lib/domain";
 import { menuEmittedAdvanced } from "@/lib/domain/advancedEntryDatums";
+import { authoredBoundedFlatClose } from "@/lib/domain/boundedFlatClose";
 import { resolveCaseFormContext } from "@/lib/domain/caseFormContext";
 import { effectiveFilterForEmission } from "@/lib/domain/expression/simplify";
 import type { Expression } from "@/lib/domain/expression/types";
@@ -3161,6 +3162,19 @@ export function CaseListScreen({
 			if (selectionBlocker !== undefined) {
 				announceSelectionBlocker(selectedChoices.length, selectionMaximum);
 			}
+			return;
+		}
+		const flatClose =
+			moduleUuid &&
+			authoredBoundedFlatClose(
+				menuSource.doc,
+				moduleUuid,
+				menuSource.doc.formOrder[moduleUuid]?.[0],
+			);
+		if (flatClose) {
+			// Its signed opening checks the whole ordered set and uses only
+			// the bounded selected-record projection.
+			await finishSelectedCaseNavigation(selectedChoices, choiceStep());
 			return;
 		}
 		const validationToken = {

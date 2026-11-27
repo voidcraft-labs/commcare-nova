@@ -1437,10 +1437,13 @@ export class PostgresCaseStore implements CaseStore {
 	async queryAutomaticSelection(
 		args: QueryArgs,
 		maximum: number,
+		boundedFlatClose?: true,
 	): Promise<{ rows: readonly CaseRowWithCalculated[]; totalCount: number }> {
 		// This is a row materialization budget, independent of an HQ-authored
 		// limit, the page size and the number of effects a submission can write.
-		const maxAutomaticSelectionRows = 100;
+		const maxAutomaticSelectionRows = boundedFlatClose
+			? FLAT_CLOSE_SELECTED_RECORDS
+			: 100;
 		if (
 			!Number.isInteger(maximum) ||
 			maximum < 1 ||
@@ -1464,19 +1467,44 @@ export class PostgresCaseStore implements CaseStore {
 				offset: undefined,
 			};
 			const built = this.buildCaseSelect(read, tx);
-			const ids = await built.qb
+			const population = boundedFlatClose
+				? built.qb.where("c.status", "is distinct from", "closed")
+				: built.qb;
+			const ordered = boundedFlatClose
+				? population.orderBy("c.opened_on", "asc").orderBy("c.case_id", "asc")
+				: population;
+			const ids = await ordered
 				.clearSelect()
 				.select("c.case_id")
 				.limit(maximum + 1)
 				.execute();
 			if (ids.length > maximum) {
-				const count = await built.qb
+				const count = await population
 					.clearSelect()
 					.select((eb) => eb.fn.countAll<string>().as("total"))
 					.executeTakeFirstOrThrow();
 				return { rows: [], totalCount: Number(count.total) };
 			}
 			if (!ids.length) return { rows: [], totalCount: 0 };
+			if (boundedFlatClose) {
+				if (!args.restoreScope || !args.caseType)
+					throw new Error("A flat close needs a device and one record type.");
+				const patch = await this.readFlatCloseSelectionInTransaction(tx, {
+					appId: args.appId,
+					caseIds: ids.map(({ case_id }) => case_id),
+					caseType: args.caseType,
+					restoreScope: args.restoreScope,
+					automaticMaximum: maximum,
+				});
+				if (!patch)
+					throw new CaptureSubmissionRejectedError(
+						"The selected records changed. Reopen the list to choose them again.",
+					);
+				return {
+					rows: patch.rows.map((row) => ({ ...row, calculated: {} })),
+					totalCount: ids.length,
+				};
+			}
 			const rows = await this.readCasePage(read, {
 				...built,
 				qb: built.qb.where(

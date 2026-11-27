@@ -77,7 +77,11 @@ import {
 	userPropertySlugsByUuid,
 } from "@/lib/domain";
 import { blueprintDocSchema } from "@/lib/domain/blueprint";
-import { boundedFlatCloseForm } from "@/lib/domain/boundedFlatClose";
+import {
+	authoredBoundedFlatClose,
+	boundedFlatCloseForm,
+	STANDARD_CASE_SELECTION_MAXIMUM,
+} from "@/lib/domain/boundedFlatClose";
 import { resolveCaseFormContext } from "@/lib/domain/caseFormContext";
 import { isAdvancedCaseIndexIdentifier } from "@/lib/domain/caseOperationIdentifiers";
 import type { Expression } from "@/lib/domain/expression";
@@ -858,6 +862,34 @@ export async function loadCasesAction(
 				kind: "error",
 				message: "This list no longer chooses cases automatically.",
 			};
+		const boundedFlatClose =
+			selection.maximum > STANDARD_CASE_SELECTION_MAXIMUM;
+		if (boundedFlatClose) {
+			const blueprint = prepared.context.blueprint;
+			const doc = blueprint && hydratePersistedBlueprint(blueprint);
+			const profile =
+				doc &&
+				moduleUuid &&
+				authoredBoundedFlatClose(
+					doc,
+					moduleUuid,
+					doc.formOrder[moduleUuid]?.[0],
+				);
+			if (
+				!doc ||
+				!moduleUuid ||
+				!profile?.selection.autoSelect ||
+				profile.caseType !== caseType ||
+				prepared.context.device.platform !== "web-apps" ||
+				canonicalJsonDigest(doc.modules[moduleUuid].caseListConfig) !==
+					canonicalJsonDigest(prepared.read.caseListConfig)
+			)
+				return {
+					kind: "error",
+					message:
+						"The current list settings have not saved. Try again once they save.",
+				};
+		}
 		return await readCases(
 			prepared.store,
 			{
@@ -865,10 +897,13 @@ export async function loadCasesAction(
 				page: undefined,
 				datumOrder: true,
 				automaticMaximum: selection.maximum,
+				...(boundedFlatClose && { boundedFlatClose: true }),
 			},
 			retain,
 		);
 	} catch (err) {
+		if (err instanceof CaptureSubmissionRejectedError)
+			return { kind: "error", message: err.message };
 		// A Project-membership denial (`resolveAppScope` → `AppAccessError`)
 		// is expected, not a fault: collapse it to the IDOR-safe not-found
 		// `error` arm WITHOUT alerting (`reportUnexpectedActionError`).
