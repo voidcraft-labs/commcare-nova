@@ -52,6 +52,7 @@ import { lookupOptionsNodeset } from "@/lib/commcare/lookupOptions";
 import { w } from "@/lib/commcare/xpath/wire/builders";
 import { toWire } from "@/lib/commcare/xpath/wire/fromExpression";
 import {
+	caseDbInstance,
 	type InstanceDecl,
 	InstanceSink,
 } from "@/lib/commcare/xpath/wire/instances";
@@ -72,7 +73,10 @@ import {
 import type { Expression } from "@/lib/domain/expression";
 import type { ExpressionContext } from "@/lib/domain/expression/context";
 import type { ModuleExpressionSlotRef } from "@/lib/domain/expression/types";
-import { searchInputRequestKey } from "@/lib/domain/modules";
+import {
+	type RestoredCaseNameSearchOptions,
+	searchInputRequestKey,
+} from "@/lib/domain/modules";
 import type { Uuid } from "@/lib/domain/uuid";
 import type { ModuleExpressionContexts } from "../../expressionContext";
 import { savedAddressDefaultWire } from "./savedAddressDefault";
@@ -302,7 +306,11 @@ export function searchPromptWire(
 			: undefined;
 	const options = searchInputOptions(input);
 	const itemset =
-		options === undefined ? undefined : buildItemset(options, emission);
+		"options" in input && input.options.kind === "restored-case-names"
+			? restoredCaseNameItemset(input.options, emission)
+			: options === undefined
+				? undefined
+				: buildItemset(options, emission);
 	const required = buildRequired(input, emission);
 	const validation = buildValidation(input, runtimeValidation, emission);
 	const seed =
@@ -642,6 +650,33 @@ function composeRequiredLocaleId(moduleId: string, name: string): string {
 
 function composeValidationLocaleId(moduleId: string, name: string): string {
 	return `search_property.${moduleId}.${name}.validation.0.text`;
+}
+
+export function restoredCaseNameSearchNodeset(caseType: string) {
+	return w.instance(caseDbInstance(), [
+		w.step("casedb"),
+		w.step("case", [
+			w.eq(w.context([w.attr("case_type")]), w.str(caseType)),
+			w.eq(w.context([w.attr("status")]), w.str("open")),
+		]),
+	]);
+}
+
+function restoredCaseNameItemset(
+	options: RestoredCaseNameSearchOptions,
+	emission: PromptEmissionContext,
+): SearchPromptItemset {
+	const naming = emission.lookupNaming;
+	if (!naming)
+		throw new Error("The Search prompt’s editor table has no wire name.");
+	const caseName = w.context([w.step("case_name")]);
+	return {
+		instanceId: naming.tableFor(options.tableId).fixtureId,
+		nodeset: restoredCaseNameSearchNodeset(options.caseType),
+		label: caseName,
+		value: caseName,
+		sort: caseName,
+	};
 }
 
 /**

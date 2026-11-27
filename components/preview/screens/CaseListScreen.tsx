@@ -834,9 +834,13 @@ export function CaseListScreen({
 	currentSearchScreen.current = current;
 	const clearFormRef = useRef<SearchFormClear>(null);
 	const waitsForRequiredCases =
-		platformRules.searchFieldChecks &&
 		navigationDeviceCases.snapshot === null &&
-		searchRequirementsReadRestoredCases(config?.searchInputs ?? []);
+		((platformRules.searchFieldChecks &&
+			searchRequirementsReadRestoredCases(config?.searchInputs ?? [])) ||
+			config?.searchInputs.some(
+				(input) =>
+					"options" in input && input.options.kind === "restored-case-names",
+			) === true);
 	const requiredCasesFailed =
 		waitsForRequiredCases && deviceCaseLoad.status === "error";
 	const searchRun = useSearchInputRunState({

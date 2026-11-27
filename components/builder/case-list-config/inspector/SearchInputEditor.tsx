@@ -721,9 +721,7 @@ function VisibleSearchInputEditor({
 			currentDefault !== undefined &&
 			nextDefault === undefined &&
 			expressionHasMeaningfulContent(currentDefault);
-		const choicesRemoved =
-			searchInputOptions(value) !== undefined &&
-			searchInputOptions(next) === undefined;
+		const choicesRemoved = "options" in value && !("options" in next);
 		const hiddenRemoved = value.hidden === true && next.hidden !== true;
 		if (
 			!modeChanged &&
@@ -1272,15 +1270,22 @@ function VisibleSearchInputEditor({
 									: "People pick one, and a case matches when it holds that value"
 						}
 					>
-						<SearchChoiceSourceEditor
-							slot={inputSlot("search_input_options")}
-							candidateForSource={(options) => rebuildRow(value, { options })}
-							value={searchInputOptions(value)}
-							caseTypes={caseTypes}
-							userProperties={userProperties}
-							rowIndex={index}
-							onCommit={setOptions}
-						/>
+						{"options" in value &&
+						value.options.kind === "restored-case-names" ? (
+							<p className="text-sm text-muted-foreground">
+								Open {value.options.caseType} records on the worker’s device
+							</p>
+						) : (
+							<SearchChoiceSourceEditor
+								slot={inputSlot("search_input_options")}
+								candidateForSource={(options) => rebuildRow(value, { options })}
+								value={searchInputOptions(value)}
+								caseTypes={caseTypes}
+								userProperties={userProperties}
+								rowIndex={index}
+								onCommit={setOptions}
+							/>
+						)}
 					</FieldRow>
 				) : null}
 
@@ -2390,6 +2395,28 @@ function rebuildRow(
 		...(hidden === true && { hidden }),
 	};
 	const dflt = "default" in patch ? patch.default : searchInputDefault(value);
+	if (
+		value.type === "select" &&
+		"options" in value &&
+		value.options.kind === "restored-case-names" &&
+		type === "select" &&
+		patch.options === undefined
+	) {
+		const retained = { ...value, name, label, ...visible, default: dflt };
+		for (const slot of [
+			"hint",
+			"required",
+			"validation",
+			"allowBlank",
+			"hidden",
+			"addressReceiver",
+		] as const)
+			if (!(slot in visible)) delete retained[slot];
+		return value.kind === "simple" && retained.kind === "simple"
+			? { ...retained, property: patch.property ?? value.property }
+			: retained;
+	}
+
 	// A choice widget's list rides along whenever the target is still a choice
 	// widget; every other widget drops it. The type picker stages a choice
 	// widget until a list exists, so a select without options never reaches here.

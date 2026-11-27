@@ -507,6 +507,7 @@ export function searchScreenOpeningCovered(
 			return false;
 		if (
 			"options" in input &&
+			input.options.kind === "lookup" &&
 			!lookupOptionsSourceCovered(
 				input.options,
 				lookup,

@@ -531,9 +531,11 @@ function formatSearchInput(input: SearchInputDef): string {
 	if (input.validation !== undefined) markers.push("check");
 	if ("options" in input) {
 		markers.push(
-			input.options.sortColumnId === undefined
-				? "lookup choices"
-				: `lookup choices sorted by column ${input.options.sortColumnId}`,
+			input.options.kind === "restored-case-names"
+				? `open ${input.options.caseType} names from the worker’s records`
+				: input.options.sortColumnId === undefined
+					? "lookup choices"
+					: `lookup choices sorted by column ${input.options.sortColumnId}`,
 		);
 	}
 	if (input.allowBlank === true) markers.push("finds blank");

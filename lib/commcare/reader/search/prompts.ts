@@ -23,13 +23,13 @@ import {
 	DEFAULT_SEARCH_MODE_KIND,
 	isParentPathSearchProperty,
 	isSearchAddressClearComponent,
+	type OrdinarySearchInputOptions,
 	SAVED_ADDRESS_WORKER_FIELDS,
 	type SavedSearchAddressDefault,
 	SEARCH_ADDRESS_PARTS,
 	SEARCH_INPUT_NAME_PATTERN,
 	SEARCH_INPUT_REQUIRED_DEFAULT_MESSAGE,
 	type SearchAddressReceiver,
-	type SearchInputLookupOptions,
 	savedSearchAddressDefaultSchema,
 	UNMATCHED_ADDRESS_TOPIC_PATTERN,
 } from "@/lib/domain/modules";
@@ -52,6 +52,7 @@ import {
 } from "../../lookup/readPath";
 import { isReservedSearchInputName } from "../../suite/case-search/reservedInputNames";
 import { savedAddressDefaultWire } from "../../suite/case-search/savedAddressDefault";
+import { restoredCaseNameSearchNodeset } from "../../suite/case-search/searchPrompts";
 import {
 	type FormSyntax,
 	literalInstanceId,
@@ -94,6 +95,7 @@ import { manifestFindingOf } from "../languages";
 import { lookupNameRefusal, undiscoveredLookupName } from "../lookupNames";
 import { pendingPlaceholder } from "../pendingExpressions";
 import { sourceFactories } from "../sourceFactories";
+import { sameXPathText } from "../syntaxCompare";
 import { readFormSyntax, readStoredNameSyntax } from "../syntaxRead";
 import { readGuardText } from "./guardSplit";
 import { requiredCaseChildAsBlank } from "./requiredCaseChild";
@@ -261,6 +263,34 @@ export const PROMPT_CLAIMS = defineClaims("search.prompts", {
 	 *  first publish names the nodeset's (`readPrompt`). */
 	itemsetInstanceElsewhere: drop(
 		`${S}itemset-without-the-item-list-its-instance-id-names`,
+		"schema:Itemset.instance_id",
+	),
+	restoredCaseNames: take(
+		`${S}itemset-reads-open-record-names-with-an-editor-table`,
+		"schema:Itemset.nodeset",
+	),
+	restoredCaseNameLabel: take(
+		`${S}itemset-reads-open-record-names-with-an-editor-table`,
+		"schema:Itemset.label",
+	),
+	restoredCaseNameValue: take(
+		`${S}itemset-reads-open-record-names-with-an-editor-table`,
+		"schema:Itemset.value",
+	),
+	restoredCaseNameSort: take(
+		`${S}itemset-reads-open-record-names-with-an-editor-table`,
+		"schema:Itemset.sort",
+	),
+	restoredCaseNameInput: take(
+		`${S}itemset-reads-open-record-names-with-an-editor-table`,
+		"schema:CaseSearchProperty.input_",
+	),
+	restoredCaseNameItemset: take(
+		`${S}itemset-reads-open-record-names-with-an-editor-table`,
+		"schema:CaseSearchProperty.itemset",
+	),
+	restoredCaseNameEditorTable: take(
+		`${S}itemset-reads-open-record-names-with-an-editor-table`,
 		"schema:Itemset.instance_id",
 	),
 	caseItemsetMissingEditorSource: refuse(
@@ -1523,7 +1553,7 @@ function readPrompt(
 		appearance !== ""
 	)
 		prompt.drop("appearance", P.appearanceOther);
-	let options: SearchInputLookupOptions | undefined;
+	let options: OrdinarySearchInputOptions | undefined;
 	let optionsFilterText: string | undefined;
 	let itemsetCursor: JsonCursor | undefined;
 	if (type !== "hidden") {
@@ -1568,6 +1598,33 @@ function readPrompt(
 			// item list, the field's table is the one its nodeset reads, and the first publish names it.
 			const namesSource =
 				source !== undefined && instance === `item-list:${source.tag}`;
+			const caseType = module.module.caseType;
+			const editorTag =
+				typeof instance === "string" && scheme === "item-list"
+					? instance.slice("item-list:".length)
+					: undefined;
+			const editorTable = editorTag
+				? ctx.input.lookup.table(editorTag)
+				: undefined;
+			const caseNames =
+				input === "select1" &&
+				module.docType === "Module" &&
+				!projectService &&
+				!prompt.peek("receiver_expression") &&
+				caseType !== undefined &&
+				editorTable !== undefined &&
+				isJsonObject(itemset) &&
+				typeof itemset.nodeset === "string" &&
+				itemset.value === "case_name" &&
+				itemset.label === "case_name" &&
+				itemset.sort === "case_name" &&
+				sameXPathText(
+					itemset.nodeset,
+					serializeWire(restoredCaseNameSearchNodeset(caseType), {
+						target: "suite",
+					}).text,
+				);
+
 			const readInstanceElsewhere = (cursor: JsonCursor) => {
 				cursor.drop("instance_id", P.itemsetInstanceElsewhere);
 				if (scheme === "item-list")
@@ -1591,7 +1648,31 @@ function readPrompt(
 				"value",
 				"sort",
 			] as const;
-			if (scheme === "commcare-reports")
+			if (caseNames && caseType !== undefined && editorTable !== undefined) {
+				const cursor = prompt.object(
+					"itemset",
+					"Itemset",
+					P.restoredCaseNameItemset,
+				);
+				prompt.take("input_", P.restoredCaseNameInput, String).value;
+				cursor.take("instance_id", P.restoredCaseNameEditorTable, String).value;
+				cursor.take("nodeset", P.restoredCaseNames, String).value;
+				cursor.take("label", P.restoredCaseNameLabel, String).value;
+				cursor.take("value", P.restoredCaseNameValue, String).value;
+				cursor.take("sort", P.restoredCaseNameSort, String).value;
+				ctx.accounting.claimEntry(
+					{ json: cursor, key: "instance_id" },
+					"expressions-and-data/item-list-tag-read-through-nova-s-typed-lookup-carriers",
+					"instance-scheme:item-list",
+					place,
+				);
+				type = "select";
+				options = {
+					kind: "restored-case-names",
+					caseType,
+					tableId: editorTable.tableId as LookupTableId,
+				};
+			} else if (scheme === "commcare-reports")
 				cover(prompt, ["itemset"], refuseWith("input_", P.reports));
 			else if (!isJsonObject(itemset))
 				cover(

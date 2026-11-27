@@ -235,6 +235,9 @@ Four rules hold everywhere here:
   validations in one remote request can supply one another’s instances. Its `itemset.instance_id` is checked
   by HQ’s validator. The scanner reads the request’s actual XPath texts. A different command’s expressions
   cannot establish that a Search field can load its table.
+  A single Search choice can read names from the worker’s open records of the menu’s type.
+  Keep the separate lookup table identity when the Case List editor names it. The suite’s case
+  database supplies the choices and their name ordering, while the editor keeps its selected table.
   A calculated case column can read a table supplied by another field on the same physical
   Results or Details screen. A generated search-results copy of either screen also participates. For a source that depends on a different screen or another part of the
   command, the reader checks the authenticated working suite and each retained build profile.

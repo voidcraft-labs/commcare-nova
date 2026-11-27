@@ -532,6 +532,22 @@ export function resolveSearchInputChoices(
 	session: PreviewSearchSessionValues,
 	environment: PreviewSearchEnvironment,
 ): readonly LookupChoice[] | undefined {
+	if (input.options.kind === "restored-case-names") {
+		const { caseType } = input.options;
+		return environment.caseDatabase?.rows
+			.filter(
+				(row) =>
+					row.case_type === caseType && (row.status ?? "open") === "open",
+			)
+			.map((row) => ({
+				key: row.case_id,
+				value: row.case_name ?? "",
+				label: row.case_name ?? "",
+			}))
+			.sort((left, right) =>
+				left.label < right.label ? -1 : left.label > right.label ? 1 : 0,
+			);
+	}
 	const lookupData = environment.lookup;
 	const sortColumnId = searchInputLookupSortColumnId(input.options);
 	if (

@@ -1443,7 +1443,12 @@ export function slotContext(
 				module: moduleUuid,
 			});
 		if (slot.slot === "search_input_options") {
-			if (input === undefined || !("options" in input)) return undefined;
+			if (
+				input === undefined ||
+				!("options" in input) ||
+				input.options.kind !== "lookup"
+			)
+				return undefined;
 			rows = [{ kind: "table", root: "table", tableId: input.options.tableId }];
 			profile = { ...profile, scope: "table" };
 		}

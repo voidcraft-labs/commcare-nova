@@ -486,6 +486,8 @@ function searchAnswerField(
 		case "date":
 			return { kind: "date", uuid, id, label, default_value };
 		case "select":
+			if (input.options.kind !== "lookup")
+				return { kind: "text", uuid, id, label, default_value };
 			return {
 				kind: "single_select",
 				uuid,
@@ -496,6 +498,8 @@ function searchAnswerField(
 			};
 		case "checkboxes":
 		case "multi-select":
+			if (input.options.kind !== "lookup")
+				return { kind: "text", uuid, id, label, default_value };
 			return {
 				kind: "multi_select",
 				uuid,

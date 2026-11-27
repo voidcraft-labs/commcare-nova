@@ -425,9 +425,18 @@ function extractSearchInputOptions(
 	const references: ExtractedLookupReference[] = [];
 	for (const module of sortedModules(doc)) {
 		for (const input of module.caseListConfig?.searchInputs ?? []) {
+			const location = searchInputOptionsLocation(module, input);
+			if ("options" in input && input.options.kind === "restored-case-names") {
+				references.push({
+					carrierUuid: input.uuid,
+					subpath: ["tableId"],
+					tableId: input.options.tableId,
+					location,
+				});
+				continue;
+			}
 			const source = searchInputOptions(input);
 			if (source === undefined) continue;
-			const location = searchInputOptionsLocation(module, input);
 			references.push(
 				{
 					carrierUuid: input.uuid,

@@ -41700,6 +41700,49 @@
 	{
 		"id": "hq-search/choices-read-from-open-cases-with-a-different-editor-source",
 		"base": "hq-search",
+		"entry": "case-search/itemset-reads-open-record-names-with-an-editor-table",
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/0/search_config/properties/5",
+			"value": {
+				"name": "district",
+				"label": {
+					"en": "District"
+				},
+				"hint": {},
+				"input_": "select1",
+				"itemset": {
+					"nodeset": "instance('casedb')/casedb/case[@case_type = 'client'][@status = 'open']",
+					"value": "case_name",
+					"sort": "case_name",
+					"label": "case_name",
+					"doc_type": "Itemset",
+					"instance_id": "item-list:districts"
+				},
+				"hidden": false,
+				"allow_blank_value": false,
+				"exclude": false,
+				"required": {
+					"test": null,
+					"text": {},
+					"doc_type": "Assertion"
+				},
+				"validations": [],
+				"is_group": false,
+				"doc_type": "CaseSearchProperty"
+			}
+		},
+		"holds": [
+			{
+				"key": ["module", { "$menu": 0 }],
+				"pointer": "/caseListConfig/searchInputs/5/options/kind",
+				"value": "restored-case-names"
+			}
+		]
+	},
+	{
+		"id": "hq-search/choices-read-from-closed-cases-with-a-different-editor-source",
+		"base": "hq-search",
 		"entry": "case-search/itemset-nodeset-other-than-a-table-s-item-list",
 		"standing": "not-yet",
 		"place": {
@@ -41718,7 +41761,7 @@
 				"hint": {},
 				"input_": "select1",
 				"itemset": {
-					"nodeset": "instance('casedb')/casedb/case[@case_type = 'client'][@status = 'open']",
+					"nodeset": "instance('casedb')/casedb/case[@case_type = 'client'][@status = 'closed']",
 					"value": "case_name",
 					"sort": "case_name",
 					"label": "case_name",

@@ -64,6 +64,7 @@ import {
 	persistableJsonPositiveIntegerSchema,
 } from "./jsonNumber";
 import { lookupOptionsSourceSchema } from "./lookupCarriers";
+import { lookupTableIdSchema } from "./lookupIds";
 import { lookupReadSchema, sameLookupRead } from "./lookupRead";
 import { menuBadgeSchema } from "./menuBadge";
 import { type MediaAssetId, mediaAssetIdSchema } from "./multimedia";
@@ -2017,6 +2018,25 @@ z.globalRegistry.add(searchInputLookupOptionsSchema, {
 	id: "SearchInputLookupOptions",
 });
 
+/** The worker chooses the name of an open record in their own restore.
+ * The separate lookup table remains selected in the HQ editor. Its rows
+ * provide no answers on the device. */
+const restoredCaseNameSearchOptionsSchema = z.strictObject({
+	kind: z.literal("restored-case-names"),
+	tableId: lookupTableIdSchema,
+	caseType: caseTypeNameSchema,
+});
+export type RestoredCaseNameSearchOptions = z.infer<
+	typeof restoredCaseNameSearchOptionsSchema
+>;
+const ordinarySearchInputOptionsSchema = z.discriminatedUnion("kind", [
+	searchInputLookupOptionsSchema,
+	restoredCaseNameSearchOptionsSchema,
+]);
+export type OrdinarySearchInputOptions = z.infer<
+	typeof ordinarySearchInputOptionsSchema
+>;
+
 /** The column whose text orders a Search question's lookup choices. */
 export function searchInputLookupSortColumnId(
 	options: SearchInputLookupOptions,
@@ -2033,7 +2053,8 @@ export function searchInputLookupSortColumnId(
 export function withCanonicalSearchInputOptions<T extends SearchInputDef>(
 	input: T,
 ): T {
-	if (!isSelectSearchInput(input)) return input;
+	if (!isSelectSearchInput(input) || input.options.kind !== "lookup")
+		return input;
 	const { sortColumnId, ...options } = input.options;
 	if (
 		sortColumnId === undefined ||
@@ -2060,7 +2081,7 @@ export const simpleSelectSearchInputSchema = visibleSearchInputBase
 	.extend({
 		...simpleSearchInputSlots,
 		type: z.enum(SELECT_SEARCH_INPUT_TYPES),
-		options: searchInputLookupOptionsSchema,
+		options: ordinarySearchInputOptionsSchema,
 		default: valueSchema.optional(),
 		mode: selectSearchInputModeSchema.optional(),
 	})
@@ -2094,7 +2115,7 @@ export const advancedSelectSearchInputSchema = visibleSearchInputBase
 	.extend({
 		kind: z.literal("advanced"),
 		type: z.enum(SELECT_SEARCH_INPUT_TYPES),
-		options: searchInputLookupOptionsSchema,
+		options: ordinarySearchInputOptionsSchema,
 		default: valueSchema.optional(),
 		predicate: conditionSchema,
 	})
@@ -2220,7 +2241,7 @@ export type AddressSearchInput = z.infer<typeof addressSearchInputSchema>;
  *
  * This cannot be a Zod `discriminatedUnion("kind", ...)`: simple and advanced
  * each appear in three arms. Keeping the widget split structural is what makes
- * a scalar range mode, a choice input without a table, or a
+ * a scalar range mode, a choice input without a source, or a
  * required hidden value unrepresentable.
  */
 export const searchInputDefSchema = z.union([
@@ -2269,7 +2290,7 @@ export type VisibleSearchInputDef =
 	| ProjectParameterSearchInput
 	| SimpleSearchInputDef
 	| AdvancedSearchInputDef;
-/** Every arm that names a lookup table for its choices. */
+/** Every arm that has dynamic choices. */
 export type SelectSearchInputDef =
 	| z.infer<typeof projectChoiceSearchInput>
 	| SimpleSelectSearchInputDef
@@ -2395,7 +2416,9 @@ export function searchCheckMessageRefusal(
 export function searchInputOptions(
 	input: SearchInputDef,
 ): SearchInputLookupOptions | undefined {
-	return isSelectSearchInput(input) ? input.options : undefined;
+	return isSelectSearchInput(input) && input.options.kind === "lookup"
+		? input.options
+		: undefined;
 }
 
 /**

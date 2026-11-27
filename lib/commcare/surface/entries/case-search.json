@@ -3262,6 +3262,37 @@
 		]
 	},
 	{
+		"id": "case-search/itemset-reads-open-record-names-with-an-editor-table",
+		"area": "case-search",
+		"section": "Case search",
+		"subsection": "Search prompts",
+		"item": "A Search choice lists open record names from the worker’s restore",
+		"surfaceKeys": [
+			"schema:CaseSearchProperty.input_",
+			"schema:CaseSearchProperty.itemset",
+			"schema:Itemset.instance_id",
+			"schema:Itemset.nodeset",
+			"schema:Itemset.label",
+			"schema:Itemset.value",
+			"schema:Itemset.sort"
+		],
+		"valueClass": "restored-open-record-names-with-an-editor-table",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: one choice from the open records of the menu’s own type, ordered by record name. The editor keeps its selected lookup table.",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": { "reading": "runs" },
+			"android": { "reading": "runs" }
+		},
+		"emission": {
+			"cell": "An itemset over the restored case database with case-name label, value and sort",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
 		"id": "case-search/itemset-nodeset-other-than-a-table-s-item-list",
 		"area": "case-search",
 		"section": "Case search",
