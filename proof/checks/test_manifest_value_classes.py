@@ -298,6 +298,35 @@ def _uses(xml, manifest, key, artifact="form:0.0", readings=None):
     return [use for use in found.uses if use.key == key]
 
 
+@pytest.mark.parametrize("mutation", [None, "orphan", "missing-destination", "quick", "print"])
+def test_android_callout_inventory_holds_only_the_supported_owner_and_payload(manifest, mutation):
+    appearance = "intent:other" if mutation == "orphan" else "intent:meter"
+    ref = "/data/missing" if mutation == "missing-destination" else "/data/reading"
+    action = classes.PRINT_ACTION if mutation == "print" else "org.example.MEASURE"
+    quick = 'appearance="quick"' if mutation == "quick" else ""
+    source = _form(
+        data="<meter/><reading/>",
+        model='<bind nodeset="/data/meter" type="intent"/>',
+        body=f'<input ref="/data/meter" appearance="{appearance}"/><input ref="/data/reading"/>',
+        head=(f'<o:intent xmlns:o="{classes.OPENDATAKIT}" id="meter" class="{action}" {quick}>'
+              f'<extra key="unit" ref="/data/reading"/><response key="measurement" ref="{ref}"/></o:intent>'),
+    )
+    for artifact in ("form:0.0", "local.ccz/modules-0/forms-0.xml"):
+        found = manifest_usage.Uses()
+        manifest_usage.xform_uses(source, manifest, artifact, found)
+        verdicts = {use.key: manifest_usage.standing(manifest, use)[0] for use in found.uses
+                    if use.key == "jr-type:intent" or use.key.startswith("xform:intent")}
+        expected = {
+            "jr-type:intent", "xform:intent", "xform:intent@id", "xform:intent@class",
+            "xform:intent/extra", "xform:intent/extra@key", "xform:intent/extra@ref",
+            "xform:intent/response", "xform:intent/response@key", "xform:intent/response@ref",
+        }
+        assert expected <= verdicts.keys()
+        assert {verdicts[key] for key in expected} == {
+            manifest_usage.HELD if mutation is None else manifest_usage.UNHELD
+        }
+
+
 @pytest.mark.parametrize("screen", ["earlier", "later", "grouped", "hidden-data-parent"])
 def test_model_iteration_visibility_reads_the_root_control_order(manifest, screen):
     group = "/data/receiving"
