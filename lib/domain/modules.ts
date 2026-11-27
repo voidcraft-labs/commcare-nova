@@ -2149,10 +2149,11 @@ const savedAddressText = z
 	.regex(/^[^'\p{Cc}\p{Cs}\uFEFF\uFFFE\uFFFF]+$/u)
 	.refine((value) => value.trim() !== "");
 
-/** The stored setting is either one text value or two fixed pieces of text. */
+/** The stored address is read independently of the Search answer. */
 export const savedSearchAddressDefaultSchema = z.union([
 	savedAddressText,
 	z.tuple([savedAddressText, savedAddressText]),
+	z.strictObject({ prefix: savedAddressText, worker: z.literal("username") }),
 ]);
 export type SavedSearchAddressDefault = z.infer<
 	typeof savedSearchAddressDefaultSchema

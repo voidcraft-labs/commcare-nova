@@ -9663,7 +9663,8 @@ def test_the_pollsensor_hqs_build_writes_is_held_in_a_local_archive_and_refused_
 @pytest.mark.parametrize(("layout", "stored", "held"), [
     ("manual", "'Old address'", True),
     ("manual", "concat('Old ', 'address')", True),
-    ("manual", "concat('Old ', instance('commcaresession')/session/context/username)", False),
+    ("manual", "concat('Old ', instance('commcaresession')/session/context/username)", True),
+    ("manual", "concat('Old ', instance('commcaresession')/session/context/userid)", False),
     ("linked", "concat('Old ', 'address')", False),
     ("automatic", "concat('Old ', 'address')", False),
     ("manual", "''", False),
