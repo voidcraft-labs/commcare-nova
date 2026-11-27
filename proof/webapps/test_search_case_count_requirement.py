@@ -4,6 +4,7 @@ from dataclasses import replace
 from io import BytesIO
 from zipfile import ZipFile
 
+import pytest
 from lxml import etree
 
 from proof.editors import pages
@@ -16,21 +17,24 @@ from proof.webapps import steps
 from proof.webapps.session import Session
 
 
+@pytest.mark.parametrize("filtered", [False, True], ids=["case-type", "property-match"])
 def test_required_search_value_reads_the_worker_case_count(
-    hq, formplayer_runner, editor_driver, webapps_documents, evidence
+    hq, formplayer_runner, editor_driver, webapps_documents, evidence, filtered,
 ):
     from corehq.apps.app_manager.models.case_search import CaseSearchProperty
 
     document = webapps_documents["hq-search"]
-    row = next(var for var in load_variants() if var.id == "hq-search/required-reading-the-case-list")
+    row_id = "required-counting-a-case-list-with-a-property-filter" if filtered else "required-reading-the-case-list"
+    row = next(var for var in load_variants() if var.id == f"hq-search/{row_id}")
     assert row.change["pointer"] == "/modules/0/search_config/properties/1"
     source_prompt = row.change["value"]
     requirement = source_prompt["required"]["test"]
     initial = casedata.document_case_database(document)
     client = next(case for case in initial.cases if case.case_type == "client")
-    client = replace(client, name="Amina", properties=(("village", "east"), ("last_visit", "2025-12-01")))
+    properties = (("village", "east"), ("last_visit", "2025-12-01"))
+    client = replace(client, name="Amina", properties=(*properties, ("standing", "active")))
     held_case = replace(initial, cases=(client,))
-    no_cases = replace(initial, cases=())
+    no_cases = replace(initial, cases=(replace(client, properties=(*properties, ("standing", "inactive"))),) if filtered else ())
     observations = {}
     for name, condition, database in (
         ("case-count-empty", requirement, no_cases),

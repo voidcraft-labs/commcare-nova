@@ -43,11 +43,14 @@ import {
 	type Expression,
 	eq,
 	isRelationPath,
+	literal,
+	prop,
 	type RelationPath,
 	relationStep,
 	selfPath,
 	subcasePath,
 } from "@/lib/domain/expression";
+import { restoredCasePropertyMatch } from "@/lib/domain/expression/ruleSets";
 import { expressionRowScope } from "@/lib/domain/expression/typeChecker";
 import {
 	CONDITION_SEED_UNAVAILABLE_REASON,
@@ -60,6 +63,7 @@ import {
 } from "../../editorContext";
 import type { ExpressionEditContext } from "../../expressionEditorSchemas";
 import { appendKind, appendKindSlot, type EditorPath } from "../../path";
+import { BlurCommitTextInput } from "../../primitives/BlurCommitTextInput";
 import { InlineError } from "../../primitives/CardShell";
 import { RelationPathBuilder } from "../../primitives/RelationPathBuilder";
 import {
@@ -227,6 +231,34 @@ function DeviceCountCard({
 				? `case:${scope.caseType}`
 				: "all";
 	const chosen = options.find((option) => option.id === sourceId);
+	const requiredCaseType =
+		singleCaseType && scope?.kind === "case" ? scope.caseType : undefined;
+	const propertyMatch = singleCaseType
+		? restoredCasePropertyMatch(rows)
+		: undefined;
+	const textProperties =
+		kinds
+			.find(({ name }) => name === requiredCaseType)
+			?.properties.filter(
+				({ data_type }) => (data_type ?? "text") === "text",
+			) ?? [];
+	const setPropertyMatch = (property: string, text: string) => {
+		if (requiredCaseType === undefined) return;
+		const typed = typeRows(requiredCaseType);
+		onChange({
+			...value,
+			via:
+				property === "$any"
+					? typed
+					: {
+							...typed,
+							where: [
+								...typed.where,
+								eq(prop(requiredCaseType, property), literal(text)),
+							],
+						},
+		});
+	};
 	const setRows = (
 		where: Expression[],
 		edit: Parameters<typeof conditionIdentity.stage>[1],
@@ -256,6 +288,38 @@ function DeviceCountCard({
 					))}
 				</SelectContent>
 			</Select>
+			{singleCaseType && textProperties.length > 0 && (
+				<>
+					<Select
+						value={propertyMatch?.property ?? "$any"}
+						onValueChange={(property) => {
+							if (property !== null)
+								setPropertyMatch(property, propertyMatch?.text ?? "");
+						}}
+					>
+						<SelectTrigger aria-label="Text property to match">
+							<SelectValue />
+						</SelectTrigger>
+						<SelectContent>
+							<SelectItem value="$any">Any value</SelectItem>
+							{textProperties.map(({ name }) => (
+								<SelectItem key={name} value={name}>
+									{name}
+								</SelectItem>
+							))}
+						</SelectContent>
+					</Select>
+					{propertyMatch && (
+						<BlurCommitTextInput
+							ariaLabel="Text to match"
+							value={propertyMatch.text}
+							onCommit={(text) =>
+								setPropertyMatch(propertyMatch.property, text)
+							}
+						/>
+					)}
+				</>
+			)}
 			{!singleCaseType && (
 				<>
 					{rows.where.map((condition, index) => (

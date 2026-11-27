@@ -82,6 +82,7 @@ import {
 	isDateOrDatetime,
 	isNumeric,
 	isRestoredCaseTypeQuery,
+	isSearchRequiredCaseQuery,
 	isValueStorageAssignable,
 	isWriteAssignable,
 	literalShape,
@@ -91,6 +92,7 @@ import {
 	type RecordPosition,
 	readsRestoredCaseTypeQuery,
 	recordPositionVerdict,
+	restoredCasePropertyMatch,
 	sameTypeRestoredPresence,
 	searchUsernameTextOrder,
 	TEXT_SHAPED_TYPES,
@@ -815,8 +817,26 @@ export function checkExpression(
 	if (slot.slot === "search_input_required_when") {
 		walkExpression(expression, {
 			visitExpression(node, path) {
+				const match = restoredCasePropertyMatch(node);
 				if (
-					isRestoredCaseTypeQuery(node) &&
+					match !== undefined &&
+					ctx.facts.caseTypes
+						.find((one) => one.name === match.caseType)
+						?.properties.some(
+							(one) =>
+								one.name === match.property &&
+								(one.data_type ?? "text") === "text",
+						) !== true
+				)
+					errors.push({
+						path,
+						code: "arm-unavailable",
+						reason: "search-required-case-property-type",
+						message:
+							"Choose a text property of the cases this Search requirement counts.",
+					});
+				if (
+					isSearchRequiredCaseQuery(node) &&
 					(path.at(-2) !== "count" || path.at(-1) !== "via")
 				) {
 					errors.push({
@@ -1248,13 +1268,18 @@ function admission(
 					expression.via.source === "casedb"))
 		)
 			return undefined;
+		const restoredQuery =
+			ctx.slot.slot === "search_input_required_when"
+				? isSearchRequiredCaseQuery
+				: ctx.slot.slot === "case_list_filter"
+					? isRestoredCaseTypeQuery
+					: undefined;
 		if (
-			(ctx.slot.slot === "search_input_required_when" ||
-				ctx.slot.slot === "case_list_filter") &&
-			(isRestoredCaseTypeQuery(expression) ||
+			restoredQuery !== undefined &&
+			(restoredQuery(expression) ||
 				(expression.kind === "count" &&
 					!isRelationPath(expression.via) &&
-					isRestoredCaseTypeQuery(expression.via)))
+					restoredQuery(expression.via)))
 		)
 			return undefined;
 		// A server search reads a query of the device's data in a value the
@@ -1696,10 +1721,15 @@ function termAdmission(
 			"form-answer-unavailable",
 			"Form answers are not available in this setting. Save the answer to the case and read it there.",
 		);
+	const requiredCaseRow =
+		ctx.slot.slot === "search_input_required_when"
+			? ctx.rows.at(-1)
+			: undefined;
 	if (
 		term.kind === "prop" &&
 		!profile.caseData &&
-		!(ctx.slot.slot === "search_button_display_condition" && caseScope(ctx))
+		!(ctx.slot.slot === "search_button_display_condition" && caseScope(ctx)) &&
+		!(requiredCaseRow?.kind === "case" && requiredCaseRow.root === "casedb")
 	)
 		return refusal(
 			"case-data-unavailable",

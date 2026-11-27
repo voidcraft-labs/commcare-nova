@@ -17,6 +17,7 @@ import {
 	isBlank,
 	literal,
 	matchesPattern,
+	prop,
 	sessionContext,
 	term,
 } from "@/lib/domain/expression";
@@ -75,75 +76,86 @@ const ssn = simpleSearchInputDef(SSN, "ssn", "SSN", "text", "ssn", {
 });
 const INPUTS = [name, phone, ssn];
 
-it("checks required against the worker’s restored cases of the requested type", () => {
-	const input = {
-		...name,
-		required: {
-			when: gt(
-				count({
-					kind: "cases",
-					source: "casedb",
-					where: [
-						eq(
-							{ kind: "case-row-type" },
-							{ kind: "case-type", caseType: "person" },
-						),
-					],
-				}),
-				literal(0),
-			),
-			message: "Give a name",
-		},
-	};
-	const fields = [input];
-	const environment = constraintEnvironment(fields);
-	const caseRow = (case_type: string): CaseRow =>
-		({
-			app_id: "worker-search",
-			case_id: case_type,
-			case_type,
-			case_name: case_type,
-			owner_id: "worker",
-			status: "open",
-			properties: {},
-		}) as CaseRow;
-	const withCases = (rows: CaseRow[]) => ({
-		...environment,
-		caseDatabase: { rows, indices: [] },
-	});
-	const empty = new Map<string, string>();
-	const mark = (world: Parameters<typeof searchInputRequiredMarks>[4]) =>
-		searchInputRequiredMarks(WEB_APPS_RULES, fields, empty, SESSION, world).get(
-			"name",
-		);
-	expect(mark(environment)).toBeUndefined();
-	expect(mark(withCases([]))).toBe(false);
-	expect(mark(withCases([caseRow("outside")]))).toBe(false);
-	const one = withCases([caseRow("outside"), caseRow("person")]);
-	expect(mark(one)).toBe(true);
-	expect(
-		searchInputConstraintErrors(
-			WEB_APPS_RULES,
-			fields,
-			empty,
-			SESSION,
-			one,
-		).get("name"),
-	).toBe("Give a name");
-	expect(
-		searchInputConstraintErrors(
-			WEB_APPS_RULES,
-			fields,
-			new Map([["name", "Amina"]]),
-			SESSION,
-			one,
-		).size,
-	).toBe(0);
-	expect(
-		searchInputConstraintErrors(ANDROID_RULES, fields, empty, SESSION, one)
-			.size,
-	).toBe(0);
-});
+it.each([false, true])(
+	"checks required against restored cases, with property matching %s",
+	(matching) => {
+		const input = {
+			...name,
+			required: {
+				when: gt(
+					count({
+						kind: "cases",
+						source: "casedb",
+						where: [
+							eq(
+								{ kind: "case-row-type" },
+								{ kind: "case-type", caseType: "person" },
+							),
+							...(matching
+								? [eq(prop("person", "phone"), literal("yes"))]
+								: []),
+						],
+					}),
+					literal(0),
+				),
+				message: "Give a name",
+			},
+		};
+		const fields = [input];
+		const environment = constraintEnvironment(fields);
+		const caseRow = (case_type: string, phone = "yes"): CaseRow =>
+			({
+				app_id: "worker-search",
+				case_id: case_type,
+				case_type,
+				case_name: case_type,
+				owner_id: "worker",
+				status: "open",
+				properties: { phone },
+			}) as CaseRow;
+		const withCases = (rows: CaseRow[]) => ({
+			...environment,
+			caseDatabase: { rows, indices: [] },
+		});
+		const empty = new Map<string, string>();
+		const mark = (world: Parameters<typeof searchInputRequiredMarks>[4]) =>
+			searchInputRequiredMarks(
+				WEB_APPS_RULES,
+				fields,
+				empty,
+				SESSION,
+				world,
+			).get("name");
+		expect(mark(environment)).toBeUndefined();
+		expect(mark(withCases([]))).toBe(false);
+		expect(mark(withCases([caseRow("outside")]))).toBe(false);
+		expect(mark(withCases([caseRow("person", "no")]))).toBe(!matching);
+		const one = withCases([caseRow("outside"), caseRow("person")]);
+		expect(mark(one)).toBe(true);
+		expect(
+			searchInputConstraintErrors(
+				WEB_APPS_RULES,
+				fields,
+				empty,
+				SESSION,
+				one,
+			).get("name"),
+		).toBe("Give a name");
+		expect(
+			searchInputConstraintErrors(
+				WEB_APPS_RULES,
+				fields,
+				new Map([["name", "Amina"]]),
+				SESSION,
+				one,
+			).size,
+		).toBe(0);
+		expect(
+			searchInputConstraintErrors(ANDROID_RULES, fields, empty, SESSION, one)
+				.size,
+		).toBe(0);
+	},
+);
 
 describe("searchInputConstraintErrors", () => {
 	it("fires an unconditional requirement on a blank answer with the authored or default message", () => {

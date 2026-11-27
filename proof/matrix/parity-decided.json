@@ -753,6 +753,7 @@
 		"hq-search/required-address-field",
 		"hq-search/required-field-condition",
 		"hq-search/required-hidden-field",
+		"hq-search/required-counting-a-case-list-with-a-property-filter",
 		"hq-search/required-reading-the-case-list",
 		"hq-search/requirement-with-a-blank-test",
 		"hq-search/results-instance-named",

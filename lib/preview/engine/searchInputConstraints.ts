@@ -41,7 +41,7 @@ import {
 	expressionUsesPattern,
 	walkExpressionTerms,
 } from "@/lib/domain/expression";
-import { readsRestoredCaseTypeQuery } from "@/lib/domain/expression/ruleSets";
+import { readsSearchRequiredCaseQuery } from "@/lib/domain/expression/ruleSets";
 import type { LanguageTag } from "@/lib/domain/localization";
 import type { PreviewPlatformRules } from "../platform";
 import type { PreviewSearchSessionValues } from "./identity";
@@ -433,7 +433,7 @@ function judgeable(
 	}
 	return (
 		(environment.caseDatabase != null ||
-			!readsRestoredCaseTypeQuery(predicate)) &&
+			!readsSearchRequiredCaseQuery(predicate)) &&
 		predicateLookupsCovered(predicate, environment.lookup)
 	);
 }

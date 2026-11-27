@@ -3595,7 +3595,7 @@
 		],
 		"valueClass": "required-condition-counts-restored-cases",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: the condition counts the worker’s restored cases by their declared type. Web Apps requires an answer when the condition holds.",
+		"dispositionCell": "**HELD**: the condition counts the worker’s restored cases by their declared type, with an optional exact match on one text property. Web Apps requires an answer when the condition holds.",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",

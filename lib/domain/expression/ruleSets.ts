@@ -228,8 +228,7 @@ function restoredCaseType(expression: Expression): string | undefined {
 	)
 		return undefined;
 	const filter = expression.where?.[0];
-	return expression.where?.length === 1 &&
-		filter?.kind === "eq" &&
+	return filter?.kind === "eq" &&
 		filter.left.kind === "term" &&
 		filter.left.term.kind === "case-row-type" &&
 		filter.right.kind === "term" &&
@@ -239,7 +238,53 @@ function restoredCaseType(expression: Expression): string | undefined {
 }
 
 export function isRestoredCaseTypeQuery(expression: Expression): boolean {
-	return restoredCaseType(expression) !== undefined;
+	return (
+		expression.kind === "cases" &&
+		expression.where.length === 1 &&
+		restoredCaseType(expression) !== undefined
+	);
+}
+
+export function restoredCasePropertyMatch(expression: Expression) {
+	if (expression.kind !== "cases" || expression.where.length !== 2) return;
+	const caseType = restoredCaseType(expression);
+	const check = expression.where[1];
+	if (
+		caseType === undefined ||
+		check?.kind !== "eq" ||
+		check.left.kind !== "term" ||
+		check.left.term.kind !== "prop" ||
+		check.left.term.caseType !== caseType ||
+		check.left.term.via !== undefined ||
+		check.left.term.readReached === true ||
+		check.right.kind !== "term" ||
+		check.right.term.kind !== "literal" ||
+		check.right.term.data_type !== undefined ||
+		typeof check.right.term.value !== "string"
+	)
+		return;
+	return {
+		caseType,
+		property: check.left.term.property,
+		text: check.right.term.value,
+	};
+}
+
+export function isSearchRequiredCaseQuery(expression: Expression): boolean {
+	return (
+		isRestoredCaseTypeQuery(expression) ||
+		restoredCasePropertyMatch(expression) !== undefined
+	);
+}
+
+export function readsSearchRequiredCaseQuery(expression: Expression): boolean {
+	let reads = false;
+	walkExpression(expression, {
+		visitExpression(node) {
+			if (isSearchRequiredCaseQuery(node)) reads = true;
+		},
+	});
+	return reads;
 }
 
 /** Every candidate in an ordinary list witnesses its own type being present. */
@@ -260,6 +305,7 @@ export function sameTypeRestoredPresence(
 	return (
 		expression.right.term.value === 0 &&
 		expression.right.term.data_type === undefined &&
+		isRestoredCaseTypeQuery(expression.left.via) &&
 		restoredCaseType(expression.left.via) === caseType
 	);
 }

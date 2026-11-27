@@ -88,7 +88,7 @@ import {
 	valueSchema,
 } from "@/lib/domain/expression";
 import { mapExpressionAst } from "@/lib/domain/expression/mapAst";
-import { isRestoredCaseTypeQuery } from "@/lib/domain/expression/ruleSets";
+import { isSearchRequiredCaseQuery } from "@/lib/domain/expression/ruleSets";
 import {
 	projectChoiceSearchInput,
 	projectRangeSearchInput,
@@ -635,7 +635,7 @@ function refineSearchInputBoundary(
 				mapExpression: (node) =>
 					node.kind === "count" &&
 					!isRelationPath(node.via) &&
-					isRestoredCaseTypeQuery(node.via)
+					isSearchRequiredCaseQuery(node.via)
 						? term(literal(0))
 						: undefined,
 			}),
@@ -645,7 +645,7 @@ function refineSearchInputBoundary(
 			code: "custom",
 			path: ["required", "when"],
 			message:
-				"A Search requirement can count the worker’s restored cases of one type. It can also compare Search answers (#search/name), fixed values, or worker information.",
+				"A Search requirement can count the worker’s restored cases of one type, optionally matching a text property to a fixed value. It can also compare Search answers (#search/name), fixed values, or worker information.",
 		});
 	}
 	if (
