@@ -42,11 +42,16 @@ def _geocoder_fields(app, mode):
     })
 
 
+@pytest.mark.parametrize("variant_name", [
+    "address-picker-with-stored-default",
+    "address-picker-with-a-calculated-default",
+])
 def test_saved_address_default_stays_out_of_signed_web_search(
-    hq, formplayer_runner, editor_driver, webapps_documents, evidence
+    hq, formplayer_runner, editor_driver, webapps_documents, evidence, variant_name
 ):
     document = webapps_documents["hq-search"]
-    variant = next(row for row in load_variants() if row.id == "hq-search/address-picker-with-stored-default")
+    variant = next(row for row in load_variants() if row.id == f"hq-search/{variant_name}")
+    expected_default = variant.change["value"]["default_value"]
     address = {
         "eval": """() => document.querySelector('#village_mapbox input.mapboxgl-ctrl-geocoder--input')?.value"""
     }
@@ -63,11 +68,11 @@ def test_saved_address_default_stays_out_of_signed_web_search(
         menu = operations.held_app(project.unit, project.app_id).get_module_by_unique_id(menu_id)
         field = next(field for field in menu.search_config.properties if field.name == "village")
         assert saved.save and saved.save.status == 200 and not saved.refused, saved.alerts
-        assert (field.appearance, field.exclude, field.default_value) == ("address", False, "'Old address'")
+        assert (field.appearance, field.exclude, field.default_value) == ("address", False, expected_default)
         assert field.receiver_expression in (None, "")
 
         with project.released(formplayer_runner, database=address_default_database(document)) as release:
-            built = built_address_default(release.archive())
+            built = built_address_default(release.archive(), expected_default)
             run = Session(release, editor_driver).run([
                 *opening, address, TYPE_ADDRESS,
                 {"until": "webapps/choose_address",
@@ -80,7 +85,7 @@ def test_saved_address_default_stays_out_of_signed_web_search(
             ]
             hq_searches = [dict(search.params) for search in release.hq.searches]
     initial, selected = run.value(len(opening)), run.value(len(opening) + 4)
-    evidence("search-address-stored-default", {
+    evidence(variant_name, {
         "hqSave": saved.save.status, "built": built, "initial": initial,
         "selected": selected, "workerSubmitted": requests, "hqSearch": hq_searches,
         "pageErrors": run.page_errors,

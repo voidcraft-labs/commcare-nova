@@ -39,13 +39,13 @@ def address_default_database(document):
     return replace(database, cases=(replace(original, name="Amina", properties=tuple(properties.items())),))
 
 
-def built_address_default(archive):
+def built_address_default(archive, expected_default):
     with ZipFile(BytesIO(archive)) as zipped:
         suite = etree.fromstring(zipped.read("suite.xml"))
     prompts = suite.xpath(".//query/prompt[@key='village'][@input='address']")
     assert prompts, "HQ emitted no address picker for the saved Village field"
     held = {(prompt.getparent().get("storage-instance"), prompt.get("default"), prompt.get("exclude")) for prompt in prompts}
     (storage, default, exclude), = held
-    assert default == "'Old address'" and exclude is None, held
+    assert default == expected_default and exclude is None, held
     assert storage
     return {"storage": storage, "default": default, "exclude": exclude}

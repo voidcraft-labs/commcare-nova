@@ -75,6 +75,7 @@ import type { ModuleExpressionSlotRef } from "@/lib/domain/expression/types";
 import { searchInputRequestKey } from "@/lib/domain/modules";
 import type { Uuid } from "@/lib/domain/uuid";
 import type { ModuleExpressionContexts } from "../../expressionContext";
+import { savedAddressDefaultWire } from "./savedAddressDefault";
 import { groupedSearchWire, searchGroupElement } from "./searchGroups";
 import { simpleArmNeedsXPathQueryEmission } from "./simpleArmDerivation";
 
@@ -302,7 +303,7 @@ export function searchPromptWire(
 		input.kind === "hidden" ? input.value : searchInputDefault(input);
 	const defaultValue =
 		input.kind === "address" && input.savedDefault !== undefined
-			? w.str(input.savedDefault)
+			? savedAddressDefaultWire(input.savedDefault)
 			: seed === undefined
 				? undefined
 				: compileDefaultExpression(

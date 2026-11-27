@@ -238,7 +238,10 @@ it.each([
 	).toBe(false);
 });
 
-function addStoredAddressDefault(body: JsonObject) {
+function addStoredAddressDefault(
+	body: JsonObject,
+	defaultValue = "'Old address'",
+) {
 	const config = (body.modules as JsonObject[])[0].search_config as JsonObject;
 	config.auto_launch = true;
 	promptsOf(body).push({
@@ -246,72 +249,93 @@ function addStoredAddressDefault(body: JsonObject) {
 		name: "village",
 		label: { en: "Village" },
 		appearance: "address",
-		default_value: "'Old address'",
+		default_value: defaultValue,
 	});
 	return config;
 }
 
-it("keeps the saved address through a label edit, both exports and normal HQ readback", async () => {
-	const { doc } = await documentOf(addStoredAddressDefault);
-	const moduleUuid = doc.moduleOrder[0];
-	const picker = doc.modules[moduleUuid].caseListConfig?.searchInputs.at(-1);
-	if (picker?.kind !== "address")
-		throw new Error("Expected a stored address picker.");
-	expect(picker.savedDefault).toBe("Old address");
-	const { savedDefault, ...visible } = picker;
-	const edited = produce(doc, (draft) => {
-		applyMutations(draft, [
-			searchInputUpdateMutation(moduleUuid, picker, {
-				...visible,
-				label: "Town",
+it.each([
+	{ wire: "'Old address'", saved: "Old address" },
+	{ wire: "concat('Old ', 'address')", saved: ["Old ", "address"] },
+])(
+	"keeps the saved address $wire through a label edit, both exports and normal HQ readback",
+	async ({ wire, saved }) => {
+		const { doc } = await documentOf((body) =>
+			addStoredAddressDefault(body, wire),
+		);
+		const moduleUuid = doc.moduleOrder[0];
+		const picker = doc.modules[moduleUuid].caseListConfig?.searchInputs.at(-1);
+		if (picker?.kind !== "address")
+			throw new Error("Expected a stored address picker.");
+		expect(picker.savedDefault).toEqual(saved);
+		const { savedDefault, ...visible } = picker;
+		const edited = produce(doc, (draft) => {
+			applyMutations(draft, [
+				searchInputUpdateMutation(moduleUuid, picker, {
+					...visible,
+					label: "Town",
+				}),
+			]);
+		});
+		const body = exportedBody(edited);
+		expect(promptsOf(body).at(-1)).toMatchObject({
+			appearance: "address",
+			label: { en: "Town" },
+			default_value: wire,
+		});
+		const runtimeTarget = {
+			server: "production",
+			domain: "clinic",
+			appId: "app",
+		} as const;
+		const archive = new AdmZip(
+			compileCcz(expandDoc(edited, { runtimeTarget }), edited.appName, edited, {
+				runtimeTarget,
 			}),
+		);
+		const suite = new DOMParser().parseFromString(
+			archive.readAsText("suite.xml"),
+			"application/xml",
+		);
+		const village = Array.from(suite.getElementsByTagName("prompt")).find(
+			(prompt) => prompt.getAttribute("key") === "village",
+		);
+		expect(village?.getAttribute("input")).toBe("address");
+		expect(village?.getAttribute("default")).toBe(wire);
+		const readback = readHqApp(await inputFor(body));
+		expect(readback.kind).toBe("read");
+		if (readback.kind !== "read")
+			throw new Error("Expected readback of the stored address.");
+		expect(
+			readback.draft.doc.modules[
+				readback.draft.doc.moduleOrder[0]
+			].caseListConfig?.searchInputs.at(-1),
+		).toMatchObject({ kind: "address", label: "Town", savedDefault });
+		const cleared = produce(edited, (draft) => {
+			const current =
+				draft.modules[moduleUuid].caseListConfig?.searchInputs.at(-1);
+			if (current?.kind === "address") delete current.savedDefault;
+		});
+		expect(
+			produce(edited, (draft) => {
+				applyMutations(draft, diffDocsToMutations(edited, cleared));
+			}),
+		).toEqual(cleared);
+	},
+);
+
+it.each(["concat('Older ', 'street ', 'address')", "concat('Old ','address')"])(
+	"keeps the refusal for an unverified saved address calculation %s",
+	async (wire) => {
+		expect(
+			await account((body) => addStoredAddressDefault(body, wire)),
+		).toContainEqual([
+			`${S}appearance-address-geocoder-broadcast-emitted-input-address`,
+			"search",
+			"village",
 		]);
-	});
-	const body = exportedBody(edited);
-	expect(promptsOf(body).at(-1)).toMatchObject({
-		appearance: "address",
-		label: { en: "Town" },
-		default_value: "'Old address'",
-	});
-	const runtimeTarget = {
-		server: "production",
-		domain: "clinic",
-		appId: "app",
-	} as const;
-	const archive = new AdmZip(
-		compileCcz(expandDoc(edited, { runtimeTarget }), edited.appName, edited, {
-			runtimeTarget,
-		}),
-	);
-	const suite = new DOMParser().parseFromString(
-		archive.readAsText("suite.xml"),
-		"application/xml",
-	);
-	const village = Array.from(suite.getElementsByTagName("prompt")).find(
-		(prompt) => prompt.getAttribute("key") === "village",
-	);
-	expect(village?.getAttribute("input")).toBe("address");
-	expect(village?.getAttribute("default")).toBe("'Old address'");
-	const readback = readHqApp(await inputFor(body));
-	expect(readback.kind).toBe("read");
-	if (readback.kind !== "read")
-		throw new Error("Expected readback of the stored address.");
-	expect(
-		readback.draft.doc.modules[
-			readback.draft.doc.moduleOrder[0]
-		].caseListConfig?.searchInputs.at(-1),
-	).toMatchObject({ kind: "address", label: "Town", savedDefault });
-	const cleared = produce(edited, (draft) => {
-		const current =
-			draft.modules[moduleUuid].caseListConfig?.searchInputs.at(-1);
-		if (current?.kind === "address") delete current.savedDefault;
-	});
-	expect(
-		produce(edited, (draft) => {
-			applyMutations(draft, diffDocsToMutations(edited, cleared));
-		}),
-	).toEqual(cleared);
-});
+	},
+);
 
 it("refuses a Search condition that tries to read the stored address as an answer", async () => {
 	const findings = await account((body) => {
@@ -387,7 +411,8 @@ it.each(["exclude", "linked", "computed", "blank", "skip", "inline", "clear"])(
 			if (different === "linked")
 				first(body).receiver_expression = "village-city";
 			if (different === "computed")
-				picker.default_value = "concat('Old ', 'address')";
+				picker.default_value =
+					"concat('Old ', instance('commcaresession')/session/context/username)";
 			if (different === "blank") picker.default_value = "''";
 			if (different === "skip") config.default_search = true;
 			if (different === "inline") config.inline_search = true;
