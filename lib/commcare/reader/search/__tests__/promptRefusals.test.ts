@@ -375,6 +375,28 @@ it("reads a Search requirement that counts restored cases of a declared type", a
 	expect(first(exportedBody(doc))).toHaveProperty("required.test", source);
 });
 
+it.each([
+	"count(instance('casedb')/casedb/case) > 0",
+	"count(instance('casedb')/casedb/case[@case_type = 'patient'][case_name = 'Amina']) > 0",
+	"boolean(instance('casedb')/casedb/case[@case_type = 'patient'])",
+])(
+	"keeps other restored case reads out of Search requirements (%s)",
+	async (test) => {
+		const findings = await account((body) => {
+			first(body).required = {
+				test,
+				text: { en: "Give a name." },
+				doc_type: "Assertion",
+			};
+		});
+		expect(findings).toContainEqual([
+			`${S}required-or-validation-test-outside-what-nova-types`,
+			"search",
+			String(first(exportedBody(PROMPTS)).name),
+		]);
+	},
+);
+
 it("refuses to put a held address default into an automatic search or connect a receiver", async () => {
 	const { doc } = await documentOf(addStoredAddressDefault);
 	const module = doc.modules[doc.moduleOrder[0]];
