@@ -67,8 +67,8 @@ XForms.
 
 The corpus holds the documents its sources name: its fixed floor (the
 producers', workforce, expander and targeted documents, those Nova admits)
-counts what step 5's pull request 9 leaves it, 387 documents, 419 with the
-default fuzz sample of 32. The plausible failure: a source that silently
+matches the declared fixed count below. Those documents are emitted alongside
+the requested fuzz sample. The plausible failure: a source that silently
 stops emitting a document (a maker dropped from ``TARGETED_DOCUMENTS``, a
 refusal by the gate the emission records instead of failing), which every
 other test would pass by reading less.
@@ -926,7 +926,7 @@ def test_every_republish_over_a_persons_saves_was_sent_as_its_document_states():
 # The documents the corpus's fixed floor emits: its producers', workforce, expander and targeted documents that
 # Nova admits, and one a base CommCare HQ made (``proof/hq-apps/``). Every pull request that adds or removes a
 # document writes the count its sources then give.
-FIXED_DOCUMENTS = 558
+FIXED_DOCUMENTS = 560
 
 
 def test_the_corpus_emits_every_document_its_sources_name():
