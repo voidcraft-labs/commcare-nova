@@ -181,8 +181,13 @@ function forwardOutput(input, output, signal) {
 	);
 }
 
-/** Hosted Docker attaches to private output pipes. Inheriting a saturated,
- * nonblocking runner descriptor can give Compose EAGAIN and end the attach. */
+/**
+ * Hosted Docker attaches to private output pipes. Inheriting a saturated,
+ * nonblocking runner descriptor can give Compose EAGAIN and end the attach.
+ * @param {string} command
+ * @param {readonly string[]} args
+ * @param {{ env?: NodeJS.ProcessEnv, stdout?: Writable, stderr?: Writable }} [options]
+ */
 export async function executeWithOutputPipes(
 	command,
 	args,
