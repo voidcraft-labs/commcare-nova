@@ -3662,7 +3662,7 @@
 		"id": "questions/a-savetocase-change-a-device-refuses-a-blank-case-id-or-a-link-of-its-case-to-itself",
 		"area": "questions",
 		"section": "Question types",
-		"item": "a SaveToCase update, close or link a device refuses on every submission: a case id that reads the case a menu chooses on a form that chooses none (a survey or a registration, whose entry holds no `case_id`), a case id that is a blank literal, or a link of the block's case to itself",
+		"item": "a SaveToCase update, close or link a device refuses on every submission: a case id that reads the case a menu chooses on a form that chooses none (a survey or a registration, whose entry holds no `case_id`), a case id that is always blank, including the retype guard of a namespaced keyed create, or a link of the block's case to itself",
 		"surfaceKeys": ["mug:SaveToCase"],
 		"valueClass": "savetocase-change-a-device-refuses",
 		"disposition": "REFUSED",

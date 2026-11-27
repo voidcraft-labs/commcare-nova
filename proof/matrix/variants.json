@@ -39041,6 +39041,24 @@
 	{
 		"id": "hq-questions/save-to-case-retype-keyed",
 		"base": "hq-questions",
+		"entry": "questions/a-savetocase-change-a-device-refuses-a-blank-case-id-or-a-link-of-its-case-to-itself",
+		"standing": "fix-in-hq",
+		"place": {
+			"kind": "question",
+			"menu": 0,
+			"form": 0,
+			"menuName": "Questions",
+			"formName": "Survey",
+			"path": "nova_operations/again"
+		},
+		"change": {
+			"op": "named",
+			"name": "save_to_case_retype_keyed"
+		}
+	},
+	{
+		"id": "hq-questions/save-to-case-retype-keyed-unguarded",
+		"base": "hq-questions",
 		"entry": "questions/a-savetocase-change-of-a-case-s-type-another-change-of-the-form-may-read-as-its-earlier-type",
 		"standing": "not-yet",
 		"place": {
@@ -39052,7 +39070,7 @@
 		},
 		"change": {
 			"op": "named",
-			"name": "save_to_case_retype_keyed"
+			"name": "save_to_case_retype_keyed_unguarded"
 		}
 	},
 	{

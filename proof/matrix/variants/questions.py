@@ -3302,6 +3302,20 @@ def save_to_case_retype_keyed(authoring, app_id):
     )
 
 
+def save_to_case_retype_keyed_unguarded(authoring, app_id):
+    """Changing the type of an already keyed case is still outside Nova's stable key model."""
+    guard_node = TYPE_CHANGE_DATA.index('<nova_guard_again_retype ')
+    data = TYPE_CHANGE_DATA[:guard_node] + "</nova_operations>"
+    guard_binds = TYPE_CHANGE_MODEL.index(
+        '<bind nodeset="/data/nova_operations/nova_guard_again_retype/case/update/case_type"'
+    )
+    model = TYPE_CHANGE_MODEL[:guard_binds]
+    _edit(
+        authoring, app_id, "save-to-case-retype-keyed-unguarded",
+        lambda text: _transplanted(text, data, model, TYPE_CHANGE_BODY),
+    )
+
+
 def save_to_case_date_as_text(authoring, app_id):
     """A patient date and a visit text write share one property across a literal retype."""
     _edit(

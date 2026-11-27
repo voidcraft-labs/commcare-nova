@@ -17,6 +17,7 @@ import type { Element } from "domhandler";
 import { isTag } from "domhandler";
 import { caseOperationConditionalGuardUuids } from "@/lib/doc/caseOperationOrder";
 import {
+	AUTHORED_CASE_ID_VERSION,
 	type BlueprintDoc,
 	type CaseOperation,
 	type CaseOperationLink,
@@ -2739,6 +2740,66 @@ function updateShape(read: NonNullable<BlockRead["proposal"]>): CaseOperation {
 	} as unknown as CaseOperation;
 }
 
+/** A guard beside a direct retype of a keyed create produces no case ID
+ * on any submission. A nonempty key always has Nova's prefix and an empty
+ * key leaves the retype target empty already. Keep the case block present
+ * in this proof, since Core treats an omitted block differently. */
+function keyedRetypeWithoutGuardTarget(
+	xform: ReadXForm,
+	read: NonNullable<BlockRead["proposal"]>,
+	guards: readonly ReadSaveToCaseBlock[],
+	proposals: readonly { read: NonNullable<BlockRead["proposal"]> }[],
+): boolean {
+	const [scope, blockName] = read.block.path;
+	if (
+		scope === undefined ||
+		blockName === undefined ||
+		read.retype === undefined ||
+		read.retype === read.caseType ||
+		read.target.kind !== "op" ||
+		read.condition !== undefined ||
+		read.block.path.length !== 2 ||
+		read.segments.join("/") !== "operations/block" ||
+		bindsUnder(xform, [scope]).get("")?.attribs.relevant !== undefined
+	)
+		return false;
+	const targetPath = read.target.path;
+	const root = xform.parsed.dataRoot.name;
+	const producer = proposals.find(
+		({ read: earlier }) =>
+			earlier.kind === "create" &&
+			earlier.target.kind === "new" &&
+			earlier.target.idFrom !== undefined &&
+			earlier.target.idPrefix?.startsWith(`${AUTHORED_CASE_ID_VERSION}:`) &&
+			`/${root}/${[...earlier.block.path, "case", "@case_id"].join("/")}` ===
+				targetPath,
+	);
+	if (producer === undefined) return false;
+	const target = `current()/../../../${blockName}/case/@case_id`;
+	const blankId = `if(not(starts-with(${target}, '${AUTHORED_CASE_ID_VERSION}:')), ${target}, '')`;
+	return guards.some((guard) => {
+		if (
+			guard.path.length !== 2 ||
+			guard.path[0] !== scope ||
+			guard.path[1] === undefined ||
+			setvaluesUnder(xform, guard.path).length > 0 ||
+			!isAllocatedName(
+				guard.path[1],
+				generatedBaseName("guard", blockName, "retype"),
+			)
+		)
+			return false;
+		const binds = bindsUnder(xform, guard.path);
+		const id = binds.get("case/@case_id")?.attribs.calculate;
+		return (
+			id !== undefined &&
+			binds.get("")?.attribs.relevant === undefined &&
+			binds.get("case")?.attribs.relevant === undefined &&
+			sameXPathText(id, blankId, { ruleSet: "form" })
+		);
+	});
+}
+
 /**
  * Pass 1: reads every Save to Case block of `form` by the four tests, the
  * last of which waits for the bound document. Each block that passes the
@@ -2870,6 +2931,17 @@ export function readSaveToCaseBlocks(
 				: proposal,
 		});
 	}
+	for (const proposal of [...proposed]) {
+		const { read } = proposal;
+		if (!keyedRetypeWithoutGuardTarget(xform, read, guards, proposed)) continue;
+		reading.failed.push({
+			block: read.block,
+			place: read.place,
+			claim: SAVE_TO_CASE_CLAIMS.deviceRefuses,
+		});
+		proposed.splice(proposed.indexOf(proposal), 1);
+	}
+
 	// Guards: each belongs to an operation proposed in its scope; the guard of
 	// a block that is a finding is covered by that finding, at its place.
 	const ids = new Set(
