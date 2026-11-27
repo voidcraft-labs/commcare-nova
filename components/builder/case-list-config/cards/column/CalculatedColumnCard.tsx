@@ -72,10 +72,14 @@ export function CalculatedColumnCard({
 	const appSettings = useAppSettings();
 	const module = useModule(ctx.moduleUuid);
 	const searchResult = value.searchResultDetail;
+	const detailColumn =
+		value.visibleInList === false
+			? { ...value, notOnList: true as const }
+			: value;
 	const offered = (module?.caseListConfig?.searchInputs ?? []).filter(
 		(prompt) =>
 			module &&
-			resolveSearchResultDetailText({ appSettings }, module, value, {
+			resolveSearchResultDetailText({ appSettings }, module, detailColumn, {
 				inputUuid: prompt.uuid,
 				prefix: searchResult?.prefix ?? "",
 				suffix: searchResult?.suffix ?? "",
@@ -201,7 +205,7 @@ export function CalculatedColumnCard({
 							const prompt = offered.find((item) => item.uuid === inputUuid);
 							if (prompt)
 								onChange({
-									...value,
+									...detailColumn,
 									searchResultDetail: {
 										inputUuid: prompt.uuid,
 										prefix: searchResult?.prefix ?? "",

@@ -53,3 +53,33 @@ test("Search result Details keep the answer from the Results page that opened th
 	await expect(entered("")).toBeVisible();
 	await expect(entered(searched.answer)).toHaveCount(0);
 });
+
+test("a new Details calculation can use a menu's Search text prompt", {
+	tag: "@seed:search-standing",
+}, async ({ scenario, page }) => {
+	const { searchStanding } = seedFor(scenario, "search-standing");
+	const { resultDetail, prompt } = SEARCH_STANDING_SEED;
+	await openBuilder(
+		page,
+		`${searchStanding.route}/${resultDetail.moduleUuid}/details`,
+	);
+	await page.getByRole("combobox", { name: "Add information" }).click();
+	await page.getByRole("option", { name: /^Calculated value/ }).click();
+	const answer = page.getByRole("combobox", {
+		name: "Submitted Search answer",
+	});
+	await expect(answer).toContainText("None");
+	await answer.click();
+	const saved = page.waitForResponse(
+		(response) =>
+			response.ok() &&
+			(response.request().postData()?.includes('"searchResultDetail"') ??
+				false),
+	);
+	await page.getByRole("option", { name: prompt.label, exact: true }).click();
+	await expect(answer).toContainText(prompt.label);
+	await expect(
+		page.getByRole("textbox", { name: "Text outside Search results" }),
+	).toHaveValue("");
+	await saved;
+});
