@@ -130,11 +130,7 @@ def _native_screen_only(row):
     if steps:
         steps[-1] = steps[-1].partition(":")[0]
     if reader == "webapps":
-        return (
-            steps == ["home", "releaseListed"]
-            or (len(steps) == 3 and steps[:2] == ["home", "tiles"])
-            or (steps[:-1] == ["runs", "*", "screens", "*", "form", "questions", "*", "media", "*"] and steps[-1] == "src")
-        )
+        return steps == ["home", "releaseListed"] or (len(steps) == 3 and steps[:2] == ["home", "tiles"])
     if reader == "formplayer" and steps[:4] == ["runs", "*", "steps", "*"]:
         content = steps[4:]
         if content in (["response", "commands", "*", "displayText"], ["response", "headers", "*"]):
@@ -646,7 +642,7 @@ def test_a_change_shown_only_on_a_menu_or_a_lists_headers_needs_no_value_pair():
 
 def test_native_screen_differences_do_not_require_values_core_cannot_observe():
     def shown(reader, path):
-        return _shows_a_value({"check": "proof3", "artifact": reader + "@B", "path": path})
+        return _shows_a_value({"check": "proof3", "artifact": reader + "@B", "path": path, "kind": "changed"})
 
     assert not shown("webapps", "/home/tiles/incomplete")
     assert not shown("webapps", "/home/releaseListed")

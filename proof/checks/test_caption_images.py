@@ -6,6 +6,7 @@ import io
 import json
 import zipfile
 from copy import deepcopy
+from dataclasses import replace
 from types import SimpleNamespace
 
 from proof.checks import caption_images, proof3, served
@@ -164,14 +165,17 @@ def test_only_the_reviewed_label_and_bytes_delivered_by_each_reader_qualify(tmp_
         {},
         media=Captured(tmp_path / "bulk", {"contentType": "multipart/form-data; boundary=bulk"}),
     )
-    payload = io.BytesIO()
-    with zipfile.ZipFile(payload, "w") as z:
-        z.writestr(ENTRY, CONTENT)
-    capture.media.body_path.write_bytes(
-        b'--bulk\r\nContent-Disposition: form-data; name="bulk_upload_file"; filename="images.zip"\r\n\r\n'
-        + payload.getvalue()
-        + b"\r\n--bulk--\r\n"
-    )
+    def write_batch(batch, entry):
+        payload = io.BytesIO()
+        with zipfile.ZipFile(payload, "w") as archive:
+            archive.writestr(entry, CONTENT)
+        batch.body_path.write_bytes(
+            b'--bulk\r\nContent-Disposition: form-data; name="bulk_upload_file"; filename="images.zip"\r\n\r\n'
+            + payload.getvalue()
+            + b"\r\n--bulk--\r\n"
+        )
+
+    write_batch(capture.media, ENTRY)
     doc = SimpleNamespace(
         kind="corpus",
         hq_side={"republish": "brings-in", "mediaReplaced": {**file, "path": OLD}},
@@ -285,6 +289,15 @@ def test_only_the_reviewed_label_and_bytes_delivered_by_each_reader_qualify(tmp_
         + [("webapps@B", f"/runs/0/screens/{s}/form/questions/0/media/0/src") for s in range(2)]
     )
     local_only = [key for key in held if key[0] == "formplayer@local.ccz"]
+    other_batch = replace(capture.media, body_path=tmp_path / "other-bulk")
+    captures = doc.exports["min"]
+    captures.republish = replace(capture, media=None, batches=((other_batch, 2), (capture.media, 3)))
+    write_batch(other_batch, "commcare/other.png")
+    assert classified() == held
+    write_batch(other_batch, ENTRY)
+    assert classified() == local_only
+    captures.republish = capture
+
     published_only = [key for key in held if key[0] != "formplayer@local.ccz"]
     native_only = [key for key in held if key[0] != "webapps@B"]
     # The same URI and upload report cannot qualify an unrelated or ambiguous installed resource.

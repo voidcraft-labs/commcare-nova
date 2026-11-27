@@ -34,15 +34,15 @@ def matched_images(captured, upload, wanted):
     """Only the bytes of files actually sent to, and matched by, HQ's bulk image upload."""
     matched = {one["path"] for one in upload.get("matched") or () if one.get("class") == "CommCareImage"}
     wanted = matched.intersection(wanted)
-    if not (captured and captured.media and wanted) or upload.get("refused"):
+    if not captured or not wanted or upload.get("refused"):
         return {}
-    with zipfile.ZipFile(io.BytesIO(upload_field(captured.media.upload(), "bulk_upload_file"))) as archive:
-        counts = Counter(archive.namelist())
-        return {
-            item.filename: archive.read(item)
-            for item in archive.infolist()
-            if ROOT + item.filename in wanted and counts[item.filename] == 1
-        }
+    found = {}
+    for batch, _ in captured.media_uploads():
+        with zipfile.ZipFile(io.BytesIO(upload_field(batch.upload(), "bulk_upload_file"))) as archive:
+            for item in archive.infolist():
+                if ROOT + item.filename in wanted:
+                    found[item.filename] = None if item.filename in found else archive.read(item)
+    return {name: content for name, content in found.items() if content is not None}
 
 
 def _saved_image(document, saved, reads):
