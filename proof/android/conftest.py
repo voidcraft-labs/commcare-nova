@@ -60,6 +60,7 @@ DOCUMENTS = (
     "targeted-case-list-device-lookup",
     "targeted-case-list-device-lookup-count",
     "targeted-case-list-device-lookup-property",
+    "targeted-case-list-device-lookup-sum",
     "targeted-case-list-device-lookup-wording",
     "targeted-reached-choice-columns",
     "targeted-relative-case-dates",
