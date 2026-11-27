@@ -1217,36 +1217,35 @@ def test_canonical_search_group_save_leaves_the_legacy_override_behind(
         assert [(row["name"], row["group_key"], row["is_group"]) for row in posted] == expected
         assert dict(saved.translations["en"]) == before
         saved_heading = worker_search(project, "canonical-search-heading")
-        migrated_heading = None
-        rekey_differences = []
-        if dormant_heading is None or dormant_heading == old_heading:
-            # Keep the live heading's words and remove the old address.
-            translations = dict(saved.translations)
-            canonical_words = dict(translations["en"])
-            canonical_words[current_key] = canonical_words.pop(old_key)
-            translations["en"] = canonical_words
-            ops.set_json(authoring, app_id, "/translations", translations)
-            rekeyed = operations.held_app(state, app_id)
-            assert dict(rekeyed.translations["en"]) == canonical_words
-            assert old_key not in rekeyed.translations["en"]
-            after_strings = parse_app_strings(rekeyed.create_app_strings("en"))
-            assert old_key not in after_strings
-            assert after_strings[current_key] == old_heading
-            migrated_heading = worker_search(project, "rekeyed-search-heading")
-            register = changes.load()
-            capture = {changes.LEGACY_SEARCH_GROUP_WORDING: (
-                "/menu/0/search_config/properties/0/group_key",
-                f"/app/translations/en/{old_key}",
-                f"/app/translations/en/{current_key}",
-            )}
-            source_changes = source.compare_sources(document.id, source_before, rekeyed.to_json())
-            rekey_differences = [
-                row.at for row in source_changes if changes.holders(row, register, capture, siblings=source_changes)
-            ]
-            if dormant_heading is None:
-                assert rekey_differences == [f"/translations/en/{old_key}", f"/translations/en/{current_key}"]
-            else:
-                assert rekey_differences == [f"/translations/en/{old_key}"]
+        # Keep the live heading's words and remove the old address.
+        translations = dict(saved.translations)
+        canonical_words = dict(translations["en"])
+        canonical_words[current_key] = canonical_words.pop(old_key)
+        translations["en"] = canonical_words
+        ops.set_json(authoring, app_id, "/translations", translations)
+        rekeyed = operations.held_app(state, app_id)
+        assert dict(rekeyed.translations["en"]) == canonical_words
+        assert old_key not in rekeyed.translations["en"]
+        after_strings = parse_app_strings(rekeyed.create_app_strings("en"))
+        assert old_key not in after_strings
+        assert after_strings[current_key] == old_heading
+        migrated_heading = worker_search(project, "rekeyed-search-heading")
+        register = changes.load()
+        capture = {changes.LEGACY_SEARCH_GROUP_WORDING: (
+            "/menu/0/search_config/properties/0/group_key",
+            f"/app/translations/en/{old_key}",
+            f"/app/translations/en/{current_key}",
+        )}
+        source_changes = source.compare_sources(document.id, source_before, rekeyed.to_json())
+        rekey_differences = [
+            row.at for row in source_changes if changes.holders(row, register, capture, siblings=source_changes)
+        ]
+        if dormant_heading is None:
+            assert rekey_differences == [f"/translations/en/{old_key}", f"/translations/en/{current_key}"]
+        elif dormant_heading == old_heading:
+            assert rekey_differences == [f"/translations/en/{old_key}"]
+        else:
+            assert rekey_differences == [f"/translations/en/{old_key}", f"/translations/en/{current_key}"]
 
     evidence("canonical-search-heading", {
         "before": original, "afterStockSave": saved_heading, "afterRekey": migrated_heading, "oldKey": old_key,
@@ -1260,10 +1259,7 @@ def test_canonical_search_group_save_leaves_the_legacy_override_behind(
     assert saved_heading == {
         **expected_query, "headings": [dormant_heading or "Personal details", "Case details"],
     }
-    if dormant_heading is None or dormant_heading == old_heading:
-        assert migrated_heading == original
-    else:
-        assert migrated_heading is None
+    assert migrated_heading == original
 
 
 @pytest.mark.parametrize("hidden_member", [False, True], ids=["shown-member", "hidden-only-group"])

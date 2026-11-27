@@ -25217,12 +25217,28 @@
 	{
 		"id": "hq-search/translation-competes-with-a-saved-legacy-search-group-heading",
 		"base": "hq-search",
+		"entry": "application-and-settings/translations-generated-wording",
+		"change": {
+			"op": "named",
+			"name": "translation_competes_with_a_saved_legacy_search_group_heading"
+		},
+		"holds": [
+			{
+				"key": ["module", { "$menu": 0 }],
+				"pointer": "/caseListConfig/searchInputGroups/0/label",
+				"value": "Local details"
+			}
+		]
+	},
+	{
+		"id": "hq-search/translation-competes-with-a-legacy-heading-in-two-languages",
+		"base": "hq-search",
 		"entry": "application-and-settings/translations-generated-key-anything-else",
 		"standing": "not-yet",
 		"place": { "kind": "app" },
 		"change": {
 			"op": "named",
-			"name": "translation_competes_with_a_saved_legacy_search_group_heading"
+			"name": "translation_competes_with_a_legacy_heading_in_two_languages"
 		}
 	},
 	{

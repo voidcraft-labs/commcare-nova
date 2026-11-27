@@ -118,6 +118,12 @@ describe("proof/first-publish-changes.json", () => {
 						path: "/translations/*/identical_search_group_heading",
 						kind: "removed",
 					},
+					...["removed", "changed"].map((kind) => ({
+						check: "source",
+						artifact: "app.json",
+						path: "/translations/*/replaced_dormant_search_group_heading",
+						kind,
+					})),
 				]);
 				continue;
 			}

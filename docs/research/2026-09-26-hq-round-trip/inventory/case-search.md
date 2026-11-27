@@ -132,6 +132,7 @@ Case search as a whole needs SYNC_SEARCH_CASE_CLAIM plus the target's `CaseSearc
 | `receiver_expression` | **HELD-NEW**: `searchInputs[].receiveFrom` (geocoder field) | RUNS / IGNORED | `receiver_expression`; privilege `geocoder` + CASE_SEARCH_ADVANCED |
 | `receiver_expression` on a prompt whose editor appearance is neither plain text nor a lookup or Mobile UCR selection (barcode, checkbox, date, date range, address) | **REFUSED**: not HQ-editable: `views/modules.py::_update_search_properties` keeps it only for appearance `fixture` or none | — | — |
 | `is_group` + `group_key` | **HELD**: Localized headings and ordered Search fields. Android shows the fields in the same order. | RUNS / IGNORED | group rows |
+| Saved wording at a legacy heading key | **HELD**: The active wording moves with its heading. For a single-language heading, the move replaces different wording at the new key when no field or heading used that key before publish. | RUNS / IGNORED | legacy-search-group-wording-rekeyed |
 | Group key that cannot identify the heading for its fields | **REFUSED**: the ordered group cannot be recovered | — | — |
 | Search heading whose text has no localizable spelling | **REFUSED**: the heading cannot be carried into the editor | — | — |
 | groups present and an input without `group_key` | **REFUSED**: not HQ-buildable: `invalid grouping from ungrouped search property` | — | — |

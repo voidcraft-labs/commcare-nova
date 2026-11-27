@@ -1593,6 +1593,14 @@ function sourceSearchGroupKey(
 	const canonicalKey = `group_header_${index}`;
 	if (group === canonicalKey) return { canonical: true };
 	const legacy = { canonical: false };
+	if (
+		rows.some(
+			(row: unknown) =>
+				isJsonObject(row) &&
+				(row.name === canonicalKey || row.group_key === canonicalKey),
+		)
+	)
+		return legacy;
 	// The bounded alias is a plain heading name. Positional-looking keys
 	// can still identify a different heading, and punctuated names can
 	// coincide with a prompt's hint, required message or validation.
@@ -1847,7 +1855,7 @@ function decideGeneratedKeys(
 		if (uses) uses.push(key);
 		else stored.set(key.key, [key]);
 	}
-	const duplicateDestinations = new Set<HeldTranslationKey>();
+	const replacedDestinations = new Set<HeldTranslationKey>();
 	for (const { held, target } of left) {
 		if (typeof held.value !== "string" || !readWhole(ctx, held.key, target))
 			continue;
@@ -1868,13 +1876,15 @@ function decideGeneratedKeys(
 			const destination = sourceGroup.destination;
 			const copies =
 				destination === undefined ? [] : (stored.get(destination) ?? []);
-			// The single-language group can unify two saved copies of the exact
-			// wording. A different value may have independent intent.
-			const duplicate =
+			// The destination is unused in the source. With one language the
+			// live heading can take that key without changing any fallback.
+			const dormant =
 				reading.languages.codes.length === 1 &&
 				copies.length === 1 &&
 				copies[0].language === held.language &&
-				copies[0].value === held.value
+				typeof copies[0].value === "string" &&
+				holdText(copies[0].value) === copies[0].value &&
+				hqDeviceText(copies[0].value).trim() !== ""
 					? copies[0]
 					: undefined;
 			if (
@@ -1882,7 +1892,7 @@ function decideGeneratedKeys(
 				sourceGroup.owner !== undefined &&
 				sourceGroup.unit !== undefined &&
 				target.position?.menu === target.module?.index &&
-				(copies.length === 0 || duplicate !== undefined) &&
+				(copies.length === 0 || dormant !== undefined) &&
 				table.wordingUnits?.[destination] === sourceGroup.unit &&
 				holdText(held.value) === held.value &&
 				hqDeviceText(held.value).trim() !== ""
@@ -1894,7 +1904,7 @@ function decideGeneratedKeys(
 					value: held.value,
 				});
 				moved.set(held, { key: destination, owner: sourceGroup.owner });
-				if (duplicate !== undefined) duplicateDestinations.add(duplicate);
+				if (dormant !== undefined) replacedDestinations.add(dormant);
 			} else {
 				verdicts.set(
 					`${held.language}\u0000${held.key}`,
@@ -1928,7 +1938,7 @@ function decideGeneratedKeys(
 	const worded = new Map<TranslationUnitId, Map<string, string>>();
 	let hasWording = false;
 	for (const { held } of left) {
-		if (duplicateDestinations.has(held)) {
+		if (replacedDestinations.has(held)) {
 			held.json.take(held.key, wordingClaim(held.key), () => held.value).value;
 			continue;
 		}
