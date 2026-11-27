@@ -74,11 +74,13 @@ scripts/lib/*
 !scripts/lib/menuLayoutAdoptionScan.ts
 !scripts/lib/step7CompletionJob.ts
 !scripts/lib/step7CompletionStorage.ts
+!scripts/lib/searchResultsAdoption.ts
 !scripts/migrations/
 scripts/migrations/*
 !scripts/migrations/step7-completion.ts
 !scripts/migrations/step7-location-capture.mjs
 !scripts/migrations/step7-menu-layouts.ts
+!scripts/migrations/step7-search-results.mjs
 
 # BuildKit's named cache context is supplied separately from the source tree.
 .nova-build-cache
