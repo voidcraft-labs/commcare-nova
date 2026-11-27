@@ -6387,7 +6387,6 @@
 				"named": "Android keeps the returned records but does not retain the submitted Search choices for the Results detail to read."
 			}
 		],
-		"slotChanges": [],
 		"platforms": { "kind": "none", "cell": "—" },
 		"emission": { "cell": "—", "markers": [] },
 		"gates": []

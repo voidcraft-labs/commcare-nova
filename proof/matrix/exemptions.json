@@ -253,7 +253,7 @@
 	},
 	"menus-and-case-lists/lookup-extras-key-value": {
 		"reason": "stated-by-its-part",
-		"note": "Part 07, Case list callout (C5), accounts for the arithmetic extra in hq-case-lists/calculated-callout under lookup-enabled-lookup-action. Relative names, fixed text and worker account values have separate retained variants."
+		"note": "Part 07, Case list callout (C5), accounts for the held unspaced calculation in hq-case-lists/callout-with-unspaced-integer-sum under lookup-enabled-lookup-action. Relative names, fixed text, worker account values and explicitly evaluated arguments have separate retained variants."
 	},
 	"menus-and-case-lists/unknown-module-doc-type": {
 		"reason": "hq-never-serves-the-value",

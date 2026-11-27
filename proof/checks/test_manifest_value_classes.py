@@ -8863,7 +8863,10 @@ def _case_list_lookup_shapes():
                 {"key": "mode", "value": "1 + 2"},
                 {"key": "force_xpath_parsing", "value": "yes"},
             ]),
-            use(accepted, "lookup_extras", lookup_extras=[{"key": "mode", "value": "1 + 2"}]),
+            replace(
+                use(accepted, "lookup_extras", lookup_extras=[{"key": "mode", "value": "1 + 2"}]),
+                standing=manifest_usage.HELD,
+            ),
             use(accepted, "lookup_extras", lookup_extras=[
                 {"key": "mode", "value": "properties/mode"},
                 {"key": "force_xpath_parsing", "value": "yes"},
@@ -8876,10 +8879,18 @@ def _case_list_lookup_shapes():
             use(accepted, "lookup_extras", lookup_extras=[{"key": "mode", "value": "2147483647 + 1"}]),
             use(accepted, "lookup_extras", lookup_extras=[{"key": "mode", "value": "1.0 + 2"}]),
             use(accepted, "lookup_extras", lookup_extras=[{"key": "mode", "value": "1+2"}]),
-            use(accepted, "lookup_extras", lookup_extras=[{"key": "mode", "value": "1 + 2"},
-                                                        {"key": "force_xpath_parsing", "value": "yes"}]),
-            use(accepted, "lookup_extras", lookup_extras=[{"key": "mode", "value": "1 + 2"},
-                                                        {"key": "second", "value": "properties/mode"}]),
+            replace(
+                use(accepted, "lookup_extras", lookup_extras=[
+                    {"key": "mode", "value": "1 + 2"}, {"key": "force_xpath_parsing", "value": "yes"},
+                ]),
+                standing=manifest_usage.HELD,
+            ),
+            replace(
+                use(accepted, "lookup_extras", lookup_extras=[
+                    {"key": "mode", "value": "1 + 2"}, {"key": "second", "value": "properties/mode"},
+                ]),
+                standing=manifest_usage.REFUSED,
+            ),
         ),
         "menus-and-case-lists/lookup-extra-relative-without-case-context": (
             use(refused, "lookup_extras", lookup_extras=[{"key": "mode", "value": "scan"}]),
@@ -8889,7 +8900,8 @@ def _case_list_lookup_shapes():
             use(accepted, "lookup_extras", lookup_extras=[{"key": "mode", "value": "'scan'"}]),
         ),
         "menus-and-case-lists/lookup-extras-key-value": (
-            use(refused, "lookup_extras", lookup_extras=dynamic),
+            use(refused, "lookup_extras", lookup_extras=[{"key": "mode", "value": "1+2"}]),
+            use(accepted, "lookup_extras", lookup_extras=dynamic),
             use(accepted, "lookup_extras"),
             use(accepted, "lookup_extras", lookup_extras=[
                 {"key": "worker", "value": "instance('commcaresession')/session/context/username"},

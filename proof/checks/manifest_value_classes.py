@@ -7662,7 +7662,7 @@ def _supported_lookup_value(text):
 def lookup_with_nonliteral_arguments(use, manifest):
     """Read the extra's XPath with HQ's parser independently of Nova's lookup reader."""
     detail = _short_lookup(use)
-    if (detail is None or _missing_lookup_arguments(detail)
+    if (detail is None or _missing_lookup_arguments(detail) or _bare_relative_lookup_extra(detail)
             or lookup_with_native_integer_sum(use, manifest) or lookup_with_forced_extras(use, manifest)):
         return False
     return any(
@@ -15555,8 +15555,6 @@ VALUE_CLASSES = {
     "menus-and-case-lists/callout-with-no-extras-or-no-responses": lookup_without_arguments,
     "menus-and-case-lists/lookup-on-the-long-detail-tabbed-or-not": lookup_on_long_detail,
     "menus-and-case-lists/lookup-enabled-lookup-action": lookup_outside_fixed_text,
-    "menus-and-case-lists/lookup-extra-with-a-fixed-integer-sum": lookup_with_native_integer_sum,
-    "menus-and-case-lists/lookup-extras-explicit-evaluation": lookup_with_forced_extras,
     "menus-and-case-lists/lookup-extra-relative-without-case-context": lookup_extra_relative_without_case_context,
     "menus-and-case-lists/standalone-search-result-list-answer-without-web-apps": standalone_result_list_without_web_apps,
     "menus-and-case-lists/lookup-extras-key-value": lookup_with_nonliteral_arguments,
