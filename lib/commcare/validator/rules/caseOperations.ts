@@ -90,8 +90,10 @@ import {
 import {
 	basicOwnExternalIdDayValue,
 	caseSlotFacts,
+	externalIdCalendarDayField,
 	isKeyedRootCreate,
 	isWorkerRecordUpdate,
+	retainedExternalIdDayRead,
 } from "@/lib/domain/basicCaseSlots";
 import { caseWriteValueField } from "@/lib/domain/caseWriteViews";
 import {
@@ -1203,7 +1205,12 @@ function validateWrites(
 				? destination
 				: validateVia(ctx, operation, write, write.via, destination, errors);
 		validateOnlyIfChanged(ctx, operation, write, errors);
-		if (write.calendarDayInExternalId) {
+		if (
+			retainedExternalIdDayRead(
+				externalIdCalendarDayField(operation),
+				write,
+			) !== undefined
+		) {
 			const placement = planPlacements(ctx.doc, ctx.formUuid).placements.get(
 				operation.uuid,
 			)?.placement;

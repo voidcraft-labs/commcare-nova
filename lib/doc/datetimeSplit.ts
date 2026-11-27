@@ -37,6 +37,7 @@ import {
 import {
 	basicOwnExternalIdDayValue,
 	caseSlotFacts,
+	externalIdCalendarDayField,
 } from "@/lib/domain/basicCaseSlots";
 import { datetimeSplitFieldUuid } from "@/lib/domain/datetimeSplitIdentity";
 import { expressionChildren } from "@/lib/domain/expression/children";
@@ -310,7 +311,7 @@ export function planDatetimeSplit(
 	if (
 		own?.writes?.some(
 			(write) =>
-				write.calendarDayInExternalId &&
+				externalIdCalendarDayField(own) === fieldUuid &&
 				basicOwnExternalIdDayValue(caseSlotFacts(doc, where.formUuid), write)
 					?.field === fieldUuid,
 		)

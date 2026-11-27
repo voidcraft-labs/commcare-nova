@@ -43,6 +43,7 @@ import {
 	basicCaseSlots,
 	basicOwnExternalIdDayValue,
 	caseSlotFacts,
+	externalIdCalendarDayField,
 } from "@/lib/domain/basicCaseSlots";
 import { caseContextLine } from "@/lib/domain/caseFormContext";
 import { columnReadsDetailTabRow } from "@/lib/domain/detailTabs";
@@ -2765,11 +2766,10 @@ export function buildCaseOperationProgramFromDoc(args: {
 			(operation.action === "update" &&
 				operation.target.kind === "worker-record")
 		);
-	const facts = own?.writes?.some(
-		({ calendarDayInExternalId }) => calendarDayInExternalId,
-	)
-		? caseSlotFacts(doc, formUuid)
-		: undefined;
+	const facts =
+		externalIdCalendarDayField(own) === undefined
+			? undefined
+			: caseSlotFacts(doc, formUuid);
 	const basicOwnDaySlot =
 		entryUuid === formUuid &&
 		form.type === "followup" &&

@@ -269,11 +269,15 @@ describe("engine → builder → executor acceptance", () => {
 				uuid: OP_ROOT,
 				id: "patient",
 				action: "own",
+				placement: {
+					kind: "basic",
+					slot: "own",
+					externalIdCalendarDayField: seen,
+				},
 				writes: [
 					{
 						property: "external_id",
 						value: dateCoerce(term(formField(seen))),
-						calendarDayInExternalId: true,
 					},
 				],
 			},

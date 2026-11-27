@@ -480,8 +480,6 @@ export const caseOperationWriteSchema = z.strictObject({
 	via: caseWriteViaSchema.optional(),
 	/** Saves only when the answer differs from the case's current value. */
 	onlyIfChanged: z.literal(true).optional(),
-	/** Keeps a direct datetime answer's calendar-day text in the basic own slot. */
-	calendarDayInExternalId: z.literal(true).optional(),
 });
 export type CaseOperationWrite = {
 	property: string;
@@ -489,7 +487,6 @@ export type CaseOperationWrite = {
 	condition?: Expression;
 	via?: CaseWriteVia;
 	onlyIfChanged?: true;
-	calendarDayInExternalId?: true;
 };
 
 /**

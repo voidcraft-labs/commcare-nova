@@ -286,10 +286,6 @@ function caseOperationPatchSchemaFor(
 				.unwrap()
 				.nullable()
 				.optional(),
-			calendarDayInExternalId: writeSchema.shape.calendarDayInExternalId
-				.unwrap()
-				.nullable()
-				.optional(),
 		})
 		.refine((patch) => Object.keys(patch).length > 0, {
 			error: "A case-operation write patch must change at least one slot.",

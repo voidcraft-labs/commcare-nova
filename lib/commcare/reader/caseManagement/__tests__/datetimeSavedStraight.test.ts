@@ -209,10 +209,12 @@ describe("a date-and-time question saved straight to a case", () => {
 			external_id: { question_path: "/data/seen_at", update_mode: "always" },
 			seen_at: { question_path: "/data/nova_datetime_seen_at" },
 		});
-		const form = Object.values(doc.forms).find((candidate) =>
-			candidate.caseOperations?.[0]?.writes?.some(
-				(write) => write.calendarDayInExternalId,
-			),
+		const form = Object.values(doc.forms).find(
+			(candidate) =>
+				candidate.caseOperations?.[0]?.placement?.kind === "basic" &&
+				candidate.caseOperations[0].placement.slot === "own" &&
+				candidate.caseOperations[0].placement.externalIdCalendarDayField !==
+					undefined,
 		);
 		if (form === undefined) throw new Error("Expected the retained form");
 		expect(form.caseOperations?.[0]?.writes).toContainEqual({
@@ -221,7 +223,11 @@ describe("a date-and-time question saved straight to a case", () => {
 				kind: "date-coerce",
 				value: { kind: "term", term: { kind: "field", uuid: question.uuid } },
 			},
-			calendarDayInExternalId: true,
+		});
+		expect(form.caseOperations?.[0]?.placement).toEqual({
+			kind: "basic",
+			slot: "own",
+			externalIdCalendarDayField: question.uuid,
 		});
 		const intoBlock = produce(doc, (draft) => {
 			const write = draft.forms[form.uuid].caseOperations?.[0]?.writes?.find(

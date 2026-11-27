@@ -17579,8 +17579,13 @@
 			},
 			{
 				"key": ["form", { "$xmlns": [0, 3] }],
-				"pointer": "/caseOperations/0/writes/1/calendarDayInExternalId",
-				"value": true
+				"pointer": "/caseOperations/0/placement/slot",
+				"value": "own"
+			},
+			{
+				"key": ["form", { "$xmlns": [0, 3] }],
+				"pointer": "/caseOperations/0/writes/1/value/kind",
+				"value": "date-coerce"
 			}
 		]
 	},

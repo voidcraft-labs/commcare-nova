@@ -2840,13 +2840,15 @@ export function writeBasicOperations(
 				? undefined
 				: valueExpression(proposal.owner);
 		const writes: CaseOperationWrite[] = [];
+		let externalIdCalendarDayField: Uuid | undefined;
 		for (const write of proposal.writes) {
 			const value = valueExpression(write.value);
 			if (value === undefined) continue;
+			if (write.value.dayAsExternalId)
+				externalIdCalendarDayField = write.value.field.uuid;
 			writes.push({
 				property: write.property,
 				value,
-				...(write.value.dayAsExternalId && { calendarDayInExternalId: true }),
 				...(write.via !== undefined && { via: write.via }),
 				...(write.onlyIfChanged !== undefined && { onlyIfChanged: true }),
 			});
@@ -2868,7 +2870,12 @@ export function writeBasicOperations(
 			id: proposal.id,
 			...(writes.length > 0 && { writes }),
 			...(proposal.placement !== undefined && {
-				placement: proposal.placement,
+				placement:
+					externalIdCalendarDayField !== undefined &&
+					proposal.placement.kind === "basic" &&
+					proposal.placement.slot === "own"
+						? { ...proposal.placement, externalIdCalendarDayField }
+						: proposal.placement,
 			}),
 		};
 		if (proposal.action === "own")

@@ -23,7 +23,12 @@ const xmlNameSchema = z.string().regex(XML_ELEMENT_NAME_PATTERN);
 
 /** A slot of the form's Case Management settings. */
 export const basicPlacementSchema = z.discriminatedUnion("slot", [
-	z.strictObject({ kind: z.literal("basic"), slot: z.literal("own") }),
+	z.strictObject({
+		kind: z.literal("basic"),
+		slot: z.literal("own"),
+		/** Direct datetime question used by the retained external ID update. */
+		externalIdCalendarDayField: uuidSchema.optional(),
+	}),
 	z.strictObject({ kind: z.literal("basic"), slot: z.literal("usercase") }),
 	/** `subcases[index]`, written at `subcase_<index>`: at the data root, or in a
 	 *  repeat that holds more than one basic subcase. */
@@ -82,6 +87,8 @@ export function sameCasePlacement(a: CasePlacement, b: CasePlacement): boolean {
 	switch (a.kind) {
 		case "basic":
 			if (b.kind !== "basic" || a.slot !== b.slot) return false;
+			if (a.slot === "own" && b.slot === "own")
+				return a.externalIdCalendarDayField === b.externalIdCalendarDayField;
 			return (
 				a.slot !== "subcase" || (b.slot === "subcase" && a.index === b.index)
 			);

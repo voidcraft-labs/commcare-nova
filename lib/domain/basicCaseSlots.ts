@@ -231,11 +231,38 @@ export function bareRead(value: Expression): Uuid | undefined {
 	return value.term.uuid;
 }
 
-/**
- * The one date conversion a basic follow-up can print as the original
- * question. Its untyped external-ID leaf casts the datetime to DateData,
- * while the external ID itself remains a text scalar.
- */
+/** Source identity carried by the held basic own placement. */
+export function externalIdCalendarDayField(
+	operation: CaseOperation | undefined,
+): Uuid | undefined {
+	const placement = operation?.placement;
+	return placement?.kind === "basic" && placement.slot === "own"
+		? placement.externalIdCalendarDayField
+		: undefined;
+}
+
+/** The retained direct datetime source, where the write still reads it. */
+export function retainedExternalIdDayRead(
+	field: Uuid | undefined,
+	write: CaseOperationWrite,
+): Extract<Expression, { kind: "term" }> | undefined {
+	if (
+		field === undefined ||
+		write.property !== "external_id" ||
+		write.via !== undefined ||
+		write.value.kind !== "date-coerce"
+	)
+		return;
+	const value = write.value.value;
+	return value.kind === "term" &&
+		value.term.kind === "field" &&
+		value.term.spelling === undefined &&
+		bareRead(value) === field
+		? value
+		: undefined;
+}
+
+/** The basic own slot can lower this date conversion to the direct question. */
 export function basicOwnExternalIdDayValue(
 	f: CaseSlotFacts,
 	write: CaseOperationWrite,
@@ -246,36 +273,25 @@ export function basicOwnExternalIdDayValue(
 	  }
 	| undefined {
 	if (
-		write.calendarDayInExternalId !== true ||
 		f.form.type !== "followup" ||
 		f.own?.condition !== undefined ||
 		f.severalCases ||
 		f.module?.caseType === undefined ||
 		RESERVED_CASE_OPERATION_TYPES.has(f.module.caseType) ||
-		write.property !== "external_id" ||
-		write.via !== undefined ||
 		write.condition !== undefined ||
-		write.onlyIfChanged ||
-		write.value.kind !== "date-coerce"
+		write.onlyIfChanged
 	)
 		return;
-	const value = write.value.value;
-	if (
-		value.kind !== "term" ||
-		value.term.kind !== "field" ||
-		value.term.spelling !== undefined
-	)
-		return;
-	const field = f.doc.fields[value.term.uuid];
+	const uuid = externalIdCalendarDayField(f.own);
+	const value = retainedExternalIdDayRead(uuid, write);
+	if (value === undefined || uuid === undefined) return;
+	const field = f.doc.fields[uuid];
 	return field?.kind === "datetime" &&
 		field.default_value === undefined &&
-		!f.form.openingAssignments?.some(
-			({ field: target }) => target === field.uuid,
-		) &&
-		bareRead(value) === field.uuid &&
-		f.doc.fieldOrder[f.formUuid]?.includes(field.uuid) &&
-		f.submittedChildren.get(f.formUuid)?.includes(field.uuid)
-		? { field: field.uuid, value }
+		!f.form.openingAssignments?.some(({ field: target }) => target === uuid) &&
+		f.doc.fieldOrder[f.formUuid]?.includes(uuid) &&
+		f.submittedChildren.get(f.formUuid)?.includes(uuid)
+		? { field: uuid, value }
 		: undefined;
 }
 
