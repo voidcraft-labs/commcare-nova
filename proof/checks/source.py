@@ -82,6 +82,7 @@ from proof.checks.changes import (
     POSITIONAL_SEARCH_GROUP_KEY,
     SEARCH_GROUP_WORDING_PATH,
     SEARCH_GROUP_WORDING_DUPLICATE_PATH,
+    SEARCH_GROUP_WORDING_REPLACED_PATH,
     legacy_related_case_formula,
 )
 from proof.checks.differences import Difference, pointer_token
@@ -399,6 +400,9 @@ def preserved_search_group_wording(a, b):
                     or not all(isinstance(labels.get(code), str) and labels[code].strip()
                                for code in languages)):
                 continue
+            before_fields = before["search_config"]["properties"]
+            if any(row.get("name") == new or row.get("group_key") == new for row in before_fields):
+                continue
             old, new = (f"search_property.m{menu}.{key}" for key in (old, new))
             saved_destinations = [(code, table[new]) for code, table in originals.items()
                                   if isinstance(table, dict) and new in table]
@@ -409,10 +413,14 @@ def preserved_search_group_wording(a, b):
                 wording = source.get(old)
                 if not isinstance(wording, str) or not wording.strip() or target.get(new) != wording:
                     continue
-                duplicate = bool(saved_destinations)
-                if duplicate and (len(languages) != 1 or saved_destinations != [(code, wording)]):
-                    continue
-                found.add((str(menu), str(index), code, old, new, wording if duplicate else None))
+                previous = None
+                if saved_destinations:
+                    if len(languages) != 1 or len(saved_destinations) != 1:
+                        continue
+                    (destination_code, previous), = saved_destinations
+                    if destination_code != code or not isinstance(previous, str) or not previous.strip():
+                        continue
+                found.add((str(menu), str(index), code, old, new, previous))
     return found
 
 def compare_sources(document, a, b, held_paths=frozenset(), suites=(None, None)) -> list[Difference]:
@@ -420,13 +428,15 @@ def compare_sources(document, a, b, held_paths=frozenset(), suites=(None, None))
     a, b = by_position(a), by_position(b)
     walk = _Walk(document, _languages(a, b), frozenset(held_paths))
     walk.compare(a, b)
-    rekeyed = {
-        f"/translations/{pointer_token(language)}/{key}": (
-            SEARCH_GROUP_WORDING_PATH if duplicate is None else SEARCH_GROUP_WORDING_DUPLICATE_PATH
-        )
-        for _, _, language, old, new, duplicate in preserved_search_group_wording(a, b)
-        for key in ((old, new) if duplicate is None else (old,))
-    }
+    rekeyed = {}
+    for _, _, language, old, new, previous in preserved_search_group_wording(a, b):
+        pointer = f"/translations/{pointer_token(language)}"
+        if previous is None:
+            rekeyed[f"{pointer}/{old}"] = rekeyed[f"{pointer}/{new}"] = SEARCH_GROUP_WORDING_PATH
+        elif previous == a["translations"][language][old]:
+            rekeyed[f"{pointer}/{old}"] = SEARCH_GROUP_WORDING_DUPLICATE_PATH
+        else:
+            rekeyed[f"{pointer}/{old}"] = rekeyed[f"{pointer}/{new}"] = SEARCH_GROUP_WORDING_REPLACED_PATH
     return [
         replace(row, path=rekeyed[row.at]) if row.at in rekeyed else row
         for row in walk.found

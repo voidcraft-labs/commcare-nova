@@ -156,6 +156,7 @@ LEGACY_RELATED_CASE_TEXT = "legacy-related-case-text-rekeyed"
 LEGACY_SEARCH_GROUP_WORDING = "legacy-search-group-wording-rekeyed"
 SEARCH_GROUP_WORDING_PATH = "/translations/*/search_group_heading"
 SEARCH_GROUP_WORDING_DUPLICATE_PATH = "/translations/*/identical_search_group_heading"
+SEARCH_GROUP_WORDING_REPLACED_PATH = "/translations/*/replaced_dormant_search_group_heading"
 LEGACY_SEARCH_GROUP_KEY = re.compile(r"[A-Za-z][A-Za-z0-9_-]*")
 POSITIONAL_SEARCH_GROUP_KEY = re.compile(r"group_header_([0-9]+)")
 SEARCH_ORDER_SUFFIX = "search-order-unused-suffix-removed"
@@ -961,7 +962,7 @@ def _legacy_text_is_unchanged(d, owner, siblings) -> bool:
 def _search_group_wording_pair(difference, places, siblings) -> bool:
     """Require both exact locale places and the captured owner of the normalized group."""
     if difference.check != "source" or difference.path not in (
-        SEARCH_GROUP_WORDING_PATH, SEARCH_GROUP_WORDING_DUPLICATE_PATH,
+        SEARCH_GROUP_WORDING_PATH, SEARCH_GROUP_WORDING_DUPLICATE_PATH, SEARCH_GROUP_WORDING_REPLACED_PATH,
     ):
         return False
 
@@ -1024,9 +1025,13 @@ def _search_group_wording_pair(difference, places, siblings) -> bool:
         removed, added = (
             (difference, counterpart) if difference.kind == "removed" else (counterpart, difference)
         )
+        if difference.path == SEARCH_GROUP_WORDING_REPLACED_PATH:
+            valid_destination = (added.kind == "changed" and isinstance(added.before, str)
+                                 and bool(added.before.strip()) and added.before != added.after)
+        else:
+            valid_destination = added.kind == "added" and added.before is None
         if (
-            removed.kind != "removed" or added.kind != "added"
-            or removed.after is not None or added.before is not None
+            removed.kind != "removed" or removed.after is not None or not valid_destination
             or not isinstance(removed.before, str) or not removed.before.strip()
             or removed.before != added.after
         ):

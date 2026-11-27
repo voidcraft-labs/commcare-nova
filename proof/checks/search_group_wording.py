@@ -157,12 +157,18 @@ def _build(difference, rows, sites, move):
         if paired:
             return difference.kind == ("removed" if difference.at == old else "added")
         language = artifact.split(":", 1)[1]
-        return (
-            move.duplicate is not None and language in (move.duplicate[0], "default")
-            and difference.at == old and difference.kind == "removed"
-            and difference.before == move.duplicate[1] and difference.after is None
-            and not any(row.at == new for row in locale_rows)
-        )
+        if move.duplicate is None or language not in (move.duplicate[0], "default"):
+            return False
+        previous = move.duplicate[1]
+        removed = [row for row in locale_rows if row.at == old and row.kind == "removed"
+                   and isinstance(row.before, str) and row.before.strip() and row.after is None]
+        changed = [row for row in locale_rows if row.at == new]
+        if len(removed) != 1:
+            return False
+        if not changed:
+            return difference == removed[0] and removed[0].before == previous
+        return (len(changed) == 1 and difference in (removed[0], changed[0])
+                and previous != removed[0].before and _changed(changed[0], previous, removed[0].before))
     if not paired and move.duplicate is None:
         return False
     old, new = f"{old}.hint", f"{new}.hint"
