@@ -837,8 +837,8 @@ describe("a select's choices", () => {
 
 		it.each([
 			"[-1]",
-			"[(2)]",
-			"[(2.5)]",
+			"[(1 + 1)]",
+			"[(-2)]",
 			"[last() - 1]",
 			"[district_name != &apos;&apos;][2]",
 		])(
