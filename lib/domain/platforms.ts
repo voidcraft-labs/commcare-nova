@@ -1078,7 +1078,7 @@ export const PLATFORM_FEATURES: Readonly<
 		android: { reading: "ignored", note: "the fields appear in ordinary rows" },
 	},
 	"search-result-detail-text": {
-		label: "Submitted Search text on Details",
+		label: "Submitted Search text on Results or Details",
 		channel: "structure",
 		webApps: { reading: "runs" },
 		android: {
@@ -1086,9 +1086,9 @@ export const PLATFORM_FEATURES: Readonly<
 			note: "the results carry no submitted prompt answers",
 		},
 		refusal: {
-			what: "shows a submitted Search answer on Details",
+			what: "shows a submitted Search answer on Results or Details",
 			why: "Android does not keep the prompt answers on the result.",
-			alternative: "remove the Search answer from Details",
+			alternative: "remove the submitted Search answer",
 			pickerLine:
 				"Available only in Web Apps. You can change where this app runs in App settings.",
 		},

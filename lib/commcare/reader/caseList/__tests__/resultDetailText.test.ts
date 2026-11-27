@@ -63,6 +63,28 @@ describe("standalone Search result-detail text", () => {
 		},
 	);
 
+	it("recovers an exact offered answer on Results without widening the Details form", () => {
+		const direct =
+			"instance('search-input:results')/input/field[@name = 'village']";
+		expect(readResultDetailText(direct, "short")).toEqual({
+			inputName: "village",
+			prefix: "",
+			suffix: "",
+			localText: "",
+			onList: true,
+		});
+		expect(readResultDetailText(direct)).toBeUndefined();
+		expect(
+			readResultDetailText(`concat('Answer: ', ${direct})`, "short"),
+		).toBeUndefined();
+		expect(
+			readResultDetailText(
+				direct.replace(":results", ":results:inline"),
+				"short",
+			),
+		).toBeUndefined();
+	});
+
 	it("emits only on Details in the HQ and local projections", () => {
 		const promptId = testUuid("result-detail-wire-prompt");
 		const column = {

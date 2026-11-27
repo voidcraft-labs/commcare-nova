@@ -265,6 +265,7 @@ export const PLATFORM_FEATURE_ENTRIES = {
 	],
 	"search-result-detail-text": [
 		"menus-and-case-lists/standalone-search-result-detail-text",
+		"menus-and-case-lists/standalone-search-result-list-text",
 		"menus-and-case-lists/standalone-search-result-detail-fixed-text",
 	],
 	"raw-custom-tile-field": [
