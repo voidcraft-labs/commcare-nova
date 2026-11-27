@@ -2658,6 +2658,10 @@ function readOrdinaryAdvancedActions(
 						field === undefined
 							? undefined
 							: form.xform?.binds.get(field.node)?.logic;
+					// The form reader has folded out Nova's generated case-name check.
+					const validation = field?.expressions.find(
+						(slot) => slot.slot === "validate",
+					)?.text;
 					if (
 						field?.kind === "text" &&
 						field === name?.field &&
@@ -2666,11 +2670,8 @@ function readOrdinaryAdvancedActions(
 						sourceLogic?.required !== undefined &&
 						sameXPathText(sourceLogic.required, "true()") &&
 						sourceLogic.relevant === undefined &&
-						sourceLogic.constraint !== undefined &&
-						sameXPathText(
-							sourceLogic.constraint,
-							". = 'child' or . = 'extension'",
-						) &&
+						validation !== undefined &&
+						sameXPathText(validation, ". = 'child' or . = 'extension'") &&
 						!field.expressions.some((slot) => slot.slot === "default_value") &&
 						!own &&
 						context === "" &&
