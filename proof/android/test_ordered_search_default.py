@@ -28,6 +28,7 @@ def test_installed_search_uses_the_retained_ordered_default(android_documents, h
     choices = (
         ("literal", LITERAL, "south"),
         ("retained", variant.change["value"]["default_value"], "south"),
+        ("worker-id", ordered_default_variant("userid").change["value"]["default_value"], "south"),
         ("number-conversion", COERCED, "south"),
         ("context-value", USERNAME, "proof-worker"),
     )

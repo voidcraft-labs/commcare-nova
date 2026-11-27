@@ -1125,7 +1125,7 @@
 		],
 		"valueClass": "lifts-into-predicate",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: `caseSearchConfig.searchButtonDisplayCondition`, including typed counts of cases on the device and a numeric comparison of the worker name when the case list loads that session value",
+		"dispositionCell": "**HELD**: `caseSearchConfig.searchButtonDisplayCondition`, including typed counts of cases on the device and a numeric comparison of the worker name or ID when the case list loads that session value",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
@@ -3252,7 +3252,7 @@
 		"area": "case-search",
 		"section": "Case search",
 		"subsection": "Search prompts",
-		"item": "A visible simple text prompt's starting value uses a greater-than comparison of the worker name with plain text",
+		"item": "A visible simple text prompt's starting value uses a greater-than comparison of the worker name or ID with plain text",
 		"surfaceKeys": [
 			"schema:CaseSearchProperty.default_value",
 			"parser:QueryPromptParser/prompt@default"

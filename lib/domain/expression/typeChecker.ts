@@ -92,7 +92,7 @@ import {
 	readsRestoredCaseTypeQuery,
 	recordPositionVerdict,
 	sameTypeRestoredPresence,
-	searchUsernameTextOrder,
+	searchWorkerTextOrder,
 	TEXT_SHAPED_TYPES,
 	TIME_ORDERING_MESSAGE,
 	typesCompatible,
@@ -4298,14 +4298,14 @@ function checkComparison(
 			});
 			return;
 		}
-		// Core and Preview coerce both operands in these worker-name
+		// Core and Preview coerce both operands in these worker-session
 		// comparisons for a Search starting value, its action, or a shared owner rule.
 		if (
 			"profile" in ctx &&
 			(ctx.profile.searchTextDefault === true ||
 				ctx.slot.slot === "excluded_owner_ids" ||
 				ctx.slot.slot === "search_button_display_condition") &&
-			searchUsernameTextOrder(kind, left, right)
+			searchWorkerTextOrder(kind, left, right)
 		)
 			return;
 		// A Search choice filter orders its text column by the device's

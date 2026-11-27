@@ -198,6 +198,7 @@ def test_the_hq_search_button_orders_worker_text_only_with_a_declared_session(hq
     from proof.observe.build import arrange
 
     worker = "instance('commcaresession')/session/context/username"
+    worker_id = "instance('commcaresession')/session/context/userid"
     ordered = f"{worker} > 'm'"
     numeric = f"number({worker}) > number('m')"
     # The case-type arm keeps the same restored list even if the test worker
@@ -213,6 +214,8 @@ def test_the_hq_search_button_orders_worker_text_only_with_a_declared_session(hq
             ("without-session", ordered, None, "missing"),
             ("with-session", ordered, filtered, "hidden"),
             ("numeric-control", numeric, filtered, "hidden"),
+            ("worker-id-with-session", f"{worker_id} > 'm'", filtered, "hidden"),
+            ("worker-id-without-session", f"{worker_id} > 'm'", None, "missing"),
             ("shown-control", "true()", filtered, "shown"),
         ):
             app = _search_app(state.domain, list_filter, condition=condition)
