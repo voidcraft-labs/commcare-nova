@@ -3,5 +3,5 @@
 	"headers": {
 		"Content-Type": "application/json; charset=utf-8"
 	},
-	"body": "{\"meta\": {\"limit\": 1000, \"next\": null, \"offset\": 0, \"previous\": null, \"total_count\": 2}, \"objects\": [{\"fields\": {\"id\": \"d1\", \"name\": \"Upper valley\"}, \"fixture_type\": \"districts\", \"id\": \"cdc258610dfa4779b096515dcc99f265\", \"resource_uri\": \"\"}, {\"fields\": {\"id\": \"d2\", \"name\": \"Lower valley\"}, \"fixture_type\": \"districts\", \"id\": \"e30930206b494858a738bb5a627739f0\", \"resource_uri\": \"\"}]}"
+	"body": "{\"meta\": {\"limit\": 1000, \"next\": null, \"offset\": 0, \"previous\": null, \"total_count\": 2}, \"objects\": [{\"fields\": {\"id\": \"d1\", \"name\": \"Upper valley\"}, \"fixture_type\": \"districts\", \"id\": \"694ab8ea051f4d82af9942823f83e5bf\", \"resource_uri\": \"\"}, {\"fields\": {\"id\": \"d2\", \"name\": \"Lower valley\"}, \"fixture_type\": \"districts\", \"id\": \"77d1afce911f4673a6d0e5f8da15629f\", \"resource_uri\": \"\"}]}"
 }

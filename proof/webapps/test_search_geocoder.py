@@ -32,6 +32,10 @@ def _geocoder_fields(app, mode):
     district = next(field for field in fields if field["name"] == "district")
     if mode in ("text", "combined"):
         village["receiver_expression"] = "home-us_state||city"
+    if mode == "receiver-suffix":
+        village["receiver_expression"] = "home-city-extra"
+    if mode == "canonical-city":
+        village["receiver_expression"] = "home-city"
     if mode in ("lookup", "combined", "single"):
         district["receiver_expression"] = "home-region"
         district["input_"] = "select1" if mode == "single" else "select"
@@ -181,8 +185,9 @@ CLEAR_ADDRESS = {
 
 @pytest.mark.parametrize(
     ("viewport", "mode"),
-    [(None, "text"), (SMALL_SCREEN, "text"), (None, "lookup"), (None, "combined"), (None, "single")],
-    ids=["desktop-text", "phone-text", "lookup", "combined", "single"],
+    [(None, "text"), (SMALL_SCREEN, "text"), (None, "lookup"), (None, "combined"), (None, "single"),
+     (None, "receiver-suffix"), (None, "canonical-city")],
+    ids=["desktop-text", "phone-text", "lookup", "combined", "single", "receiver-suffix", "canonical-city"],
 )
 def test_address_query_sends_ordered_fallback_and_lookup_value_without_the_address(
     hq, core_runner, formplayer_runner, editor_driver, webapps_documents, evidence, viewport, mode
@@ -221,7 +226,7 @@ def test_address_query_sends_ordered_fallback_and_lookup_value_without_the_addre
     assert run.page_errors == []
     assert filled["address"] == PLACE["place_name"], filled
     expected = {}
-    if mode in ("text", "combined"):
+    if mode in ("text", "combined", "receiver-suffix", "canonical-city"):
         assert filled["city"] == "Example Town", filled
         expected["village"] = "Example Town"
     if mode in ("lookup", "combined", "single"):

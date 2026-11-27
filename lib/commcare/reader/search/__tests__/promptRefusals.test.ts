@@ -117,7 +117,7 @@ it.each([
 	},
 	{
 		webAppsOn: true,
-		receive: "home-city-extra",
+		receive: "home-unknown-extra",
 		entry: "receiver-expression",
 		standing: "not-yet",
 	},

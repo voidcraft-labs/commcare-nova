@@ -997,6 +997,30 @@
 		]
 	},
 	{
+		"change": "search-address-receiver-suffix-removed",
+		"placeKinds": ["menu"],
+		"rows": [
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/search_config/properties/*/receiver_expression",
+				"kind": "changed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "suite.xml",
+				"path": "/suite/remote-request[*]/session[*]/query[*]/prompt[*]/@receive",
+				"kind": "changed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "suite.xml",
+				"path": "/suite/entry[*]/session[*]/query[*]/prompt[*]/@receive",
+				"kind": "changed"
+			}
+		]
+	},
+	{
 		"change": "sort-rule-kept-as-hidden-column",
 		"placeKinds": ["menu"],
 		"rows": [

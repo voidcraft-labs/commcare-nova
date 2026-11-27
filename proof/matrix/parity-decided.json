@@ -701,6 +701,7 @@
 		"hq-search/address-picker-with-a-session-derived-default",
 		"hq-search/address-picker-with-stored-default",
 		"hq-search/address-receiver-with-an-extra-hyphen-segment",
+		"hq-search/address-receiver-with-an-unknown-component",
 		"hq-search/address-receiver-without-a-component",
 		"hq-search/another-case-type-searched",
 		"hq-search/blank-answer-searched-for",

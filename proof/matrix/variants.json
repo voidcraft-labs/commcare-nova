@@ -41773,7 +41773,7 @@
 							"kind": "term",
 							"term": {
 								"kind": "input",
-								"searchInputUuid": "9121219a-87d1-5057-be7a-e63d267685e2"
+								"searchInputUuid": "4c4e8ea8-83de-5197-aaf4-7f4be7f15283"
 							}
 						},
 						"right": {
@@ -42666,7 +42666,7 @@
 					"kind": "when-input-present",
 					"input": {
 						"kind": "input",
-						"searchInputUuid": "e9a7a415-6ba1-55ce-a176-ed49c941612b"
+						"searchInputUuid": "1e7a1404-63e1-559c-9fb7-260233b796fc"
 					},
 					"clause": {
 						"kind": "eq",
@@ -45576,6 +45576,22 @@
 	{
 		"id": "hq-search/address-receiver-with-an-extra-hyphen-segment",
 		"base": "hq-search",
+		"entry": "case-search/address-receiver-with-an-unused-suffix",
+		"change": {
+			"op": "named",
+			"name": "address_picker_receiver_with_extra_hyphen"
+		},
+		"holds": [
+			{
+				"key": ["module", { "$menu": 0 }],
+				"pointer": "/caseListConfig/searchInputs/2/addressReceiver/parts",
+				"value": ["city"]
+			}
+		]
+	},
+	{
+		"id": "hq-search/address-receiver-with-an-unknown-component",
+		"base": "hq-search",
 		"entry": "case-search/receiver-expression",
 		"standing": "not-yet",
 		"place": {
@@ -45585,7 +45601,7 @@
 		},
 		"change": {
 			"op": "named",
-			"name": "address_picker_receiver_with_extra_hyphen"
+			"name": "address_picker_receiver_with_unknown_component"
 		}
 	},
 	{

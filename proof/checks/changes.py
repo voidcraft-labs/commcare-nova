@@ -227,6 +227,14 @@ class Change:
             return difference.at in OWNED_PROFILE_SETTINGS and difference.kind == "added" and difference.after == "no"
         if self.change == "search-order-direction-signs-respelled":
             return search_order_signs_respelled(difference)
+        if self.change == "search-address-receiver-suffix-removed":
+            if difference.kind != "changed" or not isinstance(difference.before, str):
+                return False
+            match = re.fullmatch(
+                r"([A-Za-z_][A-Za-z0-9_]*-[A-Za-z_][A-Za-z0-9_]*)-[A-Za-z_][A-Za-z0-9_]*",
+                difference.before,
+            )
+            return match is not None and match[1] == difference.after
         if self.change == SEARCH_ORDER_SUFFIX:
             return search_order_unused_suffix_removed(difference)
         if self.change == "search-value-guards" and difference.kind == "changed":
