@@ -926,6 +926,7 @@ export async function loadCasesAction(
 								detailColumns,
 								answers,
 								args.defaultSearch === true,
+								module?.caseListConfig?.searchInputs,
 							),
 						].map(([inputUuid, answer]) => ({ inputUuid, answer })),
 					}),

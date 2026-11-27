@@ -114,6 +114,7 @@ export async function appTestDetails(
 				screen.source.searchAnswers?.map(({ name, value }) => [name, value]),
 			),
 			screen.source.searchEntry?.defaultSearch === true,
+			mod.caseListConfig?.searchInputs,
 		),
 	);
 	const result =
