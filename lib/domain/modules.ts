@@ -2150,10 +2150,15 @@ const savedAddressText = z
 	.refine((value) => value.trim() !== "");
 
 /** The stored address is read independently of the Search answer. */
+export const SAVED_ADDRESS_WORKER_FIELDS = ["username", "userid"] as const;
+
 export const savedSearchAddressDefaultSchema = z.union([
 	savedAddressText,
 	z.tuple([savedAddressText, savedAddressText]),
-	z.strictObject({ prefix: savedAddressText, worker: z.literal("username") }),
+	z.strictObject({
+		prefix: savedAddressText,
+		worker: z.enum(SAVED_ADDRESS_WORKER_FIELDS),
+	}),
 ]);
 export type SavedSearchAddressDefault = z.infer<
 	typeof savedSearchAddressDefaultSchema

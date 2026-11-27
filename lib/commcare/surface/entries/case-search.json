@@ -2638,7 +2638,7 @@
 		],
 		"valueClass": "stored-text-on-a-manual-address-picker",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: keeps one text literal, a join of two fixed nonblank text pieces, or a fixed prefix followed by the signed-in worker’s username on the saved app. Web Apps opens the picker blank and leaves the address out of the request. Android leaves out the field and the value.",
+		"dispositionCell": "**HELD**: keeps one text literal, a join of two fixed nonblank text pieces, or a fixed prefix followed by the signed-in worker’s username or user ID on the saved app. Web Apps opens the picker blank and leaves the address out of the request. Android leaves out the field and the value.",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
