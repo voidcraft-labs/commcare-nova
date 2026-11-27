@@ -1,0 +1,10 @@
+{
+	"entry": "menus-and-case-lists/detail-max-select-value-for-flat-close",
+	"platform": "web-apps",
+	"source": "/modules/0/case_details/short/max_select_value",
+	"menu": "Records",
+	"form": "Close all",
+	"selectedCount": 101,
+	"overflowCount": 102,
+	"pageSize": 7
+}

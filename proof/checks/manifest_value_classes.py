@@ -13497,6 +13497,20 @@ def prompt_key_outside_nova_s_name_grammar(use, manifest):
     return not _authored_property_name(name)
 
 
+def auto_select_on_a_single_basic_list(use, manifest):
+    """The Detail editor only keeps automatic selection when its short case list selects several cases."""
+    at = _json(use)
+    if at is not None and at.key == "auto_select" and at.scope[-1][0] == "Detail":
+        module, pair = at.nearest(*MODULES), at.nearest("DetailPair")
+        return (module is not None and module.get("doc_type") in (None, "Module") and bool(module.get("case_type"))
+                and pair is not None and pair.get("short") is at.owner and at.value is True
+                and at.owner.get("multi_select") is not True)
+    at = _xml(use)
+    if at is not None and use.key == "parser:SessionDatumParser/datum@autoselect":
+        return at.element.get("autoselect") == "true"
+    return None
+
+
 def _basic_multi_select_maximum(use):
     """The source maximum on a basic menu's short list that actually selects several cases."""
 
@@ -14723,6 +14737,7 @@ VALUE_CLASSES = {
 # A positive class may need an observation beyond the use at its own source.
 # It grants HELD only when that observation establishes the supported class.
 POSITIVE_VALUE_CLASSES = {
+    "menus-and-case-lists/detail-auto-select-true-on-a-single-select-basic-list": auto_select_on_a_single_basic_list,
     "menus-and-case-lists/detail-max-select-value-for-flat-close": bounded_flat_close_maximum,
     "case-search/address-picker-on-a-search-screen": ordinary_address_search_marker,
     "case-search/case-search-endpoint-id": configured_search_endpoint,

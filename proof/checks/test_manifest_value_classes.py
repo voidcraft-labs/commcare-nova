@@ -79,6 +79,23 @@ def test_each_positive_reader_has_a_held_value_class(manifest):
         assert entry.disposition == "HELD" and entry.value_class
 
 
+def _basic_auto_select_shapes():
+    key = "schema:Detail.auto_select"
+    place = "/modules/0/case_details/short/auto_select"
+
+    def app(several):
+        return {"doc_type": "Application", "modules": [{
+            "doc_type": "Module", "case_type": "sample", "case_details": {
+                "doc_type": "DetailPair", "short": {"doc_type": "Detail", "auto_select": True, "multi_select": several},
+            },
+        }]}
+
+    return (
+        refused("app", app(False), key, place),
+        accepted("app", app(True), key, place),
+    )
+
+
 def _bounded_flat_close_shapes():
     source = b"""<h:html xmlns:h="http://www.w3.org/1999/xhtml" xmlns="http://www.w3.org/2002/xforms"
         xmlns:vellum="http://commcarehq.org/xforms/vellum" xmlns:jr="http://openrosa.org/javarosa">
@@ -9038,6 +9055,7 @@ def test_standalone_result_detail_positive_classifier(manifest, prompt, guarded,
 
 
 SHAPES = {
+    "menus-and-case-lists/detail-auto-select-true-on-a-single-select-basic-list": _basic_auto_select_shapes(),
     **_bounded_flat_close_shapes(),
     **_standalone_result_detail_shapes(),
     **_android_callout_shapes(),
@@ -9458,7 +9476,6 @@ KNOWN_GAPS = frozenset(
         "forms-and-case-writes/unknown-form-doc-type",
         "menus-and-case-lists/advancedmodule-has-schedule-true-or-schedule-phases-non-empty",
         "menus-and-case-lists/attachment-name-with-any-other-format",
-        "menus-and-case-lists/detail-auto-select-true-on-a-single-select-basic-list",
         "menus-and-case-lists/detail-custom-variables-dict-non-empty",
         "menus-and-case-lists/detail-custom-xml-non-empty",
         "menus-and-case-lists/detail-instance-name-any-other-stored-value",

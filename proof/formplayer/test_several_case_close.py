@@ -284,3 +284,66 @@ def test_basic_automatic_multi_selection_uses_the_whole_datum_and_refuses_overfl
                 if name != 'all':
                     assert not served.hq.submissions
     evidence('automatic-multiple-case-selection', observations)
+
+
+
+def test_the_authored_bounded_case_list_selects_101_and_refuses_the_102nd(
+    hq, formplayer_runner, formplayer_documents, evidence,
+):
+    import json
+    from dataclasses import replace
+    from pathlib import Path
+
+    from proof.formplayer.hq import serve
+    from proof.formplayer.webapps import FormplayerRefused
+    from proof.hq.check import hq_check
+    from proof.observe import casedata, publish
+
+    witness = json.loads((Path(__file__).parent / "fixtures" / "bounded-flat-close-case-list.json").read_text())
+    doc = formplayer_documents["hq-bounded-flat-close"]
+    database = casedata.document_case_database(doc)
+    seed = next(case for case in database.cases if case.case_type == "sample")
+    cases = tuple(replace(seed, case_id=f"bounded-{index:03}", name=f"Sample {index:03}")
+                  for index in range(witness["overflowCount"]))
+    observations = {}
+    with hq_check(doc.exports["minimum"].configuration.hq()) as (unit, _):
+        with unit.operation("the stock bounded flat close", doc.id.encode()):
+            app_id, refusal, _ = publish.create_authored(unit, doc)
+            assert refusal is None, refusal
+        for batch, count in (("at-maximum", witness["selectedCount"]), ("overflow", witness["overflowCount"])):
+            overflow = batch == "overflow"
+            supplied = replace(database, cases=cases[:count])
+            with serve(unit, doc, app_id, runner=formplayer_runner, database=supplied, label=batch) as served:
+                with served.run(batch):
+                    web = apps.web(formplayer_runner, served)
+                    page = web.navigate()
+                    assert screen_kind(page) == "commands", page
+                    (menu,) = [str(index) for index, command in enumerate(page["commands"])
+                               if command["displayText"] == witness["menu"]]
+                    try:
+                        page = web.navigate([menu], cases_per_page=witness["pageSize"])
+                        if screen_kind(page) == "commands":
+                            (form,) = [str(index) for index, command in enumerate(page["commands"])
+                                       if command["displayText"] == witness["form"]]
+                            page = web.navigate([*page["selections"], form], cases_per_page=witness["pageSize"])
+                    except FormplayerRefused as error:
+                        assert overflow, error
+                        message = str(error)
+                    else:
+                        if not overflow:
+                            assert screen_kind(page) == "form" and page["title"] == witness["form"], page
+                            result = web.submit(page["session_id"], {})
+                            assert result["status"] == "success", result
+                            (submission,) = served.hq.submissions
+                            submitted = _submitted(submission.instance)
+                            ids = {case.case_id for case in supplied.cases}
+                            assert len(submitted["selected"]) == count and set(submitted["selected"]) == ids
+                            assert sorted(submitted["blocks"]) == sorted((case_id, True) for case_id in ids)
+                            observations[batch] = {"selected": submitted["selected"], "blocks": submitted["blocks"]}
+                            continue
+                        assert screen_kind(page) == "notification", page
+                        message = str(page)
+                    assert str(witness["selectedCount"]) in message and str(count) in message, message
+                    assert not served.hq.submissions
+                    observations[batch] = {"message": message}
+    evidence("bounded-case-list", observations)
