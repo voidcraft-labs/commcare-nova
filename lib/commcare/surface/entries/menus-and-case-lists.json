@@ -6269,6 +6269,36 @@
 		"gates": []
 	},
 	{
+		"id": "menus-and-case-lists/standalone-search-result-list-text",
+		"area": "menus-and-case-lists",
+		"section": "Case list and case detail",
+		"subsection": "Column formats",
+		"surfaceKeys": [
+			"schema:DetailColumn.field",
+			"instance-scheme:search-input"
+		],
+		"gates": [],
+		"slotChanges": [],
+		"item": "A Search-first Results column displays a submitted text prompt in Web Apps",
+		"valueClass": "standalone-search-result-list-text",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: a plain Results-only field displays one offered text prompt. A skipped prompt contributes empty text.",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / UNAVAILABLE",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "unavailable"
+			}
+		},
+		"emission": {
+			"cell": "The exact offered Search field’s instance path on the Web Apps Results list",
+			"markers": []
+		}
+	},
+	{
 		"id": "menus-and-case-lists/standalone-search-result-detail-text",
 		"area": "menus-and-case-lists",
 		"section": "Case list and case detail",

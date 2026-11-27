@@ -43,6 +43,7 @@ function literalArgumentsText(args: readonly FormSyntax[]): string | undefined {
  * belongs to the caller. */
 export function readResultDetailText(
 	source: string,
+	screen: "short" | "long" = "long",
 ): ResultDetailTextWire | undefined {
 	const parsed = readFormSyntax(source);
 	if (!parsed.ok || !parsed.node) return;
@@ -51,14 +52,8 @@ export function readResultDetailText(
 		if (needsInstanceDeclaration(node, source)) hqSeesSources = false;
 	});
 	if (!hqSeesSources) return;
-	const outer = call(parsed.node, "if", 3);
-	const localText = literalText(ungroup(outer?.[2]));
-	if (localText === undefined) return;
-	const text = literalText(ungroup(outer?.[1]));
 	const recovered =
-		text === undefined
-			? readPrompt(outer?.[1], localText)
-			: { text, localText };
+		screen === "short" ? readListPrompt(parsed.node) : readDetail(parsed.node);
 	if (!recovered) return;
 	const printed = readFormSyntax(
 		serializeWire(resultDetailTextWire(recovered), {
@@ -69,6 +64,25 @@ export function readResultDetailText(
 	return printed.ok && printed.node && sameSyntax(parsed.node, printed.node)
 		? recovered
 		: undefined;
+}
+
+function readDetail(node: FormSyntax): ResultDetailTextWire | undefined {
+	const outer = call(node, "if", 3);
+	const localText = literalText(ungroup(outer?.[2]));
+	if (localText === undefined) return;
+	const text = literalText(ungroup(outer?.[1]));
+	return text === undefined
+		? readPrompt(outer?.[1], localText)
+		: { text, localText };
+}
+
+function readListPrompt(node: FormSyntax): ResultDetailTextWire | undefined {
+	const path = ungroup(node);
+	const test = path?.kind === "filter" ? ungroup(path.where) : undefined;
+	const inputName =
+		test?.kind === "binary" ? literalText(ungroup(test.right)) : undefined;
+	if (inputName !== undefined)
+		return { inputName, prefix: "", suffix: "", localText: "", onList: true };
 }
 
 function readPrompt(node: FormSyntax | undefined, localText: string) {

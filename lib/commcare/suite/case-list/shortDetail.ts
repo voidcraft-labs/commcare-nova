@@ -116,6 +116,7 @@ import type { Expression } from "@/lib/domain/expression/types";
 import { generatedWordingId } from "@/lib/domain/generatedWording";
 import { makeTranslationUnitId } from "@/lib/domain/localization";
 import type { MediaAssetId } from "@/lib/domain/multimedia";
+import { resolveSearchResultDetailText } from "@/lib/domain/searchResultDetail";
 import {
 	type ModuleExpressionContexts,
 	moduleExpressionContexts,
@@ -413,6 +414,11 @@ export function buildShortDetail(args: {
 		caseTypes,
 		proseDoc: doc,
 		listIconEndpointId: (uuid) => listIconEndpointId(doc, uuid),
+		resultDetailText: (column) => {
+			const branch = column.searchResultDetail;
+			if (target === "search" && branch && "onList" in branch && branch.onList)
+				return resolveSearchResultDetailText(doc, mod, column, branch);
+		},
 		expressions,
 		...(config.tile !== undefined && { tileLayout: config.tile }),
 		...(args.assets && { assets: args.assets }),

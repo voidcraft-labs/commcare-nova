@@ -880,13 +880,19 @@ export async function loadCasesAction(
 		const doc = prepared.environment?.doc;
 		const module =
 			moduleUuid === undefined ? undefined : doc?.modules[moduleUuid];
-		const detailColumns =
+		const resultColumns =
 			doc &&
 			module &&
 			previewPlatformRules(prepared.context.device.platform)
 				.searchResultDetailText
 				? searchResultDetailColumns(doc, module)
 				: [];
+		const detailColumns = resultColumns.filter(
+			(column) => !("onList" in column && column.onList),
+		);
+		const listColumns = resultColumns.filter(
+			(column) => "onList" in column && column.onList,
+		);
 		const scope =
 			submission !== undefined && moduleUuid !== undefined
 				? { appId, moduleUuid, caseType, submission }
@@ -925,8 +931,32 @@ export async function loadCasesAction(
 					}),
 			};
 		}
-		if (!args.automaticSelection)
-			return await readCases(prepared.store, prepared.read, retain);
+		if (!args.automaticSelection) {
+			const result = await readCases(prepared.store, prepared.read, retain);
+			if (
+				result.kind !== "rows" ||
+				prepared.read.reading !== SEARCH_READING ||
+				args.caseIds !== undefined ||
+				answers === undefined ||
+				listColumns.length === 0
+			)
+				return result;
+			const calculated = searchResultDetailProjection(
+				listColumns,
+				submittedSearchResultDetailAnswers(
+					listColumns,
+					answers,
+					args.defaultSearch === true,
+				),
+			);
+			return {
+				...result,
+				rows: result.rows.map((row) => ({
+					...row,
+					calculated: { ...row.calculated, ...calculated },
+				})),
+			};
+		}
 		const selection = prepared.read.caseListConfig?.selection;
 		if (selection?.autoSelect !== true)
 			return {
@@ -1638,7 +1668,10 @@ export async function loadCaseDataAction(
 							!rules.searchResultDetailText
 						)
 							return;
-						const columns = searchResultDetailColumns(environment.doc, menu);
+						const columns = searchResultDetailColumns(
+							environment.doc,
+							menu,
+						).filter((column) => !("onList" in column && column.onList));
 						if (columns.length === 0) return;
 						const answers = await readKeptSearchResultDetails(
 							{

@@ -1406,13 +1406,14 @@ function settleSearchResultDetailColumns(
 					prompt.name === source.inputName ||
 					searchInputRequestKey(prompt) === source.inputName,
 			);
-			if (prompts.length === 0) {
+			if (prompts.length === 0 && source.onList !== true) {
 				branch = { text: source.prefix + source.suffix };
 			} else if (prompts.length === 1 && prompts[0].name === source.inputName) {
 				branch = {
 					inputUuid: prompts[0].uuid,
 					prefix: source.prefix,
 					suffix: source.suffix,
+					...(source.onList && { onList: true }),
 				};
 			}
 		}
@@ -1425,7 +1426,9 @@ function settleSearchResultDetailColumns(
 				"field",
 				"text" in branch
 					? COLUMN_CLAIMS.searchResultDetailFixedText
-					: COLUMN_CLAIMS.searchResultDetail,
+					: branch.onList
+						? COLUMN_CLAIMS.searchResultList
+						: COLUMN_CLAIMS.searchResultDetail,
 				String,
 			).value;
 			branches.set(column.uuid, branch);

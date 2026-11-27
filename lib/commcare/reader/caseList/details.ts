@@ -2067,6 +2067,12 @@ export function readCaseDetails(
 		autoLaunch &&
 		search.inline_search === true &&
 		(search.instance_name == null || search.instance_name === "inline");
+	const standaloneResultDetailText =
+		ctx.facts.webAppsOnInHq &&
+		isJsonObject(search) &&
+		search.auto_launch === true &&
+		search.inline_search !== true &&
+		search.default_search !== true;
 	const shortOptions: Omit<ColumnOptions, "filterChangesBuild"> = {
 		...shared,
 		inTile,
@@ -2075,6 +2081,7 @@ export function readCaseDetails(
 		searchInstancesRead:
 			autoLaunch || short.peek("instance_name") === "results",
 		inlineResultProperty,
+		standaloneResultDetailText,
 	};
 	const longOptions: ColumnOptions = {
 		...shared,
@@ -2082,12 +2089,7 @@ export function readCaseDetails(
 		formats: formatCounts(long),
 		filterChangesBuild: false,
 		searchInstancesRead: autoLaunch || long.peek("instance_name") === "results",
-		standaloneResultDetailText:
-			ctx.facts.webAppsOnInHq &&
-			isJsonObject(search) &&
-			search.auto_launch === true &&
-			search.inline_search !== true &&
-			search.default_search !== true,
+		standaloneResultDetailText,
 	};
 	const shortReadings = shortCursors.map((column, index) =>
 		readDetailColumn(ctx, module, column, "short", {
