@@ -26,10 +26,14 @@ def test_retained_survey_bare_lookup_count_without_a_supplier(hq, core_runner, t
         tables = AuthoredTables(document.root / "authored" / "tables.json")
         restore, restored = hq_restore(unit, document_case_database(document), tables, "fingerprint-query")
         assert restore == {"served": True} and restored
-        for label in ("guarded", "bare"):
+        for label in ("guarded", "canonical", "bare"):
             with unit.fork():
                 authoring = Authoring(unit, {}, label, operation=unit.operation)
-                expression = PATH if label == "bare" else f"if(count({PATH}) = 0, '{FALLBACK}', string({PATH}[1]))"
+                expression = {
+                    "bare": PATH,
+                    "guarded": f"if(count({PATH}) = 0, '{FALLBACK}', string({PATH}[1]))",
+                    "canonical": f"'{FALLBACK}'",
+                }[label]
 
                 def edit(root, _form):
                     bind, = root.xpath("//*[local-name()='bind'][@nodeset='/data/language']")
@@ -55,6 +59,10 @@ def test_retained_survey_bare_lookup_count_without_a_supplier(hq, core_runner, t
     assert guarded["end"] == "submitted", guarded
     submission = etree.fromstring(guarded["step"]["submission"].encode())
     assert submission.findtext("{*}language") == FALLBACK
+    canonical = observed["canonical"]
+    assert canonical["script"] == guarded["script"] and canonical["end"] == "submitted", canonical
+    normalized = etree.fromstring(canonical["step"]["submission"].encode())
+    assert normalized.findtext("{*}language") == FALLBACK
     bare = observed["bare"]
     assert bare["script"] == guarded["script"], observed
     assert bare["end"] == "form-did-not-open", bare
