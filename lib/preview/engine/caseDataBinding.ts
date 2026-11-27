@@ -88,6 +88,7 @@ import {
 	searchOwnerOverride,
 } from "@/lib/domain/modules";
 import { moduleUuidOfForm } from "@/lib/domain/postSubmit";
+import { searchResultDetailColumns } from "@/lib/domain/searchResultDetail";
 import { CANONICAL_UUID_PATTERN, uuidSchema } from "@/lib/domain/uuid";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import {
@@ -194,7 +195,11 @@ import {
 	searchInputRuntimeGlobalError,
 	searchInputSubmissionErrors,
 } from "./searchInputValidation";
-import { keepSearchResult, readKeptSearchResult } from "./searchResultReceipt";
+import {
+	keepSearchResult,
+	readKeptSearchResult,
+	readKeptSearchResultDetails,
+} from "./searchResultReceipt";
 import {
 	readSearchResultsSnapshot,
 	searchResultsSnapshotFromInstance,
@@ -472,7 +477,7 @@ type RunningCaseReadArgs = {
 	/** The search is the menu's default search, run as the list opened:
 	 *  its prompts' answers are not sent (`CaseSearchRequest.unsentPrompts`). */
 	defaultSearch?: boolean;
-	/** Identity of the inline search whose initial response this load serves. */
+	/** Identity of the submitted Search whose response this load serves. */
 	searchSubmission?: string;
 	/** The viewer's latest position, which a calculated column's `here()`
 	 *  reads; `null` or omitted while the browser has shared none. It travels
@@ -497,6 +502,7 @@ type PreparedRunningCaseRead =
 			readonly kind: "read";
 			readonly store: CaseStore;
 			readonly read: Parameters<typeof readCases>[1];
+			readonly environment: PreviewSearchEnvironment | undefined;
 			readonly context: Extract<
 				Awaited<ReturnType<typeof resolveAuthorizedPreviewContext>>,
 				{ kind: "ready" }
@@ -789,6 +795,7 @@ async function prepareRunningCaseRead(
 		kind: "read",
 		store,
 		context,
+		environment,
 		read: {
 			appId: args.appId,
 			caseType: args.caseType,
@@ -836,18 +843,49 @@ export async function loadCasesAction(
 		const prepared = await prepareRunningCaseRead(args);
 		if (prepared.kind !== "read") return prepared;
 		const { searchSubmission: submission, appId, moduleUuid, caseType } = args;
-		const module = moduleUuid && args.blueprint?.modules[moduleUuid];
-		const retain =
+		const doc = prepared.environment?.doc;
+		const module =
+			moduleUuid === undefined ? undefined : doc?.modules[moduleUuid];
+		const detailColumns =
+			doc && module && prepared.context.device.platform === "web-apps"
+				? searchResultDetailColumns(doc, module)
+				: [];
+		const captureDetail =
+			detailColumns.length > 0 && prepared.read.inputValues !== undefined;
+		const retain: Parameters<typeof readCases>[2] =
 			submission !== undefined &&
 			moduleUuid !== undefined &&
 			module &&
-			moduleFormsReadSearch(module)
-				? (instance: Parameters<typeof searchResultsSnapshotFromInstance>[0]) =>
-						keepSearchResult(
+			(moduleFormsReadSearch(module) || captureDetail)
+				? (instance, visibleRows) => {
+						const visible = new Set(visibleRows.map((row) => row.case_id));
+						return keepSearchResult(
 							{ appId, moduleUuid, caseType, submission },
 							prepared.context,
 							searchResultsSnapshotFromInstance(instance),
-						)
+							captureDetail
+								? {
+										visibleCaseIds: instance.primaryIds.filter((id) =>
+											visible.has(id),
+										),
+										answers: [
+											...new Map(
+												detailColumns.map(({ inputUuid, inputName }) => [
+													inputUuid,
+													{
+														inputUuid,
+														answer: args.defaultSearch
+															? null
+															: prepared.read.inputValues?.get(inputName) ||
+																null,
+													},
+												]),
+											).values(),
+										],
+									}
+								: undefined,
+						);
+					}
 				: undefined;
 		if (!args.automaticSelection)
 			return await readCases(prepared.store, prepared.read, retain);
@@ -1467,6 +1505,7 @@ export async function loadCaseDataAction(
 	searchAnswers?: Readonly<Record<string, string>>,
 	language?: string,
 	selectionMenuUuid?: string,
+	resultDetail?: import("./caseDataBindingTypes").SearchResultDetailOpening,
 ): Promise<LoadCaseDataResult> {
 	try {
 		const context = await resolveAuthorizedPreviewContext({
@@ -1513,6 +1552,50 @@ export async function loadCaseDataAction(
 				};
 			selectionOwner = choosing?.uuid;
 		}
+		const resultProjection =
+			resultDetail === undefined
+				? undefined
+				: await (async () => {
+						const menu = environment?.doc.modules[environment.moduleUuid];
+						if (
+							!menu ||
+							!environment ||
+							deviceScoped !== true ||
+							context.device.platform !== "web-apps"
+						)
+							return;
+						const columns = searchResultDetailColumns(environment.doc, menu);
+						if (columns.length === 0) return;
+						const answers = await readKeptSearchResultDetails(
+							{
+								appId,
+								moduleUuid: menu.uuid,
+								caseType,
+								submission: resultDetail.submission,
+							},
+							context,
+							resultDetail.receipt,
+							caseId,
+						);
+						if (!answers) return;
+						const byId = new Map(
+							answers.map(({ inputUuid, answer }) => [inputUuid, answer]),
+						);
+						if (columns.some(({ inputUuid }) => !byId.has(inputUuid))) return;
+						return Object.fromEntries(
+							columns.map(({ columnUuid, inputUuid, prefix, suffix }) => [
+								columnUuid,
+								prefix + (byId.get(inputUuid) ?? "") + suffix,
+							]),
+						);
+					})();
+		if (resultDetail !== undefined && resultProjection === undefined)
+			return {
+				kind: "error",
+				message:
+					"This Search result is no longer available. You can run Search again.",
+			};
+
 		const lookupTableSchemas = await loadLookupTableSchemas(
 			scope,
 			collectConfigLookupTableIds(caseListConfig),
@@ -1533,7 +1616,7 @@ export async function loadCaseDataAction(
 						caseListConfig.searchInputs,
 						new Map(Object.entries(searchAnswers ?? {})),
 					);
-		return await readCaseData(store, {
+		const result = await readCaseData(store, {
 			...(environment !== undefined && {
 				locale: previewCaseListOrderLocale(
 					environment.doc,
@@ -1572,11 +1655,20 @@ export async function loadCaseDataAction(
 						readsSearchPopulation(
 							environment?.doc ?? context.blueprint,
 							selectionOwner ?? moduleUuid,
-							search === true,
+							search === true || resultProjection !== undefined,
 						),
 						context.restoreScope,
 					)),
 		});
+		return result.kind === "row" && resultProjection !== undefined
+			? {
+					...result,
+					row: {
+						...result.row,
+						calculated: { ...result.row.calculated, ...resultProjection },
+					},
+				}
+			: result;
 	} catch (err) {
 		// A Project-membership denial (`resolveAppScope` → `AppAccessError`)
 		// is expected, not a fault: collapse it to the IDOR-safe not-found

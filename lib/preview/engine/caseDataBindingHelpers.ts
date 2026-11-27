@@ -71,6 +71,7 @@ import type {
 	CaseOperationProgram,
 	CaseQueryReading,
 	CaseRow,
+	CaseRowWithCalculated,
 	CaseStore,
 	SortKey as CaseStoreSortKey,
 	LookupTableSchemas,
@@ -602,6 +603,7 @@ export async function readCases(
 	},
 	retainSearchResult?: (
 		instance: import("@/lib/case-store/store").SearchResultInstance,
+		visibleRows: readonly CaseRowWithCalculated[],
 	) => Promise<string>,
 ): Promise<LoadCasesResult> {
 	const composedQuery = runningCasePredicate(args);
@@ -651,7 +653,7 @@ export async function readCases(
 			throw new Error("The bounded search did not capture its response.");
 		const resultReceipt =
 			retainSearchResult && found.instance
-				? await retainSearchResult(found.instance)
+				? await retainSearchResult(found.instance, found.rows)
 				: undefined;
 		const common = {
 			constraintSource: composedQuery.constraintSource,

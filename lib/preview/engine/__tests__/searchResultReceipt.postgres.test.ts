@@ -6,9 +6,11 @@ import { buildCaseTypeMap, withProjectContext } from "@/lib/case-store";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
 import { setPreviewSearchSettings } from "@/lib/deployment/previewSearchSettings";
 import { toRscSerializableDoc } from "@/lib/doc/ownRecords";
-import { simpleSearchInputDef } from "@/lib/domain";
+import { calculatedColumn, simpleSearchInputDef } from "@/lib/domain";
+import { literal, term } from "@/lib/domain/expression";
 import { resolvePreviewSearchFacts } from "../../searchSettings";
 import {
+	loadCaseDataAction,
 	loadCasesAction,
 	loadSearchResultsSnapshotAction,
 } from "../caseDataBinding";
@@ -343,5 +345,185 @@ it("opens a form on the same search response that supplied Results", async () =>
 	expect(await loadSearchResultsSnapshotAction(form)).toMatchObject({
 		kind: "invalid-search",
 		reason: { kind: "search-settings-changed" },
+	});
+});
+
+it("uses the originating offered Search page when restoring a standalone case Detail", async () => {
+	const actor = ACTOR;
+	const appId = "search-detail-restored-app";
+	const sessionId = "search-detail-restored-session";
+	auth.sessionId = sessionId;
+	await h.seedProjectMember(actor, PROJECT, "owner");
+	await sql`INSERT INTO auth_session (id, token, "userId", "expiresAt", "createdAt", "updatedAt")
+		VALUES (${sessionId}, ${sessionId}, ${actor}, now()+interval '1 hour', now(), now())`.execute(
+		h.db(),
+	);
+	const inputUuid = testUuid("standalone-detail-name");
+	const columnUuid = testUuid("standalone-detail-column");
+	const column = {
+		...calculatedColumn(
+			columnUuid,
+			"Entered name",
+			term(literal("local row")),
+			{
+				notOnList: true,
+				visibleInList: false,
+			},
+		),
+		searchResultDetail: { inputUuid, prefix: "entered=[", suffix: "]" },
+	};
+	const fixture = buildDoc({
+		appId,
+		caseTypes: [{ name: "patient", properties: [] }],
+		modules: [
+			{
+				name: "Patients",
+				caseType: "patient",
+				caseListMenuItem: {},
+				caseSearchConfig: { workflow: "searchFirst" },
+				caseListConfig: {
+					columns: [column],
+					listColumnOrder: [columnUuid],
+					detailColumnOrder: [columnUuid],
+					searchInputs: [
+						simpleSearchInputDef(
+							inputUuid,
+							"name",
+							"Name",
+							"text",
+							"case_name",
+						),
+					],
+				},
+				forms: [
+					{
+						name: "Visit",
+						type: "followup",
+						fields: [f({ id: "note", kind: "text" })],
+					},
+				],
+			},
+		],
+	});
+	const doc = {
+		...fixture,
+		appSettings: { ...fixture.appSettings, runsOnlyOn: "web-apps" as const },
+	};
+	await h.seedAppWithBlueprint(doc, {
+		id: appId,
+		owner: actor,
+		projectId: PROJECT,
+	});
+	const store = await withProjectContext(PROJECT, actor, actor);
+	await store.applySchemaChange({
+		appId,
+		caseType: "patient",
+		caseTypeSchemas: buildCaseTypeMap(doc),
+	});
+	for (const caseId of ["one", "two"]) {
+		await store.insert({
+			appId,
+			row: {
+				case_id: caseId,
+				case_type: "patient",
+				case_name: "Asha",
+				properties: {},
+			},
+		});
+	}
+	const saved = await setPreviewSearchSettings(
+		{ appId, projectId: PROJECT },
+		actor,
+		LOCAL,
+		"0",
+		{
+			maximum: 500,
+			propertyMatchers: { ignoredText: [], fuzzyProperties: [] },
+		},
+	);
+	if (saved.kind !== "saved")
+		throw new Error("Search settings were not saved.");
+	const revision = resolvePreviewSearchFacts(saved.catalog, LOCAL).revision;
+	const moduleUuid = doc.moduleOrder[0];
+	const config = doc.modules[moduleUuid].caseListConfig;
+	const device = {
+		...webAppsDevice(),
+		searchConfiguration: { target: LOCAL, revision },
+	};
+	const request = {
+		appId,
+		caseType: "patient",
+		moduleUuid,
+		blueprint: toRscSerializableDoc(doc),
+		caseListConfig: config,
+		device,
+		search: true,
+		page: { offset: 0, limit: 1 },
+	};
+	const run = async (inputValues: Record<string, string>) => {
+		const submission = crypto.randomUUID();
+		const results = await loadCasesAction({
+			...request,
+			searchSubmission: submission,
+			inputValues,
+		});
+		expect(results).toMatchObject({ kind: "rows", searchMatchCount: 2 });
+		if (results.kind !== "rows" || !results.resultReceipt || !results.rows[0])
+			throw new Error("The Results page did not offer a signed case.");
+		expect(results.rows[0].calculated[columnUuid]).toBe("local row");
+		return {
+			chosen: results.rows[0].case_id,
+			opening: { submission, receipt: results.resultReceipt },
+		};
+	};
+	const answered = await run({ name: "Asha" });
+	const unanswered = await run({});
+	const reopen = (caseId: string, opening?: typeof answered.opening) =>
+		loadCaseDataAction(
+			appId,
+			"patient",
+			caseId,
+			0,
+			config,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			true,
+			undefined,
+			request.blueprint,
+			moduleUuid,
+			false,
+			null,
+			device,
+			{ name: "edited draft" },
+			undefined,
+			undefined,
+			opening,
+		);
+	expect(await reopen(answered.chosen, answered.opening)).toMatchObject({
+		kind: "row",
+		row: { calculated: { [columnUuid]: "entered=[Asha]" } },
+	});
+	expect(await reopen(unanswered.chosen, unanswered.opening)).toMatchObject({
+		kind: "row",
+		row: { calculated: { [columnUuid]: "entered=[]" } },
+	});
+	expect(await reopen(answered.chosen)).toMatchObject({
+		kind: "row",
+		row: { calculated: { [columnUuid]: "local row" } },
+	});
+	expect(
+		await reopen(answered.chosen === "one" ? "two" : "one", answered.opening),
+	).toMatchObject({
+		kind: "error",
+	});
+	expect(
+		await reopen(answered.chosen, {
+			...answered.opening,
+			submission: unanswered.opening.submission,
+		}),
+	).toMatchObject({
+		kind: "error",
 	});
 });

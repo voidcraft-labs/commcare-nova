@@ -181,6 +181,23 @@ export async function readKeptSearchResultDetail(
 	caseId: string,
 	inputUuid: Uuid,
 ): Promise<{ readonly answer: string | null } | undefined> {
+	const answers = await readKeptSearchResultDetails(
+		scope,
+		context,
+		receipt,
+		caseId,
+	);
+	const offered = answers?.find((row) => row.inputUuid === inputUuid);
+	return offered === undefined ? undefined : { answer: offered.answer };
+}
+
+/** One authenticated read for all the prompts a selected Detail uses. */
+export async function readKeptSearchResultDetails(
+	scope: SearchReceiptScope,
+	context: Context,
+	receipt: string | undefined,
+	caseId: string,
+): Promise<readonly SearchResultDetailAnswer[] | undefined> {
 	const snapshot = await readKeptSearchResponse(scope, context, receipt, true);
 	const frame = snapshot?.detail;
 	if (
@@ -188,8 +205,7 @@ export async function readKeptSearchResultDetail(
 		!snapshot?.rows.some((row) => row.case_id === caseId)
 	)
 		return;
-	const offered = frame.answers.find((row) => row.inputUuid === inputUuid);
-	return offered === undefined ? undefined : { answer: offered.answer };
+	return frame.answers;
 }
 
 async function readKeptSearchResponse(

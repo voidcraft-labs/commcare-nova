@@ -679,6 +679,7 @@ export function useCaseData(args: {
 	/** The completed search answers of a menu whose forms read the search, which its list and
 	 *  detail columns read from the inline query's input instance. */
 	searchAnswers?: Readonly<Record<string, string>>;
+	resultDetail?: import("../engine/caseDataBindingTypes").SearchResultDetailOpening;
 }): {
 	state: LoadingState<LoadCaseDataResult>;
 	reload: () => Promise<void>;
@@ -700,6 +701,7 @@ export function useCaseData(args: {
 		search = false,
 		positionScreen,
 		searchAnswers,
+		resultDetail,
 		language,
 	} = args;
 	const searchAnswersKey =
@@ -725,7 +727,7 @@ export function useCaseData(args: {
 	 * case/revision for that one render would let a case-loading form submit an
 	 * identity that has already been replaced. */
 	const requestKey = ready
-		? `${scopeEpoch}\u0000${appId}\u0000${caseType}\u0000${caseId}\u0000${parentCaseSelectionKey(parentCase)}\u0000${ancestorDepth}\u0000${includeHeld === true}\u0000${deviceScoped === true}\u0000${scopeKey}\u0000${caseDataRevision}\u0000${search}\u0000${deviceKey}\u0000${searchAnswersKey}\u0000${language ?? ""}\u0000${selectionMenuUuid ?? ""}`
+		? `${scopeEpoch}\u0000${appId}\u0000${caseType}\u0000${caseId}\u0000${parentCaseSelectionKey(parentCase)}\u0000${ancestorDepth}\u0000${includeHeld === true}\u0000${deviceScoped === true}\u0000${scopeKey}\u0000${caseDataRevision}\u0000${search}\u0000${deviceKey}\u0000${searchAnswersKey}\u0000${resultDetail?.submission ?? ""}\u0000${resultDetail?.receipt ?? ""}\u0000${language ?? ""}\u0000${selectionMenuUuid ?? ""}`
 		: "";
 	const personaRequestKey = ready
 		? `${requestKey}\u0000${personaUuid ?? "me"}`
@@ -787,9 +789,11 @@ export function useCaseData(args: {
 									: null,
 								withNavigationWidth(device),
 								searchAnswers,
-								...(language === undefined && selectionMenuUuid === undefined
-									? ([] as const)
-									: ([language, selectionMenuUuid] as const)),
+								...(resultDetail !== undefined
+									? ([language, selectionMenuUuid, resultDetail] as const)
+									: language === undefined && selectionMenuUuid === undefined
+										? ([] as const)
+										: ([language, selectionMenuUuid] as const)),
 							),
 						}),
 					},

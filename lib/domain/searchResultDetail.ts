@@ -73,3 +73,28 @@ export function resolveSearchResultDetailText(
 		localText,
 	};
 }
+
+/** Columns and their resolved text prompts in the standalone Results route. */
+export function searchResultDetailColumns(
+	doc: Pick<BlueprintDoc, "appSettings">,
+	module: Module,
+) {
+	return (module.caseListConfig?.columns ?? []).flatMap((column) => {
+		if (column.kind !== "calculated" || !column.searchResultDetail) return [];
+		const resolved = resolveSearchResultDetailText(
+			doc,
+			module,
+			column,
+			column.searchResultDetail,
+		);
+		return resolved
+			? [
+					{
+						columnUuid: column.uuid,
+						inputUuid: column.searchResultDetail.inputUuid,
+						...resolved,
+					},
+				]
+			: [];
+	});
+}

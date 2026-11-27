@@ -136,6 +136,7 @@ import { resolveCaseFormContext } from "@/lib/domain/caseFormContext";
 import { effectiveFilterForEmission } from "@/lib/domain/expression/simplify";
 import type { Expression } from "@/lib/domain/expression/types";
 import { generatedWordingId } from "@/lib/domain/generatedWording";
+import { searchResultDetailColumns } from "@/lib/domain/searchResultDetail";
 import { PreviewMarkdown } from "@/lib/markdown";
 import { caseColumnLabel } from "@/lib/preview/caseColumnLabel";
 import {
@@ -306,6 +307,7 @@ import {
 	readBuilderHistoryArrival,
 	readBuilderHistoryMove,
 	stepBackOffPreviewHeldMenu,
+	usePreviewSearchResultDetail,
 } from "@/lib/routing/useClientPath";
 import {
 	useAccessPhase,
@@ -654,7 +656,11 @@ export function CaseListScreen({
 		() => workerListDocument(menuSource.doc, moduleUuid, listPurpose),
 		[menuSource.doc, moduleUuid, listPurpose],
 	);
-	const canonicalConfig = listDoc.modules[moduleUuid]?.caseListConfig;
+	const resultDetailMenu = listDoc.modules[moduleUuid];
+	const canonicalConfig = resultDetailMenu?.caseListConfig;
+	const hasSearchResultDetail =
+		resultDetailMenu !== undefined &&
+		searchResultDetailColumns(listDoc, resultDetailMenu).length > 0;
 	const searchConfig = mod ? effectiveCaseSearchConfig(mod) : undefined;
 	const projectProse = useProseProjection();
 	const { signIn } = useAuth();
@@ -1414,6 +1420,13 @@ export function CaseListScreen({
 	 * it: the device's next read holds the claimed case. */
 	const standingSubmission = submittedSearchOf(searchState)?.submission ?? "";
 	const selectionScopeKey = `${standingSubmission}\u0000${stateScopeKey}\u0000${restoreScopeKey}`;
+	const openedSearchResult = usePreviewSearchResultDetail(previewSessionId);
+	const detailOpening =
+		openedSearchResult !== undefined &&
+		openedSearchResult.moduleUuid === moduleUuid &&
+		openedSearchResult.caseId === routeCaseId
+			? openedSearchResult
+			: undefined;
 	const [multiSelectionState, setMultiSelectionState] = useState<{
 		readonly scopeKey: string;
 		readonly choices: readonly PreviewCaseChoice[];
@@ -1786,8 +1799,16 @@ export function CaseListScreen({
 		 * screen. */
 		requestScopeKey: selectionScopeKey,
 		search: readsSearchResults,
-		searchSubmission: searchAttempt?.submission,
-		retainSearchResult: searchAttempt?.kind === "running",
+		searchSubmission:
+			searchAttempt?.submission ??
+			(hasSearchResultDetail && readsSearchResults
+				? standingSubmission || undefined
+				: undefined),
+		retainSearchResult:
+			searchAttempt?.kind === "running" ||
+			(hasSearchResultDetail &&
+				readsSearchResults &&
+				standingSubmission !== ""),
 		/* The menu's default search sends no prompt's answer (Formplayer's
 		 * `doQuery` with `isDefaultSearch`), so a starting value narrows only
 		 * where a row or a hidden value reads it. */
@@ -1917,6 +1938,7 @@ export function CaseListScreen({
 		scopeKey: restoreScopeKey,
 		search: readsSearchResults,
 		positionScreen: "detail",
+		...(detailOpening !== undefined && { resultDetail: detailOpening }),
 		// A detail in a menu whose forms read the search reads the completed
 		// search's answers, which its inline query keeps beside the results.
 		...(formsReadSearch &&
@@ -2111,10 +2133,16 @@ export function CaseListScreen({
 		/* Results already came from the exact selected-parent population. The
 		 * identity read below carries the same server-side case-index constraint,
 		 * so neither path guesses membership from denormalized parent_case_id. */
-		if (projected) return projected;
+		if (projected && detailOpening === undefined) return projected;
 		if (routeCaseState.kind !== "row") return null;
 		return routeCaseState.row;
-	}, [routeCaseId, routeCaseReplaced, loadedRows, routeCaseState]);
+	}, [
+		routeCaseId,
+		routeCaseReplaced,
+		loadedRows,
+		routeCaseState,
+		detailOpening,
+	]);
 	/* A deep-linked case first owns a loading/error fallback pane. If its Back
 	 * action had focus when the automatic case read succeeds, transfer that
 	 * ownership to the equivalent Back action in Details instead of letting the
@@ -3240,8 +3268,23 @@ export function CaseListScreen({
 			trigger.dataset.caseResultAction ?? row.case_id;
 		if (rowAction === "detail") {
 			setOpenCase(row);
-			if (moduleUuid && !entryStep)
-				navigate.openCaseDetail(moduleUuid, row.case_id);
+			if (moduleUuid && !entryStep) {
+				const receipt =
+					hasSearchResultDetail && state.kind === "rows"
+						? state.resultReceipt
+						: undefined;
+				navigate.openCaseDetail(
+					moduleUuid,
+					row.case_id,
+					receipt !== undefined && standingSubmission !== ""
+						? {
+								receipt,
+								submission: standingSubmission,
+								session: previewSessionId,
+							}
+						: undefined,
+				);
+			}
 			focusNextFrame(() => detailBackRef.current);
 		} else if (rowAction === "form") proceedWithCase(row);
 	};

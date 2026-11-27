@@ -22,6 +22,7 @@
  */
 import { v4 as uuidv4 } from "uuid";
 import type { Uuid } from "@/lib/doc/types";
+import type { SearchResultDetailOpening } from "@/lib/preview/engine/caseDataBindingTypes";
 import type {
 	PreviewCaseChoice,
 	PreviewSearchState,
@@ -46,9 +47,16 @@ export interface RecordedPreviewSearch {
 	readonly state: Exclude<PreviewSearchState, { kind: "not-searched" }>;
 }
 
+/** A case the worker opened from the settled page of a particular Search. */
+export interface RecordedSearchResultDetail extends SearchResultDetailOpening {
+	readonly moduleUuid: Uuid;
+	readonly caseId: string;
+}
+
 /** What one entry was shown with. */
 export interface PreviewEntryRecord {
 	readonly selections?: RecordedPreviewSelections;
+	readonly searchResultDetail?: RecordedSearchResultDetail;
 	readonly heldMenu?: PreviewEntryHeldMenu;
 	/** The context of each search standing on the entry, by submission. */
 	readonly searches?: Readonly<Record<string, RecordedPreviewSearch>>;
