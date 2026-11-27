@@ -40597,6 +40597,54 @@
 	{
 		"id": "hq-search/choices-ordered-below-another-text-column",
 		"base": "hq-search",
+		"entry": "case-search/itemset-nodeset-filter-predicate-lifting-into-predicate",
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/0/search_config/properties/5",
+			"value": {
+				"name": "district",
+				"label": {
+					"en": "District"
+				},
+				"hint": {},
+				"input_": "select1",
+				"itemset": {
+					"instance_id": "item-list:districts",
+					"nodeset": "instance('item-list:districts')/districts_list/districts[name < id]",
+					"value": "id",
+					"sort": "name",
+					"label": "name",
+					"doc_type": "Itemset"
+				},
+				"hidden": false,
+				"allow_blank_value": false,
+				"exclude": false,
+				"required": {
+					"test": null,
+					"text": {},
+					"doc_type": "Assertion"
+				},
+				"validations": [],
+				"is_group": false,
+				"doc_type": "CaseSearchProperty"
+			}
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/searchInputs/5/options/filter/right/term/kind",
+				"value": "table-column"
+			}
+		]
+	},
+	{
+		"id": "hq-search/choices-order-text-by-the-length-of-another-column",
+		"base": "hq-search",
 		"entry": "case-search/itemset-nodeset-filter-predicate-outside-predicate",
 		"standing": "not-yet",
 		"place": {
@@ -40616,7 +40664,7 @@
 				"input_": "select1",
 				"itemset": {
 					"instance_id": "item-list:districts",
-					"nodeset": "instance('item-list:districts')/districts_list/districts[name < id]",
+					"nodeset": "instance('item-list:districts')/districts_list/districts[name < string-length(id)]",
 					"value": "id",
 					"sort": "name",
 					"label": "name",

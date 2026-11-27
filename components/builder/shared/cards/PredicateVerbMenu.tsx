@@ -1109,7 +1109,10 @@ function verbSubjectAdmitted(
 	return (
 		entry.subjectGate === undefined ||
 		entry.subjectGate(subjectType, subject) ||
-		((entry.id === "gt" || entry.id === "lt") &&
+		((entry.id === "gt" ||
+			entry.id === "lt" ||
+			entry.id === "gte" ||
+			entry.id === "lte") &&
 			comparesNumericallyOrderedSearchText(
 				ctx,
 				entry.id,

@@ -666,6 +666,9 @@ def test_search_lookup_filter_orders_text_as_numbers(
         ("numeric-right", "name > '1'", ["2"]),
         ("text-column-right", "name > id", ["10"]),
         ("two-numbers", "number(name) > number(id)", ["10"]),
+        ("text-column-below", "name < id", ["2"]),
+        ("text-column-below-or-equal", "name <= id", ["2", "10"]),
+        ("text-column-above-or-equal", "name >= id", ["2", "10"]),
     ):
         with webapps_hq.authored_project(document, "A", configure=enable_address_search) as project:
             authoring = Authoring(project.unit, {}, document.id, operation=project.unit.operation)
@@ -676,9 +679,14 @@ def test_search_lookup_filter_orders_text_as_numbers(
             with project.unit.operation("search-choice-value-controls", label.encode()):
                 rows = LookupTableRow.objects.filter(domain=project.unit.domain, table=table).order_by("sort_key", "id")
                 for index, row in enumerate(rows):
-                    if label in {"text-column-right", "two-numbers"}:
+                    if label.startswith("text-column-") or label == "two-numbers":
                         row.fields["id"] = [Field(value=["2", "10"][index], properties={})]
-                        row.fields["name"] = [Field(value=["10", "2"][index], properties={})]
+                        names = ["10", "2"]
+                        if label == "text-column-below-or-equal":
+                            names = ["2", "10"]
+                        if label == "text-column-above-or-equal":
+                            names = ["2", "10"]
+                        row.fields["name"] = [Field(value=names[index], properties={})]
                     else:
                         row.fields["name"] = [Field(value=str(2 * index), properties={})]
                     row.save()
