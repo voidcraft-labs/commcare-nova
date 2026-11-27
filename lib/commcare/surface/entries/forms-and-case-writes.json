@@ -3551,6 +3551,26 @@
 		"gates": []
 	},
 	{
+		"id": "forms-and-case-writes/basic-update-key-with-a-roman-numeral",
+		"area": "forms-and-case-writes",
+		"section": "Basic form actions",
+		"item": "A Basic follow-up maps a root text answer to a property with a Unicode Roman numeral",
+		"surfaceKeys": ["schema:UpdateCaseAction.update"],
+		"valueClass": "basic-update-with-a-roman-numeral",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: CommCare HQ's form builder marks the saved Case Property name as an error.",
+		"subject": "case-property-names",
+		"reasons": [
+			{
+				"kind": "not-hq-editable",
+				"named": "The form builder's Case Property validator accepts ASCII word characters and hyphens. A mapping such as aⅣ fails that check."
+			}
+		],
+		"platforms": { "kind": "none", "cell": "—" },
+		"emission": { "cell": "—", "markers": [] },
+		"gates": []
+	},
+	{
 		"id": "forms-and-case-writes/update-key-holding-a-non-ascii-core-name-character",
 		"area": "forms-and-case-writes",
 		"section": "Basic form actions",

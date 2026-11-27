@@ -292,6 +292,10 @@ export const BASIC_CLAIMS = defineClaims("caseManagement.basicActions", {
 		`${F}/basic-update-key-with-an-accented-latin-name`,
 		"schema:UpdateCaseAction.update",
 	),
+	romanNumeralEditorKey: refuse(
+		`${F}/basic-update-key-with-a-roman-numeral`,
+		"schema:UpdateCaseAction.update",
+	),
 	nonAsciiKey: refuse(
 		`${F}/update-key-holding-a-non-ascii-core-name-character`,
 		"schema:UpdateCaseAction.update",
@@ -1808,12 +1812,22 @@ function readUpdateMap(
 			if (
 				slot === "own" &&
 				indices.length === 0 &&
-				isBasicAccentedEditorKey(property) &&
-				conditionType(parent.peek("condition")) === "always" &&
-				hasBasicAccentedEditorWrite(r, cursor)
+				conditionType(parent.peek("condition")) === "always"
 			) {
-				refuseEntry(cursor, BASIC_CLAIMS.accentedEditorKey, key);
-				continue;
+				const editorRefusal = isBasicAccentedEditorKey(property)
+					? BASIC_CLAIMS.accentedEditorKey
+					: property.length <= MAX_AUTHORED_CASE_PROPERTY_NAME_LENGTH &&
+							/[Ⅰ-ⅿ]/u.test(property) &&
+							/^[A-Za-z][A-Za-z0-9_Ⅰ-ⅿ-]*$/u.test(property)
+						? BASIC_CLAIMS.romanNumeralEditorKey
+						: undefined;
+				if (
+					editorRefusal !== undefined &&
+					hasBasicAccentedEditorWrite(r, cursor)
+				) {
+					refuseEntry(cursor, editorRefusal, key);
+					continue;
+				}
 			}
 			const named = propertyNameFinding(property, false);
 			if (named === "unrecognized") {

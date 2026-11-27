@@ -328,7 +328,7 @@ def _edit_unmapped_question_and_reopen(editor_driver, state, app_id, property_ke
             message for question in saved.questions if question["path"] == "/data/note"
             for message in question["messages"] if message["key"] == "mug-caseProperty-error"
         ]
-        assert len(editor[kind]) == (1 if property_key == ACCENTED else 0), saved.questions
+        assert len(editor[kind]) == (1 if property_key != ASCII_NEIGHBOR else 0), saved.questions
         for message in editor[kind]:
             assert message["attribute"] == "caseProperty" and message["level"] == "error"
     assert _kept_basic_mapping(state, app_id, form_id) == {property_key: "/data/note"}
@@ -414,7 +414,7 @@ def test_basic_vellum_edit_reopens_and_installs_with_its_exact_saved_mapping(hq,
             "walk": answer["walks"]["m0-f0"], "receipt": receipt, "storedProperties": observed,
         })
 
-@pytest.mark.parametrize("property_key", [ACCENTED, ASCII_NEIGHBOR], ids=["accented", "ascii"])
+@pytest.mark.parametrize("property_key", [ACCENTED, "aⅣ", ASCII_NEIGHBOR], ids=["accented", "roman-numeral", "ascii"])
 def test_vellum_marks_the_same_case_property_in_edit_only_mode(hq, editor_driver, property_key):
     from proof.editors.conftest import write_evidence
 

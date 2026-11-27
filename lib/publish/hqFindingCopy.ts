@@ -584,6 +584,8 @@ export const FIX_IN_HQ_SENTENCES: Readonly<
  * get past it. `findingLine` adds the name itself ("In CommCare HQ: …").
  */
 export const FIX_IN_HQ_ENTRY_SENTENCES: Readonly<Record<string, string>> = {
+	"forms-and-case-writes/basic-update-key-with-a-roman-numeral":
+		"The form builder marks this Case Property name as an error because it contains a Roman numeral character. In CommCare HQ, you can choose a name with ordinary letters or digits. If existing cases use this property, move its values before switching the mapping.",
 	"forms-and-case-writes/whole-number-starting-answer-from-free-text":
 		"A follow-up saves free text to the property this whole-number question starts from. A word saved there can stop the form from opening. In CommCare HQ, you can store the free text in a different property or change where the number starts.",
 	"forms-and-case-writes/basic-update-key-with-an-accented-latin-name":

@@ -13893,12 +13893,12 @@ def basic_update_key_with_unaddressable_letter(use, manifest):
     return None if written is None else any(_basic_update_has_unaddressable_letter(*entry) for entry in written)
 
 
-def _basic_accented_update(at, slot, key, name):
+def _basic_accented_update(at, slot, key, name, *, roman_numeral=False):
     """A stock Basic follow-up, whose selected case receives this exact root text answer on each submit."""
     if slot != "own" or key != name or not 1 <= len(name) <= 255 or name.isascii():
         return False
-    # Each Latin-1 letter here is accepted by HQ's property regex and XML builder.
-    if re.fullmatch(r"[A-Za-z][A-Za-z0-9_À-ÖØ-öø-ÿ-]*", name) is None:
+    permitted = r"[A-Za-z][A-Za-z0-9_Ⅰ-ⅿ-]*" if roman_numeral else r"[A-Za-z][A-Za-z0-9_À-ÖØ-öø-ÿ-]*"
+    if re.fullmatch(permitted, name) is None:
         return False
     android = _worker_name_ranges()[1]
     ranges = tuple(
@@ -13906,7 +13906,7 @@ def _basic_accented_update(at, slot, key, name):
         for pairs in (android["initial"], android["continuationOnly"])
         for low, high in zip(pairs[::2], pairs[1::2])
     )
-    if not all(any(low <= ord(character) <= high for low, high in ranges) for character in name):
+    if not roman_numeral and not all(any(low <= ord(character) <= high for low, high in ranges) for character in name):
         return False
     form = at.nearest("Form")
     if form is None or _requires(form) != "case":
@@ -13941,6 +13941,15 @@ def basic_accented_update_editor_refusal(use, manifest):
     return None if written is None else any(_basic_accented_update(at, *entry) for entry in written)
 
 
+def basic_roman_numeral_update_editor_refusal(use, manifest):
+    """Vellum's plain Case Property editor marks a saved Unicode Roman numeral."""
+    at = _json(use)
+    written = _written_properties(at) if at is not None else None
+    return None if written is None else any(
+        _basic_accented_update(at, *entry, roman_numeral=True) for entry in written
+    )
+
+
 def non_ascii_core_name_key(use, manifest):
     """Non-ASCII XML names outside the witnessed basic runtime refusal."""
     at = _json(use)
@@ -13949,6 +13958,7 @@ def non_ascii_core_name_key(use, manifest):
         _non_ascii_core_name(property_name)
         and not _basic_update_has_unaddressable_letter(slot, key, property_name)
         and not _basic_accented_update(at, slot, key, property_name)
+        and not _basic_accented_update(at, slot, key, property_name, roman_numeral=True)
         for slot, key, property_name in written
     )
 
@@ -15370,6 +15380,7 @@ VALUE_CLASSES = {
     "forms-and-case-writes/form-filter-using-fixture-value": fixture_value,
     # HELD-NEW classes beside an allowing class of their key, each decided by the use's own value
     "forms-and-case-writes/basic-update-key-with-an-accented-latin-name": basic_accented_update_editor_refusal,
+    "forms-and-case-writes/basic-update-key-with-a-roman-numeral": basic_roman_numeral_update_editor_refusal,
     "forms-and-case-writes/basic-update-key-with-an-unaddressable-uncased-letter": basic_update_key_with_unaddressable_letter,
     "forms-and-case-writes/update-key-holding-a-non-ascii-core-name-character": non_ascii_core_name_key,
     "forms-and-case-writes/root-open-index-unavailable-on-either-worker": root_open_index_writer_unavailable,
