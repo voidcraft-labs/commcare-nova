@@ -2959,6 +2959,11 @@ export function readSaveToCaseBlocks(
 			}) &&
 			proposal.kind === "update" &&
 			proposal.target.kind === "session" &&
+			sameXPathText(
+				proposal.target.text,
+				serializeForm(sessionDataRef("case_id")),
+				{ ruleSet: "form" },
+			) &&
 			block.repeat === null &&
 			block.authoredScopeLength === undefined &&
 			proposal.condition === undefined &&
