@@ -363,10 +363,9 @@ const PREVIEW_PLATFORM_CHECKS: Readonly<
 		await expect(
 			page.getByRole("button", { name: "Choose image" }),
 		).toHaveCount(0);
-		const open = page.getByRole("button", {
-			name: "Take picture",
-			exact: true,
-		});
+		const open = page
+			.getByRole("button", { name: "Take picture", exact: true })
+			.and(page.locator('[aria-haspopup="dialog"]'));
 		await open.click();
 		const dialog = page.getByRole("dialog");
 		await expect(
@@ -377,6 +376,7 @@ const PREVIEW_PLATFORM_CHECKS: Readonly<
 			dialog.getByRole("button", { name: "Take picture" }),
 		).toBeEnabled();
 		await dialog.getByRole("button", { name: "Cancel" }).click();
+		await expect(dialog).toBeHidden();
 		const closed = () =>
 			page.evaluate(() => {
 				const streams =
@@ -405,6 +405,7 @@ const PREVIEW_PLATFORM_CHECKS: Readonly<
 				}
 			}, input.toString("base64"));
 		expect(await sizeOf(bytes)).toEqual([660, 580]);
+		await expect(dialog).toBeHidden();
 		await expect.poll(closed).toEqual(["ended", "ended", "ended"]);
 		await page.evaluate(() => {
 			let observation = 0;
@@ -800,7 +801,9 @@ const PREVIEW_PLATFORM_CHECKS: Readonly<
 		await first
 			.getByRole("button", { name: "Add a new Visits?", exact: true })
 			.click();
-		await expect(header).toHaveText("Visits (1) > Details");
+		await expect(header).toHaveText("Visits (1) > Details", {
+			useInnerText: true,
+		});
 		await expect(page.getByRole("textbox", { name: /Note/ })).toBeVisible();
 		/* Android draws no card for a group: its label is the header line. */
 		await expect(
@@ -814,7 +817,9 @@ const PREVIEW_PLATFORM_CHECKS: Readonly<
 		await prompt
 			.getByRole("button", { name: "Add another Visits?", exact: true })
 			.click();
-		await expect(header).toHaveText("Visits (2) > Details");
+		await expect(header).toHaveText("Visits (2) > Details", {
+			useInnerText: true,
+		});
 	},
 	async "label-texts-android"(page) {
 		/* The browser's speech, recorded: what it was asked to read and when
@@ -1260,7 +1265,9 @@ const PREVIEW_PLATFORM_CHECKS: Readonly<
 		await addNew
 			.getByRole("button", { name: "Add a new Visits?", exact: true })
 			.click();
-		await expect(header).toHaveText("Visits (1) > Details");
+		await expect(header).toHaveText("Visits (1) > Details", {
+			useInnerText: true,
+		});
 		await note.fill("First");
 		await next.click();
 		await expect(prompt).toBeVisible();
@@ -1276,7 +1283,9 @@ const PREVIEW_PLATFORM_CHECKS: Readonly<
 		/* Go back closes the prompt on the screen before it. */
 		await prompt.getByRole("button", { name: "Go back", exact: true }).click();
 		await expect(prompt).toHaveCount(0);
-		await expect(header).toHaveText("Visits (1) > Details");
+		await expect(header).toHaveText("Visits (1) > Details", {
+			useInnerText: true,
+		});
 		await expect(note).toHaveValue("First");
 		await next.click();
 		await prompt
@@ -1293,13 +1302,17 @@ const PREVIEW_PLATFORM_CHECKS: Readonly<
 		await expect(name).toBeVisible();
 		await name.fill("Ada");
 		await next.click();
-		await expect(header).toHaveText("Visits (1) > Details");
+		await expect(header).toHaveText("Visits (1) > Details", {
+			useInnerText: true,
+		});
 		await next.click();
 		await expect(prompt).toBeVisible();
 		/* A group shown on one screen inside a repeat is one screen per
 		 * entry. */
 		await addAnother.click();
-		await expect(header).toHaveText("Visits (2) > Details");
+		await expect(header).toHaveText("Visits (2) > Details", {
+			useInnerText: true,
+		});
 		await expect(note).toHaveValue("");
 		await next.click();
 		await expect(prompt).toBeVisible();
@@ -1307,7 +1320,7 @@ const PREVIEW_PLATFORM_CHECKS: Readonly<
 			.getByRole("button", { name: "Do not add", exact: true })
 			.click();
 		/* A group shown on one screen is one screen of all its questions. */
-		await expect(header).toHaveText("Household");
+		await expect(header).toHaveText("Household", { useInnerText: true });
 		await expect(page.getByRole("textbox", { name: /Adults/ })).toBeVisible();
 		await expect(page.getByRole("textbox", { name: /Children/ })).toBeVisible();
 		/* An unlabeled group's questions are one screen each. */
@@ -1336,7 +1349,9 @@ const PREVIEW_PLATFORM_CHECKS: Readonly<
 		await firstItem
 			.getByRole("button", { name: "Add a new Items?", exact: true })
 			.click();
-		await expect(header).toHaveText("Stock > Items (1)");
+		await expect(header).toHaveText("Stock > Items (1)", {
+			useInnerText: true,
+		});
 		await expect(page.getByRole("textbox", { name: /Item/ })).toBeVisible();
 		await expect(page.getByRole("button", { name: /^Add / })).toHaveCount(0);
 		await next.click();
