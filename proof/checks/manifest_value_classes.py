@@ -6748,7 +6748,10 @@ def _standalone_result_detail_prompt(use):
     ):
         return None
     source = at.value
-    if not isinstance(source, str) or "instance('search-input:results')" not in source:
+    if not isinstance(source, str) or not any(
+        spelling in source
+        for spelling in ("instance('search-input:results')", 'instance("search-input:results")')
+    ):
         return None
     outer = _call_of(expression_tree(source), "if", 3)
     if outer is None or outer[0] != expression_tree("count(current()/../../results) > 0"):
@@ -6762,16 +6765,23 @@ def _standalone_result_detail_prompt(use):
         return None
     scalar = _call_of(optional[1], "string", 1)
     path = scalar[0] if scalar else None
-    if not isinstance(path, list) or path[:2] != ["path", "instance:search-input:results"] or len(path[3]) != 1:
+    if (
+        not isinstance(path, list)
+        or path[:2] != ["path", "instance:search-input:results"]
+        or len(path[3]) != 2
+        or path[3][0] != ["text", "search-input:results"]
+    ):
         return None
-    predicate = path[3][0]
+    # The observation carries an instance() argument before its step predicates.
+    predicate = path[3][1]
     if predicate[:2] != ["binary", "="] or predicate[3][:1] != ["text"]:
         return None
     prompt_name = predicate[3][1]
     if "'" in prompt_name:
         return None
     exact = f"instance('search-input:results')/input/field[@name = '{prompt_name}']"
-    if concat[1] != expression_tree(f"if(count({exact}) > 0, string({exact}), '')"):
+    expected = expression_tree(f"if(count({exact}) > 0, string({exact}), '')")
+    if _tree_without_path_text(concat[1]) != _tree_without_path_text(expected):
         return None
     return prompt_name, search
 
