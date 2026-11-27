@@ -38,18 +38,30 @@ def _ordered(text):
         return None
     if not right[1] or _TIME.fullmatch(right[1]) or _DATETIME.fullmatch(right[1]):
         return None
-    suffix = None
-    if left[:2] == ("call", "concat") and len(left[2]) == 2 and left[2][1][0] == "str":
-        left, ending = left[2]
-        suffix = ending[1]
-    if left[:3] != ("path", "SLASH", None):
-        return None
-    steps = left[3]
-    if len(steps) != 2 or any(step[:2] != ("step", "child") or step[3] for step in steps):
-        return None
-    source = "/" + "/".join(step[2] for step in steps)
-    text = source if suffix is None else f"concat({source}, {_quoted(suffix)})"
-    return source, f"if(number({text}) < number({_quoted(right[1])}), {_quoted(early[1])}, {_quoted(late[1])})"
+    def root_path(operand):
+        if operand[:3] != ("path", "SLASH", None):
+            return None
+        steps = operand[3]
+        if len(steps) != 2 or any(step[:2] != ("step", "child") or step[3] for step in steps):
+            return None
+        return "/" + "/".join(step[2] for step in steps)
+
+    if left[:2] == ("call", "concat") and len(left[2]) == 2:
+        first, second = left[2]
+        if (source := root_path(first)) is None:
+            return None
+        if second[0] == "str":
+            inputs, suffix = (source,), _quoted(second[1])
+        elif (suffix := root_path(second)) is not None:
+            inputs = (source, suffix)
+        else:
+            return None
+        text = f"concat({source}, {suffix})"
+    else:
+        if (text := root_path(left)) is None:
+            return None
+        inputs = (text,)
+    return inputs, f"if(number({text}) < number({_quoted(right[1])}), {_quoted(early[1])}, {_quoted(late[1])})"
 
 
 def rewritten(root):
@@ -75,11 +87,10 @@ def rewritten(root):
         bind, = nodes
         if not (text := bind.get("calculate")) or not (candidate := _ordered(text)):
             continue
-        source, explicit = candidate
-        inputs = binds.get(source, ())
-        if (children[source] != 1 or len(inputs) != 1
-                or inputs[0].get("type") not in ("xsd:string", "string")
-                or controls[source] != [tag(XFORMS, "input")]):
+        sources, explicit = candidate
+        if any(children[source] != 1 or len(inputs := binds.get(source, ())) != 1
+               or inputs[0].get("type") not in ("xsd:string", "string")
+               or controls[source] != [tag(XFORMS, "input")] for source in sources):
             continue
         yield target, bind, explicit
 
@@ -93,7 +104,7 @@ def normalize(root):
 RULE = SpellingRule(
     "hidden-text-number-order",
     ("form:*", "*/form:*"),
-    "A root hidden calculation ordering one root text input with an optional text suffix against a literal performs the same two numeric"
+    "A root hidden calculation ordering one root text input or a pair of text parts against a literal performs the same two numeric"
     " conversions with explicit number() (XPathCmpExpr and XPathNumberFunc).",
     normalize,
 )

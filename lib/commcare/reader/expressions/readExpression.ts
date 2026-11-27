@@ -1982,32 +1982,13 @@ function catalogNeedsNameDiagnostics(env: ExpressionReadEnv): boolean {
 	return needed;
 }
 
-/** The start of a text operand may name one root answer followed by
- * a literal suffix. Both its native syntax and its bound tree must agree. */
-function rootTextOrderInput(
+/** A root Text field used without traversing or filtering the answer node. */
+function rootTextOrderLeaf(
 	doc: BlueprintDoc,
 	form: Uuid,
 	value: Expression,
 	source: FormSyntax,
 ): boolean {
-	if (value.kind === "concat") {
-		if (
-			value.parts.length !== 2 ||
-			source.kind !== "call" ||
-			source.name !== "concat" ||
-			source.args.length !== 2 ||
-			source.args[1].kind !== "string"
-		)
-			return false;
-		const [field, suffix] = value.parts;
-		return (
-			field?.kind === "term" &&
-			suffix?.kind === "term" &&
-			suffix.term.kind === "literal" &&
-			suffix.term.value === source.args[1].value &&
-			rootTextOrderInput(doc, form, field, source.args[0])
-		);
-	}
 	return (
 		source.kind === "child" &&
 		!source.descendant &&
@@ -2024,7 +2005,35 @@ function rootTextOrderInput(
 	);
 }
 
-/** A root text answer with optional literal suffix ordered against text in a root Hidden Value's
+/** A single answer or a two-part concatenation of root Text and Text or a literal suffix. */
+function rootTextOrderInput(
+	doc: BlueprintDoc,
+	form: Uuid,
+	value: Expression,
+	source: FormSyntax,
+): boolean {
+	if (value.kind !== "concat")
+		return rootTextOrderLeaf(doc, form, value, source);
+	if (
+		value.parts.length !== 2 ||
+		source.kind !== "call" ||
+		source.name !== "concat" ||
+		source.args.length !== 2
+	)
+		return false;
+	const [first, second] = value.parts;
+	const [sourceFirst, sourceSecond] = source.args;
+	return (
+		rootTextOrderLeaf(doc, form, first, sourceFirst) &&
+		(sourceSecond.kind === "string"
+			? second.kind === "term" &&
+				second.term.kind === "literal" &&
+				second.term.value === sourceSecond.value
+			: rootTextOrderLeaf(doc, form, second, sourceSecond))
+	);
+}
+
+/** Root text answers ordered against text in a root Hidden Value's
  * calculation. Core coerces each side with exactly the `number()` function.
  * Keep the reference, the comparison and both authored branches. */
 function explicitTextOrder(

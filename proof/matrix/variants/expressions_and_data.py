@@ -449,9 +449,15 @@ def assembled_text_ordered_against_a_literal(authoring, app_id):
 
 
 def multiple_answers_assembled_for_ordering(authoring, app_id):
-    """Two question reads remain outside the one-answer spelling rule."""
+    """Two root Text answers are joined before numeric conversion."""
     _language(authoring, app_id, "if(concat(/data/code, /data/code_again) < 'm', 'early', 'late')",
               "multiple-answers-assembled-for-ordering")
+
+
+def three_parts_assembled_for_ordering(authoring, app_id):
+    """A three-part concatenation uses a separate source shape."""
+    _language(authoring, app_id, "if(concat(/data/code, '-', /data/code_again) < 'm', 'early', 'late')",
+              "three-parts-assembled-for-ordering")
 
 
 def choice_name_on_a_lookup_select(authoring, app_id):
