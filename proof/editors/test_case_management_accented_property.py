@@ -115,10 +115,11 @@ def test_basic_case_management_saves_the_accented_key_without_changing_its_spell
 
 
 @pytest.mark.reader("android")
-def test_installed_android_submits_the_accented_case_property_to_hq(hq):
+def test_installed_android_submits_the_accented_case_property_to_hq(hq, monkeypatch):
     from corehq.form_processor.models import CommCareCase
 
     from proof.android import observe
+    from proof.android.hq import DevicePeer
     from proof.formplayer import hq as forms_hq
     from proof.observe import casedata
     from proof.observe.record import Blobs
@@ -128,6 +129,18 @@ def test_installed_android_submits_the_accented_case_property_to_hq(hq):
         restore = person_cases(TEMPLATE_RESTORE.read_bytes(), [SELECTED])
         database = casedata.database_of_restore(restore)
         with forms_hq.serve(state, None, app_id, database=database) as release:
+            received_properties = []
+            original_receipts = DevicePeer._stored
+
+            def receipts(peer, submissions):
+                rows = original_receipts(peer, submissions)
+                if rows:
+                    # The reader restores the transaction fork after each walk.
+                    case = CommCareCase.objects.get_case(SELECTED, state.domain)
+                    received_properties.append(dict(case.case_json))
+                return rows
+
+            monkeypatch.setattr(DevicePeer, "_stored", receipts)
             blobs, sent, stored = Blobs(), [], []
             result = observe.app(
                 release, blobs, label="basic-accented-property", archive=observe.release_archive(release),
@@ -141,8 +154,7 @@ def test_installed_android_submits_the_accented_case_property_to_hq(hq):
             assert "raised" not in receipt, receipt
             assert receipt["form"]["normal"] is True
             assert set(receipt["cases"]) == {SELECTED}, receipt
-            case = CommCareCase.objects.get_case(SELECTED, state.domain)
-            assert case.case_json == {ACCENTED: ANSWER}
+            assert received_properties == [{ACCENTED: ANSWER}]
 
 
 @pytest.mark.reader("webapps")
@@ -161,14 +173,16 @@ def test_signed_web_apps_submits_the_accented_case_property_to_hq(hq, formplayer
         database = casedata.database_of_restore(person_cases(TEMPLATE_RESTORE.read_bytes(), [SELECTED]))
         with forms_hq.serve(state, None, app_id, runner=formplayer_runner, database=database) as release:
             session = Session(release, editor_driver)
-            run = session.run([
-                *steps.open_app(APP_NAME), *steps.choose(MENU_NAME), *steps.select_case(SELECTED),
-                *steps.click(steps.MENU_ROW, FORM_NAME, visible=True, within=steps.WITHIN_MS),
-                *steps.arrive(form=True), steps.SCREEN, *steps.answer("1", ANSWER),
-                *steps.submit_and_land(),
-            ])
-            assert run.page_errors == [] and run.dialogs == []
-            assert run.screens[0]["form"]["title"] == FORM_NAME
-            submission, = session.hq.submissions
-            _assert_wire(submission.instance)
-            assert CommCareCase.objects.get_case(SELECTED, state.domain).case_json == {ACCENTED: ANSWER}
+            # Read HQ's actual applied case before the signed run restores its fork.
+            with release.run("accented-property"):
+                run = session._run([
+                    *steps.open_app(APP_NAME), *steps.choose(MENU_NAME), *steps.select_case(SELECTED),
+                    *steps.click(steps.MENU_ROW, FORM_NAME, visible=True, within=steps.WITHIN_MS),
+                    *steps.arrive(form=True), steps.SCREEN, *steps.answer("1", ANSWER),
+                    *steps.submit_and_land(),
+                ], release.acting, deadline=90)
+                assert run.page_errors == [] and run.dialogs == []
+                assert run.screens[0]["form"]["title"] == FORM_NAME
+                submission, = session.hq.submissions
+                _assert_wire(submission.instance)
+                assert CommCareCase.objects.get_case(SELECTED, state.domain).case_json == {ACCENTED: ANSWER}
