@@ -547,6 +547,12 @@ def case_id_callout_without_result_heading(authoring, app_id):
     ops.set_json(authoring, app_id, "/modules/0/case_details/short/lookup_field_header", {})
 
 
+def property_callout_without_result_heading(authoring, app_id):
+    """The lookup emits a header with no text child for a property key too."""
+    case_id_callout_without_result_heading(authoring, app_id)
+    ops.set_json(authoring, app_id, "/modules/0/case_details/short/lookup_field_template", "scan_id")
+
+
 def fixed_text_callout_with_icon(authoring, app_id):
     """Patients' lookup button uses a picture the HQ picker uploaded."""
     fixed_text_callout(authoring, app_id)

@@ -7666,10 +7666,33 @@ def _case_id_result_template(template):
     )
 
 
-def _empty_case_id_result_header(detail):
+def _case_text_property_result_template(template):
+    parsed = expression_tree(template) if isinstance(template, str) else None
+    string = _call_of(parsed, "string", 1)
+    concat = _call_of(parsed, "concat", 2)
+    if string is not None:
+        parsed = string[0]
+    elif concat is not None and concat[1] == ["text", ""]:
+        parsed = concat[0]
+    if not parsed or parsed[:2] != ["path", "relative"] or parsed[3] != [] or len(parsed[4]) != 1:
+        return False
+    axis, name, predicates = parsed[4][0]
+    return (
+        axis == "child" and not predicates and re.fullmatch(r"[A-Za-z][A-Za-z0-9_-]*", name) is not None
+        and name not in {
+            "name", "date-opened", "external-id", "case_id", "date_opened", "last_modified",
+            "owner_id", "external_id", "status", "case_type", "category", "state", "index", "attachment",
+        }
+    )
+
+
+
+def _empty_lookup_result_header(detail):
     return (
         not detail.get("case_tile_template") and detail.get("lookup_display_results") is True
-        and detail.get("lookup_field_header") == {} and _case_id_result_template(detail.get("lookup_field_template"))
+        and detail.get("lookup_field_header") == {}
+        and (_case_id_result_template(detail.get("lookup_field_template"))
+             or _case_text_property_result_template(detail.get("lookup_field_template")))
     )
 
 
@@ -7677,7 +7700,7 @@ def lookup_missing_case_id_result_header(use, manifest):
     """An ordinary, enabled Android result field where HQ emits no header text element."""
     detail = _short_lookup(use)
     return (
-        detail is not None and _empty_case_id_result_header(detail)
+        detail is not None and _empty_lookup_result_header(detail)
         and not _missing_lookup_arguments(detail) and not _bare_relative_lookup_extra(detail)
     )
 
@@ -7697,25 +7720,7 @@ def lookup_with_case_property_result(use, manifest):
     headings = detail.get("lookup_field_header")
     if not isinstance(headings, dict) or not any(isinstance(text, str) and text.strip() for text in headings.values()):
         return False
-    template = detail.get("lookup_field_template")
-    parsed = expression_tree(template) if isinstance(template, str) else None
-    string = _call_of(parsed, "string", 1)
-    concat = _call_of(parsed, "concat", 2)
-    if string is not None:
-        parsed = string[0]
-    elif concat is not None and concat[1] == ["text", ""]:
-        parsed = concat[0]
-    if not parsed or parsed[:2] != ["path", "relative"] or parsed[3] != [] or len(parsed[4]) != 1:
-        return False
-    axis, name, predicates = parsed[4][0]
-    return (
-        axis == "child" and not predicates and re.fullmatch(r"[A-Za-z][A-Za-z0-9_-]*", name) is not None
-        and name not in {
-            "name", "date-opened", "external-id", "case_id", "date_opened", "last_modified",
-            "owner_id", "external_id", "status", "case_type", "category", "state", "index", "attachment",
-        }
-    )
-
+    return _case_text_property_result_template(detail.get("lookup_field_template"))
 
 def lookup_with_result_column(use, manifest):
     """The active result columns outside the plain-list case-ID carrier."""
@@ -7802,7 +7807,7 @@ def lookup_outside_fixed_text(use, manifest):
     detail = _short_lookup(use)
     if detail is None or _missing_lookup_arguments(detail):
         return False
-    if (_bare_relative_lookup_extra(detail) or _empty_case_id_result_header(detail)
+    if (_bare_relative_lookup_extra(detail) or _empty_lookup_result_header(detail)
             or lookup_with_native_integer_sum(use, manifest) or lookup_with_forced_extras(use, manifest)):
         return False
     return _lookup_has_other_unsupported_setting(use, manifest, detail) or lookup_with_nonliteral_arguments(use, manifest)

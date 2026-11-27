@@ -8897,6 +8897,8 @@ def _case_list_lookup_shapes():
         "menus-and-case-lists/lookup-case-id-result-without-a-header-map": (
             use(refused, "lookup_display_results", lookup_field_template="@case_id",
                 lookup_field_header={}, lookup_display_results=True),
+            use(refused, "lookup_display_results", lookup_field_template="scan_id",
+                lookup_field_header={}, lookup_display_results=True),
             use(accepted, "lookup_display_results", lookup_field_template="@case_id",
                 lookup_field_header={"en": ""}, lookup_display_results=True),
             use(accepted, "lookup_display_results", lookup_field_template="external_id",

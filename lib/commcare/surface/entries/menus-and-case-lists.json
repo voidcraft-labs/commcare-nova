@@ -9916,7 +9916,7 @@
 		"area": "menus-and-case-lists",
 		"section": "Case list and case detail",
 		"subsection": "Case list callout",
-		"item": "Case-ID keyed lookup confidence with an empty heading map in a row layout",
+		"item": "Lookup confidence keyed by a record ID or text property with an empty heading map",
 		"surfaceKeys": ["schema:Detail.lookup_display_results"],
 		"valueClass": "case-id-result-column-on-a-plain-list-with-an-empty-heading-map",
 		"disposition": "REFUSED",

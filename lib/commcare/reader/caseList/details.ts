@@ -637,6 +637,28 @@ function nativeLookupIntegerSum(
 	return undefined;
 }
 
+function lookupResultTextProperty(template: string): string | undefined {
+	const parsed = sharedFormSyntax(template);
+	let node = parsed.ok ? parsed.node : undefined;
+	while (node?.kind === "group") node = node.value;
+	// Core's detail Text already converts the key to text. These two
+	// wrappers keep the same key, even when its property is absent.
+	if (
+		node?.kind === "call" &&
+		((node.name === "string" && node.args.length === 1) ||
+			(node.name === "concat" &&
+				node.args.length === 2 &&
+				literalText(node.args[1]) === ""))
+	)
+		node = node.args[0];
+	while (node?.kind === "group") node = node.value;
+	if (node?.kind === "axis" && node.axis === "child") node = node.value;
+	const property = caseListLookupResultPropertySchema.safeParse(
+		node?.kind === "name" && !node.wildcard ? node.name : undefined,
+	);
+	return property.success ? property.data : undefined;
+}
+
 type LookupRead = { lookup: CaseListDeviceLookup; heading?: HeldTexts };
 
 function textDeviceLookup(
@@ -730,36 +752,19 @@ function textDeviceLookup(
 		if (detail.peek("case_tile_template") || typeof template !== "string")
 			return undefined;
 		if (!sameXPathText(template, lookupCaseKey)) {
-			const parsed = sharedFormSyntax(template);
-			let node = parsed.ok ? parsed.node : undefined;
-			while (node?.kind === "group") node = node.value;
-			// Core's detail Text already converts the key to text. These two
-			// wrappers keep the same key, even when its property is absent.
-			if (
-				node?.kind === "call" &&
-				((node.name === "string" && node.args.length === 1) ||
-					(node.name === "concat" &&
-						node.args.length === 2 &&
-						literalText(node.args[1]) === ""))
-			)
-				node = node.args[0];
-			while (node?.kind === "group") node = node.value;
-			if (node?.kind === "axis" && node.axis === "child") node = node.value;
-			const property = caseListLookupResultPropertySchema.safeParse(
-				node?.kind === "name" && !node.wildcard ? node.name : undefined,
-			);
+			const property = lookupResultTextProperty(template);
 			const search = module.json.peek("search_config");
 			const additional = isJsonObject(search)
 				? search.additional_case_types
 				: undefined;
 			if (
-				!property.success ||
+				property === undefined ||
 				module.module.caseType === undefined ||
 				(Array.isArray(additional) &&
 					additional.some((type) => type !== module.module.caseType))
 			)
 				return undefined;
-			resultProperty = property.data;
+			resultProperty = property;
 		}
 		heading = heldTextsIn(
 			detail.peek("lookup_field_header"),
@@ -786,7 +791,7 @@ function textDeviceLookup(
 }
 
 /** HQ writes an empty width-zero header for an empty map. Core requires a text child there. */
-function lookupHasEmptyCaseIdResultHeader(detail: JsonCursor): boolean {
+function lookupHasEmptyResultHeader(detail: JsonCursor): boolean {
 	const header = detail.peek("lookup_field_header");
 	const template = detail.peek("lookup_field_template");
 	return (
@@ -795,7 +800,8 @@ function lookupHasEmptyCaseIdResultHeader(detail: JsonCursor): boolean {
 		isJsonObject(header) &&
 		Object.keys(header).length === 0 &&
 		typeof template === "string" &&
-		sameXPathText(template, lookupCaseKey)
+		(sameXPathText(template, lookupCaseKey) ||
+			lookupResultTextProperty(template) !== undefined)
 	);
 }
 
@@ -1776,7 +1782,7 @@ function readDetailKeys(
 			} else if (relativeExtra) {
 				cause = D.lookupRelativeExtra;
 				detail.refuse("lookup_extras", cause);
-			} else if (lookupHasEmptyCaseIdResultHeader(detail)) {
+			} else if (lookupHasEmptyResultHeader(detail)) {
 				cause = D.lookupMissingResultHeader;
 				detail.refuse("lookup_display_results", cause);
 			} else {
