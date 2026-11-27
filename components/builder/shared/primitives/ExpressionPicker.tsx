@@ -567,7 +567,8 @@ function expressionChoiceCopy(
 	) {
 		return {
 			label: "Count cases on this device",
-			description: "How many of the worker’s cases are of a selected type",
+			description:
+				"How many of the worker’s cases are of a selected type, with an optional text match",
 		};
 	}
 	if (

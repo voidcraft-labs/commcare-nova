@@ -5746,10 +5746,14 @@ def required_condition_counts_restored_cases(use, manifest):
         match node:
             case ("call", "count", (("path", "SLASH", instance, (
                 ("step", "child", "casedb", ()),
-                ("step", "child", "case", (("EQ", field, ("str", found_type)),)),
+                ("step", "child", "case", (("EQ", field, ("str", found_type)), *filters)),
             )),)):
                 if instance == case_instance and field == case_type_attribute and found_type:
-                    return True
+                    if not filters:
+                        return True
+                    match filters:
+                        case [("EQ", ("path", None, None, (("step", "child", key, ()),)), ("str", _))]:
+                            return bool(key)
         return any(contains_count(child) for child in node)
 
     return contains_count(tree(raw))

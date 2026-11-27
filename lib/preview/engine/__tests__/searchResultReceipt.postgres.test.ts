@@ -7,7 +7,7 @@ import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
 import { setPreviewSearchSettings } from "@/lib/deployment/previewSearchSettings";
 import { toRscSerializableDoc } from "@/lib/doc/ownRecords";
 import { calculatedColumn, simpleSearchInputDef } from "@/lib/domain";
-import { count, eq, gt, literal, term } from "@/lib/domain/expression";
+import { count, eq, gt, literal, prop, term } from "@/lib/domain/expression";
 import { resolvePreviewSearchFacts } from "../../searchSettings";
 import {
 	loadCaseDataAction,
@@ -60,13 +60,21 @@ it("checks a Search requirement against the authorized worker restore", async ()
 					{ kind: "case-row-type" },
 					{ kind: "case-type", caseType: "patient" },
 				),
+				eq(prop("patient", "standing"), literal("active")),
 			],
 		}),
 		literal(0),
 	);
 	const doc = buildDoc({
 		appId: APP,
-		caseTypes: [{ name: "patient", properties: [] }],
+		caseTypes: [
+			{
+				name: "patient",
+				properties: [
+					{ name: "standing", label: "Standing", data_type: "text" },
+				],
+			},
+		],
 		modules: [
 			{
 				name: "Patients",
@@ -130,13 +138,23 @@ it("checks a Search requirement against the authorized worker restore", async ()
 			inputValues,
 			page: { offset: 0, limit: 10 },
 		});
-	const insert = async (caseStore: typeof store, id: string) =>
+	const insert = async (
+		caseStore: typeof store,
+		id: string,
+		standing = "active",
+	) =>
 		caseStore.insert({
 			appId: APP,
-			row: { case_id: id, case_type: "patient", case_name: id, properties: {} },
+			row: {
+				case_id: id,
+				case_type: "patient",
+				case_name: id,
+				properties: { standing },
+			},
 		});
 	const other = await withProjectContext(PROJECT, ACTOR, "other-case-owner");
 	await insert(other, "outside-the-restore");
+	await insert(store, "inactive", "inactive");
 	expect(await search()).toMatchObject({ kind: "rows" });
 	await insert(store, "Amina");
 	expect(await search()).toMatchObject({

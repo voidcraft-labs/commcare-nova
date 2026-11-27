@@ -32,7 +32,7 @@ import {
 	type ExpressionContext,
 	slotContext,
 } from "@/lib/domain/expression/context";
-import { readsRestoredCaseTypeQuery } from "@/lib/domain/expression/ruleSets";
+import { readsSearchRequiredCaseQuery } from "@/lib/domain/expression/ruleSets";
 import type {
 	Expression,
 	ModuleExpressionSlotRef,
@@ -146,7 +146,7 @@ export function searchRequirementsReadRestoredCases(
 	return inputs.some((input) => {
 		const condition =
 			input.kind === "hidden" ? undefined : input.required?.when;
-		return condition !== undefined && readsRestoredCaseTypeQuery(condition);
+		return condition !== undefined && readsSearchRequiredCaseQuery(condition);
 	});
 }
 
@@ -276,7 +276,7 @@ export function emitPreviewSearchPredicate(
 	const requiredCases =
 		types.slot.slot === "search_input_required_when" &&
 		environment.caseDatabase != null &&
-		readsRestoredCaseTypeQuery(predicate)
+		readsSearchRequiredCaseQuery(predicate)
 			? environment.caseDatabase
 			: undefined;
 	return {

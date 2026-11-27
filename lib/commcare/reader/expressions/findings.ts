@@ -15,7 +15,7 @@ import {
 	formStructure,
 } from "@/lib/domain/expression/formStructure";
 import {
-	readsRestoredCaseTypeQuery,
+	readsSearchRequiredCaseQuery,
 	searchWorkerTextOrder,
 } from "@/lib/domain/expression/ruleSets";
 import type {
@@ -2121,7 +2121,7 @@ export const SLOT_ENTRIES: Readonly<Record<RegisteredSlotName, SlotRow>> = {
 	search_input_required_when: {
 		...fixed(C["required-test-text"].entry, M6),
 		held(_doc, _ref, bound) {
-			return readsRestoredCaseTypeQuery(bound)
+			return readsSearchRequiredCaseQuery(bound)
 				? C["required-condition-counts-restored-cases"].entry
 				: C["required-test-text"].entry;
 		},
