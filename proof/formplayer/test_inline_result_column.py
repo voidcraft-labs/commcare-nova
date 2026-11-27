@@ -13,6 +13,7 @@ from proof.hq.check import hq_check
 from proof.hq.configuration import Configuration
 from proof.matrix.registry import HQ_APPS, load_variants
 from proof.observe import casedata
+from proof.webapps.hq import ReleaseRefused
 
 FORMULA = (
     "instance('results:inline')/results/case[not(commcare_is_related_case = true())]"
@@ -31,7 +32,10 @@ def _with_inline_columns(body):
     menu = body["modules"][0]
     assert menu["search_config"]["inline_search"] is True
     for side in ("short", "long"):
-        menu["case_details"][side]["columns"] = [
+        detail = menu["case_details"][side]
+        # This emitted base's original sort refers to its eighth column.
+        detail["sort_elements"] = []
+        detail["columns"] = [
             _ordinary_column("name", "Name"),
             {**_ordinary_column(FORMULA, "Found in"), "useXpathExpression": True},
             _ordinary_column("village", "Recorded village"),
@@ -133,6 +137,12 @@ def test_the_retained_visits_projection_needs_its_actual_inline_instance(
         with unit.operation("inline-results:authored", row.id.encode()):
             operations.save_authored_tables(unit, json.loads((directory / "tables.json").read_bytes()))
             app_id = operations.save_authored_app(unit, source, ())
+        if route == "ordinary-casedb":
+            with pytest.raises(ReleaseRefused, match="case search instance used in casedb case details") as refused:
+                with serve(unit, None, app_id, runner=formplayer_runner, database=database):
+                    pytest.fail("HQ released ordinary casedb details depending on unattached Search results")
+            evidence("retained-inline-columns", {"refusal": str(refused.value)})
+            return
         with serve(unit, None, app_id, runner=formplayer_runner, database=database) as served, served.run(route):
             web = apps.web(formplayer_runner, served)
             opening = web.navigate(["2"])
@@ -163,7 +173,6 @@ def test_the_retained_visits_projection_needs_its_actual_inline_instance(
                 )
             screens["requested"] = [item.params for item in served.hq.searches]
             evidence("retained-inline-columns", screens)
-            expected = ({"served-client", "other-client", "outside-results"} if route == "ordinary-casedb"
-                        else {"served-client"} if route == "parent-first" else {"served-client", "other-client"})
+            expected = {"served-client"} if route == "parent-first" else {"served-client", "other-client"}
             assert set(row_ids) == expected, screens
             assert not served.hq.failures(), served.hq.failures()
