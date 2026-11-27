@@ -768,3 +768,13 @@ def _address_picker_for_lookup(authoring, app_id, choice_type):
         "appearance": "address",
     })
     ops.set_json(authoring, app_id, "/modules/0/search_config/properties", prompts)
+
+def search_text_prompt_in_web_apps_results_list(authoring, app_id):
+    """The ordinary standalone Results list displays its submitted text answer."""
+    _set_each(
+        authoring,
+        app_id,
+        ("/cloudcare_enabled", True),
+        ("/modules/0/case_details/short/columns/1/field",
+         "instance('search-input:results')/input/field[@name = 'village']"),
+    )
