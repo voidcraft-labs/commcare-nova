@@ -819,15 +819,9 @@ describe("bounded flat close", () => {
 		const store = makeStore();
 		for (const id of selected) await seedPatient(store, id, id);
 		const parent = "not-selected-parent";
-		await makeStore(PROJECT_A, ACTOR, "another-worker").insert({
-			appId: APP_ID,
-			row: {
-				case_id: parent,
-				case_type: "patient",
-				case_name: parent,
-				status: "open",
-			},
-		});
+		const otherWorker = makeStore(PROJECT_A, ACTOR, "another-worker");
+		for (const id of [parent, "unrelated-other-worker"])
+			await seedPatient(otherWorker, id, id);
 		await sql`INSERT INTO case_indices (case_id, ancestor_id, depth, identifier, relationship, target_case_type)
 			VALUES (${selected[0]}, ${parent}, 1, 'parent', 'child', 'patient')`.execute(
 			dbHandle.db,
@@ -840,7 +834,10 @@ describe("bounded flat close", () => {
 			}),
 		).toBeUndefined();
 		expect(
-			await store.readFlatCloseSelection({ ...scope, caseIds: [parent] }),
+			await store.readFlatCloseSelection({
+				...scope,
+				caseIds: ["unrelated-other-worker"],
+			}),
 		).toBeUndefined();
 		const ordered = selected.toReversed();
 		const args = await signedProgram(store, ordered);
