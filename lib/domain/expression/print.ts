@@ -764,6 +764,7 @@ function printWith(
 							: `instance('${id}')/results/case[not(commcare_is_related_case = true())]`,
 				);
 				predicates(node, path, ctx);
+				if (node.first === true) emit("[1]");
 				break;
 			}
 			case "table-rows":

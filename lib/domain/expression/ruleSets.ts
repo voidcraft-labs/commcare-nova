@@ -245,6 +245,25 @@ export function isRestoredCaseTypeQuery(expression: Expression): boolean {
 	);
 }
 
+/** A Search value reads one property from the first restored case of a type. */
+export function firstRestoredSearchProperty(
+	expression: Expression,
+): { readonly caseType: string; readonly property: string } | undefined {
+	if (
+		expression.kind !== "project" ||
+		expression.of.kind !== "cases" ||
+		expression.of.first !== true ||
+		expression.of.where.length !== 1 ||
+		expression.value.kind !== "prop" ||
+		expression.value.via !== undefined ||
+		expression.value.readReached === true
+	)
+		return;
+	const caseType = restoredCaseType(expression.of);
+	if (caseType === undefined || expression.value.caseType !== caseType) return;
+	return { caseType, property: expression.value.property };
+}
+
 type RestoredCaseMatchValue =
 	| { kind: "text"; value: string }
 	| { kind: "property"; value: string };

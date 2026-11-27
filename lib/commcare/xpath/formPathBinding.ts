@@ -713,6 +713,16 @@ function instancePath(
 				`The records in ${id} are at instance('${id}')/${id === "casedb" ? "casedb" : "results"}/case.`,
 			);
 		predicates = rowsStep.where;
+		const last = predicates.at(-1);
+		const first =
+			id === "casedb" &&
+			context.ruleSet === "record" &&
+			binder.scope.reading !== undefined &&
+			predicates.length === 2 &&
+			last?.kind === "number" &&
+			last.value === 1 &&
+			steps.length === consumed + 1;
+		if (first) predicates = predicates.slice(0, -1);
 		const resultSupplier = form?.searchSuppliers?.find(
 			(search) => inlineSearchInstance(search.resultsName) === id,
 		);
@@ -757,6 +767,7 @@ function instancePath(
 				}),
 			source: id === "casedb" ? "casedb" : "search-results",
 			where: [],
+			...(first && { first: true }),
 		};
 		// First bind only the predicates that establish a row identity. The
 		// checker owns the same inference used when admitting the final tree.

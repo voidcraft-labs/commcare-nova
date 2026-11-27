@@ -22,7 +22,10 @@ import {
 	csqlPositionAt,
 	csqlPositions,
 } from "@/lib/domain/expression/csqlPositions";
-import { literalShape } from "@/lib/domain/expression/ruleSets";
+import {
+	firstRestoredSearchProperty,
+	literalShape,
+} from "@/lib/domain/expression/ruleSets";
 import {
 	searchIndexedComparison,
 	searchIndexedValueKind,
@@ -695,7 +698,8 @@ function bindDevice(node: FormSyntax, state: BindState): Expression {
 			: bound.bound.candidate;
 	const query = deviceQuery(value);
 	if (query !== undefined) refuseWith(DEVICE_QUERY, query);
-	if (readsTableRow(value)) state.tableReads.set(node, value);
+	if (readsTableRow(value) || firstRestoredSearchProperty(value) !== undefined)
+		state.tableReads.set(node, value);
 	return value;
 }
 
@@ -722,7 +726,10 @@ function deviceQuery(value: Expression): string | undefined {
 		visitExpression(expression) {
 			if (found !== undefined || chosen.has(expression)) return;
 			if (expression.kind === "project") {
-				if (readChosenCaseProperty(expression) !== undefined) {
+				if (
+					readChosenCaseProperty(expression) !== undefined ||
+					firstRestoredSearchProperty(expression) !== undefined
+				) {
 					chosen.add(expression.of);
 					return;
 				}
@@ -2481,19 +2488,20 @@ export function readSearchFilterRow(
 				rethrowWorkStop(error);
 				continue;
 			}
-			const firstTableReads = new Set(
+			const firstRowReads = new Set(
 				[...tableReads].flatMap(([node, value]) =>
-					value.kind === "table-lookup" && value.where.kind === "match-all"
+					(value.kind === "table-lookup" && value.where.kind === "match-all") ||
+					firstRestoredSearchProperty(value) !== undefined
 						? [node]
 						: [],
 				),
 			);
-			// The bound first-row lookup supplies exactly the named cell.
-			// Its print guards an empty table, where the source would stop.
+			// The typed first-row lookup or case read supplies exactly one
+			// named value. Its print adds the guards missing in the source.
 			const level =
 				guards(row, tree, prefix) ??
-				(firstTableReads.size > 0
-					? guards(row, tree, prefix, firstTableReads)
+				(firstRowReads.size > 0
+					? guards(row, tree, prefix, firstRowReads)
 					: undefined);
 			if (level === undefined) {
 				if (
@@ -2762,6 +2770,7 @@ export type SearchRowRuntimeClass =
 	| "conditional-choice"
 	| "case-or-datum-terms"
 	| "first-lookup-cell"
+	| "first-restored-case-property"
 	| "session-context-drift-term"
 	| "session-context-window-width-term"
 	| "session-context-applanguage-term";
@@ -2815,6 +2824,8 @@ export function searchRowRuntimeClasses(
 				expression.where.kind === "match-all"
 			)
 				found.add("first-lookup-cell");
+			if (firstRestoredSearchProperty(expression) !== undefined)
+				found.add("first-restored-case-property");
 			if (
 				expression.kind === "project" &&
 				readChosenCaseProperty(expression) !== undefined
@@ -2850,6 +2861,7 @@ export function searchRowRuntimeClasses(
 		"conditional-choice",
 		"case-or-datum-terms",
 		"first-lookup-cell",
+		"first-restored-case-property",
 		"session-context-drift-term",
 		"session-context-window-width-term",
 		"session-context-applanguage-term",

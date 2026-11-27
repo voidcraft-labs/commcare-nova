@@ -1143,6 +1143,7 @@ function lowerExpression(expr: Expression, ctx: Context, use: Use): WireExpr {
 						]
 					: []),
 				...expr.where.map((where) => emitExpression(where, child)),
+				...(expr.first === true ? [w.num(1)] : []),
 			]);
 		}
 		case "table-rows": {

@@ -720,6 +720,7 @@ export type InstanceArm =
 			kind: "cases";
 			source: "casedb" | "search-results";
 			supplier?: Uuid;
+			first?: true;
 			where: Expression[];
 	  }
 	| { kind: "table-rows"; tableId: LookupTableId; where: Expression[] }
@@ -1092,6 +1093,7 @@ const instanceSchemas = [
 			kind: z.literal("cases"),
 			source: z.enum(["casedb", "search-results"]),
 			supplier: uuidSchema.optional(),
+			first: z.literal(true).optional(),
 			where: z.array(E),
 		})
 		.refine(
@@ -1100,7 +1102,11 @@ const instanceSchemas = [
 				path: ["supplier"],
 				message: "Choose a search when reading its results.",
 			},
-		),
+		)
+		.refine((rows) => rows.first === undefined || rows.source === "casedb", {
+			path: ["first"],
+			message: "A first restored case comes from the worker’s case database.",
+		}),
 	z.strictObject({
 		kind: z.literal("table-rows"),
 		tableId: lookupTableIdSchema,

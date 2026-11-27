@@ -59,8 +59,12 @@ import {
 import { expressionChildren } from "@/lib/domain/expression/children";
 import { readChosenCaseProperty } from "@/lib/domain/expression/chosenCase";
 import { csqlRuntimeRoots } from "@/lib/domain/expression/csqlPositions";
+import { firstRestoredSearchProperty } from "@/lib/domain/expression/ruleSets";
 import type { Expression, Term } from "@/lib/domain/expression/types";
-import { expressionReferencesAnySearchInput } from "@/lib/domain/expression/walk";
+import {
+	expressionReferencesAnySearchInput,
+	walkExpression,
+} from "@/lib/domain/expression/walk";
 import { searchConditionOf } from "@/lib/domain/searchConditions";
 import { toBoolean, xpathToString } from "../xpath/coerce";
 import { evaluate } from "../xpath/evaluator";
@@ -356,6 +360,26 @@ export async function evaluateSearchCsqlRuntime(
 		else filterValues[filter.uuid] = xpathToString(result);
 	}
 	for (const [row, clause] of (clauses ?? []).entries()) {
+		let usesUnknownFirst = false;
+		walkExpression(clause.expression, {
+			visitExpression(node) {
+				const first = firstRestoredSearchProperty(node);
+				if (!first) return;
+				// The stored device order can differ from Preview’s synthetic
+				// restore order. Evaluate only when that difference cannot
+				// change the selected value.
+				const seen = new Set(
+					world.caseDatabase?.rows
+						.filter((one) => one.case_type === first.caseType)
+						.map((one) => one.properties[first.property] ?? ""),
+				);
+				if (seen.size > 1) usesUnknownFirst = true;
+			},
+		});
+		if (usesUnknownFirst) {
+			unevaluated = true;
+			continue;
+		}
 		let tree: CsqlNode;
 		try {
 			tree = emitCsqlTree(clause.expression, {

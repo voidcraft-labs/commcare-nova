@@ -5251,6 +5251,29 @@
 		"gates": []
 	},
 	{
+		"id": "case-search/search-value-from-first-restored-case",
+		"area": "case-search",
+		"section": "Case search",
+		"subsection": "CSQL in `_xpath_query` values and ancestor-path criteria",
+		"item": "A runtime Search operand reads one declared Text property from the first restored case of a type",
+		"surfaceKeys": ["schema:DefaultCaseSearchProperty.defaultValue"],
+		"valueClass": "first-restored-case-property",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the device selects the first restored case of the declared type and reads its property by identity. Preview can run the search when the candidate values agree.",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": { "reading": "runs" },
+			"android": { "reading": "runs" }
+		},
+		"emission": {
+			"cell": "The declared case type, first-row position, and named property in a runtime Search value",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
 		"id": "case-search/a-search-value-that-queries-cases-a-table-or-places",
 		"area": "case-search",
 		"section": "Case search",

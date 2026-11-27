@@ -80,6 +80,7 @@ import {
 	countsOwnRestoredType,
 	describe,
 	type EqualityOperand,
+	firstRestoredSearchProperty,
 	isAnswerWriteAssignable,
 	isDateOrDatetime,
 	isNumeric,
@@ -1101,6 +1102,16 @@ function admission(
 ): CheckError | undefined {
 	if (!("profile" in ctx)) return undefined;
 	const profile = ctx.profile;
+	if (
+		expression.kind === "cases" &&
+		expression.first === true &&
+		ctx.slot.slot !== "case_search_filter"
+	)
+		return refusal(
+			"arm-unavailable",
+			"The first restored case is only available as a value in Search.",
+			"first-restored-case-search-only",
+		);
 	if (expression.kind === "call") {
 		const spec = FUNCTION_REGISTRY.get(expression.fn);
 		const issue =
@@ -3001,7 +3012,9 @@ function inferNode(
 							? "worker-group"
 							: "location",
 				"string",
-				"many",
+				expression.kind === "cases" && expression.first === true
+					? "one"
+					: "many",
 			);
 		}
 		case "project": {
@@ -3057,7 +3070,7 @@ function inferNode(
 					: value.held === "sequence"
 						? "string"
 						: value.held,
-				"many",
+				firstRestoredSearchProperty(expression) !== undefined ? "one" : "many",
 				value.caseIdOf,
 			);
 			return value.dayText === undefined
@@ -4822,6 +4835,27 @@ function csqlFindings(
 		parent: { readonly node: Expression; readonly path: CheckPath } | undefined,
 	): void => {
 		const position = csqlPositionAt(positions, path);
+		if (node.kind === "cases" && node.first === true) {
+			const carrier = parent && firstRestoredSearchProperty(parent.node);
+			const isText =
+				carrier !== undefined &&
+				ctx.facts.caseTypes
+					.find((one) => one.name === carrier.caseType)
+					?.properties.some(
+						(one) =>
+							one.name === carrier.property &&
+							(one.data_type ?? "text") === "text",
+					);
+			if (position !== "runtime" || !isText)
+				found.push({
+					...refusal(
+						"arm-unavailable",
+						"Search can read one declared Text property from the first restored case of a type.",
+						"first-restored-case-projection",
+					),
+					path,
+				});
+		}
 		if (
 			node.kind === "today" &&
 			node.clock === "project-space" &&

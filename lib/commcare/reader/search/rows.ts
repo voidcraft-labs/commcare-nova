@@ -174,6 +174,10 @@ const RUNTIME_CLAIMS = defineClaims("search.rows.runtime", {
 		`${S}search-value-from-first-lookup-cell`,
 		ROW_VALUE,
 	),
+	"first-restored-case-property": take(
+		`${S}search-value-from-first-restored-case`,
+		ROW_VALUE,
+	),
 	"session-context-drift-term": take(
 		`${S}runtime-values-read-from-the-session-context-drift`,
 		ROW_VALUE,

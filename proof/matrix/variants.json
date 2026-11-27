@@ -48325,6 +48325,32 @@
 	{
 		"id": "hq-search/value-from-the-case-database",
 		"base": "hq-search",
+		"entry": "case-search/search-value-from-first-restored-case",
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/1/search_config/default_properties/-",
+			"value": {
+				"property": "_xpath_query",
+				"doc_type": "DefaultCaseSearchProperty",
+				"defaultValue": "concat(\"village = '\", instance('casedb')/casedb/case[@case_type = 'client'][1]/village, \"'\")"
+			}
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 1
+					}
+				],
+				"pointer": "/caseListConfig/searchCondition/clauses/2/right/of/first",
+				"value": true
+			}
+		]
+	},
+	{
+		"id": "hq-search/value-from-the-second-case-in-the-device-database",
+		"base": "hq-search",
 		"entry": "case-search/a-search-value-that-queries-cases-a-table-or-places",
 		"standing": "not-yet",
 		"place": {
@@ -48338,7 +48364,7 @@
 			"value": {
 				"property": "_xpath_query",
 				"doc_type": "DefaultCaseSearchProperty",
-				"defaultValue": "concat(\"village = '\", instance('casedb')/casedb/case[@case_type = 'client'][1]/village, \"'\")"
+				"defaultValue": "concat(\"village = '\", instance('casedb')/casedb/case[@case_type = 'client'][2]/village, \"'\")"
 			}
 		}
 	},
