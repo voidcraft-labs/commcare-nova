@@ -487,8 +487,10 @@ describe("flatFieldToField — schema-admitted witnesses and failure reasons", (
 	// Each witness passes the real model-facing input schema and identity
 	// projection before assembly. This finite corpus proves the mapping for
 	// those witnesses, not totality across every admitted value.
-	it("assembles an input-schema-admitted witness for every kind", () => {
+	it("assembles an input-schema-admitted witness for every field the add tool creates", () => {
 		for (const kind of fieldKinds) {
+			// A positioned case change belongs to an existing operation.
+			if (kind === "case_change") continue;
 			const processed = applyDefaults(stripEmpty(validFlatPayload(kind)), null);
 			const result = flatFieldToField(processed, TEST_UUID);
 			expect(result.ok, `kind ${kind} did not assemble`).toBe(true);

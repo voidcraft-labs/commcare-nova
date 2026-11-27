@@ -227,11 +227,16 @@ export function classifyIdentity(
 		property === "moduleUuid" ||
 		property === "confirmedModuleUuids" ||
 		property === "parentCaseModuleUuid" ||
+		(property === "supplier" &&
+			discriminators.some((kind) => kind === "cases" || kind === "input")) ||
 		(property === "module" &&
 			discriminators.some((kind) =>
-				["selected-case", "selected-cases", "tile-group-parents"].includes(
-					kind,
-				),
+				[
+					"selected-case",
+					"selected-cases",
+					"tile-group-parents",
+					"case-list-lookup-count",
+				].includes(kind),
 			))
 	) {
 		return "module";

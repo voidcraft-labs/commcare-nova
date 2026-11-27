@@ -111,6 +111,24 @@ describe("shared-tool authored identity registry", () => {
 		});
 	});
 
+	it.each([
+		["module", "case-list-lookup-count"],
+		["supplier", "cases"],
+		["supplier", "input"],
+	])(
+		"classifies the add-fields %s reference of %s as its supplying module",
+		(property, kind) => {
+			expect(
+				AUTHORABLE_IDENTITY_POINTER_REGISTRY.find(
+					(pointer) =>
+						pointer.tool === "add_fields" &&
+						pointer.property === property &&
+						pointer.discriminators.includes(kind),
+				),
+			).toMatchObject({ family: "module" });
+		},
+	);
+
 	it("rejects malformed/case/version/variant/nil/max examples in the domain schemas", () => {
 		for (const invalid of GENERAL_UUID_REJECTIONS) {
 			expect(uuidSchema.safeParse(invalid).success, invalid).toBe(false);
