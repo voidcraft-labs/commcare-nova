@@ -21,7 +21,6 @@ import {
 import { ancestorIndexNames } from "./documents/ancestorIndexNames";
 import { androidAppAnswers } from "./documents/androidAppAnswers";
 import { attributeDisplayCondition } from "./documents/attributeDisplayCondition";
-import { basicAccentedCaseWrite } from "./documents/basicAccentedCaseWrite";
 import { blankLabels } from "./documents/blankLabels";
 import { calculationTextNames } from "./documents/calculationTextNames";
 import { captureWidgets } from "./documents/captureWidgets";
@@ -367,7 +366,6 @@ export const TARGETED_DOCUMENTS: readonly (() => CorpusDocument)[] = [
 	lookupNonAsciiNames,
 	searchFieldNames,
 	caseWriteNames,
-	basicAccentedCaseWrite,
 	connectDeliverHyphenIds,
 	connectLearnHyphenIds,
 	androidAppAnswers,

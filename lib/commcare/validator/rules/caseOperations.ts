@@ -56,7 +56,6 @@ import {
 	formFieldCorrelatesWithCreate,
 	hasUpdateOnlyCaseFacets,
 	isAdvancedCaseIndexIdentifier,
-	isBasicAndroidCasePropertyName,
 	isCaseOperationIdentifier,
 	isCaseOperationLinkIdentifier,
 	isCaseOperationProperty,
@@ -1206,20 +1205,6 @@ function validateWrites(
 				? destination
 				: validateVia(ctx, operation, write, write.via, destination, errors);
 		validateOnlyIfChanged(ctx, operation, write, errors);
-		const accented = isBasicAndroidCasePropertyName(write.property);
-		if (accented && !canKeepBasicAccentedWrite(ctx, operation, write))
-			errors.push(
-				opError(
-					ctx,
-					operation,
-					"CASE_OPERATION_EXPRESSION_TYPE",
-					"This accented case property needs a direct text answer on a form that saves to its selected case. You can remove the save before changing where it goes.",
-					{
-						property: write.property,
-						reason: "basic-accented-write-placement",
-					},
-				),
-			);
 		if (
 			retainedExternalIdDayRead(
 				externalIdCalendarDayField(operation),
@@ -1290,7 +1275,6 @@ function validateWrites(
 				// derives its entry from the writer); a computed value saves only
 				// to a property the catalog declares.
 				caseWriteValueField(write.value) !== undefined,
-				accented,
 				errors,
 			);
 		// The name and owner of a case above are writes through `via`
@@ -1412,47 +1396,12 @@ function fieldJudgesItsOwnType(
 	);
 }
 
-/** The admitted name is confined to a generated Basic follow-up update. A
- * subsequent edit cannot move it to authored XML, another case or a repeat. */
-function canKeepBasicAccentedWrite(
-	ctx: OperationRuleContext,
-	operation: CaseOperation,
-	write: CaseOperationWrite,
-): boolean {
-	if (
-		ctx.form.type !== "followup" ||
-		operation.action !== "own" ||
-		write.via !== undefined ||
-		write.condition !== undefined ||
-		write.onlyIfChanged === true
-	)
-		return false;
-	const read = caseWriteValueField(write.value);
-	if (read === undefined || read.link) return false;
-	const field = read.field;
-	const facts = caseSlotFacts(ctx.doc, ctx.formUuid);
-	if (
-		facts.severalCases ||
-		ctx.doc.fields[field]?.kind !== "text" ||
-		!facts.submittedChildren.get(ctx.formUuid)?.includes(field) ||
-		Object.values(ctx.doc.forms).some(
-			(entry) => entry.shadowOf?.form === ctx.formUuid,
-		)
-	)
-		return false;
-	const placement = planPlacements(ctx.doc, ctx.formUuid).placements.get(
-		operation.uuid,
-	)?.placement;
-	return placement?.kind === "basic" && placement.slot === "own";
-}
-
 function validateWriteProperty(
 	ctx: OperationRuleContext,
 	operation: CaseOperation,
 	property: string,
 	destination: string,
 	writerDeclares: boolean,
-	accented: boolean,
 	errors: ValidationError[],
 ): void {
 	const declared =
@@ -1460,7 +1409,7 @@ function validateWriteProperty(
 		(ctx.doc.caseTypes ?? [])
 			.find((caseType) => caseType.name === destination)
 			?.properties.some((entry) => entry.name === property);
-	const invalidPropertyFormat = !accented && !isCaseOperationProperty(property);
+	const invalidPropertyFormat = !isCaseOperationProperty(property);
 	const propertyTooLong = property.length > MAX_CASE_PROPERTY_LENGTH;
 	if (
 		!invalidPropertyFormat &&

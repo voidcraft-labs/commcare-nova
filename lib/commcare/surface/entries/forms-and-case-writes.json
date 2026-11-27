@@ -3534,19 +3534,20 @@
 		"id": "forms-and-case-writes/basic-update-key-with-an-accented-latin-name",
 		"area": "forms-and-case-writes",
 		"section": "Basic form actions",
-		"item": "an accented Latin-1 property key in a direct Basic update of the one case selected for a follow-up, saved from a root text answer every time",
+		"item": "A Basic follow-up writes a root text answer every time to an accented Latin-1 property of the one case it opens",
 		"surfaceKeys": ["schema:UpdateCaseAction.update"],
 		"valueClass": "basic-update-with-accented-latin-name",
-		"disposition": "HELD",
-		"dispositionCell": "**HELD**: a case write with its exact accented key. Android opens and submits it. Web Apps cannot open the generated form. The stock Case Management editor preserves the write and the ordinary Case List editor rejects the name in a property column.",
-		"slotChanges": [],
-		"platforms": {
-			"kind": "each",
-			"cell": "UNAVAILABLE / RUNS",
-			"webApps": { "reading": "unavailable" },
-			"android": { "reading": "runs" }
-		},
-		"emission": { "cell": "the key", "markers": [] },
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: CommCare HQ saves this Basic property mapping and Android submits it, but the form builder marks the mapped question's property name as an error, including after an unrelated edit and reopening the form.",
+		"subject": "case-property-names",
+		"reasons": [
+			{
+				"kind": "not-hq-editable",
+				"named": "CommCare HQ's form builder requires unaccented letters in the Case Property name. A saved mapping such as estado_é leaves the question marked as an error."
+			}
+		],
+		"platforms": { "kind": "none", "cell": "—" },
+		"emission": { "cell": "—", "markers": [] },
 		"gates": []
 	},
 	{
@@ -3564,13 +3565,13 @@
 		],
 		"valueClass": "non-ascii-core-name-key",
 		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: other non-ASCII property writes, outside the measured Android Basic direct text write and the separately refused uncased-letter class",
+		"dispositionCell": "**HELD-NEW**: other non-ASCII property names and placements outside the separately measured Basic editor and runtime refusals",
 		"subject": "case-property-names",
 		"owner": "forms-and-case-management",
 		"platforms": {
 			"kind": "not-applicable",
 			"cell": "n/a",
-			"note": "The supported Basic Android write has its own row. Other names and placements stay open for their own runtime evidence."
+			"note": "Other names and placements need their own editor and runtime evidence."
 		},
 		"emission": {
 			"cell": "the key",

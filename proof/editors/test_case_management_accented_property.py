@@ -306,6 +306,62 @@ def test_ordinary_case_list_browser_property_save_distinguishes_accented_keys(hq
         write_evidence(f"basic-accented-property-case-list-{key}", {"key": key, "saved": saves, "dialog": run.unsent})
 
 
+def _edit_unmapped_question_and_reopen(editor_driver, state, app_id, property_key):
+    from proof.editors import vellum
+
+    form_id = operations.held_app(state, app_id).get_module(0).get_form(0).unique_id
+    label = "Unmapped editor control"
+    edited = vellum.open_and_save(editor_driver, state, app_id, form_id, edit={
+        "way": "add-questions", "questions": [{"type": "Text", "id": "editor_control", "label": label}],
+    })
+    reopened = vellum.open_and_save(editor_driver, state, app_id, form_id)
+    editor = {}
+    for kind, saved in (("edited", edited), ("reopened", reopened)):
+        assert saved.loaded and saved.saved and not saved.page_errors, (
+            saved.load_error, saved.save_refusal, saved.page_errors,
+        )
+        assert label in saved.stored_source
+        tree = etree.fromstring(saved.stored_source.encode())
+        assert tree.xpath("//*[local-name()='input']/@ref") == ["/data/note", "/data/editor_control"]
+        editor[kind] = [
+            message for question in saved.questions if question["path"] == "/data/note"
+            for message in question["messages"] if message["key"] == "mug-caseProperty-error"
+        ]
+        assert len(editor[kind]) == (1 if property_key == ACCENTED else 0), saved.questions
+        for message in editor[kind]:
+            assert message["attribute"] == "caseProperty" and message["level"] == "error"
+    assert _kept_basic_mapping(state, app_id, form_id) == {property_key: "/data/note"}
+    return editor
+
+
+@pytest.mark.parametrize("property_key", [ACCENTED, ASCII_NEIGHBOR], ids=["accented", "ascii"])
+def test_basic_vellum_edit_marks_only_the_accented_mapping_and_core_still_submits(hq, editor_driver, core_runner, tmp_path, property_key):
+    from proof.editors.conftest import write_evidence
+
+    with hq_check(CONFIGURATION) as (state, record):
+        app_id, xmlns = _author_basic_mapping(state, key=property_key)
+        editor = _edit_unmapped_question_and_reopen(editor_driver, state, app_id, property_key)
+        built = compare.build(state, app_id, record)
+        assert not built.errors, built.errors
+        table = load_answer_table()
+        table["novaKinds"]["mapping-note"] = [ANSWER]
+        table["novaKinds"]["editor-control"] = ["Unmapped answer"]
+        with admitted(core_runner, arrange(built.files, tmp_path)) as installation:
+            assert installation["admitted"], installation["problems"]
+            trace = core_runner.session(
+                installation["app"], restore=person_cases(TEMPLATE_RESTORE.read_bytes(), [SELECTED]),
+                answer_table=table, question_kinds={"/data/note": "mapping-note", "/data/editor_control": "editor-control"},
+            )
+        run, = (item for item in trace["runs"] if (step := form_step(item)) and step.get("xmlns") == xmlns)
+        assert run["end"] == "submitted", run
+        submission, _ = unmarked_submission(run)
+        _assert_wire(submission, property_key)
+        assert etree.fromstring(submission).findtext("{*}editor_control") == "Unmapped answer"
+        write_evidence(f"basic-accented-vellum-core-{property_key}", {
+            "editor": editor, "property": property_key, "submission": submission.decode(),
+        })
+
+
 @pytest.mark.reader("android")
 @pytest.mark.parametrize("property_key", [ACCENTED, ASCII_NEIGHBOR], ids=["accented", "ascii"])
 def test_basic_vellum_edit_reopens_and_installs_with_its_exact_saved_mapping(hq, editor_driver, monkeypatch, property_key):
@@ -314,7 +370,6 @@ def test_basic_vellum_edit_reopens_and_installs_with_its_exact_saved_mapping(hq,
 
     from proof.android import observe
     from proof.android.hq import DevicePeer
-    from proof.editors import vellum
     from proof.editors.conftest import write_evidence
     from proof.formplayer import hq as forms_hq
     from proof.observe import casedata
@@ -322,28 +377,7 @@ def test_basic_vellum_edit_reopens_and_installs_with_its_exact_saved_mapping(hq,
 
     with hq_check(CONFIGURATION) as (state, _):
         app_id, _ = _author_basic_mapping(state, key=property_key)
-        form_id = operations.held_app(state, app_id).get_module(0).get_form(0).unique_id
-        label = "Unmapped editor control"
-        edited = vellum.open_and_save(editor_driver, state, app_id, form_id, edit={
-            "way": "add-questions", "questions": [{"type": "Text", "id": "editor_control", "label": label}],
-        })
-        reopened = vellum.open_and_save(editor_driver, state, app_id, form_id)
-        editor = {}
-        for kind, saved in (("edited", edited), ("reopened", reopened)):
-            assert saved.loaded and saved.saved and not saved.page_errors, (
-                saved.load_error, saved.save_refusal, saved.page_errors,
-            )
-            assert label in saved.stored_source
-            tree = etree.fromstring(saved.stored_source.encode())
-            assert tree.xpath("//*[local-name()='input']/@ref") == ["/data/note", "/data/editor_control"]
-            editor[kind] = [
-                message for question in saved.questions if question["path"] == "/data/note"
-                for message in question["messages"] if message["key"] == "mug-caseProperty-error"
-            ]
-            assert len(editor[kind]) == (1 if property_key == ACCENTED else 0), saved.questions
-            for message in editor[kind]:
-                assert message["attribute"] == "caseProperty" and message["level"] == "error"
-        assert _kept_basic_mapping(state, app_id, form_id) == {property_key: "/data/note"}
+        editor = _edit_unmapped_question_and_reopen(editor_driver, state, app_id, property_key)
 
         restored = person_cases(TEMPLATE_RESTORE.read_bytes(), [SELECTED])
         database = casedata.database_of_restore(restored)

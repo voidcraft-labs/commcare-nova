@@ -226,8 +226,6 @@ export const PLATFORM_CELLS: Readonly<
 	/* Its only use is a Connect app's, which Web Apps refuses. */
 	"application-and-settings/45-hq-auto-gps-capture@web-apps":
 		structural("connect-app"),
-	"forms-and-case-writes/basic-update-key-with-an-accented-latin-name@web-apps":
-		structural("basic-write-name-requires-android"),
 	"forms-and-case-writes/advanced-open-connection-unicode-name@web-apps":
 		structural("advanced-index-name-requires-android"),
 	"questions/submitted-answer-name-only-android-stores@web-apps": structural(

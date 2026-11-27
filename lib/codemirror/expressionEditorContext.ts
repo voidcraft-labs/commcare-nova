@@ -33,7 +33,6 @@ import type { LookupValidationContext } from "@/lib/doc/lookupReferences";
 import type { BlueprintDoc } from "@/lib/domain";
 import {
 	BUILT_IN_USER_PROPERTIES,
-	isBasicAndroidCasePropertyName,
 	orderedLocationProperties,
 	orderedOrganizationLevels,
 	type ProseTemplate,
@@ -542,12 +541,10 @@ function slotReads(
 		],
 		caseTypes: context.facts.caseTypes.map((type) => ({
 			name: type.name,
-			properties: type.properties
-				.filter((property) => !isBasicAndroidCasePropertyName(property.name))
-				.map((property) => ({
-					name: property.name,
-					label: projectProseTemplate(property.label, doc).text,
-				})),
+			properties: type.properties.map((property) => ({
+				name: property.name,
+				label: projectProseTemplate(property.label, doc).text,
+			})),
 			relations: [...(relations.get(type.name) ?? [])],
 		})),
 		...(context.profile.formAnswers &&

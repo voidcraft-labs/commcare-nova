@@ -64,29 +64,6 @@ test("native workspace keeps URL tabs and inspector edits on the actual document
 	).toBeFocused();
 });
 
-test("a retained Android-only write is not offered as information for a case column", async ({
-	page,
-}) => {
-	await page.goto(`${peer.origin}/?scenario=accented-write`);
-	await page
-		.locator('[data-case-column-select="00000000-0000-7000-8000-000000006001"]')
-		.first()
-		.click();
-	await page.getByRole("button", { name: /^Information from:/ }).click();
-	await expect(
-		page.getByRole("menuitem", { name: /Portable state/ }),
-	).toBeVisible();
-	await expect(
-		page.getByRole("menuitem", { name: /State saved on Android/ }),
-	).toHaveCount(0);
-	await page.getByRole("menuitem", { name: /Portable state/ }).click();
-	await page
-		.getByRole("button", { name: "Leave workspace", exact: true })
-		.click();
-	const saved = await savedModule(page);
-	expect(saved.caseListConfig.columns[0].field).toBe("estado_e");
-});
-
 async function savedModule(page: Page) {
 	return JSON.parse(
 		(await page.getByLabel("Saved module").textContent()) ?? "null",

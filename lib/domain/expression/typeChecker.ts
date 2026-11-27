@@ -1,4 +1,3 @@
-import { isBasicAndroidCasePropertyName } from "../casePropertyName";
 import { loadedSearchModules } from "../entryDatumSupplies";
 /** One semantic walk over the stored expression tree. Slot admission, scalar
  * rules and native held classes share the same lexical contexts and cache. */
@@ -3940,11 +3939,6 @@ function propertyType(
 	fail: (code: CheckErrorCode, message: string) => undefined,
 	root?: string,
 ): NodeType | undefined {
-	if (isBasicAndroidCasePropertyName(property))
-		return fail(
-			"unknown-property",
-			`The Basic write name '${property}' cannot be read here.`,
-		);
 	const type = ctx.facts.caseTypes.find(
 		(candidate) => candidate.name === caseType,
 	);

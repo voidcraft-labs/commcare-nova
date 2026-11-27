@@ -77,7 +77,6 @@ DOCUMENTS = (
     "targeted-plain-help",
     "targeted-plain-labels",
     "targeted-named-answer-root",
-    "targeted-basic-accented-case-write",
     "targeted-preview-android-renders",
     "targeted-search-workflow",
     "targeted-search-workflow-android",

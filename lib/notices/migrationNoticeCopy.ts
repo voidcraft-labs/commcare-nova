@@ -362,8 +362,6 @@ export const PLATFORM_CAUSE_WORDS: Readonly<Record<string, string>> = {
 		"lists that choose their one record by themselves before a confirmation screen",
 	"advanced-index-name-requires-android":
 		"forms that write connection names with non-ASCII characters",
-	"basic-write-name-requires-android":
-		"forms that save to case properties with accented names",
 	"answer-name-requires-android":
 		"answers whose IDs Web Apps reads as instructions",
 };

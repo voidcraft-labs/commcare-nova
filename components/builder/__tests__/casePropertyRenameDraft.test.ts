@@ -74,20 +74,6 @@ describe("case-property rename draft", () => {
 		]);
 	});
 
-	it("shows an accented write key in the inventory without offering it for rename", () => {
-		const catalog: CaseType = {
-			name: "patient",
-			properties: ["estado_e", "estado_é"].map((name) => ({
-				name,
-				label: proseText(name),
-			})),
-		};
-		expect(casePropertyInventoryNames(catalog)).toContain("estado_é");
-		expect(
-			casePropertyRenameSources([catalog]).map((source) => source.property),
-		).toEqual(["estado_e"]);
-	});
-
 	it("exposes custom properties across every case type and locks scalars", () => {
 		expect(casePropertyRenameSources(caseTypes)).toEqual([
 			{

@@ -78,7 +78,6 @@ import {
 	searchValueFilterSchema,
 	selectOptionSchema,
 	selectOptionsSourceSchema,
-	storedCasePropertyNameSchema,
 	tileCellSchema,
 	translationEntrySchema,
 	translationUnitIdSchema,
@@ -1528,7 +1527,7 @@ function createMutationSchema({
 			kind: z.literal("addCaseProperty"),
 			caseType: z.string(),
 			property: casePropertySchema,
-			after: storedCasePropertyNameSchema.nullable().optional(),
+			after: readCasePropertyNameSchema.nullable().optional(),
 		}),
 		z.object({
 			kind: z.literal("setCaseProperty"),
@@ -1538,13 +1537,13 @@ function createMutationSchema({
 		z.object({
 			kind: z.literal("moveCaseProperty"),
 			caseType: z.string(),
-			property: storedCasePropertyNameSchema,
-			after: storedCasePropertyNameSchema.nullable(),
+			property: readCasePropertyNameSchema,
+			after: readCasePropertyNameSchema.nullable(),
 		}),
 		z.object({
 			kind: z.literal("removeCaseProperty"),
 			caseType: z.string(),
-			property: storedCasePropertyNameSchema,
+			property: readCasePropertyNameSchema,
 		}),
 		z.object({
 			kind: z.literal("setCaseTypeMeta"),

@@ -28,13 +28,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { withTransientRetry } from "@/lib/db/schemaSyncRetry";
 import type { BlueprintDoc, CaseType } from "@/lib/domain";
-import {
-	eq,
-	formField,
-	literal,
-	prop,
-	term,
-} from "@/lib/domain/expression/builders";
+import { eq, literal, prop } from "@/lib/domain/expression/builders";
 import { caseTypeToJsonSchema } from "@/lib/domain/expression/jsonSchema";
 import { SEARCH_READING } from "@/lib/domain/expression/temporalType";
 import { proseText } from "@/lib/domain/prose";
@@ -243,98 +237,6 @@ describe("PostgresCaseStore selected-parent sets", () => {
 });
 
 describe("PostgresCaseStore.readDeviceCaseDatabase", () => {
-	it("keeps an accented case-property key distinct in storage and in the device snapshot", async () => {
-		const store = makeStore(OWNER_A);
-		const caseTypeSchemas = buildSchemaMap({
-			name: "patient",
-			properties: ["estado_e", "estado_é"].map((name) => ({
-				name,
-				label: proseText(name),
-				data_type: "text",
-			})),
-		});
-		await store.applySchemaChange({
-			appId: APP_ID,
-			caseType: "patient",
-			caseTypeSchemas,
-		});
-		for (const caseId of ["selected", "unselected"]) {
-			await store.insert({
-				appId: APP_ID,
-				row: {
-					case_id: caseId,
-					case_type: "patient",
-					case_name: caseId,
-					properties: { estado_e: "ASCII", estado_é: "before" },
-				},
-			});
-		}
-		const formUuid = testUuid("accented-basic-followup");
-		const answer = testUuid("accented-basic-answer");
-		await store.applySubmission({
-			appId: APP_ID,
-			submissionReceipt: {
-				entryKey: "accented-basic-entry",
-				formUuid,
-				expectedAppMutationSeq: 0,
-				blueprintDigest: "0".repeat(64),
-				requestDigest: "accented-basic-case-update",
-			},
-			ordinary: {
-				kind: "followup",
-				caseType: "patient",
-				caseIds: ["selected"],
-				selection: { kind: "single", maximum: 1 },
-			},
-			operations: {
-				formUuid,
-				operations: [
-					{
-						operation: {
-							uuid: testUuid("accented-basic-own-operation"),
-							id: "patient",
-							action: "own",
-							writes: [
-								{ property: "estado_é", value: term(formField(answer)) },
-							],
-						},
-						guardConditions: [],
-						expressionSnapshotTypes: { links: new Map() },
-					},
-				],
-				ownCase: { caseType: "patient", formType: "followup" },
-				sessionCaseIds: ["selected"],
-				scopes: [
-					{ iterations: [{ formFields: new Map([[answer, "after"]]) }] },
-				],
-				caseTypeSchemas,
-			},
-		});
-		await expect(
-			store.update({
-				appId: APP_ID,
-				caseId: "selected",
-				patch: { properties: { "estado_e\u0301": "different key" } },
-			}),
-		).rejects.toBeInstanceOf(CasePropertiesValidationError);
-		const snapshot = await store.readDeviceCaseDatabase({
-			appId: APP_ID,
-			restoreScope: { ownerIds: [OWNER_A] },
-		});
-		expect(snapshot.propertyTypes?.patient).toEqual({
-			estado_e: "text",
-			estado_é: "text",
-		});
-		expect(
-			Object.fromEntries(
-				snapshot.rows.map((row) => [row.case_id, row.properties]),
-			),
-		).toEqual({
-			selected: { estado_e: "ASCII", estado_é: "after" },
-			unselected: { estado_e: "ASCII", estado_é: "before" },
-		});
-	});
-
 	it("returns every direct parent and custom edge with ancestor metadata", async () => {
 		const store = makeStore(OWNER_A);
 		const caseTypes: CaseType[] = [

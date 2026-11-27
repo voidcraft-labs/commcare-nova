@@ -13200,7 +13200,7 @@ def _basic_accented_update(at, slot, key, name):
     if _condition(update) != "always" or _active(actions.get("close_case")):
         return False
     mapping = _held(_held(update, "update"), key)
-    if not isinstance(mapping, dict) or mapping.get("update_mode", "always") != "always":
+    if not isinstance(mapping, dict) or mapping.get("update_mode") != "always":
         return False
     xform = at.own_xform
     if xform is None:
@@ -13215,13 +13215,11 @@ def _basic_accented_update(at, slot, key, name):
     return len(controls) == 1 and _local(controls[0]) == "input" and bind_type == "string"
 
 
-def basic_accented_update_names(use):
-    """Exact property members of a Basic update map that the stock Android form can write."""
+def basic_accented_update_editor_refusal(use, manifest):
+    """The traced Basic mapping is admitted by Android but marked as an error by Vellum."""
     at = _json(use)
-    if at is None or use.key != "schema:UpdateCaseAction.update":
-        return ()
-    return tuple(name for slot, key, name in _written_properties(at) or ()
-                 if _basic_accented_update(at, slot, key, name))
+    written = _written_properties(at) if at is not None else None
+    return None if written is None else any(_basic_accented_update(at, *entry) for entry in written)
 
 
 def non_ascii_core_name_key(use, manifest):
@@ -14528,6 +14526,7 @@ VALUE_CLASSES = {
     "expressions-and-data/video-av1-mov-avi-ogg-theora-h-263-3gp": av1_mov_avi_theora_h263,
     "forms-and-case-writes/form-filter-using-fixture-value": fixture_value,
     # HELD-NEW classes beside an allowing class of their key, each decided by the use's own value
+    "forms-and-case-writes/basic-update-key-with-an-accented-latin-name": basic_accented_update_editor_refusal,
     "forms-and-case-writes/basic-update-key-with-an-unaddressable-uncased-letter": basic_update_key_with_unaddressable_letter,
     "forms-and-case-writes/update-key-holding-a-non-ascii-core-name-character": non_ascii_core_name_key,
     "forms-and-case-writes/index-identifier-outside-an-xml-element-name": index_identifier_outside_an_xml_name,

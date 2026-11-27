@@ -23,7 +23,6 @@ import {
 import { afterSubmitCanGoHome } from "./afterSubmit";
 import type { BlueprintDoc } from "./blueprint";
 import { advancedCaseIndexNeedsAndroid } from "./caseOperationIdentifiers";
-import { isBasicAndroidCasePropertyName } from "./casePropertyName";
 import {
 	type EntryPointTarget,
 	entryPointInventory,
@@ -344,24 +343,6 @@ export function platformFeatureUses(
 		Object.values(doc.modules).some((module) => module.autoSelectSingle);
 	const app: PlatformFeatureOwner = { kind: "app" };
 	const appUses: PlatformFeatureUse[] = [];
-	if (
-		wanted("basic-write-name-requires-android") &&
-		(doc.caseTypes?.some((type) =>
-			type.properties.some((property) =>
-				isBasicAndroidCasePropertyName(property.name),
-			),
-		) ||
-			Object.values(doc.forms).some((form) =>
-				form.caseOperations?.some((operation) =>
-					operation.writes?.some((write) =>
-						isBasicAndroidCasePropertyName(write.property),
-					),
-				),
-			))
-	)
-		appUses.push(
-			slotUse("basic-write-name-requires-android", app, "caseTypes"),
-		);
 	if (doc.connectRoles.length > 0) {
 		if (wanted("connect-app"))
 			appUses.push(slotUse("connect-app", app, "connectRoles"));

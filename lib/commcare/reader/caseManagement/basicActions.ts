@@ -18,7 +18,6 @@ import {
 	captureFieldKinds,
 	type Expression,
 	type FormType,
-	isBasicAndroidCasePropertyName,
 	isCaseScalarTextProperty,
 	MAX_AUTHORED_CASE_PROPERTY_NAME_LENGTH,
 	ownCaseOperationId,
@@ -34,7 +33,10 @@ import {
 } from "@/lib/domain/expression/builders";
 import { clockKeepingJoin } from "@/lib/domain/expression/datePattern";
 import { walkExpressionTerms } from "@/lib/domain/expression/walk";
-import { isPortableNameContinuation } from "@/lib/domain/portableName";
+import {
+	isPortableName,
+	isPortableNameContinuation,
+} from "@/lib/domain/portableName";
 import { NO_ENTRIES, recordFromEntries } from "@/lib/domain/records";
 import {
 	circumstanceFinding,
@@ -285,7 +287,7 @@ export const BASIC_CLAIMS = defineClaims("caseManagement.basicActions", {
 		`${F}/basic-update-key-with-an-unaddressable-uncased-letter`,
 		"schema:UpdateCaseAction.update",
 	),
-	accentedKey: take(
+	accentedEditorKey: refuse(
 		`${F}/basic-update-key-with-an-accented-latin-name`,
 		"schema:UpdateCaseAction.update",
 	),
@@ -1566,9 +1568,22 @@ function valueInScope(
 	return own === undefined || own === repeat;
 }
 
-/** The only accented key kept by the Basic reader is an always-write of a
- * root text question to the one case already selected for this follow-up. */
-function readsBasicAccentedUpdate(r: FormReading, cursor: JsonCursor): boolean {
+/** An accented XML key Core can read on Android but Vellum marks as invalid. */
+function isBasicAccentedEditorKey(name: string): boolean {
+	return (
+		name.length <= MAX_AUTHORED_CASE_PROPERTY_NAME_LENGTH &&
+		/[À-ÖØ-öø-ÿ]/u.test(name) &&
+		/^[A-Za-z][A-Za-z0-9_À-ÖØ-öø-ÿ-]*$/u.exec(name)?.[0] === name &&
+		isPortableName(name, ["android"])
+	);
+}
+
+/** The measured editor refusal is an always-write of a root text answer
+ * to the case already selected for this Basic follow-up. */
+function hasBasicAccentedEditorWrite(
+	r: FormReading,
+	cursor: JsonCursor,
+): boolean {
 	const question = cursor.peek("question_path");
 	if (
 		r.type !== "followup" ||
@@ -1741,13 +1756,17 @@ function readUpdateMap(
 		const viaFacet =
 			via !== undefined && (property === "name" || property === "owner_id");
 		const categoryOrState = property === "category" || property === "state";
-		const accented =
-			slot === "own" &&
-			indices.length === 0 &&
-			isBasicAndroidCasePropertyName(property) &&
-			conditionType(parent.peek("condition")) === "always" &&
-			readsBasicAccentedUpdate(r, cursor);
-		if (!facet && !viaFacet && !categoryOrState && !accented) {
+		if (!facet && !viaFacet && !categoryOrState) {
+			if (
+				slot === "own" &&
+				indices.length === 0 &&
+				isBasicAccentedEditorKey(property) &&
+				conditionType(parent.peek("condition")) === "always" &&
+				hasBasicAccentedEditorWrite(r, cursor)
+			) {
+				refuseEntry(cursor, BASIC_CLAIMS.accentedEditorKey, key);
+				continue;
+			}
 			const named = propertyNameFinding(property, false);
 			if (named === "unrecognized") {
 				unrecognizedEntry(r, cursor, "schema:UpdateCaseAction.update");
@@ -1790,9 +1809,8 @@ function readUpdateMap(
 				: BASIC_CLAIMS.editElsewhere;
 		// The rows the own case's `update` names by its key: a key through the
 		// cases above the loaded one is its own row's.
-		const keyClaim = accented
-			? BASIC_CLAIMS.accentedKey
-			: typedUserPath && via !== undefined
+		const keyClaim =
+			typedUserPath && via !== undefined
 				? BASIC_CLAIMS.viaUserHeld
 				: viaFacet
 					? BASIC_CLAIMS.viaFacet

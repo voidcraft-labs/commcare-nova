@@ -70,7 +70,6 @@ import {
 	serializeXForm,
 } from "@/lib/commcare/xform/domSplice";
 import { FormPath } from "@/lib/commcare/xform/formPath";
-import { isBasicAndroidCasePropertyName } from "@/lib/domain/casePropertyName";
 import { appendDefaultOwner } from "../workerGroupsWire";
 import { w } from "../xpath/wire/builders";
 import { InstanceSink, sessionInstance } from "../xpath/wire/instances";
@@ -104,8 +103,8 @@ function formActionsPropertyToWire(property: string): string {
 /**
  * HQ's order for a block's update children and their binds:
  * by wire property name, as `xform.py::XFormCaseBlock.add_case_updates` sorts
- * them. Python orders `str` keys by code point, and the supported property
- * names use only single UTF-16 units (`lib/domain/casePropertyName.ts`).
+ * them. Python orders `str` keys by code point, and every wire property name
+ * is ASCII (`lib/domain/casePropertyName.ts`), where code-unit order agrees.
  */
 function byWireName(
 	a: { validProp: string },
@@ -486,11 +485,7 @@ function buildCaseBlocks(
 		// (`xform.py::XFormCaseBlock.add_case_updates`, `::is_attachment`),
 		// and no action names one: a capture's write names its link sibling
 		// (`casePlacementPlan.ts`).
-		caseChildren.push(
-			updateBlock(primaryCasePath, ownUpdates, binds, context, {
-				allowsAccentedProperty: !isCreate && !isClose,
-			}),
-		);
+		caseChildren.push(updateBlock(primaryCasePath, ownUpdates, binds, context));
 	}
 
 	if (isClose) {
@@ -1012,30 +1007,17 @@ function updateBlock(
 	updates: readonly (readonly [string, UpdateMapping])[],
 	binds: Element[],
 	context: WireElementContext,
-	{ allowsAccentedProperty = false } = {},
 ): Element {
 	const rows = updates
-		.map(([property, mapping]) => {
-			const wireProperty = formActionsPropertyToWire(property);
-			// The tested Basic path has an explicit answer and writes on each
-			// submit. It needs no additional XPath read of the custom property.
-			const validProp =
-				allowsAccentedProperty &&
-				mapping.update_mode === "always" &&
-				mapping.question_path &&
-				isBasicAndroidCasePropertyName(wireProperty)
-					? wireProperty
-					: validatePropertyName(wireProperty);
-			return {
-				validProp,
-				resolvedQPath: validateXFormPath(
-					mapping.question_path ||
-						FormPath.root(context.mode.formRootName).child(property).toXPath(),
-					context.mode.formRootName,
-				),
-				edit: mapping.update_mode === "edit",
-			};
-		})
+		.map(([property, mapping]) => ({
+			validProp: validatePropertyName(formActionsPropertyToWire(property)),
+			resolvedQPath: validateXFormPath(
+				mapping.question_path ||
+					FormPath.root(context.mode.formRootName).child(property).toXPath(),
+				context.mode.formRootName,
+			),
+			edit: mapping.update_mode === "edit",
+		}))
 		.sort(byWireName);
 	const updatePath = casePath.child("update");
 	for (const { validProp, resolvedQPath, edit } of rows) {
@@ -1049,7 +1031,7 @@ function updateBlock(
 				"bind",
 				{
 					xpath: {
-						nodeset: w.append(updatePath.toWire(), [w.step(validProp)]),
+						nodeset: updatePath.child(validProp).toWire(),
 						calculate: source,
 						relevant: edit
 							? w.and(

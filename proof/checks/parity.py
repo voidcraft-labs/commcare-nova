@@ -69,7 +69,6 @@ from proof.checks.differences import Difference, pointer_token
 from proof.checks.manifest_value_classes import (
     _guarded_lookup_count,
     bare_fingerprint_query_without_supplier,
-    basic_accented_update_names,
     HQ_CASE_RESERVED_WORDS,
     case_itemset_survey_readiness,
     direct_parent_date_prompt_key,
@@ -478,7 +477,6 @@ def source_uses(
 
 
 AUTOMATIC_MULTI = "menus-and-case-lists/detail-auto-select-multi-select"
-BASIC_ACCENTED_WRITE = "forms-and-case-writes/basic-update-key-with-an-accented-latin-name"
 LOCATION_WRITE = "forms-and-case-writes/update-keys-location-id-hq-user-id"
 LOCATION_UPDATE_KEY = "schema:UpdateCaseAction.update"
 PASSIVE_LABEL_WRITE = "forms-and-case-writes/an-advanced-follow-up-update-from-its-root-passive-label"
@@ -787,7 +785,7 @@ def _unicode_primary_root(use, held):
 def _forms_variant_uses(found, held, entries):
     """Source facts retained variants can decide without the full corpus's runtime observations."""
     wanted = {
-        AUTOMATIC_MULTI, BASIC_ACCENTED_WRITE, LOCATION_WRITE, HYPHEN_TAG, EXTENDED_OPEN_INDEX, UNICODE_OPEN_INDEX, SHADOW_LOAD, SUPPLY_POINT,
+        AUTOMATIC_MULTI, LOCATION_WRITE, HYPHEN_TAG, EXTENDED_OPEN_INDEX, UNICODE_OPEN_INDEX, SHADOW_LOAD, SUPPLY_POINT,
         OWN_CASE_BESIDE, LOOKUP_COUNT, BARE_LOOKUP_COUNT, ITEMSET_FILTER, ITEMSET_PREDICATE, ADVANCED_CASE_ITEMSET,
         PARENT_USER_WRITE,
         *REGISTRATION_ENTRIES, *RETYPE_ENTRIES,
@@ -845,10 +843,6 @@ def _forms_variant_uses(found, held, entries):
             yield Decided(use, manifest_usage.HELD_NEW, (by_id[ADVANCED_CASE_ITEMSET],))
         if PARENT_USER_WRITE in wanted and use.key == "schema:UpdateCaseAction.update":
             yield from _parent_user_write_uses(use, by_id[PARENT_USER_WRITE])
-        if BASIC_ACCENTED_WRITE in wanted and use.key == "schema:UpdateCaseAction.update":
-            for name in basic_accented_update_names(use):
-                yield Decided(use, manifest_usage.HELD, (by_id[BASIC_ACCENTED_WRITE],),
-                              f"{use.where}/{pointer_token(name)}")
         if LOCATION_WRITE in wanted and use.key == LOCATION_UPDATE_KEY:
             yield from _location_write_uses(use, by_id[LOCATION_WRITE])
         if HYPHEN_TAG in wanted and use.key in ADVANCED_TAG_KEYS:

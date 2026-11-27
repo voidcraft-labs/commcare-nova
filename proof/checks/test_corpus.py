@@ -926,7 +926,7 @@ def test_every_republish_over_a_persons_saves_was_sent_as_its_document_states():
 # The documents the corpus's fixed floor emits: its producers', workforce, expander and targeted documents that
 # Nova admits, and one a base CommCare HQ made (``proof/hq-apps/``). Every pull request that adds or removes a
 # document writes the count its sources then give.
-FIXED_DOCUMENTS = 559
+FIXED_DOCUMENTS = 558
 
 
 def test_the_corpus_emits_every_document_its_sources_name():

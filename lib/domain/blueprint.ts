@@ -9,7 +9,7 @@
 
 import { z } from "zod";
 import { automationNestedUuids, automationSchema } from "./automations";
-import { storedCasePropertyNameSchema } from "./casePropertyName";
+import { readCasePropertyNameSchema } from "./casePropertyName";
 import {
 	type CasePropertyDataType,
 	casePropertyDataTypeSchema,
@@ -64,7 +64,7 @@ export {
 // Case type schemas — moved verbatim from lib/schemas/blueprint.ts.
 
 export const casePropertySchema = z.strictObject({
-	name: storedCasePropertyNameSchema,
+	name: readCasePropertyNameSchema,
 	label: catalogProseTemplateSchema,
 	data_type: casePropertyDataTypeSchema.optional(),
 	hint: catalogProseTemplateSchema.optional(),

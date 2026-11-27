@@ -494,14 +494,6 @@ action, or a Save to Case block), under a closed list of eligibility
 conditions that HQ's Case Management tab, its advanced case actions and its
 build each impose.
 
-An imported Basic follow-up can keep an accented Latin-1 property key on
-Android when it saves a root text answer every time to the single selected
-case. It keeps the exact property identity through case schema, Preview and
-export. Formplayer cannot open the generated form in Web Apps. CommCare HQ's
-ordinary Case List editor also rejects the name, so it remains outside list,
-search, expression, and general rename grammar. A write cannot stay after an
-edit moves it out of the supported Basic placement.
-
 Two projections are deliberately one-way. Nova's `case_name` becomes HQ
 FormActions' private `name` key (`lib/commcare/formActions.ts`), which the
 XForm lowering turns back into `<case_name>`; `name` is never accepted as Nova

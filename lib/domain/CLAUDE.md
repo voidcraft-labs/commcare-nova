@@ -294,14 +294,10 @@ an Android-only declaration. Basic and Save to Case changes use the ASCII link g
 A native property column reads through `PropertyRef.readReached`: the walk
 prints and compiles with no case-type predicate, and its value is text unless
 every known destination agrees on a type and no hop is open. Property names
-use `readCasePropertyNameSchema` for portable references without a length
-bound and `authoredCasePropertyNameSchema` for new portable keys up to 255
-characters. `storedCasePropertyNameSchema` also keeps the exact accented
-Latin-1 names an Android-only app's direct Basic follow-up can write.
-`caseWritePropertyNameSchema` lets that write keep and address its key, and
-the commit gate restricts it to one selected case and a direct root text
-answer saved every time. Expression, list, Search, and rename grammar remain
-portable.
+have two grammars: `readCasePropertyNameSchema` (no length bound, for reads,
+catalog declarations and the identity of an existing property in a removal,
+move or rename source) and `authoredCasePropertyNameSchema` (255 at most, for
+every name an author or a case write introduces).
 
 Default order can use a column's own value or an independent calculation in
 `caseListConfig.calculatedSorts`. Each calculation has its own UUID, checked

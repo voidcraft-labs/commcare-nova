@@ -3,7 +3,6 @@ import { planCaseOperationUpdate } from "@/lib/doc/caseOperationMutations";
 import {
 	asUuid,
 	type CaseOperation,
-	isBasicAndroidCasePropertyName,
 	type Uuid,
 	uuidSchema,
 } from "@/lib/domain";
@@ -97,22 +96,6 @@ export const updateCaseOperationTool = {
 			if (input.operation.action === "own") {
 				if (existing.action !== "own")
 					throw new Error("The own arm check drifted from its operation.");
-				const newAccentedName = input.operation.writes?.some(
-					(write) =>
-						isBasicAndroidCasePropertyName(write.property) &&
-						!existing.writes?.some(
-							(previous) => previous.property === write.property,
-						),
-				);
-				if (newAccentedName)
-					return {
-						kind: "mutate",
-						mutations: [],
-						result: {
-							error:
-								"You can keep an existing accented property in this Android follow-up. Use an ASCII name for a new property.",
-						},
-					};
 				next = resolveOwnCaseOperationInput(input.operation, existing);
 			} else {
 				const formOperations =

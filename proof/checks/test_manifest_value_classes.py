@@ -7895,15 +7895,19 @@ def _held_new():
             accepted("app", own_update("note½"), update_map, updates),
             accepted("app", child_update("n名字"), "schema:Form.actions", "/modules/0/forms/0/actions"),
         ),
+        "forms-and-case-writes/basic-update-key-with-an-accented-latin-name": (
+            refused("app", own_update("estado_é"), update_map, updates),
+            accepted("app", own_update("estado_e"), update_map, updates),
+            accepted("app", own_update("estado_é", mode="edit"), update_map, updates),
+            accepted("app", own_update("estado_é", question="/data/s"), update_map, updates),
+            accepted("app", own_update("estado_é", question="/data/rep/name"), update_map, updates),
+        ),
         "forms-and-case-writes/update-key-holding-a-non-ascii-core-name-character": (
             accepted("app", own_update("größe"), update_map, updates),
             refused("app", child_update("größe"), child_map, children),
             accepted("app", own_update("size"), update_map, updates),
             accepted("app", own_update("estado_é"), update_map, updates),
             refused("app", own_update("estado_é", mode="edit"), update_map, updates),
-            refused("app", own_update("estado_é", question="/data/s"), update_map, updates),
-            refused("app", own_update("estado_é", question="/data/rep/name"), update_map, updates),
-            refused("app", own_update("parent/estado_é"), update_map, updates),
             refused("app", own_update("aⅣ"), update_map, updates),
             accepted("app", own_update("n名字"), update_map, updates),
             # The case update's XML name is outside the held value class.

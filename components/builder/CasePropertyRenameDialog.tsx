@@ -62,7 +62,6 @@ import {
 	CASE_SCALAR_PROPERTY_NAMES,
 	type CaseType,
 	humanizeId,
-	isBasicAndroidCasePropertyName,
 	standardCasePropertyDisplayLabel,
 } from "@/lib/domain";
 import { propertyDisplayLabel } from "@/lib/domain/propertyDisplay";
@@ -449,8 +448,6 @@ export function CasePropertyRenameDialog({
 									<ul className="divide-y divide-nova-border">
 										{casePropertyInventoryNames(caseType).map((property) => {
 											const locked = CASE_SCALAR_PROPERTY_NAMES.has(property);
-											const basicWriteOnly =
-												isBasicAndroidCasePropertyName(property);
 											const authoredProperty = caseType.properties.find(
 												(candidate) => candidate.name === property,
 											);
@@ -469,20 +466,13 @@ export function CasePropertyRenameDialog({
 																	)}
 														</p>
 														<p className="break-all font-mono text-xs text-nova-text-muted">
-															{basicWriteOnly
-																? property
-																: `#${caseType.name}/${property}`}
+															#{caseType.name}/{property}
 														</p>
 													</div>
 													{locked ? (
 														<span className="inline-flex min-h-11 shrink-0 items-center gap-1.5 text-xs text-nova-text-muted">
 															<Icon icon={tablerLock} />
 															Managed by Nova
-														</span>
-													) : basicWriteOnly ? (
-														<span className="inline-flex min-h-11 shrink-0 items-center gap-1.5 text-xs text-nova-text-muted">
-															<Icon icon={tablerLock} />
-															Kept for Android form saves
 														</span>
 													) : canEdit ? (
 														<Button
