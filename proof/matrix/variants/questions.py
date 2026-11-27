@@ -2403,8 +2403,13 @@ def itemset_filter_fractional_row_index(authoring, app_id):
 
 
 def itemset_filter_zero_row_index(authoring, app_id):
-    """A bare numeric predicate whose index is outside the accepted positive class."""
+    """The one-based counter never matches zero."""
     _itemset_filter_numeric_row(authoring, app_id, "0", "itemset-filter-zero-row-index")
+
+
+def itemset_filter_integral_decimal_row_index(authoring, app_id):
+    """An integer spelled as a decimal remains separate from the known predicate forms."""
+    _itemset_filter_numeric_row(authoring, app_id, "2.0", "itemset-filter-integral-decimal-row-index")
 
 
 def itemset_over_cases(authoring, app_id):

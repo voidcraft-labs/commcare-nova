@@ -9329,6 +9329,8 @@ def test_literal_itemset_row_position_is_scoped_to_retained_parity(manifest):
             <label ref="name"/><value ref="id"/></itemset></select1>
           <select1 ref="/data/choice"><itemset nodeset="instance('items')/items_list/items[0]">
             <label ref="name"/><value ref="id"/></itemset></select1>
+          <select1 ref="/data/choice"><itemset nodeset="instance('items')/items_list/items[2.0]">
+            <label ref="name"/><value ref="id"/></itemset></select1>
           <select1 ref="/data/choice"><itemset nodeset="instance('items')/items_list/items[last() - 1]">
             <label ref="name"/><value ref="id"/></itemset></select1>
         """,
@@ -9338,15 +9340,15 @@ def test_literal_itemset_row_position_is_scoped_to_retained_parity(manifest):
     assert list(parity._forms_variant_uses(found, manifest, set())) == []
     ordinals = list(parity._forms_variant_uses(found, manifest, {held}))
     assert [(ordinal.standing, [entry.id for entry in ordinal.entries]) for ordinal in ordinals] == [
-        (manifest_usage.HELD, [held]), (manifest_usage.HELD, [held]),
+        (manifest_usage.HELD, [held]), (manifest_usage.HELD, [held]), (manifest_usage.HELD, [held]),
     ]
     assert [ordinal.use.where.split("select1")[-1] for ordinal in ordinals] == [
-        "[1]/itemset[1]/@nodeset", "[2]/itemset[1]/@nodeset",
+        "[1]/itemset[1]/@nodeset", "[2]/itemset[1]/@nodeset", "[3]/itemset[1]/@nodeset",
     ]
     other, = parity._forms_variant_uses(found, manifest, {deferred})
     assert other.standing == manifest_usage.HELD_NEW
     assert [entry.id for entry in other.entries] == [deferred]
-    assert other.use.where.endswith("select1[3]/itemset[1]/@nodeset")
+    assert other.use.where.endswith("select1[4]/itemset[1]/@nodeset")
 
 
 @pytest.fixture(scope="module")

@@ -163,6 +163,9 @@ def test_fractional_fixture_row_index_truncates_after_vellum_reopens(
         ("integer", "2", second),
         ("explicit-position", "position() = 2", second),
         ("empty-fractional-position", "position() = 2.5", {"choices": []}),
+        ("zero", "0", {"choices": []}),
+        ("fractional-truncated-to-zero", "0.5", {"choices": []}),
+        ("explicit-zero-position", "position() = 0", {"choices": []}),
     )
     observed = {}
     with hq_check(document.exports["minimum"].configuration.hq()) as (unit, _):
