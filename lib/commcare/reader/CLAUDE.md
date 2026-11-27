@@ -735,7 +735,8 @@ A supported Android lookup results heading registers one module-owned `case_list
 
 A lookup argument can be a saved sum of two fixed whole numbers. Pinned Android normally evaluates it and sends a string, but its legacy reporting-domain mode sends the saved value verbatim unless `force_xpath_parsing` is `yes`. The reader preserves a canonical addition of two nonnegative whole numbers up to the signed 32-bit sum limit. Both publishers send the original two-operand spelling. Other calculation and configuration shapes follow their existing gates.
 A regular Search prompt's required condition can count the worker's restored
-cases with a single declared case-type filter. It uses the normal case query and
+cases of one declared type, optionally comparing a text property with fixed
+text or a second text property on the same case. It uses the normal case query and
 count AST and preserves its required message. Web Apps checks it before sending
 a Search. Android places no required rule on the worker's input. Preview loads
 the worker's authorized restore before opening the Web Apps prompt, and verifies

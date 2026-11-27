@@ -245,7 +245,15 @@ export function isRestoredCaseTypeQuery(expression: Expression): boolean {
 	);
 }
 
-export function restoredCasePropertyMatch(expression: Expression) {
+type RestoredCaseMatchValue =
+	| { kind: "text"; value: string }
+	| { kind: "property"; value: string };
+
+export function restoredCasePropertyMatch(
+	expression: Expression,
+):
+	| { caseType: string; property: string; match: RestoredCaseMatchValue }
+	| undefined {
 	if (expression.kind !== "cases" || expression.where.length !== 2) return;
 	const caseType = restoredCaseType(expression);
 	const check = expression.where[1];
@@ -257,17 +265,29 @@ export function restoredCasePropertyMatch(expression: Expression) {
 		check.left.term.caseType !== caseType ||
 		check.left.term.via !== undefined ||
 		check.left.term.readReached === true ||
-		check.right.kind !== "term" ||
-		check.right.term.kind !== "literal" ||
-		check.right.term.data_type !== undefined ||
-		typeof check.right.term.value !== "string"
+		check.right.kind !== "term"
 	)
 		return;
-	return {
-		caseType,
-		property: check.left.term.property,
-		text: check.right.term.value,
-	};
+
+	const right = check.right.term;
+	const property = check.left.term.property;
+	if (
+		right.kind === "literal" &&
+		right.data_type === undefined &&
+		typeof right.value === "string"
+	)
+		return { caseType, property, match: { kind: "text", value: right.value } };
+	if (
+		right.kind === "prop" &&
+		right.caseType === caseType &&
+		right.via === undefined &&
+		right.readReached !== true
+	)
+		return {
+			caseType,
+			property,
+			match: { kind: "property", value: right.property },
+		};
 }
 
 export function isSearchRequiredCaseQuery(expression: Expression): boolean {
