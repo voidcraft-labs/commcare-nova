@@ -60,6 +60,12 @@ export function isAdvancedCaseIndexIdentifier(value: string): boolean {
 	return advancedCaseIndexNameProblem(value) === undefined;
 }
 
+/** Formplayer decodes the form's submitted XML as ASCII. This is a
+ * writer boundary; lookup steps can still read a Unicode index from restore. */
+export function advancedCaseIndexNeedsAndroid(value: string): boolean {
+	return /[^\x20-\x7e]/.test(value) && isAdvancedCaseIndexIdentifier(value);
+}
+
 export function isCaseOperationProperty(value: string): boolean {
 	return CASE_OPERATION_PROPERTY_REGEX.test(value);
 }

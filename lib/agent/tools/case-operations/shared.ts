@@ -125,7 +125,7 @@ const linkIdInputSchema = z
 		ctx.addIssue({ code: "custom", message: verdict.userMessage });
 	})
 	.describe(
-		"A connection name. Start with a letter or underscore. When CommCare HQ builds this change as an Advanced open action, the name can also use periods and letters such as É or Ω that both Web Apps and Android can read.",
+		"A connection name. Start with a letter or underscore. When CommCare HQ builds this change as an Advanced open action, the name can also use periods. An Android-only app can write names with supported letters such as É or Ω.",
 	);
 
 const newTargetInputSchema = z.strictObject({

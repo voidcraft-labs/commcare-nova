@@ -6811,13 +6811,14 @@
 		],
 		"valueClass": "open-action-links",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: the create's links, each to a load of the parent selection or an earlier create placed on an open action. HQ's advanced editor saves names such as `my-parent`, `my.parent`, `métrique`, and `Ωprobe`. The case transaction, fresh worker restore, and named reads preserve names shared by both worker lexers and namespace-free XML.",
+		"dispositionCell": "**HELD**: the create's links, each to a load of the parent selection or an earlier create placed on an open action. HQ's advanced editor saves names such as `my-parent`, `my.parent`, `métrique`, and `Ωprobe`. A signed fresh worker restore preserves exact names. Formplayer opens producer forms with ASCII names. Writing a supported non-ASCII name requires Android.",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
-			"cell": "RUNS / RUNS",
+			"cell": "RUNS (ASCII names) / RUNS",
 			"webApps": {
-				"reading": "runs"
+				"reading": "runs",
+				"note": "ASCII connection names"
 			},
 			"android": {
 				"reading": "runs"

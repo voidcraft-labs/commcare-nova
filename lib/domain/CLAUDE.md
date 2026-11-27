@@ -288,7 +288,9 @@ union). A read or catalog declaration takes one namespace-free XML name
 that both pinned Core lexers can read (`isAdvancedCaseIndexIdentifier`).
 The HQ editor, case transaction and authenticated restore preserve the
 exact spelling and case of these names. An Advanced open action can write
-that connection. Basic and Save to Case changes use the ASCII link grammar.
+these names on Android. Formplayer's main-instance writer can carry only ASCII
+connection names, so an Advanced open action that writes a Unicode name requires
+an Android-only declaration. Basic and Save to Case changes use the ASCII link grammar.
 A native property column reads through `PropertyRef.readReached`: the walk
 prints and compiles with no case-type predicate, and its value is text unless
 every known destination agrees on a type and no hop is open. Property names

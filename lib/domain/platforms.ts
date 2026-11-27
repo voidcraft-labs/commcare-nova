@@ -219,6 +219,7 @@ const CASE_LIST_MENU_ITEM_WEB_APPS_NOTE =
 export const PLATFORM_FEATURE_IDS = [
 	"datetime-question",
 	"answer-name-requires-android",
+	"advanced-index-name-requires-android",
 	"web-apps-form-behavior",
 	"case-list-android-lookup",
 	"case-list-icon-actions",
@@ -318,6 +319,7 @@ export type PlatformFeatureId = (typeof PLATFORM_FEATURE_IDS)[number];
 export const REFUSABLE_PLATFORM_FEATURE_IDS = [
 	"datetime-question",
 	"answer-name-requires-android",
+	"advanced-index-name-requires-android",
 	"case-list-icon-actions",
 	"case-list-here",
 	"worker-distance",
@@ -354,6 +356,21 @@ export const PLATFORM_FEATURES: Readonly<
 			what: "has an answer ID reserved in Web Apps",
 			why: "Web Apps would read this answer as an instruction when the worker submits the form.",
 			alternative: "give the answer a different ID",
+		},
+	},
+	"advanced-index-name-requires-android": {
+		label: "Advanced connection names with non-ASCII characters",
+		channel: "structure",
+		webApps: {
+			reading: "unavailable",
+			note: "it cannot open a form that writes this connection name",
+			remedy: "Use a connection name with ASCII characters.",
+		},
+		android: { reading: "runs" },
+		refusal: {
+			what: "writes a connection name with non-ASCII characters",
+			why: "Web Apps cannot open a form that writes this connection name.",
+			alternative: "use a connection name with ASCII characters",
 		},
 	},
 	"datetime-question": {

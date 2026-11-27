@@ -77,6 +77,7 @@ const DATE_FIELD = testUuid("platform-fixture-date");
 const ASSET = testMediaAssetId("platform-fixture-asset");
 
 const MODULE_OWNER = { kind: "module", moduleUuid: FIXTURE_MODULE } as const;
+const FIXTURE_OPEN = testUuid("platform-fixture-open");
 const FORM_OWNER = {
 	kind: "form",
 	moduleUuid: FIXTURE_MODULE,
@@ -431,6 +432,31 @@ function formBehaviorFixture(role?: FormBehaviorRole): BlueprintDoc {
 			},
 		},
 	};
+}
+
+function advancedConnectionProducer(identifier: string): BlueprintDoc {
+	return survey([], {
+		configure(doc) {
+			doc.forms[FIXTURE_FORM].caseOperations = [
+				{
+					uuid: FIXTURE_OPEN,
+					id: "open_member",
+					action: "create",
+					caseType: "member",
+					name: term(literal("Member")),
+					target: { kind: "new" },
+					links: [
+						{
+							identifier,
+							relationship: "child",
+							targetType: "household",
+							target: { kind: "session" },
+						},
+					],
+				},
+			];
+		},
+	});
 }
 
 export const PLATFORM_FEATURE_FIXTURES = {
@@ -1056,6 +1082,15 @@ export const PLATFORM_FEATURE_FIXTURES = {
 				label: proseText("Registration reference"),
 			}),
 		use: slotUse("answer-name-requires-android", FIELD_OWNER, "id"),
+	},
+	"advanced-index-name-requires-android": {
+		with: () => advancedConnectionProducer("Ωprobe"),
+		without: () => advancedConnectionProducer("my.parent"),
+		use: slotUse(
+			"advanced-index-name-requires-android",
+			FORM_OWNER,
+			`caseOperations[${FIXTURE_OPEN}].links[0]`,
+		),
 	},
 	"android-app-question": {
 		with: () =>

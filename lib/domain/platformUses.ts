@@ -22,6 +22,7 @@ import {
 } from "./advancedEntryDatums";
 import { afterSubmitCanGoHome } from "./afterSubmit";
 import type { BlueprintDoc } from "./blueprint";
+import { advancedCaseIndexNeedsAndroid } from "./caseOperationIdentifiers";
 import {
 	type EntryPointTarget,
 	entryPointInventory,
@@ -460,6 +461,19 @@ export function platformFeatureUses(
 						),
 					);
 			}
+			if (wanted("advanced-index-name-requires-android")) {
+				for (const operation of form.caseOperations ?? [])
+					for (const [index, link] of (operation.links ?? []).entries())
+						if (advancedCaseIndexNeedsAndroid(link.identifier))
+							formUses.push(
+								slotUse(
+									"advanced-index-name-requires-android",
+									formOwner,
+									`caseOperations[${operation.uuid}].links[${index}]`,
+								),
+							);
+			}
+
 			if (wanted("after-submit-home") && afterSubmitCanGoHome(doc, formUuid))
 				formUses.push(
 					slotUse(
