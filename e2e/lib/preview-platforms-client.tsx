@@ -9,12 +9,16 @@ import { FormScreen } from "@/components/preview/screens/FormScreen";
 import { HomeScreen } from "@/components/preview/screens/HomeScreen";
 import { ToastContainer } from "@/components/ui/ToastContainer";
 import { buildDoc, type FieldSpec } from "@/lib/__tests__/docHelpers";
+import { planDatetimeSplit } from "@/lib/doc/datetimeSplit";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import { createBlueprintDocStore } from "@/lib/doc/store";
 import { NEW_APP_SETTINGS } from "@/lib/domain";
 import { literal, term } from "@/lib/domain/expression/builders";
 import type { Platform } from "@/lib/domain/platforms";
-import { admittedControllerDoc } from "@/lib/preview/engine/__tests__/fixtures/controllerDoc";
+import {
+	admittedControllerDoc,
+	applyControllerEdit,
+} from "@/lib/preview/engine/__tests__/fixtures/controllerDoc";
 import type { EngineController } from "@/lib/preview/engine/engineController";
 import {
 	BuilderFormEngineProvider,
@@ -618,6 +622,14 @@ if (scenario.fixture === "screens")
 const doc = admittedControllerDoc(built);
 const docStore = createBlueprintDocStore();
 docStore.getState().load(doc);
+if (scenarioId === "datetime-picker-web-apps") {
+	const split = planDatetimeSplit(docStore.getState(), IDS.datetime);
+	if (!split.ok) throw new Error(split.message);
+	applyControllerEdit(docStore, [
+		...split.mutations,
+		{ kind: "setAppSettings", settings: { runsOnlyOn: "web-apps" } },
+	]);
+}
 docStore.getState().startTracking();
 const session = createBuilderSessionStore({
 	appId: doc.appId,

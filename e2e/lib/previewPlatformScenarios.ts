@@ -44,7 +44,8 @@ export const PREVIEW_PLATFORM_SCENARIOS = {
 	"datetime-picker-web-apps": {
 		platform: "web-apps",
 		fixture: "datetime-picker",
-		describe: "preserves seconds on a date-and-time answer",
+		describe:
+			"keeps blank split questions and preserves seconds in the joined answer",
 	},
 	"face-photo-android": {
 		platform: "android",

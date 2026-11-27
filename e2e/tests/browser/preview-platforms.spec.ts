@@ -377,11 +377,12 @@ async function checkAndroidDatetimePicker(page: Page) {
 async function checkWebAppsDatetimePicker(page: Page) {
 	await page.clock.setFixedTime(new Date("2025-11-02T06:00:00Z"));
 	await openScenario(page, "datetime-picker-web-apps");
-	const clock = page.getByRole("textbox", { name: "Time", exact: true });
-	const calendarTrigger = page.getByRole("button", {
-		name: "Date",
-		exact: true,
-	});
+	const clock = page
+		.locator('[data-instance-path$="/arrival_stamp_time"]')
+		.getByRole("textbox");
+	const calendarTrigger = page
+		.locator('[data-instance-path$="/arrival_stamp_date"]')
+		.getByRole("button");
 	await expect(clock).toHaveValue("");
 	await expect(calendarTrigger).toContainText("Pick a date");
 	await calendarTrigger.click();
@@ -391,10 +392,10 @@ async function checkWebAppsDatetimePicker(page: Page) {
 		.click({ timeout: 10_000 });
 	await clock.fill("11:26:48 PM");
 	await clock.press("Tab");
+	await expect(clock).toHaveValue("23:26:48");
 	await expect
 		.poll(() => answer(page, PLATFORM_IDS.datetime))
 		.toBe("2025-11-01T23:26:48.000-07:00");
-	await expect(clock).toHaveValue("11:26:48 PM");
 }
 
 const PREVIEW_PLATFORM_CHECKS: Readonly<
