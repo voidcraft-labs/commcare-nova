@@ -7907,6 +7907,30 @@ def _held_new():
             open_condition={"doc_type": "FormActionCondition", "type": condition},
         )])
 
+    def question_relationship(constraint):
+        index = _index(
+            "load_household_0", reference_id="parent", relationship="question",
+            relationship_question="/data/q",
+        )
+        app = _advanced_app([household], [_open(
+            "open_visit_0", case_indices=[index],
+            name_update={"question_path": "/data/q", "doc_type": "ConditionalCaseUpdate"},
+            open_condition={"doc_type": "FormActionCondition", "type": "always"},
+            close_condition={"doc_type": "FormActionCondition", "type": "never"},
+        )])
+        constraint_attr = "" if constraint is None else f" constraint={quoteattr(constraint)}"
+        form = _form(
+            data="<q/>",
+            model=f'<bind nodeset="/data/q" required="true()"{constraint_attr}/>',
+            body='<input ref="/data/q"/>',
+        )
+        return _with_forms(app, f=form)
+
+    relationship = "schema:CaseIndex.relationship"
+    relationship_place = f"{opens}/0/case_indices/0/relationship"
+    finite_relationship = question_relationship(". = 'child' or . = 'extension'")
+    unrestricted_relationship = question_relationship(None)
+
     def load_indexed(identifier):
         index = _index("load_household_0", reference_id=identifier)
         return _advanced_app([household, _load("load_patient_1", case_index=index)])
@@ -7977,6 +8001,15 @@ def _held_new():
             accepted("form", fresh, owner_key, owner_site),
             accepted("form", update_owner, owner_key, owner_site),
         ),
+        "forms-and-case-writes/advanced-open-relationship-from-unrestricted-text": (
+            refused("app", unrestricted_relationship, relationship, relationship_place),
+            accepted("app", finite_relationship, relationship, relationship_place),
+        ),
+        "forms-and-case-writes/advanced-open-relationship-from-constrained-text": (
+            refused("app", finite_relationship, relationship, relationship_place),
+            accepted("app", unrestricted_relationship, relationship, relationship_place,
+                     standing=manifest_usage.REFUSED),
+        ),
         "forms-and-case-writes/basic-update-key-with-an-unaddressable-uncased-letter": (
             refused("app", own_update("n名字"), update_map, updates),
             accepted("app", own_update("n_name"), update_map, updates),
@@ -7988,12 +8021,13 @@ def _held_new():
         "forms-and-case-writes/basic-update-key-with-an-accented-latin-name": (
             refused("app", own_update("estado_é"), update_map, updates),
             accepted("app", own_update("estado_e"), update_map, updates),
-            accepted("app", own_update("estado_é", mode="edit"), update_map, updates),
+            refused("app", own_update("estado_é", mode="edit"), update_map, updates),
             accepted("app", own_update("estado_é", question="/data/s"), update_map, updates),
             accepted("app", own_update("estado_é", question="/data/rep/name"), update_map, updates),
         ),
         "forms-and-case-writes/basic-update-key-with-a-roman-numeral": (
             refused("app", own_update("aⅣ", mode="edit"), update_map, updates),
+            refused("app", own_update("aⅣ"), update_map, updates),
             accepted("app", own_update("aIV", mode="edit"), update_map, updates),
             accepted("app", own_update("aⅣ", mode="edit", question="/data/s"), update_map, updates),
         ),
@@ -8002,8 +8036,9 @@ def _held_new():
             refused("app", child_update("größe"), child_map, children),
             accepted("app", own_update("size"), update_map, updates),
             accepted("app", own_update("estado_é"), update_map, updates),
-            refused("app", own_update("estado_é", mode="edit"), update_map, updates),
+            accepted("app", own_update("estado_é", mode="edit"), update_map, updates),
             accepted("app", own_update("aⅣ"), update_map, updates),
+            accepted("app", own_update("aⅣ", mode="edit"), update_map, updates),
             refused("app", own_update("aЖ"), update_map, updates),
             accepted("app", own_update("n名字"), update_map, updates),
             # The case update's XML name is outside the held value class.

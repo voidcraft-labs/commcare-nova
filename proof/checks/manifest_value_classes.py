@@ -15287,9 +15287,6 @@ VALUE_CLASSES = {
     "forms-and-case-writes/advanced-open-relationship-from-unrestricted-text": (
         open_relationship_from_unrestricted_text
     ),
-    "forms-and-case-writes/advanced-open-relationship-from-constrained-text": (
-        open_relationship_from_constrained_text
-    ),
     "forms-and-case-writes/caseindex-relationship-question-inside-a-repeat": relationship_question_in_repeat,
     "forms-and-case-writes/caseindex-relationship-question-relationship-question-the-index-naming-an": (
         question_relationship_to_open_action
@@ -15587,6 +15584,9 @@ VALUE_CLASSES = {
 # A positive class may need an observation beyond the use at its own source.
 # It grants HELD only when that observation establishes the supported class.
 POSITIVE_VALUE_CLASSES = {
+    "forms-and-case-writes/advanced-open-relationship-from-constrained-text": (
+        open_relationship_from_constrained_text
+    ),
     "menus-and-case-lists/lookup-extra-with-a-fixed-integer-sum": lookup_with_native_integer_sum,
     "menus-and-case-lists/lookup-extras-explicit-evaluation": lookup_with_forced_extras,
     "menus-and-case-lists/detail-filter-matching-the-direct-hosts-text": direct_host_text_filter,
