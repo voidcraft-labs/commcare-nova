@@ -89,6 +89,7 @@ import {
 	ORDERED_TYPES,
 	type RecordPosition,
 	recordPositionVerdict,
+	searchUsernameTextOrder,
 	TEXT_SHAPED_TYPES,
 	TIME_ORDERING_MESSAGE,
 	typesCompatible,
@@ -4246,6 +4247,15 @@ function checkComparison(
 			});
 			return;
 		}
+		// A simple text Search prompt evaluates its starting value with the
+		// worker session in scope. Its greater-than comparison coerces both
+		// text operands numerically in Core and in Preview.
+		if (
+			"profile" in ctx &&
+			ctx.profile.searchTextDefault === true &&
+			searchUsernameTextOrder(kind, left, right)
+		)
+			return;
 		const leftOrdered = leftType === ANY_TYPE || ORDERED_TYPES.has(leftType);
 		const rightOrdered = rightType === ANY_TYPE || ORDERED_TYPES.has(rightType);
 		if (!leftOrdered || !rightOrdered) {

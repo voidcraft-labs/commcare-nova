@@ -23,6 +23,7 @@ import { CaseTypeValuePicker } from "../CaseTypeValuePicker";
 import { staticSelectSubject } from "../choiceValueModel";
 import {
 	comparesCaseType,
+	comparesWorkerNameInSearchDefault,
 	possibleRowCaseTypes,
 	replaceComparisonSubject,
 } from "../comparisonModel";
@@ -70,7 +71,17 @@ export function ComparisonCard({ value, onChange, path }: ComparisonCardProps) {
 	// checker `checkComparison` validates against, so the offered set
 	// is exactly the accept set.
 	const subjectType = useResolvedType(value.left);
-	const objectConstraint = comparisonObjectConstraint(value.kind, subjectType);
+	const workerNameOrder = comparesWorkerNameInSearchDefault(
+		ctx,
+		value.kind,
+		value.left,
+		value.right,
+	);
+	const constraintKind = workerNameOrder ? "eq" : value.kind;
+	const objectConstraint = comparisonObjectConstraint(
+		constraintKind,
+		subjectType,
+	);
 
 	const setLeft = (left: Expression) =>
 		onChange(replaceComparisonSubject(value, left, ctx));
@@ -138,7 +149,7 @@ export function ComparisonCard({ value, onChange, path }: ComparisonCardProps) {
 					onChange={setLeft}
 					admitReplacement={admitSubject}
 					path={leftPath}
-					constraint={comparisonSubjectConstraint(value.kind)}
+					constraint={comparisonSubjectConstraint(constraintKind)}
 					presentation="subject"
 					variant="nested"
 				/>

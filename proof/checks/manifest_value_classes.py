@@ -5638,6 +5638,43 @@ def _canonical_address_default(raw):
     )
 
 
+def worker_name_order_in_text_default(use, manifest):
+    """The ordinary prompt has the native worker session while evaluating its starting text."""
+    from proof.checks.xpath_tree import tree
+
+    at, config = _search(use)
+    prompt = at.nearest("CaseSearchProperty") if config is not None else None
+    if (
+        prompt is None or prompt.get("input_") not in (None, "text")
+        or any(prompt.get(key) for key in ("hidden", "exclude", "is_group", "appearance"))
+    ):
+        return False
+    raw = prompt.get("default_value")
+    if not isinstance(raw, str):
+        return False
+    username = tree("instance('commcaresession')/session/context/username")
+
+    def contains_order(node):
+        if not isinstance(node, tuple):
+            return False
+        if len(node) == 3 and node[0] == "GT" and node[1] == username:
+            literal = node[2]
+            if isinstance(literal, tuple) and len(literal) == 2 and literal[0] == "str":
+                value = literal[1]
+                if (
+                    value.strip()
+                    and not re.fullmatch(
+                        r"\d{4}-\d{2}-\d{2}|\d{1,2}:\d{2}(?::\d{2}(?:\.\d+)?)?",
+                        value, re.ASCII,
+                    )
+                    and ISO_DATETIME_LITERAL.fullmatch(value) is None
+                ):
+                    return True
+        return any(contains_order(child) for child in node)
+
+    return contains_order(tree(raw))
+
+
 def manual_address_with_saved_text(use, manifest):
     """The stored literal survives for the ungrouped manual picker with no active subscription."""
     if use.key == "prompt-input:address":

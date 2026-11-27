@@ -1468,6 +1468,9 @@ export function slotContext(
 			)
 				profile = {
 					...profile,
+					...(input.kind === "simple" &&
+						input.type === "text" &&
+						input.hidden !== true && { searchTextDefault: true }),
 					expectation: {
 						kind: "value",
 						type: SEARCH_INPUT_TYPE_DEFAULT_EXPECTED_TYPES[input.type],

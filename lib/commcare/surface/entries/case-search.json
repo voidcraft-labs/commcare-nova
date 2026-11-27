@@ -3222,11 +3222,37 @@
 		"gates": ["toggle/CASE_SEARCH_ADVANCED"]
 	},
 	{
+		"id": "case-search/default-value-ordering-the-worker-name",
+		"area": "case-search",
+		"section": "Case search",
+		"subsection": "Search prompts",
+		"item": "A visible simple text prompt's starting value uses a greater-than comparison of the worker name with plain text",
+		"surfaceKeys": [
+			"schema:CaseSearchProperty.default_value",
+			"parser:QueryPromptParser/prompt@default"
+		],
+		"valueClass": "simple-text-default-worker-name-order",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: `searchInputs[].default` keeps the worker reference and the original greater-than comparison. The native query screen compares the values numerically",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": { "reading": "runs" },
+			"android": { "reading": "runs" }
+		},
+		"emission": {
+			"cell": "`default_value`; CASE_SEARCH_ADVANCED",
+			"markers": []
+		},
+		"gates": ["toggle/CASE_SEARCH_ADVANCED"]
+	},
+	{
 		"id": "case-search/default-value-outside-valueexpression",
 		"area": "case-search",
 		"section": "Case search",
 		"subsection": "Search prompts",
-		"item": "`default_value` outside ValueExpression",
+		"item": "Other `default_value` outside ValueExpression",
 		"surfaceKeys": [
 			"schema:CaseSearchProperty.default_value",
 			"parser:QueryPromptParser/prompt@default"

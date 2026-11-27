@@ -764,6 +764,7 @@
 		"hq-search/second-validation",
 		"hq-search/slider-field",
 		"hq-search/standalone-search-detail-with-wrong-prompt",
+		"hq-search/starting-value-of-an-ordered-text",
 		"hq-search/translation-overrides-a-saved-legacy-search-group-heading",
 		"hq-search/translation-overrides-a-search-group-heading",
 		"hq-search/two-fields-receive-from-the-address-picker",

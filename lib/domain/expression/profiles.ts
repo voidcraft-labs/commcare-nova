@@ -55,6 +55,8 @@ export interface SlotProfile {
 	 * change saves (`writes[].value`), the one place a captured file reaches a
 	 * case, as the link to it. */
 	readonly captureLinkWholeValue: boolean;
+	/** A visible, simple text prompt computes its Search starting value. */
+	readonly searchTextDefault?: true;
 }
 
 export function slotProfile(
