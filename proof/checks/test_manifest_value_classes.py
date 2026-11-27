@@ -8766,31 +8766,42 @@ def _android_callout_shapes():
 
 
 
-def _standalone_result_detail_shapes():
-    def app(prompt, guarded=True):
-        path = f"instance('search-input:results')/input/field[@name = '{prompt}']"
-        text = f"if(count({path}) > 0, string({path}), '')" if guarded else f"string({path})"
-        expr = f"if(count(current()/../../results) > 0, concat('Entered [', {text}, ']'), 'Unsearched case')"
-        module = _search_module(auto_launch=True, properties=[_prompt("village")])
-        module["case_details"] = {
-            "doc_type": "DetailPair",
-            "long": {"doc_type": "Detail", "columns": [_column(expr, useXpathExpression=True)]},
-        }
-        return {**_app([module]), "cloudcare_enabled": True}
+def _standalone_result_detail_app(prompt, guarded=True):
+    path = f"instance('search-input:results')/input/field[@name = '{prompt}']"
+    text = f"if(count({path}) > 0, string({path}), '')" if guarded else f"string({path})"
+    expr = f"if(count(current()/../../results) > 0, concat('Entered [', {text}, ']'), 'Unsearched case')"
+    module = _search_module(auto_launch=True, properties=[_prompt("village")])
+    module["case_details"] = {
+        "doc_type": "DetailPair",
+        "long": {"doc_type": "Detail", "columns": [_column(expr, useXpathExpression=True)]},
+    }
+    return {**_app([module]), "cloudcare_enabled": True}
 
+
+def _standalone_result_detail_shapes():
     key = "schema:DetailColumn.field"
     field = "/case_details/long/columns/0/field"
     return {
-        "menus-and-case-lists/standalone-search-result-detail-text": (
-            refused("app", app("village"), key, field),
-            accepted("app", app("not_offered"), key, field),
-        ),
         "menus-and-case-lists/standalone-search-result-detail-without-its-offered-prompt": (
-            refused("app", app("not_offered"), key, field),
-            accepted("app", app("village"), key, field),
-            accepted("app", app("village", guarded=False), key, field),
+            refused("app", _standalone_result_detail_app("not_offered"), key, field),
+            accepted("app", _standalone_result_detail_app("village"), key, field),
+            accepted("app", _standalone_result_detail_app("village", guarded=False), key, field),
         ),
     }
+
+
+@pytest.mark.parametrize(("prompt", "guarded", "expected"), [
+    ("village", True, True),
+    ("not_offered", True, False),
+    ("village", False, False),
+])
+def test_standalone_result_detail_positive_classifier(manifest, prompt, guarded, expected):
+    body = _standalone_result_detail_app(prompt, guarded)
+    found = manifest_usage.Uses()
+    manifest_usage.app_json_uses(body, manifest, "app.json", found)
+    (field,) = [use for use in found.uses if use.key == "schema:DetailColumn.field"]
+    assert classes.standalone_result_detail_text(field, manifest) is expected
+
 
 SHAPES = {
     **_standalone_result_detail_shapes(),

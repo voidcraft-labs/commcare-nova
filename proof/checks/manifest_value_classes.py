@@ -14276,7 +14276,6 @@ VALUE_CLASSES = {
 # A positive class may need an observation beyond the use at its own source.
 # It grants HELD only when that observation establishes the supported class.
 POSITIVE_VALUE_CLASSES = {
-    "menus-and-case-lists/standalone-search-result-detail-text": standalone_result_detail_text,
     "case-search/address-picker-on-a-search-screen": ordinary_address_search_marker,
     "case-search/case-search-endpoint-id": configured_search_endpoint,
     "case-search/default-filter-orders-the-records-the-search-sends": named_search_order,
