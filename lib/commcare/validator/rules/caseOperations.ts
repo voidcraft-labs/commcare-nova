@@ -838,13 +838,19 @@ function validateOperation(
 					{ reason: "create-key" satisfies TargetInvalidReason },
 				),
 			);
-		} else if (!formFieldCorrelatesWithCreate(field.repeat, repeat)) {
+		} else if (
+			operation.target.shareKeyAcrossRows
+				? repeat === undefined ||
+					field.repeat !== undefined ||
+					field.kind !== "text"
+				: !formFieldCorrelatesWithCreate(field.repeat, repeat)
+		) {
 			errors.push(
 				opError(
 					ctx,
 					operation,
 					"CASE_OPERATION_REPEAT_CORRELATION",
-					"An authored create id must be singular with a singular create, or come from the exact repeat the create runs over.",
+					"Choose a key from this case change’s repeat, or explicitly share its case across rows using a Text answer outside the repeat.",
 				),
 			);
 		}

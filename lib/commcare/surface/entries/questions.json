@@ -3361,7 +3361,7 @@
 		],
 		"valueClass": "savetocase-create",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: `caseOperations[] {action: create}`. A literal-only concatenation stays a calculation and keeps its empty HQ type metadata. Its fixed value is the operation’s catalog type. A standalone Survey can keep a root Text answer as its submitted case name, including its original whitespace and an optional literal suffix. A typed conditional choosing between two distinct declared types also keeps its empty HQ type metadata, when it creates a new case, writes the same compatible properties, and supplies no later case change.",
+		"dispositionCell": "**HELD**: `caseOperations[] {action: create}`. A literal-only concatenation stays a calculation and keeps its empty HQ type metadata. Its fixed value is the operation’s catalog type. A standalone Survey can keep a root Text answer as its submitted case name, including its original whitespace and an optional literal suffix. A repeated create can explicitly share one case by using a Text key outside the repeat. A typed conditional choosing between two distinct declared types also keeps its empty HQ type metadata, when it creates a new case, writes the same compatible properties, and supplies no later case change.",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",

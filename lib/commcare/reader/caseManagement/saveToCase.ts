@@ -731,6 +731,7 @@ type ProposedTarget =
 	| {
 			readonly kind: "new";
 			readonly idFrom?: DraftField;
+			readonly shareKeyAcrossRows?: true;
 			readonly authoredId?: { readonly text: string; readonly site: ClaimSite };
 			/** The prefix a keyed create's id stands under in the source. */
 			readonly idPrefix?: string;
@@ -1760,10 +1761,14 @@ function readBlock(
 			const path =
 				node === undefined ? undefined : resolveContextPath(node, idPath, root);
 			const field = path === undefined ? undefined : fieldAt(xform, path);
-			// An answer keys a create only where the gate takes it as a key: one
-			// string (`formFieldCanKeyCreate`: not a multi-select answer, which Nova
-			// holds as a list) from the create's own repeat, or the root for a
-			// create at the root (`formFieldCorrelatesWithCreate`).
+			const keyRepeat =
+				field === undefined ? undefined : enclosingRepeat(xform, field);
+			// A root Text key explicitly preserved on a repeated create refers
+			// to the same namespaced case in every row of this submission.
+			const shareKeyAcrossRows =
+				keyRepeat === null &&
+				block.repeat !== null &&
+				field?.field.kind === "text";
 			if (
 				field === undefined ||
 				keyedId === undefined ||
@@ -1771,10 +1776,15 @@ function readBlock(
 					kind: field.kind,
 					dataType: caseDataTypeForFieldKind(field.kind),
 				}) ||
-				enclosingRepeat(xform, field) !== block.repeat
+				(keyRepeat !== block.repeat && !shareKeyAcrossRows)
 			)
 				return fail(SAVE_TO_CASE_CLAIMS.authoredCreateId);
-			target = { kind: "new", idFrom: field, idPrefix: keyedId.prefix };
+			target = {
+				kind: "new",
+				idFrom: field,
+				idPrefix: keyedId.prefix,
+				...(shareKeyAcrossRows && { shareKeyAcrossRows: true as const }),
+			};
 		} else if (
 			rootSetvalue === undefined &&
 			idCalculate !== undefined &&
@@ -4159,6 +4169,10 @@ function operationOf(
 			target: {
 				kind: "new",
 				...(idFrom !== undefined && { idFrom }),
+				...(one.target.kind === "new" &&
+					one.target.shareKeyAcrossRows && {
+						shareKeyAcrossRows: true as const,
+					}),
 				...(one.target.kind === "new" &&
 					one.target.authoredId !== undefined && {
 						expr: placeholder("value"),

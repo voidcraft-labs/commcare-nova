@@ -373,11 +373,17 @@ const newCaseTargetSchema = z
 	.strictObject({
 		kind: z.literal("new"),
 		idFrom: uuidSchema.optional(),
+		shareKeyAcrossRows: z.literal(true).optional(),
 		expr: valueSchema.optional(),
 	})
 	.refine(
 		({ idFrom, expr }) => idFrom === undefined || expr === undefined,
 		"Choose a keyed field or an exact case ID expression.",
+	)
+	.refine(
+		({ idFrom, shareKeyAcrossRows }) =>
+			shareKeyAcrossRows === undefined || idFrom !== undefined,
+		"Choose the answer that keys the same case in every row.",
 	);
 
 const operationCaseTargetSchema = z.strictObject({

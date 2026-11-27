@@ -38345,6 +38345,22 @@
 	{
 		"id": "hq-questions/save-to-case-keyed-from-outside-its-row",
 		"base": "hq-questions",
+		"entry": "questions/savetocase-create-case-type-literal-case-name-owner-id-uuid-case",
+		"change": {
+			"op": "named",
+			"name": "save_to_case_keyed_from_outside_its_row"
+		},
+		"holds": [
+			{
+				"key": ["form", { "$xmlns": [0, 0] }],
+				"pointer": "/caseOperations/0/target/shareKeyAcrossRows",
+				"value": true
+			}
+		]
+	},
+	{
+		"id": "hq-questions/save-to-case-keyed-by-number-from-outside-its-row",
+		"base": "hq-questions",
 		"entry": "questions/savetocase-create-with-an-authored-non-uuid-case-id-xpath-inside",
 		"standing": "not-yet",
 		"place": {
@@ -38357,7 +38373,7 @@
 		},
 		"change": {
 			"op": "named",
-			"name": "save_to_case_keyed_from_outside_its_row"
+			"name": "save_to_case_keyed_by_number_from_outside_its_row"
 		}
 	},
 	{

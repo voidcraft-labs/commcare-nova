@@ -3321,6 +3321,18 @@ def save_to_case_keyed_from_outside_its_row(authoring, app_id):
     )
 
 
+def save_to_case_keyed_by_number_from_outside_its_row(authoring, app_id):
+    """A repeated create still cannot key the same record with an unrelated numeric answer."""
+    _edit(
+        authoring, app_id, "save-to-case-keyed-by-number-from-outside-its-row",
+        lambda text: _transplanted(
+            text, KEYED_IN_REPEAT_DATA,
+            KEYED_IN_REPEAT_MODEL.replace("current()/../../../../member_name", "/data/age"),
+            KEYED_IN_REPEAT_BODY, data_before="</members>", body_after=MEMBER_NAME_CLOSE,
+        ),
+    )
+
+
 def save_to_case_keyed_beside_worker(authoring, app_id):
     """A ``visit`` created in each row of ``members`` under an id ``member_name`` keys, in a form whose Case
     Management also writes the worker's record (``usercase_update``, set on the form's actions)."""

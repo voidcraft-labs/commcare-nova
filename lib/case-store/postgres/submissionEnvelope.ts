@@ -524,6 +524,8 @@ function allocateCreateIdentities(
 	instances: readonly PhysicalInstance[],
 ): Map<number, CreateAllocation> {
 	const allocations = new Map<number, CreateAllocation>();
+	const rootFields = program.scopes.find(({ repeat }) => repeat === undefined)
+		?.iterations[0]?.formFields;
 	for (const [index, instance] of instances.entries()) {
 		const operation = instance.envelope.operation;
 		if (operation.action !== "create" || operation.target.kind !== "new") {
@@ -562,7 +564,10 @@ function allocateCreateIdentities(
 			});
 			continue;
 		}
-		const rawKey = instance.formFields.get(operation.target.idFrom);
+		const keyFields = operation.target.shareKeyAcrossRows
+			? rootFields
+			: instance.formFields;
+		const rawKey = keyFields?.get(operation.target.idFrom);
 		const key = typeof rawKey === "string" ? rawKey : "";
 		const derived = deriveAuthoredCaseId(
 			{

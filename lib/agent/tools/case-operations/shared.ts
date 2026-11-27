@@ -135,6 +135,12 @@ const newTargetInputSchema = z.strictObject({
 		.describe(
 			"Optional field UUID whose answer deterministically keys the case",
 		),
+	shareKeyAcrossRows: z
+		.literal(true)
+		.optional()
+		.describe(
+			"Use a Text answer outside the repeat when every row should intentionally share the same case.",
+		),
 	expr: valueSchema
 		.optional()
 		.describe(

@@ -39,13 +39,8 @@ export function operationCanReadFormField(
 /**
  * Whether an answer sits in exactly the scope a create's identity key must.
  *
- * Deliberately NOT `operationCanReadFormField`, and the difference is a
- * data-loss bug if the two are conflated: a root answer is readable from a
- * repeated operation (it has one value per submission), but it cannot KEY
- * one — every iteration would derive the same identity and collapse onto a
- * single case. Keying requires the answer to vary exactly as the create
- * does, which means the same repeat, including "no repeat" for a singular
- * create.
+ * An ordinary repeated key must be on its own row. A separate explicit
+ * target flag permits deliberate reuse of a case keyed from root Text.
  */
 export function formFieldCorrelatesWithCreate(
 	fieldRepeat: Uuid | undefined,
