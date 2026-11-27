@@ -266,6 +266,92 @@ def test_case_list_lookup_evaluates_extras_before_a_case_is_selected(hq, editor_
         assert (reply["searchText"], reply["after"]) == ("Juniper", ["Juniper"])
 
 
+def test_retained_two_step_lookup_extra_depends_on_worker_mode(hq, editor_driver):
+    """Drive the retained HQ setting through the stock save and installed companion."""
+    import json
+    from urllib.parse import parse_qsl
+
+    from proof.editors import pages
+    from proof.hq import operations
+    from proof.matrix.authoring import Authoring
+    from proof.matrix.bases import case_lists
+    from proof.matrix.variants import menus_and_case_lists
+
+    database = casedata.CaseDatabase(
+        user_id=casedata.USER_ID,
+        username=casedata.USERNAME,
+        user_data=(),
+        cases=tuple(
+            replace(_case(f"lookup-{name.lower()}", name), case_type="patient",
+                    properties=(("dob", "2010-01-01"), ("mode", value)))
+            for name, value in (("Cedar", "first record"), ("Juniper", "second record"))
+        ),
+    )
+
+    def save_and_observe(state, app_id, expression, modes):
+        expected = [{"key": "mode", "value": expression}]
+        module = operations.held_app(state, app_id).modules[0]
+        saved = pages.fresh_section_save(editor_driver, state, pages.CASE_LIST, app_id, module.unique_id)
+        assert saved.save and saved.save.status == 200 and not saved.refused, saved.alerts
+        posted = dict(parse_qsl(saved.save.body.decode("utf-8"), keep_blank_values=True))
+        lookup = json.loads(posted["case_list_lookup"])
+        assert lookup["lookup_action"] == "org.example.SCAN"
+        assert lookup["lookup_extras"] == expected
+        assert lookup["lookup_responses"] == [{"key": "patient_id"}]
+        assert operations.held_app(state, app_id).modules[0].case_details.short.lookup_extras == expected
+
+        results = {}
+        with formplayer.serve(state, None, app_id, database=database, label="retained-lookup-extra") as served:
+            archive = observe.release_archive(served)
+            with ZipFile(BytesIO(archive)) as release:
+                suite = etree.fromstring(release.read("suite.xml"))
+                assert suite.xpath(".//lookup/extra[@key='mode']/@value") == [expression]
+            for mode, legacy in modes:
+                blobs = Blobs()
+                record = observe.app(
+                    served, blobs, label=mode, archive=archive, case_lookup_legacy_mode=legacy,
+                    case_lookup_returns=[{"primary": " Juniper "}],
+                )
+                results[mode] = blobs.get_json(record["answer"])
+        return results
+
+    with hq_check(CONFIGURATION) as (state, _):
+        authoring = Authoring(state, {}, "retained-case-list-lookup", editor_driver, operation=state.operation)
+        app_id = case_lists.build(authoring)
+        menus_and_case_lists.callout_with_a_multi_step_field_argument(authoring, app_id)
+        observations = save_and_observe(
+            state, app_id, "properties/mode", (("ordinary", False), ("legacy", True)),
+        )
+        menus_and_case_lists.named_callout(authoring, app_id, value="'properties/mode'")
+        observations.update(save_and_observe(state, app_id, "'properties/mode'", (("fixed-text", False),)))
+
+    write_evidence("retained-two-step-lookup-extra", observations)
+    for mode, installed in observations.items():
+        assert installed["install"] == "Installed", installed
+        assert installed["signIn"].startswith("Success("), installed
+        walks = installed["walks"].values()
+        failures = [walk["raised"] for walk in walks if "raised" in walk]
+        replies = [
+            reply
+            for walk in walks if "raised" not in walk
+            for step in walk.get("steps", [])
+            for reply in (step.get("list") or {}).get("lookupReturns", [])
+        ]
+        if mode == "ordinary":
+            assert failures and not replies, installed
+            for failure in failures:
+                assert "Cannot evaluate the reference [/properties/mode]" in failure["stack"], failure
+                assert "No default instance has been declared!" in failure["stack"], failure
+                assert "EntitySelectCalloutSetup.buildCalloutIntent" in failure["stack"], failure
+        else:
+            assert replies and not failures, installed
+            for reply in replies:
+                assert reply["action"] == "org.example.SCAN"
+                assert reply["sent"] == {"mode": "properties/mode"}
+                assert set(reply["before"]) == {"Cedar", "Juniper"}
+                assert (reply["searchText"], reply["after"]) == ("Juniper", ["Juniper"])
+
+
 @pytest.mark.parametrize(("mode", "value", "expected"), [
     ("ordinary", "1 + 2", "3"),
     ("ordinary", "'3'", "3"),
