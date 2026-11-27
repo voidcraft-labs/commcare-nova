@@ -316,12 +316,17 @@ def search_button_orders_device_id_with_session(authoring, app_id):
     _search_button_orders_worker_with_session(authoring, app_id, "deviceid")
 
 
-def _search_button_orders_worker_with_session(authoring, app_id, field):
+def search_button_compares_device_id_below_with_session(authoring, app_id):
+    """The declared session supplies the device id in this distinct comparison."""
+    _search_button_orders_worker_with_session(authoring, app_id, "deviceid", operator="<")
+
+
+def _search_button_orders_worker_with_session(authoring, app_id, field, operator=">"):
     _set_each(
         authoring,
         app_id,
         ("/modules/0/case_details/short/filter", f"@owner_id = {SESSION}/context/userid"),
-        ("/modules/0/search_config/search_button_display_condition", f"{SESSION}/context/{field} > 'm'"),
+        ("/modules/0/search_config/search_button_display_condition", f"{SESSION}/context/{field} {operator} 'm'"),
     )
 
 

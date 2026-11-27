@@ -39826,6 +39826,21 @@
 		}
 	},
 	{
+		"id": "hq-search/button-compares-the-declared-device-id-below-text",
+		"base": "hq-search",
+		"entry": "case-search/search-button-display-condition-outside-predicate",
+		"standing": "not-yet",
+		"place": {
+			"kind": "search",
+			"menu": 0,
+			"name": "Clients"
+		},
+		"change": {
+			"op": "named",
+			"name": "search_button_compares_device_id_below_with_session"
+		}
+	},
+	{
 		"id": "hq-search/button-orders-the-device-id-when-the-list-loads-it",
 		"base": "hq-search",
 		"entry": "case-search/search-button-display-condition-lifting-into-predicate",
