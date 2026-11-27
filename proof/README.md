@@ -389,6 +389,25 @@ and no register entry may hold one. `proof/matrix/test_retained.py` joins each
 variant's added uses to its claim log with the same two functions
 (`added_uses`, `join`).
 
+An appearance is joined once, on its inventory row. The inventory sorts an
+appearance by its whole value, on the control it stands on, into exactly one
+row (a single word a runtime reads under that word's row, several words under
+the multi-token row, a per-row count, a case variant and so on), while the
+manifest check makes a use of the attribute's own key at every appearance and
+one of each token a runtime reads in it, which no single record can name. So
+parity puts each appearance attribute in its row with the lane's own
+classifier (`proof/checks/appearance_rows.py::row_of`), written from each
+row's predicate in `lib/commcare/surface/entries/questions.json` and the
+upstream readers it names (Web Apps' `form_ui.js::getMatchingStyles` and
+`entries.js::getEntry`, Android's `WidgetFactory.java` and `TriggerWidget`,
+Core's `isHostWithAppearance` and `collapseRepeatGroups`) and the lane's own
+value-class readers, never ported from Nova's reader, and needs the reader's
+record there under that row with the row's standing. The per-token uses stay
+the manifest and sensitivity checks' evidence of each runtime's reading. An
+appearance the classifier does not decide is listed by place and value in the
+check's evidence (`undecidedAppearances`), and
+`proof/checks/test_appearance_rows.py` fails where a retained base exhibits one.
+
 ### Configuration sensitivity
 
 Collection and aggregate audits share `proof/checks/eligibility.py`. Migration
@@ -4910,6 +4929,23 @@ The rules whose readers reach past HQ's build and Core:
   `Field-List` and kept for `FIELD-LISTS`, and Formplayer's walk and the
   client's screens alike; Android's is
   `predicates.py::test_a_form_reads_a_field_list_group_alike_in_either_letter_case`.
+
+- **`repeat-row-count-without-a-repeat`** (`repeat_row_count_without_a_repeat`): a
+  group's appearance made only of `<n>-per-row-repeat` over a group that holds no
+  repeat, taken away in Core's trace (a group event's `appearance`, where no repeat
+  event of the same step stands directly under the group) and in Formplayer's
+  answers (a group's `style`, where none of its children is a repeat). Nova holds a
+  repeat row count only on a group that holds a repeat and drops it elsewhere
+  (`question-display-respelled`). The Web Apps client lays the count onto the
+  group's repeats alone (`form_entry/form_ui.js::processNPerRowRepeatStyle`), and
+  the group's own row layout reads `<n>-per-row` followed by a space or the end;
+  Core reads a group's appearance only as `field-list`, and Android as
+  `field-list` or `compact`. Its test publishes `targeted-plain-help` with that
+  form's last control in a group with no appearance, `2-per-row-repeat` and
+  `2-per-row`, holds Core's sessions apart only at the event's appearance, erased
+  for the count and kept for `2-per-row`, and Formplayer's walk and the client's
+  screens alike; Android's is
+  `predicates.py::test_a_form_reads_a_group_alike_with_and_without_a_repeat_row_count`.
 
 Formplayer's traces take the rules for an `instance` (each XML document a
 trace holds).

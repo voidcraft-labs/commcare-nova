@@ -12,8 +12,10 @@
 	"exhibits": [
 		"application-and-settings/langs-code-spelling-matching-hq-s-grammar-a-z-2-3-a-z-e-g-en-hin",
 		"application-and-settings/langs-order-langs-0-default",
-		"application-and-settings/translations-generated-key-over-one-text",
+		"application-and-settings/translations-app-display-name",
 		"application-and-settings/translations-generated-key-with-no-effect",
+		"application-and-settings/translations-generated-wording",
+		"application-and-settings/translations-homescreen-title",
 		"questions/an-explicitly-blank-value-in-a-non-default-language-where-the",
 		"questions/itext-ids-other-than-a-pragma-key-default-placement",
 		"questions/label-default-text-itext-value",

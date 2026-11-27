@@ -112,6 +112,7 @@ describe("hqImportApplication", () => {
 			),
 		);
 		expect(Object.keys(application).at(-1)).toBe("_attachments");
+		/* The update writes or removes the Android apps workers need. */
 		expect(ownership).toEqual({
 			addOns: [],
 			profileProperties: ["cc-show-saved", "cc-show-incomplete"],

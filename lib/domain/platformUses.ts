@@ -28,7 +28,7 @@ import { walkSearchRuntimeValues } from "./expression/searchRuntimeValues";
 import { scalarDataType, typeOf } from "./expression/typeChecker";
 import type { CheckPath, Expression, SlotContextRef } from "./expression/types";
 import { walkExpressionNodes } from "./expression/walk";
-import { fieldDisplayValues } from "./fieldDisplay";
+import { choiceDisplayFeatures, fieldDisplayValues } from "./fieldDisplay";
 import type { Field } from "./fields";
 import { inlineOptionsOf } from "./fields/selectOptionsSource";
 import {
@@ -46,12 +46,15 @@ import {
 	tileCellFor,
 } from "./modules";
 import {
+	declaredPlatforms,
 	expressionLeafFeature,
 	PLATFORM_FEATURE_IDS,
 	PLATFORM_FEATURES,
 	PLATFORMS,
 	type Platform,
 	type PlatformFeatureId,
+	type PlatformTargetCondition,
+	TARGET_CONDITIONED_FEATURES,
 	unavailablePlatform,
 } from "./platforms";
 import { expressionSlotValues } from "./referenceSlots";
@@ -652,10 +655,33 @@ function fieldUses(
 		uses.push(slotUse("question-pages", owner, "kind"));
 	// Every display setting whose value a platform reads differently, found
 	// through the one registry, so a new setting needs no detector here.
-	for (const { key, row } of fieldDisplayValues(field)) {
+	const settings = fieldDisplayValues(field);
+	for (const { key, row } of settings) {
 		if (row.feature !== undefined && wanted(row.feature))
 			uses.push(slotUse(row.feature, owner, key));
 	}
+	for (const id of choiceDisplayFeatures(field)) {
+		if (wanted(id)) uses.push(slotUse(id, owner, "choiceLayout"));
+	}
+	if (
+		settings.length > 1 &&
+		!uses.some((use) => use.feature === "combined-question-display") &&
+		wanted("combined-question-display")
+	)
+		uses.push(slotUse("combined-question-display", owner, settings[0].key));
+	if (
+		field.kind === "barcode" &&
+		(field.addressLookup || field.receiveFrom) &&
+		!field.keypad &&
+		wanted("barcode-text-options")
+	)
+		uses.push(
+			slotUse(
+				"barcode-text-options",
+				owner,
+				field.addressLookup ? "addressLookup" : "receiveFrom",
+			),
+		);
 	if (
 		"plainLabel" in field &&
 		field.plainLabel === true &&
@@ -722,4 +748,39 @@ export function contentRunsOn(doc: BlueprintDoc): readonly Platform[] {
 		}),
 	);
 	return PLATFORMS.filter((platform) => !blocked.has(platform));
+}
+
+/** The uses of one feature whose reading on a platform the app declares
+ *  depends on the project space it is published to. */
+export interface TargetConditionUses {
+	readonly feature: PlatformFeatureId;
+	readonly condition: PlatformTargetCondition;
+	/** In document order; never empty. */
+	readonly uses: readonly PlatformFeatureUse[];
+}
+
+/**
+ * Every target condition the app's content meets, in table order, each with
+ * its uses: a feature whose condition names a platform the app declares and
+ * that some content uses. An app that does not declare the platform needs
+ * nothing of the project space for it (Android alone reads an address
+ * question as ordinary text).
+ */
+export function targetConditionUses(
+	doc: BlueprintDoc,
+): readonly TargetConditionUses[] {
+	const platforms = declaredPlatforms(doc);
+	const features = TARGET_CONDITIONED_FEATURES.filter((feature) => {
+		const condition = PLATFORM_FEATURES[feature].targetCondition;
+		return condition !== undefined && platforms.includes(condition.platform);
+	});
+	if (features.length === 0) return [];
+	const uses = platformFeatureUses(doc, { features: new Set(features) });
+	return features.flatMap((feature) => {
+		const condition = PLATFORM_FEATURES[feature].targetCondition;
+		const own = uses.filter((use) => use.feature === feature);
+		return condition === undefined || own.length === 0
+			? []
+			: [{ feature, condition, uses: own }];
+	});
 }

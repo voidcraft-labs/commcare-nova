@@ -172,6 +172,44 @@ function valueListPlacementCopy(
 	}
 }
 
+/** A media file one language shows on a question or choice that the app
+ * can't keep: by the `mediaProblem` the validator names. */
+function formMediaLanguageCopy(e: ValidationError): string {
+	const where = `${q(fieldName(e))} in ${q(formName(e))}`;
+	const role = MEDIA_ROLE_NAMES[det(e, "mediaRole", "")] ?? "file";
+	switch (e.details?.mediaProblem) {
+		case "default-outside-app":
+			return `A file on ${where} follows a language the app no longer has. You can choose a shared file for it.`;
+		case "language-outside-app":
+			return `A file on ${where} is set for a language the app doesn't have. You can choose the file in one of the app's languages.`;
+		case "needs-shared":
+			return `${where} has a translated ${role} but no shared ${role}. You can choose the shared ${role} first, or remove the translated one.`;
+		default:
+			return `A file on ${where} is set for its languages in a way the app can't keep. You can choose a shared file for it.`;
+	}
+}
+
+/** A menu's file in one language that the app can't keep. */
+function menuMediaLanguageCopy(e: ValidationError): string {
+	const where = e.location.formName ? q(formName(e)) : q(modName(e));
+	switch (e.details?.mediaProblem) {
+		case "language-outside-app":
+			return `A menu file on ${where} is set for a language the app doesn't have. You can choose the file in one of the app's languages.`;
+		case "needs-shared":
+			return e.details.mediaRole === "audioLabel"
+				? `${where} has translated spoken audio but no shared spoken label. You can choose the shared audio first, or clear the translated audio.`
+				: `${where} has a translated icon but no shared icon. You can choose the shared icon first, or clear the translated icon.`;
+		default:
+			return `A menu file on ${where} is set for its languages in a way the app can't keep. You can choose a shared file for it.`;
+	}
+}
+
+const MEDIA_ROLE_NAMES: Readonly<Record<string, string>> = {
+	image: "image",
+	audio: "audio file",
+	video: "video",
+};
+
 /** The case operation's authored id, or "this case change". */
 const opName = (e: ValidationError): string =>
 	det(e, "operationId", "this case change");
@@ -1445,6 +1483,8 @@ const USER_MESSAGE_BY_CODE: Record<
 		`${q(formName(e))} is split into sections, but ${looseFieldsPhrase(e)} outside every section. Once a form has sections, every field belongs inside one. Add ${det(e, "looseCount", "") === "1" ? "it" : "them"} to a section, or remove the sections to go back to a single page.`,
 	FORM_SECTION_USER_REPEAT: (e) =>
 		`${q(fieldName(e))} in ${q(formName(e))} lets people add entries, but it sits inside section ${q(det(e, "sectionTitle", det(e, "sectionId", "")))}, and a section shows on one screen where entries can't be added. Move the repeat out of the sections, or give it a fixed count.`,
+	QUESTION_DISPLAY_COMBINATION_INVALID: (e) =>
+		`${q(fieldName(e))} in ${q(formName(e))}: ${det(e, "displayProblem", "these display settings can't be shown together. You can change one of them.")}`,
 	FIELD_LIST_USER_REPEAT: (e) => {
 		const group = q(det(e, "groupTitle", det(e, "groupId", "")));
 		return `${q(formName(e))} has repeat ${q(fieldName(e))} inside ${group}, which shows its questions on one screen, and that repeat lets the worker add entries. The CommCare app can't add entries on a shared screen. You can let ${group} show one question per screen, or give the repeat a fixed count.`;
@@ -1782,6 +1822,8 @@ const USER_MESSAGE_BY_CODE: Record<
 		`A choice on ${q(fieldName(e))} in ${q(formName(e))} ${optionValueProblemPhrase(e)}. A choice's value is the answer the app saves, so it can't hold spaces, can't hold both an apostrophe and a double quote, can't read as a data source, and can't be empty. ${q(det(e, "suggestedValue", "a_value_like_this"))} would work, with the wording kept in the label.`,
 	SELECT_OPTION_VALUE_DUPLICATE: (e) =>
 		`Two choices of ${q(fieldName(e))} in ${q(formName(e))} both store ${q(det(e, "optionValue", ""))}, so a saved answer can't say which was chosen. ${q(det(e, "suggestedValue", "a_new_value"))} is free for the second.`,
+	FORM_MEDIA_LANGUAGE: (e) => formMediaLanguageCopy(e),
+	MENU_MEDIA_LANGUAGE: (e) => menuMediaLanguageCopy(e),
 	SELECT_OPTION_LABEL_EMPTY: (e) =>
 		`${e.details?.optionPosition ? `Choice ${e.details.optionPosition}` : "A choice"} on ${q(fieldName(e))} in ${q(formName(e))} has no label in any language and no image, audio or video, so workers would see an empty choice. Give it a label, or attach media to it.`,
 	HIDDEN_VALUE_BOTH_SOURCES: (e) =>

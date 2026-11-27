@@ -48,6 +48,38 @@ function menus(first: MediaAssetId, second: MediaAssetId): BlueprintDoc {
 }
 
 describe("contentNamedDocument", () => {
+	it("gives a translated menu file the same review identity after Project deduplication", () => {
+		function translated(file: MediaAssetId) {
+			const doc = menus(OTHER, OWN);
+			doc.localization = {
+				sourceLanguage: "eng",
+				defaultLanguage: "eng",
+				languageOrder: ["eng", "fra"],
+				wireCodes: { eng: "en", fra: "fr" },
+				translations: { fra: {} },
+			};
+			doc.modules[doc.moduleOrder[0]].mediaByLanguage = { fra: { icon: file } };
+			return doc;
+		}
+		const reviewed = contentNamedDocument(
+			translated(PROVISIONAL),
+			[{ assetId: PROVISIONAL, contentHash: HASH }],
+			new Map([[OWN, HASH]]),
+		);
+		const broughtIn = contentNamedDocument(
+			translated(OWN),
+			[{ assetId: OWN, contentHash: HASH }],
+			new Map(),
+		);
+		expect(reviewed).toBe(broughtIn);
+		const otherFile = contentNamedDocument(
+			translated(OTHER),
+			[{ assetId: OWN, contentHash: HASH }],
+			new Map([[OTHER, OTHER_HASH]]),
+		);
+		expect(otherFile).not.toBe(reviewed);
+	});
+
 	it("names a file CommCare HQ added alike before and after it is published as an own asset of the same bytes", () => {
 		const reviewed = contentNamedDocument(
 			menus(OWN, PROVISIONAL),

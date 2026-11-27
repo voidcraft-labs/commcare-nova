@@ -2381,10 +2381,12 @@ test.describe("authenticated builder", () => {
 				await expect(clocks.nth(0)).not.toHaveAttribute("aria-invalid", "true");
 			});
 
-			await test.step("a typed clock commits in the locale's own spelling", async () => {
+			await test.step("a typed clock commits in the clock Web Apps shows", async () => {
+				// A time question that asks for no 12-hour clock reads on Web
+				// Apps' 24-hour one (`form_entry/entries.js::TimeEntry`, `HH:mm`).
 				await clocks.nth(0).fill("7:05 am");
 				await clocks.nth(0).blur();
-				await expect(clocks.nth(0)).toHaveValue("7:05 AM");
+				await expect(clocks.nth(0)).toHaveValue("07:05");
 				await expect(clocks.nth(0)).not.toHaveAttribute("aria-invalid", "true");
 			});
 

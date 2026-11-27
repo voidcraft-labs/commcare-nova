@@ -53,7 +53,7 @@ import {
 } from "@/lib/commcare/localization";
 import type { LookupWireNaming } from "@/lib/commcare/lookup/naming";
 import type { AssetManifest } from "@/lib/commcare/multimedia/assetWirePath";
-import { buildNavMediaDicts } from "@/lib/commcare/multimedia/navMenuMedia";
+import { localizedNavMediaDicts } from "@/lib/commcare/multimedia/navMenuMedia";
 import { toHqWorkflow } from "@/lib/commcare/session";
 import { EMPTY_CASE_LIST_TEXT } from "@/lib/commcare/suite/case-list/detailTexts";
 import {
@@ -102,6 +102,7 @@ import {
 	sessionDataRef,
 } from "./formLinkProjection";
 import {
+	appNameWordingKeys,
 	generatedWordingKeys,
 	generatedWordingOverrides,
 	hasOutputOverrides,
@@ -499,12 +500,11 @@ export function* expandDocSteps(
 			// Stamp the form's menu-command media (icon + audio label) onto
 			// the shell. CCHQ reads these `media_image` / `media_audio` dicts
 			// to regenerate the suite command's `<display>` on import.
-			const formMedia = buildNavMediaDicts(
-				form.icon,
-				form.audioLabel,
+			const formMedia = localizedNavMediaDicts(
+				form,
 				assets,
 				"expandDoc form media",
-				localization.languages,
+				localization,
 			);
 			formShellObj.media_image = formMedia.media_image;
 			formShellObj.media_audio = formMedia.media_audio;
@@ -656,12 +656,11 @@ export function* expandDocSteps(
 				? undefined
 				: formUniqueIdOf.get(alwaysOffered.formUuid);
 		if (alwaysOffered !== undefined && alwaysOfferedFormId !== undefined) {
-			const media = buildNavMediaDicts(
-				alwaysOffered.icon,
-				alwaysOffered.audioLabel,
+			const media = localizedNavMediaDicts(
+				alwaysOffered,
 				assets,
 				"expandDoc case list registration media",
-				localization.languages,
+				localization,
 			);
 			shell.case_list_form = {
 				doc_type: "CaseListForm",
@@ -684,12 +683,11 @@ export function* expandDocSteps(
 		// case-list link's media onto the shell + its `case_list` block.
 		// CCHQ reads these dicts to regenerate the suite `<menu>` /
 		// case-list-command `<display>` on import.
-		const moduleMedia = buildNavMediaDicts(
-			mod.icon,
-			mod.audioLabel,
+		const moduleMedia = localizedNavMediaDicts(
+			mod,
 			assets,
 			"expandDoc module media",
-			localization.languages,
+			localization,
 		);
 		shell.media_image = moduleMedia.media_image;
 		shell.media_audio = moduleMedia.media_audio;
@@ -725,12 +723,11 @@ export function* expandDocSteps(
 			// `.ccz` compiler reads the same shell, so both artifacts agree.
 			// Empty dicts on the media-OFF path (`assets` undefined), so
 			// byte-free output is unchanged.
-			const caseListMedia = buildNavMediaDicts(
-				mod.caseListMenuItem?.icon,
-				mod.caseListMenuItem?.audioLabel,
+			const caseListMedia = localizedNavMediaDicts(
+				mod.caseListMenuItem,
 				assets,
 				"expandDoc case-list media",
-				localization.languages,
+				localization,
 			);
 			shell.case_list.media_image = caseListMedia.media_image;
 			shell.case_list.media_audio = caseListMedia.media_audio;
@@ -841,13 +838,16 @@ function appLevelValues(
 	readonly langs: string[];
 	readonly translations: Record<string, Record<string, string>>;
 } {
-	const overrides =
-		projection && hasOutputOverrides(doc)
-			? generatedWordingOverrides(
-					doc,
-					generatedWordingKeys(doc, projection.plan, projection.options),
-				)
-			: {};
+	// The app name's two strings are written whatever the projection; every other generated key
+	// only where a projection derives it.
+	const overrides = hasOutputOverrides(doc)
+		? generatedWordingOverrides(
+				doc,
+				projection
+					? generatedWordingKeys(doc, projection.plan, projection.options)
+					: appNameWordingKeys(doc),
+			)
+		: {};
 	const appNameByLanguage = localization.textMap(
 		makeTranslationUnitId("app", "name"),
 	);

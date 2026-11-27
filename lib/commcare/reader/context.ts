@@ -142,7 +142,7 @@ function emptyFacts(input: ReaderInput): MutableReadFacts {
 		unheldMedia: [],
 		pendingMedia: [],
 		unreadTables: [],
-		foldedTranslationKeys: [],
+		unusedTranslationKeys: [],
 		forms: [],
 		sameStateRewrites: [],
 		detailColumnOwners: [],

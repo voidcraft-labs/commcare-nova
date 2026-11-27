@@ -284,7 +284,9 @@ const TRANSLATION_CLAIMS = defineClaims("appShell.translations", {
 		`${A}/translations-lang-code-any-other-value-or-absent-where-hq-s`,
 		TRANSLATIONS,
 	),
-	homescreenTitle: account(`${A}/translations-homescreen-title`, TRANSLATIONS),
+	/** A language's `homescreen.title` equal to its `app.display.name`, both the app name's
+	 *  translation: Nova writes it from that translation. */
+	homescreenTitle: derived(`${A}/translations-homescreen-title`, TRANSLATIONS),
 	/** A runtime's UI key some language holds, which HQ's build fills from its own catalog in an
 	 *  app language that holds no text for it (`readCatalogFills`). */
 	hqCatalogKey: account(
@@ -981,8 +983,11 @@ function readTranslations(
 	const codes = new Set(languages.codes);
 	const appNames = new Map<string, string>();
 	const appName = name?.value;
-	let firstLanguageName: Admitted<string> | undefined;
-	let firstLanguageNamePointer = "";
+	/* Each language's two strings HQ's build writes from the app's name, as stored. */
+	const nameStrings = new Map<
+		string,
+		{ json: JsonCursor; display?: unknown; title?: unknown }
+	>();
 	const byLanguage = ctx.app.map(
 		"translations",
 		"Application.translations",
@@ -1039,27 +1044,14 @@ function readTranslations(
 					else strings.account(key, TRANSLATION_CLAIMS.languageNameOther);
 					continue;
 				}
-				case "app-display-name": {
-					if (typeof value !== "string") continue;
-					const read = strings.take(
-						key,
-						TRANSLATION_CLAIMS.appDisplayName,
-						(v) => v as string,
-					);
-					const text = read.value;
-					/* Blank, or in the source language equal to `name`, it is the string HQ's
-					 * build writes from `name`. */
-					if (!appliedDisplayName(text)) continue;
-					if (language !== languages.source) appNames.set(language, text);
-					else if (text !== appName) {
-						firstLanguageName = read;
-						firstLanguageNamePointer = `${strings.pointer}/${pointerToken(key)}`;
-					}
+				case "app-display-name":
+				case "homescreen-title": {
+					const pair = nameStrings.get(language) ?? { json: strings };
+					if (kind === "app-display-name") pair.display = value;
+					else pair.title = value;
+					nameStrings.set(language, pair);
 					continue;
 				}
-				case "homescreen-title":
-					strings.account(key, TRANSLATION_CLAIMS.homescreenTitle);
-					continue;
 				case "runtime-ui-string": {
 					const claim = uiStringClaim(key);
 					if (claim !== undefined) strings.account(key, claim);
@@ -1072,23 +1064,36 @@ function readTranslations(
 		}
 	}
 	readCatalogFills(ctx, languages);
-	if (firstLanguageName !== undefined) {
-		const override = firstLanguageName;
-		ctx.writeDraft(() => {
-			ctx.draft.appName = override;
-		});
-		ctx.facts.foldedTranslationKeys.push(firstLanguageNamePointer);
+	/* A language other than the source holding both strings with one text other than `name` is
+	 * what Nova writes for the app name's translation there (`expander.ts::appLevelValues`), so it
+	 * reads as that translation. Every other stored one is that string's own wording, the generated
+	 * key's (`generatedWording.ts::appNameWordingKeys`), which Nova writes back as stored. */
+	for (const [language, pair] of nameStrings) {
+		const { json: strings, display, title } = pair;
+		if (
+			language !== languages.source &&
+			appliedDisplayName(display) &&
+			title === display &&
+			display !== appName
+		) {
+			const translated = strings.take(
+				"app.display.name",
+				TRANSLATION_CLAIMS.appDisplayName,
+				(v) => v as string,
+			).value;
+			strings.derived("homescreen.title", TRANSLATION_CLAIMS.homescreenTitle);
+			appNames.set(language, translated);
+			continue;
+		}
+		for (const [key, value] of [
+			["app.display.name", display],
+			["homescreen.title", title],
+		] as const)
+			if (value !== undefined)
+				held.push({ language, key, value, json: strings });
 	}
 	const translated = new Map(
-		[
-			...holdAppName(
-				ctx,
-				languages,
-				name,
-				appNames,
-				firstLanguageName !== undefined,
-			),
-		].flatMap(([code, text]) => {
+		[...holdAppName(ctx, languages, name, appNames)].flatMap(([code, text]) => {
 			const tag = languages.tagOf.get(code);
 			return tag === undefined || languages.refused.has(code)
 				? []
@@ -1162,7 +1167,6 @@ function holdAppName(
 	languages: HqLanguages,
 	name: Admitted<string> | undefined,
 	appNames: ReadonlyMap<string, string>,
-	fromDisplayName: boolean,
 ): ReadonlyMap<string, string> {
 	const source = languages.source;
 	const sourceName = ctx.draft.appName?.value;
@@ -1213,7 +1217,7 @@ function holdAppName(
 	for (const code of languages.codes) {
 		const before = shown.get(code);
 		if (before === undefined || before === held.printed[code]) continue;
-		const own = code === source ? fromDisplayName : appNames.has(code);
+		const own = code !== source && appNames.has(code);
 		recordTextRewrite(
 			ctx,
 			own
@@ -1225,6 +1229,16 @@ function holdAppName(
 			"names-respelled",
 			held.workersSeeAnother,
 		);
+		if (own)
+			recordTextRewrite(
+				ctx,
+				{
+					entry: TRANSLATION_CLAIMS.homescreenTitle.entry,
+					path: `/translations/${pointerToken(code)}/homescreen.title`,
+				},
+				"names-respelled",
+				false,
+			);
 	}
 	return held.translations;
 }

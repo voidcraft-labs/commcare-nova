@@ -228,6 +228,7 @@ import {
 	FormLayoutProvider,
 } from "../form/FormLayoutContext";
 import { FormRenderer } from "../form/FormRenderer";
+import { AdvanceOnChoiceContext } from "../form/FormScreenScope";
 import { AttachmentInvariantRecoveryPanel } from "../form/fields/attachment/AttachmentInvariantRecoveryPanel";
 import {
 	AttachmentNotReadyError,
@@ -3632,74 +3633,82 @@ export function FormScreen({ screen }: FormScreenProps) {
 				onKeyDownCapture={blockFrozenKey}
 				onPointerDownCapture={blockFrozenInteraction}
 			>
-				<fieldset
-					key={`${entryKey ?? "inactive"}:${clearRevision}`}
-					disabled={formFrozen}
-					className="contents"
+				<AdvanceOnChoiceContext.Provider
+					value={
+						paging.enabled && !paging.isLast && !formFrozen
+							? paging.goNext
+							: undefined
+					}
 				>
-					{(mode === "preview" ? presentationHasFields : hasFields) ? (
-						engineInitializing ? (
-							<div
-								role="status"
-								className="flex items-center justify-center gap-2 py-12 text-sm text-nova-text-muted"
-							>
-								<Icon
-									icon={tablerLoader2}
-									width="18"
-									className="animate-spin"
-								/>
-								{runtimeMessage(language.language, "formGettingReady")}
-							</div>
-						) : /* Clear form intentionally remounts uncontrolled browser controls.
-						 * A transient access refresh only suspends authority: keeping this
-						 * fieldset mounted preserves focus, File inputs, signature ink,
-						 * and other browser-owned drafts for the same app/form/worker. A
-						 * confirmed app/form/Project/worker boundary rotates the entry
-						 * key and retires browser-local continuations with it. */
-						paging.enabled ? (
-							paging.current !== undefined ? (
-								paging.mode === "sections" || formUuid === undefined ? (
-									<SectionPage
-										key={paging.current.uuid}
-										page={paging.current}
-										index={paging.index}
-										count={paging.count}
-										takeFocusOnMount={paging.takeFocusOnMount}
+					<fieldset
+						key={`${entryKey ?? "inactive"}:${clearRevision}`}
+						disabled={formFrozen}
+						className="contents"
+					>
+						{(mode === "preview" ? presentationHasFields : hasFields) ? (
+							engineInitializing ? (
+								<div
+									role="status"
+									className="flex items-center justify-center gap-2 py-12 text-sm text-nova-text-muted"
+								>
+									<Icon
+										icon={tablerLoader2}
+										width="18"
+										className="animate-spin"
 									/>
+									{runtimeMessage(language.language, "formGettingReady")}
+								</div>
+							) : /* Clear form intentionally remounts uncontrolled browser controls.
+							 * A transient access refresh only suspends authority: keeping this
+							 * fieldset mounted preserves focus, File inputs, signature ink,
+							 * and other browser-owned drafts for the same app/form/worker. A
+							 * confirmed app/form/Project/worker boundary rotates the entry
+							 * key and retires browser-local continuations with it. */
+							paging.enabled ? (
+								paging.current !== undefined ? (
+									paging.mode === "sections" || formUuid === undefined ? (
+										<SectionPage
+											key={paging.current.uuid}
+											page={paging.current}
+											index={paging.index}
+											count={paging.count}
+											takeFocusOnMount={paging.takeFocusOnMount}
+										/>
+									) : (
+										<ScreenPage
+											key={paging.current.path}
+											formUuid={formUuid}
+											page={paging.current}
+											index={paging.index}
+											takeFocusOnMount={paging.takeFocusOnMount}
+										/>
+									)
 								) : (
-									<ScreenPage
-										key={paging.current.path}
-										formUuid={formUuid}
-										page={paging.current}
-										index={paging.index}
-										takeFocusOnMount={paging.takeFocusOnMount}
-									/>
+									<div className="text-center text-nova-text-muted py-8">
+										{paging.mode === "sections"
+											? "Nothing to answer right now. Every section is empty or hidden by a display condition."
+											: "Nothing to answer right now. Every question is hidden by a display condition."}
+									</div>
 								)
 							) : (
-								<div className="text-center text-nova-text-muted py-8">
-									{paging.mode === "sections"
-										? "Nothing to answer right now. Every section is empty or hidden by a display condition."
-										: "Nothing to answer right now. Every question is hidden by a display condition."}
-								</div>
+								<FormRenderer parentEntityId={formUuid} />
 							)
 						) : (
-							<FormRenderer parentEntityId={formUuid} />
-						)
-					) : (
-						<div className="text-center text-nova-text-muted py-8">
-							This form has no fields.
-						</div>
-					)}
-					{mode === "preview" &&
-					appId !== undefined &&
-					engineReady &&
-					entryKey !== undefined ? (
-						<AttachmentInvariantRecoveryPanel
-							appId={appId}
-							entryKey={entryKey}
-						/>
-					) : null}
-				</fieldset>
+							<div className="text-center text-nova-text-muted py-8">
+								This form has no fields.
+							</div>
+						)}
+						{mode === "preview" &&
+						appId !== undefined &&
+						engineReady &&
+						entryKey !== undefined ? (
+							<AttachmentInvariantRecoveryPanel
+								appId={appId}
+								entryKey={entryKey}
+							/>
+						) : null}
+					</fieldset>
+				</AdvanceOnChoiceContext.Provider>
 			</div>
 
 			{/* Hidden in design mode where it's non-functional. The form above

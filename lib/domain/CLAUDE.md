@@ -40,6 +40,8 @@ Sequence is plain array position. Position belongs to the collection, so entitie
 
 `platforms.ts` is the table of where each feature runs: `PLATFORM_FEATURES` reads each feature an author can use as running, ignored, unavailable or different in Web Apps and on Android, with the clause a person reads about it, and holds the sentence builders every voice of a platform refusal or difference is built from (`platformSentence`, `platformPickerLine`, `platformRefusalMessage`; a platform inside a sentence is always `inPlatform`'s "in Web Apps" or "on Android"). `platformUses.ts` finds every use of a feature in a document with its owner and site. A use a declared platform cannot run is refused at the commit gate on two channels from this one source: a structural use by the platform rule (`lib/commcare/validator/rules/platforms.ts`, `PLATFORM_FEATURE_UNAVAILABLE`), an expression leaf by the checker's `arm-unavailable` reason `platform-unavailable`. `contentRunsOn` reduces the uses to the platforms the content allows, which test fixtures (`buildDoc`) and the declaration planner (`lib/doc/platformDeclaration.ts`) read. The table stands for the surface manifest's per-platform readings and is held to them by `lib/commcare/surface/__tests__/platformFeatures.test.ts`; both files stay in `lib/domain` because the builder offers from them and `components/**` may not import `lib/commcare`.
 
+A row can carry a **target condition** (`PlatformTargetCondition`): one platform's reading holds only on a project space that has a publish capability (`capability`, checked by the project-space probe) and a plan feature (`planFeature`, confirmed by a person), and `unavailable` says what the worker meets elsewhere. Address search is the one today: Web Apps runs it only with `CASE_SEARCH_ADVANCED` and the `geocoder` privilege (`cloudcare/views.py::has_geocoder_privs`) and otherwise saves "Not Supported by Web Entry". The commit gate never reads a condition, since a document is valid whatever project space it goes to. `targetConditionUses` lists the uses of each condition's platform the app declares (Android alone meets none), and publishing, the export listings, Preview and both bring-in reviews read that one list. The domain names the ids as literals; `lib/commcare/__tests__/targetConditions.test.ts` holds them to the publish registries.
+
 `questionId.ts` is the one question-id grammar: `QUESTION_ID_PATTERN` (a letter first, then letters, digits, underscores and hyphens, never starting `XML`: HQ's form builder's grammar), `RESERVED_QUESTION_IDS`, `RESERVED_CONNECT_BLOCK_IDS`, and `editorSafeQuestionId`, the one normalizer every minter and every refusal's offered replacement use.
 
 A record type is named in reference text as `#<type>/<property>`, or `#record/<type>/<property>` where the type is one of `HASHTAG_FIXED_NAMESPACES`; `hashtagSegments.ts::caseReferenceText` and `readCaseReference` are the one printer and reader.
@@ -86,8 +88,7 @@ prose order remain significant. This leaves stored translations and review state
 intact without relaxing request, revision or receipt digests.
 Missing and out-of-date entries fall back to the canonical source; an out-of-date explicit
 value remains stored for review but is never emitted as current. Prose
-translations may reorder literal text and reference parts, but must preserve the
-exact multiset and identity of every protected reference part. A source edit
+translations preserve reference identity and multiplicity by default. A question or choice translation can deliberately change its referenced values with `valueMode: "independent-values"`. The target expressions resolve at the original field or option. A source edit
 therefore makes overlays stale rather than rewriting them, while removal of the
 owning slot prunes its now-orphaned entries.
 
@@ -591,3 +592,7 @@ property renames, retirement checks and source replacement like other carriers.
 ### Automatic form location
 
 `appSettings.captureLocation` and `form.captureLocation` store independent optional true switches. Their effective result also includes Connect (`locationCapture.ts`). A form’s own choice survives an app-wide request. On the wire Connect makes the app-wide choice indistinguishable from its requirement.
+
+### Question display
+
+`questionDisplaySchemas.ts` and `choicePresentation.ts` define the per-kind slots. `fieldDisplay.ts` lists the choices, labels and platform advice exposed by Builder and the shared tools. A split presentation stores the actual widgets seen by Web Apps and Android. Row counts are normalized decimal digits, including zero and values beyond exact machine integers. Android grid columns are positive Java integers. The native grid draws choice pictures only. The alternate Gregorian calendar’s extra action clears the selected day directly from the question. An address or attachment has ordered channel names. A receiver holds its channel and returned field independently.

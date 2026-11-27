@@ -7,7 +7,7 @@ import { gunzipSync } from "node:zlib";
 import fc from "fast-check";
 import { describe, expect, it } from "vitest";
 import { testMediaAssetId, testUuid } from "@/__tests__/helpers/uuid";
-import { buildDoc } from "@/lib/__tests__/docHelpers";
+import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { MEDIA_PATH_FLOOR_CASES } from "@/lib/case-store/migrations/__tests__/mediaPathFloor";
 import { caseOperationFixture } from "@/lib/commcare/__tests__/caseOperationFixture";
 import { connectWireFixtures } from "@/lib/commcare/__tests__/connectWireFixtures";
@@ -853,5 +853,30 @@ describe("adoptionPlanFeatureConfirmations", () => {
 			{ kind: "plan-feature", subject: "worker-records" },
 			{ kind: "plan-feature", subject: "data-forwarding" },
 		]);
+	});
+
+	it("never records Geocoder, which an address question in the source says nothing about", () => {
+		const address = buildDoc({
+			modules: [
+				{
+					name: "Visits",
+					forms: [
+						{
+							name: "Visit",
+							type: "survey",
+							fields: [
+								f({
+									kind: "text",
+									id: "home",
+									label: "Home",
+									addressLookup: true,
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
+		expect(confirmed(address, true, false)).toEqual(["web-apps"]);
 	});
 });

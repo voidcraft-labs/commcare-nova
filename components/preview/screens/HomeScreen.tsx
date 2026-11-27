@@ -24,7 +24,6 @@ import { useDocHasData } from "@/lib/doc/hooks/useDocHasData";
 import {
 	useCaseFirstModuleUuids,
 	useMenuFormCounts,
-	useOrderedModules,
 } from "@/lib/doc/hooks/useModuleIds";
 import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
 import {
@@ -97,14 +96,18 @@ function ModuleListHome() {
 		(localizedValues.get(appNameUnitId) as string | undefined) ??
 		canonicalAppName;
 	const appNameEditor = useTranslationUnitEditor(appNameUnitId);
+	// Web Apps' heading is `app.display.name`: the app name's own wording there, else its name.
+	const shownAppName =
+		(localizedValues.get(generatedWordingId("app", "appDisplayName")) as
+			| string
+			| undefined) ?? appName;
 	const projectProse = useProseProjection();
 	const navigate = useNavigate();
 	const { inline } = useBlueprintMutations();
 	const isReady = useBuilderIsReady();
 	const mode = useEditMode();
 	const hasData = useDocHasData();
-	const orderedModules = useOrderedModules();
-	const menuSource = usePreviewMenuSource();
+	const menuSource = usePreviewMenuSource(language.language);
 	const menuCaseSelections = usePreviewMenuCaseSelections();
 	const setPreviewParentCaseRequest = useSetPreviewParentCaseRequest();
 	const setPreviewCaseTarget = useSetPreviewCaseTarget();
@@ -118,10 +121,7 @@ function ModuleListHome() {
 				: previewScreenEntries(menuSource.doc, FIRST_MENU),
 		[menuSource.doc, mode],
 	);
-	const modulesByUuid = useMemo(
-		() => new Map(orderedModules.map((mod) => [mod.uuid, mod] as const)),
-		[orderedModules],
-	);
+
 	/* Case-first modules (every form case-loading) land on the case list,
 	 * not a form menu: the running app hoists the shared case selection. */
 	const caseFirstModules = useCaseFirstModuleUuids();
@@ -269,7 +269,7 @@ function ModuleListHome() {
 					/>
 				) : (
 					<EditableTitle
-						value={appName}
+						value={shownAppName}
 						readOnly
 						ariaLabel="Application name"
 					/>
@@ -350,7 +350,7 @@ function ModuleListHome() {
 							/>
 						);
 					}
-					const mod = modulesByUuid.get(entry.moduleUuid);
+					const mod = menuSource.modules[entry.moduleUuid];
 					if (mod === undefined) return null;
 					const localizedModuleName =
 						(localizedValues.get(generatedWordingId(mod.uuid, "menuTitle")) as

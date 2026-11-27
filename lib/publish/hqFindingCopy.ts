@@ -313,10 +313,7 @@ export const FINDING_COPY: Readonly<
 		"not-yet":
 			"A lookup table here uses something Nova can't hold yet, or is larger than Nova takes.",
 	},
-	"media-by-language": {
-		"not-yet":
-			"This uses a picture or sound that differs by language, which Nova can't hold yet.",
-	},
+	"media-by-language": {},
 	"media-files": {
 		"not-yet":
 			"A media file here is larger than Nova takes, or this app has more media than Nova takes.",
@@ -496,6 +493,12 @@ export const FIX_CAUSE_CLAUSES: Readonly<
 export const FIX_IN_HQ_SENTENCES: Readonly<
 	Partial<Record<Subject, Partial<Record<FixCause, string>>>>
 > = {
+	"media-by-language": {
+		"hq-refuses":
+			"A media slot is blank in one language and has a file in another. CommCare HQ fills the blank when it saves the form. Choose the file you want for each language in CommCare HQ, save the form and try again.",
+		"breaks-when-run":
+			"A translation uses a media file whose type has no entry in the form’s default language. In CommCare HQ, add a file of that type in the default language or remove it from the translation, then try again.",
+	},
 	"app-document": {
 		"hq-refuses":
 			"Part of how this app is stored is something CommCare HQ can't save or build.",

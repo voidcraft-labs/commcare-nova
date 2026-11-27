@@ -522,6 +522,66 @@ function narrowed(
 					const original = snapshotTranslationUnits(D).get(mutation.unitId);
 					if (original && hasGeneratedWording(original)) break;
 				}
+				// A generated output's wording both readings hold alike, which Nova does not hold (a
+				// pair CommCare HQ keeps beside a Nova-born app's name, its base renamed there): no
+				// change of the wording, so nothing of it comes in.
+				if (before && after && !held && deepEqual(before.value, after.value)) {
+					const original = snapshotTranslationUnits(D).get(mutation.unitId);
+					if (original && hasGeneratedWording(original)) break;
+				}
+				// A generated output CommCare HQ's app now writes, where Nova holds the same words
+				// (a wording an edit there woke, the menu item that shows it turned on): Nova's own.
+				if (!before && after && held && deepEqual(held.value, after.value)) {
+					const original = snapshotTranslationUnits(D).get(mutation.unitId);
+					if (original && hasGeneratedWording(original)) break;
+				}
+				// A generated output CommCare HQ's app no longer writes because the place that shows
+				// it is gone there (a menu item turned off): its wording stays Nova's, dormant, as it
+				// would had the change been made in Nova.
+				if (
+					after === null &&
+					held &&
+					snapshotTranslationUnits(T).get(mutation.unitId)?.generated?.dormant
+				)
+					break;
+				// A generated output's wording CommCare HQ changed over a base it left alone, where
+				// Nova words that base otherwise (a fold an earlier reader made of the form's name):
+				// the words are current against the base Nova holds, which workers read them beside.
+				if (after && !after.workerFallback) {
+					const rawOf = (doc: BlueprintDoc) => {
+						const raw = snapshotTranslationUnits(doc).get(mutation.unitId);
+						return raw && hasGeneratedWording(raw) ? raw : undefined;
+					};
+					// The fingerprint of the text the output's base gives, which a stored wording names.
+					const baseOf = (doc: BlueprintDoc) => {
+						const base = rawOf(doc)?.generated?.base;
+						return base === undefined
+							? undefined
+							: snapshotTranslationUnits(doc).get(base)?.sourceFingerprint;
+					};
+					const theirs = baseOf(T);
+					const based = baseOf(B);
+					const own = rawOf(D);
+					const ours = own && wordingSourceUnit(D, own)?.sourceFingerprint;
+					if (
+						theirs !== undefined &&
+						based !== undefined &&
+						ours !== undefined &&
+						translationSourceFingerprintsEqual(
+							after.sourceFingerprint,
+							theirs,
+						) &&
+						translationSourceFingerprintsEqual(based, theirs) &&
+						!translationSourceFingerprintsEqual(ours, theirs)
+					) {
+						const { restoreAgainst: _restore, ...plain } = mutation;
+						out.push({
+							...plain,
+							entry: { ...after, sourceFingerprint: ours },
+						});
+						break;
+					}
+				}
 				if (
 					before !== undefined &&
 					after !== null &&
@@ -721,9 +781,12 @@ export function touchedBy(
 				menuOf(mutation.uuid);
 				menu(mutation.toModuleUuid);
 				break;
+			case "setFormMedia":
+				if (mutation.registrationOf) menu(mutation.registrationOf);
+				else form(mutation.uuid);
+				break;
 			case "renameForm":
 			case "updateForm":
-			case "setFormMedia":
 				form(mutation.uuid);
 				break;
 			case "addFormLink":

@@ -5699,7 +5699,8 @@ def _data_binds_and_itext():
         "questions/any-other-multi-token-string-holding-a-token-no-runtime-reads-on": (
             refused("form", appearances, "xform:select1@appearance", "select1[3]/@appearance"),
             accepted("form", appearances, "xform:select1@appearance", "select1[2]/@appearance"),
-            unsettled("form", appearances, "xform:select1@appearance", "select1[4]/@appearance"),
+            # d: the rest, ``minimal hint-as-placeholder``, is read as written, so ``foo`` drops with no reading moved.
+            accepted("form", appearances, "xform:select1@appearance", "select1[4]/@appearance"),
         ),
         "questions/a-case-variant-of-numeric-short-or-ethiopian-as-the-whole": (
             refused("form", keypads, "appearance:android/numeric", "input[2]/@appearance"),
@@ -5955,6 +5956,82 @@ def _data_binds_and_itext():
         "forms-and-case-writes/any-other-undeclared-key": (
             refused("app", form_keys, "schema:Form.<undeclared>", "/modules/0/forms/0/bar"),
             accepted("app", form_keys, "schema:Form.<undeclared>", "/modules/0/forms/0/no_vellum"),
+        ),
+    }
+
+
+def _localized_media():
+    """The two refused shapes of a question's media by language, each beside a translated file a worker can be
+    shown. ``q1``'s French image the default English lacks; ``q2``'s English image beside a blank French one;
+    ``q3``'s two distinct files, and ``q4``'s English file French inherits, both held."""
+    media = _form(
+        data="<q/>",
+        model="""<itext><translation lang="en" default="">
+            <text id="q1"><value>A</value></text>
+            <text id="q2"><value>B</value><value form="image">jr://file/commcare/b.png</value></text>
+            <text id="q3"><value>C</value><value form="image">jr://file/commcare/c.png</value></text>
+            <text id="q4"><value>D</value><value form="image">jr://file/commcare/d.png</value></text></translation>
+          <translation lang="fr">
+            <text id="q1"><value>A</value><value form="image">jr://file/commcare/a.png</value></text>
+            <text id="q2"><value>B</value><value form="image"/></text>
+            <text id="q3"><value>C</value><value form="image">jr://file/commcare/e.png</value></text>
+            <text id="q4"><value>D</value></text></translation></itext>""",
+        body="""<input ref="/data/q"><label ref="jr:itext('q1')"/></input>""",
+    )
+    image = "itext-form:core/image"
+    return {
+        "questions/media-form-missing-in-default-language": (
+            refused("form", media, image, "translation[2]/text[1]/value[2]/@form"),
+            refused("form", media, VALUE_FORM, "translation[2]/text[1]/value[2]/@form"),
+            accepted("form", media, image, "translation[1]/text[3]/value[2]/@form"),
+            accepted("form", media, image, "translation[1]/text[4]/value[2]/@form"),
+        ),
+        "questions/empty-media-form-beside-a-translated-file": (
+            refused("form", media, image, "translation[1]/text[2]/value[2]/@form"),
+            refused("form", media, image, "translation[2]/text[2]/value[2]/@form"),
+            accepted("form", media, image, "translation[2]/text[3]/value[2]/@form"),
+            accepted("form", media, image, "translation[1]/text[4]/value[2]/@form"),
+        ),
+    }
+
+
+def _per_rows():
+    """Web Apps' per-row token on each control, beside the count Nova writes: ``2-per-row`` (a) and a date's
+    ``ethiopian 2-per-row`` (d), held; a token whose text before its first ``-`` holds no leading digits (b, and the
+    select's ``compact2-per-row``); a text input's token holding ``receive`` (c) and a select's holding a value
+    Android matches inside it (``2-compact3-per-row``); a group wrapping a repeat with ``2-per-row-repeat`` (held)
+    and ``x2-per-row-repeat``, whose head ends in a digit and starts with none."""
+    rows = _form(
+        data='<a/><b/><c/><d/><e/><f/><g/><r jr:template=""><q/></r><s jr:template=""><q/></s>',
+        model="""<bind nodeset="/data/a" type="xsd:string"/><bind nodeset="/data/b" type="xsd:string"/>
+          <bind nodeset="/data/c" type="xsd:string"/><bind nodeset="/data/d" type="xsd:date"/>""",
+        body="""<input ref="/data/a" appearance="2-per-row"/><input ref="/data/b" appearance="x2-per-row"/>
+          <input ref="/data/c" appearance="2receive3-per-row"/><input ref="/data/d" appearance="ethiopian 2-per-row"/>
+          <select1 ref="/data/e" appearance="compact2-per-row"><item><value>x</value></item></select1>
+          <select1 ref="/data/f" appearance="2-compact3-per-row"><item><value>x</value></item></select1>
+          <select1 ref="/data/g" appearance="2-per-row"><item><value>x</value></item></select1>
+          <group appearance="2-per-row-repeat"><repeat nodeset="/data/r"><input ref="/data/r/q"/></repeat></group>
+          <group appearance="x2-per-row-repeat"><repeat nodeset="/data/s"><input ref="/data/s/q"/></repeat></group>""",
+    )
+    row = "appearance:web-apps/\\d+-per-row(\\s|$)"
+    repeat = "appearance:web-apps/\\d+-per-row-repeat(\\s|$)"
+    return {
+        "questions/a-per-row-token-the-first-token-web-apps-per-row-pattern-matches-does": (
+            refused("form", rows, row, "input[2]/@appearance"),
+            refused("form", rows, row, "select1[1]/@appearance"),
+            refused("form", rows, repeat, "group[2]/@appearance"),
+            accepted("form", rows, row, "input[1]/@appearance"),
+            accepted("form", rows, row, "input[4]/@appearance"),
+            accepted("form", rows, row, "select1[2]/@appearance"),
+            accepted("form", rows, repeat, "group[1]/@appearance"),
+        ),
+        "questions/a-per-row-token-the-first-token-web-apps-per-row-pattern-matches-starts": (
+            refused("form", rows, row, "input[3]/@appearance"),
+            refused("form", rows, row, "select1[2]/@appearance"),
+            accepted("form", rows, row, "input[1]/@appearance"),
+            accepted("form", rows, row, "input[4]/@appearance"),
+            accepted("form", rows, row, "select1[3]/@appearance"),
+            accepted("form", rows, repeat, "group[1]/@appearance"),
         ),
     }
 
@@ -6297,6 +6374,8 @@ SHAPES = {
     **_advanced_actions(),
     **_search_and_menus(),
     **_data_binds_and_itext(),
+    **_localized_media(),
+    **_per_rows(),
     **_held_new(),
 }
 
@@ -6623,8 +6702,6 @@ KNOWN_GAPS = frozenset(
         # a ``vellum-plugin:`` key.
         "questions/connect-block-text-read-as-an-instance",
         "questions/connect-deliver-unit-and-task-in-one-form",
-        "questions/a-per-row-token-the-first-token-web-apps-per-row-pattern-matches-does",
-        "questions/a-per-row-token-the-first-token-web-apps-per-row-pattern-matches-starts",
         # Their one key is ``mug:SaveToCase``, of which the extraction makes no use: HQ's reader types a question
         # from its body control (``xform.py::_infer_vellum_type``), a SaveToCase node has none, and ``get_questions``
         # lists its leaves and its case's attributes as ``DataBindOnly``. Nova's gate refuses each class, so no export

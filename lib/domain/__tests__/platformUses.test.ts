@@ -25,6 +25,7 @@ import {
 	type PlatformFeatureId,
 	platformFeatureUses,
 	proseText,
+	targetConditionUses,
 	unavailablePlatform,
 } from "@/lib/domain";
 import {
@@ -539,5 +540,56 @@ describe("contentRunsOn", () => {
 			"web-apps",
 			"android",
 		]);
+	});
+});
+
+describe("targetConditionUses", () => {
+	const addressDoc = (runsOnlyOn?: "web-apps" | "android", lookup = true) =>
+		buildDoc({
+			appSettings: {
+				...buildDoc().appSettings,
+				runsOnlyOn,
+			},
+			modules: [
+				{
+					name: "Visits",
+					forms: [
+						{
+							name: "Visit",
+							type: "survey",
+							fields: [
+								f({ kind: "text", id: "note", label: "Note" }),
+								f({
+									kind: "secret",
+									id: "home",
+									label: "Home",
+									...(lookup && { addressLookup: true }),
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
+
+	it("meets the address condition wherever the app runs in Web Apps, at the question that searches", () => {
+		for (const runsOnlyOn of [undefined, "web-apps"] as const) {
+			const [met, ...rest] = targetConditionUses(addressDoc(runsOnlyOn));
+			expect(rest).toEqual([]);
+			expect(met?.feature).toBe("address-lookup");
+			expect(met?.condition).toMatchObject({
+				platform: "web-apps",
+				capability: "address-search",
+				planFeature: "geocoder",
+			});
+			expect(met?.uses.map((use) => [use.owner.kind, use.site])).toEqual([
+				["field", { kind: "slot", slot: "addressLookup" }],
+			]);
+		}
+	});
+
+	it("meets nothing for Android alone, which reads the question as typed text, or with no address search", () => {
+		expect(targetConditionUses(addressDoc("android"))).toEqual([]);
+		expect(targetConditionUses(addressDoc(undefined, false))).toEqual([]);
 	});
 });

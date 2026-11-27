@@ -354,3 +354,73 @@ def test_each_private_language_and_alias_needs_a_claim_at_its_own_position():
     moved = parity.Record("app.json", "/langs", key, parity.PROJECT_LANGUAGE, "held", "/langs/1")
     assert _whats(parity.join(uses, [moved, *claims[1:]])) == ["entry"]
     assert _whats(parity.join(uses, claims[1:])) == ["entry"]
+
+
+ATTRIBUTE_KEY = "xform:input@appearance"
+TOKEN_KEY = "appearance:web-apps/ethiopian"
+ROW_KEY = "appearance:web-apps/\\d+-per-row(\\s|$)"
+WHOLE_ROW = Entry("planted/multi-token", "HELD", "multi-token")
+TOKEN_ROW = Entry("planted/date-ethiopian", "HELD")
+PER_ROW_ROW = Entry("planted/per-row", "HELD")
+REFUSED_ROW = Entry("planted/per-row-refused", "REFUSED", "per-row-class", ("runtime-reads-otherwise",))
+APPEARANCES = Manifest(
+    items={},
+    gated=frozenset(),
+    entries={
+        ATTRIBUTE_KEY: (WHOLE_ROW,),
+        TOKEN_KEY: (TOKEN_ROW,),
+        ROW_KEY: (PER_ROW_ROW, REFUSED_ROW),
+        KEY: (HELD_ENTRY,),
+    },
+    readers={},
+)
+APPEARANCE = "/h:html/h:body[1]/input[2]/@appearance"
+
+
+def _at_appearance(key, standing=HELD, entries=(), where=APPEARANCE):
+    return parity.Decided(Use(key, "form:0.0", where), standing, tuple(entries))
+
+
+def _appearance_log(key, entry, standing="held", where=APPEARANCE):
+    return (
+        json.dumps({"artifact": "form:0.0", "where": where, "key": key, "entry": entry, "standing": standing}) + "\n"
+    )
+
+
+def _row(row):
+    return lambda use: row
+
+
+def test_an_appearance_is_joined_once_on_the_row_the_lane_puts_its_value_in():
+    uses = [_at_appearance(ATTRIBUTE_KEY), _at_appearance(TOKEN_KEY), _at_appearance(ROW_KEY)]
+    # The reader's record under that row claims the value, whatever keys the lane's token uses name.
+    token = _appearance_log(TOKEN_KEY, TOKEN_ROW.id)
+    assert parity.join(uses, token, held=APPEARANCES, row_of=_row(TOKEN_ROW.id)) == []
+    whole = _appearance_log(ATTRIBUTE_KEY, WHOLE_ROW.id)
+    assert parity.join(uses, whole, held=APPEARANCES, row_of=_row(WHOLE_ROW.id)) == []
+    # A record under another row, even one naming the same keys, is the wrong row: one difference for the attribute.
+    found = parity.join(uses, whole, held=APPEARANCES, row_of=_row(TOKEN_ROW.id))
+    assert [(d.path, _whats([d])) for d in found] == [(f"/{ATTRIBUTE_KEY}/entry", ["entry"])]
+    # No record at all is unclaimed.
+    assert _whats(parity.join(uses, "", held=APPEARANCES, row_of=_row(TOKEN_ROW.id))) == ["unclaimed"]
+    # A row refused where the reader holds the value, or the reverse, is the standing.
+    refusing = _appearance_log(ROW_KEY, REFUSED_ROW.id, "held")
+    assert _whats(parity.join(uses, refusing, held=APPEARANCES, row_of=_row(REFUSED_ROW.id))) == ["standing"]
+    refused = _appearance_log(ROW_KEY, REFUSED_ROW.id, "never")
+    assert parity.join(uses, refused, held=APPEARANCES, row_of=_row(REFUSED_ROW.id)) == []
+    # The rule is an appearance's alone: a use at any other place is joined on its own key.
+    other = [parity.Decided(Use(TOKEN_KEY, "app.json", WHERE), HELD, ())]
+    assert _whats(parity.join(other, _log((HELD_ENTRY.id, "held")), held=APPEARANCES, row_of=_row(TOKEN_ROW.id))) == [
+        "unclaimed"
+    ]
+
+
+def test_an_appearance_the_lane_does_not_decide_is_reported_and_not_joined():
+    undecided = []
+    uses = [_at_appearance(ATTRIBUTE_KEY), _at_appearance(TOKEN_KEY)]
+    assert parity.join(uses, "", held=APPEARANCES, row_of=_row(None), undecided=undecided) == []
+    assert undecided == [f"form:0.0{APPEARANCE}="]
+    # An appearance none of whose uses the lane decides is judged through the uses it extracted.
+    extracted = [Use(TOKEN_KEY, "form:0.0", APPEARANCE)]
+    found = parity.join([], "", held=APPEARANCES, row_of=_row(TOKEN_ROW.id), extracted=extracted)
+    assert _whats(found) == ["unclaimed"]

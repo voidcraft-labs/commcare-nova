@@ -615,7 +615,7 @@ describe("projectBuilderLanguageMutations", () => {
 		});
 	});
 
-	it("refuses target prose that drops a protected reference", () => {
+	it("keeps a deliberate omission of a source reference in a target label", () => {
 		const doc = fixture();
 		const protectedField = doc.fields[FIELD];
 		if (!("label" in protectedField)) {
@@ -662,14 +662,15 @@ describe("projectBuilderLanguageMutations", () => {
 					patch: { label: proseText("Estado") },
 				},
 			]),
-		).toEqual({
-			ok: false,
-			message:
-				"This translation keeps every answer, case value, worker value and calculated value its source shows. You can repair them in Languages.",
+		).toMatchObject({
+			ok: true,
+			mutations: [
+				{ kind: "setTranslation", entry: { valueMode: "independent-values" } },
+			],
 		});
 	});
 
-	it("refuses target prose that changes a calculated value's formula, and admits one that moves it", () => {
+	it("retains a target formula independently and keeps an ordinary translation of a moved value", () => {
 		const doc = fixture();
 		const protectedField = doc.fields[FIELD];
 		if (!("label" in protectedField)) {
@@ -730,10 +731,11 @@ describe("projectBuilderLanguageMutations", () => {
 
 		expect(
 			edit({ parts: [{ kind: "text", text: "Visitas: " }, count(3)] }),
-		).toEqual({
-			ok: false,
-			message:
-				"This translation keeps every answer, case value, worker value and calculated value its source shows. You can repair them in Languages.",
+		).toMatchObject({
+			ok: true,
+			mutations: [
+				{ kind: "setTranslation", entry: { valueMode: "independent-values" } },
+			],
 		});
 		expect(
 			edit({ parts: [count(2), { kind: "text", text: " visitas" }] }).ok,

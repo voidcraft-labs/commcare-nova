@@ -1061,10 +1061,7 @@ function readCaseListMenuItem(
 		Object.assign(module.module, {
 			caseListMenuItem: {
 				...(label === undefined ? {} : { label }),
-				...(media.icon === undefined ? {} : { icon: media.icon }),
-				...(media.audioLabel === undefined
-					? {}
-					: { audioLabel: media.audioLabel }),
+				...media,
 			},
 		});
 	});

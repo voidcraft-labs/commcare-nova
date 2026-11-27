@@ -69,6 +69,7 @@ NOVA_LABELS = {
     "locations": "Locations",
     "data_forwarding": "Data Forwarding",
     "app_dependencies": "App Dependencies",
+    "geocoder": "Geocoder",
 }
 
 

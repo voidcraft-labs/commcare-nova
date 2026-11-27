@@ -136,6 +136,8 @@ export type TranslationReview = (typeof translationReviews)[number];
 
 export const translationEntrySchema = z.strictObject({
 	value: localizedValueSchema,
+	/** This language deliberately shows its own answers or calculations. */
+	valueMode: z.literal("independent-values").optional(),
 	sourceFingerprint: z.string().min(1),
 	/** The former source's effective wording retained for workers across a genuine
 	 * source change. It expires on the next change to this unit's source. The

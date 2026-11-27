@@ -1,6 +1,7 @@
 /** Actual media command, preflight and canonical reducer behavior over admitted
  * documents and controlled asset rows. JSON clear tests exercise serialization;
  * native persistence and SA/MCP transport are separate proofs. */
+import { produce } from "immer";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { testMediaAssetId, testUuid } from "@/__tests__/helpers/uuid";
 import { applyOverWire } from "@/lib/doc/__tests__/wireRoundTrip";
@@ -9,12 +10,14 @@ import { attachFieldMediaTool } from "../attachFieldMedia";
 import type { FieldMediaSlot } from "../shared";
 import {
 	ASSET_AUD_1,
+	ASSET_ICON,
 	ASSET_IMG_1,
 	errorOf,
 	FORM_A,
 	HIDDEN_FIELD,
 	loadAssetsByIdsMock,
 	MOD_A,
+	makeMediaDoc,
 	makeMediaFixture,
 	resetTestAssets,
 	SELECT_FIELD,
@@ -318,5 +321,90 @@ describe("attachFieldMedia", () => {
 			field && "label_media" in field ? field.label_media : undefined,
 		).toEqual({ audio: ASSET_AUD_1 });
 		expect(h.recordMutations).toHaveBeenCalledOnce();
+	});
+});
+
+describe("attachFieldMedia in another language", () => {
+	/** The fixture app in English and French. */
+	const bilingual = () =>
+		makeMediaFixture({
+			doc: produce(makeMediaDoc(), (draft) => {
+				draft.localization = {
+					sourceLanguage: "eng",
+					defaultLanguage: "eng",
+					languageOrder: ["eng", "fra"],
+					wireCodes: { eng: "en", fra: "fr" },
+					translations: { fra: {} },
+				};
+			}),
+		});
+	const labelMedia = (h: ReturnType<typeof bilingual>) => {
+		const field = h.currentDoc().fields[TEXT_FIELD];
+		return field && "label_media" in field ? field.label_media : undefined;
+	};
+
+	it("gives a language its own file and keeps the shared one", async () => {
+		const h = bilingual();
+		await h.runTool(
+			attachFieldMediaTool,
+			input(attachment(TEXT_FIELD, "label", { image: ASSET_IMG_1 })),
+		);
+		await h.runTool(attachFieldMediaTool, {
+			attachments: [
+				{
+					...attachment(TEXT_FIELD, "label", { image: ASSET_ICON }),
+					language: { language: "fra" },
+				},
+			],
+		});
+		expect(labelMedia(h)).toEqual({
+			image: ASSET_IMG_1,
+			mediaByLanguage: { fra: { image: ASSET_ICON } },
+		});
+	});
+
+	it("goes back to the shared file with an empty bundle, as the description says", async () => {
+		const h = bilingual();
+		await h.runTool(
+			attachFieldMediaTool,
+			input(attachment(TEXT_FIELD, "label", { image: ASSET_IMG_1 })),
+		);
+		await h.runTool(attachFieldMediaTool, {
+			attachments: [
+				{
+					...attachment(TEXT_FIELD, "label", { image: ASSET_ICON }),
+					language: { language: "fra" },
+				},
+			],
+		});
+		const restored = await h.runTool(attachFieldMediaTool, {
+			attachments: [
+				{
+					...attachment(TEXT_FIELD, "label", {}),
+					language: { language: "fra" },
+				},
+			],
+		});
+		expect(restored.result).toHaveProperty("ok", true);
+		/* French workers see the shared file again; nothing hides it. */
+		expect(labelMedia(h)).toEqual({ image: ASSET_IMG_1 });
+		expect(
+			attachFieldMediaTool.inputSchema.shape.attachments.element.shape.language
+				.description,
+		).toContain("goes back to the shared file");
+	});
+
+	it("refuses a language the app doesn't have", async () => {
+		const h = bilingual();
+		const result = await h.runTool(attachFieldMediaTool, {
+			attachments: [
+				{
+					...attachment(TEXT_FIELD, "label", { image: ASSET_IMG_1 }),
+					language: { language: "spa" },
+				},
+			],
+		});
+		expect(errorOf(result)).toContain("This language is not in the app.");
+		expect(labelMedia(h)).toBeUndefined();
 	});
 });

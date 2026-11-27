@@ -473,8 +473,10 @@ function expressionPlacementVerdict(
 /** A prose read's whole identity: its slot and every index of its place
  *  in the field, so a read before the move is compared with the same read
  *  after it. */
-function proseReadKey(read: Pick<ProseRead, "slot" | "indices">): string {
-	return JSON.stringify([read.slot, read.indices]);
+function proseReadKey(
+	read: Pick<ProseRead, "slot" | "indices" | "language">,
+): string {
+	return JSON.stringify([read.slot, read.indices, read.language]);
 }
 
 function firstRefusal(

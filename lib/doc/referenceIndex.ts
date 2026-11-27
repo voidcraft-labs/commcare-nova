@@ -103,7 +103,11 @@ import type {
 	Term,
 } from "@/lib/domain/expression/types";
 import { walkExpression } from "@/lib/domain/expression/walk";
-import { expressionSlotValues } from "@/lib/domain/referenceSlots";
+import {
+	expressionSlotValues,
+	translatedFieldProse,
+} from "@/lib/domain/referenceSlots";
+import { translationUnitsById } from "@/lib/domain/translationUnits";
 import { findContainingForm, walkFormFieldUuids } from "./mutations/helpers";
 
 // ── Index primitives ────────────────────────────────────────────────
@@ -516,6 +520,11 @@ function extractCarrierEdges(
 	if (field) {
 		const sink = makeSink(index, carrier, ctx);
 		extractFieldEdges(sink, field);
+		for (const { ref, template } of translatedFieldProse(
+			doc.localization,
+			field,
+		))
+			extractProseRefs(sink, template, ref.slot);
 		for (const { ref, expression } of expressionSlotValues(doc, {
 			entity: "field",
 			uuid: field.uuid,
@@ -1445,17 +1454,46 @@ export function planReferenceIndexMaintenance(
 		case "setAppSettings":
 		case "relabelSourceLanguage":
 		case "addLanguage":
-		case "removeLanguage":
 		case "rebindLanguageCodes":
-		case "rebaseSourceLanguage":
 		case "setProjectLanguageDirection":
 		case "moveLanguage":
 		case "setDefaultLanguage":
-		case "setTranslation":
-		case "reviewTranslation":
 		case "addCaseProperty":
 		case "setCaseProperty":
 		case "removeCaseProperty":
+			break;
+		case "setTranslation":
+		case "reviewTranslation": {
+			const previous =
+				doc.localization?.translations[mut.language]?.[mut.unitId];
+			if (
+				previous?.valueMode === undefined &&
+				(mut.kind === "reviewTranslation" || mut.entry?.valueMode === undefined)
+			)
+				break;
+			const unit = translationUnitsById(doc).get(mut.unitId);
+			if (unit === undefined) break;
+			const owner = unit.owner;
+			if (owner.kind === "field" || owner.kind === "select-option")
+				carriers.add(owner.fieldUuid);
+			break;
+		}
+		case "removeLanguage":
+			for (const field of Object.values(doc.fields))
+				if (
+					translatedFieldProse(doc.localization, field).some(
+						(entry) => entry.language === mut.code,
+					)
+				)
+					carriers.add(field.uuid);
+			break;
+		// A language with its own values can become the source, writing its
+		// references into the field; the former source then becomes a
+		// translation with its own values.
+		case "rebaseSourceLanguage":
+			for (const field of Object.values(doc.fields))
+				if (translatedFieldProse(doc.localization, field).length > 0)
+					carriers.add(field.uuid);
 			break;
 		case "declareCaseType":
 		case "retireCaseType":

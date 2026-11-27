@@ -332,11 +332,17 @@ def test_an_xform_uses_what_cores_parser_and_hqs_reader_read_and_its_answer_data
         "xpath-token:LBRACK",
     } <= keys
     assert "xpath-expr:XPathFilterExpr" not in keys
-    # Appearance tokens by each reader's own rule, and a token no reader reads.
+    # Appearance tokens by each reader's own rule.
     assert {"appearance:web-apps/numeric", "appearance:web-apps/minimal"} <= keys
     # Android reads numeric and minimal only as the whole appearance (WidgetFactory.buildBasicWidget, buildSelectOne).
     assert not {"appearance:android/numeric", "appearance:android/minimal"} & keys
-    assert "appearance:*/frobnicate" in keys and "appearance:*/numeric" not in keys
+    # Dropping frobnicate leaves numeric and minimal read as written, so the value is the class whose unread words
+    # Nova's reader drops (manifest_value_classes.unread_words_dropped), judged as the input's appearance; a token no
+    # reader reads on its own is a use of its own.
+    assert "appearance:*/frobnicate" not in keys and "appearance:*/numeric" not in keys
+    alone = manifest_usage.Uses()
+    manifest_usage.xform_uses(FORM.replace(b'"numeric minimal frobnicate"', b'"frobnicate"'), manifest, "form:0.0", alone)
+    assert "appearance:*/frobnicate" in _keys(alone)
     # The XForm vocabulary, each element and attribute as the surface keys it: a dispatched element by its
     # handler table's name, whatever its namespace (h:title is title), attributes whatever family also
     # classifies their value, and the namespaces Core reads.
@@ -802,7 +808,7 @@ def test_each_local_archive_is_its_own_artifact(tmp_path, hq, manifest, core_run
     """Two local exports of one document are two artifacts: a use only the second makes is the second's."""
     root = tmp_path / "two-archives"
     root.mkdir()
-    for name, appearance in (("local.ccz", b"minimal"), ("local-again.ccz", b"minimal frobnicate")):
+    for name, appearance in (("local.ccz", b"minimal"), ("local-again.ccz", b"frobnicate")):
         with zipfile.ZipFile(root / name, "w") as archive:
             archive.writestr("modules-0/forms-0.xml", FORM.replace(b"numeric minimal frobnicate", appearance))
             archive.writestr("media/logo.png", b"not read")

@@ -3,6 +3,7 @@
  * yardsticks that read them back (`targetedReadBack.test.ts`) and that print the canonical
  * rows' members (`canonicalRowsKeepExport.test.ts`).
  */
+import { createHash } from "node:crypto";
 import { manifestFor } from "@/lib/commcare/__tests__/compilerEvidence";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import { ensureReferenceIndex } from "@/lib/doc/referenceIndex";
@@ -49,7 +50,22 @@ export function publishExpansion(
 	readonly manifest: ReturnType<typeof manifestFor>;
 	readonly naming: LookupWireNaming | undefined;
 } {
-	const manifest = manifestFor(doc);
+	// A document that uploads its own files publishes those bytes, so two
+	// assets of different bytes keep two paths, as a real publish keeps them.
+	const manifest = new Map(manifestFor(doc));
+	for (const [assetId, held] of manifest) {
+		const asset = document.media?.get(assetId);
+		if (asset === undefined) continue;
+		const contentHash = createHash("sha256").update(asset.bytes).digest("hex");
+		manifest.set(assetId, {
+			...held,
+			bytes: asset.bytes,
+			mimeType: asset.mimeType,
+			extension: asset.extension,
+			contentHash,
+			wirePath: `commcare/${contentHash}${asset.extension}`,
+		});
+	}
 	const naming =
 		document.lookup === undefined
 			? undefined

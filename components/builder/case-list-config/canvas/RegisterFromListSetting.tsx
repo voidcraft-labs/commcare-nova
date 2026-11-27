@@ -7,6 +7,7 @@ import { useCallback, useId, useState } from "react";
 import { InlineField } from "@/components/builder/detail/formSettings/InlineField";
 import { SegmentedRow } from "@/components/builder/inspector/inspectorChrome";
 import { SingleAssetSlot } from "@/components/builder/media/MediaSlot";
+import { useNavigationFileLens } from "@/components/builder/media/useNavigationFileLens";
 import { PlatformNoteRow } from "@/components/builder/shared/PlatformNoteRow";
 import { Button } from "@/components/shadcn/button";
 import {
@@ -17,6 +18,7 @@ import {
 	SelectValue,
 } from "@/components/shadcn/select";
 import { alwaysOfferedRegistrationChoices } from "@/lib/doc/alwaysOfferedRegistration";
+import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useOfferedBatchRefusals } from "@/lib/doc/hooks/useOfferedBatchRefusals";
 import {
 	useRegisterFromList,
@@ -94,6 +96,8 @@ export function RegisterFromListSetting({
 		canEdit && facts.afterEmptySearchFormName === undefined,
 	);
 
+	const lens = useNavigationFileLens(facts.stored);
+	const { commitMany } = useBlueprintMutations();
 	if (facts.caseType === undefined) return null;
 	const { stored, choices } = facts;
 	const commit = (slot: AlwaysOfferedRegistration | null): void => {
@@ -274,12 +278,25 @@ export function RegisterFromListSetting({
 											{COPY.iconLabel}
 										</span>
 										<SingleAssetSlot
-											value={stored.icon}
+											value={lens.icon}
+											reading={lens.reading("icon")}
+											removalLabel={lens.removalLabel("icon")}
 											kind="image"
 											iconLibrary="form"
-											slotKey={`register:${moduleUuid}:icon`}
+											slotKey={`register:${moduleUuid}:icon:${lens.language}`}
 											ariaLabel="Register button icon"
-											onChange={(icon) => change({ icon })}
+											onChange={(icon) =>
+												commitMany([
+													{
+														kind: "setFormMedia",
+														uuid: stored.formUuid,
+														registrationOf: moduleUuid,
+														language: lens.language,
+														icon: icon ?? null,
+														audioLabel: lens.audioLabel ?? null,
+													},
+												])
+											}
 										/>
 									</div>
 									<div>
@@ -287,11 +304,24 @@ export function RegisterFromListSetting({
 											{COPY.audioLabel}
 										</span>
 										<SingleAssetSlot
-											value={stored.audioLabel}
+											value={lens.audioLabel}
+											reading={lens.reading("audioLabel")}
+											removalLabel={lens.removalLabel("audioLabel")}
 											kind="audio"
-											slotKey={`register:${moduleUuid}:audioLabel`}
+											slotKey={`register:${moduleUuid}:audioLabel:${lens.language}`}
 											ariaLabel="Register button spoken label"
-											onChange={(audioLabel) => change({ audioLabel })}
+											onChange={(audioLabel) =>
+												commitMany([
+													{
+														kind: "setFormMedia",
+														uuid: stored.formUuid,
+														registrationOf: moduleUuid,
+														language: lens.language,
+														icon: lens.icon ?? null,
+														audioLabel: audioLabel ?? null,
+													},
+												])
+											}
 										/>
 									</div>
 								</div>

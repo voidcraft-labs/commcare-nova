@@ -17,6 +17,9 @@ export interface LookupChoice {
 export interface FieldState {
 	path: string;
 	value: string;
+	/** What an Android date widget displays while its instance is blank.
+	 * An empty string records the worker clearing this particular visit. */
+	androidPickerDay?: string;
 	visible: boolean;
 	required: boolean;
 	valid: boolean;
@@ -110,6 +113,7 @@ export function fieldStatesEqual(a: FieldState, b: FieldState): boolean {
 	return (
 		a.path === b.path &&
 		a.value === b.value &&
+		a.androidPickerDay === b.androidPickerDay &&
 		a.visible === b.visible &&
 		a.required === b.required &&
 		a.valid === b.valid &&

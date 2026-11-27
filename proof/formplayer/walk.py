@@ -259,6 +259,21 @@ def answerable(question: Mapping[str, Any], *, web_apps: bool = True) -> bool:
     return datatype in CLIENT_DATA_TYPES or (not web_apps and datatype == "datetime")
 
 
+def headings_only(question: Mapping[str, Any]) -> bool:
+    """Whether the Web Apps client draws a select or multi-select as a row of its choices' labels and nothing to
+    choose with (``entries.js::getEntry``: ``ChoiceLabelEntry`` without ``hideLabel``, drawn by
+    ``entry_choice_label.html``): a select whose style holds ``label`` but not ``minimal``, ``combobox``,
+    ``button-select`` or ``list-nolabel``, and a multi-select whose style holds ``label`` but not ``minimal``.
+    It is a question list's heading row; a worker answers nothing there, so the walk gives it no answer."""
+    style = question.get("style") if isinstance(question.get("style"), dict) else {}
+    styles = set(str(style.get("raw") or "").split(" "))
+    if "label" not in styles or "minimal" in styles:
+        return False
+    if question.get("datatype") == "select":
+        return not styles & {"combobox", "button-select", "list-nolabel"}
+    return question.get("datatype") == "multiselect"
+
+
 def number_keypad(question: Mapping[str, Any], *, web_apps: bool = True) -> bool:
     """Whether a worker answers ``question`` on a number keypad, which takes no letter: in Web Apps the client
     draws ``PhoneEntry`` for a text or barcode question whose style holds ``numeric`` but not ``address``, which
@@ -553,7 +568,7 @@ class Walk:
         )
 
     def _values(self, question: Mapping[str, Any], given: Mapping[str, Any] | None = None) -> list[Any]:
-        if not answerable(question, web_apps=self.web_apps):
+        if not answerable(question, web_apps=self.web_apps) or (self.web_apps and headings_only(question)):
             # Nothing a worker in Web Apps can give it.
             return []
         if given and question.get("datatype") == "geo":

@@ -12,6 +12,7 @@ click led to, as a worker acts only once the page has finished reacting.
 from __future__ import annotations
 
 import base64
+from typing import Any
 
 # What the page shows now (steps/webapps/screen.js).
 SCREEN = {"call": "webapps/screen"}
@@ -277,17 +278,21 @@ ANSWER = "/formplayer/answer"
 SUBMIT = "/formplayer/submit-all"
 
 
-def answer(ix: str, value: str | None, *, twelve_hour: bool = False) -> list[dict]:
+def answer(
+    ix: str, value: str | None, *, twelve_hour: bool = False, held: Any = None, choices: int = 0
+) -> list[dict]:
     """One question answered through its widget (``steps/webapps/answer.js``), then Formplayer's answer to the
     request the client sent for it, then the page quiet. The client sends an answer a moment after the widget
     changes (its knockout bindings, then a throttle), so the step waits for that request's answer; where the
     client drew no widget a worker can answer with ``value``, nothing is sent and nothing is waited for. With no
-    ``value`` the widget is cleared, as a worker leaves a question the form refused every answer to."""
+    ``value`` the widget is cleared, as a worker leaves a question the form refused every answer to. ``held``
+    and ``choices`` are the answer the question held as Formplayer last showed it and how many choices it has,
+    which a button that steps through the choices is pressed from."""
     return [
         {"mark": True},
         {
             "until": "webapps/answer",
-            "arg": {"ix": ix, "value": value, "twelveHour": twelve_hour},
+            "arg": {"ix": ix, "value": value, "twelveHour": twelve_hour, "held": held, "choices": choices},
             "within": ANSWERED_WITHIN_MS,
         },
         {"awaitRequest": {"method": "POST", "pathname": ANSWER}, "sinceMark": True, "unlessMissed": True},

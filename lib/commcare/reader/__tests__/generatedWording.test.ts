@@ -493,3 +493,116 @@ it("uses the native title's placeholder rules on only the generated outputs that
 			expandDoc(saved.nextDoc).translations?.en["forms.m0f0.submit_label"],
 		).toBe(wording);
 });
+
+it("reads a form menu label's own wording back as it was written, beside or without the form's name, equal or not", async () => {
+	const base = localizationWireFixture("bilingual");
+	const formUuid = base.formOrder[base.moduleOrder[0]][0];
+	const name = makeTranslationUnitId("form", formUuid, "name");
+	const title = generatedWordingId(formUuid, "formTitle");
+	const fingerprint =
+		snapshotTranslationUnits(base).get(title)?.sourceFingerprint;
+	if (fingerprint === undefined)
+		throw new Error("The form needs its menu label.");
+	const wording = (value: string) => ({
+		value,
+		sourceFingerprint: fingerprint,
+		origin: "human" as const,
+		review: "reviewed" as const,
+		translatedFrom: "eng",
+	});
+	const cases: readonly [string, string | undefined, string | undefined][] = [
+		["the name translated alone", "Registrar", undefined],
+		["the menu label alone", undefined, "Inscribir"],
+		["both, different", "Registrar", "Inscribir"],
+		["both, equal", "Registrar", "Registrar"],
+	];
+	for (const [label, named, titled] of cases) {
+		const doc = structuredClone(base);
+		const spanish = doc.localization?.translations.spa;
+		if (spanish === undefined) throw new Error("The fixture holds Spanish.");
+		if (named === undefined) delete spanish[name];
+		if (titled !== undefined) spanish[title] = wording(titled);
+		const result = readHqApp(
+			await inputFor(exportedBody(doc), {
+				appStrings: (read) => localAppStringTable(read, []),
+			}),
+		);
+		if (result.kind !== "read")
+			throw new Error(JSON.stringify(result.findings));
+		const back = result.draft.doc;
+		const backForm = back.formOrder[back.moduleOrder[0]][0];
+		const read = back.localization?.translations.spa ?? {};
+		expect(
+			[
+				read[makeTranslationUnitId("form", backForm, "name")]?.value,
+				read[generatedWordingId(backForm, "formTitle")]?.value,
+			],
+			label,
+		).toEqual([named, titled]);
+	}
+});
+
+it("writes back the app name's two strings as CommCare HQ stores them, in the source language and in another", async () => {
+	const base = localizationWireFixture("bilingual");
+	const name = base.appName;
+	const cases: readonly [string, Record<string, string>][] = [
+		["neither", {}],
+		[
+			"both, alike",
+			{ "app.display.name": "Clinique", "homescreen.title": "Clinique" },
+		],
+		["the display name alone", { "app.display.name": "Clinique" }],
+		["the home screen title alone", { "homescreen.title": "Accueil" }],
+		[
+			"the two, different",
+			{ "app.display.name": "Clinique", "homescreen.title": "Accueil" },
+		],
+		[
+			"the display name alone, equal to the app's name",
+			{ "app.display.name": name },
+		],
+		[
+			"both, equal to the app's name",
+			{ "app.display.name": name, "homescreen.title": name },
+		],
+	];
+	const body = exportedBody(base);
+	const codes = Object.keys(body.translations as Record<string, unknown>);
+	expect(codes.length).toBe(2);
+	for (const code of codes)
+		for (const [label, stored] of cases) {
+			const served = structuredClone(body);
+			const translations = served.translations as Record<
+				string,
+				Record<string, string>
+			>;
+			const strings = { ...translations[code] };
+			delete strings["app.display.name"];
+			delete strings["homescreen.title"];
+			translations[code] = { ...strings, ...stored };
+			const result = readHqApp(
+				await inputFor(served, {
+					appStrings: (read) => localAppStringTable(read, []),
+				}),
+			);
+			if (result.kind !== "read")
+				throw new Error(`${code} ${label}: ${JSON.stringify(result.findings)}`);
+			const again = exportedBody(result.draft.doc);
+			const keys = (body: Record<string, unknown>) =>
+				Object.fromEntries(
+					Object.entries(
+						(body.translations as Record<string, Record<string, string>>)[
+							code
+						] ?? {},
+					).filter(
+						([key]) => key === "app.display.name" || key === "homescreen.title",
+					),
+				);
+			expect([code, label, again.name, keys(again)]).toEqual([
+				code,
+				label,
+				served.name,
+				keys(served),
+			]);
+		}
+});

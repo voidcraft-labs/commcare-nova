@@ -413,7 +413,7 @@ review. A `review` operation supplies the unit's `revision` from that read.
 Nova checks the exact source and translation behind it and refuses the whole
 batch if either changed. Preserve answer and record insertions such as `{{name}}` when
 translating wording; replacing an insertion with its current display text would
-lose the reference.
+lose the reference. To show different answers or calculations in this language, set `changeShownValues` to `true` on the individual `set` operation and supply its wording with the intended insertions. A translation that already shows values of its own reads with `showsOwnValues` in `get_translatable_content`, and a `set` on it says what to do with them: `changeShownValues` `true` keeps or changes them, `false` shows the source's values again. A `set` that says neither is refused, so a fresh translation of the source never replaces them unnoticed.
 
 `add_language` always copies a complete effective projection. If the copy
 source itself falls back for one unit, the new target receives the value workers
@@ -1274,6 +1274,8 @@ A field is a single question on a form: text input, dropdown, date, number, repe
 | `get_case_property` | Read one record property's type, wording and choices by `caseType` and `property`. |
 | `update_case_property` | Change that property's wording or choices with an `updates` object. Omit a setting to keep it; use `null` to clear an optional setting. Existing form questions retain their own content. |
 
+Question display settings use the same field identities as answers. For example, a single choice can use `choiceLayout: {"kind":"grid","columns":3,"advanceOnChoice":true}` or `choiceLayout: {"kind":"search","matchWords":"multiword"}`. A date uses `calendar: "ethiopian"`. A group can use `collapse: "closed"`. On `edit_field`, a null value clears that setting. The tool checks each option against the question kind before it saves.
+
 A `section` is a field kind of its own: a page of the form. On a phone each section is one screen, Next checks that screen before moving on, and an empty or fully hidden page is skipped. Once a form has a section, every top-level field is one, so group questions into sections before saving. `add_fields` can add sections and their questions together, with `parentUuid` naming the section; Nova assigns identities and orders parents before children. `set_form_sections` can re-page an existing form. Intermediate arrangements stay private until the complete form is valid. A worker-added repeat cannot sit on a page; fixed-count and case-query repeats can.
 
 ### Saving a field answer to a case
@@ -1460,6 +1462,8 @@ You can attach images, audio, and video to parts of an app, a field's label or h
 | `attach_option_media` | Set or clear the media on dropdown choices (single- or multi-select), a whole picture-choice field in one call. |
 | `set_menu_media` | Set or clear menu icons and audio labels on module home-screen tiles, form menu tiles, a case list's menu item (`target: case-list-menu-item`) and a case list's Register button (`target: case-list-registration`): any mix of them, the whole app's menu in one call. |
 | `set_app_logo` | Set or clear the app logo. It shows in Preview, and in Web Apps once it is added in the app's settings in CommCare HQ. |
+
+The field, choice and menu media tools accept an optional app language on each attachment or menu item. Set its `language` to `{"language":"fra"}` for French. Omitting the language edits the shared file. Imported pictures and recordings use the same Project permissions as files uploaded in Nova.
 
 Library reads select exactly one `work_id` or `app_id`, so new-app work can read
 its Project's documents before the first save. Use a returned asset id if a

@@ -16,6 +16,12 @@ import { createContext, useContext } from "react";
 
 export const FormScreenScopeContext = createContext<string | null>(null);
 
+/** Android's quick choice uses the same validation and navigation as Next. */
+export const AdvanceOnChoiceContext = createContext<
+	(() => Promise<void>) | undefined
+>(undefined);
+export const useAdvanceOnChoice = () => useContext(AdvanceOnChoiceContext);
+
 export function useFormScreenScope(): string | null {
 	return useContext(FormScreenScopeContext);
 }

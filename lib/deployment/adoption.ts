@@ -545,6 +545,12 @@ export function adoptedAppBaselineWrite(input: {
  * and Save to Case where the source holds no Save to Case block. The first
  * publish leaves each of these as the source has it, so asking would change
  * nothing a person could decide.
+ *
+ * Geocoder is never recorded: an address question in the source says nothing
+ * about the plan, since HQ's form builder offers it on every plan and Web
+ * Apps then saves "Not Supported by Web Entry" in its place
+ * (`cloudcare/views.py::has_geocoder_privs`). The review and the first
+ * publish ask a person instead.
  */
 export function adoptionPlanFeatureConfirmations(input: {
 	readonly doc: BlueprintDoc;
@@ -564,7 +570,7 @@ export function adoptionPlanFeatureConfirmations(input: {
 				? input.sourceWebAppsOn
 				: feature.id === "advanced-case-actions"
 					? input.sourceHoldsSaveToCase
-					: true,
+					: feature.id !== "geocoder",
 		)
 		.map((feature) => ({ kind: "plan-feature", subject: feature.id }));
 }

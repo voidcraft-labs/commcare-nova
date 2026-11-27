@@ -10,6 +10,7 @@
 import tablerForms from "@iconify-icons/tabler/forms";
 import { z } from "zod";
 import type { FieldKindMetadata } from "../kinds";
+import { displaySchemas } from "../questionDisplaySchemas";
 import {
 	formLogicSchema,
 	inputFieldBaseSchema,
@@ -17,10 +18,14 @@ import {
 } from "./base";
 
 /** The keypads a Text question can give the worker, beside the full keyboard. */
-export const TEXT_KEYPADS = ["numbers"] as const;
+export const TEXT_KEYPADS = ["numbers", "android-numbers"] as const;
 
 export const textFieldSchema = inputFieldBaseSchema.extend({
 	kind: z.literal("text"),
+	inputWidth: displaySchemas.inputWidth.optional(),
+	addressLookup: displaySchemas.addressLookup.optional(),
+	sendTopics: displaySchemas.sendTopics.optional(),
+	receiveFrom: displaySchemas.receiveFrom.optional(),
 	/** The worker types on a number keypad; the answer stays text. Absent: the full keyboard. */
 	keypad: z.enum(TEXT_KEYPADS).optional(),
 	validate: formLogicSchema.optional(),

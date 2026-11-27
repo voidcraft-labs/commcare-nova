@@ -288,6 +288,6 @@ BASE = Base(
         "menus-and-case-lists/no-sort-elements",
         "menus-and-case-lists/display-lang-on-a-sort-joined-to-an-invisible-column",
         "menus-and-case-lists/name-date-opened-external-id-status-owner-id-hq-renames-to-case",
-        "application-and-settings/translations-generated-key-over-one-text",
+        "application-and-settings/translations-generated-wording",
     ),
 )

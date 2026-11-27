@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { ToggleRow } from "@/components/builder/inspector/inspectorChrome";
 import { SingleAssetSlot } from "@/components/builder/media/MediaSlot";
+import { useNavigationFileLens } from "@/components/builder/media/useNavigationFileLens";
 import { RejectionInline } from "@/components/builder/RejectionNotice";
 import {
 	FORM_FORMAT_TEXT_CONFIRM,
@@ -15,7 +16,7 @@ import {
 import { Button } from "@/components/shadcn/button";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useDeclaredPlatforms } from "@/lib/doc/hooks/useDeclaredPlatforms";
-import { useForm } from "@/lib/doc/hooks/useEntity";
+import { useForm, useStoredForm } from "@/lib/doc/hooks/useEntity";
 import { useFormSwitchedTexts } from "@/lib/doc/hooks/useFormSwitchedTexts";
 import { asUuid } from "@/lib/doc/types";
 import { proseTemplateHoldsFormatting } from "@/lib/tiptap/formatText";
@@ -33,7 +34,8 @@ import type { FormSettingsSectionProps } from "./types";
  */
 export function FormAppearanceSection({ formUuid }: FormSettingsSectionProps) {
 	const form = useForm(formUuid);
-	const { setFormMedia, inline } = useBlueprintMutations();
+	const lens = useNavigationFileLens(useStoredForm(formUuid));
+	const { commitMany, inline } = useBlueprintMutations();
 	const platforms = useDeclaredPlatforms();
 	const uuid = asUuid(formUuid);
 	const switchedTexts = useFormSwitchedTexts(uuid);
@@ -69,16 +71,23 @@ export function FormAppearanceSection({ formUuid }: FormSettingsSectionProps) {
 				<div>
 					<span className="text-xs text-nova-text-muted mb-1 block">Icon</span>
 					<SingleAssetSlot
-						value={form.icon}
+						value={lens.icon}
+						reading={lens.reading("icon")}
+						removalLabel={lens.removalLabel("icon")}
 						kind="image"
 						iconLibrary="form"
-						slotKey={`form:${formUuid}:icon`}
+						slotKey={`form:${formUuid}:icon:${lens.language}`}
 						ariaLabel="Form menu icon"
 						onChange={(icon) =>
-							setFormMedia(uuid, {
-								icon: icon ?? null,
-								audioLabel: form.audioLabel ?? null,
-							})
+							commitMany([
+								{
+									kind: "setFormMedia",
+									uuid,
+									language: lens.language,
+									icon: icon ?? null,
+									audioLabel: lens.audioLabel ?? null,
+								},
+							])
 						}
 					/>
 				</div>
@@ -87,15 +96,22 @@ export function FormAppearanceSection({ formUuid }: FormSettingsSectionProps) {
 						Audio label
 					</span>
 					<SingleAssetSlot
-						value={form.audioLabel}
+						value={lens.audioLabel}
+						reading={lens.reading("audioLabel")}
+						removalLabel={lens.removalLabel("audioLabel")}
 						kind="audio"
-						slotKey={`form:${formUuid}:audioLabel`}
+						slotKey={`form:${formUuid}:audioLabel:${lens.language}`}
 						ariaLabel="Form audio label"
 						onChange={(audioLabel) =>
-							setFormMedia(uuid, {
-								icon: form.icon ?? null,
-								audioLabel: audioLabel ?? null,
-							})
+							commitMany([
+								{
+									kind: "setFormMedia",
+									uuid,
+									language: lens.language,
+									icon: lens.icon ?? null,
+									audioLabel: audioLabel ?? null,
+								},
+							])
 						}
 					/>
 				</div>

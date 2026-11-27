@@ -141,6 +141,8 @@ export interface ContainerIdentity {
 	readonly appearance: string | null;
 	/** A repeat's `jr:count`, present or not. */
 	readonly counted: boolean;
+	/** Web Apps can distribute rows when a direct child is a repeat or its Vellum wrapper. */
+	readonly hasRepeatingRows?: true;
 }
 
 /**
@@ -509,7 +511,31 @@ function formIdentity(xml: string): FormRecord {
 					continue;
 				}
 				const path = bound;
-				addContainer({ path, kind: "group", appearance, counted: false });
+				const hasRepeatingRows =
+					childNamed(child, XFORMS_NS, "repeat").length > 0 ||
+					childNamed(child, XFORMS_NS, "group").some((nested) => {
+						if (
+							plainAttribute(nested.element, "appearance")?.toLowerCase() ===
+							"field-list"
+						)
+							return false;
+						const controls = childrenOf(nested).filter(
+							({ element, scope }) =>
+								elementNamespace(element, scope) === XFORMS_NS &&
+								!NOT_CONTROLS.has(splitName(element.name).local),
+						);
+						return (
+							controls.length === 1 &&
+							splitName(controls[0].element.name).local === "repeat"
+						);
+					});
+				addContainer({
+					path,
+					kind: "group",
+					appearance,
+					counted: false,
+					...(hasRepeatingRows && { hasRepeatingRows: true }),
+				});
 				written.set(path, { labelRef: labelRef(child), itemLabelRefs: [] });
 				walkBody(child, path, child);
 				continue;

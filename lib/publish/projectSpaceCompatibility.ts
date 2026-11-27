@@ -22,7 +22,8 @@ export type ProjectSpaceCapabilityId =
 	| "related-case-search"
 	| "case-tiles"
 	| "save-only-edited-answers"
-	| "same-type-child-links";
+	| "same-type-child-links"
+	| "address-search";
 
 export type ProjectSpaceAdvisoryId = "large-search-performance";
 
@@ -98,6 +99,12 @@ export const PROJECT_SPACE_CAPABILITIES: Readonly<
 		label: "Links between cases of the same type",
 		description:
 			"Keeps the link from a new case to the case of the same type it was made from.",
+	},
+	"address-search": {
+		id: "address-search",
+		label: "Address search",
+		description:
+			"Lets a question in Web Apps search for an address, with the Geocoder plan feature beside it.",
 	},
 };
 
@@ -420,6 +427,7 @@ const CAPABILITY_IDS = new Set<ProjectSpaceCapabilityId>([
 	"case-tiles",
 	"save-only-edited-answers",
 	"same-type-child-links",
+	"address-search",
 ]);
 const ADVISORY_IDS = new Set<ProjectSpaceAdvisoryId>([
 	"large-search-performance",

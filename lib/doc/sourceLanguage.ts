@@ -7,6 +7,11 @@ import type {
 	TranslationEntry,
 } from "@/lib/domain";
 import {
+	rebaseFormMediaLanguages,
+	rebaseNavigationMedia,
+} from "@/lib/domain/formMediaLanguages";
+import {
+	effectiveAppLocalization,
 	languageEntries,
 	translationSourceFingerprint,
 	translationSourceFingerprintsEqual,
@@ -16,13 +21,33 @@ import {
 	hasGeneratedWording,
 	snapshotTranslationUnits,
 	type TranslationUnit,
+	translatedProseValueMode,
 	translationIsOutOfDate,
+	translationUnitProseSlot,
 } from "@/lib/domain/translationUnits";
 import { deepEqual } from "./deepEqual";
 import {
 	effectiveWordingValue,
 	wordingSourceUnit,
 } from "./localizationWorkspace";
+
+/** `entry` marked as showing its own values exactly when its references
+ *  differ from `source`'s, on a question or choice prose unit. */
+function withValueModeAgainst(
+	unit: TranslationUnit,
+	source: LocalizedValue,
+	entry: TranslationEntry,
+): TranslationEntry {
+	const { valueMode: _held, ...rest } = entry;
+	const mode =
+		translationUnitProseSlot(unit) !== undefined &&
+		typeof source !== "string" &&
+		typeof entry.value !== "string"
+			? translatedProseValueMode(source, entry.value)
+			: {};
+	if (mode.valueMode === entry.valueMode) return entry;
+	return { ...rest, ...mode };
+}
 
 type SlotWriter = (draft: Draft<BlueprintDoc>, value: LocalizedValue) => void;
 
@@ -239,6 +264,21 @@ export function rebaseSourceLanguage(
 	)
 		return;
 	const order = localization.languageOrder;
+	// The worker's files stay where they are: the new source language takes
+	// the shared slot, and every other language keeps the file it showed.
+	rebaseNavigationMedia(
+		draft,
+		effectiveAppLocalization(localization),
+		target,
+		order,
+	);
+	rebaseFormMediaLanguages(
+		draft.fields,
+		target,
+		order,
+		localization.defaultLanguage,
+		localization.defaultLanguage,
+	);
 	const texts = [...snapshotTranslationUnits(doc).values()].map((raw) => {
 		const unit = wordingSourceUnit(doc, raw);
 		return {
@@ -356,6 +396,14 @@ export function rebaseSourceLanguage(
 				review: "reviewed",
 				translatedFrom: target,
 			};
+		}
+		// A language that showed its own values may now be the source, and the
+		// former source a translation: each entry is held against the new
+		// source's references.
+		for (const into of Object.values(translations)) {
+			const entry = into[unit.id];
+			if (entry !== undefined)
+				into[unit.id] = withValueModeAgainst(unit, next, entry);
 		}
 	}
 	if (draft.localization !== undefined) {

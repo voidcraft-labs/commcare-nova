@@ -160,6 +160,7 @@ export interface DraftExpression {
 	readonly event?: DefaultEvent;
 	/** A text whose uses alone the expression stage claims (`PendingExpression.usesOnly`). */
 	readonly usesOnly?: true;
+	readonly translatedOutput?: true;
 }
 
 /** A field as the form reader builds it: its kind's slots, less its logic, which is pending. */
@@ -271,6 +272,9 @@ export interface ReadXForm {
 	/** The data path of every control whose appearance was accounted under an inert entry, in
 	 *  body order: what `ReadFormFacts.inertAppearances` lists. */
 	readonly inertAppearances: readonly string[];
+	/** The data path of every control whose appearance's settings Nova writes in another spelling,
+	 *  in body order: what `ReadFormFacts.respelledAppearances` lists. */
+	readonly respelledAppearances: readonly string[];
 	/** Each select's case choices, which stage 10 settles over the bound filter. */
 	readonly caseChoices: ReadonlyMap<DraftField, CaseChoicesProposal>;
 	/** The model-iteration repeats, which stage 10 holds to where model iteration is held. */
@@ -510,6 +514,7 @@ function readForm(
 			field.control !== undefined && labelCarriesMedia(field.control, parsed),
 	});
 	const inertAppearances = [...joined.inertAppearances];
+	const respelledAppearances = [...joined.respelledAppearances];
 	readContainers({
 		cursor,
 		accounting,
@@ -521,6 +526,7 @@ function readForm(
 		placeOf: (field) => field.place,
 		intents,
 		inertAppearance: (path) => inertAppearances.push(path),
+		respelledAppearance: (path) => respelledAppearances.push(path),
 	});
 	const bodyIndex = new Map<string, number>();
 	for (const field of joined.fields)
@@ -529,9 +535,8 @@ function readForm(
 				field.node.path.join("/"),
 				controls.all.indexOf(field.control),
 			);
-	inertAppearances.sort(
-		(a, b) => (bodyIndex.get(a) ?? 0) - (bodyIndex.get(b) ?? 0),
-	);
+	for (const paths of [inertAppearances, respelledAppearances])
+		paths.sort((a, b) => (bodyIndex.get(a) ?? 0) - (bodyIndex.get(b) ?? 0));
 
 	// A finding on a node stands at the nearest question, else at the form: a data node, its
 	// bind, its control and its setvalues stand for it, and a generated node for its owner.
@@ -800,6 +805,7 @@ function readForm(
 		carrierInstances,
 		sourceNames: undefined,
 		inertAppearances,
+		respelledAppearances,
 		caseChoices: joined.caseChoices,
 		modelIterations: new Set(joined.modelIterations.keys()),
 	};
@@ -969,6 +975,9 @@ export function mintFields(ctx: ReadContext): void {
 								place: field.place,
 								key: expression.key,
 								...(expression.usesOnly === true && { usesOnly: true }),
+								...(expression.translatedOutput === true && {
+									translatedOutput: true,
+								}),
 							},
 							expression.at,
 							expression.event === undefined

@@ -311,10 +311,10 @@ export interface ReadFacts {
 	 *  lacks and nothing reads (`declaredOnly`), at the place `{ kind: "lookup-table", tag }`. */
 	readonly unreadTables: readonly UnreadTable[];
 	/** The JSON Pointer over CommCare HQ's stored app (`/translations/<code>/<key>`) of each
-	 *  generated translation key `assembleDocument` folded into the text it sets, and of a
-	 *  first-language `app.display.name` the application walker read as the app's name. The key
-	 *  names that text's place (`firstPublishPlaces.ts::placesOfGeneratedKey`). */
-	readonly foldedTranslationKeys: readonly string[];
+	 *  generated translation key the assembly read as having no effect (blank, naming no string of
+	 *  the app, or the string HQ's build generates there): Nova words no such key, so a publish
+	 *  removes it from CommCare HQ's app translations (`unused-translation-keys-removed`). */
+	readonly unusedTranslationKeys: readonly string[];
 	readonly forms: readonly ReadFormFacts[];
 
 	/** Each same-state rule applied: the entry, a JSON Pointer, and the id of the first-publish
@@ -447,6 +447,10 @@ export interface ReadFormFacts {
 	/** The data path of every control, leaf or container, whose `appearance` was accounted under
 	 *  an entry of standing `inert`, in body order. */
 	readonly inertAppearances: readonly string[];
+	/** The data path of every control, leaf or container, whose appearance's settings Nova writes
+	 *  back in another spelling than the one stored, every runtime reading the two alike
+	 *  (`xform/appearances.ts::claimAppearance`), in body order. */
+	readonly respelledAppearances: readonly string[];
 	/** The data path of every case region container and every Save to Case block. */
 	readonly caseRegionPaths: readonly string[];
 	/** The itext values blank in a language other than the first whose first-language text is not

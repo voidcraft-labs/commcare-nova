@@ -398,6 +398,7 @@
 			"case-search/exclude",
 			"case-search/receiver-expression",
 			"questions/text-address",
+			"questions/secret-address",
 			"questions/barcode-numeric-address-or-receive-topic-field"
 		],
 		"platforms": "n/a",
@@ -3294,11 +3295,12 @@
 		"class": {
 			"kind": "target-owned"
 		},
-		"content": "HELD-NEW (Search prompts geocoder, Appearances `address`)",
+		"content": "HELD (Appearances `address`, asked at publish with CASE_SEARCH_ADVANCED for an app that runs in Web Apps) / HELD-NEW (Search prompts geocoder)",
 		"contentEntries": [
 			"case-search/appearance-address-geocoder-broadcast-emitted-input-address",
 			"case-search/receiver-expression",
 			"questions/text-address",
+			"questions/secret-address",
 			"questions/barcode-numeric-address-or-receive-topic-field"
 		],
 		"platforms": "n/a",

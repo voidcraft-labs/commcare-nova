@@ -45,8 +45,8 @@ import {
 	type Media,
 	type MediaAssetId,
 	mediaAssetIdSchema,
-	mediaSchema,
 } from "@/lib/domain";
+import { mediaValuesSchema } from "@/lib/domain/multimedia";
 import {
 	type MediaAttachExpectation,
 	mediaAttachVerdict,
@@ -67,7 +67,7 @@ import { type GuardedMutateOutcome, guardedMutate } from "../common";
  * bundle (`{}`) clears every slot.
  */
 export const mediaBundleInput = (description: string) =>
-	mediaSchema.describe(description);
+	mediaValuesSchema.describe(description);
 
 /**
  * A single uploaded-asset slot for menu audio labels and the app logo.

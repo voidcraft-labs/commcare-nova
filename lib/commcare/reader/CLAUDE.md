@@ -148,8 +148,9 @@ Four rules hold everywhere here:
   under `schema:Application.profile`, a language's key under `schema:Application.translations`)
   is recorded at that key (`jsonCursor.ts::recordedAt`), as is a whole object read past under
   such a key (`refuseWhole` with `account`: a language the app does not hold) and a media
-  reference with no file, at the app's `multimedia_map` (`lib/deployment/reading/gather.ts`), and
-  so is a part of a value refused
+  reference with no file, at the app's `multimedia_map` (`lib/deployment/reading/gather.ts`),
+  while the menu or form map naming it is read at its own key by the paths it shows
+  (`menus/navMedia.ts::readMap`), and so is a part of a value refused
   beside the key's own claim (`refusePart`, a `logo_refs` slot); a claim on an element that names
   one of its attributes is recorded at the attribute, and one naming an itext form at the
   `<value>`'s `form` (`xmlCursor.ts::recordedNode`, a media form's hand-off too), while the
@@ -198,9 +199,7 @@ Four rules hold everywhere here:
   to Case region's nodes, binds, setvalues and controls are each recorded by place
   (`caseManagement/saveToCase.ts::regionKey`), with the type HQ's question reader gives a node of
   it, and no record names a type HQ's reader never gives (`mug:SaveToCase`, `mug:Connect*`).
-  Every output of a text is claimed with its namespace, and an output of a markdown copy or of
-  another language as its source twin is, under every claim the expression stage made of the
-  twin (`xform/prose.ts::claimTwin`); a text Core parses that no slot holds (the emitter's own
+  Every language's outputs bind in the owning field or choice context. Each output is claimed with its namespace. An output of a markdown copy is claimed under every claim the expression stage made of its twin in that language (`xform/prose.ts::claimTwin`); a text Core parses that no slot holds (the emitter's own
   texts in a Save to Case region, an output of a translation the app does not hold) is
   registered for the uses its syntax makes alone (`pendingExpressions.ts::PendingExpression.usesOnly`).
   So is every attribute Core parses as XPath (the surface's `parsedAs: xpath`) that a claim read
@@ -566,21 +565,9 @@ recorded in `unheldMedia` when its path resolves, with its question, role, langu
 path. Project data checks whether HQ serves the file. If a question’s label also uses it, the
 draft keeps the asset on that label and the first publish discloses its removal from the other slot.
 
-A stored text or media map is read as each language shows it, never taken literally. A menu's,
-form's, case list item's or Register button's media map is read through
-`menus/navMedia.ts::shownNavMedia` (HQ's `NavMenuItemMediaMixin`: a language with no path of its own
-shows the `default` table's, and `use_default_*_for_all` shows the first language's everywhere), an
-app string's through `hqText.ts::shownText` (but the search title, which HQ's build reads per
-language and not through `clean_trans`, through `search/settings.ts::shownTitles`: a language with
-no title of its own shows the first language's), and a form's itext by its default translation
-(`xform/itext.ts::ItextReading.defaultLanguage`: the first language's where the form holds it, else
-the first it holds): a language whose translation lacks a text, its default value, a media form or
-the whole translation shows the default's, the source language included, and a blank beside the
-default's text is the form builder's to fill from it (`prose.ts::finishText`). Only two such
-absences keep a form out: a text the default translation holds no default value of, and a
-question's or choice's label with no value in the source's first `<translation>` in document
-order, whatever its language, which HQ's build reads every label in
-(`itext.ts::ItextReading.buildRefusesLabel`). A protected validation message's `__nova_` forms
+A menu, form, case list item or Register button keeps the image and spoken label shown in each app language. A missing menu file uses the installed default strings table. The full app and named installations can choose different fallbacks: preserve strict missing and empty entries and any former language whose file changes the complete app. `use_default_*_for_all` always reads the app's first language. A question, help or choice uses its form's default locale. A target language with no media entry inherits. A key present only outside the default raises Core's `NoLocalizedTextException` and needs repair in HQ.
+
+App string text follows `hqText.ts::shownText`. A search title follows `search/settings.ts::shownTitles`. A form's itext follows `ItextReading.defaultLanguage`, the first app language where present, otherwise the first translation in the form. A source label without a plain value or a missing default text can also prevent HQ from building the form (`ItextReading.buildRefusesLabel`). A protected validation message's `__nova_` forms
 are read the same way, form by form, as Core merges the default locale's keys under each
 language's (`xform/afterBinding.ts::shownForms`), and its `jr:constraintMsg` is rebuilt over the
 branches the source holds, in the order it tests them, each the message of the language whose
@@ -602,7 +589,7 @@ writes again, and a form's under `forms-and-settings-rewritten`.
 
 Every app string a reading holds (the app's, a menu's and a form's name, a case list menu item's
 and a Register button's label, a column's header, a mapping's label, an interval's text, a Search
-field's texts, the search screen's title and subtitle, and a text a generated key folds over) is
+field's texts, the search screen's title and subtitle, and a generated output's own wording) is
 held through one function, `heldText.ts::heldText`, by its translation unit's role: what a device
 shows is the bar (`hqDeviceText`: HQ's build writes a blank text as a non-breaking space, a line
 break as `\n` and a `#` no backslash precedes as `\#`, and Core's locale reader ends a line at a
@@ -623,7 +610,10 @@ guard is read on its own, its refusal standing beside the message's where Nova c
 either (`search/index.ts::untoldRuleRefusal`). A
 respelling no worker meets is recorded under the surface's own id (`names-respelled`,
 `list-settings-respelled`), and one a worker meets under `text-spaces-dropped`
-(`heldText.ts::recordTextRewrite`). A text whose rest after a carriage return is a line that
+(`heldText.ts::recordTextRewrite`); a question's or group's appearance whose display settings Nova
+writes in another spelling, or drops where no runtime reads it on that control, is listed per form
+(`ReadFormFacts.respelledAppearances`, `inertAppearances`) and stands under
+`question-display-respelled` at each control's node. A text whose rest after a carriage return is a line that
 defines an app string (`keyDefinedAfterLineEnd`) is refused under
 `app-text-holding-a-carriage-return-whose-rest-defines-an-app-string`: a held text where its
 rewrite is recorded (`heldText.ts::recordTextRewrite`, which every held text with a carriage return
@@ -647,10 +637,21 @@ or Register button's label, a Search field's label) holding a `${` that screen s
 (`localeFile.ts::argumentScreenIssue`, applied by `heldText` per role) under
 `application-and-settings/name-or-label-holding-a-placeholder-a-screen-fills`; and one holding a
 character XML 1.0 cannot carry, which the gate admits in no app text (`APP_TEXT_UNREPRESENTABLE`),
-under `application-and-settings/app-text-holding-a-character-xml-cannot-carry`. A generated key
-folded over one is refused
-(`assemble.ts::decideGeneratedKeys`); every other fold is held as a device shows it, a choice
-label's too. A constant or one of several outputs of an authored slot can instead carry independent wording.
+under `application-and-settings/app-text-holding-a-character-xml-cannot-carry`.
+No generated key folds into the text its output is based on: a fold would change every other
+place that text feeds. A key one of the document's generated wording units writes
+(`table.wordingUnits`) is always that unit's own wording, whatever its value, even one equal to
+the text its base gives (`generatedTranslationKeys.ts`, marked `own` in the sink,
+`translations.ts::ownWordingEntryFor`), and the emitter writes it back the same, so it
+round-trips; it is held as a device shows it (`assemble.ts::decideGeneratedKeys`), and one a
+device shows as blank for an output whose text must show (a name, a label) is held as none,
+recorded under `text-spaces-dropped`. A language whose own text CommCare HQ holds blank takes the
+text HQ's build shows there, the first build language's, wording included, as that language's
+wording (`assemble.ts::fillShownWordings`). The app name's two strings, `app.display.name` and
+`homescreen.title`, are each a wording unit's too; alike and other than `name` in a language other
+than the source, they are the app name's translation there (`appShell.ts::readTranslations`, and
+the canonical row `app-name-strings-as-read`). A key no unit writes is inert where it is blank,
+names no string of the app or equals the table's string, and is refused otherwise.
 The generated-key reader takes its exact control identity and output role from the string registry.
 Each case and search column registers its own positions while producing its short and long detail.
 A source or target override is held as the word the device reads for that language, including
@@ -721,9 +722,7 @@ The places that look as if they could and do not:
   builder's fill (`lib/domain/translationFill.ts`) mark the default language, `langs[0]`, never
   the source;
 - media is one per slot for every language (`media-is-shared-across-locales`);
-- a translation whose prose references differ from the source's, or a required text left blank,
-  prints the source's text (`translationUnits.ts::translationValueIntegrityIssue`), so no export
-  holds such a difference;
+- an intentional change of references in translated form text survives read-back. A missing or stale translation prints its source;
 - the local `.ccz` writes each language's own name under `app.display.name`, but the reader reads
   HQ JSON.
 

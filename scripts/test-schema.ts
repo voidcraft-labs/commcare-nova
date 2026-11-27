@@ -195,7 +195,7 @@ const SCHEMA_TESTS: readonly SchemaTest[] = [
 		description: addFieldsTool.description,
 		schema: addFieldsTool.inputSchema,
 		prompt:
-			'Use addFields with moduleUuid 11111111-1111-4111-8111-111111111111 and formUuid 22222222-2222-4222-8222-222222222222 to add a group household with field_list true; inside it a text field head_name saving with caseWrite to the household case property head_name through via [{"identifier":"parent"}] only if changed; a single_select consent whose label has plain_label true, with two choices; and a repeat visits counting int(#form/visit_count) rows. Also add a text field phone with keypad numbers, and a text field notes whose help text "Use *short* words" shows exactly as typed (plain_help true) and whose label is "Visit on {{= format-date(date(#form/visit_date), \'%e %b %Y\')}}".',
+			'Use addFields with moduleUuid 11111111-1111-4111-8111-111111111111 and formUuid 22222222-2222-4222-8222-222222222222 to add a date field first_visit with calendar ethiopian and itemsPerRow "2", a single_select district with two choices and choiceLayout kind search with matchWords fuzzy, a group household with field_list true; inside it a text field head_name saving with caseWrite to the household case property head_name through via [{"identifier":"parent"}] only if changed; a single_select consent whose label has plain_label true, with two choices; and a repeat visits counting int(#form/visit_count) rows. Also add a text field phone with keypad numbers, and a text field notes whose help text "Use *short* words" shows exactly as typed (plain_help true) and whose label is "Visit on {{= format-date(date(#form/visit_date), \'%e %b %Y\')}}".',
 	},
 	{
 		name: "addAutomations",
@@ -438,7 +438,7 @@ const SCHEMA_TESTS: readonly SchemaTest[] = [
 		description: editFieldTool.description,
 		schema: editFieldTool.inputSchema,
 		prompt:
-			"Use editField with moduleUuid 11111111-1111-4111-8111-111111111111, formUuid 22222222-2222-4222-8222-222222222222, and fieldUuid 33333333-3333-4333-8333-333333333333 to set its help text to 'Enter the patient's full legal name.' and set caseWrite to null, and set plain_label to true. Also set keypad to numbers and plain_help to true.",
+			"Use editField with moduleUuid 11111111-1111-4111-8111-111111111111, formUuid 22222222-2222-4222-8222-222222222222, and fieldUuid 33333333-3333-4333-8333-333333333333 to set its help text to 'Enter the patient's full legal name.' and set caseWrite to null, and set plain_label to true. Also set keypad to numbers, inputWidth to short and plain_help to true.",
 	},
 	{
 		name: "moveField",

@@ -643,7 +643,14 @@ HQ omits `<prompt default>` without it and its editors offer none of the others
 without it. A search's own filter (`_xpath_query`), the zero-input `match-all()`
 included, does not add it: HQ's Case List page offers and keeps a default
 filter for every project space. Both export paths send the zero-input filter.
-Missing or
+An app that runs in Web Apps and holds a question searching for an
+address meets the address-search target condition
+(`lib/domain/platformUses.ts::targetConditionUses`): the `address-search`
+capability probes `CASE_SEARCH_ADVANCED`, and the `geocoder` plan feature
+(Enterprise) is confirmed by a person, both with one reason per form
+(`planPrivileges.ts::addressSearchFormReasons`). A bring-in never records
+Geocoder as confirmed, since HQ's form builder offers the appearance on
+every plan. Missing or
 unverified required capabilities block before writes.
 
 `planPrivileges.ts::requiredPlanPrivileges` derives, from the document, what
@@ -651,7 +658,7 @@ the publish pushes, and the attachment target the emitter is handed (a capture
 saved as a link is a case write only where there is a link to write), the plan
 features the content needs (`cloudcare` for an app that declares Web Apps,
 `user_case`, `lookup_tables`, `child_cases`, `form_link_workflow`,
-`save_to_case`, `locations`, `data_forwarding`), each
+`save_to_case`, `locations`, `data_forwarding`, `app_dependencies`, `geocoder`), each
 with the sentences that say why this app needs it. The `locations` feature
 and the flat location list's confirmation name each form whose source or
 links read places (`locations/readsLocationsFixture.ts::formsReadingLocationsFixture`):
@@ -2452,7 +2459,20 @@ including its escaped number signs and line breaks.
 In `translations`, Nova projects each saved worker-wording override under
 the locale id its current control and output role generate. Ordinary app
 name translations supply `app.display.name` and `homescreen.title`
-when a language’s display name differs from the source. Runtime catalog
+when a language’s display name differs from the source. Each of the two
+keys also has its own wording unit over the app's name
+(`appDisplayName`, `homescreenTitle`, `generatedWording.ts::appNameWordingKeys`),
+written under its key whatever it equals, so a pair CommCare HQ stores
+otherwise than a translation (one key alone, the two different, either
+equal to `name`, or any value in the source language) reads back and
+publishes as stored. A reading takes the pair, alike and other than `name`
+in a language other than the source, as the app name's translation there
+(`reader/appShell.ts::readTranslations`). For an app born in Nova the
+document's name wins over a pair CommCare HQ holds in the source language:
+the publish writes `name` from the document and drops the pair, because a
+Nova-born app's name has one owner, the document, and Preview shows it.
+CommCare HQ changing the pair or `name` afterwards is a change the review
+of HQ changes reports against the baseline like any other. Runtime catalog
 overrides, the language selector wording and `android.package.name.*`
 belong to their destination. A local archive merges generated wording
 and the destination’s text in the order of HQ’s builder.
@@ -2608,6 +2628,10 @@ options, or inject fallback expressions into exported XForms or HQ JSON.
 The retained native `ChoiceStartingValueRuntimeTest` documents Core's failure
 boundary for historical answers; source evidence is in
 `docs/research/inline-choice-starting-values.md`.
+
+### Question control presentation
+
+The importer classifies a source appearance on its actual control and bind in `reader/xform/appearances.ts`. `xform/readDisplaySettings.ts` projects its worker and editor effects onto typed settings. `xform/appearance.ts` writes a canonical recipe. Reading the recipe must preserve the editor kind, precedence, Android whole-control behavior, Web Apps word positions, parameter values and returned answer. The validator checks this at authoring and export. `hq/appearanceIdentity.ts` compares the actual source and published controls, and protects every effective setting from a reading claiming it was inert. An image that collects a signature only in Web Apps keeps its native picture identity.
 
 ### Trusted lookup source reads
 

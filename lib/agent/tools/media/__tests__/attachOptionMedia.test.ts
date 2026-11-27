@@ -1,6 +1,7 @@
 /** Actual media command, preflight and canonical reducer behavior over admitted
  * documents and controlled asset rows. JSON clear tests exercise serialization;
  * native persistence and SA/MCP transport are separate proofs. */
+import { produce } from "immer";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { prepareAuthoringInput } from "@/lib/agent/authoring/input";
@@ -10,12 +11,14 @@ import type { BlueprintDoc, Media, Uuid } from "@/lib/domain";
 import { attachOptionMediaTool } from "../attachOptionMedia";
 import {
 	ASSET_AUD_1,
+	ASSET_ICON,
 	ASSET_IMG_1,
 	COUGH_OPTION,
 	errorOf,
 	FEVER_OPTION,
 	FORM_A,
 	MOD_A,
+	makeMediaDoc,
 	makeMediaFixture,
 	resetTestAssets,
 	SELECT_FIELD,
@@ -192,5 +195,38 @@ describe("attachOptionMedia", () => {
 		const error = errorOf(result);
 		expect(error).toContain("attachments[1]");
 		expect(error).toContain("nothing was attached");
+	});
+});
+
+describe("attachOptionMedia in another language", () => {
+	it("gives a choice a language's own file, then goes back to the shared one with an empty bundle", async () => {
+		const h = makeMediaFixture({
+			doc: produce(makeMediaDoc(), (draft) => {
+				draft.localization = {
+					sourceLanguage: "eng",
+					defaultLanguage: "eng",
+					languageOrder: ["eng", "fra"],
+					wireCodes: { eng: "en", fra: "fr" },
+					translations: { fra: {} },
+				};
+			}),
+		});
+		await h.runTool(
+			attachOptionMediaTool,
+			input(attachment(FEVER_OPTION, { image: ASSET_IMG_1 })),
+		);
+		const french = (media: Partial<Media>) => ({
+			attachments: [
+				{ ...attachment(FEVER_OPTION, media), language: { language: "fra" } },
+			],
+		});
+		await h.runTool(attachOptionMediaTool, french({ image: ASSET_ICON }));
+		expect(optionsOf(h.currentDoc())[0].media).toEqual({
+			image: ASSET_IMG_1,
+			mediaByLanguage: { fra: { image: ASSET_ICON } },
+		});
+		const restored = await h.runTool(attachOptionMediaTool, french({}));
+		expect(restored.result).toHaveProperty("ok", true);
+		expect(optionsOf(h.currentDoc())[0].media).toEqual({ image: ASSET_IMG_1 });
 	});
 });

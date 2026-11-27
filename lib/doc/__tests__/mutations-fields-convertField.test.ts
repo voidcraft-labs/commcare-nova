@@ -110,21 +110,18 @@ describe("admitted field conversion", () => {
 			expect(next.fieldParent).toEqual(before.fieldParent);
 		},
 	);
-	it("drops a Text question's number keypad where the target kind has none, and keeps the rest", () => {
+	it("keeps a Text question's number keypad where the target kind offers one", () => {
 		const phone = fixture({
 			id: "answer",
 			kind: "text",
 			keypad: "numbers",
 			validate: "string-length(.) > 3",
 		});
-		const { keypad, ...withoutKeypad } = phone.fields[Q] as Record<
-			string,
-			unknown
-		>;
-		expect(keypad).toBe("numbers");
+		expect((phone.fields[Q] as { keypad?: string }).keypad).toBe("numbers");
+		// Secret and Barcode questions both offer the number keypad on Android.
 		for (const toKind of ["secret", "barcode"] as const)
 			expect(convert(phone, toKind).fields[Q]).toEqual({
-				...withoutKeypad,
+				...phone.fields[Q],
 				kind: toKind,
 			});
 	});

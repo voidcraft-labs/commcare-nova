@@ -58,6 +58,10 @@ export function alwaysOfferedRegistrationFromInput(
 		formUuid: input.formUuid,
 		...(input.label != null && { label: input.label }),
 		...(stored?.icon !== undefined && { icon: stored.icon }),
+		...(stored?.mediaByLanguage && { mediaByLanguage: stored.mediaByLanguage }),
+		...(stored?.mediaByFormerCode && {
+			mediaByFormerCode: stored.mediaByFormerCode,
+		}),
 		...(stored?.audioLabel !== undefined && { audioLabel: stored.audioLabel }),
 		afterSubmit: input.after_submit ?? stored?.afterSubmit ?? "case-list",
 	};

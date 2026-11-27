@@ -259,6 +259,180 @@ async function attachOnly(run: Run, label: string) {
 const PREVIEW_PLATFORM_CHECKS: Readonly<
 	Record<PreviewPlatformScenarioId, (page: Page) => Promise<void>>
 > = {
+	async "visit-display-web-apps"(page) {
+		await openScenario(page, "visit-display-web-apps");
+		const question = (id: string) =>
+			page.locator(`[data-instance-path$="/${id}"]`);
+		await expect(question("pin").getByRole("textbox")).toHaveAttribute(
+			"type",
+			"text",
+		);
+		await question("pin").getByRole("textbox").fill("007");
+		/* Web Apps' address search: with no map provider set up, Preview
+		 * makes up no address, and it names what the project space needs. */
+		const address = question("address").getByRole("textbox");
+		await expect(address).toHaveAttribute("readonly", "");
+		await expect(address).toHaveValue("");
+		await expect(question("address")).toContainText(
+			"no map provider is set up",
+		);
+		await expect(question("address")).toContainText("Geocoder plan feature");
+		/* Web Apps ignores a compact group: the hint shows under its label. */
+		await expect(question("people")).toContainText("Count adults and children");
+		await expect(question("place").getByRole("textbox")).toHaveAttribute(
+			"placeholder",
+			"Building name",
+		);
+		await expect(page.getByText("Ask the driver", { exact: true })).toHaveCount(
+			0,
+		);
+		const route = question("route").getByRole("combobox");
+		await route.fill("val");
+		await expect(
+			page.getByRole("option", { name: "North valley" }),
+		).toHaveCount(0);
+		await route.fill("valley");
+		await page.getByRole("option", { name: "Upper valley" }).click();
+		await expect(route).toHaveValue("Upper valley");
+		const market = question("market").getByRole("combobox");
+		await market.fill("Nortt");
+		await page
+			.getByRole("option", { name: "North valley", exact: true })
+			.click();
+		await expect(market).toHaveValue("North valley");
+		const stage = question("stage").getByRole("button");
+		await expect(stage).toContainText("North valley");
+		await stage.click();
+		await expect(stage).toContainText("Upper valley");
+		await expect(question("rating").getByRole("radio")).toHaveCount(3);
+		await expect(
+			question("rating").getByText("North valley", { exact: true }),
+		).toBeVisible();
+		await expect(
+			question("change_day").getByRole("button", {
+				name: "Clear",
+				exact: true,
+			}),
+		).toHaveCount(0);
+		await expect(question("supplies").getByRole("checkbox")).toHaveCount(3);
+		await expect(question("signature_photo").locator("canvas")).toBeVisible();
+		for (const id of ["photo", "voice", "clip"]) {
+			await expect(question(id).locator("input[type=file]")).toHaveCount(1);
+			await expect(
+				question(id).locator("input[type=file][capture]"),
+			).toHaveCount(0);
+		}
+		await expect(question("ready")).toContainText("Ready");
+		await expect(question("absent")).toContainText("Device note");
+		await expect(page.locator("[data-question-banner]")).toHaveCount(0);
+		await expect(question("address_line")).toHaveCount(0);
+		await page.getByRole("button", { name: /Expand.*Visit details/i }).click();
+		await expect(question("address_line").getByRole("textbox")).toBeVisible();
+	},
+	async "visit-display-android"(page) {
+		await openScenario(page, "visit-display-android");
+		const question = (id: string) =>
+			page.locator(`[data-instance-path$="/${id}"]`);
+		await expect(question("pin").locator("input")).toHaveAttribute(
+			"type",
+			"password",
+		);
+		await expect(question("address").locator("input")).toHaveAttribute(
+			"type",
+			"password",
+		);
+		await expect(question("address")).not.toContainText("Geocoder");
+		/* A number question under a compact group: its label's one line
+		 * beside the answer box, with no hint. */
+		const people = question("people");
+		await expect(people.locator("[data-android-compact]")).toHaveCount(1);
+		await expect(people).not.toContainText("Count adults and children");
+		const label = await people
+			.getByText("People at the visit", { exact: true })
+			.boundingBox();
+		const box = await people.locator("input").boundingBox();
+		if (label === null || box === null)
+			throw new Error("Expected the compact question's label and answer box.");
+		expect(box.x).toBeGreaterThan(label.x);
+		expect(
+			Math.abs(box.y + box.height / 2 - (label.y + label.height / 2)),
+		).toBeLessThan(box.height);
+		await expect(question("place").getByRole("textbox")).not.toHaveAttribute(
+			"placeholder",
+			"Building name",
+		);
+		await expect(question("place")).toContainText("Building name");
+		await expect(question("departure")).toContainText("Ask the driver");
+		const short = question("code").getByRole("textbox");
+		await short.focus();
+		await expect(short).toHaveAttribute("enterkeyhint", "next");
+		await short.press("Enter");
+		await expect(question("address_line").getByRole("textbox")).toBeFocused();
+		const route = question("route").getByRole("combobox");
+		await route.fill("val");
+		await expect(
+			page.getByRole("option", { name: "North valley" }),
+		).toBeVisible();
+		await route.fill("beyond all choices");
+		await expect(route).toHaveValue("val");
+		await page.getByRole("option", { name: "North valley" }).click();
+		await expect(route).toHaveValue("North valley");
+		await question("route")
+			.getByRole("button", { name: "Clear", exact: true })
+			.click();
+		await expect(route).toHaveValue("");
+		await expect(question("stage").getByRole("radio")).toHaveCount(3);
+		await expect(question("rating").getByRole("radio")).toHaveCount(3);
+		const tiles = question("rating").getByRole("radio");
+		await expect(tiles.nth(0)).toHaveAccessibleName("North valley");
+		await expect(
+			question("rating").getByText("North valley", { exact: true }),
+		).toHaveCount(0);
+		const calendar = question("change_day");
+		const clearDay = calendar.getByRole("button", {
+			name: "Clear",
+			exact: true,
+		});
+		const dayPicker = calendar.getByRole("button", {
+			name: /^Question \d+\. Change day$/,
+		});
+		await expect(clearDay).toBeEnabled();
+		expect(await answer(page, PLATFORM_IDS.changeDay)).toBe("");
+		await clearDay.click();
+		await expect(clearDay).toBeDisabled();
+		await expect(dayPicker).toHaveText("Pick a date");
+		await dayPicker.press("Enter");
+		await page
+			.getByRole("button", { pressed: false })
+			.filter({ hasText: /^1$/ })
+			.click();
+		await expect(clearDay).toBeEnabled();
+		await expect
+			.poll(() => answer(page, PLATFORM_IDS.changeDay))
+			.toMatch(/^\d{4}-\d{2}-01$/);
+		await clearDay.click();
+		await expect(clearDay).toBeDisabled();
+		await expect.poll(() => answer(page, PLATFORM_IDS.changeDay)).toBe("");
+		await expect(question("signature_photo").locator("canvas")).toHaveCount(0);
+		await expect(page.locator('[data-question-banner="good"]')).toHaveText(
+			"Ready; Check",
+		);
+		await expect(question("absent")).toHaveCount(0);
+		await expect(question("address_line").getByRole("textbox")).toBeVisible();
+		await expect(
+			page.getByRole("button", { name: /Expand.*Visit details/i }),
+		).toHaveCount(0);
+		expect(await answer(page, PLATFORM_IDS.returnDay)).toBe("");
+		await page.getByRole("button", { name: "Next", exact: true }).click();
+		await expect(page.getByText("Review this visit")).toBeVisible();
+		expect(await answer(page, PLATFORM_IDS.changeDay)).toBe("");
+		await expect
+			.poll(() => answer(page, PLATFORM_IDS.returnDay))
+			.toMatch(/^\d{4}-\d{2}-\d{2}$/);
+		await page.getByRole("button", { name: "Back", exact: true }).click();
+		await expect(clearDay).toBeEnabled();
+		expect(await answer(page, PLATFORM_IDS.changeDay)).toBe("");
+	},
 	async "location-map-web-apps"(page) {
 		await openScenario(page, "location-map-web-apps");
 		await expect(
@@ -393,10 +567,11 @@ const PREVIEW_PLATFORM_CHECKS: Readonly<
 	},
 	async "group-label-web-apps"(page) {
 		await openScenario(page, "group-label-web-apps");
-		await expect(
-			page.getByRole("button", { name: /Details/, expanded: true }),
-		).toBeVisible();
+		await expect(page.getByText("Details", { exact: true })).toBeVisible();
 		await expect(page.getByRole("textbox", { name: /Inside/ })).toBeVisible();
+		/* A group is collapsible in Web Apps only where it asks to be
+		 * (`form_ui.js`, `collapsible`), and this one does not. */
+		await expect(page.getByRole("button", { name: /Details/ })).toHaveCount(0);
 	},
 	async "barcode-search-field-web-apps"(page) {
 		await openSearch(page, "web-apps");
@@ -583,6 +758,9 @@ const PREVIEW_PLATFORM_CHECKS: Readonly<
 				"Your browser doesn't support camera scanning. You can type the barcode",
 			),
 		).toBeVisible();
+		/* Where the browser cannot scan, typing stands in for the scan. */
+		await page.getByRole("textbox", { name: /Code/ }).fill("BC-8");
+		await expect.poll(() => answer(page, PLATFORM_IDS.code)).toBe("BC-8");
 		await page.addInitScript(() => {
 			Object.defineProperty(window, "BarcodeDetector", {
 				value: class {
@@ -602,8 +780,11 @@ const PREVIEW_PLATFORM_CHECKS: Readonly<
 			page.locator('[data-preview-engine-ready="true"]'),
 		).toBeVisible({ timeout: 20_000 });
 		await expect(page.getByRole("button", { name: /^Scan/ })).toBeVisible();
-		await page.getByRole("textbox", { name: /Code/ }).fill("BC-8");
-		await expect.poll(() => answer(page, PLATFORM_IDS.code)).toBe("BC-8");
+		/* Android takes the scanned text alone: this question does not let the
+		 * worker edit it (`BarcodeWidget.java`, `editable`). */
+		await expect(
+			page.getByRole("textbox", { name: /Code/ }),
+		).not.toBeEditable();
 	},
 	async "form-screens-android"(page) {
 		await openScenario(page, "form-screens-android");

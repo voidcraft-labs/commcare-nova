@@ -263,6 +263,7 @@ from proof.checks.manifest_value_classes import (
     JsonAt,
     Runtime,
     XmlAt,
+    appearance_rules,
     appearance_words,
     holds_no_default_value,
     instance_scheme,
@@ -270,6 +271,7 @@ from proof.checks.manifest_value_classes import (
     preset_source,
     scanned_instance_names,
     protected_constraint_form,
+    unread_words_dropped,
 )
 from proof.observe.intent import FORM_FILE
 from proof.observe.manifest import AUTHORED_UPLOAD, read_entry
@@ -1066,7 +1068,15 @@ def xform_uses(xml: bytes, manifest: Manifest, artifact: str, found: Uses):
         local = etree.QName(element).localname
         at = XmlAt(form, element)
         if body is not None and _under(element, body) and element.get("appearance") is not None:
-            _appearance_uses(element.get("appearance"), manifest, artifact, f"{where}/@appearance", found, at=at)
+            _appearance_uses(
+                element.get("appearance"),
+                manifest,
+                artifact,
+                f"{where}/@appearance",
+                found,
+                readers=_body_readers(manifest),
+                at=at,
+            )
         if local == "bind" and element.get("type"):
             found.add(
                 f"jr-type:{_data_type(element.get('type'))}", artifact, f"{where}/@type", XmlAt(form, element, "type")
@@ -1091,7 +1101,7 @@ def xform_uses(xml: bytes, manifest: Manifest, artifact: str, found: Uses):
                     artifact,
                     f"{where}/@appearance",
                     found,
-                    readers=("android-IntentExtensionParser",),
+                    readers=(INTENT_APPEARANCE_READER,),
                     at=at,
                 )
         if _is_itext_value(element) and element.get("form") is not None:
@@ -1633,8 +1643,22 @@ def _appearance_uses(value, manifest, artifact, where, found, readers=None, at=N
     matched, unread = appearance_words(manifest, at.document, at.element, value, readers)
     for key in sorted(matched):
         found.add(key, artifact, where, at)
+    if unread and unread_words_dropped(manifest, at.document, at.element, value):
+        # The value is in the class whose unread words Nova's reader drops, judged as the element's appearance.
+        return
     for word in unread:
         found.add(f"appearance:*/{word}", artifact, where, at)
+
+
+# The reader of an ``<odkx:intent>``'s own appearance (``IntentExtensionParser``, read back by ``IntentWidget`` and
+# ``FormEntryActivity.processIntentResponse`` from the callout it builds), which no body element's appearance feeds.
+INTENT_APPEARANCE_READER = "android-IntentExtensionParser"
+
+
+@cache
+def _body_readers(manifest):
+    """The readers of a body element's own appearance: every reader the surface records but the intent's."""
+    return tuple(sorted({rule.reader for rule in appearance_rules(manifest)} - {INTENT_APPEARANCE_READER}))
 
 
 # Suites and profiles --------------------------------------------------------

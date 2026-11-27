@@ -1,4 +1,4 @@
-import { testUuid } from "@/__tests__/helpers/uuid";
+import { testMediaAssetId, testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc } from "@/lib/__tests__/docHelpers";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import {
@@ -23,7 +23,10 @@ export const IMAGE = testUuid("language-screen-image");
 
 /** One section and a fixed repeat are admitted together. The manual-repeat
  * mutation boundary is covered separately by its real controller/browser tests. */
-export function languageScreenDoc() {
+export const ENGLISH_IMAGE = testMediaAssetId("label-media-eng");
+export const SPANISH_IMAGE = testMediaAssetId("label-media-spa");
+
+export function languageScreenDoc(localizedMedia = false) {
 	const doc = buildDoc({
 		appId: "native-language-screen",
 		appName: "Visit language",
@@ -171,6 +174,14 @@ export function languageScreenDoc() {
 			},
 		},
 	};
+	if (localizedMedia) {
+		const name = source.fields[NAME];
+		if (name.kind !== "text") throw Error("The name is not a text question.");
+		name.label_media = {
+			image: ENGLISH_IMAGE,
+			mediaByLanguage: { spa: { image: SPANISH_IMAGE } },
+		};
+	}
 	// Re-admit the complete translated document; no test reaches a renderer
 	// with field topology or localization that the product would reject.
 	return admittedControllerDoc(source);

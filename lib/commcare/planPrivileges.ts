@@ -25,6 +25,8 @@ import {
 	declaresAndroid,
 	declaresWebApps,
 	effectiveCaseSearchConfig,
+	type PlatformFeatureUse,
+	targetConditionUses,
 	type Uuid,
 } from "@/lib/domain";
 import {
@@ -66,6 +68,7 @@ export const HQ_PLAN_PRIVILEGE_IDS = [
 	"locations",
 	"data_forwarding",
 	"app_dependencies",
+	"geocoder",
 ] as const;
 export type HqPlanPrivilegeId = (typeof HQ_PLAN_PRIVILEGE_IDS)[number];
 
@@ -117,6 +120,7 @@ export const PLAN_FEATURE_FOR_PRIVILEGE = {
 	locations: "organization",
 	data_forwarding: "data-forwarding",
 	app_dependencies: "required-android-apps",
+	geocoder: "geocoder",
 } as const satisfies Record<HqPlanPrivilegeId, PlanFeatureId>;
 
 /** A form named as every reason names it: its name, trimmed, or its id. */
@@ -124,6 +128,28 @@ function formName(doc: BlueprintDoc, formUuid: Uuid): string {
 	const form = doc.forms[formUuid];
 	if (form === undefined) return formUuid;
 	return form.name.trim() || form.id;
+}
+
+/**
+ * One sentence per form that holds a question searching for an address, in
+ * form order: what `geocoder` and the `address-search` capability both say.
+ */
+export function addressSearchFormReasons(
+	doc: BlueprintDoc,
+	uses: readonly PlatformFeatureUse[],
+): string[] {
+	const forms = new Set(
+		uses.flatMap((use) =>
+			use.owner.kind === "field" ? [use.owner.formUuid] : [],
+		),
+	);
+	return formsInOrder(doc).flatMap(({ formUuid }) =>
+		forms.has(formUuid)
+			? [
+					`${formName(doc, formUuid)} has a question that searches for an address in Web Apps.`,
+				]
+			: [],
+	);
 }
 
 /** Every form of the document, in its form order. */
@@ -389,6 +415,23 @@ export function requiredPlanPrivileges(
 		doc.appSettings.requiredAndroidApps?.length
 			? ["Workers need other Android apps before opening this app."]
 			: [],
+	);
+
+	/* `geocoder`: Web Apps builds an address question's search only where
+	 * the project space has it and advanced case search
+	 * (`cloudcare/views.py::has_geocoder_privs`); otherwise `getEntry` builds
+	 * an `UnsupportedEntry` whose answer is "Not Supported by Web Entry"
+	 * (`cloudcare/js/form_entry/entries.js`). The flag half is the
+	 * `address-search` capability the publish probe checks. Android reads the
+	 * question as ordinary text, so an app that runs only on Android asks
+	 * nothing (`lib/domain/platformUses.ts::targetConditionUses`). */
+	add(
+		"geocoder",
+		targetConditionUses(doc).flatMap((condition) =>
+			condition.condition.planFeature === "geocoder"
+				? addressSearchFormReasons(doc, condition.uses)
+				: [],
+		),
 	);
 
 	return uses;

@@ -8,6 +8,7 @@
 import tablerLock from "@iconify-icons/tabler/lock";
 import { z } from "zod";
 import type { FieldKindMetadata } from "../kinds";
+import { displaySchemas } from "../questionDisplaySchemas";
 import {
 	formLogicSchema,
 	inputFieldBaseSchema,
@@ -16,6 +17,11 @@ import {
 
 export const secretFieldSchema = inputFieldBaseSchema.extend({
 	kind: z.literal("secret"),
+	keypad: displaySchemas.keypad.optional(),
+	inputWidth: displaySchemas.inputWidth.optional(),
+	addressLookup: displaySchemas.addressLookup.optional(),
+	sendTopics: displaySchemas.sendTopics.optional(),
+	receiveFrom: displaySchemas.receiveFrom.optional(),
 	validate: formLogicSchema.optional(),
 	validate_msg: proseTemplateSchema.optional(),
 	default_value: formLogicSchema.optional(),

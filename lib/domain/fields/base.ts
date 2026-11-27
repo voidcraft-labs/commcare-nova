@@ -55,6 +55,7 @@ import {
 	proseTemplateText,
 	proseText,
 } from "../prose";
+import { displaySchemas } from "../questionDisplaySchemas";
 import { type Uuid, uuidSchema } from "../uuid";
 
 // Re-exported so the per-kind schema files (which extend the bases
@@ -91,6 +92,10 @@ export type FieldBase = StructuralFieldBase & {
 };
 
 export const fieldBaseSchema = structuralFieldBase.extend({
+	banner: displaySchemas.banner.exclude(["hidden"]).optional(),
+	itemsPerRow: displaySchemas.itemsPerRow.optional(),
+	textAlignment: displaySchemas.textAlignment.optional(),
+	hintPlacement: displaySchemas.hintPlacement.optional(),
 	label: proseTemplateSchema,
 	label_media: mediaSchema.optional(),
 	/** The label shows exactly as written, with no markdown form on the wire. Absent: markdown. */

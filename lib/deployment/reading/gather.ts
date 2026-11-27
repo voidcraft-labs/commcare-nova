@@ -36,6 +36,7 @@ import {
 } from "@/lib/commcare/hq/publishedCaseBlocks";
 import { lookupTagCollidesWithInstanceName } from "@/lib/commcare/lookup/naming";
 import { emittedModuleKind } from "@/lib/commcare/moduleKind";
+import { addressSearchFormReasons } from "@/lib/commcare/planPrivileges";
 import {
 	type ReadDraft,
 	type ReaderInput,
@@ -77,6 +78,7 @@ import {
 	PLATFORMS,
 	type Platform,
 	type PlatformFeatureId,
+	targetConditionUses,
 } from "@/lib/domain";
 import { remapAssetRefs } from "@/lib/domain/mediaRefs";
 import { moduleFormsReadSearch } from "@/lib/domain/modules";
@@ -1983,6 +1985,7 @@ function* reviewOf(input: {
 				sourceWebAppsOn: source.cloudcareEnabled,
 				sourceHoldsSaveToCase: accepted.sourceHoldsSaveToCase,
 			}),
+			...addressSearchOf(declaration.doc),
 			firstPublish: declaration.firstPublish,
 		});
 	}
@@ -2093,4 +2096,20 @@ function* reviewOf(input: {
 		mediaLeftOut: mediaLeftOutOf(input.judgedPlan.claims).undrawn,
 		firstPublish: accepted.firstPublish,
 	};
+}
+
+/**
+ * The forms whose questions search for an address in Web Apps under one
+ * declaration (`targetConditionUses`), as the review's choice holds them:
+ * absent where none does, so a review with none digests as before.
+ */
+function addressSearchOf(doc: BlueprintDoc): {
+	readonly addressSearch?: readonly string[];
+} {
+	const reasons = targetConditionUses(doc).flatMap((met) =>
+		met.condition.capability === "address-search"
+			? addressSearchFormReasons(doc, met.uses)
+			: [],
+	);
+	return reasons.length === 0 ? {} : { addressSearch: reasons };
 }

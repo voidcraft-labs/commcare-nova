@@ -22,7 +22,13 @@ For each configuration of an ``hq-authored`` document:
    first reading's media plan gives at each hand-off joined in.
 3. **The join** (``join``), on ``(artifact, where)``: each use the lane decides
    needs some record at that place naming an entry that names the use's key,
-   with a standing that projects to the lane's (``PROJECTS``).
+   with a standing that projects to the lane's (``PROJECTS``). An appearance is one value the inventory sorts
+   into one row by the whole of it, while the lane makes a use of the attribute's key and one of each token a
+   runtime reads in it: parity joins each appearance attribute once, on the row the lane's own classifier puts
+   the value in (``proof.checks.appearance_rows``, written from the inventory and the upstream readers apart
+   from Nova's reader), and needs the reader's record there under that row; the per-token uses stay the
+   manifest and sensitivity checks' evidence. An appearance the classifier does not decide is reported by place
+   (``undecided_appearances``).
 4. **The other way**: every record whose ``key`` is not null is a use the lane
    extracted at that ``(artifact, where)`` with that key.
 
@@ -57,7 +63,7 @@ import functools
 import json
 from dataclasses import dataclass
 
-from proof.checks import changes, lookup_parity, manifest_usage, observations, proof6, readerbundle
+from proof.checks import appearance_rows, changes, lookup_parity, manifest_usage, observations, proof6, readerbundle
 from proof.checks.differences import Difference, pointer_token
 
 CHECK = "parity"
@@ -355,19 +361,93 @@ def _lane_json(decided: Decided):
             **({"at": decided.at} if decided.at is not None else {})}
 
 
-def join(uses, claims, *, document: str = "", held=None) -> list[Difference]:
+def _appearance_place(use) -> bool:
+    """Whether a use sits at a form control's ``appearance`` attribute (``manifest_usage._appearance_uses`` and the
+    XForm vocabulary's ``xform:<control>@appearance``)."""
+    return use.artifact.startswith("form:") and use.where.endswith("/@appearance")
+
+
+def appearance_row(use, held=None):
+    """The inventory row the lane puts an appearance use's value in (``proof.checks.appearance_rows.row_of``), or
+    None where it does not decide it or the use carries no element."""
+    at = getattr(use, "at", None)
+    element = getattr(at, "element", None)
+    if element is None or element.get("appearance") is None:
+        return None
+    return appearance_rows.row_of(manifest(), at.document, element)
+
+
+def _appearance_places(uses, row_of) -> dict:
+    """Each appearance attribute a use stands at (``Decided`` or ``manifest_usage.Use``), by place: the row its
+    value is in (``row_of``, None where the lane does not decide it), the attribute's key the difference is named
+    by, and a use there."""
+    found = {}
+    for one in uses:
+        use = getattr(one, "use", one)
+        place = (use.artifact, use.where)
+        if _appearance_place(use) and place not in found:
+            key = f"xform:{use.where.rsplit('/', 2)[-2].split('[', 1)[0]}@appearance"
+            found[place] = (row_of(use), key, use)
+    return found
+
+
+ROW_STANDINGS = {
+    "HELD": ("held", "kept", "inert"),
+    "INERT": ("held", "kept", "inert"),
+    "TARGET-OWNED": ("held", "kept", "inert"),
+    "REFUSED": ("never", "fix-in-hq"),
+    "HELD-NEW": ("not-yet",),
+}
+
+
+def _join_appearance(document, place, row, key, records, held):
+    """One appearance attribute joined on its row: a record there under that row whose standing is the row's."""
+    entry = _entries_by_id(held).get(row)
+    lane = {"standing": entry.disposition if entry else None, "entries": [row]}
+    named = (key, *place)
+    under = [record for record in records if record.entry == row]
+    if not under:
+        what = UNCLAIMED if not records else ENTRY
+        return [_difference(document, named, what, lane, [_record_json(r) for r in records])]
+    allowed = ROW_STANDINGS.get(entry.disposition if entry else "", ())
+    if any(record.standing in allowed for record in under):
+        return []
+    return [_difference(document, named, STANDING, lane, [_record_json(r) for r in under])]
+
+
+def join(
+    uses, claims, *, document: str = "", held=None, row_of=appearance_row, undecided=None, extracted=None
+) -> list[Difference]:
     """The lane's decided uses (``Decided``) joined to the reader's claim log on ``(artifact, where)``: one
     difference a use whose place holds no record naming an entry of its key (``unclaimed``), whose records name
     only entries outside what its standing allows (``entry``), or whose records' standings do not project to it
-    (``standing``). ``held`` is the manifest the uses were decided over (the lane's, by default)."""
+    (``standing``). An appearance attribute is joined once, on the inventory row the lane puts its value in
+    (``row_of``, ``proof.checks.appearance_rows``): a record there under that row with the row's standing; the
+    uses of each token a runtime reads in it are the manifest check's evidence and are not joined one by one. An
+    appearance whose row the lane does not decide is not joined, and its place is added to ``undecided`` where one
+    is given. ``extracted`` is every use the lane made (``manifest_usage.Uses.uses``), so an appearance none of
+    whose token uses the lane decides is joined too; by default the decided uses' appearances. ``held`` is the
+    manifest the uses were decided over (the lane's, by default)."""
     held = held or manifest()
     at_place = {}
     for record in records_of(claims):
         at_place.setdefault((record.artifact, record.where), []).append(record)
+    appearances = _appearance_places(uses if extracted is None else extracted, row_of)
     found = []
+    for place, (row, key, use) in appearances.items():
+        if row is None:
+            if undecided is not None:
+                element = getattr(getattr(use, "at", None), "element", None)
+                value = element.get("appearance") if element is not None else ""
+                undecided.append(f"{use.artifact}{use.where}={value}")
+            continue
+        found += _join_appearance(document, place, row, key, at_place.get(place, []), held)
     for decided in uses:
         use = decided.use
-        naming_ids = {entry.id for entry in held.entries.get(use.key, ())}
+        if decided.place in appearances:
+            continue
+        keys = (use.key,)
+        naming_ids = {entry.id for key in keys for entry in held.entries.get(key, ())}
         records = at_place.get(decided.place, [])
         naming = [record for record in records if record.entry in naming_ids]
         place = (use.key, use.artifact, use.where)
@@ -497,10 +577,25 @@ def differences(document, records, *, claims=None) -> list[Difference]:
         if uses is None:
             continue
         decided, _ = decided_uses(uses)
-        found += join(decided, claims[name], document=document.id)
+        found += join(decided, claims[name], document=document.id, extracted=uses.uses)
         found += unseen(uses.uses, claims[name], document=document.id)
         found += lookup_parity.differences(document.id, manifest(), uses.lookup_tags, reads, records_of(claims[name]))
     return found
+
+
+def undecided_appearances(document, records, *, claims=None) -> list[str]:
+    """Each appearance of the document's A whose inventory row the lane does not decide
+    (``appearance_rows.row_of``), as ``<artifact><where>=<value>``, over every configuration."""
+    claims = claims_logs(document, records) if claims is None else claims
+    readings = _readings(document, records)
+    found = []
+    for name in sorted(claims):
+        reads = _authored_reads(document, records, name)
+        uses = _lane_uses(document, records, name, readings, reads)
+        if uses is None:
+            continue
+        join([], "", document=document.id, undecided=found, extracted=uses.uses)
+    return sorted(set(found))
 
 
 def undecided(document, records) -> dict[str, int]:

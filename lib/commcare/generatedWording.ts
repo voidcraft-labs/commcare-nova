@@ -33,6 +33,23 @@ import { buildShortDetail } from "./suite/case-list/shortDetail";
 import { moduleUsesInlineSearch } from "./suite/case-search/inlineSearch";
 import { formSubmitLabelLocaleId } from "./suite/formStrings";
 
+/** The two keys CommCare HQ's build writes from the app's name, each with its own wording unit:
+ *  every emission writes them, whatever else its projection derives. */
+export function appNameWordingKeys(
+	authored: BlueprintDoc,
+): Map<string, TranslationUnitId> {
+	const units = snapshotTranslationUnits(authored);
+	const keys = new Map<string, TranslationUnitId>();
+	for (const [key, role] of [
+		["app.display.name", "appDisplayName"],
+		["homescreen.title", "homescreenTitle"],
+	] as const) {
+		const unit = generatedWordingId("app", role);
+		if (units.has(unit)) keys.set(key, unit);
+	}
+	return keys;
+}
+
 /** Only the generator's exact spelling is registered. A prefix match against
  * HQ's broader catalog does not establish that a worker can see an output. */
 export function generatedWordingKeys(
@@ -49,6 +66,7 @@ export function generatedWordingKeys(
 	};
 
 	register("cchq.case", "app", "caseTitle");
+	for (const [key, unit] of appNameWordingKeys(authored)) keys.set(key, unit);
 	// The archive and reader are already walking every detail. For an HQ
 	// import file, only derive those fields (and search checks) whose
 	// overrides actually need a wire key.
@@ -182,11 +200,12 @@ export function generatedWordingOverrides(
 					doc,
 					localizeTranslationUnit(doc, tag, unit),
 				);
+				// The unit's own wording is written even where it equals the text its base gives, so a
+				// reading takes it back as the unit's (`reader/generatedTranslationKeys.ts`).
 				if (
 					typeof localized.effective === "string" &&
 					(localized.status !== "out-of-date" || !!entry.workerFallback) &&
-					localized.effective !== "" &&
-					localized.effective !== localized.defaultText
+					localized.effective !== ""
 				)
 					values[key] = localized.effective;
 			}

@@ -21,7 +21,8 @@ import { describe, expect, it } from "vitest";
 import { testMediaAssetId, testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import type { BlueprintDoc } from "@/lib/domain";
-import { proseText } from "@/lib/domain";
+import { effectiveAppLocalization, proseText } from "@/lib/domain";
+import { navigationFilesInLanguage } from "@/lib/domain/navigationMedia";
 import { localAppStringTable } from "../../../appStrings";
 import { expandDoc } from "../../../expander";
 import {
@@ -191,12 +192,21 @@ describe("a menu's and a form's media read as HQ shows them", () => {
 		expect(formNamed(read, "Visit").audioLabel).toBe(
 			testMediaAssetId("form-audio"),
 		);
-		// Nova writes the path under every language, which the first publish declares.
+		// A profile restricted to the other language can show no image. Keeping
+		// the sparse dictionary preserves that choice on the original target.
+		const mod = moduleNamed(read, "Visits");
+		const localization = effectiveAppLocalization(read.localization);
+		expect(navigationFilesInLanguage(mod, "spa", localization).icon).toBe(
+			testMediaAssetId("menu-icon"),
+		);
+		expect(
+			navigationFilesInLanguage(mod, "spa", localization, ["spa"]).icon,
+		).toBeUndefined();
 		expect(
 			outcome.draft.facts.sameStateRewrites
 				.filter((one) => one.register === "media-maps-respelled")
 				.map((one) => one.path),
-		).toEqual(["/modules/0/media_image", "/modules/0/forms/0/media_audio"]);
+		).toEqual([]);
 	});
 
 	it("records no rewrite of a map stored as Nova writes it", async () => {
@@ -247,15 +257,64 @@ describe("a menu's and a form's media read as HQ shows them", () => {
 		expect(moduleNamed(outcome.draft.doc, "Visits").icon).toBeUndefined();
 	});
 
-	it("refuses two files shown in two languages", async () => {
+	it("keeps a former language that still supplies the full app fallback, but not a named installation", async () => {
+		const outcome = await readWithMedia(app(), (json) => {
+			const mod = json.modules[0] as AppJson["modules"][number];
+			mod.media_image = { de: OTHER_ICON, en: "", es: MENU_ICON };
+		});
+		expect(findings(outcome)).toEqual([]);
+		if (outcome.kind !== "read") throw new Error("The app did not read.");
+		const mod = moduleNamed(outcome.draft.doc, "Visits");
+		const localization = effectiveAppLocalization(
+			outcome.draft.doc.localization,
+		);
+		expect(navigationFilesInLanguage(mod, "eng", localization).icon).toBe(
+			testMediaAssetId("other-icon"),
+		);
+		expect(
+			navigationFilesInLanguage(mod, "eng", localization, ["eng", "spa"]).icon,
+		).toBe(testMediaAssetId("menu-icon"));
+		expect(
+			navigationFilesInLanguage(mod, "eng", localization, ["eng"]).icon,
+		).toBeUndefined();
+	});
+
+	it("reads distinct files", async () => {
 		const outcome = await readWithMedia(app(), (json) => {
 			(json.modules[0] as AppJson["modules"][number]).media_image = {
 				en: MENU_ICON,
 				es: OTHER_ICON,
 			};
 		});
-		expect(findings(outcome)).toEqual([
-			"menus-and-case-lists/media-image-media-audio-differing-by-language",
+		expect(findings(outcome)).toEqual([]);
+		if (outcome.kind !== "read") throw new Error("The app did not read.");
+		const mod = moduleNamed(outcome.draft.doc, "Visits");
+		expect(mod.mediaByLanguage?.spa?.icon).toBe(testMediaAssetId("other-icon"));
+		expect(mod.icon).toBe(testMediaAssetId("menu-icon"));
+	});
+
+	it("reads a map whose file goes to the media plan by the paths it shows", async () => {
+		const missing = "jr://file/commcare/image/missing.png";
+		const entriesAt = (outcome: ReturnType<typeof readHqApp>, where: string) =>
+			[...outcome.claims.records()]
+				.filter((one) => one.artifact === "app.json" && one.where === where)
+				.map((one) => `${one.key} ${one.entry}`);
+		const one = await readWithMedia(app(), (json) => {
+			(json.modules[0] as AppJson["modules"][number]).media_image = {
+				en: missing,
+			};
+		});
+		expect(entriesAt(one, "/modules/0/media_image")).toEqual([
+			"schema:Module.media_image menus-and-case-lists/media-image-media-audio-same-asset-in-every-language",
+		]);
+		const two = await readWithMedia(app(), (json) => {
+			(json.modules[0] as AppJson["modules"][number]).media_image = {
+				en: missing,
+				es: MENU_ICON,
+			};
+		});
+		expect(entriesAt(two, "/modules/0/media_image")).toEqual([
+			"schema:Module.media_image menus-and-case-lists/media-image-media-audio-differing-by-language",
 		]);
 	});
 });
@@ -362,25 +421,34 @@ describe("a case list menu item's and a Register button's media read as HQ shows
 		]);
 	});
 
-	it("refuses two files shown in two languages on a case list menu item", async () => {
+	it("reads distinct files on a case list menu item", async () => {
 		const outcome = await readWithMedia(caseListApp(), (json) => {
 			listBlocks(json).item.media_image = { en: MENU_ICON, es: OTHER_ICON };
 		});
-		expect(findings(outcome)).toEqual([
-			"menus-and-case-lists/media-image-media-audio-differing-by-language",
-		]);
+		expect(findings(outcome)).toEqual([]);
+		if (outcome.kind !== "read") throw new Error("The app did not read.");
+		expect(
+			moduleNamed(outcome.draft.doc, "Patients").caseListMenuItem
+				?.mediaByLanguage?.spa?.icon,
+		).toBe(testMediaAssetId("other-icon"));
 	});
 
-	it("refuses two files shown in two languages on a Register button", async () => {
+	it("reads distinct files on a Register button", async () => {
 		const outcome = await readWithMedia(caseListApp(), (json) => {
 			listBlocks(json).register.media_image = {
 				en: MENU_ICON,
 				es: OTHER_ICON,
 			};
 		});
-		expect(findings(outcome)).toEqual([
-			"menus-and-case-lists/media-image-media-audio-differing-by-language",
-		]);
+		expect(findings(outcome)).toEqual([]);
+		if (outcome.kind !== "read") throw new Error("The app did not read.");
+		const register = moduleNamed(
+			outcome.draft.doc,
+			"Patients",
+		).caseListRegistrationForm;
+		expect(
+			register?.kind === "always" && register.mediaByLanguage?.spa?.icon,
+		).toBe(testMediaAssetId("other-icon"));
 	});
 });
 

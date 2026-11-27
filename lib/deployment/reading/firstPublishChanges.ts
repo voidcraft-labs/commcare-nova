@@ -24,6 +24,7 @@ import { projectCaseListForHq } from "@/lib/commcare/hqJson/caseList";
 import { pythonStrip } from "@/lib/commcare/localeFile";
 import { identityLookupWireNaming } from "@/lib/commcare/lookup/naming";
 import { readsTrimmedSibling } from "@/lib/commcare/placement";
+import { generatedKeyOwner } from "@/lib/commcare/reader/generatedTranslationKeys";
 import type {
 	MediaRecipients,
 	ReadFacts,
@@ -63,7 +64,6 @@ import { readingMediaPaths } from "./adoptionBoundary";
 import {
 	FIRST_PUBLISH_PLACE_KINDS,
 	type FirstPublishPlaceKind,
-	FOLDED_TEXT_PATHS,
 	type FormPosition,
 	type FormPositions,
 	firstPublishPlaceKind,
@@ -75,7 +75,6 @@ import {
 	placeOf,
 	placeOfStoredPointer,
 	placeSteps,
-	placesOfGeneratedKey,
 	placesOfMediaReference,
 	placesOfSlot,
 	sortedPlaces,
@@ -1351,6 +1350,40 @@ export const FIRST_PUBLISH_CHANGES: Readonly<
 		},
 		paths: ["/modules/*/forms/*/actions", "/_attachments/*"],
 	},
+	/**
+	 * A question's or group's appearance written in Nova's spelling of the
+	 * display settings it read (`xform/appearance.ts::writeFieldAppearance`),
+	 * every runtime reading the two alike (`readDisplaySettings.ts::
+	 * readFieldAppearance`), or dropped where no runtime reads it on that
+	 * control: recorded by `xform/appearances.ts::claimAppearance`
+	 * (`ReadFormFacts.respelledAppearances`, `inertAppearances`).
+	 */
+	"question-display-respelled": {
+		touchesWorkers: false,
+		scope: "reading",
+		applies: (facts) =>
+			facts.facts.forms.some(
+				(form) =>
+					form.respelledAppearances.length > 0 ||
+					form.inertAppearances.length > 0,
+			),
+		at: {
+			kinds: ["form-node"],
+			places: (facts) =>
+				facts.generatedByForm.flatMap(({ position, form }) =>
+					position === null
+						? []
+						: [...form.respelledAppearances, ...form.inertAppearances].map(
+								(path) =>
+									nodePlace(
+										position,
+										path.startsWith("/") ? path : `/data/${path}`,
+									),
+							),
+				),
+		},
+		paths: ["/_attachments/*"],
+	},
 	/** A search's filter rows cut another way (`hqJson/caseList.ts::projectCaseListForHq`), recorded by `search/rows.ts`. */
 	"search-filter-rows-recut": {
 		touchesWorkers: false,
@@ -1521,26 +1554,33 @@ export const FIRST_PUBLISH_CHANGES: Readonly<
 		paths: ["/auto_gps_capture"],
 	},
 	/**
-	 * A generated translation key folded into the text it names
-	 * (`reader/assemble.ts::decideGeneratedKeys`): the key leaves `translations`, and the text
-	 * takes its value at each slot `firstPublishPlaces.ts::FOLDED_TEXT_SLOTS` names for its kind.
+	 * A generated translation key the reading read as having no effect (blank, naming no string of
+	 * the app, or the string HQ's build generates there; `reader/assemble.ts::decideGeneratedKeys`):
+	 * Nova words no such key, so it leaves `translations`.
 	 */
-	"translation-overrides-folded": {
+	"unused-translation-keys-removed": {
 		touchesWorkers: false,
 		scope: "reading",
-		applies: (facts) => facts.facts.foldedTranslationKeys.length > 0,
+		applies: (facts) => facts.facts.unusedTranslationKeys.length > 0,
 		at: {
-			kinds: ["app", "menu", "form", "form-part", "form-node"],
+			kinds: ["app", "menu", "form"],
+			// The stored key, and the menu, form or app its built string is of, which the string HQ's
+			// build no longer writes stands at.
 			places: (facts) =>
-				facts.facts.foldedTranslationKeys.flatMap((pointer) => {
+				facts.facts.unusedTranslationKeys.flatMap((pointer) => {
 					const stored = placeOfStoredPointer(facts.positions, pointer);
+					const owner = generatedKeyOwner(placeSteps(pointer).at(-1) ?? "");
 					return [
 						...(stored === null ? [] : [stored]),
-						...placesOfGeneratedKey(placeSteps(pointer).at(-1) ?? ""),
+						owner.kind === "form"
+							? placeOf("form", `${owner.menu}.${owner.form}`)
+							: owner.kind === "menu"
+								? placeOf("menu", owner.menu)
+								: placeOf("app"),
 					];
 				}),
 		},
-		paths: ["/translations/*/*", ...FOLDED_TEXT_PATHS],
+		paths: ["/translations/*/*"],
 	},
 	/** Every app writes `location_fixture_restore: project_default` (`hqShells.ts::applicationShell`). */
 	"location-list-setting-reset": {
@@ -1718,12 +1758,15 @@ export const FIRST_PUBLISH_CHANGES: Readonly<
 			"/modules/*/forms/*/name",
 			"/name",
 			"/translations/*/app.display.name",
+			"/translations/*/homescreen.title",
 		],
 	},
 	/**
-	 * A navigation media map read as the file HQ's build shows in each language
-	 * and written under every language with the switches off
-	 * (`multimedia/navMenuMedia.ts::buildNavMediaDicts`), recorded by
+	 * A navigation media map Nova writes with other paths than HQ stores:
+	 * one read under a "use for all" switch, written as each language's file
+	 * with the switches off (`multimedia/navMenuMedia.ts::buildNavMediaDicts`).
+	 * A sparse map, a blank entry and a former language's file are held as
+	 * stored, so they predict no change. Recorded by
 	 * `menus/navMedia.ts::recordRespelling`.
 	 */
 	"media-maps-respelled": {

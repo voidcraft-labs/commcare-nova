@@ -255,6 +255,92 @@ export interface PreviewPlatformRules {
 	/** Android `views/QuestionsView.java::deriveGroupText`: one header line
 	 *  per screen, the enclosing groups joined with ` > `. */
 	readonly groupLabel: "card" | "screen-header";
+	/** A text, password or barcode question that asks for address search.
+	 *  Web Apps builds its geocoder entry (`form_entry/entries.js::getEntry`,
+	 *  `AddressEntry`), under the project space's gates; Android reads the
+	 *  question as ordinary text (`WidgetFactory.buildBasicWidget`). */
+	readonly addressQuestion: "search" | "text";
+	/** A text or number question under a compact group. Android draws a
+	 *  compact widget, its label's one line beside the answer box and no
+	 *  media, hint or help (`QuestionWidget`, `WidgetFactory.buildBasicWidget`,
+	 *  `lib/preview/androidCompact.ts`); Web Apps reads no compact setting. */
+	readonly compactGroup: "ignored" | "beside-label";
+	/** A hint placed in the entry box or hidden. Web Apps reads
+	 *  `hint-as-placeholder` (`form_entry/entries.js::EntrySingleAnswer`, the
+	 *  placeholder; `form_ui.js::Question`, the hint's line); Android's
+	 *  `views/widgets/QuestionWidget.java::addHintText` reads no appearance, so
+	 *  the hint stays below the question. */
+	readonly hintPlacement: "as-authored" | "below-question";
+	/** How a search box matches what the worker types. Web Apps
+	 *  `form_entry/entries.js::ComboboxEntry` (the trimmed text, a whole-word
+	 *  or close-spelling match); Android `views/widgets/ComboboxWidget.java`
+	 *  over Core's `StandardFilterRule`, `MultiWordFilterRule` and
+	 *  `FuzzyMatchFilterRule`, whose `views/Combobox.java` puts the cursor
+	 *  back on an edit that leaves no choice matching. */
+	readonly choiceSearch: "combobox" | "filter-rule";
+	/** A date question with no answer. Web Apps' `form_entry/entries.js::DateEntry`
+	 *  can be emptied and shows nothing until a day is chosen; Android's
+	 *  `views/widgets/DateWidget.java` builds its picker on the answer or the
+	 *  device's day, which it saves as the worker leaves, and has no clear
+	 *  (only `gregorian-with-clear` and the Ethiopian and Nepali widgets can be
+	 *  empty, `workerCalendar.ts::androidCalendarCanBeEmpty`). */
+	readonly datePicker: "clearable" | "shows-a-day";
+	/** Which calendars a date question draws. Web Apps builds
+	 *  `EthiopianDateEntry` for `ethiopian` alone (`form_entry/entries.js::getEntry`);
+	 *  Android's `views/widgets/WidgetFactory.java` builds the Ethiopian,
+	 *  Nepali and Gregorian-with-clear widgets, the Ethiopian one only for an
+	 *  appearance of that word alone. */
+	readonly alternateCalendar: "ethiopian" | "authored";
+	/** A time question's clock. Web Apps reads `12-hour`
+	 *  (`form_entry/entries.js::DateTimeEntryBase`, `TIME_12_HOUR`) and is a
+	 *  24-hour clock otherwise; Android's `views/widgets/TimeWidget.java`
+	 *  follows the phone's settings, which Preview draws as a 12-hour clock. */
+	readonly timeClock: "as-authored" | "device";
+	/** A group's collapse and border. Web Apps `form_entry/form_ui.js::Group`
+	 *  (`collapsible`, `groupBorder`); Android draws a group as its screen's
+	 *  header line (`views/QuestionsView.java::deriveGroupText`). */
+	readonly groupFrame: "as-authored" | "plain";
+	/** Questions and repeat entries sharing a row. Web Apps
+	 *  `form_entry/form_ui.js` (`PER_ROW_PATTERN`, `PER_ROW_REPEAT_PATTERN`);
+	 *  commcare-android reads neither appearance. */
+	readonly questionsPerRow: boolean;
+	/** A question's text alignment. Web Apps
+	 *  `cloudcare/partials/form_entry/question.html` (`text-align-center`,
+	 *  `text-align-right`); commcare-android reads neither. */
+	readonly questionAlignment: boolean;
+	/** A short or medium entry box. Web Apps `form_entry/form_ui.js::Question`
+	 *  (`SHORT`, `MEDIUM`); Android keeps the box's width and reads `short`
+	 *  only for the keyboard action (`keyboardAction`). */
+	readonly inputWidth: boolean;
+	/** A password with a number keypad. Web Apps builds a `PhoneEntry` for the
+	 *  numeric appearance, a plain text box (`form_entry/entries.js::getEntry`;
+	 *  `FreeTextEntry` alone masks a secret); Android's
+	 *  `views/widgets/StringNumberWidget.java` keeps the answer masked. */
+	readonly secretKeypad: "visible" | "masked";
+	/** Nova's "Sign on Web Apps" setting, offered only beside another display
+	 *  setting (`lib/domain/questionDisplay.ts::canOfferDisplaySetting`). Web
+	 *  Apps builds a `SignatureEntry` where the appearance holds `signature`
+	 *  (`form_entry/entries.js::getEntry`); Android's
+	 *  `views/widgets/WidgetFactory.java` builds a `SignatureWidget` only for
+	 *  an appearance of that word alone. */
+	readonly combinedSignature: boolean;
+	/** A label shown as a colored banner above the screen. Android
+	 *  `activities/components/FormNavigationUI.java::updateFloatingLabels`;
+	 *  Web Apps draws the label in its place (`form_entry/entries.js::InfoEntry`). */
+	readonly questionBanner: boolean;
+	/** A label's text selection. Android's `views/widgets/TriggerWidget.java`
+	 *  makes the text selectable for `selectable` alone and not otherwise;
+	 *  Web Apps leaves selection to the browser. */
+	readonly labelTextSelection: "browser" | "by-setting";
+	/** The keyboard's Next or Done action on an entry box. Android
+	 *  `views/widgets/StringWidget.java`, `IntegerWidget.java`, `DecimalWidget.java`
+	 *  (`setImeOptions`), marked by `views/QuestionsView.java`; Web Apps sets
+	 *  none. */
+	readonly keyboardAction: boolean;
+	/** Questions that share their answers over a channel. Web Apps
+	 *  `form_entry/entries.js::getEntry` reads `broadcast-*` and `receive-*`;
+	 *  commcare-android reads neither, so each question keeps its own answer. */
+	readonly questionChannels: boolean;
 	/** Android `activities/FormEntryActivityUIController.java::createRepeatDialog`. */
 	readonly repeatAdd: "buttons" | "prompt";
 	/** Choice images, audio and video (manifest `questions/choice-image`,
@@ -443,6 +529,23 @@ export const PREVIEW_PLATFORM_RULES = {
 		plainChoice: "markdown",
 		plainHelp: "markdown",
 		groupLabel: "card",
+		addressQuestion: "search",
+		compactGroup: "ignored",
+		hintPlacement: "as-authored",
+		choiceSearch: "combobox",
+		datePicker: "clearable",
+		alternateCalendar: "ethiopian",
+		timeClock: "as-authored",
+		groupFrame: "as-authored",
+		questionsPerRow: true,
+		questionAlignment: true,
+		inputWidth: true,
+		secretKeypad: "visible",
+		combinedSignature: true,
+		questionBanner: false,
+		labelTextSelection: "browser",
+		keyboardAction: false,
+		questionChannels: true,
 		repeatAdd: "buttons",
 		choiceMedia: false,
 		locationQuestion: "map",
@@ -512,6 +615,23 @@ export const PREVIEW_PLATFORM_RULES = {
 		plainChoice: "literal",
 		plainHelp: "literal",
 		groupLabel: "screen-header",
+		addressQuestion: "text",
+		compactGroup: "beside-label",
+		hintPlacement: "below-question",
+		choiceSearch: "filter-rule",
+		datePicker: "shows-a-day",
+		alternateCalendar: "authored",
+		timeClock: "device",
+		groupFrame: "plain",
+		questionsPerRow: false,
+		questionAlignment: false,
+		inputWidth: false,
+		secretKeypad: "masked",
+		combinedSignature: false,
+		questionBanner: true,
+		labelTextSelection: "by-setting",
+		keyboardAction: true,
+		questionChannels: false,
 		repeatAdd: "prompt",
 		choiceMedia: true,
 		locationQuestion: "record-location",

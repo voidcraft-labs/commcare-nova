@@ -45,10 +45,12 @@ import {
 	reviewSameEqualTable,
 } from "@/lib/publish/managedData";
 import {
+	addressSearchReviewLine,
 	adoptionRecordedFeaturesLine,
 	PLAN_FEATURES,
 } from "@/lib/publish/planFeatures";
 import {
+	addressSearchLine,
 	answerSourceOf,
 	bringInInputOf,
 	chosenDeclaration,
@@ -640,6 +642,22 @@ describe("the review's places, files and recorded features", () => {
 				KEY.domain,
 			),
 		);
+	});
+
+	it("names what address search needs of the project space only where the chosen row searches", () => {
+		expect(addressSearchLine(choice(null), KEY.domain)).toBeNull();
+		const line = addressSearchLine(
+			{
+				...choice(null),
+				addressSearch: [
+					"Visit has a question that searches for an address in Web Apps.",
+				],
+			},
+			KEY.domain,
+		);
+		expect(line).toBe(addressSearchReviewLine(KEY.domain));
+		expect(line).toContain(`“${KEY.domain}”`);
+		expect(line).toContain("Geocoder");
 	});
 });
 
