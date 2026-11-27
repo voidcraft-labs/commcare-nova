@@ -6,7 +6,10 @@ import {
 	directHostTextEquality,
 	ordinaryDeviceCaseList,
 } from "@/lib/domain/expression/directHostTextEquality";
-import { sameTypeRestoredThreshold } from "@/lib/domain/expression/ruleSets";
+import {
+	sameTypeRestoredScaledComparison,
+	sameTypeRestoredThreshold,
+} from "@/lib/domain/expression/ruleSets";
 import { walkPropertyRefs } from "@/lib/domain/expression/walk";
 import { type ValidationError, validationError } from "../../errors";
 import {
@@ -48,7 +51,8 @@ export function filterTypeCheck(
 		const errors = semanticCheckErrors(checkExpression(filter, ctx));
 		if (errors.length === 0 && slot === "case_list_filter") {
 			if (
-				sameTypeRestoredThreshold(filter, mod.caseType) !== undefined &&
+				(sameTypeRestoredThreshold(filter, mod.caseType) !== undefined ||
+					sameTypeRestoredScaledComparison(filter, mod.caseType)) &&
 				!ordinaryDeviceCaseList(doc, moduleUuid)
 			)
 				return [

@@ -96,6 +96,7 @@ import {
 	recordPositionVerdict,
 	restoredCasePropertyMatch,
 	restoredColumnCountMatch,
+	sameTypeRestoredScaledComparison,
 	sameTypeRestoredThreshold,
 	searchChoiceColumnOrder,
 	searchDefaultSessionPairOrder,
@@ -805,16 +806,15 @@ export function checkExpression(
 		!errors.some((error) => error.code === "arm-unavailable")
 	) {
 		const row = ctx.rows[0];
+		const caseType = row?.kind === "case" ? row.caseType : undefined;
 		if (
-			sameTypeRestoredThreshold(
-				expression,
-				row?.kind === "case" ? row.caseType : undefined,
-			) === undefined
+			sameTypeRestoredThreshold(expression, caseType) === undefined &&
+			!sameTypeRestoredScaledComparison(expression, caseType)
 		)
 			errors.push(
 				refusal(
 					"arm-unavailable",
-					"A case list can compare its restored case count with a nonnegative whole number.",
+					"A case list can compare its restored case count with a nonnegative whole number or with a multiple of the same count.",
 					"device-list-restored-type-presence",
 				),
 			);
@@ -839,7 +839,10 @@ export function checkExpression(
 		const match = restoredColumnCountMatch(expression, caseType);
 		if (
 			!countsOwnRestoredType(expression, caseType) &&
-			(match === undefined || !isDeclaredRestoredText(caseType, match.property))
+			(match === undefined ||
+				!isDeclaredRestoredText(caseType, match.property) ||
+				(match.match.kind === "property" &&
+					!isDeclaredRestoredText(caseType, match.match.value)))
 		)
 			errors.push(
 				refusal(

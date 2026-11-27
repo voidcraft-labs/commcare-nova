@@ -322,11 +322,16 @@ export function countsOwnRestoredType(
 	);
 }
 
-/** Row-local text comparison over the worker’s restored type, for an ordinary column. */
+export type RestoredColumnCountMatch = {
+	property: string;
+	match: RestoredCaseMatchValue;
+};
+
+/** Row-local text comparisons over the worker’s restored type, for an ordinary column. */
 export function restoredColumnCountMatch(
 	expression: Expression,
 	caseType: string | undefined,
-): { property: string; value: string } | undefined {
+): RestoredColumnCountMatch | undefined {
 	if (
 		expression.kind !== "count" ||
 		expression.where !== undefined ||
@@ -334,14 +339,14 @@ export function restoredColumnCountMatch(
 	)
 		return;
 	const match = restoredCasePropertyMatch(expression.via);
-	if (match?.match.kind === "text" && match.caseType === caseType)
-		return { property: match.property, value: match.match.value };
+	if (match?.caseType === caseType && match !== undefined)
+		return { property: match.property, match: match.match };
 }
 
 export function isRestoredColumnCaseQuery(expression: Expression): boolean {
 	return (
 		isRestoredCaseTypeQuery(expression) ||
-		restoredCasePropertyMatch(expression)?.match.kind === "text"
+		restoredCasePropertyMatch(expression) !== undefined
 	);
 }
 
@@ -365,6 +370,31 @@ export function sameTypeRestoredThreshold(
 		threshold <= 2_147_483_647
 		? threshold
 		: undefined;
+}
+
+/** A device-list rule can compare its own restored population with a scaled copy of that count. */
+export function sameTypeRestoredScaledComparison(
+	expression: Expression,
+	caseType: string | undefined,
+): boolean {
+	if (
+		expression.kind !== "gt" ||
+		!countsOwnRestoredType(expression.left, caseType) ||
+		expression.right.kind !== "arith" ||
+		expression.right.op !== "*" ||
+		!countsOwnRestoredType(expression.right.right, caseType)
+	)
+		return false;
+	const factor = expression.right.left;
+	return (
+		factor.kind === "term" &&
+		factor.term.kind === "literal" &&
+		factor.term.data_type === undefined &&
+		typeof factor.term.value === "number" &&
+		Number.isInteger(factor.term.value) &&
+		factor.term.value >= 0 &&
+		factor.term.value <= 2_147_483_647
+	);
 }
 
 export function readsRestoredCaseTypeQuery(

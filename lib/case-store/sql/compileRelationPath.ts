@@ -48,6 +48,7 @@
 // would duplicate the relation-walk traversal and invite a leak.
 // The filter applies once per hop, every time.
 
+import type { RestoredColumnCountMatch } from "@/lib/domain/expression/ruleSets";
 import {
 	type AliasedExpression,
 	type Kysely,
@@ -301,7 +302,7 @@ function whereVisible<QB>(
 export function restoredTypeRows(
 	ctx: RelationPathContextSource,
 	caseType: string,
-	match?: { property: string; value: string },
+	match?: RestoredColumnCountMatch,
 ) {
 	const alias = "restored_type_case";
 	const rows = ctx.db
@@ -310,8 +311,18 @@ export function restoredTypeRows(
 		.where(`${alias}.project_id`, "=", ctx.projectId)
 		.where(`${alias}.case_type`, "=", caseType);
 	if (match === undefined) return whereVisible(ctx, rows, alias);
-	const property = sql<string>`coalesce(${sql.ref(`${alias}.properties`)} ->> ${match.property}, '')`;
-	return whereVisible(ctx, rows.where(property, "=", match.value), alias);
+	// Missing case properties expose the same empty text as an explicitly blank answer.
+	const property = (name: string) =>
+		sql<string>`coalesce(${sql.ref(`${alias}.properties`)} ->> ${name}, '')`;
+	const comparand =
+		match.match.kind === "property"
+			? property(match.match.value)
+			: match.match.value;
+	return whereVisible(
+		ctx,
+		rows.where(property(match.property), "=", comparand),
+		alias,
+	);
 }
 
 /** Unresolved kept values make the whole case invisible to the worker. */

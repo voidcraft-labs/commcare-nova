@@ -3201,7 +3201,7 @@
 		"surfaceKeys": ["schema:Detail.filter"],
 		"valueClass": "lifts-into-predicate",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: `caseListConfig.filter`. An ordinary device list can require its worker to have a minimum number of restored cases of the list’s own type.",
+		"dispositionCell": "**HELD**: `caseListConfig.filter`. An ordinary device list can require a minimum number of restored cases of its own type or compare that count with a whole-number multiple of itself.",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
@@ -4831,7 +4831,7 @@
 		],
 		"valueClass": "calculated-lifting-into-value-expression",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: `calculated` column. An ordinary device list can show how many cases of its own type the worker has restored.",
+		"dispositionCell": "**HELD**: `calculated` column. An ordinary device list can count restored cases of its own type, including those where either a fixed text value or a second text property matches.",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
