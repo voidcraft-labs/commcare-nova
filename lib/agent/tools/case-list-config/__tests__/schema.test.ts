@@ -196,6 +196,7 @@ describe("case-list author command boundaries", () => {
 		for (const selection of [
 			{ kind: "multiple", maximum: 1 },
 			{ kind: "multiple", maximum: 100 },
+			{ kind: "multiple", maximum: 101 },
 			null,
 		]) {
 			expect(
@@ -208,7 +209,7 @@ describe("case-list author command boundaries", () => {
 		for (const selection of [
 			{ kind: "single", maximum: 1 },
 			{ kind: "multiple", maximum: 0 },
-			{ kind: "multiple", maximum: 101 },
+			{ kind: "multiple", maximum: 102 },
 			{ kind: "multiple", maximum: 1.5 },
 		]) {
 			expect(

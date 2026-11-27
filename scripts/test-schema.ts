@@ -28,7 +28,7 @@ import {
  *     `addCaseOperations`, `updateCaseOperation`, `getCaseOperations`,
  *     `removeCaseOperation`, `moveCaseOperation`, `updateCaseProperty`,
  *     `setFieldOptionsSource`,
- *     `configureCaseList`, `addCaseListColumns`, `updateCaseListColumn`,
+ *     `configureCaseList`, `configureCaseSelection`, `addCaseListColumns`, `updateCaseListColumn`,
  *     `removeCaseListColumn`, `reorderCaseListColumns`,
  *     `setCaseListFilter`, `setCaseListTile`, `addSearchInputs`, `updateSearchInput`,
  *     `removeSearchInput`, `reorderSearchInputs`,
@@ -64,6 +64,7 @@ import {
 import { addCaseListColumnsTool } from "../lib/agent/tools/case-list-config/addCaseListColumns";
 import { addSearchInputsTool } from "../lib/agent/tools/case-list-config/addSearchInputs";
 import { configureCaseListTool } from "../lib/agent/tools/case-list-config/configureCaseList";
+import { configureCaseSelectionTool } from "../lib/agent/tools/case-list-config/configureCaseSelection";
 import { editSearchFilterTool } from "../lib/agent/tools/case-list-config/editSearchFilter";
 import { removeCaseListColumnTool } from "../lib/agent/tools/case-list-config/removeCaseListColumn";
 import { removeSearchInputTool } from "../lib/agent/tools/case-list-config/removeSearchInput";
@@ -382,6 +383,13 @@ const SCHEMA_TESTS: readonly SchemaTest[] = [
 		schema: configureCaseListTool.inputSchema,
 		prompt:
 			"Use configureCaseList with moduleUuid 11111111-1111-4111-8111-111111111111 to add a plain case_name column with columnUuid 33333333-3333-4333-8333-333333333333, use the three root search-display fields to set the title to Find a patient while clearing the other display slots, and set Results order to that column UUID, and set searchWorkflow to skipToResults.",
+	},
+	{
+		name: "configureCaseSelection",
+		description: configureCaseSelectionTool.description,
+		schema: configureCaseSelectionTool.inputSchema,
+		prompt:
+			"Use configureCaseSelection for moduleUuid 11111111-1111-4111-8111-111111111111 on a Web Apps list whose only form closes the chosen cases and returns to the app home. Set automatic selection with a maximum of 101.",
 	},
 	{
 		name: "addCaseListColumns",
