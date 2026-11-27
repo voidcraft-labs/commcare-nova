@@ -1,17 +1,16 @@
 """Observe how Web Apps dispatches address answers to Search fields."""
 
-from dataclasses import replace
-
 import pytest
 
 from proof.editors import pages
 from proof.hq import operations
 from proof.observe import casedata
+from proof.observe.search_address import enable_address_search
 from proof.webapps import hq as webapps_hq
 from proof.webapps import steps
 from proof.webapps.session import Session
 from proof.webapps.test_search import _menu_requests
-from proof.webapps.test_search_geocoder import PLACE, TYPE_ADDRESS, _enable_address_search, _geocoder_fields
+from proof.webapps.test_search_geocoder import PLACE, TYPE_ADDRESS, _geocoder_fields
 
 
 def _same_text_receiver_fields(app):
@@ -41,14 +40,8 @@ def test_search_address_fills_two_text_fields_with_the_same_subscription(
         steps.SETTLE,
     ]
 
-    def enable(config):
-        return replace(
-            config, privileges=config.privileges | {"CLOUDCARE", "GEOCODER"},
-            flags=config.flags | {"CASE_SEARCH_ADVANCED"},
-        )
-
     database = casedata.document_case_database(document)
-    with webapps_hq.authored_project(document, "A", configure=enable) as project:
+    with webapps_hq.authored_project(document, "A", configure=enable_address_search) as project:
         with project.released(formplayer_runner, change=_same_text_receiver_fields, database=database) as release:
             run = Session(release, editor_driver).run([*opening, read, *steps.run_search(), steps.SCREEN])
 
@@ -143,7 +136,7 @@ def test_editor_keeps_malformed_receiver_and_only_the_matching_topic_fails(
             .map(input => [input.dataset.receive, input.value]))"""
     }
 
-    with webapps_hq.authored_project(document, "A", configure=_enable_address_search) as project:
+    with webapps_hq.authored_project(document, "A", configure=enable_address_search) as project:
         app = operations.held_app(project.unit, project.app_id)
         source = app.to_json()
         _geocoder_fields(source, "text")
