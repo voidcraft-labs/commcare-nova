@@ -218,6 +218,7 @@ export function useCases(args: {
 	 *  which sends no prompt's answer (`CaseSearchRequest.unsentPrompts`). */
 	defaultSearch?: boolean;
 	searchSubmission?: string;
+	previewRun?: string;
 	retainSearchResult?: boolean;
 	/** What the device worked out for the search's `_xpath_query` rows,
 	 *  which the server folds (`useSearchCsqlRuntime`). */
@@ -262,6 +263,7 @@ export function useCases(args: {
 		search = false,
 		defaultSearch = false,
 		searchSubmission,
+		previewRun,
 		retainSearchResult,
 		csqlRuntime,
 		chosenCaseIds,
@@ -298,7 +300,7 @@ export function useCases(args: {
 	 * re-reads through the case data revision and the settled rows stay on
 	 * screen. */
 	const requestIdentity = ready
-		? `${runtimeScopeId}\u0000${scopeEpoch}\u0000${appId}\u0000${caseType}\u0000${requestScopeKey}\u0000${replacementRevision}\u0000${pageOffset ?? "default"}\u0000${pageLimit ?? "default"}\u0000${personaUuid ?? "me"}\u0000${parentCaseSelectionKey(parentCase)}\u0000${caseIdsKey}\u0000${search}\u0000${defaultSearch}\u0000${deviceKey}\u0000${automaticSelection === true}\u0000${searchSubmission ?? ""}`
+		? `${runtimeScopeId}\u0000${scopeEpoch}\u0000${appId}\u0000${caseType}\u0000${requestScopeKey}\u0000${replacementRevision}\u0000${pageOffset ?? "default"}\u0000${pageLimit ?? "default"}\u0000${personaUuid ?? "me"}\u0000${parentCaseSelectionKey(parentCase)}\u0000${caseIdsKey}\u0000${search}\u0000${defaultSearch}\u0000${deviceKey}\u0000${automaticSelection === true}\u0000${searchSubmission ?? ""}\u0000${previewRun ?? ""}`
 		: "";
 	const reloadToken = useMemo(
 		() => [
@@ -380,7 +382,10 @@ export function useCases(args: {
 								...(search && { search }),
 								...(defaultSearch && { defaultSearch }),
 								...(retainSearchResult &&
-									searchSubmission !== undefined && { searchSubmission }),
+									searchSubmission !== undefined && {
+										searchSubmission,
+										...(previewRun !== undefined && { previewRun }),
+									}),
 								...(csqlRuntime !== undefined && { csqlRuntime }),
 								...(chosenCaseIds !== undefined && { chosenCaseIds }),
 								...(sortChoice !== undefined &&
@@ -727,7 +732,7 @@ export function useCaseData(args: {
 	 * case/revision for that one render would let a case-loading form submit an
 	 * identity that has already been replaced. */
 	const requestKey = ready
-		? `${scopeEpoch}\u0000${appId}\u0000${caseType}\u0000${caseId}\u0000${parentCaseSelectionKey(parentCase)}\u0000${ancestorDepth}\u0000${includeHeld === true}\u0000${deviceScoped === true}\u0000${scopeKey}\u0000${caseDataRevision}\u0000${search}\u0000${deviceKey}\u0000${searchAnswersKey}\u0000${resultDetail?.submission ?? ""}\u0000${resultDetail?.receipt ?? ""}\u0000${language ?? ""}\u0000${selectionMenuUuid ?? ""}`
+		? `${scopeEpoch}\u0000${appId}\u0000${caseType}\u0000${caseId}\u0000${parentCaseSelectionKey(parentCase)}\u0000${ancestorDepth}\u0000${includeHeld === true}\u0000${deviceScoped === true}\u0000${scopeKey}\u0000${caseDataRevision}\u0000${search}\u0000${deviceKey}\u0000${searchAnswersKey}\u0000${resultDetail?.submission ?? ""}\u0000${resultDetail?.receipt ?? ""}\u0000${resultDetail?.previewRun ?? ""}\u0000${language ?? ""}\u0000${selectionMenuUuid ?? ""}`
 		: "";
 	const personaRequestKey = ready
 		? `${requestKey}\u0000${personaUuid ?? "me"}`

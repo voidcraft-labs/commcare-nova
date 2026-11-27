@@ -38,6 +38,20 @@ test("Search result Details keep the answer from the Results page that opened th
 	await submit();
 	await openResult();
 	await expect(entered(searched.answer)).toBeVisible();
+	await page.getByRole("button", { name: /^Worker language:/ }).click();
+	await page
+		.getByRole("menuitemradio", { name: "Español", exact: true })
+		.click();
+	await expect(
+		page.getByRole("button", { name: "Worker language: Spanish" }),
+	).toBeVisible();
+	await expect(entered(searched.answer)).toBeVisible();
+	await page.goBack();
+	await expect(
+		page.getByRole("button", { name: "Worker language: English" }),
+	).toBeVisible();
+	await expect(entered(searched.answer)).toBeVisible();
+
 	await page.goBack();
 	await expect(
 		main.getByRole("button", { name: "Search again" }),

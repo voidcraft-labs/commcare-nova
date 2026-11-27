@@ -660,12 +660,19 @@ export async function readCases(
 				)
 			: await store.querySearchResults(query, grouping?.identifier);
 		let resultReceipt: string | undefined;
-		if (retainSearchResult?.kind === "instance" && found.instance)
+		if (retainSearchResult?.kind === "instance") {
+			if (found.instance === undefined)
+				throw new Error("The bounded search did not capture its response.");
 			resultReceipt = await retainSearchResult.keep(found.instance);
-		if (retainSearchResult?.kind === "detail" && found.offeredPrimaryIds)
-			resultReceipt = await retainSearchResult.keep(found.offeredPrimaryIds);
-		if (retainSearchResult && !resultReceipt)
-			throw new Error("The bounded search did not capture its response.");
+		}
+		if (retainSearchResult?.kind === "detail") {
+			if (found.offeredPrimaryIds === undefined)
+				throw new Error(
+					"The bounded search did not identify its offered cases.",
+				);
+			if (found.offeredPrimaryIds.length > 0)
+				resultReceipt = await retainSearchResult.keep(found.offeredPrimaryIds);
+		}
 		const common = {
 			constraintSource: composedQuery.constraintSource,
 			searchMatchCount: found.primaryCount,

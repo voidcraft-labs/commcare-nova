@@ -204,6 +204,7 @@ import {
 	keepSearchResultDetail,
 	readKeptSearchResult,
 	readKeptSearchResultDetails,
+	SearchDetailFrameTooLarge,
 } from "./searchResultReceipt";
 import {
 	readSearchResultsSnapshot,
@@ -484,6 +485,8 @@ type RunningCaseReadArgs = {
 	defaultSearch?: boolean;
 	/** Identity of the submitted Search whose response this load serves. */
 	searchSubmission?: string;
+	/** The physical Preview run that ran this standalone Search. */
+	previewRun?: string;
 	/** The viewer's latest position, which a calculated column's `here()`
 	 *  reads; `null` or omitted while the browser has shared none. It travels
 	 *  in this request and the query's bound parameters only, and is never
@@ -871,11 +874,17 @@ export async function loadCasesAction(
 						searchResultsSnapshotFromInstance(instance),
 					),
 			};
-		else if (scope && answers && detailColumns.length > 0)
+		else if (scope && answers && detailColumns.length > 0) {
+			const previewRun = args.previewRun;
+			if (previewRun === undefined)
+				return {
+					kind: "error",
+					message: "Preview restarted. You can run Search again.",
+				};
 			retain = {
 				kind: "detail",
 				keep: (visibleCaseIds) =>
-					keepSearchResultDetail(scope, prepared.context, {
+					keepSearchResultDetail({ ...scope, previewRun }, prepared.context, {
 						visibleCaseIds,
 						answers: [
 							...submittedSearchResultDetailAnswers(
@@ -886,6 +895,7 @@ export async function loadCasesAction(
 						].map(([inputUuid, answer]) => ({ inputUuid, answer })),
 					}),
 			};
+		}
 		if (!args.automaticSelection)
 			return await readCases(prepared.store, prepared.read, retain);
 		const selection = prepared.read.caseListConfig?.selection;
@@ -905,6 +915,8 @@ export async function loadCasesAction(
 			retain,
 		);
 	} catch (err) {
+		if (err instanceof SearchDetailFrameTooLarge)
+			return { kind: "error", message: err.message };
 		// A Project-membership denial (`resolveAppScope` → `AppAccessError`)
 		// is expected, not a fault: collapse it to the IDOR-safe not-found
 		// `error` arm WITHOUT alerting (`reportUnexpectedActionError`).
@@ -1571,6 +1583,7 @@ export async function loadCaseDataAction(
 								moduleUuid: menu.uuid,
 								caseType,
 								submission: resultDetail.submission,
+								previewRun: resultDetail.previewRun,
 							},
 							context,
 							resultDetail.receipt,
@@ -1628,7 +1641,7 @@ export async function loadCaseDataAction(
 			ancestorDepth,
 			parentCase,
 			caseListConfig,
-			includeHeld,
+			includeHeld: resultDetail === undefined && includeHeld,
 			lookupTableSchemas,
 			bindings: previewCaseStoreBindings(
 				searchSession,

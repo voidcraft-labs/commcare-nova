@@ -1423,7 +1423,7 @@ export function CaseListScreen({
 	 * what the worker owns and a claim never retires the choice that made
 	 * it: the device's next read holds the claimed case. */
 	const standingSubmission = submittedSearchOf(searchState)?.submission ?? "";
-	const selectionScopeKey = `${standingSubmission}\u0000${stateScopeKey}\u0000${restoreScopeKey}`;
+	const selectionScopeKey = `${standingSubmission}\u0000${stateScopeKey}\u0000${restoreScopeKey}\u0000${previewSessionId}`;
 	const openedSearchResult = usePreviewSearchResultDetail(previewSessionId);
 	const openEntryResult =
 		openCase?.resultDetail?.scope === selectionScopeKey ? openCase : undefined;
@@ -1812,6 +1812,8 @@ export function CaseListScreen({
 			(hasSearchResultDetail && readsSearchResults
 				? standingSubmission || undefined
 				: undefined),
+		...(hasSearchResultDetail &&
+			readsSearchResults && { previewRun: previewSessionId }),
 		retainSearchResult:
 			searchAttempt?.kind === "running" ||
 			(hasSearchResultDetail &&
@@ -1946,7 +1948,9 @@ export function CaseListScreen({
 		scopeKey: restoreScopeKey,
 		search: readsSearchResults,
 		positionScreen: "detail",
-		...(detailOpening !== undefined && { resultDetail: detailOpening }),
+		...(detailOpening !== undefined && {
+			resultDetail: { ...detailOpening, previewRun: previewSessionId },
+		}),
 		// A detail in a menu whose forms read the search reads the completed
 		// search's answers, which its inline query keeps beside the results.
 		...(formsReadSearch &&

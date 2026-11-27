@@ -18,6 +18,7 @@ import { resolveAuthorizedPreviewContext } from "../previewAuthorization";
 import {
 	keepSearchResultDetail,
 	readKeptSearchResultDetail,
+	SearchDetailFrameTooLarge,
 } from "../searchResultReceipt";
 import { webAppsDevice } from "./fixtures/previewDevices";
 
@@ -206,6 +207,7 @@ it("opens a form on the same search response that supplied Results", async () =>
 		moduleUuid,
 		caseType: "patient",
 		submission: request.searchSubmission,
+		previewRun: crypto.randomUUID(),
 	};
 	const prompt = testUuid("search-response-name");
 	const unanswered = testUuid("search-response-unanswered");
@@ -221,6 +223,22 @@ it("opens a form on the same search response that supplied Results", async () =>
 		context,
 		frame,
 	);
+	const countReceipts = async () =>
+		(
+			await sql<{
+				count: number;
+			}>`SELECT COUNT(*)::int AS count FROM form_opening_data
+			WHERE session_id = ${auth.sessionId}`.execute(h.db())
+		).rows[0].count;
+	const beforeOverflow = await countReceipts();
+	await expect(
+		keepSearchResultDetail(resultScope, context, {
+			visibleCaseIds: ["served"],
+			answers: [{ inputUuid: prompt, answer: "🟦".repeat(80_000) }],
+		}),
+	).rejects.toBeInstanceOf(SearchDetailFrameTooLarge);
+	expect(await countReceipts()).toBe(beforeOverflow);
+
 	frame.answers[0].answer = "later draft";
 	frame.visibleCaseIds.push("filtered-by-device");
 	expect(
@@ -402,6 +420,13 @@ it("uses the originating offered Search page when restoring a standalone case De
 	const doc = {
 		...fixture,
 		appSettings: { ...fixture.appSettings, runsOnlyOn: "web-apps" as const },
+		localization: {
+			sourceLanguage: "eng" as const,
+			defaultLanguage: "eng" as const,
+			languageOrder: ["eng", "spa"] as ("eng" | "spa")[],
+			wireCodes: { eng: "en", spa: "es" },
+			translations: { spa: {} },
+		},
 	};
 	await h.seedAppWithBlueprint(doc, {
 		id: appId,
@@ -475,7 +500,11 @@ it("uses the originating offered Search page when restoring a standalone case De
 	};
 	const answered = await run({ name: "Asha" });
 	const unanswered = await run({});
-	const reopen = (caseId: string, opening?: typeof answered.opening) =>
+	const reopen = (
+		caseId: string,
+		opening?: typeof answered.opening,
+		options: { includeHeld?: boolean; wireLanguage?: string } = {},
+	) =>
 		loadCaseDataAction(
 			appId,
 			"patient",
@@ -484,7 +513,7 @@ it("uses the originating offered Search page when restoring a standalone case De
 			config,
 			undefined,
 			undefined,
-			undefined,
+			options.includeHeld,
 			undefined,
 			true,
 			undefined,
@@ -492,13 +521,20 @@ it("uses the originating offered Search page when restoring a standalone case De
 			moduleUuid,
 			false,
 			null,
-			device,
+			{ ...device, appLanguage: options.wireLanguage ?? device.appLanguage },
 			{ name: "edited draft" },
 			undefined,
 			undefined,
 			opening,
 		);
 	expect(await reopen(answered.chosen, answered.opening)).toMatchObject({
+		kind: "row",
+		row: { calculated: { [columnUuid]: "entered=[Asha]" } },
+	});
+
+	expect(
+		await reopen(answered.chosen, answered.opening, { wireLanguage: "es" }),
+	).toMatchObject({
 		kind: "row",
 		row: { calculated: { [columnUuid]: "entered=[Asha]" } },
 	});
@@ -529,4 +565,33 @@ it("uses the originating offered Search page when restoring a standalone case De
 	).toMatchObject({
 		kind: "error",
 	});
+	const countReceipts = async () =>
+		(
+			await sql<{
+				count: number;
+			}>`SELECT COUNT(*)::int AS count FROM form_opening_data
+			WHERE session_id = ${sessionId}`.execute(h.db())
+		).rows[0].count;
+	const beforeEmpty = await countReceipts();
+	const empty = await loadCasesAction({
+		...request,
+		previewRun: answered.opening.previewRun,
+		searchSubmission: crypto.randomUUID(),
+		inputValues: { name: "Nobody on this page" },
+	});
+	expect(empty).toMatchObject({ kind: "empty" });
+	expect(empty).not.toHaveProperty("resultReceipt");
+	expect(await countReceipts()).toBe(beforeEmpty);
+
+	await sql`INSERT INTO parked_case_values
+		(app_id, case_id, case_type, property, original_value, reason)
+		VALUES (${appId}, ${answered.chosen}, 'patient', 'old_value', '"held"'::jsonb, 'fixture hold')`.execute(
+		h.db(),
+	);
+	expect(
+		await reopen(answered.chosen, undefined, { includeHeld: true }),
+	).toMatchObject({ kind: "row" });
+	expect(
+		await reopen(answered.chosen, answered.opening, { includeHeld: true }),
+	).toEqual({ kind: "missing" });
 });

@@ -30,6 +30,15 @@ const compress = promisify(gzip);
 const decompress = promisify(gunzip);
 const submissionKey = z.uuid();
 const digestKey = z.string().regex(/^[a-f0-9]{64}$/);
+const MAX_SEARCH_DETAIL_FRAME_BYTES = 256 * 1024;
+
+export class SearchDetailFrameTooLarge extends Error {
+	constructor() {
+		super(
+			"This Search result contains too much text to keep for Details. You can narrow your search or enter a shorter answer.",
+		);
+	}
+}
 
 type Context = Extract<AuthorizedPreviewContext, { kind: "ready" }>;
 
@@ -54,18 +63,29 @@ export interface SearchResultDetailFrame {
 	readonly answers: readonly SearchResultDetailAnswer[];
 }
 
-type ReceiptKind = "form" | "detail";
+interface SearchResultDetailScope extends SearchReceiptScope {
+	readonly previewRun: string;
+}
+
+type ReceiptAudience =
+	| { readonly kind: "form"; readonly scope: SearchReceiptScope }
+	| { readonly kind: "detail"; readonly scope: SearchResultDetailScope };
 
 async function withCurrentAudience<T>(
-	scope: SearchReceiptScope,
+	audience: ReceiptAudience,
 	context: Context,
 	read: (
 		key: Omit<OpeningDataKey, "contentDigest">,
 		tx: QueryExecutorProvider,
 	) => T | Promise<T>,
-	kind: ReceiptKind,
 ): Promise<T | undefined> {
+	const { kind, scope } = audience;
 	const { appId, moduleUuid, caseType, submission } = scope;
+	if (
+		audience.kind === "detail" &&
+		!submissionKey.safeParse(audience.scope.previewRun).success
+	)
+		return;
 	const { device, identity, sessionId } = context;
 	const { projectId } = context.scope;
 	if (!sessionId || !submissionKey.safeParse(submission).success) return;
@@ -117,11 +137,14 @@ async function withCurrentAudience<T>(
 						sessionId,
 						device.platform,
 						device.androidDeviceId,
-						device.appLanguage,
+						// Detail carries raw submitted text through a language lens. The
+						// form snapshot remains bound to the device's opening language.
+						kind === "form" ? device.appLanguage : null,
 						facts.revision,
 						moduleUuid,
 						caseType,
 						submission,
+						...(audience.kind === "detail" ? [audience.scope.previewRun] : []),
 					]),
 					app: appId,
 					project: projectId,
@@ -145,32 +168,62 @@ export async function keepSearchResult(
 	context: Context,
 	instance: SearchResultsSnapshot,
 ): Promise<string> {
-	return keepSearchResponse(scope, context, instance, "form");
+	return keepSearchResponse({ kind: "form", scope }, context, instance);
 }
 
 /** A result Detail keeps only the offered case IDs and the referenced prompts. */
 export async function keepSearchResultDetail(
-	scope: SearchReceiptScope,
+	scope: SearchResultDetailScope,
 	context: Context,
 	frame: SearchResultDetailFrame,
 ): Promise<string> {
-	return keepSearchResponse(scope, context, frame, "detail");
+	return keepSearchResponse(
+		{ kind: "detail", scope },
+		context,
+		encodeSearchResultDetail(frame),
+	);
+}
+
+/** Count the exact UTF-8 JSON size, including escaping, before allocating
+ * the complete value or compressing it for durable opening storage. */
+function encodeSearchResultDetail(frame: SearchResultDetailFrame): string {
+	const prefix = '{"visibleCaseIds":[';
+	const middle = '],"answers":[';
+	const suffix = "]}";
+	let bytes = prefix.length + middle.length + suffix.length;
+	const add = (chunk: string, index: number) => {
+		bytes += Buffer.byteLength(chunk, "utf8") + (index === 0 ? 0 : 1);
+		if (bytes > MAX_SEARCH_DETAIL_FRAME_BYTES)
+			throw new SearchDetailFrameTooLarge();
+		return chunk;
+	};
+	const ids = frame.visibleCaseIds.map((id, index) => {
+		if (id.length > MAX_SEARCH_DETAIL_FRAME_BYTES)
+			throw new SearchDetailFrameTooLarge();
+		return add(JSON.stringify(id), index);
+	});
+	const answers = frame.answers.map(({ inputUuid, answer }, index) => {
+		if ((answer?.length ?? 0) > MAX_SEARCH_DETAIL_FRAME_BYTES)
+			throw new SearchDetailFrameTooLarge();
+		return add(JSON.stringify({ inputUuid, answer }), index);
+	});
+	return prefix + ids.join(",") + middle + answers.join(",") + suffix;
 }
 
 async function keepSearchResponse(
-	scope: SearchReceiptScope,
+	audience: ReceiptAudience,
 	context: Context,
-	value: SearchResultsSnapshot | SearchResultDetailFrame,
-	kind: ReceiptKind,
+	value: SearchResultsSnapshot | string,
 ): Promise<string> {
 	const key = await withCurrentAudience(
-		scope,
+		audience,
 		context,
 		(current) => current,
-		kind,
 	);
 	if (key === undefined) throw new Error("Search response scope is missing.");
-	const bytes = await compress(JSON.stringify(value));
+	const bytes = await compress(
+		typeof value === "string" ? value : JSON.stringify(value),
+	);
 	const contentDigest = bytesDigest(bytes);
 	await putFormOpeningData({ ...key, contentDigest }, bytes);
 	return contentDigest;
@@ -181,16 +234,18 @@ export async function readKeptSearchResult(
 	context: Context,
 	receipt: string | undefined,
 ): Promise<SearchResultsSnapshot | undefined> {
-	return (await readKeptSearchResponse(scope, context, receipt, "form")) as
-		| SearchResultsSnapshot
-		| undefined;
+	return (await readKeptSearchResponse(
+		{ kind: "form", scope },
+		context,
+		receipt,
+	)) as SearchResultsSnapshot | undefined;
 }
 
 /** Open only the prompt and primary result named by the originating response.
  * A direct case lookup, an old rows-only receipt and an unoffered prompt hold
  * no such read. */
 export async function readKeptSearchResultDetail(
-	scope: SearchReceiptScope,
+	scope: SearchResultDetailScope,
 	context: Context,
 	receipt: string | undefined,
 	caseId: string,
@@ -208,34 +263,35 @@ export async function readKeptSearchResultDetail(
 
 /** One authenticated read for all the prompts a selected Detail uses. */
 export async function readKeptSearchResultDetails(
-	scope: SearchReceiptScope,
+	scope: SearchResultDetailScope,
 	context: Context,
 	receipt: string | undefined,
 	caseId: string,
 ): Promise<readonly SearchResultDetailAnswer[] | undefined> {
 	const frame = (await readKeptSearchResponse(
-		scope,
+		{ kind: "detail", scope },
 		context,
 		receipt,
-		"detail",
 	)) as SearchResultDetailFrame | undefined;
 	return frame?.visibleCaseIds.includes(caseId) ? frame.answers : undefined;
 }
 
 async function readKeptSearchResponse(
-	scope: SearchReceiptScope,
+	audience: ReceiptAudience,
 	context: Context,
 	receipt: string | undefined,
-	kind: ReceiptKind,
 ): Promise<unknown> {
 	const parsed = digestKey.safeParse(receipt);
 	if (!parsed.success) return;
-	const bytes = await withCurrentAudience(
-		scope,
-		context,
-		(key, tx) => getFormOpeningData({ ...key, contentDigest: parsed.data }, tx),
-		kind,
+	const bytes = await withCurrentAudience(audience, context, (key, tx) =>
+		getFormOpeningData({ ...key, contentDigest: parsed.data }, tx),
 	);
 	if (bytes === undefined || bytesDigest(bytes) !== parsed.data) return;
-	return JSON.parse((await decompress(bytes)).toString("utf8"));
+	const json =
+		audience.kind === "detail"
+			? await decompress(bytes, {
+					maxOutputLength: MAX_SEARCH_DETAIL_FRAME_BYTES,
+				})
+			: await decompress(bytes);
+	return JSON.parse(json.toString("utf8"));
 }

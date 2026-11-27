@@ -48,7 +48,8 @@ export interface RecordedPreviewSearch {
 }
 
 /** A case the worker opened from the settled page of a particular Search. */
-export interface RecordedSearchResultDetail extends SearchResultDetailOpening {
+export interface RecordedSearchResultDetail
+	extends Omit<SearchResultDetailOpening, "previewRun"> {
 	readonly moduleUuid: Uuid;
 	readonly caseId: string;
 }

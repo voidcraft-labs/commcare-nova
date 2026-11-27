@@ -2057,9 +2057,11 @@ from the same non-inline, search-first menu. The row-selected Detail entry
 keeps the result-page receipt in `previewEntryRecords.ts` while the Preview
 session stands. The browser history state and URL carry neither the receipt
 nor the submitted values. The server seals the completed submission and its
-actually offered primary page under the authenticated worker and configured
-Search target. A later Details read reauthorizes that exact receipt and case
-before applying the text branch. An unanswered prompt contributes empty text.
+actually offered primary page under the authenticated worker, physical Preview
+run, and configured Search target. A later Details read reauthorizes that
+exact receipt and case before applying the text branch. The language lens
+chooses the current display wording without changing the submitted answer.
+An unanswered prompt contributes empty text.
 An ordinary direct case read uses the column's literal text expression.
 
 
