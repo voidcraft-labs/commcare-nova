@@ -4,7 +4,7 @@ from proof.hq import operations
 from proof.hq.test_case_processing import _case, _person, _submission
 
 
-def test_hq_uses_the_date_of_a_direct_datetime_assignment_as_the_case_owner(
+def test_hq_routes_a_direct_datetime_answer_to_case_ownership(
     hq, core_runner, webapps_documents, evidence,
 ):
     """Exercise the retained Followup assignment rather than a simulated lookup."""
@@ -20,7 +20,6 @@ def test_hq_uses_the_date_of_a_direct_datetime_assignment_as_the_case_owner(
         if row.id == "hq-case-management/datetime-saved-straight-as-the-case-owner"
     )
     instant = "2025-04-05T23:24:47.125Z"
-    day = "2025-04-05"
     with webapps_hq.authored_project(document, "A") as project:
         authoring = Authoring(project.unit, {}, document.id, operation=project.unit.operation)
         ops.set_json(authoring, project.app_id, change["pointer"], change["value"])
@@ -33,14 +32,15 @@ def test_hq_uses_the_date_of_a_direct_datetime_assignment_as_the_case_owner(
         opened = operations.process_case_blocks(project.unit, _submission(_person()))
         moved = operations.process_case_blocks(
             project.unit,
-            _submission(_case("c-new", f"<update><owner_id>{day}</owner_id></update>")),
+            _submission(_case("c-new", f"<update><owner_id>{instant}</owner_id></update>")),
             cases=[opened.touched["c-new"].case],
         )
         actual_owner = moved.touched["c-new"].case.owner_id if moved.refusal is None else None
         evidence("datetime-case-owner", {
             "binding": owner, "storedField": stored, "selectedInstant": instant,
-            "submittedDay": day, "storedOwner": actual_owner, "refusal": str(moved.refusal),
+            "submittedOwner": instant, "storedOwner": actual_owner, "refusal": str(moved.refusal),
         })
         assert stored == "/data/seen_at"
-        assert owner == ["format-date(/data/seen_at, '%Y-%m-%d')"], owner
-        assert actual_owner == day
+        assert owner == ["/data/seen_at"], owner
+        assert moved.refusal is None
+        assert actual_owner == instant
