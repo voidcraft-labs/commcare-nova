@@ -348,6 +348,10 @@ export const PROMPT_CLAIMS = defineClaims("search.prompts", {
 		`${S}allow-blank-value-on-a-prompt-named-owner-id`,
 		"schema:CaseSearchProperty.allow_blank_value",
 	),
+	addressReceiverSuffix: take(
+		`${S}address-receiver-with-an-unused-suffix`,
+		"schema:CaseSearchProperty.receiver_expression",
+	),
 	addressReceiver: take(
 		`${S}address-picker-receiver-on-a-search-screen`,
 		"schema:CaseSearchProperty.receiver_expression",
@@ -451,6 +455,7 @@ export interface PromptReading {
 	 *  holds the stored one (`readValidation`): its message, held as every app string is, with
 	 *  the guard's text joined after it. The settle compares the projection's with it. */
 	readonly validationText?: Readonly<Record<string, string>>;
+	readonly canonicalReceiver?: string;
 	/** The provisional entry written into the draft. */
 	readonly input: SearchInputDef;
 	/** Whether a finding stands for the prompt, or project data's rules settle a read of it
@@ -541,6 +546,48 @@ function receiverSelector(source: unknown): RegExpExecArray | null {
 				source,
 			)
 		: null;
+}
+
+/** Web Apps uses only the first two pieces, but the full saved selector
+ * also groups the inputs it updates. Keep the same recipient when removing
+ * a suffix by checking that the resulting selector is unique in this menu. */
+function canonicalAddressReceivers(
+	prompts: readonly JsonCursor[],
+	sources: ReadonlySet<string>,
+): ReadonlyMap<JsonCursor, string> {
+	const selectors = prompts.map(
+		(prompt) => [prompt, prompt.peek("receiver_expression")] as const,
+	);
+	const candidates = new Map<JsonCursor, string>();
+	for (const [prompt, raw] of selectors) {
+		if (typeof raw !== "string") continue;
+		const match =
+			/^([A-Za-z_][A-Za-z0-9_]*-[A-Za-z_][A-Za-z0-9_]*)-[A-Za-z_][A-Za-z0-9_]*$/.exec(
+				raw,
+			);
+		const canonical = match?.[1];
+		const wire = receiverSelector(canonical);
+		if (
+			!canonical ||
+			!wire ||
+			!sources.has(wire[1]) ||
+			!addressPartsHeld([wire[2]]) ||
+			prompt.peek("is_group") === true ||
+			prompt.peek("hidden") === true ||
+			editorAppearance(prompt) !== "" ||
+			prompt.peek("input_") ||
+			prompt.used("itemset")
+		)
+			continue;
+		const sharesRecipient = selectors.some(
+			([other, value]) =>
+				other !== prompt &&
+				typeof value === "string" &&
+				(value === canonical || value.startsWith(`${canonical}-`)),
+		);
+		if (!sharesRecipient) candidates.set(prompt, canonical);
+	}
+	return candidates;
 }
 
 function addressPartsHeld(parts: readonly string[]): boolean {
@@ -818,6 +865,7 @@ export function readSearchPrompts(
 		}),
 	);
 	const receiverDuplicates = addressReceiverDuplicates(prompts, sourceNames);
+	const canonicalReceivers = canonicalAddressReceivers(prompts, sourceNames);
 	const occupiedNames = new Set(
 		prompts.flatMap((prompt) => {
 			const name = prompt.peek("name");
@@ -860,6 +908,7 @@ export function readSearchPrompts(
 			sourceNames,
 			savedPublisherNames,
 			receiverDuplicates.has(prompt),
+			canonicalReceivers.get(prompt),
 			occupiedNames,
 			savedNames,
 		);
@@ -1064,6 +1113,7 @@ function readPrompt(
 	addressSources: ReadonlySet<string>,
 	savedPublisherNames: ReadonlySet<string>,
 	receiverDuplicate: boolean,
+	canonicalReceiver: string | undefined,
 	occupiedNames: Set<string>,
 	savedNames: ReadonlyMap<string, string>,
 ): PromptReading | undefined {
@@ -1217,7 +1267,7 @@ function readPrompt(
 		| Exclude<SearchAddressReceiver, { kind: "address" }>
 		| undefined;
 	if (holds("receiver_expression")) {
-		const wire = receiverSelector(sourceReceiver);
+		const wire = receiverSelector(canonicalReceiver ?? sourceReceiver);
 		const parts = wire?.[2].split("||") ?? [];
 		const validSource = wire !== null && addressSources.has(wire[1]);
 		// A bare publisher name subscribes successfully in Web Apps, then
@@ -1255,7 +1305,18 @@ function readPrompt(
 		else if (receiverDuplicate)
 			refuseWith("receiver_expression", P.addressReceiverDuplicate);
 		else {
-			prompt.take("receiver_expression", P.addressReceiver, String).value;
+			const claim =
+				canonicalReceiver === undefined
+					? P.addressReceiver
+					: P.addressReceiverSuffix;
+			prompt.take("receiver_expression", claim, String).value;
+			if (canonicalReceiver !== undefined)
+				sameState(
+					ctx,
+					claim.entry,
+					`${prompt.pointer}/receiver_expression`,
+					"search-address-receiver-suffix-removed",
+				);
 			addressReceiver = {
 				kind: "unsubscribed",
 				topic: wire[1],
@@ -2074,6 +2135,7 @@ function readPrompt(
 		...(readsValidation &&
 			validation?.kind === "checked" && { validationText: validation.held }),
 		input: entry,
+		...(canonicalReceiver !== undefined && { canonicalReceiver }),
 		refused,
 		...(unreadTable !== undefined && { unreadTable }),
 	};
