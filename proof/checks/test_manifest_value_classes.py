@@ -9088,6 +9088,31 @@ def _standalone_result_detail_app(prompt, guarded=True):
     return {**_app([module]), "cloudcare_enabled": True}
 
 
+@pytest.mark.parametrize(
+    ("translation", "mapped", "form_source", "expected"),
+    [
+        (False, False, False, False),
+        (False, True, False, False),
+        (True, False, False, False),
+        (True, True, False, None),
+        (True, True, True, True),
+    ],
+)
+def test_menu_audio_refusal_needs_a_mapped_override_before_inspecting_forms(
+    manifest, translation, mapped, form_source, expected,
+):
+    path = "jr://file/commcare/audio/data/override.mp3"
+    body = _app([
+        _module([_form_json("none")], media_audio={"en": "jr://file/commcare/audio/data/default.mp3"}),
+    ], langs=["en"], translations={"en": {"modules.m0.audio" if translation else "case_list.title": path}})
+    if mapped:
+        body["multimedia_map"] = {path: {"media_type": "CommCareAudio", "multimedia_id": "mapped-recording"}}
+    if form_source:
+        body = _with_forms(body, f=QUESTIONS)
+    field, = _app_uses(body, manifest, "schema:Application.translations")
+    assert classes.generated_menu_audio_only_in_media_map(field, manifest) is expected
+
+
 def _standalone_result_detail_shapes():
     key = "schema:DetailColumn.field"
     field = "/case_details/long/columns/0/field"

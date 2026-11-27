@@ -2627,19 +2627,11 @@ def generated_menu_audio_only_in_media_map(use, manifest):
     raw = at.app.doc
     languages = raw.get("langs")
     modules = raw.get("modules")
-    media_map = raw.get("multimedia_map")
+    media_map = raw.get("multimedia_map") or {}
     if not isinstance(languages, list) or not isinstance(modules, list) or not isinstance(media_map, dict):
         return None
-    carriers = json.dumps({key: value for key, value in raw.items()
-                           if key not in ("translations", "multimedia_map", "_attachments")})
-    if any(form.get("doc_type") != "ShadowForm" and form.get("unique_id") not in at.app.forms
-           for module in modules if isinstance(module, dict)
-           for form in module.get("forms", ()) if isinstance(form, dict)):
-        return None
-    source_xml = [
-        etree.tostring(form.root, encoding="unicode")
-        for form in at.app.forms.values()
-    ]
+    carriers = None
+    unclear = False
     for index, module in enumerate(modules):
         if not isinstance(module, dict) or module.get("doc_type") != "Module":
             continue
@@ -2658,10 +2650,20 @@ def generated_menu_audio_only_in_media_map(use, manifest):
                 isinstance(mapped, dict) and mapped.get("media_type") == "CommCareAudio"
                 and isinstance(mapped.get("multimedia_id"), str)
                 and re.fullmatch(r"[A-Za-z0-9_-]+", mapped["multimedia_id"])
-                and path not in carriers and not any(path in form for form in source_xml)
             ):
-                return True
-    return False
+                if carriers is None:
+                    carriers = json.dumps({key: value for key, value in raw.items()
+                                           if key not in ("translations", "multimedia_map", "_attachments")})
+                if path in carriers:
+                    continue
+                if any(form.get("doc_type") != "ShadowForm" and form.get("unique_id") not in at.app.forms
+                       for module in modules if isinstance(module, dict)
+                       for form in module.get("forms", ()) if isinstance(form, dict)):
+                    unclear = True
+                    continue
+                if not any(path in etree.tostring(form.root, encoding="unicode") for form in at.app.forms.values()):
+                    return True
+    return None if unclear else False
 
 
 def generated_menu_icon_outside_installation_languages(use, manifest):
