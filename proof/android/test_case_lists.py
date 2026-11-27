@@ -728,9 +728,15 @@ def test_saved_address_default_stays_out_of_an_installed_android_search(
     android_walk_evidence({"built": built, "query": query, "searches": searches, "completed": answer["completedSearches"]})
     assert "client_name" in query["prompts"] and "village" not in query["prompts"]
     assert "Village" not in _texts(query["controls"])
-    assert params["client_name"] == ["Amina"] and "village" not in params, params
-    assert searches and all(search["status"] == 200 and "village" not in search["params"] for search in searches), searches
-    assert any("Amina" in str(search["params"]) for search in searches), searches
+    name_filter = "case_name = 'Amina'"
+    assert name_filter in params["_xpath_query"] and "village" not in params, params
+    assert answer["completedSearches"] == [{
+        "query": built["storage"], "sources": {"results": True, "search-input:results": False},
+        "submitted": {"client_name": "Amina"},
+    }]
+    assert all("village" not in search["params"] and "Old address" not in str(search["params"]) for search in searches), searches
+    submitted = [search for search in searches if name_filter in search["params"].get("_xpath_query", [])]
+    assert len(submitted) == 1 and submitted[0]["status"] == 200, searches
 
 
 def test_android_shows_a_linked_search_receiver_as_an_ordinary_field(android_documents, hq, android_walk_evidence):
