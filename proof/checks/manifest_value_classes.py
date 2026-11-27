@@ -14591,7 +14591,7 @@ def _index_is_xml_name(name):
     return True
 
 
-def _writer_unavailable_source(at, index, *, repeat=False):
+def _writer_unavailable_source(at, index, *, repeat=False, verify_repeat_source=True):
     """HQ writes this child connection in the initial primary instance. Repeat templates can be absent."""
     form = at.nearest("AdvancedForm")
     action = at.nearest("AdvancedOpenCaseAction")
@@ -14599,14 +14599,15 @@ def _writer_unavailable_source(at, index, *, repeat=False):
         return False
     context = action.get("repeat_context")
     if repeat:
-        if at.app is None:
-            return False
-        xform = at.app.xform(form)
         update = action.get("name_update")
         path = update.get("question_path") if isinstance(update, dict) else None
-        if (not context or not path or xform is None
-                or context != _innermost_repeat(xform, path) or _active(action.get("close_condition"))):
+        if (not isinstance(context, str) or not context or not isinstance(path, str)
+                or not path.startswith(context + "/") or _active(action.get("close_condition"))):
             return False
+        if verify_repeat_source:
+            xform = at.app.xform(form) if at.app is not None else None
+            if xform is None or context != _innermost_repeat(xform, path):
+                return False
         _, opens = _advanced_lists(form)
         scoped = [one for one in opens if one.get("repeat_context") == context]
         if len(scoped) > 1 and sum(bool(one.get("case_indices")) for one in scoped) < 2:
@@ -14648,7 +14649,7 @@ def index_identifier_outside_an_xml_name(use, manifest):
     return None if indices is None else any(
         _index_is_xml_name(name) and sum(_worker_name_acceptance(name)) == 1
         and not _writer_unavailable_source(use.at, index)
-        and not _writer_unavailable_source(use.at, index, repeat=True)
+        and not _writer_unavailable_source(use.at, index, repeat=True, verify_repeat_source=False)
         for index in indices if (name := _index_identifier(index))
     )
 
