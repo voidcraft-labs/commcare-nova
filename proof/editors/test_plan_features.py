@@ -429,6 +429,7 @@ def test_vellum_changes_an_android_app_argument_and_keeps_shared_result_destinat
 def test_vellum_groups_interleaved_android_app_result_destinations(hq, core_runner, editor_driver, configuration):
     from proof.rules.android_intent_response_groups import RULE
     from proof.rules.conftest import build_differences, published, stored_differences
+    from proof.rules.vellum_attributes import RULE as VELLUM_ATTRIBUTES
 
     def responses(source):
         root = etree.fromstring(source.encode())
@@ -463,9 +464,14 @@ def test_vellum_groups_interleaved_android_app_result_destinations(hq, core_runn
             ("measurement", "correction"),
             ("/data/visits/reading", "/data/visits/description"),
         ])
-        assert any(changed_response(change) for change in stored_differences(before.stored, after.stored))
+        assert any(changed_response(change) for change in stored_differences(
+            before.stored, after.stored, rules=(VELLUM_ATTRIBUTES,),
+        ))
         assert not any(changed_response(change) for change in build_differences(before.build, after.build, rules=(RULE,)))
-        assert not any(changed_response(change) for change in stored_differences(before.stored, after.stored, rules=(RULE,)))
+        # The stored editor XML also adds Vellum's independent XPath annotations.
+        assert not any(changed_response(change) for change in stored_differences(
+            before.stored, after.stored, rules=(VELLUM_ATTRIBUTES, RULE),
+        ))
 
 
 def test_vellum_keeps_typed_case_choice_sort_and_refs(hq, editor_driver):
