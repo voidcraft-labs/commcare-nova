@@ -100,8 +100,8 @@ import {
 	restoredColumnCountMatch,
 	sameTypeRestoredScaledComparison,
 	sameTypeRestoredThreshold,
-	searchChoiceColumnLengthOrder,
 	searchChoiceColumnOrder,
+	searchChoiceLengthColumn,
 	searchSessionIdentityPairOrder,
 	searchSessionTextOrder,
 	TEXT_SHAPED_TYPES,
@@ -485,6 +485,7 @@ function infer(
 	ctx: TypingContext,
 	position?: RecordPosition,
 	whole = false,
+	choiceLengthOperand = false,
 ): CheckOutcome {
 	let byNode = cached.get(ctx);
 	if (byNode === undefined) {
@@ -496,7 +497,11 @@ function infer(
 		byPosition = new Map();
 		byNode.set(expression, byPosition);
 	}
-	const key = whole ? `whole:${position ?? ""}` : position;
+	const key = choiceLengthOperand
+		? "choice-length-operand"
+		: whole
+			? `whole:${position ?? ""}`
+			: position;
 	const present = byPosition.get(key);
 	if (present !== undefined) return present;
 	const errors: CheckError[] = [];
@@ -504,7 +509,13 @@ function infer(
 	// being validated. The dependency checker reports the cycle; inference
 	// remains unknown rather than recursively manufacturing a type.
 	byPosition.set(key, { type: undefined, errors: [] });
-	const refusal = admission(expression, ctx, position, whole);
+	const refusal = admission(
+		expression,
+		ctx,
+		position,
+		whole,
+		choiceLengthOperand,
+	);
 	if (refusal !== undefined) {
 		const outcome = { type: undefined, errors: [refusal] };
 		byPosition.set(key, outcome);
@@ -558,8 +569,9 @@ function inferAt(
 	errors: CheckError[],
 	path: CheckPath,
 	position?: RecordPosition,
+	choiceLengthOperand = false,
 ): NodeType | undefined {
-	const outcome = infer(expression, ctx, position);
+	const outcome = infer(expression, ctx, position, false, choiceLengthOperand);
 	for (const error of outcome.errors)
 		errors.push({ ...error, path: [...path, ...error.path] });
 	childTypes.get(errors)?.set(pathKey(path), outcome.type);
@@ -1099,6 +1111,7 @@ function admission(
 	ctx: TypingContext,
 	position?: RecordPosition,
 	whole = false,
+	choiceLengthOperand = false,
 ): CheckError | undefined {
 	if (!("profile" in ctx)) return undefined;
 	const profile = ctx.profile;
@@ -1403,6 +1416,7 @@ function admission(
 			return undefined;
 		if (
 			(["call", "project", "worker-groups"].includes(expression.kind) &&
+				!choiceLengthOperand &&
 				!effectiveBooleanOfAnswer(expression, position)) ||
 			(!tabCollection &&
 				(expression.kind === "cases" || expression.kind === "table-rows")) ||
@@ -4344,8 +4358,29 @@ function checkComparison(
 	const before = errors.length;
 	checkCaseStatusComparison(left, right, errors, path);
 	const leftNode = inferAt(left, ctx, errors, [...path, "left"], "value");
-	const rightNode = inferAt(right, ctx, errors, [...path, "right"], "value");
 	const leftType = scalarDataType(leftNode?.data);
+	// Only this comparison's right operand may call string-length in a
+	// Search choice filter. Other calls still take the record refusal.
+	const lengthColumn =
+		"profile" in ctx &&
+		ctx.slot.slot === "search_input_options" &&
+		leftType === "text"
+			? searchChoiceLengthColumn(kind, left, right)
+			: undefined;
+	const choiceLengthOperand =
+		lengthColumn !== undefined &&
+		lookupReadType(
+			ctx.lookupTables.get(lengthColumn.tableId),
+			lengthColumn.columnId,
+		) === "text";
+	const rightNode = inferAt(
+		right,
+		ctx,
+		errors,
+		[...path, "right"],
+		"value",
+		choiceLengthOperand,
+	);
 	const rightType = scalarDataType(rightNode?.data);
 	if (leftType === undefined || rightType === undefined) return;
 	const serverCompares =
@@ -4413,8 +4448,7 @@ function checkComparison(
 			left.kind === "term" &&
 			left.term.kind === "table-column" &&
 			((rightType === "text" && searchChoiceColumnOrder(kind, left, right)) ||
-				(rightType === "int" &&
-					searchChoiceColumnLengthOrder(kind, left, right)) ||
+				(rightType === "int" && choiceLengthOperand) ||
 				(kind === "gt" &&
 					right.kind === "term" &&
 					right.term.kind === "literal" &&

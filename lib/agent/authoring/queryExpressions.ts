@@ -800,8 +800,20 @@ function compiler(bindings: QueryBindings) {
 				};
 			const kind = comparisons[node.operator];
 			if (kind) {
-				const left = value(node.left),
-					right = value(node.right);
+				const left = value(node.left);
+				// The slot checker admits this only as an ordered comparison
+				// between two direct Text columns in a Search choice filter.
+				const right =
+					bindings.typeContext.rows.at(-1)?.kind === "table" &&
+					node.right.kind === "call" &&
+					node.right.name === "string-length" &&
+					node.right.args.length === 1
+						? {
+								kind: "call",
+								fn: "string-length",
+								args: [value(node.right.args[0])],
+							}
+						: value(node.right);
 				return {
 					kind,
 					left: comparisonOperand(node.left, left, right),

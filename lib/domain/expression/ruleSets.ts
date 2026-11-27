@@ -14,6 +14,7 @@ import {
 	type Literal,
 	MATCH_MODES,
 	type MatchMode,
+	type Term,
 } from "./types";
 import { walkExpression } from "./walk";
 
@@ -447,17 +448,27 @@ export function searchChoiceColumnOrder(
 
 /** A choice can order a text column against the length of another text
  * value on the same fixture row. Core compares the column numerically. */
-export function searchChoiceColumnLengthOrder(
+export function searchChoiceLengthColumn(
 	kind: ComparisonKind,
 	left: Expression,
 	right: Expression,
-): boolean {
-	return (
-		right.kind === "call" &&
-		right.fn === "string-length" &&
-		right.args.length === 1 &&
-		searchChoiceColumnOrder(kind, left, right.args[0])
-	);
+): Extract<Term, { kind: "table-column" }> | undefined {
+	if (
+		right.kind !== "call" ||
+		right.fn !== "string-length" ||
+		right.args.length !== 1
+	)
+		return undefined;
+	const column = right.args[0];
+	return left.kind === "term" &&
+		left.term.kind === "table-column" &&
+		typeof left.term.columnId === "string" &&
+		column.kind === "term" &&
+		column.term.kind === "table-column" &&
+		typeof column.term.columnId === "string" &&
+		searchChoiceColumnOrder(kind, left, column)
+		? column.term
+		: undefined;
 }
 
 /** Core coerces these session operands before comparing them. */
