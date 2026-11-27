@@ -434,14 +434,15 @@ describe("the check route", () => {
 		});
 	});
 
-	it("hands the check the scope and the request's own signal", async () => {
+	it("hands the check the authorized read scope and the request's own signal", async () => {
 		vi.mocked(checkHqChangesForApp).mockResolvedValue([]);
 		const controller = new AbortController();
 		const req = request("check", { appId: APP }, controller.signal);
 		await (await post("check", req)).json();
 		const [scope, options] =
 			vi.mocked(checkHqChangesForApp).mock.calls[0] ?? [];
-		expect(scope).toEqual({ ...SCOPE, requireOperation: expect.any(Function) });
+		expect(resolveAppScope).toHaveBeenCalledExactlyOnceWith(APP, USER, "edit");
+		expect(scope).toEqual(SCOPE);
 		expect(options?.cancel).toBe(req.signal);
 	});
 });
