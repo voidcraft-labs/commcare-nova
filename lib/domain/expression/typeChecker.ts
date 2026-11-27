@@ -33,6 +33,7 @@ import { itextUnitTranslationId } from "../translationUnits";
 import { BUILT_IN_USER_PROPERTY_SLUGS } from "../users";
 import type { Uuid } from "../uuid";
 import { term as termExpression } from "./builders";
+import { wholeNumberAndTextSum } from "./caseWriteNumberText";
 import { type ExpressionChild, expressionChildren } from "./children";
 import { selectAnswerTokens } from "./choiceValue";
 import { readChosenCaseProperty } from "./chosenCase";
@@ -2565,6 +2566,19 @@ function inferNode(
 		case "arith": {
 			const left = readScalar(expression.left, ["left"]);
 			const right = readScalar(expression.right, ["right"]);
+			if (
+				ctx.ruleSet === "record" &&
+				(!("profile" in ctx) ||
+					(whole && ctx.slot.slot === "case_operation_write_value")) &&
+				wholeNumberAndTextSum(expression, (uuid) =>
+					expression.left.kind === "term" &&
+					expression.left.term.kind === "field" &&
+					expression.left.term.uuid === uuid
+						? left
+						: right,
+				)
+			)
+				return scalar("text");
 			// XPathArithExpr reads each operand through toNumeric, as number() does.
 			const leftNumber = integerCodedSelect(expression.left, ctx)
 				? "int"

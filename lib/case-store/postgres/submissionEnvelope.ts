@@ -90,7 +90,8 @@ import {
 	storageDatetimeValue,
 	storageTimeValue,
 } from "@/lib/domain/temporalValues";
-import { compareEqual } from "@/lib/preview/xpath/coerce";
+import { wholeNumberAndTextSum } from "@/lib/domain/expression/caseWriteNumberText";
+import { compareEqual, toNumber } from "@/lib/preview/xpath/coerce";
 import { evaluateInDeviceZone } from "@/lib/preview/xpath/coreDays";
 import {
 	type ResolvedCaseOperationTypeStep,
@@ -861,22 +862,54 @@ async function evaluateBatch(
 				...(lookup && { workerLookupRowsSource: lookup.source }),
 				bindings: bindingsFor(request.instance),
 			};
+			const mixedSum =
+				request.savedAsText === true && request.expression !== undefined
+					? wholeNumberAndTextSum(request.expression, (uuid) =>
+							program.formFieldTypes?.get(uuid),
+						)
+					: undefined;
+			const submittedSum =
+				mixedSum === undefined
+					? undefined
+					: evaluateInDeviceZone(
+							resolveViewerTimeZone(program.viewerTimeZone),
+							() => {
+								const number = (uuid: Uuid) => {
+									const answer = ctx.bindings.formFields?.get(uuid);
+									const scalar =
+										typeof answer === "string" || typeof answer === "number"
+											? answer
+											: "";
+									return toNumber(scalar, program.dayNumberEpoch ?? "utc");
+								};
+								return (
+									submittedNumberText(
+										number(mixedSum[0]) + number(mixedSum[1]),
+									) ?? ""
+								);
+							},
+						);
 			const projection =
-				request.predicate !== undefined
-					? eb
-							.case()
-							.when(compilePredicate(request.predicate, ctx))
-							.then(true)
-							.else(false)
-							.end()
-					: request.expression !== undefined
-						? request.savedAsText === true
-							? compileSubmittedTextValue(
-									request.expression,
-									expressionContextFor(ctx),
-								)
-							: compileExpression(request.expression, expressionContextFor(ctx))
-						: undefined;
+				submittedSum !== undefined
+					? eb.val(submittedSum)
+					: request.predicate !== undefined
+						? eb
+								.case()
+								.when(compilePredicate(request.predicate, ctx))
+								.then(true)
+								.else(false)
+								.end()
+						: request.expression !== undefined
+							? request.savedAsText === true
+								? compileSubmittedTextValue(
+										request.expression,
+										expressionContextFor(ctx),
+									)
+								: compileExpression(
+										request.expression,
+										expressionContextFor(ctx),
+									)
+							: undefined;
 			if (projection === undefined) {
 				throw new Error(
 					compilerBugMessage({

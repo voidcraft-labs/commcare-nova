@@ -2318,6 +2318,14 @@ def save_to_case_untyped_value(authoring, app_id):
     )
 
 
+def save_to_case_number_call_in_write(authoring, app_id):
+    """A separate numeric function call stays outside the direct mixed sum."""
+    _save_to_case(
+        authoring, app_id, "save-to-case-number-call-in-write",
+        (STC_HEAD_BIND, f'<bind nodeset="{MAKE}/update/head" calculate="/data/age + number(/data/full_name)"/>', 1),
+    )
+
+
 # Itemsets: hq-lookups' form, whose selects read lookup tables -------------------------------------------------------
 
 DISTRICTS = "<itemset nodeset=\"instance('item-list:districts')/districts_list/districts\">"

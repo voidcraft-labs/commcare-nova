@@ -3981,7 +3981,7 @@
 		],
 		"valueClass": "property-rows",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: `writes[] {property, value, condition}`",
+		"dispositionCell": "**HELD**: `writes[] {property, value, condition}`. A direct addition of a whole-number answer and a Text answer keeps Core’s numeric conversion and saves the untyped result as text.",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",

@@ -39014,6 +39014,19 @@
 	{
 		"id": "hq-questions/save-to-case-untyped-value",
 		"base": "hq-questions",
+		"entry": "questions/savetocase-property-rows-calculation-condition-lifting-into",
+		"change": { "op": "named", "name": "save_to_case_untyped_value" },
+		"holds": [
+			{
+				"key": ["form", { "$xmlns": [0, 0] }],
+				"pointer": "/caseOperations/0/writes/0/value/op",
+				"value": "+"
+			}
+		]
+	},
+	{
+		"id": "hq-questions/save-to-case-number-call-in-write",
+		"base": "hq-questions",
 		"entry": "questions/savetocase-expressions-outside-nova-s-typed-vocabularies-case-id",
 		"standing": "not-yet",
 		"place": {
@@ -39026,7 +39039,7 @@
 		},
 		"change": {
 			"op": "named",
-			"name": "save_to_case_untyped_value"
+			"name": "save_to_case_number_call_in_write"
 		}
 	},
 	{
