@@ -7046,10 +7046,40 @@
 		"gates": []
 	},
 	{
+		"id": "forms-and-case-writes/advanced-open-relationship-from-unrestricted-text",
+		"area": "forms-and-case-writes",
+		"section": "Advanced form actions",
+		"item": "An advanced case creation takes the relationship to a selected case from an unrestricted root Text answer",
+		"surfaceKeys": [
+			"schema:AdvancedOpenCaseAction.case_indices",
+			"schema:CaseIndex.relationship",
+			"schema:CaseIndex.relationship_question"
+		],
+		"valueClass": "open-relationship-from-unrestricted-text",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: broken at runtime: HQ submits the Text answer verbatim and rejects any relationship other than child or extension",
+		"subject": "advanced-forms",
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": [],
+		"reasons": [
+			{
+				"kind": "broken-at-runtime",
+				"named": "HQ forwards the answer verbatim and case processing rejects values other than child or extension"
+			}
+		]
+	},
+	{
 		"id": "forms-and-case-writes/caseindex-relationship-question-relationship-question-the-index-naming-a",
 		"area": "forms-and-case-writes",
 		"section": "Advanced form actions",
-		"item": "`CaseIndex.relationship: question` + `relationship_question`, the index naming a load whose datum keeps its `case_id_<tag>` id, where no index before it on that open action names an open action, the question outside any repeat",
+		"item": "`CaseIndex.relationship: question` + `relationship_question`, the index naming a load whose datum keeps its `case_id_<tag>` id, where no index before it on that open action names an open action, the question outside any repeat and is not an unrestricted root Text answer",
 		"surfaceKeys": [
 			"schema:AdvancedOpenCaseAction.case_indices",
 			"schema:CaseIndex.relationship",

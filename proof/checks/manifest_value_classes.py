@@ -3702,6 +3702,33 @@ an index's ``relationship_question`` inside a repeat, which the editor's questio
 (``case_config_advanced.html``, ``getQuestions('all', false, false)``), read in the form's XForm."""
 
 
+def _open_relationship_from_unrestricted_text(at, form, loads, opens, action, index):
+    if _is_load(action, loads):
+        return False
+    xform = at.app.xform(form)
+    if xform is None:
+        return None
+    chosen = {load.get("case_tag") for load in loads if not _auto_selected(load)}
+    opened = {other.get("case_tag") for other in opens}
+    earlier_open = False
+    for candidate in _indices(action, loads):
+        tag = candidate.get("tag")
+        if (index is None or candidate is index) and not earlier_open and tag in chosen:
+            path = candidate.get("relationship_question") or ""
+            if candidate.get("relationship") == "question" and path.startswith("/data/") and path.count("/") == 2:
+                bind = xform.bind(path)
+                controls = xform.question_controls(path)
+                if (bind is not None and _vellum_type(bind.get("type") or "string") == "string"
+                        and not (bind.get("constraint") or "").strip()
+                        and len(controls) == 1 and _local(controls[0]) == "input"):
+                    return True
+        earlier_open = earlier_open or tag in opened
+    return False
+
+
+open_relationship_from_unrestricted_text = _advanced_reader(_open_relationship_from_unrestricted_text)
+
+
 def _question_relationship_to_open_action(at, form, loads, opens, action, index):
     if _is_load(action, loads):
         return False
@@ -14776,6 +14803,9 @@ VALUE_CLASSES = {
         shadow_parent_tag_not_repeated
     ),
     "forms-and-case-writes/shadow-parent-form-id-naming-a-basic-form-or-another-shadowform": basic_or_shadow_parent,
+    "forms-and-case-writes/advanced-open-relationship-from-unrestricted-text": (
+        open_relationship_from_unrestricted_text
+    ),
     "forms-and-case-writes/caseindex-relationship-question-inside-a-repeat": relationship_question_in_repeat,
     "forms-and-case-writes/caseindex-relationship-question-relationship-question-the-index-naming-an": (
         question_relationship_to_open_action
