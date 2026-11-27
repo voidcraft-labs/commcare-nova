@@ -2678,7 +2678,10 @@
 		"id": "hq-advanced/open-index-named-with-a-hyphen",
 		"base": "hq-advanced",
 		"entry": "menus-and-case-lists/advanced-manual-load-with-an-exact-parent-link",
-		"change": { "op": "named", "name": "open_member_with_hyphenated_parent_index" },
+		"change": {
+			"op": "named",
+			"name": "open_member_with_hyphenated_parent_index"
+		},
 		"holds": [
 			{
 				"key": ["module", { "$menu": 1 }],
@@ -2698,7 +2701,10 @@
 		"entry": "menus-and-case-lists/advanced-module-nova-would-write-as-a-basic-one",
 		"standing": "not-yet",
 		"place": { "kind": "menu", "menu": 1, "name": "Member visits" },
-		"change": { "op": "named", "name": "advanced_inline_search_with_automatic_start" }
+		"change": {
+			"op": "named",
+			"name": "advanced_inline_search_with_automatic_start"
+		}
 	},
 	{
 		"id": "hq-advanced/visitor-opened-with-a-hyphenated-index",

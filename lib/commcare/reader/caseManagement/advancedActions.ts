@@ -3565,7 +3565,10 @@ export function listFormRulesPlace(
  *  form whose chain differs from the menu's one chain (its finding). */
 export function writeAdvancedChains(ctx: ReadContext): void {
 	const outsideTheChain = new Set<DraftForm>();
-	const sourceLinks = new Map<DraftModule, { parentUuid: Uuid; identifier: string }>();
+	const sourceLinks = new Map<
+		DraftModule,
+		{ parentUuid: Uuid; identifier: string }
+	>();
 	for (const module of ctx.draft.modules) {
 		if (module.docType !== "AdvancedModule") continue;
 		const forms = module.forms.filter((form) => READINGS.has(form));
@@ -3585,7 +3588,11 @@ export function writeAdvancedChains(ctx: ReadContext): void {
 		ctx.writeDraft(() => {
 			module.module.parentCaseModuleUuid = parent;
 		});
-		if (chain.length !== 2 || disagreeing.length > 0 || module.json.peek("root_module_id"))
+		if (
+			chain.length !== 2 ||
+			disagreeing.length > 0 ||
+			module.json.peek("root_module_id")
+		)
 			continue;
 		const chosen = forms
 			.map((form) => READINGS.get(form))
@@ -3610,7 +3617,10 @@ export function writeAdvancedChains(ctx: ReadContext): void {
 		const parentType = doc.modules[link.parentUuid]?.caseType;
 		if (childType === undefined || parentType === undefined) continue;
 		const available = advancedChainIndex(doc, childType, parentType);
-		if (available.kind !== "several" || !available.identifiers.includes(link.identifier))
+		if (
+			available.kind !== "several" ||
+			!available.identifiers.includes(link.identifier)
+		)
 			continue;
 		ctx.writeDraft(() => {
 			module.module.parentCaseLink = link;

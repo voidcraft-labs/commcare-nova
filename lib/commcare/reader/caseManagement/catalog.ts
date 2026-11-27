@@ -17,12 +17,12 @@ import {
 	type Uuid,
 } from "@/lib/domain";
 import type { BlueprintDoc } from "@/lib/domain/blueprint";
-import { formCaseWriteViews } from "@/lib/domain/caseWriteViews";
 import { casePropertyShowsOptionLabels } from "@/lib/domain/caseListOrder";
 import {
 	CaseRelationCatalog,
 	relationMetadata,
 } from "@/lib/domain/caseRelations";
+import { formCaseWriteViews } from "@/lib/domain/caseWriteViews";
 import { columnPropertyCaseType } from "@/lib/domain/columnRelation";
 import {
 	effectiveCaseTypes,
@@ -836,15 +836,19 @@ export function settleWriterTypes(
 		for (const [property, types] of byProperty) {
 			if (types.size < 2 || agreedStorageType(types) !== undefined) continue;
 			const cast = inference.propertyTypes.get(caseType)?.get(property)?.castBy;
-			const integerOpeningReadsFreeText =
+			let integerOpeningReadsFreeText = false;
+			if (
 				types.size === 2 &&
 				types.has("int") &&
 				types.has("text") &&
 				cast?.type === "int" &&
-				doc.fields[cast.field]?.kind === "int" &&
-				(freeText ??= ownFreeTextDestinations(doc)).has(
+				doc.fields[cast.field]?.kind === "int"
+			) {
+				freeText ??= ownFreeTextDestinations(doc);
+				integerOpeningReadsFreeText = freeText.has(
 					JSON.stringify([caseType, property]),
 				);
+			}
 			finding(
 				caseType,
 				property,

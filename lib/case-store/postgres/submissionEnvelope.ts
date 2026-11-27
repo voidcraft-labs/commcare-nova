@@ -73,6 +73,7 @@ import {
 } from "@/lib/domain";
 import { MAX_AUTHORED_CASE_ID_LENGTH } from "@/lib/domain/caseOperationIdentity";
 import { entryDatumCaseId } from "@/lib/domain/entryCaseIdentity";
+import { wholeNumberAndTextSum } from "@/lib/domain/expression/caseWriteNumberText";
 import {
 	compilerBugMessage,
 	unhandledKindMessage,
@@ -90,7 +91,6 @@ import {
 	storageDatetimeValue,
 	storageTimeValue,
 } from "@/lib/domain/temporalValues";
-import { wholeNumberAndTextSum } from "@/lib/domain/expression/caseWriteNumberText";
 import { compareEqual, toNumber } from "@/lib/preview/xpath/coerce";
 import { evaluateInDeviceZone } from "@/lib/preview/xpath/coreDays";
 import {

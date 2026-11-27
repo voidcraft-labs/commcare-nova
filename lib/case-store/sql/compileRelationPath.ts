@@ -48,7 +48,6 @@
 // would duplicate the relation-walk traversal and invite a leak.
 // The filter applies once per hop, every time.
 
-import type { RestoredColumnCountMatch } from "@/lib/domain/expression/ruleSets";
 import {
 	type AliasedExpression,
 	type Kysely,
@@ -57,6 +56,7 @@ import {
 	sql,
 } from "kysely";
 import { unhandledKindMessage } from "@/lib/domain/expression/errors";
+import type { RestoredColumnCountMatch } from "@/lib/domain/expression/ruleSets";
 import type { RelationPath, RelationStep } from "@/lib/domain/expression/types";
 import type { Database } from "./database";
 

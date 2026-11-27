@@ -5,8 +5,8 @@ import {
 import { detailBindings } from "../suite/case-list/detailBindings";
 import {
 	deviceLookupExtraWire,
-	lookupEvaluateExtrasControl,
 	lookupCaseKeyWire,
+	lookupEvaluateExtrasControl,
 } from "../suite/case-list/deviceLookup";
 
 // lib/commcare/hqJson/caseList.ts

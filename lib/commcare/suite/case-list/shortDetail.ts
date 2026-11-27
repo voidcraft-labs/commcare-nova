@@ -148,9 +148,9 @@ import {
 } from "./detailTexts";
 import {
 	deviceLookupExtraWire,
-	lookupEvaluateExtrasControl,
 	lookupConfidenceColumn,
 	lookupConfidenceLocaleId,
+	lookupEvaluateExtrasControl,
 } from "./deviceLookup";
 import { buildNamedTileFields } from "./namedTile";
 import { withDetailLoadBehavior } from "./optimizations";

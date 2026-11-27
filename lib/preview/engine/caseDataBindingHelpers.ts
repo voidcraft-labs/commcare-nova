@@ -94,7 +94,6 @@ import {
 	SchemaNotSyncedError,
 } from "@/lib/case-store/errors";
 import { CaseSearchUnavailableError } from "@/lib/case-store/searchRequest";
-import { basicOwnTextOverlap } from "@/lib/commcare/placement";
 import {
 	formSharingPlan,
 	planFormCaseWire,
@@ -103,6 +102,7 @@ import {
 	type LookupWireNaming,
 	lookupWireNaming,
 } from "@/lib/commcare/lookup/naming";
+import { basicOwnTextOverlap } from "@/lib/commcare/placement";
 import { resolveAppScope } from "@/lib/db/appAccess";
 import { loadApp } from "@/lib/db/apps";
 import { materializeCaseStoreSchemas } from "@/lib/db/materializeCaseStoreSchemas";

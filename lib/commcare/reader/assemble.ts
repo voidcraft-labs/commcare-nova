@@ -1903,7 +1903,9 @@ function decideGeneratedKeys(
 				(stored.get(held.key)?.length ?? 0) === 1 &&
 				(copies.length === 1 || copies.length === 2) &&
 				copies.some((copy) => copy.language === "en") &&
-				copies.every((copy) => copy.language === "en" || copy.language === "es") &&
+				copies.every(
+					(copy) => copy.language === "en" || copy.language === "es",
+				) &&
 				ordinaryCopies;
 			const dormant =
 				ordinaryCopies &&

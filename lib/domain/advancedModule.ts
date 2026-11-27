@@ -496,7 +496,12 @@ export function advancedKindBlockers(
 			)?.caseType;
 			const childType = menuWithInheritedCaseSettings(doc, chain[i])?.caseType;
 			if (parentType === undefined || childType === undefined) continue;
-			const index = advancedMenuChainIndex(doc, chain[i], childType, parentType);
+			const index = advancedMenuChainIndex(
+				doc,
+				chain[i],
+				childType,
+				parentType,
+			);
 			if (index.kind === "several") {
 				blockers.push({
 					kind: "chain-index",

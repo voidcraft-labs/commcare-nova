@@ -88,7 +88,9 @@ describe("the index a parent selection follows", () => {
 		};
 		const formUuid = doc.formOrder[MEMBERS][0];
 		expect(advancedLoadChain(doc, formUuid).at(-1)?.identifier).toBe("parent");
-		expect(parentCaseConstraint(doc, MEMBERS, HOUSEHOLD_CHOICE)?.index).toBe("parent");
+		expect(parentCaseConstraint(doc, MEMBERS, HOUSEHOLD_CHOICE)?.index).toBe(
+			"parent",
+		);
 	});
 
 	it("follows `parent` where no child link names the pair", () => {

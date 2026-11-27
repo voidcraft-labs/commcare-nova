@@ -669,12 +669,14 @@ describe("a Save to Case update of the worker's record beside another update of 
 				writes: [{ property, value: term(literal("seen")) }],
 			}),
 			(draft) => {
-				(draft.userProperties ??= {})[propertyUuid] = {
+				draft.userProperties ??= {};
+				draft.userProperties[propertyUuid] = {
 					uuid: propertyUuid,
 					slug: property,
 					label: "Seen",
 				};
-				(draft.userPropertyOrder ??= []).push(propertyUuid);
+				draft.userPropertyOrder ??= [];
+				draft.userPropertyOrder.push(propertyUuid);
 			},
 		);
 		const verdict = mutationCommitVerdict(doc, [], LOOKUP_CONTEXT_UNAVAILABLE);

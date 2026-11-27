@@ -35,8 +35,8 @@
 import { z } from "zod";
 import { formIconRefSchema, moduleIconRefSchema } from "./builtinIcons";
 import { caseFormContextSchema } from "./caseFormContext";
-import { isAdvancedCaseIndexIdentifier } from "./caseOperationIdentifiers";
 import { uniqueCaseMappingRows } from "./caseMappingRows";
+import { isAdvancedCaseIndexIdentifier } from "./caseOperationIdentifiers";
 import {
 	authoredCasePropertyNameSchema,
 	readCasePropertyNameSchema,

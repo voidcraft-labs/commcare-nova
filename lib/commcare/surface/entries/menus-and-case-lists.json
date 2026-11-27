@@ -199,7 +199,10 @@
 			"webApps": { "reading": "runs" },
 			"android": { "reading": "runs" }
 		},
-		"emission": { "cell": "The second Advanced load keeps its exact reference_id.", "markers": [] },
+		"emission": {
+			"cell": "The second Advanced load keeps its exact reference_id.",
+			"markers": []
+		},
 		"gates": []
 	},
 	{
@@ -219,7 +222,10 @@
 			}
 		],
 		"platforms": { "kind": "none", "cell": "—" },
-		"emission": { "cell": "HQ emits Advanced case selections without the prompted Query.", "markers": [] },
+		"emission": {
+			"cell": "HQ emits Advanced case selections without the prompted Query.",
+			"markers": []
+		},
 		"gates": []
 	},
 	{

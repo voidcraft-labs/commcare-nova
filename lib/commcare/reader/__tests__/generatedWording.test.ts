@@ -459,9 +459,9 @@ it("rekeys only a unique live legacy Search heading and records both source posi
 	const separateInstallation = await read();
 	if (separateInstallation.kind !== "read")
 		throw Error(JSON.stringify(separateInstallation.findings));
-	expect(expandDoc(separateInstallation.draft.doc).translations?.en[currentKey]).toBe(
-		"Find a client",
-	);
+	expect(
+		expandDoc(separateInstallation.draft.doc).translations?.en[currentKey],
+	).toBe("Find a client");
 	expect(
 		expandDoc(separateInstallation.draft.doc).translations?.es?.[currentKey],
 	).toBeUndefined();

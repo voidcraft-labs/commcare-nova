@@ -37,7 +37,7 @@ import {
 	prepareCaseScalarTextValue,
 	type Uuid,
 } from "@/lib/domain";
-import { planCaseRetype, dateRetypeOverwrite } from "@/lib/domain/caseRetype";
+import { dateRetypeOverwrite, planCaseRetype } from "@/lib/domain/caseRetype";
 import {
 	actingUser,
 	and,
