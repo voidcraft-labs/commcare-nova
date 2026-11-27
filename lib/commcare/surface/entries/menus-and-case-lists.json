@@ -3201,7 +3201,7 @@
 		"surfaceKeys": ["schema:Detail.filter"],
 		"valueClass": "lifts-into-predicate",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: `caseListConfig.filter`",
+		"dispositionCell": "**HELD**: `caseListConfig.filter`, including a direct host text equality on a device list",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",

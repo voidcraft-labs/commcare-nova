@@ -440,6 +440,13 @@ reads back as, at the level found for its reading (`expressions/index.ts::readBa
 in `reader/expressions/` (`readExpressions`, the folds, the canonical tree of a
 print collision, CSQL search rows and the findings each slot claims).
 
+An ordinary Case List filter can hold one nonblank text equality on the
+case its direct `host` index reaches, regardless of the destination type or
+relationship kind. The reader binds the reached property and the suite keeps
+the current-row index lookup. The case-store follows the same single hop
+within the app, Project and worker's restore. Search Results have a different
+row population and use their own checked expression paths.
+
 ### CommCare HQ project-space compatibility
 
 Deployment readiness uses the bounded `readBuildXml` path for an exact released
