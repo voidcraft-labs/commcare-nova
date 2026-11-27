@@ -123,7 +123,13 @@ def test_native_default_and_matching_profile_label_select_distinct_installations
         answers = HQAnswers(state)
         editor_driver.run([
             {"goto": path},
+            {"waitFor": """() => !!document.querySelector(
+                "a[data-bind*='deploy-build-modal-template']"
+            )?.getClientRects().length"""},
             {"click": "a[data-bind*='deploy-build-modal-template']"},
+            {"waitFor": """() => !!document.querySelector(
+                "a[href='#offline-install-tab']"
+            )?.getClientRects().length"""},
             {"click": "a[href='#offline-install-tab']"},
             {"waitFor": """() => {
                 const choices = document.querySelector("#offline-build-profile-select");
