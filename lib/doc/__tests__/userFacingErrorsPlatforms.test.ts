@@ -48,6 +48,10 @@ describe("each refusable structural feature in the builder's words", () => {
 			'"answer" asks for a date and time, which Web Apps can\'t show. You can ask for the date and the time separately, or set the app to run only on Android in App settings.',
 		],
 		[
+			"answer-root-name-requires-android",
+			'"Intake" uses non-ASCII characters in its submitted answer root. Web Apps can\'t open the form. You can use an answer root with ASCII characters, or set the app to run only on Android in App settings.',
+		],
+		[
 			"forms-read-search",
 			"\"Patients\" has its forms read the search, which on Android can't open a case the phone doesn't hold. You can turn off Forms read the search, or set the app to run only in Web Apps in App settings.",
 		],

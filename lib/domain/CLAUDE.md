@@ -789,7 +789,7 @@ Repeating groups can carry localized prose for their first and subsequent add bu
 
 A Hidden Value’s `answerNamespace` identifies it to its receiving service. Omission means inheritance. A question’s `lockedInHq` applies to the HQ form designer; Nova editing continues to use the Project role. The worker declaration accounts for answer IDs that Web Apps reserves for submission instructions.
 
-A form’s submitted answer root uses the intersection of XML element names and the worker’s XPath names. The form designer scans for `instance`, `bind` and `parsererror` at any depth. Those exact names belong to the reader, including at the answer root. The question-ID restrictions on names such as `case` do not apply to that root.
+A form’s submitted answer root uses the intersection of XML element names and the worker’s XPath names. The form designer scans for `instance`, `bind` and `parsererror` at any depth. Those exact names belong to the reader, including at the answer root. The question-ID restrictions on names such as `case` do not apply to that root. A root containing non-ASCII characters requires an Android-only app. Formplayer decodes the XML instance as ASCII before Web Apps can open it.
 
 ### Automatic form location
 

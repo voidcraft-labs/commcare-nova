@@ -1182,7 +1182,7 @@ CommCare has four form types: `registration` creates a new case, `followup` upda
 | `get_form` | Read one form by `moduleUuid` and `formUuid`, including its field UUIDs, its `badge` when it has one (text or a calculation), case operations with authored conditions and values, its `openCondition` and `closeCondition` as authored text, its after-submit `destinations` in the order they run (each one's `uuid` is the `linkUuid` the link tools take), and its `otherwise`: `{ kind: "destination", destination }` or `{ kind: "link", linkUuid, target, datums? }`. It also lists `offeredOnCaseListsOf`, the modules whose case lists always offer the form. |
 
 An integration that receives submitted answers may depend on their first name.
-The form designer reserves `instance`, `bind` and `parsererror` for its own elements. Choose a different answer root, such as `survey`.
+The form designer reserves `instance`, `bind` and `parsererror` for its own elements. Choose a different answer root, such as `survey`. Web Apps requires an answer root with ASCII characters.
 
 `update_form.answerRoot` changes that name for the whole form. For example,
 `visit_report` makes an answer at `visit_report/village`. Pass `null` to restore
