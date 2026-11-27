@@ -46053,8 +46053,8 @@
 	{
 		"id": "hq-search/guarded-name-checks-another-answer",
 		"base": "hq-search",
-		"entry": "case-search/a-check-with-no-message-on-a-field-nova-s-search-guards",
-		"standing": "not-yet",
+		"entry": "case-search/name-check-allows-both-quote-delimiters",
+		"standing": "fix-in-hq",
 		"place": {
 			"kind": "search",
 			"menu": 0,
@@ -46075,8 +46075,8 @@
 	{
 		"id": "hq-search/guarded-name-check-allows-quotes",
 		"base": "hq-search",
-		"entry": "case-search/a-check-with-no-message-on-a-field-nova-s-search-guards",
-		"standing": "not-yet",
+		"entry": "case-search/name-check-allows-both-quote-delimiters",
+		"standing": "fix-in-hq",
 		"place": {
 			"kind": "search",
 			"menu": 0,
@@ -46088,6 +46088,28 @@
 			"value": [
 				{
 					"test": "regex(if(count(instance('search-input:results')/input/field) > 0, instance('search-input:results')/input/field[@name = 'client_name'], ''), '^.+$')",
+					"text": {},
+					"doc_type": "Assertion"
+				}
+			]
+		}
+	},
+	{
+		"id": "hq-search/guarded-village-check-allows-quotes",
+		"base": "hq-search",
+		"entry": "case-search/a-check-with-no-message-on-a-field-nova-s-search-guards",
+		"standing": "not-yet",
+		"place": {
+			"kind": "search",
+			"menu": 0,
+			"name": "Clients"
+		},
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/0/search_config/properties/1/validations",
+			"value": [
+				{
+					"test": "regex(if(count(instance('search-input:results')/input/field) > 0, instance('search-input:results')/input/field[@name = 'village'], ''), '^.+$')",
 					"text": {},
 					"doc_type": "Assertion"
 				}

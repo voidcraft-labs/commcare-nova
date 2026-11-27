@@ -119,6 +119,10 @@ export const SETTING_CLAIMS = defineClaims("search.settings", {
 		"schema:CaseSearch.search_button_display_condition",
 	),
 	/** A check whose native test cannot keep the guard and its runtime message together. */
+	nameCheckAllowsBothQuotes: refuse(
+		`${S}name-check-allows-both-quote-delimiters`,
+		"schema:Assertion.text",
+	),
 	checkWithoutMessageGuarded: refuse(
 		`${S}a-check-with-no-message-on-a-field-nova-s-search-guards`,
 		"schema:Assertion.text",
@@ -2243,13 +2247,30 @@ export function settleSearchSettings(
 		);
 		if (guarded.length === 0)
 			ctx.accounting.circumstance("unrecognized", place, { name: first });
-		for (const prompt of guarded)
+		for (const prompt of guarded) {
+			const input = list.searchInputs.find((one) => one.uuid === prompt.uuid);
+			const rule =
+				input?.kind === "simple" &&
+				input.type === "text" &&
+				input.property === "case_name"
+					? input.validation?.rule
+					: undefined;
+			const admitsBothQuotes =
+				rule?.kind === "matches-pattern" &&
+				rule.left.kind === "term" &&
+				rule.left.term.kind === "input" &&
+				(rule.pattern === "^.+$" ||
+					(rule.pattern === "^[a-z]+$" &&
+						rule.left.term.searchInputUuid !== prompt.uuid));
 			ctx.accounting.findingAt(
-				T.checkWithoutMessageGuarded,
+				admitsBothQuotes
+					? T.nameCheckAllowsBothQuotes
+					: T.checkWithoutMessageGuarded,
 				place,
 				`${prompt.cursor.pointer}/validations`,
 				{ name: prompt.name },
 			);
+		}
 	}
 }
 

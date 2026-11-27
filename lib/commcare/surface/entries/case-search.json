@@ -3839,6 +3839,27 @@
 		"gates": []
 	},
 	{
+		"id": "case-search/name-check-allows-both-quote-delimiters",
+		"area": "case-search",
+		"section": "Case search",
+		"subsection": "Search prompts",
+		"item": "A checked Name prompt can send an answer containing both quote marks",
+		"surfaceKeys": ["schema:Assertion.text"],
+		"valueClass": "name-check-allows-both-quote-delimiters",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: a permissive check on the Name answer or a check of a different answer lets the Name send both quote delimiters. HQ refuses that Search request.",
+		"subject": "search-fields",
+		"reasons": [
+			{
+				"kind": "broken-at-runtime",
+				"named": "Without a check of the Name answer that excludes the unrepresentable spelling, the stock worker screen submits it and CommCare HQ rejects the query."
+			}
+		],
+		"platforms": { "kind": "none", "cell": "—" },
+		"emission": { "cell": "—", "markers": [] },
+		"gates": []
+	},
+	{
 		"id": "case-search/a-check-with-no-message-on-a-field-nova-s-search-guards",
 		"area": "case-search",
 		"section": "Case search",
