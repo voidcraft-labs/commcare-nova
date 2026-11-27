@@ -30,6 +30,7 @@ import {
 import {
 	ancestorPath,
 	and,
+	count,
 	dateLiteral,
 	eq,
 	gt,
@@ -178,6 +179,32 @@ if (scenario === "search-nested-parent-date")
 			},
 		),
 	];
+if (scenario === "search-required-restored-cases") {
+	caseTypes.push({
+		name: "household",
+		properties: [{ name: "case_name", label: proseText("Household name") }],
+	});
+	config.searchInputs = [
+		simpleSearchInputDef(searchId, "region", "Region", "text", "region", {
+			required: {
+				when: gt(
+					count({
+						kind: "cases",
+						source: "casedb",
+						where: [
+							eq(
+								{ kind: "case-row-type" },
+								{ kind: "case-type", caseType: "patient" },
+							),
+						],
+					}),
+					literal(0),
+				),
+				message: "Give a region",
+			},
+		}),
+	];
+}
 if (scenario === "search-date")
 	config.searchInputs = [
 		simpleSearchInputDef(searchId, "dob", "Birth date", "date", "dob", {

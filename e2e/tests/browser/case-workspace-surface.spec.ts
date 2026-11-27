@@ -442,6 +442,51 @@ test("a grandparent date Search keeps both links when its field name changes", a
 	await expect(matching).toBeChecked();
 });
 
+test("a Search requirement can change which restored case type it counts", async ({
+	page,
+}) => {
+	await page.goto(`${peer.origin}?scenario=search-required-restored-cases`);
+	await selectSearchInput(page);
+	const original = (await savedModule(page)).caseListConfig.searchInputs[0]
+		.required;
+	await page
+		.getByRole("button", { name: "Edit condition", exact: true })
+		.click();
+	const source = page.getByRole("combobox", { name: "Records to count" });
+	await expect(source).toContainText("patient");
+	await source.click();
+	await expect(
+		page.getByRole("option", { name: "All cases on this device" }),
+	).toHaveCount(0);
+	await page.getByRole("option", { name: "household", exact: true }).click();
+	await expect
+		.poll(
+			async () =>
+				(await savedModule(page)).caseListConfig.searchInputs[0].required,
+		)
+		.toEqual({
+			...original,
+			when: {
+				...original.when,
+				left: {
+					...original.when.left,
+					via: {
+						...original.when.left.via,
+						where: [
+							{
+								...original.when.left.via.where[0],
+								right: {
+									kind: "term",
+									term: { kind: "case-type", caseType: "household" },
+								},
+							},
+						],
+					},
+				},
+			},
+		});
+});
+
 test("native Search keyboard reordering and removal preserve field identity and move focus", async ({
 	page,
 }) => {
