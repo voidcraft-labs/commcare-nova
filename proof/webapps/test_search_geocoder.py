@@ -45,6 +45,7 @@ def _geocoder_fields(app, mode):
 @pytest.mark.parametrize("variant_name", [
     "address-picker-with-stored-default",
     "address-picker-with-a-calculated-default",
+    "address-picker-with-a-session-derived-default",
 ])
 def test_saved_address_default_stays_out_of_signed_web_search(
     hq, formplayer_runner, editor_driver, webapps_documents, evidence, variant_name
