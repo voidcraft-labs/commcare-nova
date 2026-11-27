@@ -1,0 +1,7 @@
+{
+	"status": 200,
+	"headers": {
+		"Content-Type": "application/json; charset=utf-8"
+	},
+	"body": "{\"meta\": {\"limit\": 1000, \"next\": null, \"offset\": 0, \"previous\": null, \"total_count\": 2}, \"objects\": [{\"fields\": {\"id\": \"maize\", \"name\": \"Maize\"}, \"fixture_type\": \"crop-types\", \"id\": \"c6a9638defd1429983c9a148bda96ca8\", \"resource_uri\": \"\"}, {\"fields\": {\"id\": \"beans\", \"name\": \"Beans\"}, \"fixture_type\": \"crop-types\", \"id\": \"dad1a38370444dffbd211f9c69461bf0\", \"resource_uri\": \"\"}]}"
+}

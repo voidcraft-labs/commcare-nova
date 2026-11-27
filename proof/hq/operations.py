@@ -1579,7 +1579,7 @@ def save_authored_tables(state, tables) -> None:
     (``fixtures/models.py::LookupTable``, ``LookupTableRow``) from the base's ``tables.json``: one object a table,
     ``{tag, is_global, description, fields: [{name, properties, is_indexed}], item_attributes, rows: [{fields:
     {<name>: [{value, properties}]}, item_attributes}]}``, its rows in ``sort_key`` order."""
-    from corehq.apps.fixtures.models import Field, LookupTable, LookupTableRow, TypeField
+    from corehq.apps.fixtures.models import Field, LookupTable, LookupTableRow, LookupTableRowOwner, TypeField
 
     for table in tables:
         made = LookupTable.objects.create(
@@ -1594,7 +1594,7 @@ def save_authored_tables(state, tables) -> None:
             item_attributes=list(table["item_attributes"]),
         )
         for sort_key, row in enumerate(table["rows"]):
-            LookupTableRow.objects.create(
+            made_row = LookupTableRow.objects.create(
                 domain=state.domain,
                 table=made,
                 fields={
@@ -1604,6 +1604,11 @@ def save_authored_tables(state, tables) -> None:
                 item_attributes=dict(row["item_attributes"]),
                 sort_key=sort_key,
             )
+
+            for owner in row.get("owners", ()):
+                LookupTableRowOwner.objects.create(
+                    domain=state.domain, row_id=made_row.id, owner_type=owner["type"], owner_id=owner["id"]
+                )
 
 
 def save_authored_places(state, places) -> None:
