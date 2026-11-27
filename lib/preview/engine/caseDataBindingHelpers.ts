@@ -1372,7 +1372,7 @@ function buildCaseStoreSortKeys(
 		blanks: "first",
 	};
 	if (order === undefined) return [stablePageTieBreaker];
-	const unavailableIds = new Set(
+	const unavailableIds = new Set<string>(
 		scope === "record"
 			? order.plan.fields.flatMap(({ column }) =>
 					column.kind === "calculated" && column.inlineResultProperty
