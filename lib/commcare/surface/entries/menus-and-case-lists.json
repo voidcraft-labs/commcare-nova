@@ -9514,16 +9514,16 @@
 		"area": "menus-and-case-lists",
 		"section": "Case list and case detail",
 		"subsection": "Case list callout",
-		"item": "Enabled Android lookup with an extra that is a bare relative field name",
+		"item": "Enabled Android lookup with an extra that uses a one- or two-step relative field path",
 		"surfaceKeys": ["schema:Detail.lookup_extras"],
 		"valueClass": "bare-relative-field-name-before-case-selection",
 		"disposition": "REFUSED",
-		"dispositionCell": "**REFUSED**: Android evaluates the relative field name before the list opens. The session has no main instance, so the companion is never started.",
+		"dispositionCell": "**REFUSED**: In its ordinary lookup mode, Android evaluates the relative field path before the list opens. The session has no main instance, so the companion is never started.",
 		"subject": "case-list-callout",
 		"reasons": [
 			{
 				"kind": "broken-at-runtime",
-				"named": "Android evaluates an ordinary callout's arguments while opening the unselected list. The session has no main instance, so Core raises on the relative field name before Android can send an Intent."
+				"named": "Android evaluates an ordinary callout's arguments while opening the unselected list. The session has no main instance, so Core raises on the relative field path before Android can send an Intent."
 			}
 		],
 		"platforms": { "kind": "none", "cell": "—" },

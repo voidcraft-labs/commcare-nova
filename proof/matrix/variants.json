@@ -12813,12 +12813,23 @@
 	{
 		"id": "hq-case-lists/callout-with-a-multi-step-field-argument",
 		"base": "hq-case-lists",
+		"entry": "menus-and-case-lists/lookup-extra-relative-without-case-context",
+		"standing": "fix-in-hq",
+		"place": { "kind": "case-list", "menu": 0, "name": "Patients" },
+		"change": {
+			"op": "named",
+			"name": "callout_with_a_multi_step_field_argument"
+		}
+	},
+	{
+		"id": "hq-case-lists/callout-with-unspaced-integer-sum",
+		"base": "hq-case-lists",
 		"entry": "menus-and-case-lists/lookup-enabled-lookup-action",
 		"standing": "not-yet",
 		"place": { "kind": "case-list", "menu": 0, "name": "Patients" },
 		"change": {
 			"op": "named",
-			"name": "callout_with_a_multi_step_field_argument"
+			"name": "callout_with_unspaced_integer_sum"
 		}
 	},
 	{

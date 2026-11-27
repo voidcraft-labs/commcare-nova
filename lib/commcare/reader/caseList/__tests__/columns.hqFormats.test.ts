@@ -1277,7 +1277,8 @@ describe("a detail's callout and tabs", () => {
 		["2147483647 + 1", "lookup-enabled-lookup-action"],
 		["1.0 + 2", "lookup-enabled-lookup-action"],
 		["1+2", "lookup-enabled-lookup-action"],
-		["properties/mode", "lookup-enabled-lookup-action"],
+		["properties/mode", "lookup-extra-relative-without-case-context"],
+		["'properties/mode'", undefined],
 		["'3'", undefined],
 	] as const)(
 		"accounts for the exact meaning of the lookup argument %s",
@@ -1292,9 +1293,9 @@ describe("a detail's callout and tabs", () => {
 				});
 			});
 			expect(closedCodes(reading)).toEqual(finding ? [`${M}${finding}`] : []);
-			if (value === "'3'") {
+			if (value.startsWith("'")) {
 				expect(listOf(reading).deviceLookup?.extras).toEqual([
-					{ name: "mode", value: "3" },
+					{ name: "mode", value: value.slice(1, -1) },
 				]);
 			} else if (finding === undefined) {
 				const [left, right] = value.split(" + ").map(Number);

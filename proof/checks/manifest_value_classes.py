@@ -7600,8 +7600,10 @@ def _bare_relative_lookup_extra(detail):
         if tree and tree[:2] == ["path", "relative"] and not tree[3]:
             steps = tree[4]
             if (
-                len(steps) == 1 and steps[0][0] == "child" and steps[0][2] == 0
-                and not steps[0][1].endswith("*") and value.strip() == steps[0][1]
+                1 <= len(steps) <= 2
+                and all(axis == "child" and predicates == 0 and not name.endswith("*")
+                        for axis, name, predicates in steps)
+                and value.strip() == "/".join(name for _, name, _ in steps)
             ):
                 return True
     return False

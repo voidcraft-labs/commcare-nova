@@ -8840,7 +8840,8 @@ def _case_list_lookup_shapes():
             use(accepted, "lookup_action"),
         ),
         "menus-and-case-lists/lookup-enabled-lookup-action": (
-            use(refused, "lookup_action", lookup_extras=dynamic),
+            use(accepted, "lookup_action", lookup_extras=dynamic),
+            use(refused, "lookup_action", lookup_extras=[{"key": "mode", "value": "1+2"}]),
             use(accepted, "lookup_action", lookup_extras=[{"key": "mode", "value": "1 + 2"}]),
             use(refused, "lookup_action", lookup_responses=[{"key": "repeat"}, {"key": "repeat"}]),
             use(accepted, "lookup_action"),
@@ -8860,7 +8861,9 @@ def _case_list_lookup_shapes():
         ),
         "menus-and-case-lists/lookup-extra-relative-without-case-context": (
             use(refused, "lookup_extras", lookup_extras=[{"key": "mode", "value": "scan"}]),
-            use(accepted, "lookup_extras", lookup_extras=dynamic),
+            use(refused, "lookup_extras", lookup_extras=dynamic),
+            use(accepted, "lookup_extras", lookup_extras=[{"key": "mode", "value": "'properties/mode'"}]),
+            use(accepted, "lookup_extras", lookup_extras=[{"key": "mode", "value": "properties/mode/name"}]),
             use(accepted, "lookup_extras", lookup_extras=[{"key": "mode", "value": "'scan'"}]),
         ),
         "menus-and-case-lists/lookup-extras-key-value": (

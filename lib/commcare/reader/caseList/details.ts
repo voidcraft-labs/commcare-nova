@@ -535,9 +535,9 @@ const LOOKUP_WITH_WORKER_EXTRA = defineClaims("caseList.details.workerLookup", {
 });
 
 /** Android evaluates the extra when it creates the list's click listener.
- * A bare field name needs a main instance, which the list session has not
- * got. Keep other calculation shapes under the general refusal. */
-function lookupHasBareRelativeExtra(extras: unknown[]): boolean {
+ * A relative child path needs a main instance, which the list session
+ * has not got. Keep more complex expressions under the general refusal. */
+function lookupHasPlainRelativeExtra(extras: unknown[]): boolean {
 	return (
 		!extras.some(
 			(extra) => isJsonObject(extra) && extra.key === "force_xpath_parsing",
@@ -550,7 +550,18 @@ function lookupHasBareRelativeExtra(extras: unknown[]): boolean {
 			)
 				return false;
 			const parsed = sharedFormSyntax(extra.value);
-			return parsed.ok && parsed.node?.kind === "name" && !parsed.node.wildcard;
+			if (!parsed.ok || parsed.node === undefined) return false;
+			const node = parsed.node;
+			if (node.kind === "name") return !node.wildcard;
+			return (
+				node.kind === "child" &&
+				!node.descendant &&
+				node.left?.kind === "name" &&
+				!node.left.wildcard &&
+				node.step.kind === "name" &&
+				!node.step.wildcard &&
+				extra.value.trim() === `${node.left.name}/${node.step.name}`
+			);
 		})
 	);
 }
@@ -1720,7 +1731,7 @@ function readDetailKeys(
 				!unready &&
 				typeof detail.peek("lookup_action") === "string" &&
 				typeof detail.peek("lookup_name") === "string" &&
-				lookupHasBareRelativeExtra(extras);
+				lookupHasPlainRelativeExtra(extras);
 			let cause: Claim<"refuse">;
 			if (unready) {
 				cause = D.lookupNoExtras;

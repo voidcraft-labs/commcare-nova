@@ -430,7 +430,7 @@ def calculated_callout(authoring, app_id):
 
 
 def callout_with_a_multi_step_field_argument(authoring, app_id):
-    """Leave a different unsupported lookup outside the bounded literal addition."""
+    """The ordinary Android session has no main instance for this relative path."""
     named_callout(authoring, app_id, value="properties/mode")
 
 
@@ -441,6 +441,11 @@ def explicitly_evaluated_callout(authoring, app_id):
         {"key": "mode", "value": "1 + 2"},
         {"key": "force_xpath_parsing", "value": "yes"},
     ])
+
+
+def callout_with_unspaced_integer_sum(authoring, app_id):
+    """The legacy worker mode sends the exact saved calculation spelling."""
+    named_callout(authoring, app_id, value="1+2")
 
 
 def fixed_text_callout(authoring, app_id):
