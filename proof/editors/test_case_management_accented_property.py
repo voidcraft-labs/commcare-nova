@@ -304,3 +304,77 @@ def test_ordinary_case_list_browser_property_save_distinguishes_accented_keys(hq
             assert run.save is None and run.unsent, run
             assert f"There is an error in your property name: {key}" in str(run.unsent), run.unsent
         write_evidence(f"basic-accented-property-case-list-{key}", {"key": key, "saved": saves, "dialog": run.unsent})
+
+
+@pytest.mark.reader("android")
+@pytest.mark.parametrize("property_key", [ACCENTED, ASCII_NEIGHBOR], ids=["accented", "ascii"])
+def test_basic_vellum_edit_reopens_and_installs_with_its_exact_saved_mapping(hq, editor_driver, monkeypatch, property_key):
+    """Vellum's mapping error and the release's case write are separate boundaries."""
+    from corehq.form_processor.models import CommCareCase
+
+    from proof.android import observe
+    from proof.android.hq import DevicePeer
+    from proof.editors import vellum
+    from proof.editors.conftest import write_evidence
+    from proof.formplayer import hq as forms_hq
+    from proof.observe import casedata
+    from proof.observe.record import Blobs
+
+    with hq_check(CONFIGURATION) as (state, _):
+        app_id, _ = _author_basic_mapping(state, key=property_key)
+        form_id = operations.held_app(state, app_id).get_module(0).get_form(0).unique_id
+        label = "Unmapped editor control"
+        edited = vellum.open_and_save(editor_driver, state, app_id, form_id, edit={
+            "way": "add-questions", "questions": [{"type": "Text", "id": "editor_control", "label": label}],
+        })
+        reopened = vellum.open_and_save(editor_driver, state, app_id, form_id)
+        editor = {}
+        for kind, saved in (("edited", edited), ("reopened", reopened)):
+            assert saved.loaded and saved.saved and not saved.page_errors, (
+                saved.load_error, saved.save_refusal, saved.page_errors,
+            )
+            assert label in saved.stored_source
+            tree = etree.fromstring(saved.stored_source.encode())
+            assert tree.xpath("//*[local-name()='input']/@ref") == ["/data/note", "/data/editor_control"]
+            editor[kind] = [
+                message for question in saved.questions if question["path"] == "/data/note"
+                for message in question["messages"] if message["key"] == "mug-caseProperty-error"
+            ]
+            assert len(editor[kind]) == (1 if property_key == ACCENTED else 0), saved.questions
+            for message in editor[kind]:
+                assert message["attribute"] == "caseProperty" and message["level"] == "error"
+        assert _kept_basic_mapping(state, app_id, form_id) == {property_key: "/data/note"}
+
+        restored = person_cases(TEMPLATE_RESTORE.read_bytes(), [SELECTED])
+        database = casedata.database_of_restore(restored)
+        observed = []
+        native_observe_receipts = DevicePeer._stored
+
+        def receipts(peer, submissions):
+            rows = native_observe_receipts(peer, submissions)
+            if rows:
+                observed.append(dict(CommCareCase.objects.get_case(SELECTED, state.domain).case_json))
+            return rows
+
+        monkeypatch.setattr(DevicePeer, "_stored", receipts)
+        with forms_hq.serve(state, None, app_id, database=database) as release:
+            blobs, sent, received = Blobs(), [], []
+            result = observe.app(
+                release, blobs, label=f"vellum-reopened:{property_key}", archive=observe.release_archive(release),
+                delivered=True, commands=["m0-f0"], installation_languages=("en",),
+                questions={"/data/note": [ANSWER], "/data/editor_control": ["Unmapped answer"]},
+                sent=sent, stored=received,
+            )
+        answer = blobs.get_json(result["answer"])
+        assert answer["install"] == "Installed", answer
+        submission, = sent
+        _assert_wire(submission, property_key)
+        assert etree.fromstring(submission).findtext("{*}editor_control") == "Unmapped answer"
+        receipt, = received
+        assert receipt["form"]["normal"] is True, receipt
+        assert set(receipt["cases"]) == {SELECTED}, receipt
+        assert observed == [{property_key: ANSWER}]
+        write_evidence(f"basic-accented-vellum-reopened-{property_key}", {
+            "editor": editor, "mapping": {property_key: "/data/note"},
+            "walk": answer["walks"]["m0-f0"], "receipt": receipt, "storedProperties": observed,
+        })
