@@ -7430,7 +7430,7 @@ def _standalone_result_detail_branch(use):
         return None
     search = module.get("search_config")
     if (
-        (at.nearest("Application") or {}).get("cloudcare_enabled") is not web_apps
+        (at.nearest("Application") or {}).get("cloudcare_enabled") is not True
         or not isinstance(search, dict)
         or search.get("auto_launch") is not True
         or search.get("default_search") is True
@@ -7502,7 +7502,7 @@ def _standalone_result_list_text(use, *, web_apps):
         return False
     search = module.get("search_config")
     if (
-        (at.nearest("Application") or {}).get("cloudcare_enabled") is not True
+        (at.nearest("Application") or {}).get("cloudcare_enabled") is not web_apps
         or not isinstance(search, dict)
         or search.get("auto_launch") is not True
         or search.get("default_search") is True

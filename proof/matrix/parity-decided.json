@@ -820,6 +820,7 @@
 		"hq-search/search-endpoint",
 		"hq-search/search-input-in-the-results-detail",
 		"hq-search/search-input-in-the-web-apps-results-list",
+		"hq-search/search-result-prompt-composed-in-the-results-list",
 		"hq-search/search-on-clear",
 		"hq-search/search-on-clear-with-auto-select",
 		"hq-search/search-widened-to-its-own-type",

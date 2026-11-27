@@ -8854,6 +8854,17 @@ def _case_list_lookup_shapes():
             use(accepted, "lookup_action"),
             use(accepted, "lookup_action", lookup_enabled=False, lookup_extras=dynamic),
         ),
+        "menus-and-case-lists/lookup-extras-explicit-evaluation": (
+            use(refused, "lookup_extras", lookup_extras=[
+                {"key": "mode", "value": "1 + 2"},
+                {"key": "force_xpath_parsing", "value": "yes"},
+            ]),
+            use(accepted, "lookup_extras", lookup_extras=[{"key": "mode", "value": "1 + 2"}]),
+            use(accepted, "lookup_extras", lookup_extras=[
+                {"key": "mode", "value": "properties/mode"},
+                {"key": "force_xpath_parsing", "value": "yes"},
+            ]),
+        ),
         "menus-and-case-lists/lookup-extra-with-a-fixed-integer-sum": (
             use(refused, "lookup_extras", lookup_extras=[{"key": "mode", "value": "1 + 2"}]),
             replace(use(accepted, "lookup_extras", lookup_extras=[{"key": "mode", "value": "'3'"}]),
@@ -9095,7 +9106,9 @@ def _standalone_result_detail_app(prompt, guarded=True):
     text = f"if(count({path}) > 0, string({path}), '')" if guarded else f"string({path})"
     expr = f"if(count(current()/../../results) > 0, concat('Entered [', {text}, ']'), 'Unsearched case')"
     module = _search_module(auto_launch=True, properties=[
-        _prompt("village"), _prompt("district", input_="date"), _prompt("window", input_="daterange"), _prompt("checked", input_="checkbox"),
+        _prompt("village"), _prompt("district", input_="date"), _prompt("window", input_="daterange"),
+        _prompt("checked", input_="checkbox"), _prompt("code", appearance="barcode_scan"),
+        _prompt("region", input_="select1"),
     ])
     module["case_details"] = {
         "doc_type": "DetailPair",
@@ -9132,7 +9145,23 @@ def test_menu_audio_refusal_needs_a_mapped_override_before_inspecting_forms(
 def _standalone_result_detail_shapes():
     key = "schema:DetailColumn.field"
     field = "/case_details/long/columns/0/field"
+    short = "/case_details/short/columns/0/field"
+    prompt = "instance('search-input:results')/input/field[@name = 'village']"
+
+    def list_app(web_apps, expression):
+        module = _search_module(auto_launch=True, properties=[_prompt("village")])
+        module["case_details"] = {
+            "doc_type": "DetailPair",
+            "short": {"doc_type": "Detail", "columns": [_column(expression, useXpathExpression=True)]},
+        }
+        return {**_app([module]), "cloudcare_enabled": web_apps}
+
     return {
+        "menus-and-case-lists/standalone-search-result-list-answer-without-web-apps": (
+            refused("app", list_app(False, prompt), key, short),
+            accepted("app", list_app(True, prompt), key, short),
+            accepted("app", list_app(False, f"string({prompt})"), key, short),
+        ),
         "menus-and-case-lists/standalone-search-result-detail-without-its-offered-prompt": (
             refused("app", _standalone_result_detail_app("checked"), key, field),
             accepted("app", _standalone_result_detail_app("not_offered"), key, field),
@@ -9147,6 +9176,8 @@ def _standalone_result_detail_shapes():
     ("district", True, True),
     ("window", True, True),
     ("checked", True, False),
+    ("code", True, True),
+    ("region", True, True),
     ("not_offered", True, False),
     ("village", False, False),
 ])
