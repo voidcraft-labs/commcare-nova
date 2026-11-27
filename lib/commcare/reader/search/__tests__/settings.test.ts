@@ -401,33 +401,53 @@ describe("a search's settings", () => {
 		},
 	);
 
-	it("reads the list filter's owner clause of a refused exclusion as that refusal's, one finding", async () => {
-		// An exclusion over an ordered comparison of text, which Nova's value vocabulary does not
-		// hold: the search's refusal is the one cause, and the clause Nova's print would write for
-		// a held exclusion is no difference of the list's.
-		const outside =
-			"if(instance('commcaresession')/session/context/deviceid < instance('commcaresession')/session/context/userid, 'a', 'b')";
-		const reading = await readLists(
-			doc({ excludedOwnerIds: term(literal("abc")) }),
-			{
-				edit: (app) => {
-					const menu = app.modules[0] as {
-						case_details: { short: { filter?: unknown } };
-						search_config: { blacklisted_owner_ids_expression?: unknown };
-					};
-					const swap = (text: unknown) =>
-						typeof text === "string" ? text.replaceAll("'abc'", outside) : text;
-					menu.case_details.short.filter = swap(menu.case_details.short.filter);
-					menu.search_config.blacklisted_owner_ids_expression = swap(
-						menu.search_config.blacklisted_owner_ids_expression,
-					);
+	it.each([
+		{ right: "userid", admitted: true },
+		{ right: "appversion", admitted: false },
+	])(
+		"accounts for the list filter's owner clause when a device ID is ordered against $right",
+		async ({ right, admitted }) => {
+			// The list mirrors the same request. An unsupported ordering should
+			// yield the Search refusal alone, without a second list finding.
+			const expression = `if(instance('commcaresession')/session/context/deviceid < instance('commcaresession')/session/context/${right}, 'a', 'b')`;
+			const reading = await readLists(
+				doc({ excludedOwnerIds: term(literal("abc")) }),
+				{
+					edit: (app) => {
+						const menu = app.modules[0] as {
+							case_details: { short: { filter?: unknown } };
+							search_config: { blacklisted_owner_ids_expression?: unknown };
+						};
+						const swap = (text: unknown) =>
+							typeof text === "string"
+								? text.replaceAll("'abc'", expression)
+								: text;
+						menu.case_details.short.filter = swap(
+							menu.case_details.short.filter,
+						);
+						menu.search_config.blacklisted_owner_ids_expression = swap(
+							menu.search_config.blacklisted_owner_ids_expression,
+						);
+					},
 				},
-			},
-		);
-		expect(closedCodes(reading)).toEqual([
-			"case-search/blacklisted-owner-ids-expression-outside-valueexpression",
-		]);
-	});
+			);
+			if (admitted) {
+				expect(closedCodes(reading)).toEqual([]);
+				expect(searchOf(reading)?.excludedOwnerIds).toMatchObject({
+					kind: "if",
+					cond: {
+						kind: "lt",
+						left: term(sessionContext("deviceid")),
+						right: term(sessionContext("userid")),
+					},
+				});
+			} else {
+				expect(closedCodes(reading)).toEqual([
+					"case-search/blacklisted-owner-ids-expression-outside-valueexpression",
+				]);
+			}
+		},
+	);
 
 	it("reads the owner exclusion of a menu that offers no search from the list filter's clause alone", async () => {
 		const filter = neq(term(prop("patient", "notes")), term(literal("none")));
