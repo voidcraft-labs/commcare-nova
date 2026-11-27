@@ -41,20 +41,31 @@ import {
 } from "@/lib/commcare/reader/identity";
 import { externalIdentityMap } from "@/lib/commcare/reader/identityMap";
 import { targetWireIdentity } from "@/lib/commcare/wireIdentity";
+import { placementChangeRefusal } from "@/lib/db/placementAuthority";
 import { assertAdmittedDoc } from "@/lib/doc/__tests__/admittedDoc";
 import { caseListRegistrationMutations } from "@/lib/doc/caseListRegistrationForm";
+import { planCaseOperationUpdate } from "@/lib/doc/caseOperationMutations";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
+import { diffDocsToMutations } from "@/lib/doc/diffDocsToMutations";
 import { documentDifferences } from "@/lib/doc/documentDifferences";
 import { parseFormExpressionForSlot } from "@/lib/doc/expressionText";
 import { planFieldRemoval } from "@/lib/doc/fieldRemovalMutations";
 import { planKindConversion } from "@/lib/doc/kindConversionCascade";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { admitMutationBatch } from "@/lib/doc/mutationAdmission";
+import { readPlacementHolds } from "@/lib/doc/placementHolds";
 import type { Mutation } from "@/lib/doc/types";
-import type { Automation, BlueprintDoc, FieldKind, Uuid } from "@/lib/domain";
+import type {
+	Automation,
+	BlueprintDoc,
+	CaseOperation,
+	FieldKind,
+	Uuid,
+} from "@/lib/domain";
 import { advancedSearchInputDef } from "@/lib/domain";
 import {
 	dateAdd,
+	dateCoerce,
 	double,
 	eq,
 	input,
@@ -639,6 +650,222 @@ describe("planHqChanges", { timeout: 30_000 }, () => {
 			"Nova was asked to plan CommCare HQ's changes with no reference document. `loadReferenceDocument` answers `nova-updated` when it cannot build one, and the caller answers `unavailable` for it instead of planning.",
 		);
 	});
+});
+
+it("brings in and replaces a direct datetime external ID save from HQ", async () => {
+	const seen = id("external-id-date-and-time");
+	const reference = id("external-id-text");
+	const ref = buildDoc({
+		appId: APP_ID,
+		caseTypes: [
+			{
+				name: "patient",
+				properties: [{ name: "case_name", label: proseText("Name") }],
+			},
+		],
+		modules: [
+			{
+				uuid: PATIENTS,
+				name: "Patients",
+				caseType: "patient",
+				caseListConfig: caseListConfig([
+					{ field: "case_name", header: "Name" },
+				]),
+				forms: [
+					{
+						uuid: VISIT,
+						name: "Visit",
+						type: "followup",
+						fields: [
+							f({ kind: "text", uuid: reference, id: "reference" }),
+							f({ kind: "datetime", uuid: seen, id: "seen" }),
+						],
+					},
+				],
+			},
+		],
+	});
+	ref.appSettings.runsOnlyOn = "android";
+	const ordinary: CaseOperation = {
+		uuid: id("external-id-own"),
+		id: "patient",
+		action: "own",
+		writes: [{ property: "external_id", value: term(formField(reference)) }],
+	};
+	ref.forms[id(VISIT)].caseOperations = [ordinary];
+	function externalIdPath(body: Record<string, unknown>) {
+		const menus = body.modules as {
+			forms: {
+				actions: {
+					update_case: { update: { external_id: { question_path: string } } };
+				};
+			}[];
+		}[];
+		return menus[0].forms[0].actions.update_case.update.external_id;
+	}
+	const changing = produce(ref, (draft) => {
+		draft.forms[id(VISIT)].caseOperations = [
+			{
+				...ordinary,
+				placement: {
+					kind: "basic",
+					slot: "own",
+					externalIdCalendarDayField: seen,
+				},
+				writes: [
+					{ property: "external_id", value: dateCoerce(term(formField(seen))) },
+				],
+			},
+		];
+	});
+	const refRead = await readingOf(ref, ref);
+	const observed = await readingOf(changing, ref);
+	const toDate = changesOf(
+		planFromDocuments({
+			ref,
+			now: ref,
+			base: refRead,
+			theirs: observed,
+			renamesSince: [],
+		}),
+	);
+	const marked = committed(ref, toDate.batch);
+	expect(marked.forms[id(VISIT)].caseOperations?.[0].placement).toEqual({
+		kind: "basic",
+		slot: "own",
+		externalIdCalendarDayField: seen,
+	});
+	expect(externalIdPath(servedExport(marked).body).question_path).toBe(
+		"/data/seen",
+	);
+	const toText = changesOf(
+		planFromDocuments({
+			ref: marked,
+			now: marked,
+			base: await readingOf(marked, marked),
+			theirs: await readingOf(ref, marked),
+			renamesSince: [],
+		}),
+	);
+	const restored = committed(marked, toText.batch);
+	expect(restored.forms[id(VISIT)].caseOperations?.[0].writes).toEqual(
+		ordinary.writes,
+	);
+	expect(externalIdPath(servedExport(restored).body).question_path).toContain(
+		"reference",
+	);
+
+	const current = marked.forms[id(VISIT)].caseOperations?.[0];
+	if (current === undefined) throw new Error("Expected the case change");
+	expect(restored.forms[id(VISIT)].caseOperations?.[0].placement).toEqual({
+		kind: "basic",
+		slot: "own",
+	});
+	const heldPlain = produce(ref, (draft) => {
+		draft.forms[id(VISIT)].caseOperations = [
+			{
+				...ordinary,
+				placement: { kind: "basic", slot: "own" },
+			},
+		];
+	});
+	// With no retained source, the date expression cannot keep the old
+	// basic slot. That physical move still cannot create source authority.
+	expect(
+		placementChangeRefusal(
+			heldPlain,
+			changing,
+			"autosave",
+			readPlacementHolds(heldPlain),
+		),
+	).not.toBeNull();
+	const forgedDetach = produce(changing, (draft) => {
+		const operation = draft.forms[id(VISIT)].caseOperations?.[0];
+		if (operation === undefined) throw new Error("Expected the case change");
+		operation.placement = {
+			kind: "save-to-case",
+			path: ["nova_operations", "patient"],
+		};
+	});
+	expect(
+		placementChangeRefusal(
+			changing,
+			forgedDetach,
+			"autosave",
+			readPlacementHolds(changing),
+		),
+	).not.toBeNull();
+	expect(
+		placementChangeRefusal(
+			ref,
+			changing,
+			"hq-changes",
+			readPlacementHolds(ref),
+		),
+	).toBeNull();
+
+	const fullReplacement: CaseOperation = {
+		uuid: current.uuid,
+		id: current.id,
+		action: "own",
+		writes: [
+			{ property: "external_id", value: dateCoerce(term(formField(seen))) },
+			{ property: "note", value: term(formField(reference)) },
+		],
+	};
+	const updated = planCaseOperationUpdate(marked, id(VISIT), fullReplacement);
+	if (!updated.ok) throw new Error(updated.reason);
+	const edited = committed(marked, updated.mutations);
+	expect(edited.forms[id(VISIT)].caseOperations?.[0].placement).toEqual(
+		current.placement,
+	);
+	expect(externalIdPath(servedExport(edited).body).question_path).toBe(
+		"/data/seen",
+	);
+
+	const removal = planCaseOperationUpdate(edited, id(VISIT), {
+		...fullReplacement,
+		writes: fullReplacement.writes?.filter(
+			({ property }) => property !== "external_id",
+		),
+	});
+	if (!removal.ok) throw new Error(removal.reason);
+	const without = committed(edited, removal.mutations);
+	expect(
+		without.forms[id(VISIT)].caseOperations?.[0].writes?.map(
+			({ property }) => property,
+		),
+	).toEqual(["note"]);
+	expect(
+		placementChangeRefusal(
+			edited,
+			without,
+			"autosave",
+			readPlacementHolds(marked),
+		),
+	).toBeNull();
+	const rereadWithout = await readingOf(without, without);
+	expect(
+		planFromDocuments({
+			ref: without,
+			now: without,
+			base: rereadWithout,
+			theirs: rereadWithout,
+			renamesSince: [],
+		}),
+	).toEqual({ kind: "nothing", publishChanges: [] });
+	const undo = committed(without, diffDocsToMutations(without, edited));
+	expect(
+		placementChangeRefusal(
+			without,
+			undo,
+			"autosave",
+			readPlacementHolds(marked),
+		),
+	).toBeNull();
+	expect(externalIdPath(servedExport(undo).body).question_path).toBe(
+		"/data/seen",
+	);
 });
 
 // ── What CommCare HQ's build never reads ─────────────────────────────

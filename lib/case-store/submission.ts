@@ -154,6 +154,8 @@ export interface EnvelopeCaseOperation {
 	 * type's declared property.
 	 */
 	readonly viaCaseTypes?: ReadonlyMap<number, string>;
+	/** An untyped basic external-ID leaf serializes the datetime's calendar day. */
+	readonly basicExternalIdDay?: true;
 	/** The required basic parent/user block persists even without a relevant leaf. */
 	readonly parentUserCaseTypes?: readonly [
 		intermediate: string,

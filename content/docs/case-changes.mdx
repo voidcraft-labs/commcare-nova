@@ -34,6 +34,12 @@ values. A date can become text and keeps the original date string, such as
 `2026-04-17`. Other changes that need to convert existing values still
 require compatible property types.
 
+An app brought in from CommCare HQ can keep a date and time question that
+saves the calendar day as the selected case’s external ID. This direct save
+runs on Android. A blank answer clears the external ID, and a question that
+was skipped leaves it as it was. To ask the date and time separately, you can
+first remove the save to the external ID.
+
 A hidden value set to the current date and time can save the local date to a
 Date property on the case a basic follow-up opens. The form keeps the date
 and time in the hidden value for its other calculations.

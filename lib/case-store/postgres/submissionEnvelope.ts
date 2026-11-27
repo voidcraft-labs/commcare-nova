@@ -2633,10 +2633,14 @@ async function resolveOperationProgram(
 					raw,
 				);
 			} else if (isScalarColumnWrite(write.property)) {
-				const prepared = prepareCaseScalarTextValue(
-					evaluatedText(bag?.writes.get(writeIndex)),
-					"allow",
-				);
+				const stored = bag?.writes.get(writeIndex);
+				const text =
+					instance.envelope.basicExternalIdDay === true &&
+					write.property === "external_id" &&
+					stored instanceof Date
+						? localDayText(stored)
+						: evaluatedText(stored);
+				const prepared = prepareCaseScalarTextValue(text, "allow");
 				if (!prepared.ok) {
 					throw new SubmissionRejectedError({
 						kind: "text-value",

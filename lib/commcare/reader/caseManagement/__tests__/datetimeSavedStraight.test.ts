@@ -10,9 +10,8 @@
  * holds the write, and the document read back exports the same update. A
  * moment still goes through its sibling into a `datetime` property, a day
  * beside a moment of one property is a pair of writers no one type holds,
- * and a day saved as the case's external id or to the worker's record (no
- * catalogued type, where Nova saves the moment) is refused under its own
- * entry.
+ * and a day saved as the external ID of its own basic follow-up remains
+ * calendar text. Direct writes to the worker's record remain held.
  *
  * Plausible failures: the export keeping the sibling for a day (Nova then
  * saves the moment's text to a date property), the reading typing the
@@ -175,21 +174,88 @@ describe("a date-and-time question saved straight to a case", () => {
 		).toEqual([`${F}/any-other-mixed-writer-pair`]);
 	});
 
-	it("as the case's external id is refused under its own entry", async () => {
-		const body = exportedBody(visits("datetime"));
-		const asExternalId = {
-			...body,
-			modules: produce(body.modules as Modules, (draft) => {
-				update(draft).external_id = {
-					question_path: "/data/seen",
-					update_mode: "always",
-					doc_type: "ConditionalCaseUpdate",
-				};
-			}),
+	it("keeps its own external ID calendar day and only offers Android", async () => {
+		const envelope = JSON.parse(
+			readFileSync("proof/hq-apps/hq-case-management/app-source.json", "utf8"),
+		) as { body: string };
+		const asExternalId = JSON.parse(envelope.body) as Record<string, unknown>;
+		update(asExternalId.modules, 3).external_id = {
+			question_path: "/data/seen_at",
+			update_mode: "always",
+			doc_type: "ConditionalCaseUpdate",
 		};
 		const outcome = await read(asExternalId);
+		if (outcome.kind !== "read")
+			throw new Error(JSON.stringify(outcome.findings));
+		const { doc, declaration } = outcome.draft;
+		expect(declaration.kind).toBe("choices");
+		if (declaration.kind !== "choices") throw new Error("Expected Android");
 		expect(
-			outcome.kind === "account" ? outcome.findings.map((one) => one.code) : [],
+			declaration.choices.map(({ runsOnlyOn, split }) => ({
+				runsOnlyOn,
+				split,
+			})),
+		).toEqual([{ runsOnlyOn: "android", split: false }]);
+		const question = Object.values(doc.fields).find(
+			({ id }) => id === "seen_at",
+		);
+		if (question === undefined) throw new Error("Expected the timestamp");
+		expect(planDatetimeSplit(doc, question.uuid)).toMatchObject({
+			ok: false,
+			reason: "saves-day-as-external-id",
+		});
+		const output = exportedBody(doc);
+		expect(update(output.modules, 3)).toMatchObject({
+			external_id: { question_path: "/data/seen_at", update_mode: "always" },
+			seen_at: { question_path: "/data/nova_datetime_seen_at" },
+		});
+		const form = Object.values(doc.forms).find(
+			(candidate) =>
+				candidate.caseOperations?.[0]?.placement?.kind === "basic" &&
+				candidate.caseOperations[0].placement.slot === "own" &&
+				candidate.caseOperations[0].placement.externalIdCalendarDayField !==
+					undefined,
+		);
+		if (form === undefined) throw new Error("Expected the retained form");
+		expect(form.caseOperations?.[0]?.writes).toContainEqual({
+			property: "external_id",
+			value: {
+				kind: "date-coerce",
+				value: { kind: "term", term: { kind: "field", uuid: question.uuid } },
+			},
+		});
+		expect(form.caseOperations?.[0]?.placement).toEqual({
+			kind: "basic",
+			slot: "own",
+			externalIdCalendarDayField: question.uuid,
+		});
+		const intoBlock = produce(doc, (draft) => {
+			const write = draft.forms[form.uuid].caseOperations?.[0]?.writes?.find(
+				(candidate) => candidate.property === "external_id",
+			);
+			if (write === undefined) throw new Error("Expected the imported write");
+			write.condition = {
+				kind: "term",
+				term: { kind: "literal", value: true },
+			};
+		});
+		expect(runValidation(intoBlock, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					details: expect.objectContaining({
+						reason: "external-id-calendar-day-placement",
+					}),
+				}),
+			]),
+		);
+		const edit = produce(asExternalId, (draft) => {
+			const write = update(draft.modules, 3).external_id;
+			if (write === undefined) throw new Error("Expected the imported write");
+			write.update_mode = "edit";
+		});
+		const held = await read(edit);
+		expect(
+			held.kind === "account" ? held.findings.map((one) => one.code) : [],
 		).toContain(`${F}/a-date-and-time-saved-straight-in-no-shape-nova-keeps`);
 	});
 	it("to the worker's record is refused under its own entry", async () => {

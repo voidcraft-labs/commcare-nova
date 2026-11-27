@@ -314,7 +314,15 @@ function planCore(f: CaseSlotFacts, options: CoreOptions): CorePlan {
 			placements.set(
 				op.uuid,
 				choice?.kind === "basic"
-					? { placement: { kind: "basic", slot: "own" }, held: choice.held }
+					? {
+							placement:
+								choice.held &&
+								op.placement?.kind === "basic" &&
+								op.placement.slot === "own"
+									? op.placement
+									: { kind: "basic", slot: "own" },
+							held: choice.held,
+						}
 					: saveToCaseOf(op, choice?.held === true),
 			);
 		} else if (isWorkerRecordUpdate(op)) {

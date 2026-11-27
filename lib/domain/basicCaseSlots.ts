@@ -35,10 +35,12 @@ import { firstOrderedModuleListingForm } from "./formMembership";
 import {
 	CASE_LOADING_FORM_TYPES,
 	type CaseOperation,
+	type CaseOperationWrite,
 	caseOperationRunsPerSelectedCase,
 	type Form,
 	operationSavesOnlyChanged,
 	orderedCaseOperations,
+	RESERVED_CASE_OPERATION_TYPES,
 } from "./forms";
 import {
 	caseSelectionCardinality,
@@ -229,14 +231,84 @@ export function bareRead(value: Expression): Uuid | undefined {
 	return value.term.uuid;
 }
 
+/** Source identity carried by the held basic own placement. */
+export function externalIdCalendarDayField(
+	operation: CaseOperation | undefined,
+): Uuid | undefined {
+	const placement = operation?.placement;
+	return placement?.kind === "basic" && placement.slot === "own"
+		? placement.externalIdCalendarDayField
+		: undefined;
+}
+
+/** The retained direct datetime source, where the write still reads it. */
+export function retainedExternalIdDayRead(
+	field: Uuid | undefined,
+	write: CaseOperationWrite,
+): Extract<Expression, { kind: "term" }> | undefined {
+	if (
+		field === undefined ||
+		write.property !== "external_id" ||
+		write.via !== undefined ||
+		write.value.kind !== "date-coerce"
+	)
+		return;
+	const value = write.value.value;
+	return value.kind === "term" &&
+		value.term.kind === "field" &&
+		value.term.spelling === undefined &&
+		bareRead(value) === field
+		? value
+		: undefined;
+}
+
+/** The basic own slot can lower this date conversion to the direct question. */
+export function basicOwnExternalIdDayValue(
+	f: CaseSlotFacts,
+	write: CaseOperationWrite,
+):
+	| {
+			readonly field: Uuid;
+			readonly value: Extract<Expression, { kind: "term" }>;
+	  }
+	| undefined {
+	if (
+		f.form.type !== "followup" ||
+		f.own?.condition !== undefined ||
+		f.severalCases ||
+		f.module?.caseType === undefined ||
+		RESERVED_CASE_OPERATION_TYPES.has(f.module.caseType) ||
+		write.condition !== undefined ||
+		write.onlyIfChanged
+	)
+		return;
+	const uuid = externalIdCalendarDayField(f.own);
+	const value = retainedExternalIdDayRead(uuid, write);
+	if (value === undefined || uuid === undefined) return;
+	const field = f.doc.fields[uuid];
+	return field?.kind === "datetime" &&
+		field.default_value === undefined &&
+		!f.form.openingAssignments?.some(({ field: target }) => target === uuid) &&
+		f.doc.fieldOrder[f.formUuid]?.includes(uuid) &&
+		f.submittedChildren.get(f.formUuid)?.includes(uuid)
+		? { field: uuid, value }
+		: undefined;
+}
+
 /** The values a basic slot writes from: the name, the owner and each
  *  write's value, the name first. */
-function slotValues(operation: CaseOperation): Expression[] {
+function slotValues(
+	operation: CaseOperation,
+	own?: CaseSlotFacts,
+): Expression[] {
 	return [
 		...(operation.name === undefined ? [] : [operation.name]),
 		...(operation.rename === undefined ? [] : [operation.rename]),
 		...(operation.owner === undefined ? [] : [operation.owner]),
-		...(operation.writes ?? []).map((write) => write.value),
+		...(operation.writes ?? []).map(
+			(write) =>
+				(own && basicOwnExternalIdDayValue(own, write)?.value) ?? write.value,
+		),
 	];
 }
 
@@ -591,7 +663,7 @@ export function ownSlotReasons(
 	const reasons: PlacementIneligibility[] = [];
 	if (f.severalCases) reasons.push({ reason: "several-cases" });
 	reasons.push(
-		...tagged(valueReasons(f, slotValues(operation), { kind: "none" })),
+		...tagged(valueReasons(f, slotValues(operation, f), { kind: "none" })),
 	);
 	if ((operation.writes ?? []).some((write) => write.condition !== undefined))
 		reasons.push({ reason: "write-condition" });

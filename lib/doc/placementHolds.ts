@@ -35,6 +35,7 @@ import {
 import { type BlueprintDoc, ownRecordValue, type Uuid } from "@/lib/domain";
 import { emittedSelectionTag } from "@/lib/domain/advancedEntryDatums";
 import { heldKindExpresses } from "@/lib/domain/advancedModule";
+import { retainedExternalIdDayRead } from "@/lib/domain/basicCaseSlots";
 import { formStructure } from "@/lib/domain/expression/formStructure";
 import { formOfField } from "@/lib/domain/fieldForm";
 import { queryRepeatPlacementExpresses } from "@/lib/domain/queryRepeatPlacement";
@@ -442,6 +443,36 @@ export function holdChangeMoves(
 	change: PlacementHoldChange,
 ): boolean {
 	if (change.from === null) return false;
+	if (change.target.target === "case-operation") {
+		const from =
+			typeof change.from === "object" &&
+			change.from.kind === "basic" &&
+			change.from.slot === "own"
+				? change.from.externalIdCalendarDayField
+				: undefined;
+		const to =
+			change.to !== null &&
+			typeof change.to === "object" &&
+			change.to.kind === "basic" &&
+			change.to.slot === "own"
+				? change.to.externalIdCalendarDayField
+				: undefined;
+		// A physical move cannot introduce a new retained question or erase
+		// the direct save while it still reads the same question.
+		if (to !== undefined && to !== from) return false;
+		if (from !== undefined && to !== from) {
+			const { formUuid, operationUuid } = change.target;
+			const operation = next.forms[formUuid]?.caseOperations?.find(
+				(candidate) => candidate.uuid === operationUuid,
+			);
+			if (
+				operation?.writes?.some(
+					(write) => retainedExternalIdDayRead(from, write) !== undefined,
+				)
+			)
+				return false;
+		}
+	}
 	const earlier = placementHoldEntry(change.target, change.from);
 	return !holdExpresses(withHeldPlacement(next, earlier), earlier);
 }
