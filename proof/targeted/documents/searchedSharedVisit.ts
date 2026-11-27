@@ -17,6 +17,7 @@ import {
 } from "@/lib/domain/expression";
 import { chosenCaseId } from "@/lib/domain/expression/chosenCase";
 import { caseListOf, targetedDocument, targetedUuid } from "../build";
+import { restoreXml } from "../restore";
 
 const id = "targeted-searched-shared-visit";
 const uuid = (name: string) => targetedUuid(id, name);
@@ -184,6 +185,56 @@ export function searchedSharedVisit() {
 		rows: ["One physical visit through two child menus after a parent search"],
 		doc,
 		edit,
-		expected: { intent: [] },
+		files: {
+			"intent-restore.xml": restoreXml({
+				cases: [
+					{
+						id: "household-1",
+						type: "household",
+						name: "Pilot Zinnia",
+						properties: { cohort: "Pilot" },
+					},
+					{
+						id: "person-1",
+						type: "person",
+						name: "Zinnia resident",
+						properties: { visit_note: "Original Zinnia" },
+						indices: [
+							{
+								identifier: "parent",
+								caseType: "household",
+								caseId: "household-1",
+							},
+						],
+					},
+				],
+			}),
+		},
+		expected: {
+			intent: [
+				{
+					id: "household-and-person-context",
+					export: "A",
+					form: uuid("visit"),
+					restore: "intent-restore.xml",
+					request: {
+						session: {
+							command: "m1-f0",
+							data: { case_id: "household-1", case_id_person: "person-1" },
+						},
+						expressions: [
+							"/data/selected_household",
+							"/data/selected_person",
+							"/data/note",
+						],
+					},
+					expect: [
+						{ pointer: "/values/0/value", value: "household-1" },
+						{ pointer: "/values/1/value", value: "person-1" },
+						{ pointer: "/values/2/value", value: "Original Zinnia" },
+					],
+				},
+			],
+		},
 	});
 }

@@ -55,6 +55,7 @@ import { placementMoveOffer } from "@/lib/deployment/placementMoves";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import {
 	type BlueprintDoc,
+	declaresAndroid,
 	fieldPreload,
 	type PersistableDoc,
 	proseText,
@@ -119,8 +120,11 @@ describe("the targeted documents", () => {
 				if (entry.restore !== undefined) {
 					expect(files, `${document.id}: ${entry.id}`).toContain(entry.restore);
 				}
-				if (entry.request.caseList !== undefined) {
-					expect(entry.export, `${document.id}: ${entry.id}`).toBe("local");
+				if (entry.export === "local") {
+					expect(
+						declaresAndroid(document.doc),
+						`${document.id}: ${entry.id}`,
+					).toBe(true);
 				}
 			}
 		}

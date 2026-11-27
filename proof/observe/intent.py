@@ -18,7 +18,7 @@ At each state of a unit (A, B and B-edit, ``observe``, called by
   (``core_raised``);
 - ``evaluations`` (a targeted document, or an app made in CommCare HQ, ``_runs_at``): each expectation whose export
   is this state under this configuration, its request run through Core's
-  ``evaluate`` over the form HQ built (``evaluation``);
+  ``evaluate`` over the form or the installed suite HQ built (``evaluation``);
 - ``addOnsInUse`` and ``addOnsOffered`` (``add_ons``): HQ's own verdict, per
   add-on, of whether the stored app uses it (``add_ons.py::_ADD_ONS``, each
   entry's ``used_in_module`` and ``used_in_form`` over every menu and form),
@@ -53,10 +53,12 @@ from __future__ import annotations
 import base64
 import hashlib
 import re
+from contextlib import ExitStack
+from tempfile import TemporaryDirectory
 
 from proof.checks.corpus import CorpusLayoutError
 from proof.core.client import ANDROID_DEFAULT_STRINGS, CoreRunnerError
-from proof.observe.build import _placed, admission_placeholders
+from proof.observe.build import _placed, admission_placeholders, arrange
 from proof.observe.record import canonical
 
 # The file a form is built or exported at: ``modules-<m>/forms-<f>.xml``, where HQ and Nova both write it.
@@ -93,8 +95,8 @@ def expectations(document):
     "configuration"?, "restore"?}]}``: ``export`` is ``local``, or ``A`` or
     ``B`` for HQ's build under ``configuration`` (``minimum`` unless named),
     ``form`` a form of the document by its Nova uuid, ``request`` what Core's
-    ``evaluate`` takes from an expectation (a case list only on the local
-    export, the one installed archive here), and ``expect`` each
+    ``evaluate`` takes from an expectation (a case list uses the installed
+    suite from that export), and ``expect`` each
     ``{pointer, value}`` the result must hold, a JSON Pointer each.
     """
     value = document.expected
@@ -121,11 +123,6 @@ def expectations(document):
             raise CorpusLayoutError(
                 f"{where}: {entry['id']}'s request holds {sorted(unknown)}, which Core's evaluate"
                 f" does not take from an expectation (it takes {sorted(REQUEST_KEYS)})."
-            )
-        if "caseList" in entry["request"] and entry["export"] != "local":
-            raise CorpusLayoutError(
-                f"{where}: {entry['id']} opens a case list on {entry['export']}; a case list needs"
-                " an installed archive, and only the local export is one here."
             )
         expect = entry["expect"]
         if (
@@ -267,8 +264,7 @@ def evaluation(core_runner, document, entry, blobs, *, form=None, archive=None):
     """One expectation's request run through Core's ``evaluate``: ``{"result": <blob>}``.
 
     A form's request runs in ``form`` (the form's own bytes); a case list's in
-    ``archive``, the local export, which Core admits for it and releases
-    after: ``{"refused": <its admission problems>}`` where Core refuses it.
+    ``archive``, which Core admits for that export and releases after: ``{"refused": <its admission problems>}`` where Core refuses it.
     Where Core's evaluate raises it is ``{"failed": <what Core raised>}``
     (``core_raised``), for the judge to name with the expectation; any other
     failure is raised.
@@ -278,8 +274,8 @@ def evaluation(core_runner, document, entry, blobs, *, form=None, archive=None):
     app = None
     try:
         if "caseList" in request:
-            # The local export is read by CommCare Android alone, which admits it over its own strings.
-            report = core_runner.admit(archive, runtime_defaults=ANDROID_DEFAULT_STRINGS)
+            defaults = ANDROID_DEFAULT_STRINGS if entry["export"] == "local" else None
+            report = core_runner.admit(archive, runtime_defaults=defaults)
             app = report.get("app")
             if app is None:
                 problems = _placed(report.get("problems"), admission_placeholders(report, archive))
@@ -353,11 +349,22 @@ def observe(ctx) -> dict:
         record["forms"] = _shapes(ctx.core_runner, files, ctx.blobs, {})
     entries = _runs_at(ctx.document, ctx.state, ctx.configuration_name) if ctx.state in EXPORTS else []
     evaluations = {}
-    for entry in entries:
-        name = _form_file(ctx.document.wire_modules, entry)
-        form = (files or {}).get(name) if name is not None else None
-        if form is not None:
-            evaluations[entry["id"]] = evaluation(ctx.core_runner, ctx.document, entry, ctx.blobs, form=form)
+    with ExitStack() as scratch:
+        archive = None
+        for entry in entries:
+            name = _form_file(ctx.document.wire_modules, entry)
+            form = (files or {}).get(name) if name is not None else None
+            if form is None:
+                continue
+            if "caseList" in entry["request"]:
+                if ctx.build.admission_error is not None:
+                    continue  # HQ's archive arrangement refusal belongs to the bar.
+                if archive is None:
+                    directory = scratch.enter_context(TemporaryDirectory(prefix="proof-intent-hq-"))
+                    archive = arrange(files, directory)
+                evaluations[entry["id"]] = evaluation(ctx.core_runner, ctx.document, entry, ctx.blobs, archive=archive)
+            else:
+                evaluations[entry["id"]] = evaluation(ctx.core_runner, ctx.document, entry, ctx.blobs, form=form)
     if evaluations:
         record["evaluations"] = evaluations
     return record
