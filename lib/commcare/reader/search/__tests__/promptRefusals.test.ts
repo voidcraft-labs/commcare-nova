@@ -1105,39 +1105,45 @@ describe("a plain native parent Search field", () => {
 		);
 	});
 
-	it("keeps a direct parent date as an ordinary exact date prompt when exported", async () => {
-		const { doc } = await documentOf((body) => {
-			promptsOf(body).push({ ...village, input_: "date" });
-		});
-		const mod = doc.modules[doc.moduleOrder[0]];
-		expect(mod.caseListConfig?.searchInputs.at(-1)).toMatchObject({
-			name: "parent_village",
-			kind: "simple",
-			type: "date",
-			matching: "project-space",
-			property: "village",
-			via: { kind: "ancestor", via: [{ identifier: "parent" }] },
-		});
-		const printed = exportedBody({
-			...doc,
-			appSettings: { ...doc.appSettings, runsOnlyOn: "web-apps" },
-		});
-		expect(promptsOf(printed).at(-1)).toMatchObject({
-			name: "parent/village",
-			input_: "date",
-		});
-		expect(promptsOf(printed).at(-1)).not.toHaveProperty("exclude");
-		expect(unavailableUses(doc, ["android"])).toContainEqual(
-			expect.objectContaining({ feature: "search-field-single-date" }),
-		);
-		expect(unavailableUses(doc, ["web-apps"])).not.toContainEqual(
-			expect.objectContaining({ feature: "search-field-single-date" }),
-		);
-	});
+	it.each([1, 2])(
+		"keeps an ordinary exact date prompt over %i parent links",
+		async (hops) => {
+			const key = `${"parent/".repeat(hops)}village`;
+			const { doc } = await documentOf((body) => {
+				promptsOf(body).push({ ...village, name: key, input_: "date" });
+			});
+			const mod = doc.modules[doc.moduleOrder[0]];
+			expect(mod.caseListConfig?.searchInputs.at(-1)).toMatchObject({
+				name: key.replaceAll("/", "_"),
+				kind: "simple",
+				type: "date",
+				matching: "project-space",
+				property: "village",
+				via: {
+					kind: "ancestor",
+					via: Array.from({ length: hops }, () => ({ identifier: "parent" })),
+				},
+			});
+			const printed = exportedBody({
+				...doc,
+				appSettings: { ...doc.appSettings, runsOnlyOn: "web-apps" },
+			});
+			expect(promptsOf(printed).at(-1)).toMatchObject({
+				name: key,
+				input_: "date",
+			});
+			expect(promptsOf(printed).at(-1)).not.toHaveProperty("exclude");
+			expect(unavailableUses(doc, ["android"])).toContainEqual(
+				expect.objectContaining({ feature: "search-field-single-date" }),
+			);
+			expect(unavailableUses(doc, ["web-apps"])).not.toContainEqual(
+				expect.objectContaining({ feature: "search-field-single-date" }),
+			);
+		},
+	);
 
 	it.each([
 		["parent/village", "daterange"],
-		["parent/parent/village", "date"],
 		["host/parent/village", undefined],
 		["parent/parent/parent/village", "date"],
 		["parent/parent/parent/parent/village", undefined],

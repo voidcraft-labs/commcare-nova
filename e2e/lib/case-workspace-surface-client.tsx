@@ -107,6 +107,27 @@ if (scenario === "related" || scenario === "search-direct-parent") {
 		],
 	});
 }
+if (scenario === "search-nested-parent-date") {
+	caseTypes[0] = { ...caseTypes[0], parent_type: "household" };
+	caseTypes.push(
+		{
+			name: "household",
+			parent_type: "district",
+			properties: [{ name: "case_name", label: proseText("Household name") }],
+		},
+		{
+			name: "district",
+			properties: [
+				{ name: "case_name", label: proseText("District name") },
+				{
+					name: "visit_date",
+					label: proseText("Visit date"),
+					data_type: "date",
+				},
+			],
+		},
+	);
+}
 const config = caseListConfig([{ field: "case_name", header: "Name" }]);
 config.columns = [
 	scenario === "map"
@@ -141,6 +162,20 @@ if (scenario === "search-direct-parent")
 			"text",
 			"address",
 			{ matching: "project-space", via: ancestorPath(relationStep("parent")) },
+		),
+	];
+if (scenario === "search-nested-parent-date")
+	config.searchInputs = [
+		simpleSearchInputDef(
+			searchId,
+			"district_date",
+			"District date",
+			"date",
+			"visit_date",
+			{
+				matching: "project-space",
+				via: ancestorPath(relationStep("parent"), relationStep("parent")),
+			},
 		),
 	];
 if (scenario === "search-date")
@@ -272,7 +307,8 @@ const source = buildDoc({
 	// both run in Web Apps alone.
 	...(scenario === "selection" ||
 	scenario === "results" ||
-	scenario === "search"
+	scenario === "search" ||
+	scenario === "search-nested-parent-date"
 		? { appSettings: { ...NEW_APP_SETTINGS, runsOnlyOn: "web-apps" } }
 		: {}),
 	caseTypes,

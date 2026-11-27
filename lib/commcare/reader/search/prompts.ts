@@ -115,6 +115,10 @@ export const PROMPT_CLAIMS = defineClaims("search.prompts", {
 		`${S}prompt-key-matching-a-direct-parent-date`,
 		"schema:CaseSearchProperty.name",
 	),
+	nestedParentDateName: take(
+		`${S}prompt-key-matching-two-parent-links-for-a-date`,
+		"schema:CaseSearchProperty.name",
+	),
 	nestedParentName: take(
 		`${S}prompt-key-matching-two-parent-links`,
 		"schema:CaseSearchProperty.name",
@@ -969,7 +973,7 @@ const PARENT_PROMPT_CLAIMS = [
 	P.thirdParentName,
 ] as const;
 
-/** A labeled text prompt carried by up to three native parent links. */
+/** A labeled text or date prompt carried by native parent links. */
 function parentPathPromptBinding(prompt: JsonCursor):
 	| {
 			readonly key: string;
@@ -977,7 +981,8 @@ function parentPathPromptBinding(prompt: JsonCursor):
 			readonly via: Extract<RelationPath, { kind: "ancestor" }>;
 			readonly nameClaim:
 				| (typeof PARENT_PROMPT_CLAIMS)[number]
-				| typeof P.parentDateName;
+				| typeof P.parentDateName
+				| typeof P.nestedParentDateName;
 	  }
 	| undefined {
 	const key = prompt.peek("name");
@@ -986,8 +991,8 @@ function parentPathPromptBinding(prompt: JsonCursor):
 	const property = parts.pop();
 	const widget = prompt.peek("input_");
 	const nameClaim =
-		widget === "date" && parts.length === 1
-			? P.parentDateName
+		widget === "date"
+			? [P.parentDateName, P.nestedParentDateName][parts.length - 1]
 			: !widget
 				? PARENT_PROMPT_CLAIMS[parts.length - 1]
 				: undefined;
