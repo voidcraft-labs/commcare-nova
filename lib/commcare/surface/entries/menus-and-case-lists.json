@@ -6137,6 +6137,55 @@
 		"gates": []
 	},
 	{
+		"id": "menus-and-case-lists/standalone-search-result-detail-text",
+		"area": "menus-and-case-lists",
+		"section": "Case list and case detail",
+		"subsection": "Column formats",
+		"surfaceKeys": ["schema:DetailColumn.field"],
+		"gates": [],
+		"slotChanges": [],
+		"item": "Plain Details text displays one optional submitted Search prompt in Web Apps",
+		"valueClass": "standalone-search-result-detail-text",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: a plain Details-only field displays one text prompt, with an explicit ordinary-case fallback and empty text if the worker left the prompt unanswered.",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / UNAVAILABLE",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "unavailable"
+			}
+		},
+		"emission": {
+			"cell": "Web Apps Details branch with a result roster guard and a guard on the exact prompt",
+			"markers": []
+		}
+	},
+	{
+		"id": "menus-and-case-lists/standalone-search-result-detail-without-its-offered-prompt",
+		"area": "menus-and-case-lists",
+		"section": "Case list and case detail",
+		"subsection": "Column formats",
+		"surfaceKeys": ["schema:DetailColumn.field"],
+		"subject": "case-list-columns",
+		"gates": [],
+		"item": "Standalone Search Details reads a prompt the same Search does not offer",
+		"valueClass": "standalone-search-result-detail-without-its-offered-prompt",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: the calculation needs the identity of an offered text prompt and a plain Details field in a standalone Search that opens its prompts first.",
+		"owner": "case-list-and-detail",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "the reader holds the field before it can print an incomplete calculation",
+			"markers": []
+		}
+	},
+	{
 		"id": "menus-and-case-lists/invisible-text-in-a-web-apps-grouped-tile-body",
 		"area": "menus-and-case-lists",
 		"section": "Case list and case detail",

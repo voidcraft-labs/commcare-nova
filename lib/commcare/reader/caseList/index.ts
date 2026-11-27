@@ -11,6 +11,7 @@ import { produce } from "immer";
 import type {
 	BlueprintDoc,
 	CasePropertyDataType,
+	Column,
 	Expression,
 	Module,
 	Uuid,
@@ -29,6 +30,7 @@ import { effectiveCaseTypes } from "@/lib/domain/effectiveCaseTypes";
 import { resolveRelationDestination } from "@/lib/domain/expression/relationDestination";
 import { columnFieldText, defaultSortBlanks } from "@/lib/domain/modules";
 import { NO_ENTRIES, recordFromEntries } from "@/lib/domain/records";
+import { resolveSearchResultDetailRoute } from "@/lib/domain/searchResultDetail";
 import { isStandardCaseListProperty } from "@/lib/domain/standardCaseProperties";
 import type { HqPlace } from "@/lib/publish/hqFindings";
 import {
@@ -1245,6 +1247,7 @@ export function settleCaseLists(ctx: ReadContext, app: DraftApp): void {
 			inputs.lookupNaming,
 		);
 		ctx.doc = withoutImplicitRule(ctx, ctx.doc, reading);
+		ctx.doc = settleSearchResultDetailColumns(ctx.doc, module.uuid, reading);
 		const doc = ctx.doc;
 		const mod = doc.modules[module.uuid];
 		if (mod === undefined) continue;
@@ -1294,6 +1297,64 @@ export function settleCaseLists(ctx: ReadContext, app: DraftApp): void {
 		)
 			ctx.accounting.circumstance("unrecognized", place, { name: difference });
 	}
+}
+
+/** Place-bound result expressions are resolved after Search has declared
+ * the prompt identities. The literal ordinary branch takes no Search scope. */
+function settleSearchResultDetailColumns(
+	doc: BlueprintDoc,
+	moduleUuid: Uuid,
+	reading: CaseListReading,
+): BlueprintDoc {
+	const module = doc.modules[moduleUuid];
+	const config = module?.caseListConfig;
+	if (!module || !config) return doc;
+	const branches = new Map<
+		Uuid,
+		NonNullable<Extract<Column, { kind: "calculated" }>["searchResultDetail"]>
+	>();
+	for (const [index, joined] of reading.joined.columns.entries()) {
+		const source = joined.proposal.resultDetailText;
+		if (!source) continue;
+		const column = config.columns.find(
+			(candidate) => candidate.uuid === reading.uuids[index],
+		);
+		const prompts = config.searchInputs.filter(
+			(prompt) => prompt.name === source.inputName,
+		);
+		const prompt = prompts.length === 1 ? prompts[0] : undefined;
+		const branch = prompt && {
+			inputUuid: prompt.uuid,
+			prefix: source.prefix,
+			suffix: source.suffix,
+		};
+		if (
+			column?.kind === "calculated" &&
+			branch &&
+			resolveSearchResultDetailRoute(module, column, branch)
+		) {
+			joined.proposal.json.take(
+				"field",
+				COLUMN_CLAIMS.searchResultDetail,
+				String,
+			).value;
+			branches.set(column.uuid, branch);
+		} else {
+			joined.proposal.json.refuse(
+				"field",
+				COLUMN_CLAIMS.searchResultDetailUnavailable,
+			);
+		}
+	}
+	if (branches.size === 0) return doc;
+	return withCandidate(doc, (draft) => {
+		for (const column of draft.modules[moduleUuid]?.caseListConfig?.columns ??
+			[]) {
+			const branch = branches.get(column.uuid);
+			if (column.kind === "calculated" && branch)
+				column.searchResultDetail = branch;
+		}
+	});
 }
 
 /**

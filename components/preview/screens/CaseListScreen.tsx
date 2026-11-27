@@ -136,6 +136,7 @@ import { resolveCaseFormContext } from "@/lib/domain/caseFormContext";
 import { effectiveFilterForEmission } from "@/lib/domain/expression/simplify";
 import type { Expression } from "@/lib/domain/expression/types";
 import { generatedWordingId } from "@/lib/domain/generatedWording";
+import { searchResultDetailColumns } from "@/lib/domain/searchResultDetail";
 import { PreviewMarkdown } from "@/lib/markdown";
 import { caseColumnLabel } from "@/lib/preview/caseColumnLabel";
 import {
@@ -306,6 +307,7 @@ import {
 	readBuilderHistoryArrival,
 	readBuilderHistoryMove,
 	stepBackOffPreviewHeldMenu,
+	usePreviewSearchResultDetail,
 } from "@/lib/routing/useClientPath";
 import {
 	useAccessPhase,
@@ -654,7 +656,11 @@ export function CaseListScreen({
 		() => workerListDocument(menuSource.doc, moduleUuid, listPurpose),
 		[menuSource.doc, moduleUuid, listPurpose],
 	);
-	const canonicalConfig = listDoc.modules[moduleUuid]?.caseListConfig;
+	const resultDetailMenu = listDoc.modules[moduleUuid];
+	const canonicalConfig = resultDetailMenu?.caseListConfig;
+	const hasSearchResultDetail =
+		resultDetailMenu !== undefined &&
+		searchResultDetailColumns(listDoc, resultDetailMenu).length > 0;
 	const searchConfig = mod ? effectiveCaseSearchConfig(mod) : undefined;
 	const projectProse = useProseProjection();
 	const { signIn } = useAuth();
@@ -1277,7 +1283,14 @@ export function CaseListScreen({
 			deferFocus,
 		],
 	);
-	const [openCase, setOpenCase] = useState<CaseRowWithCalculated | null>(null);
+	const [openCase, setOpenCase] = useState<{
+		readonly row: CaseRowWithCalculated;
+		readonly resultDetail?: {
+			readonly scope: string;
+			readonly submission: string;
+			readonly receipt: string;
+		};
+	} | null>(null);
 	const surfaceRef = useRef<HTMLDivElement>(null);
 	const searchPaneRef = useRef<HTMLDivElement>(null);
 	const detailBackRef = useRef<HTMLButtonElement>(null);
@@ -1298,22 +1311,19 @@ export function CaseListScreen({
 		},
 		[deferFocus],
 	);
-	const routeFallbackPaneRef = useCallback(
-		(element: HTMLDivElement | null) => {
-			if (element === null) return;
-			routeFallbackElementRef.current = element;
-			const caseId = routeCaseId;
-			return () => {
-				if (caseId !== undefined && element.contains(document.activeElement)) {
-					routeFallbackOwnedFocusRef.current = caseId;
-				}
-				if (routeFallbackElementRef.current === element) {
-					routeFallbackElementRef.current = null;
-				}
-			};
-		},
-		[routeCaseId],
-	);
+	const routeFallbackPaneRef = useCallback((element: HTMLDivElement | null) => {
+		if (element === null) return;
+		routeFallbackElementRef.current = element;
+		const caseId = element.dataset.detailCaseId;
+		return () => {
+			if (caseId !== undefined && element.contains(document.activeElement)) {
+				routeFallbackOwnedFocusRef.current = caseId;
+			}
+			if (routeFallbackElementRef.current === element) {
+				routeFallbackElementRef.current = null;
+			}
+		};
+	}, []);
 	const restoreResultsFocus = useCallback(() => {
 		focusNextFrame(() => {
 			const actions = Array.from(
@@ -1413,7 +1423,18 @@ export function CaseListScreen({
 	 * what the worker owns and a claim never retires the choice that made
 	 * it: the device's next read holds the claimed case. */
 	const standingSubmission = submittedSearchOf(searchState)?.submission ?? "";
-	const selectionScopeKey = `${standingSubmission}\u0000${stateScopeKey}\u0000${restoreScopeKey}`;
+	const selectionScopeKey = `${standingSubmission}\u0000${stateScopeKey}\u0000${restoreScopeKey}\u0000${previewSessionId}`;
+	const openedSearchResult = usePreviewSearchResultDetail(previewSessionId);
+	const openEntryResult =
+		openCase?.resultDetail?.scope === selectionScopeKey ? openCase : undefined;
+	const detailCaseId = routeCaseId ?? openEntryResult?.row.case_id;
+	const detailOpening =
+		routeCaseId === undefined
+			? openEntryResult?.resultDetail
+			: openedSearchResult?.moduleUuid === moduleUuid &&
+					openedSearchResult?.caseId === routeCaseId
+				? openedSearchResult
+				: undefined;
 	const [multiSelectionState, setMultiSelectionState] = useState<{
 		readonly scopeKey: string;
 		readonly choices: readonly PreviewCaseChoice[];
@@ -1786,8 +1807,18 @@ export function CaseListScreen({
 		 * screen. */
 		requestScopeKey: selectionScopeKey,
 		search: readsSearchResults,
-		searchSubmission: searchAttempt?.submission,
-		retainSearchResult: searchAttempt?.kind === "running",
+		searchSubmission:
+			searchAttempt?.submission ??
+			(hasSearchResultDetail && readsSearchResults
+				? standingSubmission || undefined
+				: undefined),
+		...(hasSearchResultDetail &&
+			readsSearchResults && { previewRun: previewSessionId }),
+		retainSearchResult:
+			searchAttempt?.kind === "running" ||
+			(hasSearchResultDetail &&
+				readsSearchResults &&
+				standingSubmission !== ""),
 		/* The menu's default search sends no prompt's answer (Formplayer's
 		 * `doQuery` with `isDefaultSearch`), so a starting value narrows only
 		 * where a row or a hidden value reads it. */
@@ -1903,7 +1934,7 @@ export function CaseListScreen({
 		language: language.language,
 		appId,
 		caseType: caseType?.name,
-		caseId: routeCaseId,
+		caseId: detailCaseId,
 		parentCase: parentCaseConstraint,
 		ancestorDepth: 0,
 		moduleUuid,
@@ -1917,6 +1948,9 @@ export function CaseListScreen({
 		scopeKey: restoreScopeKey,
 		search: readsSearchResults,
 		positionScreen: "detail",
+		...(detailOpening !== undefined && {
+			resultDetail: { ...detailOpening, previewRun: previewSessionId },
+		}),
 		// A detail in a menu whose forms read the search reads the completed
 		// search's answers, which its inline query keeps beside the results.
 		...(formsReadSearch &&
@@ -2111,25 +2145,17 @@ export function CaseListScreen({
 		/* Results already came from the exact selected-parent population. The
 		 * identity read below carries the same server-side case-index constraint,
 		 * so neither path guesses membership from denormalized parent_case_id. */
-		if (projected) return projected;
+		if (projected && detailOpening === undefined) return projected;
 		if (routeCaseState.kind !== "row") return null;
 		return routeCaseState.row;
-	}, [routeCaseId, routeCaseReplaced, loadedRows, routeCaseState]);
-	/* A deep-linked case first owns a loading/error fallback pane. If its Back
-	 * action had focus when the automatic case read succeeds, transfer that
-	 * ownership to the equivalent Back action in Details instead of letting the
-	 * unmounted fallback drop focus to the document body. */
-	useEffect(() => {
-		if (
-			routeCase === null ||
-			routeCaseId === undefined ||
-			routeFallbackOwnedFocusRef.current !== routeCaseId
-		) {
-			return;
-		}
-		routeFallbackOwnedFocusRef.current = null;
-		focusNextFrame(() => detailBackRef.current);
-	}, [focusNextFrame, routeCase, routeCaseId]);
+	}, [
+		routeCaseId,
+		routeCaseReplaced,
+		loadedRows,
+		routeCaseState,
+		detailOpening,
+	]);
+
 	/* The running app's row click: a configured detail opens the confirm
 	 * step in place; no detail fields means the row proceeds straight on;
 	 * a module with no case-loading form has nowhere to go (the list is
@@ -2186,8 +2212,27 @@ export function CaseListScreen({
 			? routeCase
 			: null
 		: stateBelongsToModule && !routeDrivenExit
-			? openCase
+			? openCase?.resultDetail
+				? openEntryResult && routeCaseState.kind === "row"
+					? routeCaseState.row
+					: null
+				: (openCase?.row ?? null)
 			: null;
+	/* A restored case first owns a loading/error fallback pane. If its Back
+	 * action had focus when the automatic case read succeeds, transfer that
+	 * ownership to the equivalent Back action in Details instead of letting the
+	 * unmounted fallback drop focus to the document body. */
+	useEffect(() => {
+		if (
+			displayedOpenCase === null ||
+			detailCaseId === undefined ||
+			routeFallbackOwnedFocusRef.current !== detailCaseId
+		) {
+			return;
+		}
+		routeFallbackOwnedFocusRef.current = null;
+		focusNextFrame(() => detailBackRef.current);
+	}, [focusNextFrame, displayedOpenCase, detailCaseId]);
 	/* The filter text the list held when it last opened a case's details,
 	 * which a new list on Android shows again after a step back
 	 * (`caseListReturn.ts`). */
@@ -2687,6 +2732,48 @@ export function CaseListScreen({
 	}, [routeCase, routeCaseAction, routeCaseId]);
 	// The entry's datum can choose a list's sole record even if it has a
 	// confirmation screen. The module's own list item has no such datum.
+	const resultDetailRequired = hasSearchResultDetail && readsSearchResults;
+	const resultDetailReceipt =
+		resultDetailRequired && state.kind === "rows"
+			? state.resultReceipt
+			: undefined;
+	const openChosenDetail = useCallback(
+		(row: CaseRowWithCalculated) => {
+			if (!resultDetailRequired) {
+				setOpenCase({ row });
+				if (moduleUuid && !entryStep)
+					navigate.openCaseDetail(moduleUuid, row.case_id);
+				return true;
+			}
+			if (!resultDetailReceipt || !standingSubmission || !moduleUuid)
+				return false;
+			const opening = {
+				receipt: resultDetailReceipt,
+				submission: standingSubmission,
+			};
+			if (entryStep)
+				setOpenCase({
+					row,
+					resultDetail: { ...opening, scope: selectionScopeKey },
+				});
+			else
+				navigate.openCaseDetail(moduleUuid, row.case_id, {
+					...opening,
+					session: previewSessionId,
+				});
+			return true;
+		},
+		[
+			entryStep,
+			moduleUuid,
+			navigate,
+			previewSessionId,
+			resultDetailReceipt,
+			resultDetailRequired,
+			selectionScopeKey,
+			standingSubmission,
+		],
+	);
 	const automaticallyChosen = useRef(false);
 	useEffect(() => {
 		if (
@@ -2699,10 +2786,13 @@ export function CaseListScreen({
 			filterText
 		)
 			return;
-		automaticallyChosen.current = true;
-		if (entryStep.confirms) setOpenCase(loadedRows[0]);
-		else routeCaseGoesOnRef.current?.(loadedRows[0], true);
-	}, [entryStep, current, state, loadedRows, filterText]);
+		if (entryStep.confirms)
+			automaticallyChosen.current = openChosenDetail(loadedRows[0]);
+		else {
+			automaticallyChosen.current = true;
+			routeCaseGoesOnRef.current?.(loadedRows[0], true);
+		}
+	}, [entryStep, current, state, loadedRows, filterText, openChosenDetail]);
 
 	const automaticSelectionCount =
 		state.kind === "rows"
@@ -3239,10 +3329,14 @@ export function CaseListScreen({
 		originatingCaseIdRef.current =
 			trigger.dataset.caseResultAction ?? row.case_id;
 		if (rowAction === "detail") {
-			setOpenCase(row);
-			if (moduleUuid && !entryStep)
-				navigate.openCaseDetail(moduleUuid, row.case_id);
-			focusNextFrame(() => detailBackRef.current);
+			if (!openChosenDetail(row)) {
+				showToast(
+					"error",
+					"This Search result is no longer available. You can run Search again.",
+				);
+				return;
+			}
+			focusNextFrame(() => detailBackRef.current ?? routeBackRef.current);
 		} else if (rowAction === "form") proceedWithCase(row);
 	};
 	const closeCaseDetail = () => {
@@ -3491,9 +3585,14 @@ export function CaseListScreen({
 		</div>
 	);
 
-	const routeCaseFallbackPane = routeCaseId !== undefined &&
-		routeCase === null && (
-			<div ref={routeFallbackPaneRef} className="max-w-lg min-w-0 flex-1">
+	const routeCaseFallbackPane = detailCaseId !== undefined &&
+		displayedOpenCase === null &&
+		(routeCase === null || routeCaseId === undefined) && (
+			<div
+				ref={routeFallbackPaneRef}
+				data-detail-case-id={detailCaseId}
+				className="max-w-lg min-w-0 flex-1"
+			>
 				<Button
 					ref={routeBackRef}
 					type="button"
@@ -4144,7 +4243,7 @@ export function CaseListScreen({
 		multiFormMenuChoices !== undefined ||
 		displayedFormMenuCase !== null ||
 		displayedOpenCase !== null ||
-		routeCaseId !== undefined;
+		detailCaseId !== undefined;
 	/* A read Core makes as this screen loads that refuses data the device
 	 * lacks stops it on a phone: the Search action's condition stops the list,
 	 * and a Search screen's starting or hidden value stops the search, which a
@@ -4199,7 +4298,7 @@ export function CaseListScreen({
 						formMenuPane
 					) : displayedOpenCase !== null ? (
 						detailPane
-					) : routeCaseId !== undefined ? (
+					) : detailCaseId !== undefined ? (
 						routeCaseFallbackPane
 					) : automaticSelection &&
 						state.kind === "rows" &&

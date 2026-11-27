@@ -1017,6 +1017,12 @@ export const MODULE_REFERENCE_SLOTS = [
 	},
 	{
 		entity: "module",
+		slot: "case_list_result_detail_input",
+		path: "caseListConfig.columns[].searchResultDetail.inputUuid",
+		kind: "entity-uuid",
+	},
+	{
+		entity: "module",
 		slot: "case_list_mapping_condition",
 		path: "caseListConfig.columns[].mapping[].when",
 		kind: "expression",
@@ -2484,6 +2490,8 @@ export const NON_REFERENCE_MODULE_PATHS: Readonly<
 	"caseListConfig.columns[].readFrom": "discriminator",
 	"caseListConfig.columns[].showOwner": "config",
 	"caseListConfig.columns[].header": "display-text",
+	"caseListConfig.columns[].searchResultDetail.prefix": "display-text",
+	"caseListConfig.columns[].searchResultDetail.suffix": "display-text",
 	// Display text, but NOT a translation unit: a link cell is emitted as
 	// `<template form="markdown">`, and CommCare HQ builds locale variables
 	// only for its `Enum` format subclasses, so an HQ-imported app has

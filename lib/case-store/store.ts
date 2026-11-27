@@ -524,6 +524,8 @@ export interface SearchResultsPage {
 	readonly rows: readonly CaseRowWithCalculated[];
 	readonly grouped?: GroupedQueryResult;
 	readonly instance?: SearchResultInstance;
+	/** The selected page's eligible primary cases, without its query's supporting rows. */
+	readonly offeredPrimaryIds?: readonly string[];
 }
 
 export interface GroupedQueryResult {
@@ -1192,7 +1194,7 @@ export interface CaseStore extends SchemaCaseStore {
 	querySearchResults(
 		args: QueryArgs,
 		grouping?: string,
-		captureInstance?: true,
+		capture?: true | "offered-primary-ids",
 	): Promise<SearchResultsPage>;
 	readSearchResultInstance(args: QueryArgs): Promise<SearchResultInstance>;
 

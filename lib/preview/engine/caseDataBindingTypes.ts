@@ -675,3 +675,11 @@ export type SubmissionResult =
 	 *  Nothing was written. */
 	| { kind: "submission-rejected"; rejection: SubmissionRejection }
 	| { kind: "error"; message: string };
+
+/** The selected result owns this completed response. A plain Details URL
+ * has no receipt. */
+export interface SearchResultDetailOpening {
+	readonly previewRun: string;
+	readonly submission: string;
+	readonly receipt: string;
+}

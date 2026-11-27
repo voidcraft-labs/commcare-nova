@@ -278,6 +278,7 @@ export const PLATFORM_FEATURE_IDS = [
 	"menu-badge",
 	"named-case-tile",
 	"details-tile",
+	"search-result-detail-text",
 	"raw-custom-tile-field",
 	"raw-grouped-tile-body-field",
 	"tile-grouping",
@@ -1092,6 +1093,22 @@ export const PLATFORM_FEATURES: Readonly<
 		channel: "structure",
 		webApps: { reading: "runs" },
 		android: { reading: "ignored", note: "the fields appear in ordinary rows" },
+	},
+	"search-result-detail-text": {
+		label: "Submitted Search text on Details",
+		channel: "structure",
+		webApps: { reading: "runs" },
+		android: {
+			reading: "unavailable",
+			note: "Android keeps the results without their submitted prompts",
+		},
+		refusal: {
+			what: "shows a submitted Search answer on Details",
+			why: "Android does not keep the prompt answers on the result.",
+			alternative: "remove the Search answer from Details",
+			pickerLine:
+				"Available only in Web Apps. You can change where this app runs in App settings.",
+		},
 	},
 	"raw-custom-tile-field": {
 		label: "A raw field in a Results tile",

@@ -809,6 +809,14 @@ A form’s submitted answer root uses the intersection of XML element names and 
 
 `Form.automaticSubmissionText`, `skipAutomaticSyncText` and `validateChangedAnswersText` (`forms.ts::formBehaviorRoles`) each name the question or choice text that carries a Web Apps behavior: one `carrier` and optional `alsoUsedBy` aliases, each an `ItextUnit` by field (and option) UUID and role. The text stays the slot's own translation unit; the behavior never copies it. Renaming or moving the question keeps the behavior, and its reference slots (`referenceSlots.ts`, one per role, member and part) carry the identities. The gate (`lib/commcare/xform/behaviorTexts.ts`) holds that the carrier is still written, that aliases agree in every language, format and media, and that HQ's merge of equal texts does not absorb the pragma id. The activity notice key, title and window use these same text identities. A title or window requires the key. `Form.savedFormDescriptorText` uses the same carrier and translation contract for the text Android evaluates on every save.
 
+A Details-only calculated column in a Web Apps menu that opens a standalone
+Search can carry a second, text-only branch (`searchResultDetail.ts`).
+The branch names one offered text prompt by UUID and may wrap its submitted
+answer in literal text. The ordinary expression supplies literal text outside
+Search. The branch cannot participate in result cells, filters, or sorting.
+The result receipt makes an offered-but-missing prompt read empty text and
+keeps a different or unoffered prompt outside this column's scope.
+
 A project-supplied search has a catalog UUID and display name in app settings.
 Each participating menu holds the UUID and ordered named values. The values
 are expressions, and a visible search field can send its answer, or supply an

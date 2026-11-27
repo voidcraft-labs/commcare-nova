@@ -80,6 +80,7 @@ from proof.checks.manifest_value_classes import (
     save_to_case_retype_property_types,
     worker_record_save_to_case_shape,
     guarded_owner_after_fresh_create,
+    standalone_result_detail_text,
     three_parent_links_text_prompt_key,
     two_parent_links_text_prompt_key,
     unaddressable_answer_root,
@@ -94,6 +95,7 @@ HQ_BUILD_REASON = "not-hq-buildable"
 DIRECT_PARENT_PROMPT = "case-search/prompt-key-matching-a-direct-parent-property"
 LATER_OWNER_ON_FRESH_CREATE = "questions/savetocase-guarded-owner-after-fresh-create"
 UNICODE_PRIMARY_ROOT = "questions/answer-root-with-a-non-ascii-name"
+STANDALONE_RESULT_DETAIL = "menus-and-case-lists/standalone-search-result-detail-text"
 PARENT_USER_WRITE = "forms-and-case-writes/update-key-through-a-typed-user-index"
 CONDITIONAL_WORKER_UPDATE = "questions/savetocase-update-case-id-xpath"
 REPEATED_WORKER_UPDATE = "questions/savetocase-inside-a-repeat"
@@ -923,6 +925,16 @@ def added_uses(base_source: dict, variant_source: dict, *, entries=()) -> list[D
                 for use in found.uses
                 if use.key == "schema:CaseSearchProperty.name" and classifier(use, held)
             )
+        if STANDALONE_RESULT_DETAIL in entries:
+            entry = _entries_by_id(held)[STANDALONE_RESULT_DETAIL]
+            # The same field key also names arbitrary ordinary calculations.
+            # Require this affirmative result-detail shape for its own row.
+            decided.extend(
+                Decided(use, manifest_usage.HELD, (entry,))
+                for use in found.uses
+                if use.key == "schema:DetailColumn.field" and standalone_result_detail_text(use, held)
+            )
+
         if UNMATCHED_ADDRESS_TOPIC in entries:
             entry = _entries_by_id(held)[UNMATCHED_ADDRESS_TOPIC]
             decided.extend(
@@ -1015,7 +1027,10 @@ def _projects(decided: Decided, record: Record, held) -> tuple[bool, bool]:
         return record.standing == "fix-in-hq", refused
     if standing == manifest_usage.HELD_NEW:
         return record.standing == "not-yet", record.entry in resting
-    if standing == manifest_usage.HELD and len(resting) == 1 and resting <= PARENT_PROMPT_SHAPES.keys() | {UNICODE_PRIMARY_ROOT, UNMATCHED_ADDRESS_TOPIC}:
+    exact = PARENT_PROMPT_SHAPES.keys() | {
+        STANDALONE_RESULT_DETAIL, UNICODE_PRIMARY_ROOT, UNMATCHED_ADDRESS_TOPIC,
+    }
+    if standing == manifest_usage.HELD and len(resting) == 1 and resting <= exact:
         return record.standing == "held", record.entry in resting
     if standing == manifest_usage.HELD and decided.at is not None:
         return record.standing == "held", record.entry in resting and record.at == decided.at

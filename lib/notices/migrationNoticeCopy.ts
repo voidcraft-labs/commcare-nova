@@ -341,6 +341,8 @@ export const PLATFORM_CAUSE_WORDS: Readonly<Record<string, string>> = {
 	"android-app-question": "questions answered in another app on Android",
 	"case-list-here": "case-list columns that read the worker's location",
 	"case-list-icon-actions": "case list icons that submit forms",
+	"search-result-detail-text":
+		"Details fields that show submitted Search answers",
 	"case-list-lookup-count": "reads of the companion lookup count",
 	"case-list-search-text": "reads of the case list's search text",
 	"forms-read-search": "menus whose forms read the search",

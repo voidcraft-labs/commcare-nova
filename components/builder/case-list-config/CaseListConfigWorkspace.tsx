@@ -3237,7 +3237,11 @@ function ColumnInspectorBody({
 		...(column.visibleInList !== false ? ["Results"] : []),
 		...(column.visibleInDetail !== false ? ["Details"] : []),
 	];
-	const listSearch = listSearchSwitch(column, tileOn);
+	const readsSearchResult =
+		column.kind === "calculated" && column.searchResultDetail !== undefined;
+	const listSearch = readsSearchResult
+		? undefined
+		: listSearchSwitch(column, tileOn);
 	const setListSearch = (on: boolean) => {
 		const next = (on ? keepColumnOnList : takeColumnOffList)(
 			[column],
@@ -3271,6 +3275,7 @@ function ColumnInspectorBody({
 				}
 			/>
 			{(column.kind === "calculated" || column.kind === "link") &&
+				!readsSearchResult &&
 				columnSupportsLoadBehavior(column) && (
 					<LoadBehaviorSection
 						value={column.loadBehavior}

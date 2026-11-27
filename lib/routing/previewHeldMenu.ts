@@ -220,6 +220,10 @@ export function builderEntryState(
 				searches: current.record.searches,
 			}),
 			...(heldMenu !== undefined && { heldMenu }),
+			...(lens &&
+				current.record.searchResultDetail !== undefined && {
+					searchResultDetail: current.record.searchResultDetail,
+				}),
 		},
 	};
 }

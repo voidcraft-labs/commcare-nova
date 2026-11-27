@@ -390,6 +390,29 @@ def search_input_read_after_search(authoring, app_id):
     )
 
 
+def _optional_search_detail(authoring, app_id, prompt):
+    path = f"instance('search-input:results')/input/field[@name = '{prompt}']"
+    formula = (
+        "if(count(current()/../../results) > 0, concat('Entered [', "
+        f"if(count({path}) > 0, string({path}), ''), ']'), 'Unsearched case')"
+    )
+    ops.set_json(authoring, app_id, "/cloudcare_enabled", True)
+    ops.set_json(
+        authoring, app_id, "/modules/0/case_details/long/columns/-",
+        _calculated_column("Submitted village", formula),
+    )
+
+
+def optional_standalone_search_detail(authoring, app_id):
+    """A long-only field guarding the roster and the Search's actual text prompt."""
+    _optional_search_detail(authoring, app_id, "village")
+
+
+def standalone_search_detail_with_wrong_prompt(authoring, app_id):
+    """The same guards address a different, unoffered prompt."""
+    _optional_search_detail(authoring, app_id, "not_offered")
+
+
 # Expressions --------------------------------------------------------------------------------------------------------
 
 

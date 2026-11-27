@@ -9,6 +9,7 @@ import {
 	columnRunsOnResults,
 	detailColumnRowScope,
 } from "@/lib/domain/expression/detailRowScope";
+import { resolveSearchResultDetailRoute } from "@/lib/domain/searchResultDetail";
 import { type ValidationError, validationError } from "../../errors";
 import {
 	checkErrorDetails,
@@ -80,6 +81,23 @@ export function calculatedColumnTypeCheck(
 			}
 		}
 		if (column.kind !== "calculated") continue;
+		if (
+			column.searchResultDetail &&
+			!resolveSearchResultDetailRoute(mod, column, column.searchResultDetail)
+		) {
+			errors.push(
+				validationError(
+					"CASE_LIST_CALCULATED_COLUMN_TYPE_ERROR",
+					"module",
+					"Choose a text prompt from this menu's Search. An answer can appear on a plain Details-only field where Search opens before Results.",
+					{ moduleUuid, moduleName: mod.name },
+					{
+						columnUuid: column.uuid,
+						slot: `caseListConfig.columns[${index}].searchResultDetail`,
+					},
+				),
+			);
+		}
 		let hiddenTextRead = false;
 		if (
 			column.texts?.length &&

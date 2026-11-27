@@ -21,6 +21,7 @@ import { entryPointInventory } from "@/lib/domain";
 import { caseMappingComparison } from "@/lib/domain/caseMappingRows";
 import { AUTHORED_CASE_PROPERTY_NAME_PATTERN } from "@/lib/domain/casePropertyName";
 import { COMMCARE_DATE_PATTERN_REGEX } from "@/lib/domain/commCareDatePattern";
+import { literal, term } from "@/lib/domain/expression";
 import type { ColumnRecordSource } from "@/lib/domain/modules";
 import {
 	CASE_MAP_LAYER_KINDS,
@@ -90,6 +91,7 @@ import {
 } from "./attributeColumns";
 import { literalText } from "./literalText";
 import { claimRestOfRefusedColumn } from "./refusedWhole";
+import { readResultDetailText } from "./resultDetailText";
 
 const A = "menus-and-case-lists/";
 
@@ -116,6 +118,14 @@ export const COLUMN_CLAIMS = defineClaims("caseList.columns", {
 	fieldCalculated: take(
 		`${A}usexpathexpression-field-xpath-lifting-into-valueexpression`,
 		"schema:DetailColumn.useXpathExpression",
+	),
+	searchResultDetail: take(
+		`${A}standalone-search-result-detail-text`,
+		"schema:DetailColumn.field",
+	),
+	searchResultDetailUnavailable: refuse(
+		`${A}standalone-search-result-detail-without-its-offered-prompt`,
+		"schema:DetailColumn.field",
 	),
 	fieldAttribute: take(
 		`${A}usexpathexpression-field-reading-one-case-attribute`,
@@ -712,6 +722,9 @@ export interface ColumnProposal {
 	readonly texts: Readonly<Record<string, Readonly<Record<string, string>>>>;
 	/** A calculated column's expression, registered by the join once the column is minted. */
 	readonly expression?: ColumnExpressionSource;
+	readonly resultDetailText?: NonNullable<
+		ReturnType<typeof readResultDetailText>
+	>;
 	readonly conditions?: ReadonlyMap<number, ColumnExpressionSource>;
 	readonly textKeys?: readonly string[];
 	/** True for an `invisible` short column, which joins by `field` and header alone. */
@@ -1401,6 +1414,7 @@ export interface ColumnOptions {
 	 *  instances: a detail of the search's results, or a menu whose search launches by itself
 	 *  (`helpers/validators.py::ModuleBaseValidator.validate_detail_columns`). */
 	readonly searchInstancesRead: boolean;
+	readonly standaloneResultDetailText?: boolean;
 	/** The walk a column's indices name from the menu's case type, each step typed as Nova types
 	 *  it (`parent` by the catalog's parent, any other index by the type the app links it to), and
 	 *  the type it reaches; undefined where a step reaches no type. */
@@ -1847,7 +1861,10 @@ function readColumn(
 	const proposal = (
 		kind: ColumnProposal["column"],
 		extra: Partial<
-			Pick<ColumnProposal, "texts" | "expression" | "invisible" | "conditions">
+			Pick<
+				ColumnProposal,
+				"texts" | "expression" | "invisible" | "conditions" | "resultDetailText"
+			>
 		> = {},
 	): ColumnProposal | undefined =>
 		others
@@ -1869,6 +1886,9 @@ function readColumn(
 					...(extra.conditions && { conditions: extra.conditions }),
 					...(extra.expression !== undefined && {
 						expression: extra.expression,
+					}),
+					...(extra.resultDetailText !== undefined && {
+						resultDetailText: extra.resultDetailText,
 					}),
 					invisible: extra.invisible ?? false,
 					json: column,
@@ -1917,6 +1937,28 @@ function readColumn(
 					key: "schema:DetailColumn.field",
 				},
 			},
+		);
+	}
+	const resultDetailText =
+		field.xpath &&
+		screen === "long" &&
+		format === "plain" &&
+		options.standaloneResultDetailText &&
+		!options.dataRows &&
+		!options.fixtureRow &&
+		loadBehavior === undefined
+			? readResultDetailText(field.text)
+			: undefined;
+	if (resultDetailText) {
+		column.take("useXpathExpression", C.fieldCalculated, Boolean).value;
+		column.take("format", C.plain, String).value;
+		return proposal(
+			{
+				kind: "calculated",
+				...base,
+				expression: term(literal(resultDetailText.localText)),
+			},
+			{ resultDetailText },
 		);
 	}
 	if (field.xpath) {

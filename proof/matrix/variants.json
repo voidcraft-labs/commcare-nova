@@ -43171,6 +43171,43 @@
 		]
 	},
 	{
+		"id": "hq-search/optional-standalone-search-detail",
+		"base": "hq-search",
+		"entry": "menus-and-case-lists/standalone-search-result-detail-text",
+		"declaration": { "runsOnlyOn": "web-apps", "splitDatetime": false },
+		"change": {
+			"op": "named",
+			"name": "optional_standalone_search_detail"
+		},
+		"holds": [
+			{
+				"key": ["module", { "$menu": 0 }],
+				"pointer": "/caseListConfig/columns/2/searchResultDetail/prefix",
+				"value": "Entered ["
+			},
+			{
+				"key": ["module", { "$menu": 0 }],
+				"pointer": "/caseListConfig/columns/2/expression/term/value",
+				"value": "Unsearched case"
+			}
+		]
+	},
+	{
+		"id": "hq-search/standalone-search-detail-with-wrong-prompt",
+		"base": "hq-search",
+		"entry": "menus-and-case-lists/standalone-search-result-detail-without-its-offered-prompt",
+		"standing": "not-yet",
+		"place": {
+			"kind": "case-detail",
+			"menu": 0,
+			"name": "Clients"
+		},
+		"change": {
+			"op": "named",
+			"name": "standalone_search_detail_with_wrong_prompt"
+		}
+	},
+	{
 		"id": "hq-search/search-input-in-the-results-detail",
 		"base": "hq-search",
 		"entry": "expressions-and-data/search-input-results-read-in-the-search-results-detail",

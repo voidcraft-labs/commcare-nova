@@ -19,6 +19,7 @@ import {
 	sealedBuilderHistoryState,
 } from "../builderHistoryState";
 import {
+	previewEntryOf,
 	previewEntryRecordsToRead,
 	previewEntryRecordsToWrite,
 } from "../previewEntryRecords";
@@ -92,6 +93,40 @@ function selectionsOf(task: string) {
 }
 
 describe("a builder history entry's state", () => {
+	it("attaches a result receipt to its own Detail entry and Preview session", () => {
+		const session = `history-result-${testUuid("detail")}`;
+		window.history.replaceState({}, "", APP);
+		const stop = subscribeBuilderPathChange(() => {});
+		try {
+			const chosen = {
+				moduleUuid: PATIENTS,
+				caseId: ASHA.caseId,
+				submission: SEARCH.submission,
+				receipt: "a".repeat(64),
+			};
+			const path = `${APP}/${PATIENTS}/cases/${ASHA.caseId}`;
+			const current = (inSession: string) => {
+				const entry = previewEntryOf(window.history.state);
+				return (
+					entry &&
+					previewEntryRecordsToRead(inSession).get(entry)?.searchResultDetail
+				);
+			};
+			pushBuilderHistory(path, false, undefined, { session, detail: chosen });
+			expect(current(session)).toEqual(chosen);
+			expect(JSON.stringify(window.history.state)).not.toContain(
+				chosen.receipt,
+			);
+			expect(current(`${session}-new`)).toBeUndefined();
+			pushBuilderHistory(path);
+			expect(current(session)).toBeUndefined();
+			window.history.back();
+			expect(current(session)).toEqual(chosen);
+		} finally {
+			stop();
+		}
+	});
+
 	it("holds identifiers and topology only through a Preview walk, and Back still finds what each entry was shown with", () => {
 		const session = `history-session-${testUuid("walk")}`;
 		window.history.replaceState({ __NA: true }, "", APP);

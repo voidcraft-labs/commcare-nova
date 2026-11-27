@@ -39,6 +39,7 @@ import {
 	previewEntryRecordsToRead,
 	previewEntryRecordsToWrite,
 	type RecordedPreviewSearch,
+	type RecordedSearchResultDetail,
 } from "./previewEntryRecords";
 import {
 	type BuilderHistoryWrite,
@@ -307,6 +308,7 @@ function writtenState(
 	write: (relative: string) => BuilderHistoryWrite,
 	relative: string,
 	session: string | undefined,
+	resultDetail?: RecordedSearchResultDetail,
 ): { readonly state: Record<string, unknown>; readonly consumesEnd: boolean } {
 	const records =
 		session === undefined
@@ -324,7 +326,13 @@ function writtenState(
 		"lens" in written ? "lens" : written.replace ? "replace" : "push",
 	);
 	const entry = previewEntryOf(searches.written.state);
-	if (entry !== undefined) records.set(entry, searches.written.record);
+	if (entry !== undefined)
+		records.set(
+			entry,
+			resultDetail === undefined
+				? searches.written.record
+				: { ...searches.written.record, searchResultDetail: resultDetail },
+		);
 	return { state: searches.written.state, consumesEnd: searches.consumesEnd };
 }
 
@@ -345,8 +353,12 @@ export function pushBuilderHistory(
 	url: string,
 	replace = false,
 	heldMenu?: PreviewHeldMenuWrite,
+	searchResult?: {
+		readonly detail: RecordedSearchResultDetail;
+		readonly session: string;
+	},
 ): void {
-	writeBuilderHistory(url, replace, heldMenu, "forward");
+	writeBuilderHistory(url, replace, heldMenu, "forward", searchResult);
 }
 
 function writeBuilderHistory(
@@ -354,13 +366,18 @@ function writeBuilderHistory(
 	replace: boolean,
 	heldMenu: PreviewHeldMenuWrite | undefined,
 	arrival: "back" | "forward",
+	searchResult?: {
+		readonly detail: RecordedSearchResultDetail;
+		readonly session: string;
+	},
 ): void {
 	takeInPendingPop();
 	const relative = builderNavigationUrl(url, window.location.href);
 	const { state, consumesEnd } = writtenState(
 		(pathname) => ({ pathname, replace, held: heldMenu?.menu }),
 		relative,
-		heldMenu?.session,
+		heldMenu?.session ?? searchResult?.session,
+		searchResult?.detail,
 	);
 	builderHistoryMoves += 1;
 	builderHistoryArrival = arrival;
@@ -542,6 +559,17 @@ export function usePreviewHeldMenu(
 			shown === "" ? undefined : (JSON.parse(shown) as PreviewHeldCaseListMenu),
 		[shown],
 	);
+}
+
+/** The exact Search result attached to the shown entry in this Preview run. */
+export function usePreviewSearchResultDetail(
+	session: string,
+): RecordedSearchResultDetail | undefined {
+	const snapshot = useCallback(
+		() => viewedRecord(session).searchResultDetail,
+		[session],
+	);
+	return useSyncExternalStore(subscribe, snapshot, () => undefined);
 }
 
 /** The current entry, its id minted where it has none (an entry the page

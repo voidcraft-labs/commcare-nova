@@ -598,9 +598,17 @@ export async function readCases(
 		 */
 		searchPopulation?: SearchPopulation;
 	},
-	retainSearchResult?: (
-		instance: import("@/lib/case-store/store").SearchResultInstance,
-	) => Promise<string>,
+	retainSearchResult?:
+		| {
+				kind: "instance";
+				keep: (
+					instance: import("@/lib/case-store/store").SearchResultInstance,
+				) => Promise<string>;
+		  }
+		| {
+				kind: "detail";
+				keep: (offeredPrimaryIds: readonly string[]) => Promise<string>;
+		  },
 ): Promise<LoadCasesResult> {
 	const composedQuery = runningCasePredicate(args);
 	const page = normalizeCaseListPage(args.page);
@@ -647,14 +655,26 @@ export async function readCases(
 					: args.automaticMaximum + 1),
 		};
 		const found = retainSearchResult
-			? await store.querySearchResults(query, grouping?.identifier, true)
+			? await store.querySearchResults(
+					query,
+					grouping?.identifier,
+					retainSearchResult.kind === "instance" ? true : "offered-primary-ids",
+				)
 			: await store.querySearchResults(query, grouping?.identifier);
-		if (retainSearchResult && !found.instance)
-			throw new Error("The bounded search did not capture its response.");
-		const resultReceipt =
-			retainSearchResult && found.instance
-				? await retainSearchResult(found.instance)
-				: undefined;
+		let resultReceipt: string | undefined;
+		if (retainSearchResult?.kind === "instance") {
+			if (found.instance === undefined)
+				throw new Error("The bounded search did not capture its response.");
+			resultReceipt = await retainSearchResult.keep(found.instance);
+		}
+		if (retainSearchResult?.kind === "detail") {
+			if (found.offeredPrimaryIds === undefined)
+				throw new Error(
+					"The bounded search did not identify its offered cases.",
+				);
+			if (found.offeredPrimaryIds.length > 0)
+				resultReceipt = await retainSearchResult.keep(found.offeredPrimaryIds);
+		}
 		const common = {
 			constraintSource: composedQuery.constraintSource,
 			searchMatchCount: found.primaryCount,

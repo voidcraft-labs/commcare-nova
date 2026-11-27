@@ -34,6 +34,7 @@ import {
 	type ScalarType,
 	scalarDataType,
 } from "@/lib/domain/expression";
+import { resolveSearchResultDetailRoute } from "@/lib/domain/searchResultDetail";
 import {
 	type ModuleExpressionContexts,
 	moduleExpressionContexts,
@@ -51,6 +52,7 @@ import {
 	plainSelectDisplayXpath,
 } from "./columns";
 import { detailBindings } from "./detailBindings";
+import { resultDetailTextWire } from "./resultDetailText";
 
 /**
  * HQ's `XPathEnum` builder discovers a `translatable-enum` column's variables
@@ -137,6 +139,14 @@ export function hqExpressionField(
 	rewrites?: RewriteControl,
 ): WireExpr {
 	if (column.kind === "calculated") {
+		if (screen === "details" && column.searchResultDetail) {
+			const branch = resolveSearchResultDetailRoute(
+				mod,
+				column,
+				column.searchResultDetail,
+			);
+			if (branch) return resultDetailTextWire(branch);
+		}
 		if (effectiveCaseSearchConfig(mod) !== undefined) {
 			const related = classifyRelatedCaseSearchExpression(
 				column.expression,

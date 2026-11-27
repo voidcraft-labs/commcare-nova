@@ -6815,6 +6815,76 @@ def _detail_of(use):
     return at, detail, kind, module
 
 
+def _standalone_result_detail_prompt(use):
+    """One long-only text column with native roster and optional-node guards."""
+    at, detail, kind, module = _detail_of(use)
+    if kind != "long" or at.key != "field" or not at.owner.get("useXpathExpression"):
+        return None
+    if at.owner.get("format", "plain") != "plain" or detail.get("tabs") or module.get("detail_tile"):
+        return None
+    search = module.get("search_config")
+    if (
+        (at.nearest("Application") or {}).get("cloudcare_enabled") is not True
+        or not isinstance(search, dict)
+        or search.get("auto_launch") is not True
+        or search.get("default_search") is True
+        or search.get("inline_search") is True
+        or search.get("case_search_endpoint_id")
+    ):
+        return None
+    source = at.value
+    if not isinstance(source, str) or not any(
+        spelling in source
+        for spelling in ("instance('search-input:results')", 'instance("search-input:results")')
+    ):
+        return None
+    outer = _call_of(expression_tree(source), "if", 3)
+    if outer is None or outer[0] != expression_tree("count(current()/../../results) > 0"):
+        return None
+    concat = _call_of(outer[1], "concat", 3)
+    if concat is None or not all(isinstance(leaf, list) and leaf[0] == "text"
+                                 for leaf in (concat[0], concat[2], outer[2])):
+        return None
+    optional = _call_of(concat[1], "if", 3)
+    if optional is None:
+        return None
+    scalar = _call_of(optional[1], "string", 1)
+    path = scalar[0] if scalar else None
+    if (
+        not isinstance(path, list)
+        or path[:2] != ["path", "instance:search-input:results"]
+        or len(path[3]) != 2
+        or path[3][0] != ["text", "search-input:results"]
+    ):
+        return None
+    # The observation carries an instance() argument before its step predicates.
+    predicate = path[3][1]
+    if predicate[:2] != ["binary", "="] or predicate[3][:1] != ["text"]:
+        return None
+    prompt_name = predicate[3][1]
+    if "'" in prompt_name:
+        return None
+    exact = f"instance('search-input:results')/input/field[@name = '{prompt_name}']"
+    expected = expression_tree(f"if(count({exact}) > 0, string({exact}), '')")
+    if _shape(concat[1]) != _shape(expected):
+        return None
+    return prompt_name, search
+
+
+def standalone_result_detail_text(use, manifest):
+    source = _standalone_result_detail_prompt(use)
+    if source is None:
+        return False
+    name, search = source
+    prompts = [prompt for prompt in search.get("properties", ())
+               if isinstance(prompt, dict) and prompt.get("name") == name and not prompt.get("hidden")]
+    return len(prompts) == 1 and not prompts[0].get("appearance") and prompts[0].get("input_") in (None, "", "text")
+
+
+def standalone_result_detail_without_prompt(use, manifest):
+    return _standalone_result_detail_prompt(use) is not None and not standalone_result_detail_text(use, manifest)
+
+
 def _short_lookup(use):
     _, detail, kind, _ = _detail_of(use)
     if kind != "short" or detail.get("lookup_enabled") is not True:
@@ -13942,6 +14012,7 @@ def navigation_condition_untyped(use, manifest):
     return None if at.app.authored and not at.app.read else False
 
 VALUE_CLASSES = {
+    "menus-and-case-lists/standalone-search-result-detail-without-its-offered-prompt": standalone_result_detail_without_prompt,
     "expressions-and-data/bare-fingerprint-query-without-a-supplier": bare_fingerprint_query_without_supplier,
     "application-and-settings/menu-layout-outside-editor-choices": menu_layout_outside_choices,
     "menus-and-case-lists/module-layout-outside-editor-choices": menu_layout_outside_choices,
