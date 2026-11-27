@@ -4,6 +4,7 @@ import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { userFacingError } from "@/lib/doc/userFacingErrors";
 import { blueprintDocSchema } from "@/lib/domain";
 import {
+	count,
 	datetimeCoerce,
 	type Expression,
 	eq,
@@ -43,6 +44,26 @@ function candidate(filter: Expression) {
 	return doc;
 }
 describe("case-list filter type admission", () => {
+	it("admits only the current type's presence as a whole ordinary list filter", () => {
+		const restored = count({
+			kind: "cases",
+			source: "casedb",
+			where: [
+				eq(
+					{ kind: "case-row-type" },
+					{ kind: "case-type", caseType: "patient" },
+				),
+			],
+		});
+		expect(findings(candidate(gt(restored, literal(0))))).toEqual([]);
+		expect(findings(candidate(gt(restored, literal(1))))).toMatchObject([
+			{
+				code: "CASE_LIST_FILTER_TYPE_ERROR",
+				details: { checkReason: "device-list-restored-type-presence" },
+			},
+		]);
+	});
+
 	it.each(["nickname", "case_name"])(
 		"accepts equality using the effective %s property",
 		(property) =>

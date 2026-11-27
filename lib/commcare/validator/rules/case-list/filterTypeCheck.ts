@@ -4,8 +4,9 @@ import { reachedPropertyType } from "@/lib/domain/columnRelation";
 import { checkExpression, slotContext } from "@/lib/domain/expression";
 import {
 	directHostTextEquality,
-	ordinaryHostFilterList,
+	ordinaryDeviceCaseList,
 } from "@/lib/domain/expression/directHostTextEquality";
+import { sameTypeRestoredPresence } from "@/lib/domain/expression/ruleSets";
 import { walkPropertyRefs } from "@/lib/domain/expression/walk";
 import { type ValidationError, validationError } from "../../errors";
 import {
@@ -46,6 +47,24 @@ export function filterTypeCheck(
 		if (ctx === undefined) return [];
 		const errors = semanticCheckErrors(checkExpression(filter, ctx));
 		if (errors.length === 0 && slot === "case_list_filter") {
+			if (
+				sameTypeRestoredPresence(filter, mod.caseType) &&
+				!ordinaryDeviceCaseList(doc, moduleUuid)
+			)
+				return [
+					validationError(
+						"CASE_LIST_FILTER_TYPE_ERROR",
+						"module",
+						"Choose a top-level device list for a filter that counts restored cases of its own type.",
+						{ moduleUuid, moduleName: mod.name },
+						{
+							slot: path,
+							registrySlot: slot,
+							checkReason: "device-list-restored-type-presence",
+						},
+					),
+				];
+
 			let readsReached = false;
 			walkPropertyRefs(filter, (property) => {
 				readsReached ||= property.readReached === true;
@@ -53,7 +72,7 @@ export function filterTypeCheck(
 			if (readsReached) {
 				const host = directHostTextEquality(filter);
 				if (
-					!ordinaryHostFilterList(doc, moduleUuid) ||
+					!ordinaryDeviceCaseList(doc, moduleUuid) ||
 					host?.via?.kind !== "ancestor" ||
 					mod.caseType === undefined ||
 					reachedPropertyType(

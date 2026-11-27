@@ -34,7 +34,7 @@ export function directHostTextEquality(
 }
 
 /** The ordinary root device list that consumes the authored condition. */
-export function ordinaryHostFilterList(
+export function ordinaryDeviceCaseList(
 	doc: BlueprintDoc,
 	moduleUuid: Uuid,
 ): boolean {

@@ -409,6 +409,38 @@ describe("a record slot's text read as HQ's build interpolates it", () => {
 		});
 	});
 
+	it("preserves the restored type presence condition on its own list", () => {
+		const doc = patientsDoc();
+		const ref = {
+			entity: "module",
+			uuid: moduleOf(doc),
+			slot: "case_list_filter",
+		} as const;
+		const source =
+			"count(instance('casedb')/casedb/case[@case_type = 'patient']) > 0";
+		expect(
+			held(readExpression(doc, registration(doc, ref, source), readEnv())),
+		).toMatchObject({
+			kind: "gt",
+			left: {
+				kind: "count",
+				via: {
+					kind: "cases",
+					source: "casedb",
+					where: [
+						{
+							kind: "eq",
+							right: {
+								kind: "term",
+								term: { kind: "case-type", caseType: "patient" },
+							},
+						},
+					],
+				},
+			},
+		});
+	});
+
 	it("reads the direct host's text equality as the reached record", () => {
 		const doc = patientsDoc();
 		const ref = {
