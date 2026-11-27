@@ -23260,6 +23260,27 @@
 	{
 		"id": "hq-expressions/assembled-text-ordered-against-a-literal",
 		"base": "hq-expressions",
+		"entry": "questions/bind-calculate-on-a-hidden-value",
+		"change": {
+			"op": "named",
+			"name": "assembled_text_ordered_against_a_literal"
+		},
+		"holds": [
+			{
+				"key": ["field", { "$xmlns": [0, 0] }, ["language"]],
+				"pointer": "/calculate/cond/left/args/0/kind",
+				"value": "concat"
+			},
+			{
+				"key": ["field", { "$xmlns": [0, 0] }, ["language"]],
+				"pointer": "/calculate/cond/right/fn",
+				"value": "number"
+			}
+		]
+	},
+	{
+		"id": "hq-expressions/multiple-answers-assembled-for-ordering",
+		"base": "hq-expressions",
 		"entry": "expressions-and-data/a-form-expression-outside-what-nova-types",
 		"standing": "not-yet",
 		"place": {
@@ -23272,7 +23293,7 @@
 		},
 		"change": {
 			"op": "named",
-			"name": "assembled_text_ordered_against_a_literal"
+			"name": "multiple_answers_assembled_for_ordering"
 		}
 	},
 	{

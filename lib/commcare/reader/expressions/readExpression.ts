@@ -1982,7 +1982,49 @@ function catalogNeedsNameDiagnostics(env: ExpressionReadEnv): boolean {
 	return needed;
 }
 
-/** A direct text answer ordered against text in a root Hidden Value's
+/** The start of a text operand may name one root answer followed by
+ * a literal suffix. Both its native syntax and its bound tree must agree. */
+function rootTextOrderInput(
+	doc: BlueprintDoc,
+	form: Uuid,
+	value: Expression,
+	source: FormSyntax,
+): boolean {
+	if (value.kind === "concat") {
+		if (
+			value.parts.length !== 2 ||
+			source.kind !== "call" ||
+			source.name !== "concat" ||
+			source.args.length !== 2 ||
+			source.args[1].kind !== "string"
+		)
+			return false;
+		const [field, suffix] = value.parts;
+		return (
+			field?.kind === "term" &&
+			suffix?.kind === "term" &&
+			suffix.term.kind === "literal" &&
+			suffix.term.value === source.args[1].value &&
+			rootTextOrderInput(doc, form, field, source.args[0])
+		);
+	}
+	return (
+		source.kind === "child" &&
+		!source.descendant &&
+		source.step.kind === "name" &&
+		source.left?.kind === "child" &&
+		!source.left.descendant &&
+		source.left.left === undefined &&
+		source.left.step.kind === "name" &&
+		value.kind === "term" &&
+		value.term.kind === "field" &&
+		value.term.filters === undefined &&
+		doc.fields[value.term.uuid]?.kind === "text" &&
+		doc.fieldParent[value.term.uuid] === form
+	);
+}
+
+/** A root text answer with optional literal suffix ordered against text in a root Hidden Value's
  * calculation. Core coerces each side with exactly the `number()` function.
  * Keep the reference, the comparison and both authored branches. */
 function explicitTextOrder(
@@ -2011,20 +2053,9 @@ function explicitTextOrder(
 	if (
 		condition.kind !== "binary" ||
 		condition.op !== "<" ||
-		condition.left.kind !== "child" ||
-		condition.left.descendant ||
-		condition.left.step.kind !== "name" ||
-		condition.left.left?.kind !== "child" ||
-		condition.left.left.descendant ||
-		condition.left.left.left !== undefined ||
-		condition.left.left.step.kind !== "name" ||
 		condition.right.kind !== "string" ||
 		then.kind !== "string" ||
 		otherwise.kind !== "string" ||
-		left.kind !== "term" ||
-		left.term.kind !== "field" ||
-		left.term.filters !== undefined ||
-		doc.fields[left.term.uuid]?.kind !== "text" ||
 		right.kind !== "term" ||
 		right.term.kind !== "literal" ||
 		typeof right.term.value !== "string" ||
@@ -2038,7 +2069,7 @@ function explicitTextOrder(
 	if (
 		form === undefined ||
 		doc.fieldParent[ref.uuid] !== form ||
-		doc.fieldParent[left.term.uuid] !== form
+		!rootTextOrderInput(doc, form, left, condition.left)
 	)
 		return undefined;
 	const numeric = (operand: Expression): Expression => ({
