@@ -70,13 +70,29 @@ it.each([
 				},
 			},
 		});
-		const exported = exportedBody(answer.draft.doc)._attachments as Record<
-			string,
-			string
-		>;
+		const republished = exportedBody(answer.draft.doc);
+		const exported = republished._attachments as Record<string, string>;
 		expect(Object.values(exported)[0]).toContain(
 			`number(/data/code) &lt; number(&apos;${literalText}&apos;)`,
 		);
+		const reread = readHqApp(await inputFor(republished), { claims: "full" });
+		if (reread.kind !== "read") throw Error(JSON.stringify(reread.findings));
+		const rereadResult = Object.values(reread.draft.doc.fields).find(
+			(field) => field.id === "result",
+		);
+		expect(rereadResult).toMatchObject({
+			calculate: {
+				kind: "if",
+				cond: {
+					kind: "lt",
+					right: {
+						kind: "call",
+						fn: "number",
+						args: [term(literal(literalText))],
+					},
+				},
+			},
+		});
 		for (const [index, value] of [
 			"",
 			" 2 ",
