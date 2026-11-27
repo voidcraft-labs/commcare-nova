@@ -66,7 +66,7 @@ def _hq(state, name, *args, data=None):
     return response
 
 
-def _tiled_case_menu(state, editor_driver):
+def _tiled_case_menu(state, editor_driver, identifier):
     """A new app with one case menu whose case list groups its tiles by parent, as HQ's own pages make it; returns
     (app id, its follow-up form's unique id)."""
     from corehq.apps.app_manager.dbaccessors import get_app_ids_in_domain
@@ -90,7 +90,7 @@ def _tiled_case_menu(state, editor_driver):
             ("type", json.dumps("case")),
             ("short", json.dumps(columns)),
             ("caseTileTemplate", json.dumps("person_simple")),
-            ("case_tile_group", json.dumps({"index_identifier": "parent", "header_rows": 2})),
+            ("case_tile_group", json.dumps({"index_identifier": identifier, "header_rows": 2})),
         ],
     )
     module = operations.held_app(state, app_id).modules[0]
@@ -137,9 +137,18 @@ WITH_PARENT = _database(
     _case("visit-with-parent", CASE_TYPE, "Bo", 1, [("parent", PARENT_TYPE, "household-1", "child")]),
 )
 
+WITH_DOTTED_PARENT = _database(
+    _case("household-other", PARENT_TYPE, "Other house", 0),
+    _case("household-1", PARENT_TYPE, "Hill house", 1),
+    _case("visit-with-parent", CASE_TYPE, "Bo", 2, [
+        ("parent", PARENT_TYPE, "household-other", "child"),
+        ("my.parent", PARENT_TYPE, "household-1", "child"),
+    ]),
+)
 
-@pytest.fixture(scope="module")
-def reopened(hq, editor_driver, lane_services):
+
+@pytest.fixture(scope="module", params=("parent", "my.parent"))
+def reopened(hq, editor_driver, lane_services, request):
     """What a device makes of HQ's own app: the first release installed, every form left incomplete, the update to
     the second release, and each form reopened; for the visit with no parent and for the one with a parent."""
     from proof.android import observe as android
@@ -150,7 +159,8 @@ def reopened(hq, editor_driver, lane_services):
 
     blobs, found = Blobs(), {}
     with hq_check(CONFIGURATION) as (state, _):
-        app_id, form_id = _tiled_case_menu(state, editor_driver)
+        identifier = request.param
+        app_id, form_id = _tiled_case_menu(state, editor_driver, identifier)
         # Keep the first release in HQ while the next release is served: the first archive's restore URL
         # still names that release when the device signs in before updating.
         with state.committing(), state.operation("first-release", b"grouped-tile-first"), build_seams():
@@ -158,7 +168,8 @@ def reopened(hq, editor_driver, lane_services):
             first = webapps_hq._archive(first_build)
         # A person renames the follow-up form on HQ's form settings, and HQ releases the app again.
         _hq(state, "edit_form_attr", app_id, form_id, "name", data=[("name", "Visit again")])
-        for name, database in (("alone", ALONE), ("with-parent", WITH_PARENT)):
+        paired = WITH_PARENT if identifier == "parent" else WITH_DOTTED_PARENT
+        for name, database in (("alone", ALONE), ("with-parent", paired)):
             with formplayer_hq.serve(state, None, app_id, database=database, label=f"second-{name}") as served:
                 second = android.release_archive(served)
                 answer = android.update(served, blobs, label=name, before=first, after=second, incomplete=True)
