@@ -77,7 +77,7 @@ import {
 	userPropertySlugsByUuid,
 } from "@/lib/domain";
 import { blueprintDocSchema } from "@/lib/domain/blueprint";
-import { authoredBoundedFlatClose } from "@/lib/domain/boundedFlatClose";
+import { authoredBoundedFlatSelection } from "@/lib/domain/boundedFlatClose";
 import { resolveCaseFormContext } from "@/lib/domain/caseFormContext";
 import { isAdvancedCaseIndexIdentifier } from "@/lib/domain/caseOperationIdentifiers";
 import { STANDARD_CASE_SELECTION_MAXIMUM } from "@/lib/domain/caseSelectionLimits";
@@ -942,7 +942,7 @@ export async function loadCasesAction(
 				doc && moduleUuid ? doc.modules[moduleUuid] : undefined;
 			const profile =
 				doc && savedModule
-					? authoredBoundedFlatClose(
+					? authoredBoundedFlatSelection(
 							doc,
 							savedModule.uuid,
 							doc.formOrder[savedModule.uuid]?.[0],
@@ -2564,7 +2564,7 @@ export async function submitFormAction(
 		const module = moduleUuidOfForm(committed, projection.formUuid);
 		const boundedFlatClose =
 			module !== undefined &&
-			!!authoredBoundedFlatClose(committed, module, projection.formUuid);
+			!!authoredBoundedFlatSelection(committed, module, projection.formUuid);
 		if (
 			!binding &&
 			(boundedFlatClose ||

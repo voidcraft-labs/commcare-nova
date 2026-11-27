@@ -13774,7 +13774,7 @@ def _flat_close_has_only_its_selected_case_block(xform):
     return not any(bind.get("relevant") for nodes in xform.binds.values() for bind in nodes)
 
 
-def bounded_flat_close_maximum(use, manifest):
+def _bounded_flat_form(use, *, followup):
     """One ordinary unconditional own-case close supplies a manually or automatically chosen 101-case datum."""
     value = _basic_multi_select_maximum(use)
     if value != 101:
@@ -13810,11 +13810,17 @@ def bounded_flat_close_maximum(use, manifest):
     xform = app.xform(form)
     if xform is None:
         return None
-    if not _flat_close_has_only_its_selected_case_block(xform):
-        return False
-    generated = xform.paths[xform.model_repeats[0]]
+    if followup:
+        if (xform.body is None or xform.model_repeats or xform.save_to_case
+                or any(_local(element) != "body" for element in xform.body_elements)):
+            return False
+        generated = None
+    else:
+        if not _flat_close_has_only_its_selected_case_block(xform):
+            return False
+        generated = xform.paths[xform.model_repeats[0]]
     for nodeset, binds in xform.binds.items():
-        if nodeset.startswith((f"{generated}/", f"{generated}/@")):
+        if generated is not None and nodeset.startswith(f"{generated}/"):
             continue
         for bind in binds:
             if any(bind.get(name) for name in ("relevant", "constraint", "required")):
@@ -13826,6 +13832,14 @@ def bounded_flat_close_maximum(use, manifest):
                     return False
     return True
 
+
+
+def bounded_flat_close_maximum(use, manifest):
+    return _bounded_flat_form(use, followup=False)
+
+
+def bounded_flat_followup_maximum(use, manifest):
+    return _bounded_flat_form(use, followup=True)
 
 def max_select_value_above_100(use, manifest):
     value = _basic_multi_select_maximum(use)
@@ -14990,6 +15004,7 @@ POSITIVE_VALUE_CLASSES = {
     "menus-and-case-lists/lookup-extra-with-a-fixed-integer-sum": lookup_with_native_integer_sum,
     "menus-and-case-lists/detail-filter-matching-the-direct-hosts-text": direct_host_text_filter,
     "menus-and-case-lists/detail-max-select-value-for-flat-close": bounded_flat_close_maximum,
+    "menus-and-case-lists/detail-max-select-value-for-flat-followup": bounded_flat_followup_maximum,
     "case-search/address-picker-on-a-search-screen": ordinary_address_search_marker,
     "case-search/case-search-endpoint-id": configured_search_endpoint,
     "case-search/default-filter-orders-the-records-the-search-sends": named_search_order,

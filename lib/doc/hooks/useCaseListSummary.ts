@@ -24,7 +24,7 @@ import {
 	useBlueprintDocShallow,
 } from "@/lib/doc/hooks/useBlueprintDoc";
 import type { Uuid } from "@/lib/doc/types";
-import { boundedFlatCloseForm } from "@/lib/domain/boundedFlatClose";
+import { boundedFlatSelectionForm } from "@/lib/domain/boundedFlatClose";
 import {
 	BOUNDED_FLAT_CLOSE_MAXIMUM,
 	STANDARD_CASE_SELECTION_MAXIMUM,
@@ -67,7 +67,7 @@ export function useCaseListSummary(moduleUuid: Uuid): CaseListSummary {
 export function useCaseSelectionMaximumOffer(moduleUuid: Uuid): number {
 	return useBlueprintDoc((doc) => {
 		const form = doc.formOrder[moduleUuid]?.[0];
-		return form && boundedFlatCloseForm(doc, moduleUuid, form)
+		return form && boundedFlatSelectionForm(doc, moduleUuid, form)
 			? BOUNDED_FLAT_CLOSE_MAXIMUM
 			: STANDARD_CASE_SELECTION_MAXIMUM;
 	});

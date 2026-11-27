@@ -7,7 +7,7 @@ import type { Uuid } from "./uuid";
 
 /** The bounded opening cannot serve an expression or operation that needs
  * records beyond the selection. Keep the initial profile intentionally flat. */
-export function boundedFlatCloseForm(
+export function boundedFlatSelectionForm(
 	doc: BlueprintDoc,
 	module: Uuid,
 	form: Uuid,
@@ -44,7 +44,7 @@ export function boundedFlatCloseForm(
 		config.tile ||
 		config.contextAboveForm ||
 		menuEmittedAdvanced(doc, module) ||
-		owner?.type !== "close" ||
+		(owner?.type !== "close" && owner?.type !== "followup") ||
 		owner.shadowOf ||
 		owner.caseSelections ||
 		owner.computedDatums ||
@@ -79,12 +79,12 @@ export function boundedFlatCloseForm(
 }
 
 /** Only the higher authored limit routes through the bounded worker path. */
-export function authoredBoundedFlatClose(
+export function authoredBoundedFlatSelection(
 	doc: BlueprintDoc,
 	module: Uuid,
 	form: Uuid | undefined,
 ) {
-	const profile = form && boundedFlatCloseForm(doc, module, form);
+	const profile = form && boundedFlatSelectionForm(doc, module, form);
 	return profile?.selection.maximum === BOUNDED_FLAT_CLOSE_MAXIMUM
 		? profile
 		: undefined;

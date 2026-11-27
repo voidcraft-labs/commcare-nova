@@ -45,6 +45,7 @@ or every case closed where it does not); a block written for one row alone
 
 from __future__ import annotations
 
+import pytest
 from lxml import etree
 
 from proof.formplayer import apps
@@ -287,8 +288,9 @@ def test_basic_automatic_multi_selection_uses_the_whole_datum_and_refuses_overfl
 
 
 
+@pytest.mark.parametrize("followup", [False, True])
 def test_the_authored_bounded_case_list_selects_101_and_refuses_the_102nd(
-    hq, formplayer_runner, formplayer_documents, evidence,
+    hq, formplayer_runner, formplayer_documents, evidence, followup,
 ):
     import json
     from dataclasses import replace
@@ -297,6 +299,8 @@ def test_the_authored_bounded_case_list_selects_101_and_refuses_the_102nd(
     from proof.formplayer.hq import serve
     from proof.formplayer.webapps import FormplayerRefused
     from proof.hq.check import hq_check
+    from proof.matrix import registry
+    from proof.matrix.authoring import Authoring
     from proof.observe import casedata, publish
 
     witness = json.loads((Path(__file__).parent / "fixtures" / "bounded-flat-close-case-list.json").read_text())
@@ -310,6 +314,9 @@ def test_the_authored_bounded_case_list_selects_101_and_refuses_the_102nd(
         with unit.operation("the stock bounded flat close", doc.id.encode()):
             app_id, refusal, _ = publish.create_authored(unit, doc)
             assert refusal is None, refusal
+            if followup:
+                author = Authoring(unit, {}, doc.id, operation=unit.operation)
+                registry.named_change("limit_101_outside_flat_close")(author, app_id)
         for batch, count in (("at-maximum", witness["selectedCount"]), ("overflow", witness["overflowCount"])):
             overflow = batch == "overflow"
             supplied = replace(database, cases=cases[:count])
@@ -332,14 +339,22 @@ def test_the_authored_bounded_case_list_selects_101_and_refuses_the_102nd(
                     else:
                         if not overflow:
                             assert screen_kind(page) == "form" and page["title"] == witness["form"], page
+                            ids = {case.case_id for case in supplied.cases}
+                            before = _held(served.domain, sorted(ids)) if followup else None
                             result = web.submit(page["session_id"], {})
                             assert result["status"] == "success", result
                             (submission,) = served.hq.submissions
-                            submitted = _submitted(submission.instance)
-                            ids = {case.case_id for case in supplied.cases}
-                            assert len(submitted["selected"]) == count and set(submitted["selected"]) == ids
-                            assert sorted(submitted["blocks"]) == sorted((case_id, True) for case_id in ids)
-                            observations[batch] = {"selected": submitted["selected"], "blocks": submitted["blocks"]}
+                            if followup:
+                                payload = etree.fromstring(submission.instance, PARSER)
+                                assert not list(payload.iter(CASE))
+                                assert payload.findtext("{*}outcome") == "done"
+                                assert _held(served.domain, sorted(ids)) == before
+                                observations[batch] = {"caseTransactions": 0, "offered": count}
+                            else:
+                                submitted = _submitted(submission.instance)
+                                assert len(submitted["selected"]) == count and set(submitted["selected"]) == ids
+                                assert sorted(submitted["blocks"]) == sorted((case_id, True) for case_id in ids)
+                                observations[batch] = {"selected": submitted["selected"], "blocks": submitted["blocks"]}
                             continue
                         assert screen_kind(page) == "notification", page
                         message = str(page)
