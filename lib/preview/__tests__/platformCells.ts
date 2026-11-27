@@ -253,6 +253,9 @@ export const PLATFORM_CELLS: Readonly<
 	"menus-and-case-lists/lookup-extra-with-a-fixed-integer-sum@web-apps": stated(
 		"case-list-android-lookup",
 	),
+	"menus-and-case-lists/lookup-extras-explicit-evaluation@web-apps": stated(
+		"case-list-android-lookup",
+	),
 	"menus-and-case-lists/lookup-extras-fixed-text@web-apps": stated(
 		"case-list-android-lookup",
 	),
@@ -395,6 +398,9 @@ export const PLATFORM_CELLS: Readonly<
 	),
 	"case-search/address-receiver-with-an-unused-suffix@android": model(
 		"search-address-picker-android",
+	),
+	"case-search/address-receiver-clears-text@android": model(
+		"search-address-clear-android",
 	),
 	"expressions-and-data/guarded-fingerprint-query-without-a-supplier@web-apps":
 		outside(

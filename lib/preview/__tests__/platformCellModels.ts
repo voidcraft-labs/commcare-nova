@@ -1154,6 +1154,55 @@ export const PLATFORM_MODEL_CHECKS = {
 			new Set(["city"]),
 		);
 	},
+	"search-address-clear-android": (on: Platform) => {
+		const picker = {
+			kind: "address",
+			type: "address",
+			uuid: testUuid("clearing-address-picker"),
+			name: "home",
+			label: "Address",
+		} as const;
+		const receiver = simpleSearchInputDef(
+			testUuid("clearing-address-receiver"),
+			"village",
+			"Village",
+			"text",
+			"village",
+			{
+				addressReceiver: {
+					kind: "address-clear",
+					source: picker.uuid,
+					component: "unknown_component",
+				},
+			},
+		);
+		const inputs = [picker, receiver];
+		const entered = new Map([["village", "Hand-entered village"]]);
+		const rules = previewPlatformRules(on);
+		expect(drawnSearchInputs(inputs, rules)).toEqual([receiver]);
+		for (const message of [{ city: "Example Town" }, null]) {
+			expect(
+				applySearchAddressMessage(
+					entered,
+					inputs,
+					picker.uuid,
+					message,
+					undefined,
+					rules,
+				),
+			).toEqual(entered);
+			expect(
+				applySearchAddressMessage(
+					entered,
+					inputs,
+					picker.uuid,
+					message,
+					undefined,
+					WEB_APPS,
+				).has("village"),
+			).toBe(false);
+		}
+	},
 	"saved-address-default": (on: Platform) => {
 		const picker = {
 			kind: "address",
