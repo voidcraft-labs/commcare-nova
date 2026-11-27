@@ -3568,14 +3568,9 @@
 		"subject": "case-property-names",
 		"owner": "forms-and-case-management",
 		"platforms": {
-			"kind": "each",
-			"cell": "RUNS / RUNS",
-			"webApps": {
-				"reading": "runs"
-			},
-			"android": {
-				"reading": "runs"
-			}
+			"kind": "not-applicable",
+			"cell": "n/a",
+			"note": "The supported Basic Android write has its own row. Other names and placements stay open for their own runtime evidence."
 		},
 		"emission": {
 			"cell": "the key",
