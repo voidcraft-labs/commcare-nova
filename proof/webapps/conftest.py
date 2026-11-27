@@ -18,6 +18,7 @@ DOCUMENTS = (
     "hq-question-display",
     "hq-lookups",
     "hq-media",
+    "hq-advanced",
     "hq-search",
     "targeted-question-calendar",
     "prompt-periods",
