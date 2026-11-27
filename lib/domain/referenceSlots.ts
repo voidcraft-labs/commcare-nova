@@ -2182,7 +2182,10 @@ export type NonReferenceReason =
 	 *  `referenceIndex.extractFormEdges` follows it under the `shared_form`
 	 *  slot, so removing that form names every entry that opens it
 	 *  (`lib/doc/sharedFormDependents.ts`). */
-	| "shared-form";
+	| "shared-form"
+	/** A link within one Search screen, maintained by its input/group edits
+	 *  and checked against that screen's input and group definitions. */
+	| "search-input-connection";
 
 export const NON_REFERENCE_FIELD_PATHS: Readonly<
 	Record<string, NonReferenceReason>
@@ -2253,6 +2256,7 @@ export const NON_REFERENCE_FIELD_PATHS: Readonly<
 	label_media: "media",
 	help_media: "media",
 	"optionsSource.kind": "discriminator",
+	"optionsSource.status": "config",
 	"optionsSource.options[].uuid": "identity",
 	"optionsSource.options[].value": "data-literal",
 	"optionsSource.options[].media": "media",
@@ -2452,6 +2456,19 @@ export const NON_REFERENCE_MODULE_PATHS: Readonly<
 	"caseListConfig.emptyText": "display-text",
 	"caseListConfig.selectButtonText": "display-text",
 	"caseListConfig.optimizations": "config",
+	"caseListConfig.deviceLookup.action": "wire-token",
+	"caseListConfig.deviceLookup.automatic": "config",
+	// The only computed extras are the signed worker's name and ID. They
+	// select fixed session keys and do not name authored properties.
+	"caseListConfig.deviceLookup.extras[].expression.kind": "discriminator",
+	"caseListConfig.deviceLookup.extras[].expression.term.kind": "discriminator",
+	"caseListConfig.deviceLookup.extras[].expression.term.field": "wire-token",
+	"caseListConfig.deviceLookup.extras[].name": "wire-token",
+	"caseListConfig.deviceLookup.extras[].value": "data-literal",
+	"caseListConfig.deviceLookup.icon": "media",
+	"caseListConfig.deviceLookup.label": "display-text",
+	"caseListConfig.deviceLookup.responses[]": "wire-token",
+	"caseListConfig.deviceLookup.resultHeading": "display-text",
 	"caseListConfig.columns[].loadBehavior": "config",
 	"caseListConfig.columns[].uuid": "identity",
 	"caseListConfig.columns[].kind": "discriminator",
@@ -2551,7 +2568,17 @@ export const NON_REFERENCE_MODULE_PATHS: Readonly<
 	"caseListConfig.searchInputs[].matching": "config",
 	"caseListConfig.searchInputs[].allowBlank": "config",
 	"caseListConfig.searchInputs[].sendAnswer": "config",
+	"caseListConfig.searchInputs[].excludeFromRequest": "config",
 	"caseListConfig.searchInputs[].hidden": "config",
+	"caseListConfig.searchInputs[].group": "search-input-connection",
+	"caseListConfig.searchInputs[].addressReceiver.kind": "discriminator",
+	"caseListConfig.searchInputs[].addressReceiver.source":
+		"search-input-connection",
+	"caseListConfig.searchInputs[].addressReceiver.topic": "wire-token",
+	"caseListConfig.searchInputs[].addressReceiver.parts[]": "wire-token",
+	"caseListConfig.searchInputs[].addressReceiver.fields": "wire-token",
+	"caseListConfig.searchInputGroups[].uuid": "identity",
+	"caseListConfig.searchInputGroups[].label": "display-text",
 	"caseListConfig.searchFilters[].uuid": "identity",
 	"caseSearchConfig.relatedRecords": "config",
 	"caseListConfig.searchFilters[].target.kind": "discriminator",

@@ -486,7 +486,9 @@ describe("form slots — paths resolve with the promised shape", () => {
 
 describe("module slots — paths resolve with the promised shape", () => {
 	it.each(moduleSlots)("$slot resolves on the module schema", (slot) => {
-		const resolved = resolvePath(moduleSchema, slot.path);
+		const resolved = resolvePath(moduleSchema, slot.path).filter(
+			(schema) => !(schema instanceof z.ZodNever),
+		);
 		expect(resolved.length).toBeGreaterThan(0);
 		if (slot.kind === "expression")
 			for (const r of resolved) expect(EXPRESSION_SCHEMAS.has(r)).toBe(true);
@@ -570,7 +572,10 @@ describe("module slots — paths resolve with the promised shape", () => {
 					!slot?.searchInputWidgetExceptions?.some(
 						({ kind, widget }) => kind === armKind && widget === armWidget,
 					);
-				expect(key in arm.shape, `${slotId} on ${armKind}/${armWidget}`).toBe(
+				const property = arm.shape[key];
+				const canHoldValue =
+					property !== undefined && !(unwrap(property) instanceof z.ZodNever);
+				expect(canHoldValue, `${slotId} on ${armKind}/${armWidget}`).toBe(
 					applies,
 				);
 			}

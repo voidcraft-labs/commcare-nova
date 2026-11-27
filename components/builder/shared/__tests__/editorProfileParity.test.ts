@@ -400,6 +400,10 @@ function fixture(): BlueprintDoc {
 			typeChoice: { condition: matchAll(), otherwise: "patient" },
 			writes: [{ property: "visit_note", value: term(literal("new")) }],
 			owner: term(literal("owner-id")),
+			ownerAfterCreate: {
+				value: term(literal("later-owner-id")),
+				condition: matchAll(),
+			},
 		},
 	];
 	return doc;
@@ -451,6 +455,18 @@ const SLOTS: readonly ExpressionSlotRef[] = [
 		uuid: FOLLOWUP,
 		slot: "case_operation_owner_condition",
 		member: { operationUuid: UPDATE },
+	},
+	{
+		entity: "form",
+		uuid: REGISTER,
+		slot: "case_operation_later_owner",
+		member: { operationUuid: CREATE },
+	},
+	{
+		entity: "form",
+		uuid: REGISTER,
+		slot: "case_operation_later_owner_condition",
+		member: { operationUuid: CREATE },
 	},
 	{
 		entity: "form",
