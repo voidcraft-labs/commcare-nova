@@ -37,8 +37,11 @@ import type { Uuid } from "@/lib/domain/uuid";
 import { inventoryIndex } from "../../surface/inventory";
 import { rethrowWorkStop } from "../../workMeter";
 import type { FormParseIssue } from "../../xpath/formParseIssues";
-import type { FormSyntax } from "../../xpath/formSyntax";
-import { visitSyntax } from "../../xpath/formSyntax";
+import {
+	type FormSyntax,
+	literalInstanceId,
+	visitSyntax,
+} from "../../xpath/formSyntax";
 import { declaredInstance, instanceForRead } from "../../xpath/instanceSources";
 import { parser } from "../../xpath/parser";
 import { defineClaims, drop, refuse, take } from "../claims";
@@ -554,6 +557,10 @@ export const EXPRESSION_CLAIMS = defineClaims("expressions", {
 	),
 	"companion-lookup-count": take(
 		"expressions-and-data/companion-lookup-count",
+		"session-path:session/data/fingerprintquery",
+	),
+	"bare-fingerprint-query-without-a-supplier": refuse(
+		"expressions-and-data/bare-fingerprint-query-without-a-supplier",
 		"session-path:session/data/fingerprintquery",
 	),
 	"session-data-fingerprintquery": refuse(
@@ -2419,6 +2426,7 @@ function readsLookupChoices(
  *  path of each Save to Case create's id (`DraftForm.operationIdPaths`). */
 export interface FormDeclarations {
 	readonly instanceSources: ReadonlyMap<string, string>;
+	readonly directEntryWithoutSupplier?: boolean;
 	readonly computedDatums: ReadonlySet<string>;
 	readonly operationIdPaths: ReadonlyMap<string, Uuid>;
 }
@@ -2501,6 +2509,37 @@ function questionContext(
 	const path =
 		structure === undefined ? undefined : formFieldPath(structure, ref.uuid);
 	return path === undefined ? undefined : [root, ...path];
+}
+
+function bareLookupCountCalculate(
+	doc: BlueprintDoc,
+	pending: PendingExpression,
+	form: FormDeclarations,
+): boolean {
+	const ref = pending.ref;
+	if (
+		!form.directEntryWithoutSupplier ||
+		ref.entity !== "field" ||
+		ref.slot !== "calculate" ||
+		doc.fields[ref.uuid]?.kind !== "hidden" ||
+		form.instanceSources.get("commcaresession") !== "jr://instance/session"
+	)
+		return false;
+	const parsed = readFormSyntax(pending.text);
+	if (!parsed.ok) return false;
+	let node = parsed.node;
+	while (node?.kind === "group") node = node.value;
+	for (const name of ["fingerprintquery", "data", "session"]) {
+		if (
+			node?.kind !== "child" ||
+			node.descendant ||
+			node.step.kind !== "name" ||
+			node.step.name !== name
+		)
+			return false;
+		node = node.left;
+	}
+	return literalInstanceId(node)?.value === "commcaresession";
 }
 
 /** "By parse issue", from its second row down: the entry, `"unrecognized"`,
@@ -2654,7 +2693,11 @@ export function parseIssueEntry(
 							].entry,
 				);
 			if (names.includes("fingerprintquery"))
-				return answer(C["session-data-fingerprintquery"].entry);
+				return answer(
+					bareLookupCountCalculate(doc, pending, form)
+						? C["bare-fingerprint-query-without-a-supplier"].entry
+						: C["session-data-fingerprintquery"].entry,
+				);
 			return answer(M1);
 		}
 		case "unknown-itext":

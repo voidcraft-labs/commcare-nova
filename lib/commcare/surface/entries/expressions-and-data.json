@@ -227,6 +227,32 @@
 		"gates": []
 	},
 	{
+		"id": "expressions-and-data/bare-fingerprint-query-without-a-supplier",
+		"area": "expressions-and-data",
+		"section": "Secondary instances",
+		"item": "A Hidden Value's bare fingerprint query count in a standalone Android form with no supplier",
+		"surfaceKeys": ["session-path:session/data/fingerprintquery"],
+		"valueClass": "bare-fingerprint-query-without-a-supplier",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: broken at runtime: Core cannot open the form when the entire calculation reads the missing value",
+		"subject": "expressions",
+		"reasons": [
+			{
+				"kind": "broken-at-runtime",
+				"named": "Core cannot open the form when the entire calculation reads the missing value"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
 		"id": "expressions-and-data/session-data-fingerprintquery",
 		"area": "expressions-and-data",
 		"section": "Secondary instances",

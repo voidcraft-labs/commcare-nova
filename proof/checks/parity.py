@@ -68,6 +68,7 @@ from proof.checks import appearance_rows, changes, lookup_parity, manifest_usage
 from proof.checks.differences import Difference, pointer_token
 from proof.checks.manifest_value_classes import (
     _guarded_lookup_count,
+    bare_fingerprint_query_without_supplier,
     HQ_CASE_RESERVED_WORDS,
     case_itemset_survey_readiness,
     direct_parent_text_prompt_key,
@@ -476,6 +477,7 @@ EXTENDED_OPEN_INDEX = "forms-and-case-writes/advancedopencaseaction-case-indices
 UNICODE_OPEN_INDEX = "forms-and-case-writes/advanced-open-connection-unicode-name"
 SHADOW_LOAD = "forms-and-case-writes/a-parent-load-tag-not-repeated-in-extra-actions-where-the-parent"
 LOOKUP_COUNT = "expressions-and-data/companion-lookup-count"
+BARE_LOOKUP_COUNT = "expressions-and-data/bare-fingerprint-query-without-a-supplier"
 SUPPLY_POINT = "expressions-and-data/session-data-supply-point-id-in-an-advanced-form-whose-computed"
 PARENT_FOLLOW_UP = "menus-and-case-lists/case-list-form-pointing-at-a-follow-up-form-of-the-parent-case"
 CHILD_REGISTRATION = (
@@ -614,6 +616,18 @@ def _supplied_point_uses(found, held, entry):
             yield Decided(use, manifest_usage.HELD, (entry,))
 
 
+def _bare_lookup_count_uses(found, held, entry):
+    """Read the retained raw bind with the same source facts the manifest classifier requires."""
+    for expression in found.expressions:
+        if "fingerprintquery" not in expression.text:
+            continue
+        use = manifest_usage.Use(
+            "session-path:session/data/fingerprintquery", expression.artifact, expression.where, expression.at
+        )
+        if bare_fingerprint_query_without_supplier(use, held):
+            yield Decided(use, manifest_usage.REFUSED, (entry,))
+
+
 def _companion_count_uses(found, entry):
     """Find the numeric singleton guard on a retained direct basic lookup form."""
     guards = (_guarded_lookup_count(), _guarded_lookup_count(indexed=False))
@@ -750,7 +764,8 @@ def _forms_variant_uses(found, held, entries):
     """Source facts retained variants can decide without the full corpus's runtime observations."""
     wanted = {
         AUTOMATIC_MULTI, LOCATION_WRITE, HYPHEN_TAG, EXTENDED_OPEN_INDEX, UNICODE_OPEN_INDEX, SHADOW_LOAD, SUPPLY_POINT,
-        OWN_CASE_BESIDE, LOOKUP_COUNT, ITEMSET_FILTER, ITEMSET_PREDICATE, ADVANCED_CASE_ITEMSET, PARENT_USER_WRITE,
+        OWN_CASE_BESIDE, LOOKUP_COUNT, BARE_LOOKUP_COUNT, ITEMSET_FILTER, ITEMSET_PREDICATE, ADVANCED_CASE_ITEMSET,
+        PARENT_USER_WRITE,
         *REGISTRATION_ENTRIES, *RETYPE_ENTRIES,
         CONDITIONAL_WORKER_UPDATE, REPEATED_WORKER_UPDATE, HELD_REPEATED_WORKER_UPDATE, LATER_OWNER_ON_FRESH_CREATE,
         PASSIVE_LABEL_WRITE, OTHER_ADVANCED_LABEL,
@@ -826,6 +841,8 @@ def _forms_variant_uses(found, held, entries):
         yield from _supplied_point_uses(found, held, by_id[SUPPLY_POINT])
     if LOOKUP_COUNT in wanted:
         yield from _companion_count_uses(found, by_id[LOOKUP_COUNT])
+    if BARE_LOOKUP_COUNT in wanted:
+        yield from _bare_lookup_count_uses(found, held, by_id[BARE_LOOKUP_COUNT])
 
 
 SEARCH_CHECK_NO_MESSAGE = "case-search/a-required-or-validation-test-with-no-message-in-any-language"
@@ -863,7 +880,7 @@ def added_uses(base_source: dict, variant_source: dict, *, entries=()) -> list[D
     held = manifest()
 
     def decisions(source):
-        found = source_uses(source, held, keep_expressions=bool({SUPPLY_POINT, LOOKUP_COUNT}.intersection(entries)))
+        found = source_uses(source, held, keep_expressions=bool({SUPPLY_POINT, LOOKUP_COUNT, BARE_LOOKUP_COUNT}.intersection(entries)))
         decided, _ = decided_uses(found, held)
         decided.extend(_forms_variant_uses(found, held, entries))
         if SEARCH_CHECK_NO_MESSAGE in entries:

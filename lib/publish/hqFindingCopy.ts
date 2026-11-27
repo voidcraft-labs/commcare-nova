@@ -582,6 +582,8 @@ export const FIX_IN_HQ_SENTENCES: Readonly<
 export const FIX_IN_HQ_ENTRY_SENTENCES: Readonly<Record<string, string>> = {
 	"application-and-settings/translations-generated-menu-icon-only-in-media-map":
 		"A translation points to a menu icon that CommCare HQ leaves out of the release. You can attach the intended icon in that language, or clear the translation to use the menu’s usual icon.",
+	"expressions-and-data/bare-fingerprint-query-without-a-supplier":
+		"This Hidden Value reads a lookup count the form never receives, so the form cannot open on Android. In CommCare HQ, you can remove the calculation or check for a result before reading the count.",
 	"application-and-settings/translations-generated-menu-icon-without-mapping":
 		"A translation points to a missing menu icon file. You can attach the intended icon in that language, or clear the translation to use the menu’s usual icon.",
 	"questions/video-inline-as-the-only-content-of-a-help-text":

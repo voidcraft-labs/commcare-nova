@@ -166,6 +166,13 @@ def fingerprint_query(authoring, app_id):
     _language(authoring, app_id, f"{SESSION}/data/fingerprintquery", "fingerprint-query")
 
 
+def fingerprint_query_guarded(authoring, app_id):
+    """The adjacent no-result guard lets Core open the Survey, but does not name a supported lookup supplier."""
+    read = f"{SESSION}/data/fingerprintquery"
+    _language(authoring, app_id, f"if(count({read}) = 0, 'No lookup result', string({read}[1]))",
+              "fingerprint-query-guarded")
+
+
 def window_width_in_form_logic(authoring, app_id):
     """A read of ``session/context/window_width`` in a calculation."""
     _language(authoring, app_id, f"{SESSION}/context/window_width", "window-width-in-form-logic")

@@ -1264,6 +1264,49 @@ function sourceNames(
 	};
 }
 
+function directFormWithoutSessionSupplier(ctx: ReadContext): Uuid | undefined {
+	// Only an ordinary standalone survey opened from the root command is
+	// established to have no selection, link, or configured datum upstream.
+	const [menu] = ctx.draft.modules;
+	const form = menu?.forms[0];
+	const source = ctx.input.source;
+	if (
+		source.cloudcareEnabled ||
+		source.raw.cloudcare_enabled !== false ||
+		source.raw.use_custom_suite !== false ||
+		source.modules.length !== 1 ||
+		source.modules[0].forms.length !== 1 ||
+		menu?.docType !== "Module" ||
+		form?.docType !== "Form" ||
+		menu.json.peek("module_type") !== "basic" ||
+		menu.json.peek("case_type") !== "" ||
+		menu.json.peek("root_module_id") ||
+		form.json.peek("form_type") !== "module_form" ||
+		form.json.peek("requires") !== "none" ||
+		form.json.peek("post_form_workflow") !== "default"
+	)
+		return undefined;
+	for (const key of ["fixture_select", "parent_select"]) {
+		const setting = menu.json.peek(key);
+		if (
+			setting != null &&
+			(!isJsonObject(setting) ||
+				(setting.active !== false && setting.active !== undefined))
+		)
+			return undefined;
+	}
+	for (const key of [
+		"form_links",
+		"arbitrary_datums",
+		"function_datum_endpoints",
+	]) {
+		const value = form.json.peek(key);
+		if (value != null && (!Array.isArray(value) || value.length !== 0))
+			return undefined;
+	}
+	return form.uuid;
+}
+
 /**
  * What the expression stage reads beside the document, built from each form's reading and keyed
  * by the form's UUID: the source's own names, the unit each referenced text id was read as (its
@@ -1317,6 +1360,7 @@ export function expressionEnvOf(ctx: ReadContext): ExpressionReadEnv {
 		numericSortColumns: numericSortColumns(ctx),
 		formPlaces,
 		computedDatums,
+		directFormWithoutSessionSupplier: directFormWithoutSessionSupplier(ctx),
 		...(ctx.input.knownCaseTypes !== undefined && {
 			knownCaseTypes: ctx.input.knownCaseTypes,
 		}),
