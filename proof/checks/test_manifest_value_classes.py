@@ -9324,6 +9324,31 @@ def test_standalone_result_detail_positive_classifier(manifest, prompt, guarded,
     assert classes.standalone_result_detail_text(field, manifest) is expected
 
 
+def _search_case_choice_editor_source():
+    nodeset = "instance('casedb')/casedb/case[@case_type = 'patient'][@status = 'open']"
+
+    def app(*, editor_table=None, source=nodeset):
+        itemset = {
+            "doc_type": "Itemset",
+            "nodeset": source,
+            "label": "case_name",
+            "value": "case_name",
+            "sort": "case_name",
+        }
+        if editor_table is not None:
+            itemset["instance_id"] = editor_table
+        return _app([_search_module(properties=[_prompt("name", input_="select1", itemset=itemset)])])
+
+    return {
+        "case-search/case-itemset-without-an-editor-source": (
+            refused("app", app(), "schema:Itemset.nodeset", "/itemset/nodeset"),
+            accepted("app", app(editor_table="item-list:districts"), "schema:Itemset.nodeset", "/itemset/nodeset"),
+            accepted("app", app(source="instance('item-list:districts')/districts_list/districts"),
+                     "schema:Itemset.nodeset", "/itemset/nodeset"),
+        ),
+    }
+
+
 SHAPES = {
     "menus-and-case-lists/advanced-inline-search-without-entry-query": _root_advanced_inline_search_shapes(),
     "forms-and-case-writes/basic-case-owner-written-from-a-datetime-answer": _basic_root_datetime_owner_shapes(),
@@ -9331,6 +9356,7 @@ SHAPES = {
     **_bounded_flat_close_shapes(),
     **_direct_host_text_filter_shapes(),
     **_standalone_result_detail_shapes(),
+    **_search_case_choice_editor_source(),
     **_android_callout_shapes(),
     **_lookup_count_shapes(),
     **_case_list_lookup_shapes(),
