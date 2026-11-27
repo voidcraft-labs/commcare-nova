@@ -1,3 +1,4 @@
+import { bindCaseListActionTargets } from "./menus/registration";
 /**
  * The reader of CommCare HQ's apps: one pure function from an app as HQ
  * serves it to a Nova document, or to the account of why it cannot be held.
@@ -97,7 +98,12 @@ const REGISTRATION_PARTS: readonly (readonly [ReaderStage, SteppedStage?])[] = [
 	[(ctx) => readMenus(ctx, ctx.draft)],
 	[(ctx) => readCaseManagement(ctx, ctx.draft)],
 	[mintFields],
-	[(ctx) => writeCaseOperations(ctx, ctx.draft)],
+	[
+		(ctx) => {
+			writeCaseOperations(ctx, ctx.draft);
+			bindCaseListActionTargets(ctx);
+		},
+	],
 	[
 		(ctx) => readCaseLists(ctx, ctx.draft),
 		(ctx) => readCaseListsSteps(ctx, ctx.draft),
@@ -277,12 +283,16 @@ export function* readHqLookupTagsSteps(
 				for (const id of instanceIdsIn(raw.node)) ids.add(id);
 			}
 			const sources = instanceSourcesOf(doc, registration, env);
+			const scopes = registration.suiteNavigation ?? registration.suiteDetails;
 			for (const id of ids) {
 				if (
-					registration.suiteDetails?.length &&
-					(!sources?.has(id) || requiredInstanceIds(registration).has(id))
+					scopes?.length &&
+					(!sources?.has(id) ||
+						requiredInstanceIds(registration).has(id) ||
+						(registration.suiteNavigation !== undefined &&
+							(id.startsWith("item-list:") || id === "locations")))
 				)
-					input.observeSuiteDetail?.(registration.suiteDetails, id);
+					input.observeSuiteDetail?.(scopes, id);
 				if (discover && sources?.has(id)) {
 					const form =
 						registration.mode.target === "xform"

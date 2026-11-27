@@ -905,6 +905,65 @@ export interface AppDeploymentKeyedCaseIdsTable {
  * worker account. Inserted under the admission's locks, updated when it
  * settles, never deleted and never row-locked.
  */
+/** `lookup_json_destinations`: one Nova table on one project space, as Nova last wrote it there through CommCare HQ's JSON resources. */
+export interface LookupJsonDestinationsTable {
+	project_id: string;
+	server: string;
+	domain: string;
+	table_id: LookupTableId;
+	tag: string;
+	/** CommCare HQ's id of the table; null until its create is found by its tag. */
+	remote_table_id: string | null;
+	definition_digest: string;
+	/** Moves with every acknowledged write, so a plan made over an older ledger is stale. */
+	revision: ColumnType<string, number | string | undefined, number | string>;
+	created_by: string;
+	created_at: Timestamp;
+	updated_at: Timestamp;
+}
+
+/** `lookup_json_destination_rows`: a Nova row and the CommCare HQ row id minted for it. */
+export interface LookupJsonDestinationRowsTable {
+	project_id: string;
+	server: string;
+	domain: string;
+	table_id: LookupTableId;
+	row_id: LookupRowId;
+	remote_row_id: string;
+	sort_key: number;
+	digest: string;
+}
+
+/** `lookup_json_operations`: one JSON request, journaled before it is sent. */
+export interface LookupJsonOperationsTable {
+	id: DefaultedUuidV7Column<string>;
+	project_id: string;
+	server: string;
+	domain: string;
+	table_id: LookupTableId;
+	app_id: string;
+	actor_user_id: string;
+	/** 'create-table' | 'create-row' | 'update-row' | 'delete-row', reasserted on read. */
+	kind: string;
+	row_id: LookupRowId | null;
+	remote_id: string | null;
+	intended: JSONColumnType<Record<string, unknown>, string, string>;
+	before: JSONColumnType<
+		Record<string, unknown> | null,
+		string | null,
+		string | null
+	>;
+	/** 'admitted' | 'applied' | 'not-applied' | 'uncertain' | 'review', reasserted on read. */
+	state: string;
+	result_remote_id: string | null;
+	admitted_at: Timestamp;
+	settled_at: ColumnType<
+		Date | null,
+		Date | string | null | undefined,
+		Date | string | null
+	>;
+}
+
 export interface HqRemoteWritesTable {
 	/** Current deployment generation when HQ was first known to be finished. */
 	settled_generation: ColumnType<string | null, never, string | null>;
@@ -928,7 +987,7 @@ export interface HqRemoteWritesTable {
 	resource_kind: string;
 	/** The HQ app's id, the Nova table's, the Nova place's, or the persona's; null only on a create whose app is not recorded yet. */
 	resource_id: ColumnType<string | null, string | null, string | null>;
-	/** 'create' | 'import' | 'media' | 'workbook' | 'places' | 'worker', reasserted on read. */
+	/** 'create' | 'import' | 'media' | 'workbook' | 'lookup-json' | 'places' | 'worker', reasserted on read. */
 	write_kind: string;
 	opened_at: Timestamp;
 	/** When the write stops being open if its process never settles it. */
@@ -1987,6 +2046,9 @@ export interface AppDatabase {
 	form_submission_intents: FormSubmissionIntentsTable;
 	lookup_project_state: LookupProjectStateTable;
 	lookup_tables: LookupTablesTable;
+	lookup_json_destinations: LookupJsonDestinationsTable;
+	lookup_json_destination_rows: LookupJsonDestinationRowsTable;
+	lookup_json_operations: LookupJsonOperationsTable;
 	lookup_columns: LookupColumnsTable;
 	lookup_rows: LookupRowsTable;
 	lookup_members: LookupMembersTable;

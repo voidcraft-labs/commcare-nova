@@ -222,6 +222,7 @@ function documentFromDrafts(ctx: ReadContext): BlueprintDoc {
 	const present = new Map(menus.map((module) => [module.uuid, module]));
 	for (const module of menus) {
 		const { parentModuleUuid, ...own } = module.module;
+		if (own.formsFromMenu) delete own.caseType;
 		/* A parent the document does not hold, or one that has a parent of its
 		 * own, stands under its own finding; the child is a root here. */
 		const parent =

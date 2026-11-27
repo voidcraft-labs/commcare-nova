@@ -624,9 +624,13 @@ describe("an advanced form's loads and open actions", () => {
 				formType: "followup",
 				menu: "visits",
 				configure: (built) => {
+					// A household chosen under a household: HQ's build refuses that
+					// as a basic menu's `parent_select` (`validate_parent_select`),
+					// and an advanced menu loads it through its named index instead.
 					built.modules[MEMBERS] = {
 						...built.modules[MEMBERS],
 						caseType: "household",
+						heldKind: "advanced",
 					} as never;
 					built.modules[VISITS] = {
 						...built.modules[VISITS],
@@ -1262,7 +1266,10 @@ function memberOpen(
 }
 
 describe("an open action's index beside the menus' parent selection", () => {
-	it("refuses a parent index to another type or as an extension once, at the form", async () => {
+	it("keeps the menu's parent selection beside a parent index to another type or as an extension", async () => {
+		// A basic menu's selection matches any non-extension index to the chosen
+		// case (`entries.py::get_parent_filter`), whatever the catalog names as
+		// the type's parent, so an index the form writes leaves it standing.
 		const { doc } = memberFollowup();
 		for (const relationship of ["child", "extension"] as const) {
 			const reading = await readMenusOf(doc, (app) => {
@@ -1276,10 +1283,13 @@ describe("an open action's index beside the menus' parent selection", () => {
 				actions.open_cases = [memberOpen(tag, relationship)];
 			});
 			expect(reading.outcome.defects, relationship).toEqual([]);
-			expect(codesOf(reading), relationship).toEqual([
-				`${F}/an-advanced-open-action-s-parent-index-against-a-menu-s-parent-selection`,
-			]);
-			expect(reading.findings[0]?.place.kind).toBe("form");
+			expect(codesOf(reading), relationship).toEqual([]);
+			const read = Object.values(reading.doc?.modules ?? {});
+			const members = read.find((menu) => menu.name === "Members");
+			const households = read.find((menu) => menu.name === "Households");
+			expect(members?.parentCaseModuleUuid, relationship).toBe(
+				households?.uuid,
+			);
 		}
 	});
 

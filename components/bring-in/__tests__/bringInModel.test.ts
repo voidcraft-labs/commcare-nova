@@ -905,6 +905,7 @@ describe("every answer of a create", () => {
 			runsOnlyOn: "android",
 			splitDatetime: false,
 			tableChoices: {},
+			ownerRuleChoices: {},
 		});
 		expect(model.pendingCreate).toBeNull();
 		expect(model.call).toBeNull();
@@ -978,6 +979,7 @@ describe("every answer of a create", () => {
 			runsOnlyOn: null,
 			splitDatetime: false,
 			tableChoices: { districts: "use-project" },
+			ownerRuleChoices: {},
 		});
 	});
 
@@ -1070,6 +1072,7 @@ describe("carryAnswers", () => {
 		runsOnlyOn: "android",
 		splitDatetime: true,
 		tableChoices: { districts: "use-project", crops: "use-commcare-hq" },
+		ownerRuleChoices: {},
 	};
 
 	it("keeps what is still offered and the name the person typed, under the new digest", () => {
@@ -1104,6 +1107,7 @@ describe("carryAnswers", () => {
 			runsOnlyOn: null,
 			splitDatetime: false,
 			tableChoices: { crops: "use-commcare-hq" },
+			ownerRuleChoices: {},
 		});
 	});
 

@@ -233,6 +233,7 @@ function changes(
 		observedDigest: OBSERVED_DIGEST,
 		renamedInNova: [],
 		tables: [],
+		ownerRules: [],
 		projectName: "Field team",
 		readingId: READING_ID,
 		reviewDigest: REVIEW_DIGEST,
@@ -486,6 +487,7 @@ test("a change Nova can bring in with nothing removed asks no question, and one 
 				readingId: READING_ID,
 				reviewDigest: REVIEW_DIGEST,
 				tableChoices: {},
+				ownerRuleChoices: {},
 			},
 		]);
 		expect(uploads).toHaveLength(1);
@@ -741,6 +743,7 @@ test("a save in CommCare HQ that changed nothing is recorded and the publish goe
 				readingId: READING_ID,
 				reviewDigest: REVIEW_DIGEST,
 				tableChoices: {},
+				ownerRuleChoices: {},
 			},
 		]);
 		expect(uploads).toHaveLength(2);
@@ -1457,6 +1460,7 @@ test("on the card, a save in CommCare HQ that reads the same but moved a form's 
 				readingId: READING_ID,
 				reviewDigest: REVIEW_DIGEST,
 				tableChoices: {},
+				ownerRuleChoices: {},
 			},
 		]);
 		await expect(

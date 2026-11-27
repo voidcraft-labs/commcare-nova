@@ -103,6 +103,36 @@ describe("caseDatabaseRequirements", () => {
 		});
 	});
 
+	it("loads device cases when the only read is a menu badge", () => {
+		const doc = buildDoc({
+			caseTypes: [{ name: "household", properties: [] }],
+			modules: [
+				{
+					name: "Visits",
+					forms: [
+						{
+							name: "Notes",
+							type: "survey",
+							postSubmit: "app_home",
+							fields: [f({ kind: "text", id: "note" })],
+						},
+					],
+				},
+			],
+		});
+		const [menu] = Object.values(doc.modules);
+		menu.badge = { kind: "text", text: "New" };
+		expect(caseDatabaseRequirements(doc).required).toBe(false);
+		menu.badge = {
+			kind: "calculation",
+			expression: {
+				kind: "count",
+				via: { kind: "cases", source: "casedb", where: [] },
+			},
+		};
+		expect(caseDatabaseRequirements(doc).required).toBe(true);
+	});
+
 	it("captures the entry world for a static previous task without an authored casedb reference", () => {
 		const doc = buildDoc({
 			caseTypes: [{ name: "patient", properties: [] }],

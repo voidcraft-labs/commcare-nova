@@ -32,6 +32,7 @@ import {
 	sameTypeChildReasons,
 } from "../projectSpaceCompatibility";
 import { domainFeatureFlag } from "../surface/gates";
+import { caseListActionRolesFixture } from "./caseListActionRolesFixture";
 import { childCreate, own, placementFixture, read } from "./placementFixture";
 
 // These tests project authored feature facts over a whole document; target
@@ -335,6 +336,22 @@ describe("projectSpaceCompatibilityProbePlan", () => {
 				}),
 			).map((item) => item.id),
 		).not.toContain("registration-after-empty-search");
+	});
+
+	it("requires the list action setting for a conditioned button and a parent's follow-up on menus that never search", () => {
+		const plan = projectSpaceCompatibilityProbePlan(
+			caseListActionRolesFixture(),
+		);
+		const capability = plan.capabilities.find(
+			(item) => item.capability.id === "registration-after-empty-search",
+		);
+		expect(capability?.capability.reasons).toEqual([
+			"A case list shows its form button when a condition holds.",
+			"A case list offers a form for its selected parent record.",
+		]);
+		expect(capability?.featureFlags.map((flag) => flag.id)).toEqual([
+			"no-matches-registration",
+		]);
 	});
 
 	describe("a captured file's link", () => {

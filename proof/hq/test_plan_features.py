@@ -70,6 +70,7 @@ NOVA_LABELS = {
     "data_forwarding": "Data Forwarding",
     "app_dependencies": "App Dependencies",
     "geocoder": "Geocoder",
+    "custom_icon_badges": "Add text or xpath based custom icon badges to menus and forms",
 }
 
 

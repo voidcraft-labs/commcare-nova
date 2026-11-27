@@ -3294,7 +3294,15 @@ function RemoteChangeChoice({
 								({change.identity})
 							</span>
 						</p>
-						{change.kind === "app" && change.canBringIn && panel !== null ? (
+						{/* Menu layouts CommCare HQ holds that this publish replaces
+						 * are no change since the reading the panel compares, so its
+						 * review cannot show them; the item lists them with their
+						 * tick, and the person matches them in Nova or publishes
+						 * over them. */}
+						{change.kind === "app" &&
+						change.canBringIn &&
+						!change.replacesMenuLayouts &&
+						panel !== null ? (
 							/* A new refusal is a new review: keyed by the state it read. */
 							<HqChangesPanel
 								key={change.observedDigest}

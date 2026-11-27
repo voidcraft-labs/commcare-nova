@@ -9,6 +9,7 @@ import {
 	asUuid,
 	type CommitOutcome,
 	type EntryPointTarget,
+	entryPointAt,
 	entryPointInventory,
 	type FormEntryPoint,
 	projectLocalizedForm,
@@ -19,9 +20,11 @@ import {
 } from "@/lib/domain";
 import {
 	type EntryPointCommitPlan,
+	holdsEntryCaseCreations,
 	planEntryPointAdd,
 	planEntryPointRemove,
 	planEntryPointUpdate,
+	planFormEntryCaseCreations,
 } from "../entryPointMutations";
 import {
 	entryPointDestination,
@@ -30,6 +33,10 @@ import {
 import type { Mutation } from "../types";
 import { useBlueprintDoc, useBlueprintDocApi } from "./useBlueprintDoc";
 import { useBlueprintMutations } from "./useBlueprintMutations";
+
+export function useEntryPointOnRoute(target: EntryPointTarget) {
+	return useBlueprintDoc((doc) => entryPointAt(doc, target));
+}
 
 export function useEntryPoints() {
 	const doc = useBlueprintDoc((state) => state);
@@ -84,6 +91,21 @@ export function useEntryPointActions() {
 			: { ok: false, messages: [plan.reason.message] };
 	return {
 		writeAdmission,
+		setCaseCreations(
+			target: EntryPointTarget,
+			operations: readonly Uuid[],
+			base: readonly Uuid[],
+		) {
+			const current = api.getState();
+			if (!holdsEntryCaseCreations(current, target, base))
+				return {
+					ok: false,
+					messages: [
+						"These case IDs changed in another editor. Review the shared choices and try again.",
+					],
+				};
+			return commit(planFormEntryCaseCreations(current, target, operations));
+		},
 		add(target: EntryPointTarget): CommitOutcome & { uuid?: Uuid } {
 			const current = api.getState();
 			const destination = entryPointDestination(current, target);

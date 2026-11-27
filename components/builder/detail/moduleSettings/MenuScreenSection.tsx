@@ -12,13 +12,15 @@
 
 import { useCallback, useId, useState } from "react";
 import { ToggleRow } from "@/components/builder/inspector/inspectorChrome";
+import { updateModuleMutation } from "@/lib/doc/addModuleMutation";
 import { setModuleFormsInMenuAboveMutation } from "@/lib/doc/displayConditionMutations";
+import { useAppSettings } from "@/lib/doc/hooks/useAppSettings";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useModule } from "@/lib/doc/hooks/useEntity";
 import { useMenuScreenSource } from "@/lib/doc/hooks/useMenuScreenSource";
 import { useOfferedBatchRefusals } from "@/lib/doc/hooks/useOfferedBatchRefusals";
 import type { BlueprintDoc, Uuid } from "@/lib/doc/types";
-import { moduleShowsFormsInMenuAbove } from "@/lib/domain";
+import { menuScreenOf, moduleShowsFormsInMenuAbove } from "@/lib/domain";
 import { useCanEdit } from "@/lib/session/hooks";
 import {
 	MENU_SCREEN_HEADING,
@@ -32,6 +34,7 @@ export function MenuScreenSection({
 	readonly moduleUuid: Uuid;
 }) {
 	const module = useModule(moduleUuid);
+	const { firstMenuLayout, formMenuLayout } = useAppSettings();
 	const source = useMenuScreenSource();
 	const canEdit = useCanEdit();
 	const { inline } = useBlueprintMutations();
@@ -42,6 +45,12 @@ export function MenuScreenSection({
 	const on = moduleShowsFormsInMenuAbove(module);
 	const plan = useCallback(
 		(doc: BlueprintDoc) => ({
+			grid: [
+				updateModuleMutation(moduleUuid, {
+					menuLayout:
+						doc.modules[moduleUuid]?.menuLayout === "grid" ? null : "grid",
+				}),
+			],
 			toggle: [
 				setModuleFormsInMenuAboveMutation(
 					moduleUuid,
@@ -51,12 +60,15 @@ export function MenuScreenSection({
 		}),
 		[moduleUuid],
 	);
-	const gate = useOfferedBatchRefusals<"toggle">(
+	const gate = useOfferedBatchRefusals<"toggle" | "grid">(
 		plan,
 		canEdit && module !== undefined,
 	);
 
 	if (module === undefined) return null;
+	const screen = menuScreenOf(source, moduleUuid);
+	const usesIndividual =
+		formMenuLayout === "individual" && screen.kind === "menu";
 	const { line, added } = menuScreenLines(source, moduleUuid);
 
 	return (
@@ -84,7 +96,37 @@ export function MenuScreenSection({
 				}}
 				disabledReason={gate.toggle}
 			/>
-			{refused !== undefined && gate.toggle === undefined && (
+			{/* A menu listing another menu's forms holds no layout of its own:
+			 * it follows Other menus in App settings. */}
+			{module.formsFromMenu === undefined && (
+				<ToggleRow
+					label="Use a grid"
+					checked={module.menuLayout === "grid"}
+					description={
+						usesIndividual
+							? screen.moduleUuid === moduleUuid
+								? "Show this menu’s choices as tiles."
+								: `Show the choices in ${source.modules[screen.moduleUuid]?.name} as tiles, including the forms from this menu.`
+							: screen.kind === "first-menu"
+								? `These forms appear on the first menu, which uses ${firstMenuLayout === "grid" ? "a grid" : "a list"}. This choice takes effect below the first menu when Other menus is set to Choose per menu.`
+								: `The app currently shows other menus as ${formMenuLayout === "grid" ? "grids" : "lists"}. This choice takes effect when Other menus is set to Choose per menu.`
+					}
+					disabledReason={
+						!canEdit
+							? "A Project editor can change the menu layout."
+							: gate.grid
+					}
+					onChange={(next) => {
+						const result = inline.commitMany([
+							updateModuleMutation(moduleUuid, {
+								menuLayout: next ? "grid" : null,
+							}),
+						]);
+						setRefused(result.ok ? undefined : result.messages[0]);
+					}}
+				/>
+			)}
+			{refused !== undefined && (
 				<p role="alert" className="text-[13px] leading-relaxed text-nova-rose">
 					{refused}
 				</p>

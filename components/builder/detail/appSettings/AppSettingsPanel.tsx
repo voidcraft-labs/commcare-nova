@@ -7,6 +7,7 @@ import { AppAppearanceSection } from "./AppAppearanceSection";
 import { AppConnectSection } from "./AppConnectSection";
 import { AppDataSourcesSection } from "./AppDataSourcesSection";
 import { AppLocationSection } from "./AppLocationSection";
+import { AppMenuLayoutSection } from "./AppMenuLayoutSection";
 import { AppPlatformsSection } from "./AppPlatformsSection";
 import { AppSavedFormsSection } from "./AppSavedFormsSection";
 import { RequiredAndroidAppsSection } from "./RequiredAndroidAppsSection";
@@ -52,6 +53,7 @@ export function AppSettingsPanel({ onClose }: AppSettingsPanelProps) {
 				<AppPlatformsSection />
 				<RequiredAndroidAppsSection />
 				<AppAppearanceSection />
+				<AppMenuLayoutSection />
 				<ControlWording owner="app" />
 				<AppSavedFormsSection />
 				<AppLocationSection />

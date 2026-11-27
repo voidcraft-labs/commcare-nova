@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * What a case list's "Register from this list" setting and a form's
+ * What a case list's "Form button on the list" setting and a form's
  * "Also offered on" row read, projected from the document once per
  * snapshot: the `always` arm the host holds, the forms it may offer (each
  * with the batch that offers it, `lib/doc/alwaysOfferedRegistration.ts`),
@@ -25,23 +25,35 @@ import {
 	effectivePostSubmit,
 	menuFormUuidsOf,
 	menuScreenOf,
+	moduleFormsReadSearch,
 	moduleUuidOfForm,
 	type PostSubmitDestination,
 	screenChoosesCaseFirst,
 	type Uuid,
 } from "@/lib/domain";
-import { useBlueprintDoc, useBlueprintDocApi } from "./useBlueprintDoc";
+import { sameCaseListActionTarget } from "@/lib/domain/caseListActionTargets";
+import {
+	useBlueprintDoc,
+	useBlueprintDocApi,
+	useBlueprintDocEq,
+} from "./useBlueprintDoc";
 import { useBlueprintMutations } from "./useBlueprintMutations";
 
 export interface RegisterFromListFacts {
 	readonly hostName: string;
+	readonly parentListName?: string;
+	readonly formsReadSearch: boolean;
 	readonly caseType: string | undefined;
 	/** The host's `always` arm, and the name of the form it names. */
 	readonly stored: AlwaysOfferedRegistration | undefined;
 	readonly storedFormName: string | undefined;
+	readonly targetName?: string;
 	/** The form the host offers after an empty search, which takes the slot. */
 	readonly afterEmptySearchFormName: string | undefined;
-	readonly choices: readonly AlwaysOfferedRegistrationChoice[];
+	readonly choices: readonly Omit<
+		AlwaysOfferedRegistrationChoice,
+		"mutations"
+	>[];
 	/** The host has no menu forms: its frame is its command alone. */
 	readonly bare: boolean;
 	/** The host's screen chooses a case before a form. */
@@ -60,6 +72,19 @@ export interface RegisterFromListFacts {
 /** Keyed on the menus, the forms and the case types, which every fact here
  *  reads, so a question's edit inside a form re-renders nothing. */
 export function useRegisterFromList(hostUuid: Uuid): RegisterFromListFacts {
+	const choices = useBlueprintDocEq(
+		(state) => alwaysOfferedRegistrationChoices(state, hostUuid),
+		(a, b) =>
+			a.length === b.length &&
+			a.every(
+				(choice, i) =>
+					choice.formUuid === b[i].formUuid &&
+					choice.formName === b[i].formName &&
+					choice.moduleUuid === b[i].moduleUuid &&
+					choice.moduleName === b[i].moduleName &&
+					sameCaseListActionTarget(choice.target, b[i].target),
+			),
+	);
 	const modules = useBlueprintDoc((state) => state.modules);
 	const moduleOrder = useBlueprintDoc((state) => state.moduleOrder);
 	const forms = useBlueprintDoc((state) => state.forms);
@@ -81,8 +106,22 @@ export function useRegisterFromList(hostUuid: Uuid): RegisterFromListFacts {
 			stored === undefined ? undefined : doc.forms[stored.formUuid];
 		const storedModule =
 			stored === undefined ? undefined : moduleUuidOfForm(doc, stored.formUuid);
+		const target = stored?.target;
+		const targetName =
+			target?.kind === "chosen-parent"
+				? doc.modules[target.moduleUuid]?.name
+				: target?.kind === "created-case"
+					? storedForm?.caseOperations?.find(
+							(op) => op.uuid === target.operationUuid,
+						)?.id
+					: undefined;
 		return {
 			hostName: host?.name ?? "",
+			formsReadSearch: host !== undefined && moduleFormsReadSearch(host),
+			targetName,
+			parentListName: host?.parentCaseModuleUuid
+				? doc.modules[host.parentCaseModuleUuid]?.name
+				: undefined,
 			caseType: host?.caseType,
 			stored,
 			storedFormName: storedForm?.name,
@@ -90,7 +129,7 @@ export function useRegisterFromList(hostUuid: Uuid): RegisterFromListFacts {
 				afterEmptySearch === undefined
 					? undefined
 					: doc.forms[afterEmptySearch]?.name,
-			choices: alwaysOfferedRegistrationChoices(doc, hostUuid),
+			choices,
 			bare: menuFormUuidsOf(doc, hostUuid).length === 0,
 			caseFirst,
 			ownAfterSubmit:
@@ -109,7 +148,16 @@ export function useRegisterFromList(hostUuid: Uuid): RegisterFromListFacts {
 						}
 					: undefined,
 		};
-	}, [modules, moduleOrder, forms, formOrder, caseTypes, caseFirst, hostUuid]);
+	}, [
+		modules,
+		moduleOrder,
+		forms,
+		formOrder,
+		caseTypes,
+		caseFirst,
+		hostUuid,
+		choices,
+	]);
 }
 
 /** The case lists that always offer the form, in module order, each with its

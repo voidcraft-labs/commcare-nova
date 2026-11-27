@@ -22,6 +22,7 @@ import {
 	resolveAppLanguage,
 	type Uuid,
 } from "@/lib/domain";
+import { menuWithInheritedCaseSettings } from "@/lib/domain/listedForms";
 import { useBlueprintDocEq } from "./useBlueprintDoc";
 
 function sameEntity<T>(left: T | undefined, right: T | undefined): boolean {
@@ -35,11 +36,15 @@ export function useModule(uuid: Uuid | undefined): Module | undefined {
 			uuid === undefined
 				? undefined
 				: language === null
-					? doc.modules[uuid]
-					: projectLocalizedModule(
+					? menuWithInheritedCaseSettings(doc, uuid)
+					: menuWithInheritedCaseSettings(
 							doc,
-							resolveAppLanguage(doc.localization, language),
 							uuid,
+							projectLocalizedModule(
+								doc,
+								resolveAppLanguage(doc.localization, language),
+								uuid,
+							),
 						),
 		sameEntity,
 	);

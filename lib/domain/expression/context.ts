@@ -12,6 +12,7 @@ import {
 	type EntryDatumSupplies,
 	entryDatumSupplies,
 	formLinkTargetSupplies,
+	sharedFormDatumSupplies,
 } from "../entryDatumSupplies";
 import { formOfField } from "../fieldForm";
 import type { SelectOption } from "../fields";
@@ -22,14 +23,18 @@ import {
 	orderedCaseOperations,
 	sameCaseWriteKey,
 } from "../forms";
+import { menuWithInheritedCaseSettings } from "../listedForms";
 import type { TranslationUnitId } from "../localization";
 import type {
 	LookupColumnId,
 	LookupMemberId,
 	LookupTableId,
 } from "../lookupIds";
-import { afterEmptySearchRegistrationFormOf } from "../menuForms";
-import { menuScreenOf, screenChoosesCaseFirst } from "../menuScreens";
+import {
+	afterEmptySearchRegistrationFormOf,
+	caseListsOffering,
+} from "../menuForms";
+import { formRouteBeforeCase } from "../menuScreens";
 import {
 	effectiveCaseSearchConfig,
 	moduleFormsReadSearch,
@@ -170,6 +175,8 @@ export interface FormExpressionFacts extends FormStructure {
 	 * (`menuForms.ts::afterEmptySearchRegistrationFormOf`), which opens from
 	 * Results after a search found nothing and carries the Search answers. */
 	readonly caseListRegistrationForm: boolean;
+	/** A second list can open the same hidden form without running its owning menu's search. */
+	readonly opensFromAnotherList?: boolean;
 	/** Whether the form's menu has its forms read the search, so its forms
 	 * open after the inline query that keeps the Search answers
 	 * (`search-input:results:inline`). */
@@ -379,11 +386,10 @@ export function untypedExpressionFacts(
 			]),
 		),
 		moduleCaseTypes: new Map(
-			Object.values(doc.modules).flatMap((module) =>
-				module.caseType === undefined
-					? []
-					: [[module.uuid, module.caseType] as const],
-			),
+			Object.values(doc.modules).flatMap((module) => {
+				const value = menuWithInheritedCaseSettings(doc, module.uuid)?.caseType;
+				return value === undefined ? [] : [[module.uuid, value] as const];
+			}),
 		),
 	};
 	untypedFacts.set(doc, result);
@@ -582,6 +588,11 @@ function buildFormFacts(
 		caseListRegistrationForm:
 			afterEmptySearchRegistrationFormOf(doc, structure.moduleUuid) ===
 			structure.formUuid,
+		...(afterEmptySearchRegistrationFormOf(doc, structure.moduleUuid) ===
+			structure.formUuid &&
+			caseListsOffering(doc, structure.formUuid).length > 0 && {
+				opensFromAnotherList: true,
+			}),
 		formsReadSearchModule:
 			module !== undefined && moduleFormsReadSearch(module),
 		unitShowsAnswer: (unitId) =>
@@ -722,7 +733,10 @@ export function slotContext(
 					: provisionalFormExpressionFacts(doc, formUuid, options.facts)
 			: buildFormFacts(doc, options.form, facts);
 	const moduleUuid = slot.entity === "module" ? slot.uuid : form?.moduleUuid;
-	const module = moduleUuid === undefined ? undefined : doc.modules[moduleUuid];
+	const module =
+		moduleUuid === undefined
+			? undefined
+			: menuWithInheritedCaseSettings(doc, moduleUuid);
 	if (module === undefined || moduleUuid === undefined) return undefined;
 	const searchInputs = (module.caseListConfig?.searchInputs ?? []).map(
 		(input) => ({
@@ -806,7 +820,7 @@ export function slotContext(
 							},
 						];
 		}
-		supplies = entryDatumSupplies(
+		supplies = sharedFormDatumSupplies(
 			doc,
 			{
 				kind: "form",
@@ -825,7 +839,7 @@ export function slotContext(
 			!declaration.formTypes.includes(form.type)
 		)
 			return undefined;
-		supplies = entryDatumSupplies(
+		supplies = sharedFormDatumSupplies(
 			doc,
 			{
 				kind: "form",
@@ -834,23 +848,21 @@ export function slotContext(
 			},
 			options.form,
 		);
-		if (slot.slot === "form_display_condition") {
+		if (slot.slot === "form_display_condition" || slot.slot === "form_badge") {
 			if (saved === undefined) return undefined;
-			const caseFirst = screenChoosesCaseFirst(
-				doc,
-				menuScreenOf(doc, moduleUuid),
-				options.form,
-			);
+			const caseFirst =
+				formRouteBeforeCase(doc, moduleUuid, slot.uuid, options.form) ===
+				undefined;
 			profile = slotProfile(
 				"record",
 				"session",
 				["SU", "HQ", "PV"],
-				{ kind: "condition" },
-				{ caseData: caseFirst },
+				slot.slot === "form_badge" ? { kind: "value" } : { kind: "condition" },
+				{ caseData: caseFirst || slot.slot === "form_badge" },
 			);
 			if (caseFirst)
 				rows = [{ kind: "case", root: "casedb", caseType: module.caseType }];
-			supplies = entryDatumSupplies(
+			supplies = sharedFormDatumSupplies(
 				doc,
 				{
 					kind: "form-menu",
@@ -1073,6 +1085,7 @@ export function slotContext(
 		if (caseSlot && module.caseType === undefined) return undefined;
 		const condition = [
 			"module_display_condition",
+			"case_list_action_condition",
 			"case_list_filter",
 			"search_button_display_condition",
 			"search_input_predicate",
@@ -1109,6 +1122,10 @@ export function slotContext(
 			targets,
 			condition ? { kind: "condition" } : { kind: "value" },
 			{
+				...(slot.slot === "module_badge" ||
+				slot.slot === "module_display_condition"
+					? { caseData: true }
+					: {}),
 				searchInputs: admitsInputs ? searchInputs : [],
 				patternMatching:
 					slot.slot === "search_input_required_when" ||
@@ -1129,7 +1146,10 @@ export function slotContext(
 		// The case list filter and an advanced search input's condition run at
 		// the module's case list step, after the selections before its own
 		// (`lib/domain/entryDatumSupplies.ts`).
-		if (slot.slot === "case_list_filter")
+		if (
+			slot.slot === "case_list_filter" ||
+			slot.slot === "case_list_action_condition"
+		)
 			supplies = entryDatumSupplies(doc, {
 				kind: "case-list",
 				module: moduleUuid,
@@ -1188,7 +1208,8 @@ export function slotContext(
 		// evaluates (questions, Connect, case operations, links, choice filters).
 		windowWidth:
 			slot.entity === "module" ||
-			(slot.entity === "form" && slot.slot === "form_display_condition"),
+			(slot.entity === "form" &&
+				(slot.slot === "form_display_condition" || slot.slot === "form_badge")),
 	};
 	return {
 		slot,

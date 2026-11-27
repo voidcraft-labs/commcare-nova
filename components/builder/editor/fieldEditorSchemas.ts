@@ -332,6 +332,9 @@ const textFieldEditorSchema: FieldEditorSchema<TextField> = {
 	ui: [
 		{ key: "keypad", component: KeypadEditor, label: "Number keypad" },
 		mediaEntry<TextField, "label_media">("label_media", "Label media"),
+		textEntry<TextField, "extended_text">("extended_text", "Extended text"),
+		textEntry<TextField, "qr_code">("qr_code", "QR code"),
+		textEntry<TextField, "spoken_text">("spoken_text", "Spoken text"),
 		hintEntry<TextField>(),
 		textEntry<TextField, "help">("help", "Help"),
 		mediaEntry<TextField, "help_media">("help_media", "Help media"),
@@ -348,6 +351,9 @@ const intFieldEditorSchema: FieldEditorSchema<IntField> = {
 	],
 	ui: [
 		mediaEntry<IntField, "label_media">("label_media", "Label media"),
+		textEntry<IntField, "extended_text">("extended_text", "Extended text"),
+		textEntry<IntField, "qr_code">("qr_code", "QR code"),
+		textEntry<IntField, "spoken_text">("spoken_text", "Spoken text"),
 		hintEntry<IntField>(),
 		textEntry<IntField, "help">("help", "Help"),
 		mediaEntry<IntField, "help_media">("help_media", "Help media"),
@@ -364,6 +370,9 @@ const decimalFieldEditorSchema: FieldEditorSchema<DecimalField> = {
 	],
 	ui: [
 		mediaEntry<DecimalField, "label_media">("label_media", "Label media"),
+		textEntry<DecimalField, "extended_text">("extended_text", "Extended text"),
+		textEntry<DecimalField, "qr_code">("qr_code", "QR code"),
+		textEntry<DecimalField, "spoken_text">("spoken_text", "Spoken text"),
 		hintEntry<DecimalField>(),
 		textEntry<DecimalField, "help">("help", "Help"),
 		mediaEntry<DecimalField, "help_media">("help_media", "Help media"),
@@ -380,6 +389,9 @@ const dateFieldEditorSchema: FieldEditorSchema<DateField> = {
 	],
 	ui: [
 		mediaEntry<DateField, "label_media">("label_media", "Label media"),
+		textEntry<DateField, "extended_text">("extended_text", "Extended text"),
+		textEntry<DateField, "qr_code">("qr_code", "QR code"),
+		textEntry<DateField, "spoken_text">("spoken_text", "Spoken text"),
 		hintEntry<DateField>(),
 		textEntry<DateField, "help">("help", "Help"),
 		mediaEntry<DateField, "help_media">("help_media", "Help media"),
@@ -396,6 +408,9 @@ const timeFieldEditorSchema: FieldEditorSchema<TimeField> = {
 	],
 	ui: [
 		mediaEntry<TimeField, "label_media">("label_media", "Label media"),
+		textEntry<TimeField, "extended_text">("extended_text", "Extended text"),
+		textEntry<TimeField, "qr_code">("qr_code", "QR code"),
+		textEntry<TimeField, "spoken_text">("spoken_text", "Spoken text"),
 		hintEntry<TimeField>(),
 		textEntry<TimeField, "help">("help", "Help"),
 		mediaEntry<TimeField, "help_media">("help_media", "Help media"),
@@ -412,6 +427,9 @@ const datetimeFieldEditorSchema: FieldEditorSchema<DatetimeField> = {
 	],
 	ui: [
 		mediaEntry<DatetimeField, "label_media">("label_media", "Label media"),
+		textEntry<DatetimeField, "extended_text">("extended_text", "Extended text"),
+		textEntry<DatetimeField, "qr_code">("qr_code", "QR code"),
+		textEntry<DatetimeField, "spoken_text">("spoken_text", "Spoken text"),
 		hintEntry<DatetimeField>(),
 		textEntry<DatetimeField, "help">("help", "Help"),
 		mediaEntry<DatetimeField, "help_media">("help_media", "Help media"),
@@ -428,6 +446,9 @@ const secretFieldEditorSchema: FieldEditorSchema<SecretField> = {
 	],
 	ui: [
 		mediaEntry<SecretField, "label_media">("label_media", "Label media"),
+		textEntry<SecretField, "extended_text">("extended_text", "Extended text"),
+		textEntry<SecretField, "qr_code">("qr_code", "QR code"),
+		textEntry<SecretField, "spoken_text">("spoken_text", "Spoken text"),
 		hintEntry<SecretField>(),
 		textEntry<SecretField, "help">("help", "Help"),
 		mediaEntry<SecretField, "help_media">("help_media", "Help media"),
@@ -444,6 +465,9 @@ const barcodeFieldEditorSchema: FieldEditorSchema<BarcodeField> = {
 	],
 	ui: [
 		mediaEntry<BarcodeField, "label_media">("label_media", "Label media"),
+		textEntry<BarcodeField, "extended_text">("extended_text", "Extended text"),
+		textEntry<BarcodeField, "qr_code">("qr_code", "QR code"),
+		textEntry<BarcodeField, "spoken_text">("spoken_text", "Spoken text"),
 		hintEntry<BarcodeField>(),
 		textEntry<BarcodeField, "help">("help", "Help"),
 		mediaEntry<BarcodeField, "help_media">("help_media", "Help media"),
@@ -460,6 +484,9 @@ const geopointFieldEditorSchema: FieldEditorSchema<GeopointField> = {
 	],
 	ui: [
 		mediaEntry<GeopointField, "label_media">("label_media", "Label media"),
+		textEntry<GeopointField, "extended_text">("extended_text", "Extended text"),
+		textEntry<GeopointField, "qr_code">("qr_code", "QR code"),
+		textEntry<GeopointField, "spoken_text">("spoken_text", "Spoken text"),
 		hintEntry<GeopointField>(),
 		textEntry<GeopointField, "help">("help", "Help"),
 		mediaEntry<GeopointField, "help_media">("help_media", "Help media"),
@@ -488,6 +515,12 @@ const singleSelectFieldEditorSchema: FieldEditorSchema<SingleSelectField> = {
 			label: "Choice layout",
 		},
 		mediaEntry<SingleSelectField, "label_media">("label_media", "Label media"),
+		textEntry<SingleSelectField, "extended_text">(
+			"extended_text",
+			"Extended text",
+		),
+		textEntry<SingleSelectField, "qr_code">("qr_code", "QR code"),
+		textEntry<SingleSelectField, "spoken_text">("spoken_text", "Spoken text"),
 		hintEntry<SingleSelectField>(),
 		textEntry<SingleSelectField, "help">("help", "Help"),
 		mediaEntry<SingleSelectField, "help_media">("help_media", "Help media"),
@@ -516,6 +549,12 @@ const multiSelectFieldEditorSchema: FieldEditorSchema<MultiSelectField> = {
 			label: "Choice layout",
 		},
 		mediaEntry<MultiSelectField, "label_media">("label_media", "Label media"),
+		textEntry<MultiSelectField, "extended_text">(
+			"extended_text",
+			"Extended text",
+		),
+		textEntry<MultiSelectField, "qr_code">("qr_code", "QR code"),
+		textEntry<MultiSelectField, "spoken_text">("spoken_text", "Spoken text"),
 		hintEntry<MultiSelectField>(),
 		textEntry<MultiSelectField, "help">("help", "Help"),
 		mediaEntry<MultiSelectField, "help_media">("help_media", "Help media"),
@@ -533,6 +572,9 @@ const imageFieldEditorSchema: FieldEditorSchema<ImageField> = {
 	],
 	ui: [
 		mediaEntry<ImageField, "label_media">("label_media", "Label media"),
+		textEntry<ImageField, "extended_text">("extended_text", "Extended text"),
+		textEntry<ImageField, "qr_code">("qr_code", "QR code"),
+		textEntry<ImageField, "spoken_text">("spoken_text", "Spoken text"),
 		hintEntry<ImageField>(),
 	],
 };
@@ -545,6 +587,9 @@ const audioFieldEditorSchema: FieldEditorSchema<AudioField> = {
 	],
 	ui: [
 		mediaEntry<AudioField, "label_media">("label_media", "Label media"),
+		textEntry<AudioField, "extended_text">("extended_text", "Extended text"),
+		textEntry<AudioField, "qr_code">("qr_code", "QR code"),
+		textEntry<AudioField, "spoken_text">("spoken_text", "Spoken text"),
 		hintEntry<AudioField>(),
 	],
 };
@@ -557,6 +602,9 @@ const videoFieldEditorSchema: FieldEditorSchema<VideoField> = {
 	],
 	ui: [
 		mediaEntry<VideoField, "label_media">("label_media", "Label media"),
+		textEntry<VideoField, "extended_text">("extended_text", "Extended text"),
+		textEntry<VideoField, "qr_code">("qr_code", "QR code"),
+		textEntry<VideoField, "spoken_text">("spoken_text", "Spoken text"),
 		hintEntry<VideoField>(),
 	],
 };
@@ -569,6 +617,9 @@ const fileFieldEditorSchema: FieldEditorSchema<FileField> = {
 	],
 	ui: [
 		mediaEntry<FileField, "label_media">("label_media", "Label media"),
+		textEntry<FileField, "extended_text">("extended_text", "Extended text"),
+		textEntry<FileField, "qr_code">("qr_code", "QR code"),
+		textEntry<FileField, "spoken_text">("spoken_text", "Spoken text"),
 		hintEntry<FileField>(),
 	],
 };
@@ -581,6 +632,12 @@ const signatureFieldEditorSchema: FieldEditorSchema<SignatureField> = {
 	],
 	ui: [
 		mediaEntry<SignatureField, "label_media">("label_media", "Label media"),
+		textEntry<SignatureField, "extended_text">(
+			"extended_text",
+			"Extended text",
+		),
+		textEntry<SignatureField, "qr_code">("qr_code", "QR code"),
+		textEntry<SignatureField, "spoken_text">("spoken_text", "Spoken text"),
 		hintEntry<SignatureField>(),
 	],
 };
@@ -639,7 +696,12 @@ const repeatFieldEditorSchema: FieldEditorSchema<RepeatField> = {
 const labelFieldEditorSchema: FieldEditorSchema<LabelField> = {
 	data: [],
 	logic: [xpathEntry<LabelField, "relevant">("relevant", "Show when")],
-	ui: [mediaEntry<LabelField, "label_media">("label_media", "Label media")],
+	ui: [
+		mediaEntry<LabelField, "label_media">("label_media", "Label media"),
+		textEntry<LabelField, "extended_text">("extended_text", "Extended text"),
+		textEntry<LabelField, "qr_code">("qr_code", "QR code"),
+		textEntry<LabelField, "spoken_text">("spoken_text", "Spoken text"),
+	],
 };
 
 // A section has no slots beyond its identity and title: no data, no logic,

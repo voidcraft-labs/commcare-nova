@@ -413,6 +413,14 @@ const tiled =
 const SKIP_FILTER = eq(prop("patient", "status"), literal("open"));
 
 export const PLATFORM_FEATURE_FIXTURES = {
+	"menu-layout": {
+		with: () =>
+			survey([], {
+				appSettings: { ...NEW_APP_SETTINGS, firstMenuLayout: "grid" },
+			}),
+		without: () => survey([]),
+		use: slotUse("menu-layout", { kind: "app" }, "appSettings.firstMenuLayout"),
+	},
 	"datetime-question": fieldKindPair("datetime-question", "datetime"),
 	"case-list-here": {
 		with: () =>
@@ -870,6 +878,55 @@ export const PLATFORM_FEATURE_FIXTURES = {
 			}),
 		use: slotUse("help-media", FIELD_OWNER, "help_media"),
 	},
+	"label-inline-video": {
+		with: () =>
+			oneField({
+				kind: "label",
+				id: "card",
+				label: proseText("Watch how to fold it"),
+				label_media: { image: ASSET, videoInline: ASSET },
+			}),
+		without: () =>
+			oneField({
+				kind: "label",
+				id: "card",
+				label: proseText("Watch how to fold it"),
+				label_media: { image: ASSET, video: ASSET },
+			}),
+		use: slotUse("label-inline-video", FIELD_OWNER, "label_media"),
+	},
+	"label-qr-code": {
+		with: () =>
+			oneField({
+				kind: "label",
+				id: "card",
+				label: proseText("Show this card"),
+				qr_code: "PATIENT-17",
+			}),
+		without: () =>
+			oneField({
+				kind: "label",
+				id: "card",
+				label: proseText("Show this card"),
+			}),
+		use: slotUse("label-qr-code", FIELD_OWNER, "qr_code"),
+	},
+	"label-spoken-text": {
+		with: () =>
+			oneField({
+				kind: "text",
+				id: "answer",
+				label: proseText("Answer"),
+				spoken_text: "Say the answer",
+			}),
+		without: () =>
+			oneField({
+				kind: "text",
+				id: "answer",
+				label: proseText("Answer"),
+			}),
+		use: slotUse("label-spoken-text", FIELD_OWNER, "spoken_text"),
+	},
 	now: calculatePair("now", "now()"),
 	today: calculatePair("today", "today()"),
 	"random-and-unique-id": calculatePair("random-and-unique-id", "random()"),
@@ -975,6 +1032,18 @@ export const PLATFORM_FEATURE_FIXTURES = {
 			MODULE_OWNER,
 			"caseListRegistrationForm.icon",
 		),
+	},
+	"menu-badge": {
+		with: () =>
+			survey([f({ kind: "text", id: "answer", label: proseText("Answer") })], {
+				configure: (doc) => {
+					const form = doc.forms[FIXTURE_FORM];
+					if (form !== undefined) form.badge = { kind: "text", text: "New" };
+				},
+			}),
+		without: () =>
+			survey([f({ kind: "text", id: "answer", label: proseText("Answer") })]),
+		use: slotUse("menu-badge", FORM_OWNER, "badge"),
 	},
 	"tile-grouping": {
 		with: () =>
@@ -1172,6 +1241,20 @@ export const PLATFORM_FEATURE_FIXTURES = {
 				postSubmit: "firstMenu",
 			}),
 		use: slotUse("after-submit-home", FORM_OWNER, "postSubmit"),
+	},
+	"first-menu-previous": {
+		with: () => {
+			const doc = caseApp();
+			doc.modules[FIXTURE_MODULE].formsInMenuAbove = true;
+			doc.forms[FIXTURE_FORM].postSubmit = "previous";
+			return doc;
+		},
+		without: () => {
+			const doc = caseApp();
+			doc.modules[FIXTURE_MODULE].formsInMenuAbove = true;
+			return doc;
+		},
+		use: slotUse("first-menu-previous", FORM_OWNER, "postSubmit"),
 	},
 	"after-submit-several-destinations": {
 		with: () =>

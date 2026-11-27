@@ -10,6 +10,7 @@ import {
 	effectiveAppLocalization,
 	fieldKinds,
 	languageTag,
+	menuWithInheritedCaseSettings,
 	moduleUuidOfForm,
 	orderedCaseOperations,
 	SEARCH_INPUT_RUNTIME_VALUE_TYPES,
@@ -23,7 +24,7 @@ import {
 } from "@/lib/domain";
 import type { SearchInputDecl } from "@/lib/domain/expression/context";
 import { readPlaceNames } from "@/lib/organization/pages";
-import { bindToolAddress } from "./addresses";
+import { bindToolAddress, formOfAuthoredEntryPoint } from "./addresses";
 import {
 	type AuthoringScopeOptions,
 	authoringValueScope,
@@ -105,7 +106,7 @@ function readsTableCatalog(node: AuthoredExpression): boolean {
 	switch (node.kind) {
 		case "call":
 			return (
-				["lookup", "table-column"].includes(node.name) ||
+				["lookup", "table-column", "table-rows"].includes(node.name) ||
 				node.args.some((arg) => readsTableCatalog(arg))
 			);
 		case "binary":
@@ -178,6 +179,7 @@ async function prepareInput<S extends z.ZodType>(args: {
 	const fieldUuid = optionalId(input.fieldUuid);
 	const formUuid =
 		optionalId(input.formUuid) ??
+		formOfAuthoredEntryPoint(toolName, input, doc) ??
 		(fieldUuid ? findContainingForm(doc, fieldUuid) : undefined);
 	const moduleUuid =
 		optionalId(input.moduleUuid) ??
@@ -189,7 +191,8 @@ async function prepareInput<S extends z.ZodType>(args: {
 			: { moduleUuid }),
 		...(!formUuid &&
 			moduleUuid && {
-				currentCaseType: doc.modules[moduleUuid]?.caseType,
+				currentCaseType: menuWithInheritedCaseSettings(doc, moduleUuid)
+					?.caseType,
 			}),
 	};
 	const scopes: ScopedInput[] = [{ path: [], options: root }];
@@ -506,7 +509,10 @@ async function prepareInput<S extends z.ZodType>(args: {
 						: "moduleUuid" in owner
 							? {
 									moduleUuid: owner.moduleUuid,
-									currentCaseType: doc.modules[owner.moduleUuid]?.caseType,
+									currentCaseType: menuWithInheritedCaseSettings(
+										doc,
+										owner.moduleUuid,
+									)?.caseType,
 								}
 							: {}),
 				},

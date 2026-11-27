@@ -22,12 +22,13 @@ import { createHash } from "node:crypto";
 import { Immer } from "immer";
 import { v7 } from "uuid";
 import { recordDialectRoundTrip } from "@/lib/agent/authoring/recordRoundTrip";
-import { readHqSaveOnlyEditedAnswers } from "@/lib/commcare/client";
+import { createHqSourceFlagReader } from "@/lib/commcare/client";
 import {
 	type HqAlignedModule,
 	type HqAppReading,
 	readHqAppForReading,
 } from "@/lib/commcare/hq/appReading";
+import { sourceUsesCaseListActionSetting } from "@/lib/commcare/hq/caseListActionSetting";
 import { hqReadCircumstance } from "@/lib/commcare/hq/failure";
 import {
 	publishedCaseBlocks,
@@ -64,15 +65,19 @@ import { readingAppStrings } from "@/lib/deployment/reading/appStrings";
 import {
 	type FirstPublishChangePlaces,
 	firstPublishChangePlaces,
+	withAnsweredChanges,
 } from "@/lib/deployment/reading/firstPublishChanges";
 import { type Gathered, gatherFromHq } from "@/lib/deployment/reading/gather";
 import { Pieces } from "@/lib/deployment/reading/pieces";
 import { boundAsItStands } from "@/lib/deployment/reading/projectData/lookupTables";
+import { memoryMediaStaging } from "@/lib/deployment/reading/projectData/mediaStore";
+import { workerOwnerMutations } from "@/lib/deployment/reading/projectData/ownerRules";
 import type { ReadingProjectSide } from "@/lib/deployment/reading/projectData/read";
 import {
 	mayUseProjectFactory,
 	sourceFactoryReads,
 } from "@/lib/deployment/reading/projectData/read";
+import { resolveOwnerRuleChoices } from "@/lib/deployment/reading/projectData/reviewTypes";
 import {
 	EMPTY_TARGET_IDENTITY,
 	observedTargetIdentity,
@@ -100,6 +105,7 @@ import {
 	partitionAssetRefs,
 	resolveBuiltinManifestEntries,
 } from "@/lib/media/builtinIconAssets";
+import { ANSWERED_FIRST_PUBLISH_CHANGES } from "@/lib/publish/firstPublishChangeIds";
 import {
 	type CircumstanceDetail,
 	circumstanceFinding,
@@ -140,7 +146,8 @@ export interface LaneReadInput {
 	readonly sourceFactoryReads?: Readonly<Record<string, RetainedHqAnswer>>;
 	readonly projectSpaces?: {
 		readonly all: RetainedHqAnswer;
-		readonly flagged: RetainedHqAnswer;
+		readonly flagged?: RetainedHqAnswer;
+		readonly caseListActions?: RetainedHqAnswer;
 	};
 	/** Required for `identity: "mint"`: HQ's own project data answers, and its files. */
 	readonly projectData?: {
@@ -171,6 +178,9 @@ export interface LaneReadInput {
 	readonly servedMedia?: readonly ServedFile[];
 	/** A first reading's declaration: the base's own, or absent for the reading's preselected one. */
 	readonly declaration?: LaneDeclaration;
+	/** A first reading's answers to the review's owner-rule questions, by level code, as a person
+	 *  gives them to the create (`BringInInput.ownerRuleChoices`): the base's own, or none. */
+	readonly ownerRuleChoices?: Readonly<Record<string, string>>;
 	/** `mint`: a base's first reading. `match`: a read back, which must give D's own UUIDs. */
 	readonly identity: "mint" | "match";
 	/** The reader's `claims` option. */
@@ -292,11 +302,32 @@ export type LaneReading =
 			readonly offered: readonly LaneDeclaration[];
 			readonly asked: readonly string[];
 			readonly claims: string;
+	  }
+	/** A first reading whose owner-rule answers are not one for each question its review asks
+	 *  (`reviewTypes.ts::resolveOwnerRuleChoices`): the create refuses it, and so does the lane. */
+	| {
+			readonly kind: "owner-rules-not-answered";
+			readonly stated: Readonly<Record<string, string>>;
+			/** The level code of each question the review asks. */
+			readonly askedLevels: readonly string[];
+			readonly asked: readonly string[];
+			readonly claims: string;
 	  };
 
 // ---------------------------------------------------------------------------
 // Developer messages
 // ---------------------------------------------------------------------------
+
+/** A reading that asked for a request the lane retained no answer for (`noRetainedAnswer` is its message). */
+export class NoRetainedAnswer extends Error {
+	constructor(
+		readonly path: string,
+		message: string,
+	) {
+		super(message);
+		this.name = "NoRetainedAnswer";
+	}
+}
 
 /** A request the lane holds no retained answer for. `base` is the app the reading is of: a base's id, or a corpus document's app id. */
 export function noRetainedAnswer(path: string, base: string): string {
@@ -517,6 +548,7 @@ async function firstReading(
 		readingId: LANE_READING_ID,
 		appId: input.appId,
 		stageMedia: null,
+		spillMedia: memoryMediaStaging(),
 		onEvent: () => {},
 		creds,
 		project: EMPTY_PROJECT,
@@ -568,6 +600,33 @@ async function firstReading(
 			claims: claimsText,
 		};
 	}
+	/* The base's answers to the review's owner-rule questions, applied as the create applies them
+	 * (`reading/create.ts`), and the change they make named as the birth names it
+	 * (`reading/birth.ts::adoptedDeploymentWrite`). */
+	const stated = input.ownerRuleChoices ?? {};
+	const ownerRules = resolveOwnerRuleChoices(
+		result.gathered.review.ownerRules,
+		stated,
+	);
+	if (!ownerRules.ok)
+		return {
+			kind: "owner-rules-not-answered",
+			stated,
+			askedLevels: result.gathered.review.ownerRules.map((rule) => rule.level),
+			asked: asked(),
+			claims: claimsText,
+		};
+	const read = docUnder(draft.doc, chosen.mutations);
+	const doc = docUnder(read, workerOwnerMutations(read, ownerRules.levels));
+	const firstPublish = withAnsweredChanges(
+		chosen.firstPublish,
+		chosen.firstPublishFacts,
+		doc,
+		ANSWERED_FIRST_PUBLISH_CHANGES,
+	);
+	const answered = firstPublish.ids.filter(
+		(id) => !chosen.firstPublish.ids.includes(id),
+	);
 	const rows = adoptedIdentityRows(draft.identities, fetched.modules);
 	if (!rows.ok)
 		throw new Error(
@@ -575,7 +634,7 @@ async function firstReading(
 		);
 	return {
 		kind: "read",
-		doc: docUnder(draft.doc, chosen.mutations),
+		doc,
 		identity: rows.rows.map(
 			({ entityKind, novaEntityUuid, uniqueId, xmlns }) => ({
 				entityKind,
@@ -586,11 +645,21 @@ async function firstReading(
 		),
 		declaration: laneDeclarationOf(chosen.runsOnlyOn, chosen.splitDatetime),
 		offered,
-		firstPublish: [...chosen.firstPublish.ids],
-		firstPublishPlaces: firstPublishChangePlaces(
-			chosen.firstPublishFacts,
-			chosen.firstPublish.ids,
-		),
+		firstPublish: [...firstPublish.ids],
+		firstPublishPlaces: [
+			...firstPublishChangePlaces(
+				chosen.firstPublishFacts,
+				chosen.firstPublish.ids,
+			),
+			...firstPublishChangePlaces(
+				{
+					...chosen.firstPublishFacts,
+					read: chosen.firstPublishFacts.doc,
+					doc,
+				},
+				answered,
+			),
+		],
 		/* The record the birth writes (`reading/birth.ts::adoptedDeploymentWrite`). */
 		keyedCaseIds: result.gathered.targetIdentity.keyedCaseIds,
 		columnWords: result.gathered.targetIdentity.columnWords,
@@ -909,9 +978,18 @@ async function readBack(
 	if (reading.kind !== "read") return account(readingStop(reading));
 	const { source, modules } = reading;
 
+	const readFlag = createHqSourceFlagReader(creds, LANE_TARGET.domain);
+	let caseListActionsApplied: boolean | undefined;
+	if (sourceUsesCaseListActionSetting(source.raw)) {
+		const flag = await readFlag("no-matches-registration");
+		if (flag.kind === "not-a-member") return account(atApp("not-a-member"));
+		if (flag.kind === "failed")
+			return account(atApp(hqReadCircumstance(flag.failure)));
+		caseListActionsApplied = flag.kind === "applied";
+	}
 	let saveOnlyEditedApplied: boolean | undefined;
 	if (sourceHoldsEditMode(publishedCaseBlocks(source.raw))) {
-		const flag = await readHqSaveOnlyEditedAnswers(creds, LANE_TARGET.domain);
+		const flag = await readFlag("save-only-edited-answers");
 		if (flag.kind === "not-a-member") return account(atApp("not-a-member"));
 		if (flag.kind === "failed")
 			return account(atApp(hqReadCircumstance(flag.failure)));
@@ -939,6 +1017,7 @@ async function readBack(
 		appStrings: readingAppStrings(stored.lookup),
 		recordDialect: recordDialectRoundTrip,
 		...(saveOnlyEditedApplied !== undefined && { saveOnlyEditedApplied }),
+		...(caseListActionsApplied !== undefined && { caseListActionsApplied }),
 		knownCaseTypes: knownCaseTypesOf(doc),
 		knownLanguageCodes: knownLanguageCodesOf(doc),
 	};

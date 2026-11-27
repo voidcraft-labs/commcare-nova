@@ -32,7 +32,11 @@ import {
 	USE_HQ_VERSION_ACTION,
 	USE_HQ_VERSION_HELPER,
 } from "@/lib/publish/hqChangesCopy";
-import type { CircumstanceFinding, Finding } from "@/lib/publish/hqFindings";
+import {
+	type CircumstanceFinding,
+	circumstanceFinding,
+	type Finding,
+} from "@/lib/publish/hqFindings";
 import {
 	bothListsText,
 	cardDriftReference,
@@ -78,6 +82,7 @@ function changes(overrides: Partial<ChangesReview> = {}): ChangesReview {
 		observedDigest: "o".repeat(64),
 		renamedInNova: [],
 		tables: [],
+		ownerRules: [],
 		projectName: "Field team",
 		readingId: "reading-1",
 		reviewDigest: "d".repeat(64),
@@ -310,6 +315,7 @@ describe("changes, and nothing in Nova would be removed", () => {
 			readingId: "reading-1",
 			reviewDigest: "d".repeat(64),
 			tableChoices: {},
+			ownerRuleChoices: {},
 		});
 		const sent = reduceHqChangesPanel(pressed, { type: "sent", id: 2 });
 		expect(nextRequest(sent)).toBeNull();
@@ -616,6 +622,82 @@ describe("a table that asks its choice", () => {
 	});
 });
 
+describe("an owner rule the places cannot satisfy", () => {
+	const rule = {
+		level: "clinic",
+		levelName: "Clinic",
+		conflict: { kind: "no-place", source: "North district" },
+		forms: ["Transfer"],
+	} as const;
+	const withRule = changes({ ownerRules: [rule] });
+
+	it("is drawn, and a bring-in pressed before it is answered asks for it and sends nothing", () => {
+		const state = answered(withRule);
+		expect(panelView(state, PUBLISH).body).toMatchObject({
+			ownerRules: [rule],
+		});
+		const pressed = reduceHqChangesPanel(state, {
+			type: "bring-in-pressed",
+			discard: false,
+			at: AT,
+		});
+		expect(pressed.needsChoice).toEqual({ nonce: 1 });
+		expect(nextRequest(pressed)).toBeNull();
+	});
+
+	it("sends the person's answer with the bring-in", () => {
+		const pressed = run(
+			[
+				{ type: "owner-rule-chosen", level: "clinic", choice: "worker" },
+				{ type: "bring-in-pressed", discard: false, at: AT },
+			],
+			answered(withRule),
+		);
+		expect(nextRequest(pressed)).toMatchObject({
+			kind: "bring-in",
+			ownerRuleChoices: { clinic: "worker" },
+		});
+	});
+
+	it("takes no answer for a level the review does not ask about", () => {
+		const state = reduceHqChangesPanel(answered(withRule), {
+			type: "owner-rule-chosen",
+			level: "region",
+			choice: "worker",
+		});
+		expect(state.ownerRuleChoices).toEqual({});
+	});
+
+	it("asks again where the review the bring-in came back with asks another question", () => {
+		const sent = run(
+			[
+				{ type: "owner-rule-chosen", level: "clinic", choice: "worker" },
+				{ type: "bring-in-pressed", discard: false, at: AT },
+				{ type: "sent", id: 2 },
+			],
+			answered(withRule),
+		);
+		const now = changes({
+			reviewDigest: "e".repeat(64),
+			ownerRules: [
+				{
+					...rule,
+					conflict: {
+						kind: "two-places",
+						source: "North district",
+						places: ["First clinic", "Second clinic"],
+					},
+				},
+			],
+		});
+		const moved = reduceHqChangesPanel(sent, {
+			type: "bring-in-answered",
+			outcome: { kind: "changed", now, editedBy: null },
+		});
+		expect(moved.ownerRuleChoices).toEqual({});
+	});
+});
+
 describe("after the bring-in", () => {
 	const pressed = (review: ChangesReview) =>
 		run(
@@ -787,6 +869,7 @@ describe("nothing to bring in", () => {
 			readingId: "reading-2",
 			reviewDigest: "r".repeat(64),
 			tableChoices: {},
+			ownerRuleChoices: {},
 		});
 		const sent = reduceHqChangesPanel(state, { type: "sent", id: 2 });
 		expect(nextRequest(sent)).toBeNull();
@@ -827,6 +910,7 @@ describe("nothing to bring in", () => {
 				readingId: "reading-2",
 				reviewDigest: "r".repeat(64),
 				tableChoices: {},
+				ownerRuleChoices: {},
 			});
 			expect(checked.settled).toBeNull();
 			const landed = run(
@@ -976,6 +1060,31 @@ describe("something Nova can't hold, and the stops", () => {
 			lead: CANNOT_BRING_IN_TOO_LARGE_LEAD,
 			tooLarge,
 		});
+	});
+
+	it("draws one file past what Nova reads as the account's item, with the file named, never as the app's size", () => {
+		const file = circumstanceFinding(
+			"media-file-too-large",
+			{ kind: "media", path: "jr://file/commcare/video/visit.mp4" },
+			{
+				name: "jr://file/commcare/video/visit.mp4 (over 1 GB, the most Nova reads of a video)",
+			},
+		);
+		const view = panelView(
+			answered({
+				kind: "account",
+				findings: [file],
+				more: 0,
+				counts: { notYet: 0, never: 0, fixInHq: 1 },
+			}),
+			PUBLISH,
+		);
+		expect(view.body).toMatchObject({
+			kind: "account",
+			lead: cannotBringInLead(1),
+			tooLarge: null,
+		});
+		expect(view.drawsItem).toBe(true);
 	});
 
 	it("says CommCare HQ's version takes more checking than Nova gives one app, with the finding's block and no Check again", () => {

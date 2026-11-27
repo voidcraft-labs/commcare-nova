@@ -346,6 +346,24 @@ export interface PreviewPlatformRules {
 	/** Choice images, audio and video (manifest `questions/choice-image`,
 	 *  `choice-audio-video`; Android `views/media/MediaLayout.java`). */
 	readonly choiceMedia: boolean;
+	/** A label's inline video (`label_media.videoInline`, its `video-inline`
+	 *  form). Android plays it inside the question, in the label's media pane
+	 *  ahead of a QR code and the label image
+	 *  (`views/media/MediaLayout.java::setAVT`, `setupInlineVideoView`);
+	 *  Formplayer sends no such form (`api/json/PromptToJson.java`), so Web
+	 *  Apps shows none. Neither shows one on a question shown compact. */
+	readonly labelInlineVideo: "played" | "ignored";
+	/** A label's QR code (`qr_code`, its `qrcode` form). Android draws it in
+	 *  the label's media pane in place of the label image
+	 *  (`views/media/MediaLayout.java::setAVT`, `setupQRView`); Formplayer
+	 *  sends no such form (`api/json/PromptToJson.java`), so Web Apps draws
+	 *  none. Neither draws one on a question shown compact. */
+	readonly labelQrCode: "drawn" | "ignored";
+	/** A label's spoken text (`spoken_text`, its `tts` form). Android shows a
+	 *  speaker button that reads it aloud where the label has no audio
+	 *  (`MediaLayout.java::buildComprehensiveLayout`, `showTtsButton`);
+	 *  Formplayer sends no such form, so Web Apps shows none. */
+	readonly labelSpeech: "button" | "ignored";
 	/** Web Apps `form_entry/entries.js::GeoPointEntry`; Android
 	 *  `views/widgets/GeoPointWidget.java`, `activities/GeoPointActivity.java`. */
 	readonly locationQuestion: "map" | "record-location";
@@ -481,6 +499,20 @@ export interface PreviewPlatformRules {
 		readonly back: "address" | "new-list";
 		readonly search: "keeps-sort" | "new-list";
 	};
+	/** A menu or form badge's evaluated text. Web Apps shows the text
+	 *  Formplayer returns as the command's `badgeText` whole, in list and grid
+	 *  styles (`menus/views.js`); Android's `MenuAdapter.updateBadgeView`
+	 *  hides an empty or exactly `0` badge and shortens one longer than three
+	 *  UTF-16 units (`shortened`): `999+` where `Integer.parseInt` reads it,
+	 *  else its first three units and `..`. */
+	readonly menuBadge: "whole" | "shortened";
+	/** A grid tile's spoken label. Web Apps draws a grid with its own
+	 *  template, which has no audio control (`menus/views.js` chooses the grid
+	 *  template before the audio one); Android plays it when the worker holds
+	 *  the tile (`MenuGrid.onItemLongClick` prepares and starts a
+	 *  `MediaPlayer`) and, returning false, leaves the tap that opens the
+	 *  tile to the release. A list row offers its audio on both. */
+	readonly gridMenuAudio: "none" | "hold";
 }
 
 /** The one table. Both members are frozen, and the `satisfies` makes a field
@@ -548,6 +580,9 @@ export const PREVIEW_PLATFORM_RULES = {
 		questionChannels: true,
 		repeatAdd: "buttons",
 		choiceMedia: false,
+		labelInlineVideo: "ignored",
+		labelQrCode: "ignored",
+		labelSpeech: "ignored",
 		locationQuestion: "map",
 		barcodeQuestion: "text",
 		numberKeypad: "pattern",
@@ -571,6 +606,8 @@ export const PREVIEW_PLATFORM_RULES = {
 			marks: "pick-only",
 		}),
 		caseListReturn: Object.freeze({ back: "address", search: "keeps-sort" }),
+		menuBadge: "whole",
+		gridMenuAudio: "none",
 	}),
 	android: Object.freeze({
 		unavailableInlineChoice: "summary-or-restore",
@@ -634,6 +671,9 @@ export const PREVIEW_PLATFORM_RULES = {
 		questionChannels: false,
 		repeatAdd: "prompt",
 		choiceMedia: true,
+		labelInlineVideo: "played",
+		labelQrCode: "drawn",
+		labelSpeech: "button",
 		locationQuestion: "record-location",
 		barcodeQuestion: "scan-or-text",
 		numberKeypad: "keys",
@@ -657,6 +697,8 @@ export const PREVIEW_PLATFORM_RULES = {
 			marks: "list-order-and-pick",
 		}),
 		caseListReturn: Object.freeze({ back: "new-list", search: "new-list" }),
+		menuBadge: "shortened",
+		gridMenuAudio: "hold",
 	}),
 } as const satisfies Readonly<Record<Platform, PreviewPlatformRules>>;
 

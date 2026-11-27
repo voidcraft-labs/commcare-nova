@@ -184,7 +184,6 @@ const NOTHING: ReadingProjectSide = {
 		projectRevision: "0" as LookupRevision,
 		definitions: [],
 		rowsByTable: {},
-		keptColumns: {},
 	}),
 	referencingApps: async () => ({}),
 	siblings: async () => [],

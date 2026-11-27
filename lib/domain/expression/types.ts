@@ -1104,6 +1104,7 @@ export type FormExpressionSlotRef =
 			readonly uuid: Uuid;
 			readonly slot:
 				| "form_display_condition"
+				| "form_badge"
 				| "form_open_condition"
 				| "form_close_condition"
 				| "assessment_user_score"
@@ -1165,7 +1166,9 @@ export type ModuleExpressionSlotRef =
 			readonly uuid: Uuid;
 			readonly slot:
 				| "module_display_condition"
+				| "module_badge"
 				| "case_list_filter"
+				| "case_list_action_condition"
 				| "search_button_display_condition"
 				| "excluded_owner_ids";
 	  }
@@ -1195,7 +1198,14 @@ export type ProseSlotRef =
 	| {
 			readonly entity: "field";
 			readonly uuid: Uuid;
-			readonly slot: "label" | "hint" | "help" | "validate_msg";
+			readonly slot:
+				| "label"
+				| "hint"
+				| "help"
+				| "validate_msg"
+				| "extended_text"
+				| "qr_code"
+				| "spoken_text";
 	  }
 	| {
 			readonly entity: "field";
@@ -1210,6 +1220,9 @@ const PROSE_SLOT_NAMES: ReadonlySet<string> = new Set<ProseSlotRef["slot"]>([
 	"hint",
 	"help",
 	"validate_msg",
+	"extended_text",
+	"qr_code",
+	"spoken_text",
 	"option_label",
 ]);
 

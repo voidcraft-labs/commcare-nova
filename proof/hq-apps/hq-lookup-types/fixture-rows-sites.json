@@ -1,0 +1,7 @@
+{
+	"status": 200,
+	"headers": {
+		"Content-Type": "application/json; charset=utf-8"
+	},
+	"body": "{\"meta\": {\"limit\": 1000, \"next\": null, \"offset\": 0, \"previous\": null, \"total_count\": 2}, \"objects\": [{\"fields\": {\"id\": \"home\", \"name\": \"At home\"}, \"fixture_type\": \"sites\", \"id\": \"d5e2bd4ad1ca4c95a86f15d3352648b3\", \"resource_uri\": \"\"}, {\"fields\": {\"id\": \"clinic\", \"name\": \"At the clinic\"}, \"fixture_type\": \"sites\", \"id\": \"c818cdebb43b42c2aeb6e5001f865550\", \"resource_uri\": \"\"}]}"
+}

@@ -5,6 +5,8 @@ import {
 } from "@/lib/commcare/androidAppDependencies";
 import "server-only";
 
+import { sourceUsesCaseListActionSetting } from "@/lib/commcare/hq/caseListActionSetting";
+
 /**
  * A review of the changes made in CommCare HQ to an app Nova publishes
  * there: what changed, read as two readings of two of CommCare HQ's own
@@ -27,7 +29,7 @@ import "server-only";
 import { v7 as uuidv7 } from "uuid";
 import { greatestFoldBaselineSeq } from "@/lib/agent/change-set/baseLoader";
 import { roleAllowsApp } from "@/lib/auth/projectRoles";
-import { readHqSaveOnlyEditedAnswers } from "@/lib/commcare/client";
+import { createHqSourceFlagReader } from "@/lib/commcare/client";
 import {
 	HQ_BRING_IN_APP_MAX_BYTES,
 	type HqAlignedModule,
@@ -133,10 +135,12 @@ import {
 	removedHqFiles,
 	unapprovedHqFiles,
 } from "../hqSourceBaseline";
+import { legacyMenuLayoutLines } from "../legacyMenuLayouts";
 import {
 	type AcceptedDeclaration,
 	acceptReadingSteps,
 } from "../reading/acceptance";
+import { withAnsweredChanges } from "../reading/firstPublishChanges";
 import { editModeTest, formsWithinReading, Pieces } from "../reading/gather";
 import { reviewMediaId } from "../reading/mediaIds";
 import {
@@ -144,6 +148,7 @@ import {
 	type ReaderProjectDataReads,
 	type ReadingProjectData,
 	readingLookupSnapshot,
+	readingOwnerRules,
 	readingProjectDataFindingsFor,
 } from "../reading/projectData";
 import {
@@ -157,6 +162,7 @@ import {
 import {
 	judgeReadingMedia,
 	type MediaStaging,
+	projectMediaStaging,
 } from "../reading/projectData/mediaStore";
 import {
 	postgresProjectSide,
@@ -274,13 +280,14 @@ export function reviewMatchingSource(
 		reported: NO_ENTRIES,
 		settled: published,
 	});
-	if (!hqMediaRecordMoves(baseline.mediaFiles, next)) return unchanged(since);
+	if (!hqMediaRecordMoves(baseline.mediaFiles, next))
+		return unchanged(since, basis.layoutReplacements);
 	return {
 		kind: "nothing",
 		reason: "reads-the-same",
 		since,
 		hqChanges: [],
-		publishChanges: [],
+		publishChanges: basis.layoutReplacements,
 		readingId: basis.readingId,
 		reviewDigest: hqChangesReviewDigest({
 			identity: { read: targetIdentity, next: targetIdentity },
@@ -293,6 +300,7 @@ export function reviewMatchingSource(
 			incomingPaths: removalLedgerPaths(basis.normalized.normalized, published),
 			target: null,
 			tables: [],
+			ownerRules: [],
 		}),
 	};
 }
@@ -399,6 +407,8 @@ export interface HqChangesBasis {
 	readonly observedAt: string;
 	readonly remoteRevision: number;
 	readonly source: HqAppSource;
+	/** Layouts an overwrite from the current Nova head would replace. */
+	readonly layoutReplacements: readonly string[];
 	readonly modules: readonly HqAlignedModule[];
 	readonly normalized: {
 		readonly normalized: unknown;
@@ -429,6 +439,7 @@ export interface FetchedHqChanges extends HqChangesBasis {
 	 *  (`androidRequirementsPrivilegeLost`). */
 	readonly androidPrivilegeLost?: true;
 	readonly saveOnlyEditedApplied?: boolean;
+	readonly caseListActionsApplied?: boolean;
 	/** The Project's data, bound with no answer of the person's. */
 	readonly data: ReadingProjectData;
 }
@@ -620,13 +631,14 @@ function unavailable(
 
 function unchanged(
 	since: DriftReference,
+	publishChanges: readonly string[] = [],
 ): Extract<HqChangesReview, { kind: "nothing" }> {
 	return {
 		kind: "nothing",
 		reason: "unchanged",
 		since,
 		hqChanges: [],
-		publishChanges: [],
+		publishChanges,
 		readingId: null,
 		reviewDigest: null,
 	};
@@ -1163,9 +1175,6 @@ async function computeWith(
 			break;
 	}
 	const { source, modules } = reading;
-	mayOfferDiscard =
-		source.multimediaMap !== null &&
-		!fileDisclosureTruncated(source.multimediaMap.length, 1);
 	sourceBytes = await pieces
 		.at("the source's size")
 		.run(() => Buffer.byteLength(JSON.stringify(source.raw)));
@@ -1215,6 +1224,19 @@ async function computeWith(
 	if (reference === null)
 		return answer({ kind: "stop", finding: atApp("changed-while-reading") });
 	const targetIdentity = await readTargetIdentity(scope, target);
+	const layoutReplacements = legacyMenuLayoutLines({
+		doc: head.doc,
+		identity: exportIdentityOf(head.doc, targetIdentity).identity,
+		source,
+		ownership: baseline.ownership,
+	});
+	mayOfferDiscard =
+		source.multimediaMap !== null &&
+		!fileDisclosureTruncated(
+			source.multimediaMap.length,
+			1,
+			layoutReplacements.length,
+		);
 	if (reference.kind !== "ok") {
 		/* With no reference there are no files to settle by content. An
 		 * observed move still needs the missing reference for a full reading. */
@@ -1250,14 +1272,18 @@ async function computeWith(
 				recordedHqFilePaths(baseline.mediaFiles, source.multimediaMap ?? []),
 			)
 		)
-			return answer(unchanged(since));
+			return answer(unchanged(since, layoutReplacements));
 		logUnavailable(scope, operation, reference.kind);
 		return answer(unavailable(reference.kind, since));
 	}
 
-	/* 6. The files the reference publishes, settled by content. */
+	/* 6. The files the reference publishes, settled by content. Each carries its
+	 * size (a byte source no byte is read through here), so a file of the app's
+	 * past its kind's cap is settled by its streamed digest, never refused at
+	 * the cap as another file. */
 	const manifest = await resolveMediaManifest(reference.doc, scope.projectId, {
 		withBytes: false,
+		streamBytes: true,
 		heldPaths: exportIdentityOf(reference.doc, targetIdentity).heldMediaPaths,
 	});
 	const standings = hqMediaStandings({
@@ -1315,20 +1341,30 @@ async function computeWith(
 		observedAt,
 		remoteRevision: reading.version,
 		source,
+		layoutReplacements,
 		modules,
 		normalized,
 		published,
 		learned,
 		ownRows: await ownAssetRows(published, scope.projectId),
 	};
+	const trailingLines =
+		parts.length +
+		Number(legacyLocationDiffers) +
+		Number(unownedAndroidSelection);
 	const hiddenFiles =
-		fileDisclosureTruncated(source.multimediaMap?.length ?? 0, parts.length) &&
+		fileDisclosureTruncated(
+			source.multimediaMap?.length ?? 0,
+			trailingLines,
+			layoutReplacements.length,
+		) &&
 		fileDisclosureTruncated(
 			unapprovedHqFiles(
 				await prospectiveFileLosses(basis, head.doc, targetIdentity, []),
 				baseline.approvedFileRemovals,
 			).length,
-			parts.length,
+			trailingLines,
+			layoutReplacements.length,
 		);
 	mayOfferDiscard = !hiddenFiles;
 	if (
@@ -1366,6 +1402,18 @@ async function computeWith(
 		logUnavailable(scope, operation, "base-too-large");
 		return answer(unavailable("base-too-large", since));
 	}
+	const readFlag = createHqSourceFlagReader(creds, target.domain, { cancel });
+	let caseListActionsApplied: boolean | undefined;
+	if (
+		sourceUsesCaseListActionSetting(source.raw) ||
+		sourceUsesCaseListActionSetting(baseSource.raw)
+	) {
+		const flag = await readFlag("no-matches-registration");
+		if (flag.kind === "not-a-member")
+			return answer({ kind: "stop", finding: atApp("not-a-member") });
+		if (flag.kind === "failed") return answer(failedRead(flag.failure));
+		caseListActionsApplied = flag.kind === "applied";
+	}
 	let saveOnlyEditedApplied: boolean | undefined;
 	const holdsEditMode = await editModeTest(pieces, [source, baseSource]);
 	if (holdsEditMode === "fault") {
@@ -1376,9 +1424,7 @@ async function computeWith(
 		return answer(unavailable("nova-defect", since));
 	}
 	if (holdsEditMode) {
-		const flag = await readHqSaveOnlyEditedAnswers(creds, target.domain, {
-			cancel,
-		});
+		const flag = await readFlag("save-only-edited-answers");
 		if (flag.kind === "not-a-member")
 			return answer({ kind: "stop", finding: atApp("not-a-member") });
 		if (flag.kind === "failed") return answer(failedRead(flag.failure));
@@ -1423,6 +1469,7 @@ async function computeWith(
 		comparisonSource,
 		...(androidPrivilegeLost && { androidPrivilegeLost: true }),
 		...(saveOnlyEditedApplied !== undefined && { saveOnlyEditedApplied }),
+		...(caseListActionsApplied !== undefined && { caseListActionsApplied }),
 		data: projectData.data,
 	};
 
@@ -1502,16 +1549,19 @@ async function computeWith(
 	if (union.files.length > 0) {
 		onEvent({ type: "stage", stage: "checking-media" });
 		onEvent({ type: "files", done: 0, total: union.files.length });
+		/* A review streams a file past its kind's cap into objects of its own, deleted
+		 * once judged and again, whatever it left, before it answers. */
+		const spill =
+			options.stageMedia === null ? projectMediaStaging(scope.projectId) : null;
 		const files = await judgeReadingMedia({
 			creds,
 			plan: union,
-			...(options.stageMedia !== null && {
-				stage: options.stageMedia.stage,
-			}),
+			...(options.stageMedia !== null && { stage: options.stageMedia }),
+			...(spill !== null && { spill }),
 			fetched: settledReads,
 			onProgress: (done, total) => onEvent({ type: "files", done, total }),
 			...(cancel !== undefined && { cancel }),
-		});
+		}).finally(() => spill?.discard());
 		if (files.kind === "failed") return answer(failedRead(files.failure));
 		judged = files.plan;
 		onEvent({ type: "stage", stage: "checking" });
@@ -1609,6 +1659,9 @@ function readingsWith(
 		data,
 		...(fetched.saveOnlyEditedApplied !== undefined && {
 			saveOnlyEditedApplied: fetched.saveOnlyEditedApplied,
+		}),
+		...(fetched.caseListActionsApplied !== undefined && {
+			caseListActionsApplied: fetched.caseListActionsApplied,
 		}),
 		reference: fetched.reference,
 		overrides: fetched.targetIdentity.entities,
@@ -1945,6 +1998,12 @@ export async function checkHqChanges(
 						draft.doc,
 						resolverOf(fetched),
 					).tables.filter((table) => newTagSet.has(table.tag));
+		/* The owner rules of what the app takes that the places now cannot satisfy: each asks
+		 * the person, as a bring-in's review does. */
+		const ownerRules =
+			plan.kind === "changes"
+				? readingOwnerRules(data, readsNow, plan.target, resolverOf(fetched))
+				: [];
 		const reviewDigest = hqChangesReviewDigest({
 			identity: receipt,
 			approvedRemovals: approved,
@@ -1975,8 +2034,9 @@ export async function checkHqChanges(
 					? contentNamedDocument(plan.target, targetFiles, ownContent)
 					: null,
 			tables,
+			ownerRules,
 		});
-		return { newTags, tables, reviewDigest };
+		return { newTags, tables, ownerRules, reviewDigest };
 	});
 	const checked: CheckedHqChanges = {
 		removedFiles: unused.map((file) => file.digest),
@@ -1992,6 +2052,7 @@ export async function checkHqChanges(
 		targetIdentity: recorded,
 	};
 	const reviewLines = [
+		...fetched.layoutReplacements,
 		...(legacy
 			? [
 					priorNext
@@ -2010,14 +2071,22 @@ export async function checkHqChanges(
 				`The next publish would rewrite another saved value in the form “${name}”.`,
 		),
 	];
+	/* The reading's list, with each change a person's answer made that the stored list holds and the
+	 * document the review would commit still makes of CommCare HQ's app, as a take keeps it. */
+	const listed = withAnsweredChanges(
+		declaration.firstPublish,
+		declaration.firstPublishFacts,
+		plan.kind === "changes" ? plan.target : fetched.head.doc,
+		fetched.baseline.answeredPublishChanges ?? [],
+	).ids;
 	const publishChanges = [
 		...publishChangeSentences(
 			priorNext
-				? declaration.firstPublish.ids.filter(
+				? listed.filter(
 						(id) => priorNext.includes(id) || plan.publishChanges.includes(id),
 					)
 				: legacy
-					? declaration.firstPublish.ids
+					? listed
 					: plan.publishChanges,
 		),
 	];
@@ -2053,7 +2122,7 @@ export async function checkHqChanges(
 				reason: plan.kind === "nothing" ? "reads-the-same" : "already-here",
 				since: fetched.since,
 				hqChanges: whereHqKeeps,
-				publishChanges,
+				publishChanges: [...fetched.layoutReplacements, ...publishChanges],
 				readingId: fetched.readingId,
 				reviewDigest: built.reviewDigest,
 			},
@@ -2071,7 +2140,10 @@ export async function checkHqChanges(
 			kind: "changes",
 			...(cannotDiscard && { requiresReview: true }),
 			...(changedFiles.length > 0 && {
-				fileReviewLines: changedFiles.length + Number(legacy),
+				fileReviewLines:
+					fetched.layoutReplacements.length +
+					changedFiles.length +
+					Number(legacy),
 			}),
 			since: fetched.since,
 			hqChanges: [
@@ -2107,9 +2179,11 @@ export async function checkHqChanges(
 				fetched.normalized.digest,
 				discardedFiles,
 				cannotDiscard ? "unavailable" : "complete",
+				fetched.layoutReplacements,
 			),
 			renamedInNova: plan.kind === "changes" ? plan.renamedInNova : [],
 			tables: built.tables,
+			ownerRules: built.ownerRules,
 			projectName: fetched.projectName,
 			readingId: fetched.readingId,
 			reviewDigest: built.reviewDigest,

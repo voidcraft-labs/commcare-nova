@@ -131,4 +131,57 @@ describe("media slot emission", () => {
 			).toEqual([]);
 		}
 	});
+
+	it("writes a question label's inline video as its video-inline form, after its video", () => {
+		const doc = buildDoc({
+			appName: "Inline video",
+			modules: [
+				{
+					name: "Lessons",
+					forms: [
+						{
+							name: "Watch",
+							type: "survey",
+							fields: [
+								f({
+									kind: "label",
+									id: "fold",
+									label: proseText("Watch how to fold it"),
+									label_media: {
+										image: mediaIds.label,
+										video: mediaIds.video,
+										videoInline: mediaIds.video,
+									},
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
+		const formUuid = doc.formOrder[doc.moduleOrder[0]][0];
+		const manifest = mediaManifest();
+		const root = readXmlEvidence(
+			buildXForm(doc, formUuid, {
+				xmlns: "urn:inline-video",
+				assets: manifest,
+			}),
+		);
+		const entry = descendants(root, "text").find(
+			(text) => text.attributes.id === "fold-label",
+		);
+		expect(entry?.children.map((value) => value.attributes.form)).toEqual([
+			undefined,
+			"markdown",
+			"image",
+			"video",
+			"video-inline",
+		]);
+		// The inline video names the same file its asset ships as.
+		const paths = entry?.children
+			.filter((value) => value.attributes.form?.startsWith("video"))
+			.map((value) => value.text);
+		expect(paths?.[0]).toBeTruthy();
+		expect(paths?.[1]).toBe(paths?.[0]);
+	});
 });

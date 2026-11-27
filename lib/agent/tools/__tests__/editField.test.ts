@@ -122,6 +122,63 @@ describe("editField — help text", () => {
 	});
 });
 
+describe("editField — a label's other texts", () => {
+	/* Each rides `scalarKeys` as `help` does: a slot the schema admits and the
+	 * patch drops would report success and store nothing. */
+	const TEXTS = ["extended_text", "qr_code", "spoken_text"] as const;
+	const textOf = (doc: BlueprintDoc, slot: (typeof TEXTS)[number]) => {
+		const field = doc.fields[FIELD] as Partial<
+			Record<(typeof TEXTS)[number], Parameters<typeof proseTemplateText>[0]>
+		>;
+		const held = field[slot];
+		return held === undefined ? undefined : proseTemplateText(held);
+	};
+
+	it("sets each, keeps each when left out, and clears each when handed null", async () => {
+		const h = makeToolWorkspaceHarness(makeDoc());
+		const set = await h.runTool(editFieldTool, {
+			...ADDRESS,
+			updates: {
+				kind: "text",
+				extended_text: proseText("The patient's full legal name"),
+				qr_code: proseText("PATIENT-1"),
+				spoken_text: proseText("Say the patient's name"),
+			},
+		});
+		expect(set.kind).toBe("mutate");
+		expect(TEXTS.map((slot) => textOf(h.currentDoc(), slot))).toEqual([
+			"The patient's full legal name",
+			"PATIENT-1",
+			"Say the patient's name",
+		]);
+
+		await h.runTool(editFieldTool, {
+			...ADDRESS,
+			updates: { kind: "text", label: proseText("Patient") },
+		});
+		expect(TEXTS.map((slot) => textOf(h.currentDoc(), slot))).toEqual([
+			"The patient's full legal name",
+			"PATIENT-1",
+			"Say the patient's name",
+		]);
+
+		await h.runTool(editFieldTool, {
+			...ADDRESS,
+			updates: {
+				kind: "text",
+				extended_text: null,
+				qr_code: null,
+				spoken_text: null,
+			},
+		});
+		expect(TEXTS.map((slot) => textOf(h.currentDoc(), slot))).toEqual([
+			undefined,
+			undefined,
+			undefined,
+		]);
+	});
+});
+
 /* --- Rename identifier guard ----------------------------------------- */
 
 const AGE = testUuid("66666666-6666-6666-6666-666666666666");

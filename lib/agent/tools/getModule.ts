@@ -80,7 +80,10 @@ import {
 	caseListRegistrationReturnOf,
 	caseListsOffering,
 	childModuleUuids,
+	menuFormUuidsOf,
+	menuScreenLayout,
 	menuScreenOf,
+	menuWithInheritedCaseSettings,
 	moduleDestination,
 	moduleFormsReadSearch,
 	moduleSearchWorkflow,
@@ -88,6 +91,7 @@ import {
 	orderedColumns,
 } from "@/lib/domain";
 import type { Expression } from "@/lib/domain/expression";
+import type { MenuBadge } from "@/lib/domain/menuBadge";
 import type { ToolInvocationContext } from "../workspace/types";
 import type { ReadToolResult } from "./common";
 import {
@@ -167,6 +171,11 @@ export type GetModuleResult =
 			name: string;
 			opening: ReturnType<typeof moduleDestination>;
 			parent_module_uuid: Uuid | null;
+			forms_from_menu: {
+				menuUuid: Uuid;
+				name: string;
+				excludedFormUuids: readonly Uuid[];
+			} | null;
 			parentCaseModuleUuid: Uuid | null;
 			child_module_uuids: Uuid[];
 			case_type: string | null;
@@ -174,6 +183,7 @@ export type GetModuleResult =
 			audio_label: MediaAssetId | null;
 			files_by_language?: LanguageFiles[];
 			display_condition: Expression | null;
+			badge: MenuBadge | null;
 			/** True when the module is off the menu, with every form in it. */
 			hidden_from_menu: boolean;
 			/** Present when CommCare HQ receives the module as an advanced
@@ -189,6 +199,10 @@ export type GetModuleResult =
 			searchWorkflow: SearchWorkflow | null;
 			/** True when the menu's forms read the search. */
 			formsReadSearch: boolean;
+			/** The ordinary menu's saved individual choice, including when inactive. */
+			menuLayout: "list" | "grid";
+			/** The actual layout of the screen containing this module's forms. */
+			formsMenuLayout: "list" | "grid";
 			/** True when the module shows its forms in the menu above. */
 			formsInMenuAbove: boolean;
 			/** The screen that lists the module's forms. */
@@ -212,10 +226,18 @@ export type GetModuleResult =
  *  form's own after-submit is in force from the list, and the Register
  *  button's media. */
 export type CaseListRegistrationRead =
-	| { kind: "after-empty-search"; formUuid: Uuid; label: string | null }
+	| {
+			kind: "after-empty-search";
+			formUuid: Uuid;
+			label: string | null;
+			afterSubmit: CaseListRegistrationReturn;
+			followsFormAfterSubmit: boolean;
+	  }
 	| {
 			kind: "always";
 			formUuid: Uuid;
+			target?: import("@/lib/domain").CaseListActionTarget;
+			showWhen?: import("@/lib/domain").AlwaysOfferedRegistration["showWhen"];
 			label: string | null;
 			afterSubmit: CaseListRegistrationReturn;
 			followsFormAfterSubmit: boolean;
@@ -235,12 +257,17 @@ function caseListRegistrationRead(
 			kind: slot.kind,
 			formUuid: slot.formUuid,
 			label: slot.label ?? null,
+			afterSubmit: slot.afterSubmit ?? "case-list",
+			followsFormAfterSubmit:
+				caseListRegistrationReturnOf(doc, moduleUuid)?.kind === "own",
 		};
 	return {
 		kind: slot.kind,
 		formUuid: slot.formUuid,
 		label: slot.label ?? null,
 		afterSubmit: slot.afterSubmit,
+		...(slot.target && { target: slot.target }),
+		...(slot.showWhen && { showWhen: slot.showWhen }),
 		followsFormAfterSubmit:
 			caseListRegistrationReturnOf(doc, moduleUuid)?.kind === "own",
 		...languageFiles(doc, slot),
@@ -277,8 +304,12 @@ export const getModuleTool = {
 				data: { error: resolved.error },
 			};
 		}
-		const { moduleUuid, module: mod } = resolved;
-		const formUuids = orderedFormUuids(doc, moduleUuid);
+		const { moduleUuid } = resolved;
+		const mod =
+			menuWithInheritedCaseSettings(doc, moduleUuid) ?? resolved.module;
+		const formUuids = mod.formsFromMenu
+			? menuFormUuidsOf(doc, moduleUuid)
+			: orderedFormUuids(doc, moduleUuid);
 		const caseListConfig = mod.caseListConfig;
 		const caseSearchConfig = mod.caseSearchConfig;
 		// Each screen's own sequence — the SA addresses a column by naming the
@@ -296,6 +327,13 @@ export const getModuleTool = {
 			data: {
 				uuid: moduleUuid,
 				name: mod.name,
+				forms_from_menu: mod.formsFromMenu
+					? {
+							menuUuid: mod.formsFromMenu.menuUuid,
+							name: doc.modules[mod.formsFromMenu.menuUuid].name,
+							excludedFormUuids: mod.formsFromMenu.excludedFormUuids ?? [],
+						}
+					: null,
 				opening: moduleDestination(doc, moduleUuid),
 				parent_module_uuid: mod.parentModuleUuid ?? null,
 				parentCaseModuleUuid: mod.parentCaseModuleUuid ?? null,
@@ -305,6 +343,7 @@ export const getModuleTool = {
 				icon: mod.icon ?? null,
 				audio_label: mod.audioLabel ?? null,
 				display_condition: mod.displayCondition ?? null,
+				badge: mod.badge ?? null,
 				hidden_from_menu: mod.hiddenFromMenu === true,
 				advanced: moduleAdvancedRead(doc, moduleUuid),
 				case_list_config: caseListConfig ?? null,
@@ -317,6 +356,8 @@ export const getModuleTool = {
 				case_search_config: caseSearchConfig ?? null,
 				searchWorkflow: moduleSearchWorkflow(mod) ?? null,
 				formsReadSearch: moduleFormsReadSearch(mod),
+				menuLayout: mod.menuLayout ?? "list",
+				formsMenuLayout: menuScreenLayout(doc, menuScreenOf(doc, moduleUuid)),
 				formsInMenuAbove: moduleShowsFormsInMenuAbove(mod),
 				listsOn: menuScreenOf(doc, moduleUuid),
 				caseListMenuItem:

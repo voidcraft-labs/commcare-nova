@@ -71,12 +71,17 @@ import {
 import { isHqObject, readHqCollection } from "./hq/readCollection";
 import { readHqJson } from "./hq/readJson";
 import { HQ_THROTTLE_MAX_WAIT_MS } from "./hq/throttle";
-/** Project flag slugs are resolved from the pinned domain-scoped gate definitions. */
-import type {
-	HqPrivateFeatureFlagRequirement,
-	HqProjectSpaceAdvisoryProbePlan,
-	HqProjectSpaceCapabilityProbePlan,
-	HqProjectSpaceCompatibilityProbePlan,
+import { TARGET_BATCH_BYTES } from "./multimedia/uploadBatches";
+/** Private compatibility inputs stay behind the CommCare boundary: the probe
+ * takes its plan as data, and the flags a source reading asks for by name
+ * come from `hqPrivateFeatureFlag`, so each slug is the probe's own. */
+import {
+	type HqPrivateFeatureFlagId,
+	type HqPrivateFeatureFlagRequirement,
+	type HqProjectSpaceAdvisoryProbePlan,
+	type HqProjectSpaceCapabilityProbePlan,
+	type HqProjectSpaceCompatibilityProbePlan,
+	hqPrivateFeatureFlag,
 } from "./projectSpaceCompatibility";
 import { domainFeatureFlag } from "./surface/gates";
 
@@ -587,7 +592,9 @@ function notAMemberProjectSpaceResult(
 
 /** Whether CommCare HQ applies the named feature to this source project. */
 export type HqSourceProjectFlag =
+	/** The project space holds the flag, so CommCare HQ's build applies its feature. */
 	| { readonly kind: "applied" }
+	/** The project space does not hold it, so CommCare HQ's build leaves the feature out. */
 	| { readonly kind: "not-applied" }
 	/** The key's own list of project spaces answered and does not hold this one. */
 	| { readonly kind: "not-a-member" }
@@ -629,6 +636,23 @@ export async function readHqSourceFlag(
 		| "SAVE_ONLY_EDITED_FORM_FIELDS",
 	options: { readonly cancel?: AbortSignal } = {},
 ): Promise<HqSourceProjectFlag> {
+	return createHqSourceFlagReader(creds, domain, options)(symbol);
+}
+
+/**
+ * One source reading's flag reads: the key's list of project spaces, read once
+ * for the first flag the source needs, then each flag's own filtered list.
+ * `no-matches-registration` is `FOLLOWUP_FORMS_AS_CASE_LIST_FORM`, which
+ * CommCare HQ's build reads before it writes a case-list action's condition
+ * or offers a parent's follow-up form from a case list
+ * (`suite_xml/sections/details.py::DetailContributor.add_register_action`,
+ * `get_case_list_form_action`).
+ */
+export function createHqSourceFlagReader(
+	creds: CommCareCredentials,
+	domain: string,
+	options: { readonly cancel?: AbortSignal } = {},
+) {
 	const failed = (error: CommCareApiError): HqSourceProjectFlag => ({
 		kind: "failed",
 		failure: classifyHqFailure(error, "project-spaces"),
@@ -640,25 +664,41 @@ export async function readHqSourceFlag(
 			undefined,
 			options.cancel,
 		);
-	const visible = await list(undefined);
-	if (!Array.isArray(visible)) return failed(visible);
-	if (!visible.some((candidate) => candidate.name === domain))
-		return { kind: "not-a-member" };
-	const flag = domainFeatureFlag(symbol);
-	const flagged = await list(flag.slug);
-	if (!Array.isArray(flagged)) {
-		/* A slug HQ no longer knows answers 400, which is Nova's to fix. */
-		if (flagged.status === 400 && flagged.cause === undefined)
-			log.error("[commcare] feature flag list refused", undefined, {
-				domain,
-				request: "project-spaces",
-				status: flagged.status,
-			});
-		return failed(flagged);
-	}
-	return flagged.some((candidate) => candidate.name === domain)
-		? { kind: "applied" }
-		: { kind: "not-applied" };
+	let membership: ReturnType<typeof list> | undefined;
+	return async (
+		id:
+			| Extract<
+					HqPrivateFeatureFlagId,
+					"save-only-edited-answers" | "no-matches-registration"
+			  >
+			| "HIERARCHICAL_LOCATION_FIXTURE"
+			| "MOBILE_UCR"
+			| "SAVE_ONLY_EDITED_FORM_FIELDS",
+	): Promise<HqSourceProjectFlag> => {
+		membership ??= list(undefined);
+		const visible = await membership;
+		if (!Array.isArray(visible)) return failed(visible);
+		if (!visible.some((candidate) => candidate.name === domain))
+			return { kind: "not-a-member" };
+		const flag =
+			id === "save-only-edited-answers" || id === "no-matches-registration"
+				? hqPrivateFeatureFlag(id)
+				: domainFeatureFlag(id);
+		const flagged = await list(flag.slug);
+		if (!Array.isArray(flagged)) {
+			/* A slug HQ no longer knows answers 400, which is Nova's to fix. */
+			if (flagged.status === 400 && flagged.cause === undefined)
+				log.error("[commcare] feature flag list refused", undefined, {
+					domain,
+					request: "project-spaces",
+					status: flagged.status,
+				});
+			return failed(flagged);
+		}
+		return flagged.some((candidate) => candidate.name === domain)
+			? { kind: "applied" }
+			: { kind: "not-applied" };
+	};
 }
 
 /** A compatibility check must never hold open the publish preflight. */
@@ -1080,6 +1120,21 @@ function matchedMediaFiles(
 const MEDIA_BUNDLE_UPLOAD_TIMEOUT_MS = 60_000;
 const MEDIA_BUNDLE_POLL_INTERVAL_MS = 1500;
 const MEDIA_BUNDLE_POLL_TIMEOUT_MS = 45_000;
+/**
+ * The time a bundle past an ordinary batch's bytes adds to each deadline above,
+ * which are fitted to an ordinary batch (`uploadBatches.ts::TARGET_BATCH_BYTES`):
+ * the bytes past it sent at 1 MiB/s, and read whole by HQ's task
+ * (`hqmedia/tasks.py::process_bulk_upload_zip` reads each member into memory
+ * and stores it) at 4 MiB/s. Such a bundle is one file travelling alone: a
+ * video near its upload cap, or a file brought in from CommCare HQ past it.
+ */
+const MEDIA_BUNDLE_UPLOAD_BYTES_PER_SECOND = 1024 * 1024;
+const MEDIA_BUNDLE_PROCESS_BYTES_PER_SECOND = 4 * 1024 * 1024;
+
+function millisecondsFor(bytes: number, perSecond: number): number {
+	const past = Math.max(0, bytes - TARGET_BATCH_BYTES);
+	return Math.ceil((past / perSecond) * 1000);
+}
 
 /**
  * Upload an app's media as one bulk ZIP to CommCare HQ's
@@ -1118,8 +1173,12 @@ export async function uploadAppMediaBundle(
 		 * the job may run, and the caller holds the id it is polled by.
 		 */
 		readonly onAccepted?: (processingId: string) => void | Promise<void>;
+		/** The bytes of the files in the bundle, which lengthen the upload's and the
+		 *  task's deadlines. */
+		readonly bytes?: number;
 	} = {},
 ): Promise<MediaBundleUploadResult | CommCareApiError> {
+	const bytes = options.bytes ?? 0;
 	if (!isValidDomainSlug(domain) || !/^[\w-]+$/.test(appId)) {
 		return { success: false, status: 400 };
 	}
@@ -1127,7 +1186,8 @@ export async function uploadAppMediaBundle(
 	const controller = new AbortController();
 	const timer = setTimeout(
 		() => controller.abort(),
-		MEDIA_BUNDLE_UPLOAD_TIMEOUT_MS,
+		MEDIA_BUNDLE_UPLOAD_TIMEOUT_MS +
+			millisecondsFor(bytes, MEDIA_BUNDLE_UPLOAD_BYTES_PER_SECOND),
 	);
 	let started: unknown;
 	try {
@@ -1177,7 +1237,8 @@ export async function uploadAppMediaBundle(
 		domain,
 		base,
 		started.processing_id,
-		MEDIA_BUNDLE_POLL_TIMEOUT_MS,
+		MEDIA_BUNDLE_POLL_TIMEOUT_MS +
+			millisecondsFor(bytes, MEDIA_BUNDLE_PROCESS_BYTES_PER_SECOND),
 	);
 }
 

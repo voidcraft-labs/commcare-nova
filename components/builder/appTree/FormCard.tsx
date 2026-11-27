@@ -44,6 +44,7 @@ import { useIsFormSelected, useNavigate } from "@/lib/routing/hooks";
 
 export const FormCard = memo(function FormCard({
 	formId,
+	sourceMenuUuid,
 	moduleUuid,
 	onSelect,
 	delay,
@@ -54,6 +55,7 @@ export const FormCard = memo(function FormCard({
 	locked,
 }: {
 	formId: Uuid;
+	sourceMenuUuid?: Uuid;
 	moduleUuid: Uuid;
 	onSelect: TreeSelectHandler;
 	delay: number;
@@ -81,15 +83,17 @@ export const FormCard = memo(function FormCard({
 
 	/** Boolean selection: URL-driven via useIsFormSelected.
 	 *  Only this form + the previously selected re-render on change. */
-	const isSelected = useIsFormSelected(formId);
+	const isSelected = useIsFormSelected(formId, moduleUuid);
 
-	const { removeForm } = useBlueprintMutations();
+	const { removeForm, setFormListed } = useBlueprintMutations();
 	const navigate = useNavigate();
 	// Removing the form (cascades its fields) is one gated, undoable batch; if
 	// it was the open form, fall back to its module so the URL stays valid.
 	// Returns whether the gate committed so the row can disarm on a refusal.
 	const handleDelete = () => {
-		const { ok } = removeForm(formId);
+		const { ok } = sourceMenuUuid
+			? setFormListed(moduleUuid, sourceMenuUuid, formId, false)
+			: removeForm(formId);
 		if (ok && isSelected) navigate.openModule(moduleUuid);
 		return ok;
 	};
@@ -206,7 +210,10 @@ export const FormCard = memo(function FormCard({
 					</div>
 				</div>
 				{!locked && (
-					<TreeRowDelete label="Delete form" onDelete={handleDelete} />
+					<TreeRowDelete
+						label={sourceMenuUuid ? "Hide form in this menu" : "Delete form"}
+						onDelete={handleDelete}
+					/>
 				)}
 				{/* Outermost on every row type: one constant right-edge offset
 				 *  (the hover-delete fades in just inboard). */}
@@ -227,6 +234,7 @@ export const FormCard = memo(function FormCard({
 									key={uuid}
 									uuid={uuid}
 									moduleUuid={moduleUuid}
+									sharedRouteUuid={sourceMenuUuid ? moduleUuid : null}
 									formUuid={formId}
 									onSelect={onSelect}
 									depth={0}

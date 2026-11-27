@@ -14,6 +14,7 @@
 // query values run against the session and search-input instances, not
 // against a selected case.
 
+import { caseListStepDatumId } from "@/lib/commcare/formLinkProjection";
 import { lookupTypeIndexFromNaming } from "@/lib/commcare/lookup/naming";
 import { lookupOptionsNodeset } from "@/lib/commcare/lookupOptions";
 import { toWire } from "@/lib/commcare/xpath/wire/fromExpression";
@@ -61,6 +62,7 @@ import {
 	type CaseDatabaseSnapshot,
 	SEARCH_INPUT_INSTANCE_ID,
 	searchScreenXPathInstances,
+	secondaryXPathInstances,
 } from "./xpathInstances";
 
 /** Bulk helpers evaluate several different slots. Each one obtains its own
@@ -140,12 +142,14 @@ function searchScreenTree(
 	types: ExpressionContext,
 	session: PreviewSearchSessionValues,
 	lookupData: PreviewLookupData | undefined,
+	datumId?: ReturnType<typeof caseListStepDatumId>,
 ): WireExpr {
 	return toWire(expression, {
 		target: "preview",
 		types,
 		bindings: {
 			searchInputInstanceId: SEARCH_INPUT_INSTANCE_ID,
+			...(datumId && { datumId }),
 			userPropertySlugs: previewUserPropertySlugMap(session),
 			...(lookupData === undefined
 				? {}
@@ -253,21 +257,44 @@ export function emitPreviewSearchPredicate(
 	inputValues: SearchInputValues = new Map(),
 ): SearchScreenXPath {
 	const lookupData = environment.lookup;
+	const listAction = types.slot.slot === "case_list_action_condition";
 	return {
 		source: printSearchScreenTree(
-			searchScreenTree(predicate, types, session, lookupData),
-		),
-		instances: searchScreenXPathInstances({
-			session,
-			answers: searchInputInstanceValues(
-				searchInputs,
-				withSeededHiddenValues(searchInputs, inputValues, session, environment),
+			searchScreenTree(
+				predicate,
+				types,
+				session,
+				lookupData,
+				listAction
+					? caseListStepDatumId(environment.doc, environment.moduleUuid)
+					: undefined,
 			),
-			...(lookupData === undefined ? {} : { lookupData }),
-			...(environment.sessionData === undefined
-				? {}
-				: { sessionData: environment.sessionData }),
-		}),
+		),
+		instances: listAction
+			? secondaryXPathInstances({
+					session,
+					lookupData: lookupData ?? null,
+					sessionData: environment.sessionData,
+					caseDatabase: environment.caseDatabase ?? null,
+					caseTypes: environment.doc.caseTypes ?? [],
+					includeFixtureAliases: true,
+				})
+			: searchScreenXPathInstances({
+					session,
+					answers: searchInputInstanceValues(
+						searchInputs,
+						withSeededHiddenValues(
+							searchInputs,
+							inputValues,
+							session,
+							environment,
+						),
+					),
+					...(lookupData === undefined ? {} : { lookupData }),
+					...(environment.sessionData === undefined
+						? {}
+						: { sessionData: environment.sessionData }),
+				}),
 	};
 }
 

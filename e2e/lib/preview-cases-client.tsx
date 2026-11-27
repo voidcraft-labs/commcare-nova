@@ -14,6 +14,7 @@ import {
 	plainColumn,
 	proseText,
 } from "@/lib/domain";
+import { builtinIconRef } from "@/lib/domain/builtinIcons";
 import { eq, literal, sessionUser, term } from "@/lib/domain/expression";
 import { admittedControllerDoc } from "@/lib/preview/engine/__tests__/fixtures/controllerDoc";
 import { BuilderFormEngineProvider } from "@/lib/preview/engine/provider";
@@ -104,6 +105,17 @@ function fixture(count: number) {
 		wireCodes: { eng: "en", spa: "es" },
 		translations: { spa: {} },
 	};
+	if (count < 0) {
+		doc.appSettings.formMenuLayout = "grid";
+		const followup = Object.values(doc.forms).find(
+			(form) => form.type === "followup",
+		);
+		if (!followup)
+			throw new Error(
+				"The several-case fixture requires its follow-up command.",
+			);
+		followup.icon = builtinIconRef("record_vitals");
+	}
 	return admittedControllerDoc(doc);
 }
 function LanguageButtons() {

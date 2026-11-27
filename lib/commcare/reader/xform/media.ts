@@ -11,7 +11,7 @@
  */
 
 import { type Element, isTag } from "domhandler";
-import type { LanguageTag, MediaKind } from "@/lib/domain";
+import type { LanguageTag, MediaKind, MediaRole } from "@/lib/domain";
 import {
 	NO_ENTRIES,
 	recordFromEntries,
@@ -35,6 +35,21 @@ import { claimFormValue, formText, type SlotText, valueIsBlank } from "./prose";
 
 const MEDIA_KINDS: readonly MediaKind[] = ["image", "audio", "video"];
 
+/** The media forms a slot's text is read for: each role of a `Media` bundle, the kind of file
+ *  it plays, and the `form` its values name. An inline video is a question label's alone
+ *  (`prose.ts::heldMediaForm`): another text's `video-inline` form is claimed by its own entry
+ *  where the text's other forms are. */
+const MEDIA_FORM_ROLES: readonly {
+	readonly role: MediaRole;
+	readonly kind: MediaKind;
+	readonly form: string;
+}[] = [
+	{ role: "image", kind: "image", form: "image" },
+	{ role: "audio", kind: "audio", form: "audio" },
+	{ role: "video", kind: "video", form: "video" },
+	{ role: "videoInline", kind: "video", form: "video-inline" },
+];
+
 /** The one asset every one of several paths resolves to, or undefined where one does not
  *  resolve to an asset or two resolve to two. */
 function oneAsset(
@@ -57,8 +72,10 @@ function slotString(holding: SlotText["media"]): string {
 	return holding === "option_media" ? "option_media" : "field_media_bundle";
 }
 
-/** The claim a held slot takes on each language's value of a media kind. */
-function heldClaim(holding: SlotText["media"], kind: MediaKind): Claim<"take"> {
+/** The claim a held slot takes on each language's value of a media role. */
+function heldClaim(holding: SlotText["media"], role: MediaRole): Claim<"take"> {
+	if (role === "videoInline") return X.videoInline.held;
+	const kind = role;
 	if (holding === "help_media") return X.helpMedia[kind];
 	if (holding === "option_media")
 		return kind === "image" ? X.choiceImage.image : X.choiceAudioVideo[kind];
@@ -81,10 +98,10 @@ function unheldClaim(slot: SlotText, kind: MediaKind): Claim<"account"> {
  */
 function emitterMediaValue(
 	value: Element,
-	kind: MediaKind,
+	form: string,
 	scope: (element: Element) => NamespaceScope,
 ): boolean {
-	const built = el("value", { form: kind }, [textNode(ownText(value).trim())]);
+	const built = el("value", { form }, [textNode(ownText(value).trim())]);
 	const parent = value.parent;
 	const outer =
 		parent !== null && isTag(parent)
@@ -96,7 +113,7 @@ function emitterMediaValue(
 /** Drafts may still contain temporary asset identities while bring-in prepares its files. */
 function setMedia(
 	slot: SlotText,
-	kind: MediaKind,
+	role: MediaRole,
 	shared: string,
 	byLanguage: ReadonlyMap<LanguageTag, string | null>,
 	defaultLanguage?: LanguageTag,
@@ -130,11 +147,11 @@ function setMedia(
 	for (const [language, asset] of byLanguage)
 		localized[language] = recordWithValue<unknown>(
 			localized[language],
-			kind,
+			role,
 			asset,
 		);
 	carrier[key] = {
-		...recordWithValue<unknown>(previous, kind, shared),
+		...recordWithValue<unknown>(previous, role, shared),
 		...(Object.keys(localized).length && { mediaByLanguage: localized }),
 		...(defaultLanguage && { formDefaultLanguage: defaultLanguage }),
 	};
@@ -155,10 +172,12 @@ function readSlotMedia(
 	const { defaultLanguage, languages, source } = itext;
 	const place = slot.place;
 	const first = slot.first;
-	for (const kind of MEDIA_KINDS) {
+	for (const { role, kind, form } of MEDIA_FORM_ROLES) {
+		if (role === "videoInline" && slot.media !== "label_media") continue;
+		const inline = role === "videoInline";
 		const values = new Map<LanguageTag, Element>();
 		for (const [language, forms] of slot.forms) {
-			const value = forms.get(kind);
+			const value = forms.get(form);
 			if (value !== undefined) values.set(language, value);
 		}
 		if (values.size === 0) continue;
@@ -176,7 +195,9 @@ function readSlotMedia(
 			isDefault && inherited.length
 				? { inheritedItextRecipients: inherited }
 				: {};
-		const key = `itext-form:core/${kind}`;
+		const key = inline
+			? "itext-form:android/video-inline"
+			: `itext-form:core/${kind}`;
 		if (first)
 			for (const value of values.values())
 				claimFormValue(ctx.accounting, value, place);
@@ -235,7 +256,7 @@ function readSlotMedia(
 		}
 		if (
 			[...values.values()].some(
-				(value) => !emitterMediaValue(value, kind, scope),
+				(value) => !emitterMediaValue(value, form, scope),
 			)
 		)
 			continue;
@@ -256,10 +277,13 @@ function readSlotMedia(
 			!values.has(defaultLanguage) ||
 			source === undefined
 		) {
+			const claim = inline
+				? X.videoInline.missingDefault
+				: X.mediaMissingDefault[kind];
 			if (first)
 				for (const value of values.values())
-					cursor.refuseSubtree(value, X.mediaMissingDefault[kind], place);
-			else ctx.accounting.finding(X.mediaMissingDefault[kind], place);
+					cursor.refuseSubtree(value, claim, place);
+			else ctx.accounting.finding(claim, place);
 			continue;
 		}
 		// Core stores an explicitly empty value as a key containing an empty
@@ -269,10 +293,13 @@ function readSlotMedia(
 			(value) => ownText(value).trim() !== "",
 		);
 		if (populated.length && populated.length < values.size) {
+			const claim = inline
+				? X.videoInline.blankBesideFile
+				: X.mediaBlankBesideFile[kind];
 			if (first)
 				for (const value of values.values())
-					cursor.refuseSubtree(value, X.mediaBlankBesideFile[kind], place);
-			else ctx.accounting.finding(X.mediaBlankBesideFile[kind], place);
+					cursor.refuseSubtree(value, claim, place);
+			else ctx.accounting.finding(claim, place);
 			continue;
 		}
 		const assets = new Map<LanguageTag, string>();
@@ -302,8 +329,10 @@ function readSlotMedia(
 		const distinct = new Set(assets.values()).size > 1;
 		if (first) {
 			const claim = distinct
-				? X.mediaDiffering[kind]
-				: heldClaim(slot.media, kind);
+				? inline
+					? X.videoInline.differing
+					: X.mediaDiffering[kind]
+				: heldClaim(slot.media, role);
 			for (const [language, value] of values)
 				if (assets.has(language)) cursor.takeSubtree(value, claim).value;
 		}
@@ -337,7 +366,7 @@ function readSlotMedia(
 		}
 		setMedia(
 			slot,
-			kind,
+			role,
 			shared,
 			translated,
 			translated.size && defaultLanguage !== languages[0]

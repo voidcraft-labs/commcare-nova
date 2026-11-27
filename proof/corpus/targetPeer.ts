@@ -868,6 +868,8 @@ function moved<T>(items: readonly T[], from: number, to: number): T[] {
  *   property not yet mapped);
  * - `moduleAttribute`: the menu's name in the app's first language
  *   (`edit_module_attr`, `name`, under the `lang` cookie HQ's pages set);
+ * - `moduleLayout`: the menu's `display_style` as posted
+ *   (`edit_module_attr`, `display_style`);
  * - `moduleDetail`: the column appended to the menu's short details
  *   (`_update_short_details`, `DetailColumn.from_json` of a column that
  *   names every key HQ stores of one);
@@ -950,6 +952,10 @@ export function sourceAfterContentSaves(
 			...((module.name ?? {}) as Json),
 			[lang()]: saves.moduleAttribute.name,
 		};
+	}
+	if (saves.moduleLayout !== undefined) {
+		const module = moduleAt(next, saves.moduleLayout.module);
+		module.display_style = saves.moduleLayout.displayStyle;
 	}
 	if (saves.moduleDetail !== undefined) {
 		const module = moduleAt(next, saves.moduleDetail.module);

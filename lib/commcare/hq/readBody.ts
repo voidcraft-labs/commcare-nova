@@ -168,13 +168,13 @@ function joined(chunks: readonly Uint8Array[], length: number): Uint8Array {
 export async function consumeBoundedBody(
 	stream: ReadableStream<Uint8Array> | null,
 	maxBytes: number,
-	consume: (chunk: Uint8Array) => void,
-	mode?: "media-digest",
+	consume: (chunk: Uint8Array) => void | Promise<void>,
+	mode?: "media-digest" | "media-stream",
 ): Promise<"read" | "too-long" | "unavailable"> {
-	if (mode === "media-digest") {
+	if (mode === "media-digest" || mode === "media-stream") {
 		if (!Number.isSafeInteger(maxBytes) || maxBytes < 0)
 			throw new Error(
-				"A streamed media digest needs the expected file length.",
+				"A streamed media file needs the most of it Nova reads, a whole number.",
 			);
 	} else assertBodyBound(maxBytes);
 	if (stream === null) return "read";
@@ -194,7 +194,7 @@ export async function consumeBoundedBody(
 			if (lease && !lease.charge("text", value.byteLength))
 				return "unavailable";
 			try {
-				consume(value);
+				await consume(value);
 			} finally {
 				lease?.giveBack("text", value.byteLength);
 			}

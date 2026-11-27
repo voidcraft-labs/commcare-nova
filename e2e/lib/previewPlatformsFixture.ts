@@ -24,6 +24,7 @@ export const PLATFORM_IDS = {
 	helpImage: testMediaAssetId("platforms-help-image"),
 	choiceImage: testMediaAssetId("platforms-choice-image"),
 	logo: testMediaAssetId("platforms-logo"),
+	menuSound: testMediaAssetId("platforms-menu-sound"),
 } as const;
 
 /** The label the Markwon reading reads (the targeted document

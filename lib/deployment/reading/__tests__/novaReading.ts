@@ -212,6 +212,7 @@ export async function readBackInput(
 		// changed it reaches a project space that applies "save only if
 		// changed", which a bring-in's probe of that project space reads.
 		...(savesOnlyChangedAnswers(doc) && { saveOnlyEditedApplied: true }),
+		caseListActionsApplied: true,
 		recordDialect: recordDialectRoundTrip,
 		lookup: lookupCatalog(options.lookup),
 		organization: { levelCodes: levels.map((level) => level.code), levels },

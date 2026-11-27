@@ -1248,9 +1248,7 @@ export function* readExpressionsSteps(
 					kind: "refused",
 					resolution: {
 						kind: "entry",
-						entryId: readsWorkerRecord(candidate)
-							? WORKER_RECORD_IN_RECORD_SLOT
-							: slotDefault(checked, registration.ref, () => M3),
+						entryId: slotDefault(checked, registration.ref, () => M3),
 						reason: `dialect:${answer}`,
 					},
 				});
@@ -1368,11 +1366,20 @@ export function* readExpressionsSteps(
 		if (outcome.kind === "held") {
 			bound[index] = outcome.tree;
 			held.set(index, outcome.tree);
-			const entryId = slotEntries(registration.ref.slot).held(
-				checked,
-				registration.ref,
-				outcome.tree,
-			);
+			const workerProperty =
+				[
+					"form_display_condition",
+					"module_display_condition",
+					"case_list_filter",
+					"case_list_column_expression",
+				].includes(registration.ref.slot) && readsWorkerRecord(outcome.tree);
+			const entryId = workerProperty
+				? WORKER_RECORD_IN_RECORD_SLOT
+				: slotEntries(registration.ref.slot).held(
+						checked,
+						registration.ref,
+						outcome.tree,
+					);
 			if (entryId !== undefined) {
 				claimed.add(registration.key);
 				claims.push({
@@ -1383,7 +1390,10 @@ export function* readExpressionsSteps(
 					detail: { name },
 				});
 			}
-		} else if (outcome.resolution.kind === "unrecognized")
+		} else if (
+			outcome.resolution.kind === "unrecognized" ||
+			outcome.resolution.entryId === "unrecognized"
+		)
 			circumstances.push({
 				source: index,
 				code: "unrecognized",

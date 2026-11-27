@@ -57,7 +57,6 @@ import {
 	lookupColumnIdSchema,
 	lookupTableIdSchema,
 } from "@/lib/domain/lookupIds";
-import { LOOKUP_MAX_COLUMNS } from "@/lib/lookup/constants";
 import { LookupError, LookupPastInlineCopyError } from "@/lib/lookup/errors";
 import {
 	type InventoryAccess,
@@ -332,14 +331,7 @@ async function managedTableChanges(
 				occurrences,
 			})),
 		);
-		const keptGone = stored.columns.filter(
-			(column) => column.kept && !fields.has(column.wireName),
-		).length;
-		const columnCount = table.fields.length + keptGone;
-		if (
-			lookupInlineCopyExcess(content, measured).length > 0 ||
-			(keptGone > 0 && columnCount > LOOKUP_MAX_COLUMNS)
-		)
+		if (lookupInlineCopyExcess(content, measured).length > 0)
 			changes.push({ kind: "past-inline-read" });
 	}
 	for (const name of badNames) changes.push({ kind: "name", name });

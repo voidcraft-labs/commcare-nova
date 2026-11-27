@@ -35,8 +35,24 @@ import { HQ_MEDIA_TYPES } from "./mediaMap";
 
 export { HQ_MEDIA_IN_FLIGHT_MAX_BYTES } from "./bounds";
 
+/**
+ * The most of one media file Nova streams past its kind's limit
+ * (`streamHqMediaFile`). It is no body bound of `bounds.ts`: no byte of it is
+ * held, each chunk going on to a staged object as it arrives. The bound is the
+ * time one file may take: a gibibyte at the 2 MiB/s a slow link to CommCare HQ
+ * gives arrives in about eight and a half minutes, inside
+ * `HQ_MEDIA_STREAM_DEADLINE_MS`.
+ */
+export const HQ_MEDIA_STREAM_MAX_BYTES = 1024 * 1024 * 1024;
+
 /** Each file's own deadline, through its last byte: a file can be 50 MiB. */
 export const HQ_MEDIA_FILE_DEADLINE_MS = 60_000;
+/** The bytes `HQ_MEDIA_FILE_DEADLINE_MS` is fitted to: the largest per-kind cap. */
+const HQ_MEDIA_FILE_DEADLINE_BYTES = 50 * 1024 * 1024;
+/** A streamed file's deadline, through its last byte: `HQ_MEDIA_STREAM_MAX_BYTES` at a slow link. */
+export const HQ_MEDIA_STREAM_DEADLINE_MS = 10 * 60_000;
+/** The rate a known file's digest read is given time for beyond the file deadline: a slow link. */
+const HQ_MEDIA_DIGEST_BYTES_PER_SECOND = 2 * 1024 * 1024;
 /** How many media files Nova asks CommCare HQ for at once. */
 export const HQ_MEDIA_READ_CONCURRENCY = 4;
 
@@ -90,6 +106,103 @@ export async function readHqMediaFile(
 	);
 }
 
+/** Where a streamed file's bytes go as they arrive: a staged object being written. */
+export interface HqMediaSink<Written> {
+	readonly write: (chunk: Uint8Array) => Promise<void>;
+	/** End the write, once every byte arrived, and answer what it made. */
+	readonly finish: () => Promise<Written>;
+	/** Let go of what was written: the file did not arrive whole. Never throws. */
+	readonly abort: () => Promise<void>;
+}
+
+export type HqMediaStream<Written> =
+	| {
+			readonly kind: "streamed";
+			/** What the sink's `finish` made of the bytes. */
+			readonly written: Written;
+			readonly sizeBytes: number;
+			/** SHA-256 of the bytes as they arrived, hex. */
+			readonly sha256: string;
+	  }
+	| { readonly kind: "missing" }
+	| { readonly kind: "too-large"; readonly maxBytes: number }
+	| CommCareApiError;
+
+/**
+ * Read the file HQ holds as `multimediaId` of `mediaType` into a sink, at most
+ * `options.maxBytes` of it, holding none of it: each chunk is counted, hashed
+ * and handed to the sink as it arrives, and the next is read once the sink
+ * took it. `options.open` makes a fresh sink for each attempt (the one resend
+ * a file HQ could not send gets its own), and a sink whose file did not arrive
+ * whole is aborted. Otherwise as `readHqMediaFile`, under the longer
+ * `HQ_MEDIA_STREAM_DEADLINE_MS`.
+ */
+export async function streamHqMediaFile<Written>(
+	creds: CommCareCredentials,
+	mediaType: HqMediaType,
+	multimediaId: string,
+	options: {
+		readonly maxBytes: number;
+		readonly open: () => HqMediaSink<Written>;
+		readonly cancel?: AbortSignal;
+	},
+): Promise<HqMediaStream<Written>> {
+	return readMedia(
+		creds,
+		mediaType,
+		multimediaId,
+		options.cancel,
+		async (answer, _type, signal): Promise<HqMediaStream<Written>> => {
+			const sink = options.open();
+			const digest = createHash("sha256");
+			let size = 0;
+			let finished = false;
+			/* A failure of Nova's own storage is thrown as itself, never read as
+			 * CommCare HQ's. */
+			let sinkFailure: { readonly error: unknown } | null = null;
+			const toSink = async (step: () => Promise<void>) => {
+				try {
+					await step();
+				} catch (error) {
+					sinkFailure ??= { error };
+					throw error;
+				}
+			};
+			try {
+				const result = await answer.consume(
+					options.maxBytes,
+					async (chunk) => {
+						size += chunk.byteLength;
+						digest.update(chunk);
+						await toSink(() => sink.write(chunk));
+					},
+					"media-stream",
+				);
+				if (result === "too-long")
+					return { kind: "too-large", maxBytes: options.maxBytes };
+				if (result !== "read") return unanswered(signal);
+				let written: Written | undefined;
+				await toSink(async () => {
+					written = await sink.finish();
+				});
+				finished = true;
+				return {
+					kind: "streamed",
+					written: written as Written,
+					sizeBytes: size,
+					sha256: digest.digest("hex"),
+				};
+			} catch (error) {
+				if (sinkFailure !== null) throw error;
+				return unanswered(signal, error);
+			} finally {
+				if (!finished) await sink.abort();
+			}
+		},
+		HQ_MEDIA_STREAM_DEADLINE_MS,
+	);
+}
+
 type FileFailure = CommCareApiError | { kind: "missing" };
 export type HqMediaDigest =
 	| { kind: "hash"; sha256: string; size: number }
@@ -129,6 +242,14 @@ export function readHqMediaDigest(
 				return unanswered(signal, error);
 			}
 		},
+		/* A file brought in past its kind's cap is given the time its bytes past the
+		 * file deadline's take. */
+		HQ_MEDIA_FILE_DEADLINE_MS +
+			Math.ceil(
+				(Math.max(0, maxBytes - HQ_MEDIA_FILE_DEADLINE_BYTES) /
+					HQ_MEDIA_DIGEST_BYTES_PER_SECOND) *
+					1000,
+			),
 	);
 }
 
@@ -142,6 +263,7 @@ async function readMedia<T>(
 		type: string | null,
 		signal: AbortSignal,
 	) => Promise<T>,
+	deadlineMs: number = HQ_MEDIA_FILE_DEADLINE_MS,
 ): Promise<T | FileFailure> {
 	// Both are path segments: the type is held to HQ's own list at run time,
 	// beside the id, wherever it was read from.
@@ -159,7 +281,7 @@ async function readMedia<T>(
 			await delay(HQ_MEDIA_RESEND_WAIT_MS, signal);
 			return signal.aborted ? unanswered(signal) : ask();
 		},
-		HQ_MEDIA_FILE_DEADLINE_MS,
+		deadlineMs,
 		cancel,
 	);
 }

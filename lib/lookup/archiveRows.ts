@@ -59,9 +59,19 @@ async function lockArchiveTable(
 	const revision = a.tableRevision
 		? sql`t.id=${a.tableRevision.id} AND t.definition_revision=${a.tableRevision.definition} AND t.rows_revision=${a.tableRevision.rows}`
 		: sql`s.revision=${a.projectRevision}::bigint`;
+	/* Nova's own table, one taken over from CommCare HQ, or a complete copy of
+	 * one CommCare HQ manages: the rows `lookup_rows` holds are then its whole
+	 * current inventory (`source.ts::inlineLookupInventoryAvailable` and
+	 * `requiresLookupProjection`, whose legacy copy with no source facts is
+	 * complete and global). An unavailable or generation-held source has no
+	 * such rows. */
 	const live =
 		await sql`SELECT 1 FROM lookup_tables t JOIN lookup_project_state s USING(project_id)
-		WHERE t.project_id=${a.projectId} AND t.id=${id} AND (t.hq_remote_id IS NULL OR t.hq_taken_over_at IS NOT NULL) AND t.worker_access='all'
+		WHERE t.project_id=${a.projectId} AND t.id=${id}
+		AND (t.hq_remote_id IS NULL OR t.hq_taken_over_at IS NOT NULL
+			OR (coalesce(t.hq_canonical->'source'->>'inventory','complete')='complete'
+				AND t.hq_canonical->'source'->>'storage' IS NULL))
+		AND t.worker_access='all'
 		AND coalesce(t.hq_canonical->'source'->>'distribution','global') <> 'assigned' AND ${revision} FOR SHARE OF t,s`.execute(
 			tx,
 		);

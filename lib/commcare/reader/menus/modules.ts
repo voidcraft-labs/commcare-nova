@@ -7,6 +7,7 @@
  * Keys `readStructure` claims (a menu's name, id and forms) are read from the
  * drafts and claimed nothing again.
  */
+
 import type { Draft } from "immer";
 import {
 	type BlueprintDoc,
@@ -29,14 +30,21 @@ import {
 import { caseParentSelectionVerdict } from "@/lib/domain/caseParentSelection";
 import { CASE_TYPE_PATTERN } from "@/lib/domain/expression/types";
 import { walkExpressionTerms } from "@/lib/domain/expression/walk";
+import { menuWithInheritedCaseSettings } from "@/lib/domain/listedForms";
 import { NO_ENTRIES, recordFromEntries } from "@/lib/domain/records";
 import type { HqPlace } from "@/lib/publish/hqFindings";
-import { advancedLoadListMenus, parentStepRead } from "../../hq/entryFacts";
+import {
+	advancedLoadListMenus,
+	formChoosesCase,
+	parentStepRead,
+} from "../../hq/entryFacts";
+import { sourceModuleMenuLayout } from "../../hq/menuLayout";
+import { suiteFormScope, suiteMenuScope } from "../../hq/suiteDetailSources";
 import { hiddenMenuEntryPoints } from "../../validator/rules/hiddenFromMenu";
+import { chargeWork } from "../../workMeter";
 import { applicationReading } from "../appShell";
 import { withCandidate } from "../candidate";
 import type { HeldTexts } from "../caseList/columns";
-import { parentSelectionsExplained } from "../caseManagement/advancedActions";
 import {
 	account,
 	type Claim,
@@ -54,15 +62,22 @@ import {
 	type UnheldText,
 	unheldText,
 } from "../heldText";
+import type { JsonCursor } from "../jsonCursor";
 import { isJsonObject, objectMembers } from "../jsonCursor";
+import type { PendingExpression } from "../pendingExpressions";
 import { readNavMedia } from "./navMedia";
 
 const M = "menus-and-case-lists";
 const F = "forms-and-case-writes";
 
-type MenuClass = "Module" | "AdvancedModule";
+type MenuClass = DraftModule["docType"];
 type FormClass = "Form" | "AdvancedForm";
-const MENU_CLASSES: readonly MenuClass[] = ["Module", "AdvancedModule"];
+const MENU_CLASSES: readonly MenuClass[] = [
+	"Module",
+	"AdvancedModule",
+	"ShadowModule",
+];
+const OWN_CASE_TYPE_CLASSES = ["Module", "AdvancedModule"] as const;
 const FORM_CLASSES: readonly FormClass[] = ["Form", "AdvancedForm"];
 
 /** One claim per class, its key the class's own spelling of the field. */
@@ -78,8 +93,10 @@ function perClass<C extends string, U extends Claim["use"]>(
 }
 
 const MENU = {
+	// A menu listing another menu's forms takes its case type from that menu
+	// (`readCaseType`), so only the other two classes claim their own.
 	caseType: perClass(
-		MENU_CLASSES,
+		OWN_CASE_TYPE_CLASSES,
 		take,
 		`${M}/modulebase-case-type`,
 		"case_type",
@@ -89,7 +106,7 @@ const MENU = {
 		"schema:Module.case_type",
 	),
 	caseTypeGrammar: perClass(
-		MENU_CLASSES,
+		OWN_CASE_TYPE_CLASSES,
 		refuse,
 		`${M}/case-type-outside-the-menu-page-s-grammar`,
 		"case_type",
@@ -126,6 +143,10 @@ const MENU = {
 		`${M}/root-module-id-naming-a-missing-module-or-a-cycle`,
 		"root_module_id",
 	),
+	rootSharedChild: take(
+		`${M}/shadowmodule-v2-under-a-v2-shadow-menu-mirroring-a-non-shadow`,
+		"schema:ShadowModule.root_module_id",
+	),
 	rootUnderMirror: perClass(
 		MENU_CLASSES,
 		refuse,
@@ -140,7 +161,7 @@ const MENU = {
 	),
 	rootCrossType: perClass(
 		MENU_CLASSES,
-		refuse,
+		take,
 		`${M}/child-menu-of-another-case-type-under-a-parent-with-no-forms`,
 		"root_module_id",
 	),
@@ -160,13 +181,17 @@ const MENU = {
 		`${M}/put-in-root-session-endpoint-id-or-inline-search-or-an-end-of`,
 		"put_in_root",
 	),
-	taskListHidden: drop(
+	taskListHidden: perClass(
+		["Module", "ShadowModule"] as const,
+		drop,
 		`${M}/module-task-list-show-false`,
-		"schema:Module.task_list",
+		"task_list",
 	),
-	taskListShown: refuse(
+	taskListShown: perClass(
+		["Module", "ShadowModule"] as const,
+		refuse,
 		`${M}/module-task-list-show-true`,
-		"schema:Module.task_list",
+		"task_list",
 	),
 	fixtureSelectInactive: perClass(
 		MENU_CLASSES,
@@ -204,22 +229,19 @@ const MENU = {
 	),
 	customIcons: perClass(
 		MENU_CLASSES,
-		refuse,
+		take,
 		`${M}/custom-icons-0-badge-localized-text-or-xpath`,
 		"custom_icons",
 	),
-	/** The badges after a menu's first, which no build reads (`custom_icon` reads the first). */
-	customIconsLater: perClass(
-		MENU_CLASSES,
-		account,
-		`${M}/custom-icons-1`,
-		"custom_icons",
+	caseListCustomIcons: drop(
+		`${M}/case-list-item-badges`,
+		"schema:CaseList.custom_icons",
 	),
-	caseListCustomIcons: refuse(
-		`${M}/custom-icons-0-badge-localized-text-or-xpath`,
-		"schema:CustomIcon",
+	invalidDisplayStyle: refuse(
+		`${M}/module-layout-outside-editor-choices`,
+		"schema:Module.display_style",
 	),
-	displayStyle: refuse(
+	displayStyle: take(
 		`${M}/module-display-style-list-grid-read-when-grid-form-menus-some-on`,
 		"schema:Module.display_style",
 	),
@@ -231,9 +253,11 @@ const MENU = {
 		`${M}/auto-select-case-true-on-any-other-basic-module`,
 		"schema:Module.auto_select_case",
 	),
-	selectActive: take(
+	selectActive: perClass(
+		["Module", "ShadowModule"] as const,
+		take,
 		`${M}/parent-select-active-true-relationship-parent-module-id-a-non`,
-		"schema:Module.parent_select",
+		"parent_select",
 	),
 	selectActiveFlag: take(
 		`${M}/parent-select-active-true-relationship-parent-module-id-a-non`,
@@ -251,9 +275,11 @@ const MENU = {
 		`${M}/parent-select-relationship-null-other`,
 		"schema:ParentSelect.relationship",
 	),
-	selectInactive: drop(
+	selectInactive: perClass(
+		["Module", "ShadowModule"] as const,
+		drop,
 		`${M}/parent-select-active-false`,
-		"schema:Module.parent_select",
+		"parent_select",
 	),
 	selectInvalid: refuse(
 		`${M}/parent-select-module-id-naming-a-multi-select-module-or-an`,
@@ -271,7 +297,7 @@ const MENU = {
 		`${M}/parent-select-naming-a-survey-module-on-a-child-that-does-not`,
 		"schema:ParentSelect.module_id",
 	),
-	selectOutsideType: refuse(
+	selectOutsideType: take(
 		`${M}/parent-select-naming-a-module-outside-the-declared-parent-type`,
 		"schema:ParentSelect.module_id",
 	),
@@ -290,6 +316,14 @@ const MENU = {
 	caseListWithFormsShow: take(
 		`${M}/module-case-list-show-true-on-a-basic-module-with-forms`,
 		"schema:CaseList.show",
+	),
+	sharedListShown: refuse(
+		`${M}/shadowmodule-case-list-show-true`,
+		"schema:ShadowModule.case_list",
+	),
+	sharedListHidden: drop(
+		`${M}/shadowmodule-case-list-show-false`,
+		"schema:ShadowModule.case_list",
 	),
 	caseListAdvanced: take(
 		`${M}/module-case-list-show-true-on-an-advancedmodule`,
@@ -347,7 +381,7 @@ const MENU = {
 	),
 	formCustomIcons: perClass(
 		FORM_CLASSES,
-		refuse,
+		take,
 		`${F}/custom-icons-0`,
 		"custom_icons",
 	),
@@ -458,7 +492,7 @@ function compareCodePoints(a: string, b: string): number {
 export function labelAsBuilt(
 	label: Readonly<Record<string, string | null>>,
 	langs: readonly string[],
-	fallback: string,
+	fallback: string | ((lang: string) => string),
 ): Readonly<Record<string, string>> {
 	const keys = Object.keys(label).sort(compareCodePoints);
 	const built = recordFromEntries<string>([]);
@@ -479,7 +513,12 @@ export function labelAsBuilt(
 			const value = label[keys[0] as string];
 			text = value === null || value === undefined ? "None" : value;
 		}
-		built[lang] = text === undefined || text === "" ? fallback : text;
+		built[lang] =
+			text === undefined || text === ""
+				? typeof fallback === "string"
+					? fallback
+					: fallback(lang)
+				: text;
 	}
 	return built;
 }
@@ -529,7 +568,10 @@ export function labelSpelledAsBuilt(
 export function heldLabel(
 	ctx: ReadContext,
 	built: Readonly<Record<string, string>>,
-	role: "case-list-menu-item-label" | "case-list-registration-label",
+	role:
+		| "case-list-menu-item-label"
+		| "case-list-registration-label"
+		| "menu-badge",
 ): HeldTexts | undefined {
 	const languages = applicationReading(ctx)?.languages;
 	const source = languages?.source;
@@ -546,7 +588,10 @@ export function heldLabel(
 export function unheldLabel(
 	ctx: ReadContext,
 	built: Readonly<Record<string, string>>,
-	role: "case-list-menu-item-label" | "case-list-registration-label",
+	role:
+		| "case-list-menu-item-label"
+		| "case-list-registration-label"
+		| "menu-badge",
 ): UnheldText | undefined {
 	const languages = applicationReading(ctx)?.languages;
 	const source = languages?.source;
@@ -677,20 +722,6 @@ export function rawForms(module: JsonObject): readonly JsonObject[] {
 	return objectMembers(module.forms) ?? [];
 }
 
-/** Whether a stored form's entry asks for a case first: a basic form's
- *  `requires`, an advanced form's load chosen from a list. */
-export function formChoosesCase(form: JsonObject): boolean {
-	if (form.doc_type === "AdvancedForm") {
-		const actions = isJsonObject(form.actions) ? form.actions : NO_ENTRIES;
-		const loads = objectMembers(actions.load_update_cases) ?? [];
-		return loads.some((load) => {
-			const select = isJsonObject(load.auto_select) ? load.auto_select : null;
-			return select === null;
-		});
-	}
-	return form.requires === "case";
-}
-
 // ── The reading's state ─────────────────────────────────────────────────
 
 interface ModulesReading {
@@ -702,7 +733,10 @@ interface ModulesReading {
 		{ readonly menu: DraftModule; readonly index: number }
 	>;
 	/** Each parent selection `readModules` wrote, to be judged in `settleModules`. */
-	readonly selections: Map<DraftModule, DraftModule>;
+	readonly selections: Map<
+		DraftModule,
+		{ readonly named: DraftModule; readonly cursor: JsonCursor }
+	>;
 	/** The menus whose case list menu item `readModules` read. */
 	readonly caseLists: Set<DraftModule>;
 }
@@ -748,6 +782,7 @@ export function keepsRefusedCaseType(ctx: ReadContext): boolean {
 }
 
 function readCaseType(ctx: ReadContext, module: DraftModule): void {
+	if (module.docType === "ShadowModule") return;
 	const { json } = module;
 	const caseType = json.peek("case_type");
 	if (typeof caseType === "string" && caseType !== "") {
@@ -755,7 +790,7 @@ function readCaseType(ctx: ReadContext, module: DraftModule): void {
 		// for itself, are each their entry; the menu keeps the name it stores, so
 		// the stages after this one read its forms as written.
 		const refused = !CASE_TYPE_PATTERN.test(caseType)
-			? MENU.caseTypeGrammar[menuClass(module)]
+			? MENU.caseTypeGrammar[module.docType]
 			: module.docType === "Module" &&
 					(caseType === "commcare-user" ||
 						caseType === "user-owner-mapping-case")
@@ -772,7 +807,7 @@ function readCaseType(ctx: ReadContext, module: DraftModule): void {
 		}
 		const value = json.take(
 			"case_type",
-			MENU.caseType[menuClass(module)],
+			MENU.caseType[module.docType],
 			textOf,
 		).value;
 		ctx.writeDraft(() => {
@@ -783,7 +818,7 @@ function readCaseType(ctx: ReadContext, module: DraftModule): void {
 	if (caseType === "" && module.docType === "Module")
 		json.take("case_type", MENU.survey, textOf).value;
 	else if (caseType === "")
-		json.take("case_type", MENU.caseType[menuClass(module)], textOf).value;
+		json.take("case_type", MENU.caseType[module.docType], textOf).value;
 }
 
 /** Whether following `root_module_id` from `start` returns to `start`: HQ's `root cycle`. */
@@ -814,8 +849,22 @@ function readNesting(
 		json.refuse("root_module_id", MENU.rootMissing[cls]);
 		return;
 	}
+	const parent = draftModuleById(app, rootId);
 	if (target.doc_type === "ShadowModule") {
-		json.refuse("root_module_id", MENU.rootUnderMirror[cls]);
+		const source = rawModuleById(ctx, json.peek("source_module_id"));
+		if (
+			cls !== "ShadowModule" ||
+			target.shadow_module_version !== 2 ||
+			source?.root_module_id !== target.source_module_id ||
+			!parent?.module.formsFromMenu
+		) {
+			json.refuse("root_module_id", MENU.rootUnderMirror[cls]);
+			return;
+		}
+		json.take("root_module_id", MENU.rootSharedChild, textOf).value;
+		ctx.writeDraft(() => {
+			module.module.parentModuleUuid = parent.uuid;
+		});
 		return;
 	}
 	if (target.is_training_module === true) {
@@ -827,14 +876,13 @@ function readNesting(
 		json.refuse("root_module_id", MENU.rootDeeper[cls]);
 		return;
 	}
-	const ownType = textOf(json.peek("case_type"));
+	const ownType = module.module.caseType ?? textOf(json.peek("case_type"));
 	const parentType = textOf(target.case_type);
-	if (rawForms(target).length === 0 && ownType !== parentType) {
-		json.refuse("root_module_id", MENU.rootCrossType[cls]);
-		return;
-	}
-	json.take("root_module_id", MENU.root[cls], textOf).value;
-	const parent = draftModuleById(app, rootId);
+	const claim =
+		rawForms(target).length === 0 && ownType !== parentType
+			? MENU.rootCrossType[cls]
+			: MENU.root[cls];
+	json.take("root_module_id", claim, textOf).value;
 	// A parent with no draft has its own finding; the child keeps no slot.
 	if (parent !== undefined)
 		ctx.writeDraft(() => {
@@ -914,19 +962,19 @@ function readParentSelection(
 	module: DraftModule,
 	stored: JsonObject,
 ): void {
-	if (module.docType !== "Module") return;
+	if (module.docType === "AdvancedModule") return;
 	const { json } = module;
 	const select = isJsonObject(stored.parent_select)
 		? stored.parent_select
 		: NO_ENTRIES;
 	if (select.active !== true) {
-		json.drop("parent_select", MENU.selectInactive);
+		json.drop("parent_select", MENU.selectInactive[module.docType]);
 		return;
 	}
 	const cursor = json.object(
 		"parent_select",
 		"ParentSelect",
-		MENU.selectActive,
+		MENU.selectActive[module.docType],
 	);
 	cursor.take("active", MENU.selectActiveFlag, (value) => value).value;
 	if (select.relationship !== "parent") {
@@ -963,7 +1011,7 @@ function readParentSelection(
 		return;
 	}
 	cursor.take("module_id", MENU.selectModule, (value) => value).value;
-	readingOf(ctx).selections.set(module, draft);
+	readingOf(ctx).selections.set(module, { named: draft, cursor });
 	ctx.writeDraft(() => {
 		Object.assign(module.module, { parentCaseModuleUuid: draft.uuid });
 	});
@@ -979,6 +1027,11 @@ function readCaseListMenuItem(
 	const caseList = isJsonObject(stored.case_list)
 		? stored.case_list
 		: NO_ENTRIES;
+	if (module.docType === "ShadowModule") {
+		if (caseList.show === true) json.refuse("case_list", MENU.sharedListShown);
+		else json.drop("case_list", MENU.sharedListHidden);
+		return;
+	}
 	if (caseList.show !== true) {
 		if (!json.used("case_list")) return;
 		json.drop(
@@ -1049,7 +1102,7 @@ function readCaseListMenuItem(
 					built,
 				);
 	if (Array.isArray(caseList.custom_icons) && caseList.custom_icons.length > 0)
-		cursor.refuse("custom_icons", MENU.caseListCustomIcons);
+		cursor.drop("custom_icons", MENU.caseListCustomIcons);
 	const media = readNavMedia(
 		ctx,
 		cursor,
@@ -1065,6 +1118,176 @@ function readCaseListMenuItem(
 			},
 		});
 	});
+}
+
+const MENU_BADGE = `${M}/custom-icons-0-badge-localized-text-or-xpath`;
+const FORM_BADGE = `${F}/custom-icons-0`;
+const BADGE = defineClaims("menus.badges", {
+	menuText: take(MENU_BADGE, "schema:CustomIcon.text"),
+	formText: take(FORM_BADGE, "schema:CustomIcon.text"),
+	menuForm: take(MENU_BADGE, "schema:CustomIcon.form"),
+	formForm: take(FORM_BADGE, "schema:CustomIcon.form"),
+	/** An empty calculation, which HQ's build reads as none (`menus.py`,
+	 *  `entries.py`: `not custom_icon.xpath`) and Nova writes as `null`. */
+	menuNoCalculation: take(MENU_BADGE, "schema:CustomIcon.xpath"),
+	formNoCalculation: take(FORM_BADGE, "schema:CustomIcon.xpath"),
+	later: account(`${M}/custom-icons-1`, "schema:CustomIcon"),
+	unsupportedForm: refuse(
+		`${M}/custom-icon-form-other-than-badge`,
+		"schema:CustomIcon.form",
+	),
+	missingLabel: refuse(
+		`${M}/badge-missing-localized-text`,
+		"schema:CustomIcon.text",
+	),
+});
+
+/** One source expression may run on several listed form entries or on a
+ * parent menu and its display-only children. Every reached scope must agree
+ * on the declaration. A profile with no such evaluator adds no constraint. */
+function navigationSuiteRead(
+	ctx: ReadContext,
+	suiteNavigation: readonly string[],
+): Pick<PendingExpression, "suiteNavigation" | "navigationSources"> {
+	const scopes = ctx.input.suiteDetails;
+	let navigationSources: Map<string, string | null> | undefined;
+	for (const key of suiteNavigation) {
+		const found = scopes?.get(key);
+		if (!found) continue;
+		if (!navigationSources) {
+			chargeWork("compare", found.size);
+			navigationSources = new Map(found);
+			continue;
+		}
+		chargeWork("compare", navigationSources.size + found.size);
+		for (const [id, source] of navigationSources)
+			if (found.get(id) !== source) navigationSources.set(id, null);
+		for (const id of found.keys())
+			if (!navigationSources.has(id)) navigationSources.set(id, null);
+	}
+	return { suiteNavigation, navigationSources };
+}
+
+/** The navigation item reads the first icon. Missing language entries fall back to
+ * the app's first language; unlike a menu name, they never take an arbitrary language. */
+function readBadge(
+	ctx: ReadContext,
+	owner: DraftModule | DraftForm,
+	scopes: readonly string[],
+): void {
+	const { json } = owner;
+	if (!nonEmptyList(json.peek("custom_icons"))) return;
+	const isForm = "form" in owner;
+	const [first, ...rest] = json.list(
+		"custom_icons",
+		"CustomIcon",
+		isForm
+			? MENU.formCustomIcons[owner.docType]
+			: MENU.customIcons[owner.docType],
+	);
+	for (const later of rest) later.refuseWhole(BADGE.later);
+	if (first === undefined) return;
+	if (first.used("form")) {
+		first.refuseWhole(BADGE.unsupportedForm);
+		return;
+	}
+	// The icon's class is the list's declared one, which HQ's wrap takes
+	// without its doc_type choosing it, so no use of the class is read here:
+	// its keys are claimed one by one below.
+	first.takeDefault("form", isForm ? BADGE.formForm : BADGE.menuForm);
+	const xpath = first.peek("xpath");
+	const entry = isForm ? FORM_BADGE : MENU_BADGE;
+	const rewrite = (path: string) =>
+		ctx.facts.sameStateRewrites.push({
+			entry,
+			path,
+			register: "badge-respelled",
+		});
+	if (rest.length) rewrite(`${json.pointer}/custom_icons`);
+	const asText = isForm ? BADGE.formText : BADGE.menuText;
+	const stored = labelMap(first.peek("text"));
+	if (typeof xpath === "string" && xpath !== "") {
+		if (Object.keys(stored).length) rewrite(`${first.pointer}/text`);
+		first.take("text", asText, labelMap).value;
+		// The expression stage writes its outcome through the registered slot.
+		ctx.writeDraft(() => {
+			const target = isForm ? owner.form : owner.module;
+			target.badge = {
+				kind: "calculation",
+				expression: { kind: "term", term: { kind: "literal", value: "" } },
+			};
+		});
+		ctx.pending.register(
+			{
+				ref: isForm
+					? { entity: "form", uuid: owner.uuid, slot: "form_badge" }
+					: { entity: "module", uuid: owner.uuid, slot: "module_badge" },
+				text: xpath,
+				mode: { target: "hq-json", interpolation: "none" },
+				key: "schema:CustomIcon.xpath",
+				place: owner.place,
+				...navigationSuiteRead(ctx, scopes),
+			},
+			{ json: first, key: "xpath" },
+		);
+		return;
+	}
+	const langs = appLanguageCodes(ctx);
+	if (xpath === "") {
+		first.take(
+			"xpath",
+			isForm ? BADGE.formNoCalculation : BADGE.menuNoCalculation,
+			() => null,
+		).value;
+		rewrite(`${first.pointer}/xpath`);
+	}
+	const emitted = recordFromEntries(
+		langs.map((lang) => [
+			lang,
+			(Object.hasOwn(stored, lang) ? stored[lang] : stored[langs[0] ?? "en"]) ??
+				"",
+		]),
+	);
+	// HQ overlays the build languages in reverse order into its default
+	// catalog; Core loads that catalog before the worker's selected language.
+	const fallback = langs.map((lang) => emitted[lang]).find(Boolean);
+	if (!fallback) {
+		// Refused whole: an empty text map sits at its default, where a
+		// refusal of the key alone would record nothing.
+		first.refuseWhole(BADGE.missingLabel);
+		return;
+	}
+	const built = recordFromEntries(
+		langs.map((lang) => [lang, emitted[lang] || fallback]),
+	);
+	first.take("text", asText, labelMap).value;
+	const held = heldLabel(ctx, built, "menu-badge");
+	if (!held) {
+		refuseUnheldText(
+			ctx,
+			owner.place,
+			"schema:CustomIcon.text",
+			unheldLabel(ctx, built, "menu-badge"),
+		);
+		return;
+	}
+	if (held.workersSeeAnother || !labelSpelledAsBuilt(stored, held.texts, langs))
+		recordTextRewrite(
+			ctx,
+			{ entry: asText.entry, path: `${first.pointer}/text` },
+			"badge-respelled",
+			held.workersSeeAnother,
+		);
+	const value = writeBuiltLabel(
+		ctx,
+		makeTranslationUnitId(isForm ? "form" : "module", owner.uuid, "badge"),
+		held.texts,
+	);
+	if (value)
+		ctx.writeDraft(() => {
+			const target = isForm ? owner.form : owner.module;
+			target.badge = { kind: "text", text: value };
+		});
 }
 
 function nonEmptyList(value: unknown): boolean {
@@ -1087,17 +1310,37 @@ function readMenuSettings(
 	const cls = menuClass(module);
 	if (stored.is_training_module === true)
 		json.refuse("is_training_module", MENU.training[cls]);
-	if (module.docType === "Module") {
+	if (module.docType === "Module" || module.docType === "ShadowModule") {
 		const taskList = isJsonObject(stored.task_list)
 			? stored.task_list
 			: NO_ENTRIES;
 		if (json.used("task_list"))
-			if (taskList.show === true) json.refuse("task_list", MENU.taskListShown);
-			else json.drop("task_list", MENU.taskListHidden);
+			if (taskList.show === true)
+				json.refuse("task_list", MENU.taskListShown[module.docType]);
+			else json.drop("task_list", MENU.taskListHidden[module.docType]);
+	}
+	if (module.docType === "Module") {
 		if (stored.lazy_load_case_list_fields === true)
 			json.refuse("lazy_load_case_list_fields", MENU.lazyLoad);
-		if (json.used("display_style"))
-			json.refuse("display_style", MENU.displayStyle);
+		/* HQ stores `list` on every basic menu: only another value is a use. */
+		const style = json.used("display_style")
+			? sourceModuleMenuLayout(json.peek("display_style"))
+			: "list";
+		if (style === "list") {
+			// Nothing to hold: the menu contributes a list, as the document's default does.
+		} else if (style === "unreadable") {
+			json.refuse("display_style", MENU.invalidDisplayStyle);
+		} else {
+			const grid = json.take(
+				"display_style",
+				MENU.displayStyle,
+				() => style === "grid",
+			).value;
+			if (grid)
+				ctx.writeDraft(() => {
+					module.module.menuLayout = "grid";
+				});
+		}
 		if (stored.auto_select_case === true)
 			if (loadListsFrom(ctx, module.uniqueId))
 				json.refuse("auto_select_case", MENU.autoSelectRefused);
@@ -1116,20 +1359,15 @@ function readMenuSettings(
 		json.refuse("show_case_list_optimization_options", MENU.optimizations[cls]);
 	if (nonEmptyList(stored.custom_assertions))
 		json.refuse("custom_assertions", MENU.customAssertions[cls]);
-	if (nonEmptyList(stored.custom_icons)) {
-		json.refuse("custom_icons", MENU.customIcons[cls]);
-		const icons = stored.custom_icons as unknown[];
-		for (let index = 1; index < icons.length; index += 1)
-			json.accountPart(
-				"custom_icons",
-				String(index),
-				MENU.customIconsLater[cls],
-			);
-	}
+	readBadge(ctx, module, [suiteMenuScope(module.index)]);
 }
 
 /** A display condition's text, registered whole for the expression stage. */
-function registerModuleFilter(ctx: ReadContext, module: DraftModule): void {
+function registerModuleFilter(
+	ctx: ReadContext,
+	module: DraftModule,
+	displayOnlyChildren: readonly number[],
+): void {
 	const { json } = module;
 	const cls = menuClass(module);
 	const text = json.peek("module_filter");
@@ -1149,6 +1387,10 @@ function registerModuleFilter(ctx: ReadContext, module: DraftModule): void {
 			mode: { target: "hq-json", interpolation: "no-case" },
 			place: module.place,
 			key: `schema:${cls}.module_filter`,
+			...navigationSuiteRead(ctx, [
+				suiteMenuScope(module.index),
+				...displayOnlyChildren.map(suiteMenuScope),
+			]),
 		},
 		{ json, key: "module_filter" },
 	);
@@ -1167,6 +1409,7 @@ function registerFormFilter(
 	ctx: ReadContext,
 	module: DraftModule,
 	form: DraftForm,
+	scopes: readonly string[],
 ): void {
 	const { json } = form;
 	const text = json.peek("form_filter");
@@ -1190,6 +1433,7 @@ function registerFormFilter(
 			},
 			place: form.place,
 			key: `schema:${form.docType}.form_filter`,
+			...navigationSuiteRead(ctx, scopes),
 			...(fixtureSelectActive(module) ? { fixtureValue: true } : {}),
 		},
 		{ json, key: "form_filter" },
@@ -1198,12 +1442,15 @@ function registerFormFilter(
 }
 
 /** A form's own navigation settings: its media, badges and assertions. */
-function readFormSettings(ctx: ReadContext, form: DraftForm): void {
+function readFormSettings(
+	ctx: ReadContext,
+	form: DraftForm,
+	scopes: readonly string[],
+): void {
 	const { json } = form;
 	if (nonEmptyList(json.peek("custom_assertions")))
 		json.refuse("custom_assertions", MENU.formCustomAssertions[form.docType]);
-	if (nonEmptyList(json.peek("custom_icons")))
-		json.refuse("custom_icons", MENU.formCustomIcons[form.docType]);
+	readBadge(ctx, form, scopes);
 	const media = readNavMedia(
 		ctx,
 		json,
@@ -1225,6 +1472,31 @@ function readFormSettings(ctx: ReadContext, form: DraftForm): void {
 export function readModules(ctx: ReadContext, app: DraftApp): void {
 	const folded = new Set(app.foldedMenus.map((one) => one.menu));
 	const stored = rawModules(ctx);
+	const displayOnlyChildren = new Map<string, number[]>();
+	const listed = new Map<
+		Uuid,
+		{ index: number; excluded: ReadonlySet<Uuid> }[]
+	>();
+	for (const module of app.modules) {
+		const parent = module.json.peek("root_module_id");
+		if (
+			module.json.peek("put_in_root") === true &&
+			typeof parent === "string"
+		) {
+			const children = displayOnlyChildren.get(parent) ?? [];
+			children.push(module.index);
+			displayOnlyChildren.set(parent, children);
+		}
+		const source = module.module.formsFromMenu;
+		if (source) {
+			const routes = listed.get(source.menuUuid) ?? [];
+			routes.push({
+				index: module.index,
+				excluded: new Set(source.excludedFormUuids),
+			});
+			listed.set(source.menuUuid, routes);
+		}
+	}
 	for (const module of app.modules) {
 		const menu = stored[module.index] ?? NO_ENTRIES;
 		readCaseType(ctx, module);
@@ -1250,7 +1522,11 @@ export function readModules(ctx: ReadContext, app: DraftApp): void {
 		readFormsInMenuAbove(ctx, module, menu);
 		readParentSelection(ctx, app, module, menu);
 		readCaseListMenuItem(ctx, module, menu);
-		registerModuleFilter(ctx, module);
+		registerModuleFilter(
+			ctx,
+			module,
+			displayOnlyChildren.get(module.uniqueId) ?? [],
+		);
 		if (media.icon !== undefined || media.audioLabel !== undefined)
 			ctx.writeDraft(() => {
 				Object.assign(module.module, media);
@@ -1258,8 +1534,12 @@ export function readModules(ctx: ReadContext, app: DraftApp): void {
 	}
 	for (const module of app.modules)
 		for (const form of module.forms) {
-			readFormSettings(ctx, form);
-			registerFormFilter(ctx, module, form);
+			const scopes = [suiteFormScope(module.index, form.index)];
+			for (const route of listed.get(module.uuid) ?? [])
+				if (!route.excluded.has(form.uuid))
+					scopes.push(suiteFormScope(route.index, form.index));
+			readFormSettings(ctx, form, scopes);
+			registerFormFilter(ctx, module, form, scopes);
 		}
 	writeMenuIds(ctx, app, folded);
 	checkMenuOrder(ctx, app, folded);
@@ -1500,30 +1780,35 @@ function settleParentSelections(
 	ctx: ReadContext,
 	reading: ModulesReading,
 ): void {
-	for (const [module, named] of reading.selections) {
+	for (const [module, { named, cursor }] of reading.selections) {
 		const doc = ctx.doc;
 		if (doc === undefined || doc.modules[module.uuid] === undefined) continue;
 		const verdict = caseParentSelectionVerdict(doc, module.uuid, named.uuid);
-		if (verdict.ok) continue;
-		const recordType = doc.caseTypes?.find(
-			(type) => type.name === doc.modules[module.uuid]?.caseType,
-		);
-		const parentType = recordType?.parent_type;
-		const namedType = doc.modules[named.uuid]?.caseType;
+		if (verdict.ok) {
+			const catalogType = doc.caseTypes?.find(
+				(type) =>
+					type.name ===
+					menuWithInheritedCaseSettings(doc, module.uuid)?.caseType,
+			);
+			if (
+				catalogType?.parent_type !==
+					menuWithInheritedCaseSettings(doc, named.uuid)?.caseType ||
+				catalogType?.relationship === "extension"
+			)
+				ctx.accounting.claimEntryClass(
+					{ json: cursor, key: "module_id" },
+					MENU.selectOutsideType.entry,
+					"schema:ParentSelect.module_id",
+					module.place,
+				);
+			continue;
+		}
 		// A finding at the named menu or its case list left out of the document
 		// what the selection would choose through: that finding is the cause.
-		// So did a refused `parent` index that leaves the catalog with no parent for the type.
 		const namedRefused =
 			ctx.accounting.hasFindingAt(named.place) ||
-			ctx.accounting.hasFindingAt(caseListPlaceOf(named)) ||
-			parentSelectionsExplained(ctx).has(module.uuid);
-		if (!namedRefused)
-			ctx.accounting.finding(
-				recordType?.relationship === "extension" || parentType !== namedType
-					? MENU.selectOutsideType
-					: MENU.selectInvalid,
-				module.place,
-			);
+			ctx.accounting.hasFindingAt(caseListPlaceOf(named));
+		if (!namedRefused) ctx.accounting.finding(MENU.selectInvalid, module.place);
 		ctx.doc = withCandidate(doc, (draft) => {
 			const target = draft.modules[module.uuid];
 			if (target !== undefined) delete target.parentCaseModuleUuid;

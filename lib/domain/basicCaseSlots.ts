@@ -824,13 +824,37 @@ export function moduleCaseTypeForActions(
 	doc: BlueprintDoc,
 	moduleUuid: Uuid,
 ): string {
-	const mod = doc.modules[moduleUuid];
+	const route = doc.modules[moduleUuid];
+	const owner = route?.formsFromMenu?.menuUuid ?? moduleUuid;
+	const mod = doc.modules[owner];
 	if (mod === undefined || !mod.caseType) return "";
-	const formUuids = doc.formOrder[moduleUuid] ?? [];
+	const formUuids = doc.formOrder[owner] ?? [];
 	const hasCases =
 		moduleHasCaseListMenuItem(mod) ||
 		formUuids.some((formUuid) => doc.forms[formUuid]?.type !== "survey");
 	return hasCases ? mod.caseType : "";
+}
+
+/**
+ * Whether a menu listing another menu's forms can hold deep links of its own
+ * to single forms. CommCare HQ's menu settings page always sends those links
+ * with a save but shows the deep link field its save reads beside them only
+ * on a menu that tracks cases (`views/modules.py`, `show_advanced_settings`
+ * is false for `is_surveys`; `edit_module_attr` then reads the absent
+ * `session_endpoint_id` and fails), so on a menu listing the forms of a menu
+ * with no case type no save of its settings in CommCare HQ would succeed.
+ */
+export function listedFormLinksSavable(
+	doc: BlueprintDoc,
+	routeUuid: Uuid,
+): boolean {
+	const route = doc.modules[routeUuid];
+	if (!route?.formsFromMenu) return true;
+	// HQ's `is_surveys` reads the stored `case_type` of the menu listed
+	// (`ShadowModule.case_type` is its source's), and a menu uploads its own
+	// case type, a survey-only menu's included (`expander.ts`), so a typed
+	// menu whose forms are all surveys still takes these links.
+	return Boolean(doc.modules[route.formsFromMenu.menuUuid]?.caseType);
 }
 
 const slotPlans = new WeakMap<BlueprintDoc, Map<string, BasicCaseSlots>>();

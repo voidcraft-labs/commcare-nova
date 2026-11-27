@@ -31,10 +31,7 @@ import { normalizedHqAppSource } from "@/lib/deployment/hqSourceBaseline";
 import { lookupTableIdSchema } from "@/lib/domain/lookupIds";
 import { recordFromEntries } from "@/lib/domain/records";
 import { readLookupFixtureDataInTransaction } from "@/lib/lookup/fixtureSnapshot";
-import {
-	measureLookupRows,
-	readKeptLookupColumnIds,
-} from "@/lib/lookup/managed";
+import { measureLookupRows } from "@/lib/lookup/managed";
 import type { LookupRowsMeasure } from "@/lib/lookup/managedRules";
 import { readAllLookupDefinitionsInTransaction } from "@/lib/lookup/service";
 import type {
@@ -64,16 +61,14 @@ import { sourceMayReadPlaces } from "./places";
 /** The Project's side of the read, and Postgres's measure of candidate rows. */
 export interface ReadingProjectSide {
 	/**
-	 * The Project's tables whose tag is one of `tags`, each with its rows and
-	 * the columns CommCare HQ's content would keep (`ReadingProjectAnswers.keptColumns`),
-	 * in one snapshot.
+	 * The Project's tables whose tag is one of `tags`, each with its rows, in
+	 * one snapshot.
 	 */
 	readonly tables: (tags: readonly string[]) => Promise<{
 		readonly projectId: string;
 		readonly projectRevision: LookupRevision;
 		readonly definitions: readonly LookupTableDefinition[];
 		readonly rowsByTable: Readonly<Record<string, readonly LookupFixtureRow[]>>;
-		readonly keptColumns: Readonly<Record<string, readonly string[]>>;
 	}>;
 	/** The apps that reference each table, by table id. */
 	readonly referencingApps: (
@@ -156,7 +151,6 @@ export function postgresProjectSide(input: {
 						projectRevision: all.projectRevision,
 						definitions,
 						rowsByTable: recordFromEntries(fixture.rowsByTable),
-						keptColumns: await readKeptLookupColumnIds(tx, projectId, tableIds),
 					};
 				});
 		},
@@ -200,14 +194,46 @@ function readingSourceText(source: HqAppSource): string {
 	return parts.join("\n");
 }
 
+/** A narrow discovery trigger. The expression reader, not the spelling,
+ * decides whether these values actually read an instance. */
+function possibleInstance(value: unknown): boolean {
+	return (
+		typeof value === "string" &&
+		(value.includes("instance") || value.includes("&"))
+	);
+}
+
+function possibleNavigationInstance(
+	row: Record<string, unknown>,
+	filter: string,
+): boolean {
+	const badge = Array.isArray(row.custom_icons)
+		? row.custom_icons[0]
+		: undefined;
+	return (
+		possibleInstance(row[filter]) ||
+		(isJsonObject(badge) && possibleInstance(badge.xpath))
+	);
+}
+
 export function mayUseProjectFactory(source: string | HqAppSource): boolean {
 	const text = typeof source === "string" ? source : readingSourceText(source);
 	return (
 		(typeof source !== "string" &&
 			Array.isArray(source.raw.modules) &&
 			source.raw.modules.some((menu: unknown) => {
-				if (!isJsonObject(menu) || !isJsonObject(menu.case_details))
-					return false;
+				if (!isJsonObject(menu)) return false;
+				if (possibleNavigationInstance(menu, "module_filter")) return true;
+				if (
+					Array.isArray(menu.forms) &&
+					menu.forms.some(
+						(form: unknown) =>
+							isJsonObject(form) &&
+							possibleNavigationInstance(form, "form_filter"),
+					)
+				)
+					return true;
+				if (!isJsonObject(menu.case_details)) return false;
 				return [menu.case_details.short, menu.case_details.long].some(
 					(detail) =>
 						isJsonObject(detail) &&
@@ -216,9 +242,7 @@ export function mayUseProjectFactory(source: string | HqAppSource): boolean {
 							(column: unknown) =>
 								isJsonObject(column) &&
 								column.useXpathExpression === true &&
-								typeof column.field === "string" &&
-								(column.field.includes("instance") ||
-									column.field.includes("&")),
+								possibleInstance(column.field),
 						),
 				);
 			})) ||
@@ -251,6 +275,18 @@ async function readPlaces(
 				? { hqLevels: [], hqPlaces: [], inconsistent: true }
 				: { hqLevels: read.levels, hqPlaces: read.places },
 	};
+}
+
+/**
+ * Nova holds one source-project location factory. A missing declaration or
+ * different physical layout on a reached scope cannot corroborate it.
+ */
+function commonLocations(sources: readonly (string | null | undefined)[]) {
+	if (sources.length === 0) return;
+	if (sources.every((source) => source === "jr://fixture/locations"))
+		return "flat";
+	if (sources.every((source) => source === "jr://fixture/commtrack:locations"))
+		return "hierarchical";
 }
 
 /** Project settings for factories an expression in this source actually consumes.
@@ -351,14 +387,27 @@ export function sourceFactoryReads(input: {
 					input.working?.source === input.source &&
 					(formWitness || currentSuite)
 				) {
-					const observed = await readWorkingLocationFixture({
-						creds,
-						domain,
-						working: input.working,
-						witness: formWitness,
-						sameSuiteSource,
-						cancel,
-					});
+					// The same source bracket already authenticated these declarations.
+					// A location inside a form attachment still needs its own witness.
+					const scopes = [...detailReads].filter(([, ids]) =>
+						ids.has("locations"),
+					);
+					const observed =
+						!formWitness && scopes.length > 0
+							? commonLocations(
+									scopes.flatMap(([key]) => {
+										const reached = suiteDetails?.get(key);
+										return reached ? [reached.get("locations")] : [];
+									}),
+								)
+							: await readWorkingLocationFixture({
+									creds,
+									domain,
+									working: input.working,
+									witness: formWitness,
+									sameSuiteSource,
+									cancel,
+								});
 					if (observed !== undefined)
 						sourceProjectFactories.locations = observed;
 				}
@@ -531,7 +580,6 @@ export async function readReadingProjectData(input: {
 					definitions: projectTables.definitions,
 					rowsByTable: projectTables.rowsByTable,
 					apps,
-					keptColumns: projectTables.keptColumns,
 					siblings,
 					mayAdminister,
 				},

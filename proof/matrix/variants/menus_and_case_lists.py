@@ -52,6 +52,26 @@ def case_list_deep_link_on_display_only_menu(authoring, app_id):
     )
 
 
+def conditional_registration_returning_to_search(authoring, app_id):
+    """Patients' empty-search action returns even when its form declines to open a case."""
+    from corehq.apps.app_manager.xform_builder import XFormBuilder
+
+    def registration_source(name):
+        form = XFormBuilder(name)
+        form.new_question("case_name", "Name", "string")
+        form.new_question("create_record", "Register this patient?", "select1", choices={"yes": "Yes", "no": "No"})
+        return form.tostring(xml_declaration=True).decode("utf-8")
+
+    ops.upload_form_source(authoring, app_id, 1, 0, registration_source, "conditional-registration")
+    ops.set_json(authoring, app_id, "/modules/1/forms/0/actions/open_case/condition", {
+        "doc_type": "FormActionCondition",
+        "type": "if",
+        "question": "/data/create_record",
+        "answer": "yes",
+        "operator": "=",
+    })
+
+
 def child_menu_registering_its_root_s_case_type(authoring, app_id):
     """Tools made a list of households under Follow-ups, whose first form chooses a household, its own form registering
     one."""
@@ -709,6 +729,19 @@ def registration_under_a_display_only_menu_sharing_its_case(authoring, app_id):
     )
 
 
+def _second_case_type_on_another_command(authoring, app_id):
+    from proof.matrix.bases import _pages
+
+    _pages.new_case_module(authoring, app_id, name="Clinics", case_type="clinic")
+    _pages.delete_form(authoring, app_id, 5, 0)
+
+
+def registration_under_a_first_menu_with_different_case_types(authoring, app_id):
+    registration_under_a_display_only_menu_sharing_its_case(authoring, app_id)
+    _second_case_type_on_another_command(authoring, app_id)
+
+
+
 def search_only_column_in_a_tile(authoring, app_id):
     """Follow-ups' list laid out as a tile, its search-only village column given a cell."""
     _set_each(
@@ -1237,3 +1270,122 @@ def inline_search_under_a_parent_selection(authoring, app_id):
             {"active": True, "relationship": "parent", "module_id": {"$menu": 0}, "doc_type": "ParentSelect"},
         ),
     )
+
+
+def child_menus_listing_the_same_forms(authoring, app_id):
+    """Two physical source menus and the pair of linked parent and child menus that list their forms."""
+    parent = "5adc0de0000000000000000000000003"
+    for position, name, menu_id, source, root in (
+        (5, "Tools mirror", parent, 3, None),
+        (6, "Calculators mirror", "5adc0de0000000000000000000000004", 4, parent),
+    ):
+        ops.set_json(
+            authoring,
+            app_id,
+            f"/modules/{position}",
+            {
+                "doc_type": "ShadowModule",
+                "name": {"en": name},
+                "forms": [],
+                "case_type": None,
+                "shadow_module_version": 2,
+                "unique_id": menu_id,
+                "source_module_id": {"$menu": source},
+                **({"root_module_id": root} if root else {}),
+            },
+        )
+
+
+def form_links_on_a_menu_listing_survey_forms(authoring, app_id):
+    """The Tools / Calculators pair of listing menus, the Tools mirror holding a deep link to Tools' survey. HQ's
+    menu settings page cannot save it: it sends the link with every save, but renders the deep link field its save
+    reads only in the Advanced panel, which it hides on a menu that tracks no cases
+    (``views/modules.py::get_module_view_context``, ``edit_module_attr``)."""
+    child_menus_listing_the_same_forms(authoring, app_id)
+    ops.set_json(
+        authoring,
+        app_id,
+        "/modules/5/form_session_endpoints",
+        [{"doc_type": "ShadowFormEndpoint", "form_id": {"$form": [3, 0]}, "session_endpoint_id": "tools-survey"}],
+    )
+
+
+def _add_listed_menu(authoring, app_id, *, excluded=(), linked=(), show=False, stored_case_type=None):
+    """A second route to the hq-plain forms. HQ resolves the actual source form ids before saving."""
+    owner = _held(authoring, app_id)["modules"][0]
+    ops.set_json(
+        authoring,
+        app_id,
+        "/modules/-",
+        {
+            "doc_type": "ShadowModule",
+            "shadow_module_version": 2,
+            "module_type": "shadow",
+            "unique_id": "00000000000000000000000000000017",
+            "source_module_id": {"$menu": 0},
+            "name": {"en": "At home"},
+            "forms": [],
+            "case_type": owner["case_type"] if stored_case_type == "source" else None,
+            "case_details": owner["case_details"],
+            "case_list": {"show": show},
+            "excluded_form_ids": list(excluded),
+            "session_endpoint_id": "at-home",
+            "form_session_endpoints": [
+                {"doc_type": "ShadowFormEndpoint", "form_id": form_id, "session_endpoint_id": link}
+                for form_id, link in linked
+            ],
+        },
+    )
+
+
+def all_forms_listed_in_another_menu(authoring, app_id):
+    _add_listed_menu(authoring, app_id)
+
+
+def listed_menu_storing_its_source_case_type(authoring, app_id):
+    """A listing menu whose stored ``case_type`` key holds its source's type, as an app saved before
+    ``ShadowModule.case_type`` became the property derived from the source can. HQ reads the property,
+    so the stored key changes nothing."""
+    _add_listed_menu(authoring, app_id, stored_case_type="source")
+
+
+def some_forms_listed_in_another_menu(authoring, app_id):
+    _add_listed_menu(authoring, app_id, excluded=[{"$form": [0, 0]}], linked=[({"$form": [0, 1]}, "home-followup")])
+
+
+def list_item_on_a_menu_listing_source_forms(authoring, app_id):
+    _add_listed_menu(authoring, app_id, show=True)
+
+
+def spaced_link_on_a_menu_listing_source_forms(authoring, app_id):
+    _add_listed_menu(authoring, app_id, linked=[({"$form": [0, 1]}, " home-followup ")])
+
+
+def unavailable_form_on_a_menu_listing_source_forms(authoring, app_id):
+    _add_listed_menu(authoring, app_id, excluded=["00000000000000000000000000000000"])
+
+
+def listed_menu_missing_its_required_child(authoring, app_id):
+    """The first half of the working Tools / Calculators pair. No Calculators submenu is present."""
+    ops.set_json(
+        authoring,
+        app_id,
+        "/modules/5",
+        {
+            "doc_type": "ShadowModule",
+            "name": {"en": "Tools mirror"},
+            "forms": [],
+            "case_type": None,
+            "shadow_module_version": 2,
+            "unique_id": "5adc0de0000000000000000000000003",
+            "source_module_id": {"$menu": 3},
+        },
+    )
+
+
+def choose_one_grid_menu(authoring, app_id):
+    """Save the app's individual setting, then the menu's Grid option, through HQ's settings pages."""
+    from proof.matrix.bases import _pages
+
+    _pages.save_settings(authoring, app_id, attributes={"grid_form_menus": "some"})
+    _pages.save_module_attributes(authoring, app_id, 2, [("display_style", "grid")], "grid layout")

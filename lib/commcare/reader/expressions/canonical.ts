@@ -482,6 +482,7 @@ function modeOf(context: ExpressionContext): WireMode {
 						: "no-case",
 			};
 		if (
+			slot.slot === "form_badge" ||
 			slot.slot === "form_link_condition" ||
 			slot.slot === "form_link_datum_xpath"
 		)

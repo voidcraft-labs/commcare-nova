@@ -1,3 +1,4 @@
+import { routeContainsForm } from "@/lib/domain/listedForms";
 /**
  * Form-level validation rules.
  *
@@ -527,10 +528,10 @@ function notOfferedSentence(
 			return `"${formName}" goes to the parent module ${when}, but "${parentName}" is off the menu: on Android it lists none of its own forms, and Web Apps opens the app's first screen instead.`;
 		case "menu-forms-in-menu-above":
 			return `"${formName}" goes to its module ${when}, but "${moduleName}" shows its forms in the menu above, so it has no screen of its own to land on.`;
+		case "previous-carries-other-case-type":
+			return `"${formName}" returns to the first menu with a chosen case on Android. Another menu could open it as a different record type. Choose First menu for a fresh case choice.`;
 		case "parent-forms-in-menu-above":
 			return `"${formName}" goes to the parent module ${when}, but "${parentName}" shows its forms in the menu above, so it has no screen of its own to land on.`;
-		case "menu-forms-on-first-menu":
-			return `"${formName}" goes to the previous screen ${when}, but "${moduleName}" shows its forms on the app's first menu, where Nova doesn't offer the previous screen.`;
 	}
 }
 
@@ -829,7 +830,7 @@ function formLinkValidation(
 		const targetForm = doc.forms[target.formUuid];
 		if (
 			targetForm === undefined ||
-			!(doc.formOrder[target.moduleUuid] ?? []).includes(target.formUuid)
+			!routeContainsForm(doc, target.moduleUuid, target.formUuid)
 		) {
 			targetsResolve = false;
 			errors.push(

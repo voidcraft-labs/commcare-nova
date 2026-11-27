@@ -48,7 +48,11 @@
 
 import { z } from "zod";
 import { type Expression, formLogicSchema } from "../expression/types";
-import { type Media, mediaSchema } from "../multimedia";
+import {
+	helpOrChoiceMediaSchema,
+	type Media,
+	mediaSchema,
+} from "../multimedia";
 import {
 	type ProseTemplate,
 	proseTemplateSchema,
@@ -89,6 +93,9 @@ export type FieldBase = StructuralFieldBase & {
 	label: ProseTemplate;
 	label_media?: Media;
 	plainLabel?: true;
+	extended_text?: ProseTemplate;
+	qr_code?: ProseTemplate;
+	spoken_text?: ProseTemplate;
 };
 
 export const fieldBaseSchema = structuralFieldBase.extend({
@@ -100,6 +107,17 @@ export const fieldBaseSchema = structuralFieldBase.extend({
 	label_media: mediaSchema.optional(),
 	/** The label shows exactly as written, with no markdown form on the wire. Absent: markdown. */
 	plainLabel: z.literal(true).optional(),
+	/** Text shown in place of the label where the label has no markdown form
+	 *  (`plainLabel`, or a form whose text formatting is off), and read aloud on
+	 *  Android in place of the label: the label's `long` form. See
+	 *  `labelForms.ts`. */
+	extended_text: proseTemplateSchema.optional(),
+	/** Text Android draws as a QR code beside the label, in place of the label
+	 *  image: the label's `qrcode` form. Web Apps ignores it. */
+	qr_code: proseTemplateSchema.optional(),
+	/** Text Android reads aloud from a speaker button beside the label where
+	 *  the label has no audio: the label's `tts` form. Web Apps ignores it. */
+	spoken_text: proseTemplateSchema.optional(),
 });
 
 /**
@@ -150,7 +168,8 @@ export type InputFieldBase = FieldBase & {
 export const inputFieldBaseSchema = fieldBaseSchema.extend({
 	hint: proseTemplateSchema.optional(),
 	help: proseTemplateSchema.optional(),
-	help_media: mediaSchema.optional(),
+	/** No inline video: only a question's label plays one. */
+	help_media: helpOrChoiceMediaSchema.optional(),
 	/** The help text shows exactly as written on Android, with no markdown form on the wire.
 	 *  Absent: markdown. */
 	plainHelp: z.literal(true).optional(),
@@ -180,7 +199,8 @@ export type SelectOption = {
 export const selectOptionSchema = z.strictObject({
 	value: z.string(),
 	label: proseTemplateSchema,
-	media: mediaSchema.optional(),
+	/** No inline video: only a question's label plays one. */
+	media: helpOrChoiceMediaSchema.optional(),
 	/** The label shows exactly as written, with no markdown form on the wire. Absent: markdown. */
 	plainLabel: z.literal(true).optional(),
 	uuid: uuidSchema,

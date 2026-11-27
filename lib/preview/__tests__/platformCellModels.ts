@@ -12,6 +12,10 @@ import { rowsMatchingFilterText } from "@/components/preview/shared/listFilter";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import type { CaseIndexRow, CaseRow } from "@/lib/case-store";
 import {
+	ENDPOINT_MODULE,
+	endpointWireFixture,
+} from "@/lib/commcare/__tests__/endpointWireFixture";
+import {
 	asMediaAssetId,
 	type CaseListOrderPlan,
 	type Column,
@@ -19,11 +23,17 @@ import {
 	columnSort,
 	hiddenSearchInputDef,
 	linkColumn,
+	type ProseTemplate,
 	plainColumn,
 	proseText,
 	simpleSearchInputDef,
 	tileCell,
 } from "@/lib/domain";
+import {
+	FIXTURE_FORM,
+	FIXTURE_MODULE,
+	PLATFORM_FEATURE_FIXTURES,
+} from "@/lib/domain/__tests__/platformFeatureFixtures";
 import { literal, term } from "@/lib/domain/expression";
 import type { Platform } from "@/lib/domain/platforms";
 import { projectProseTemplate } from "@/lib/domain/prose";
@@ -50,6 +60,10 @@ import {
 	webAppsDevice,
 } from "../engine/__tests__/fixtures/previewDevices";
 import type { CaseRowWithCalculated } from "../engine/caseDataBindingTypes";
+import {
+	caseListActionReturn,
+	selectionsAfterRegistrationReturn,
+} from "../engine/caseListRegisterAction";
 import { DataInstance } from "../engine/dataInstance";
 import { buildFieldTree } from "../engine/fieldTree";
 import { FormEngine } from "../engine/formEngine";
@@ -57,13 +71,17 @@ import {
 	type AfterSubmitFrameChoice,
 	evaluateAfterSubmit,
 } from "../engine/formLinkEvaluation";
+import { firstMenuSelections } from "../engine/frameLanding";
 import { previewSessionValues } from "../engine/identity";
+import { resolvePreviousTask } from "../engine/previousTask";
 import {
 	searchInputConstraintErrors,
 	searchInputRequiredMarks,
 } from "../engine/searchInputConstraints";
 import { prepareEntryPointLaunch } from "../entryPointLaunch";
 import { drawnSearchInputs } from "../hooks/useSearchInputRunState";
+import { labelPresentation } from "../labelPresentation";
+import { shownMenuBadge } from "../menuProjection";
 import {
 	ANDROID_DEVICE_ID_PREFIX,
 	androidAppVersion,
@@ -295,7 +313,166 @@ function searchFixture() {
 
 // ── The checks ────────────────────────────────────────────────────────
 
+function firstMenuPrevious(platform: Platform) {
+	const doc = PLATFORM_FEATURE_FIXTURES["first-menu-previous"].with();
+	const patient = row();
+	const task = resolvePreviousTask({
+		doc,
+		platform,
+		formUuid: FIXTURE_FORM,
+		submittedCaseIds: [patient.case_id],
+		selections: {},
+		caseDatabase: { rows: [patient], indices: [] },
+	});
+	expect(task.destination).toEqual({ kind: "home" });
+	return (
+		task.selections[FIXTURE_MODULE]?.cases.map((choice) => choice.caseId) ?? []
+	);
+}
+
+/** A deep link to a form listed on the first menu, choosing patient "b":
+ *  the menus whose entries read that same datum after Back to Home. */
+function firstMenuEntryPoint(platform: Platform) {
+	const doc = endpointWireFixture("first-menu");
+	const result = prepareEntryPointLaunch({
+		doc,
+		entryPointUuid: testUuid("endpoint-identity"),
+		expectedSeq: 4,
+		selections: [{ moduleUuid: ENDPOINT_MODULE, caseIds: ["b"] }],
+		database: {
+			rows: [{ ...row(), case_id: "b", case_name: "b" }],
+			indices: [] as CaseIndexRow[],
+		},
+		session: { context: { userid: "worker" }, user: {}, userPropertySlugs: {} },
+		lookup: { kind: "idle" as const },
+		notHeld: { rows: [] as CaseRow[], indices: [] as CaseIndexRow[] },
+		rules: previewPlatformRules(platform),
+	});
+	if (result.kind !== "ready") throw new Error(result.message);
+	return Object.fromEntries(
+		Object.entries(result.launch.firstMenuSelections ?? {}).map(
+			([moduleUuid, selection]) => [
+				moduleUuid,
+				selection.cases.map((choice) => choice.caseId),
+			],
+		),
+	);
+}
+
+const FIRST_MENU_ABOVE = testUuid("cell-model-first-menu-visits");
+const FIRST_MENU_HOST = testUuid("cell-model-first-menu-reviews");
+const FIRST_MENU_REGISTER = testUuid("cell-model-first-menu-register");
+
+/** Visits lists its patient follow-up on the first menu; Reviews, under it,
+ *  always offers another menu's registration and returns to the new case. */
+function firstMenuRegistrationDoc() {
+	const doc = buildDoc({
+		caseTypes: [{ name: "patient", properties: [] }],
+		modules: [
+			...["Visits", "Reviews"].map((name) => ({
+				uuid: `cell-model-first-menu-${name.toLowerCase()}`,
+				name,
+				caseType: "patient",
+				caseListConfig: caseListConfig([
+					{ field: "case_name", header: "Name" },
+				]),
+				forms: [
+					{
+						name: name === "Visits" ? "Visit" : "Review",
+						type: "followup" as const,
+						fields: [f({ kind: "text", id: "note" })],
+					},
+				],
+			})),
+			{
+				uuid: "cell-model-first-menu-registration",
+				name: "Registration",
+				caseType: "patient",
+				caseListConfig: caseListConfig([
+					{ field: "case_name", header: "Name" },
+				]),
+				forms: [
+					{
+						uuid: "cell-model-first-menu-register",
+						name: "Register patient",
+						type: "registration" as const,
+						fields: [
+							f({
+								kind: "text",
+								id: "patient",
+								caseWrite: { caseType: "patient", property: "case_name" },
+							}),
+						],
+					},
+				],
+			},
+		],
+	});
+	doc.modules[FIRST_MENU_ABOVE].formsInMenuAbove = true;
+	doc.modules[FIRST_MENU_HOST].parentModuleUuid = FIRST_MENU_ABOVE;
+	doc.modules[FIRST_MENU_HOST].caseListRegistrationForm = {
+		kind: "always",
+		formUuid: FIRST_MENU_REGISTER,
+		afterSubmit: "new-case",
+	};
+	assertAdmittedPreviewDoc(doc);
+	return doc;
+}
+
+/** Register from Reviews' list, then Back to Home: the first-menu choice the
+ *  return frame leaves for the next command that reads it. */
+function firstMenuRegistration(platform: Platform) {
+	const doc = firstMenuRegistrationDoc();
+	const landing = caseListActionReturn(
+		doc,
+		FIRST_MENU_REGISTER,
+		{ hostModuleUuid: FIRST_MENU_HOST },
+		"registered",
+	);
+	if (!landing) throw new Error("Register returns to the new case.");
+	const next = selectionsAfterRegistrationReturn(
+		{},
+		landing,
+		FIRST_MENU_HOST,
+		"patient",
+		{ caseId: "registered", caseName: "Asha" },
+	);
+	expect(next[FIRST_MENU_HOST]?.cases[0]?.caseId).toBe("registered");
+	const home = firstMenuSelections(
+		landing.firstMenuCases,
+		next,
+		previewPlatformRules(platform),
+	);
+	return home?.[FIRST_MENU_ABOVE]?.cases.map((choice) => choice.caseId) ?? [];
+}
+
 export const PLATFORM_MODEL_CHECKS = {
+	/* A deep link through a first menu that shares one case: Web Apps
+	 * opens Home fresh; Android keeps the case for both menus that read it. */
+	"first-menu-entry-point-web-apps": () => {
+		expect(firstMenuEntryPoint("web-apps")).toEqual({});
+	},
+	"first-menu-entry-point-android": () => {
+		expect(firstMenuEntryPoint("android")).toEqual({
+			[ENDPOINT_MODULE]: ["b"],
+			[testUuid("endpoint-second-patient-menu")]: ["b"],
+		});
+	},
+	/* Register's return through that first menu carries the new case to its
+	 * list on both; only Android keeps it on Home after Back. */
+	"first-menu-registration-web-apps": () => {
+		expect(firstMenuRegistration("web-apps")).toEqual([]);
+	},
+	"first-menu-registration-android": () => {
+		expect(firstMenuRegistration("android")).toEqual(["registered"]);
+	},
+	"first-menu-previous-web-apps": () => {
+		expect(firstMenuPrevious("web-apps")).toEqual([]);
+	},
+	"first-menu-previous-android": () => {
+		expect(firstMenuPrevious("android")).toEqual([row().case_id]);
+	},
+
 	/* A calculate over the clock and a condition over it re-evaluate after
 	 * an unrelated answer on Web Apps; a starting value does not; on Android
 	 * neither moves. */
@@ -468,6 +645,93 @@ export const PLATFORM_MODEL_CHECKS = {
 			icon: REGISTER_ICON,
 			audioLabel: REGISTER_AUDIO,
 		});
+	},
+
+	/* A label's QR code takes the image's place on Android and shows nowhere
+	 * in Web Apps, and an inline video takes the place of both; its spoken text's speaker button shows on Android where the
+	 * label has no audio, and nowhere in Web Apps. */
+	"label-texts": () => {
+		const image = asMediaAssetId(testUuid("platform-cells-label-image"));
+		const card = {
+			uuid: testUuid("platform-cells-label-card"),
+			id: "card",
+			kind: "label",
+			label: proseText("Show the card"),
+			qr_code: proseText("ID-17"),
+			spoken_text: proseText("Show the card"),
+			label_media: { image },
+		} as const;
+		const project = (template: ProseTemplate) =>
+			template.parts
+				.map((part) => (part.kind === "text" ? part.text : ""))
+				.join("");
+		const shown = (platform: Platform) =>
+			labelPresentation(
+				card,
+				false,
+				previewPlatformRules(platform),
+				{},
+				project,
+			);
+		expect(shown("web-apps")).toMatchObject({
+			qrCode: undefined,
+			speech: undefined,
+			media: { image },
+		});
+		expect(shown("android")).toMatchObject({
+			qrCode: "ID-17",
+			speech: "Show the card",
+			media: { image: undefined },
+		});
+		/* An inline video plays on Android in the place of the QR code and the
+		 * image alike, and shows nowhere in Web Apps. */
+		const video = asMediaAssetId(testUuid("platform-cells-label-video"));
+		const film = { ...card, label_media: { image, videoInline: video } };
+		const played = (platform: Platform) =>
+			labelPresentation(
+				film,
+				false,
+				previewPlatformRules(platform),
+				{},
+				project,
+			);
+		expect(played("web-apps")).toMatchObject({
+			qrCode: undefined,
+			media: { image, videoInline: undefined },
+		});
+		expect(played("android")).toMatchObject({
+			qrCode: undefined,
+			media: { image: undefined, videoInline: video },
+		});
+	},
+
+	/* A menu or form badge: Web Apps shows the evaluated text whole; Android
+	 * hides an empty or exactly "0" badge and shortens a longer one, "999+"
+	 * where a Java int reads it, else its first three units and "..". */
+	"menu-badge-android": () => {
+		const values = [
+			"",
+			"0",
+			"New",
+			"0000",
+			"1234",
+			"-2147483648",
+			"2147483648",
+			"Équipe",
+		];
+		expect(values.map((text) => shownMenuBadge(text, "web-apps"))).toEqual(
+			values,
+		);
+		expect(values.map((text) => shownMenuBadge(text, "android"))).toEqual([
+			"",
+			"",
+			"New",
+			"999+",
+			"999+",
+			"999+",
+			"214..",
+			"Équ..",
+		]);
 	},
 
 	"tiles-flat-android": () => {

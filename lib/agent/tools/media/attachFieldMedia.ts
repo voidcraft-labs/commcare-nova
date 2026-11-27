@@ -56,7 +56,7 @@ import {
 	commitMediaBatch,
 	FIELD_MEDIA_SLOTS,
 	type FieldMediaSlot,
-	mediaBundleInput,
+	fieldMediaBundleInput,
 	mediaKeyForSlot,
 	type ResolvedMediaBatchItem,
 } from "./shared";
@@ -78,9 +78,11 @@ const fieldMediaAttachmentSchema = fieldAddressSchema
 					"an empty `{}`, goes back to the shared file: a language can't hide " +
 					"a shared file.",
 			),
-		media: mediaBundleInput(
+		media: fieldMediaBundleInput(
 			"The image/audio/video to attach. Supply any subset of `image`, " +
-				"`audio`, `video` as asset ids (discover them with list_media_assets). " +
+				"`audio`, `video` as asset ids (discover them with list_media_assets), " +
+				"and on a `label` a `videoInline`: a video Android plays inside the " +
+				"question in place of its image (Web Apps shows none). " +
 				"Pass an empty object `{}` to clear every reference on this slot; " +
 				"in another language it goes back to the shared files.",
 		),
@@ -105,7 +107,7 @@ export type AttachFieldMediaResult = MutationSuccess | { error: string };
 
 export const attachFieldMediaTool = {
 	description:
-		"Set or clear image/audio/video on a field's label or help. Fields may span forms. Asset ids come from list_media_assets; an empty media object clears the shared files, and in another language goes back to them. The slot must exist on the field's kind.",
+		"Set or clear image/audio/video on a field's label or help, and an inline video on a label. Fields may span forms. Asset ids come from list_media_assets; an empty media object clears the shared files, and in another language goes back to them. The slot must exist on the field's kind.",
 	inputSchema: attachFieldMediaInputSchema,
 	async execute(
 		input: AttachFieldMediaInput,
@@ -153,6 +155,13 @@ export const attachFieldMediaTool = {
 				if (!fieldKindDeclaresKey(field.kind, mediaKey)) {
 					failures.push(
 						`attachments[${i}]: field "${field.id}" is a ${field.kind} field, whose ${slot} carries no media, so there's no ${slot} slot to attach to. ${supportedSlotsHint(field.kind)}`,
+					);
+					continue;
+				}
+
+				if (slot !== "label" && media.videoInline !== undefined) {
+					failures.push(
+						`attachments[${i}]: Only a question's label plays an inline video, and this attachment puts one on the ${slot} of field "${field.id}". You can attach it to the label instead, or as the help's \`video\`.`,
 					);
 					continue;
 				}

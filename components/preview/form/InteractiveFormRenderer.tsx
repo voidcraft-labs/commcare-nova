@@ -66,6 +66,7 @@ import {
 	usePresentationField,
 	useVisibleFieldOrder,
 } from "@/lib/preview/hooks/useVisibleFieldOrder";
+import { labelPresentation } from "@/lib/preview/labelPresentation";
 import { requiredMarkShown } from "@/lib/preview/platform";
 import { questionRows } from "@/lib/preview/questionRows";
 import { runtimeMessage } from "@/lib/preview/runtimeMessages";
@@ -86,6 +87,7 @@ import { FIELD_STYLES } from "./fieldStyles";
 import { GroupField } from "./fields/GroupField";
 import { LabelField } from "./fields/LabelField";
 import { RepeatEntriesWithoutChrome, RepeatField } from "./fields/RepeatField";
+import { LabelQrCode, LabelSpeechButton } from "./LabelExtras";
 import { SectionHeading } from "./sections/SectionHeading";
 import { depthPadding } from "./virtual/rowStyles";
 
@@ -456,9 +458,16 @@ const InteractiveField = memo(function InteractiveField({
 	const questionLabelledBy = [accessibleContext, questionLabelId]
 		.filter(Boolean)
 		.join(" ");
-	const questionLabelText =
-		state.resolvedLabel ??
-		(field.label ? projectProse(field.label) : undefined);
+	const shownLabel = labelPresentation(
+		field,
+		labelShowsAsTyped(textForm, "plainLabel" in field ? field : {}),
+		rules,
+		state,
+		projectProse,
+	);
+	const questionLabelText = shownLabel.text
+		? (shownLabel.text.resolved ?? projectProse(shownLabel.text.template))
+		: undefined;
 	const helpAsTyped = helpShowsAsTyped(
 		textForm,
 		"plainHelp" in field ? field : {},
@@ -630,8 +639,11 @@ const InteractiveField = memo(function InteractiveField({
 				    CommCare renders a question's `<value form="image">`. Live
 				    controls in preview mode; mounted at the same position as the
 				    edit-mode `FieldRow` so the flipbook doesn't drift. */}
-					<MediaDisplay media={field.label_media} interactive />
-					{field.label ? (
+					<MediaDisplay media={shownLabel.media} interactive />
+					{shownLabel.qrCode !== undefined ? (
+						<LabelQrCode text={shownLabel.qrCode} />
+					) : null}
+					{shownLabel.text ? (
 						<div className="min-w-0">
 							{/* `px-[5px] py-[5px]` matches TextEditable's idle
 							 *  wrapper in edit mode for flipbook parity. Without
@@ -648,13 +660,24 @@ const InteractiveField = memo(function InteractiveField({
 									})}{" "}
 								</span>
 								<LabelContent
-									label={field.label}
-									resolvedLabel={state.resolvedLabel}
+									label={shownLabel.text.template}
+									resolvedLabel={shownLabel.text.resolved}
 									isEditMode={false}
 									rendering={rules.labelMarkdown}
 									plainLabel={labelShowsAsTyped(textForm, field)}
 									className={FIELD_STYLES.label}
+									proseSlot={{
+										entity: "field",
+										uuid: field.uuid,
+										slot: shownLabel.text.slot,
+									}}
 								/>
+								{shownLabel.speech !== undefined ? (
+									<LabelSpeechButton
+										text={shownLabel.speech}
+										questionLabel={questionLabelText}
+									/>
+								) : null}
 								{requiredMarked ? (
 									<>
 										<span

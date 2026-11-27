@@ -231,7 +231,9 @@ export const ModuleCard = memo(function ModuleCard({
 						locked={locked}
 						onPlacementCommitted={onPlacementCommitted}
 					/>
-					{!locked && (
+					{/* A submenu under a menu listing another menu's forms follows
+					 *  its source's submenu, so it leaves only with that one. */}
+					{!locked && !parentModule?.formsFromMenu && (
 						<TreeRowDelete label="Delete module" onDelete={handleDelete} />
 					)}
 					<PeerBadge uuid={moduleUuid} />
@@ -262,7 +264,7 @@ export const ModuleCard = memo(function ModuleCard({
 								 *  leading one, so a form can be added to an empty module):
 								 *  hidden while filtering or locked. */}
 								{interleaveInsertions(formIds, {
-									suppress: !!locked || !!searchResult,
+									suppress: !!mod.formsFromMenu || !!locked || !!searchResult,
 									itemKey: (formId) => formId,
 									renderItem: (formId, fIdx) =>
 										searchResult &&
@@ -270,6 +272,7 @@ export const ModuleCard = memo(function ModuleCard({
 											<FormCard
 												key={formId}
 												formId={formId}
+												sourceMenuUuid={mod.formsFromMenu?.menuUuid}
 												moduleUuid={moduleUuid}
 												onSelect={onSelect}
 												delay={fIdx * 0.08}
@@ -302,7 +305,7 @@ export const ModuleCard = memo(function ModuleCard({
 							>
 								<AnimatePresence mode="sync">
 									{interleaveInsertions(childModuleUuids, {
-										suppress: !!locked || !!searchResult,
+										suppress: !!mod.formsFromMenu || !!locked || !!searchResult,
 										itemKey: (childUuid) => childUuid,
 										renderItem: (childUuid) =>
 											searchResult &&

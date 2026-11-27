@@ -7,6 +7,10 @@
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
+import {
+	ENDPOINT_FORM,
+	endpointWireFixture,
+} from "@/lib/commcare/__tests__/endpointWireFixture";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import {
 	CHOOSE_NAME_QUESTION_MESSAGE,
@@ -456,4 +460,25 @@ describe("module case-type changes and form moves", () => {
 			{ kind: "moveForm", uuid: FUP, toModuleUuid: PATIENTS, after: null },
 		]);
 	});
+});
+
+describe("a form whose deep link supplies the ID of the case it creates", () => {
+	it.each([
+		{ link: "kept", keep: true },
+		{ link: "removed", keep: false },
+	])(
+		"becomes a survey with the choice leaving with its case (deep link $link)",
+		({ keep }) => {
+			const doc = endpointWireFixture("registration-supplied");
+			if (!keep) delete doc.forms[ENDPOINT_FORM].entryPoint;
+			assertAdmittedDoc(doc);
+			const plan = planFormTypeChange(doc, ENDPOINT_FORM, "survey");
+			if (!plan.ok) throw new Error(plan.message);
+			const next = commit(doc, plan.mutations);
+			expect(next.forms[ENDPOINT_FORM].type).toBe("survey");
+			expect(next.forms[ENDPOINT_FORM]).not.toHaveProperty(
+				"entryCaseCreations",
+			);
+		},
+	);
 });

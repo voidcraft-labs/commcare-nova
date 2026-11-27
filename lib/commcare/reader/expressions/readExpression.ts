@@ -6,6 +6,8 @@
  * `syntaxCompare.ts`. Nothing here matches text: the print proves every
  * recognition.
  */
+
+import { caseListActionCondition } from "@/lib/commcare/suite/case-list/actionCondition";
 import {
 	extractAstLookupReferences,
 	readReferences,
@@ -78,6 +80,7 @@ import { searchInputInstanceId } from "../../suite/case-search/types";
 import {
 	emitFormDisplayConditionForHq,
 	emitModuleDisplayCondition,
+	menuBadgeExpression,
 } from "../../suite/displayConditions";
 import { rethrowWorkStop } from "../../workMeter";
 import { fieldBindType } from "../../xform/bindType";
@@ -196,6 +199,7 @@ export function slotReadMode(
 							: "no-case",
 				};
 			}
+			case "form_badge":
 			case "form_link_condition":
 			case "form_link_datum_xpath":
 				return { target: "hq-json", interpolation: "none" };
@@ -437,6 +441,7 @@ export function suiteReadSources(
 	const ids = requiredInstanceIds(pending);
 	if (
 		ids.size === 0 &&
+		pending.navigationSources === undefined &&
 		env.factories === undefined &&
 		invalidPreset === undefined
 	)
@@ -449,7 +454,7 @@ export function suiteReadSources(
 		slot === undefined
 			? { ok: true as const, text }
 			: interpolateHqXPath(text, slot);
-	const sources = instanceSourcesAfterScan(
+	const scanned = instanceSourcesAfterScan(
 		pending.suiteSources ?? new Map(),
 		{
 			rendered: runtime.ok ? runtime.text : "",
@@ -458,6 +463,17 @@ export function suiteReadSources(
 		env.factories,
 		invalidPreset,
 	);
+	// An actual declaration is stronger than guessing from this slot's
+	// spelling, including a declaration HQ did not put on this entry.
+	let sources = scanned;
+	if (pending.navigationSources) {
+		const resolved = new Map(scanned);
+		for (const [id, source] of pending.navigationSources) {
+			if (source === null) resolved.delete(id);
+			else resolved.set(id, source);
+		}
+		sources = resolved;
+	}
 	const missing = [...ids].find(
 		(id) => id.startsWith("item-list:") && !sources.has(id),
 	);
@@ -1196,6 +1212,14 @@ function printSlotWith(
 		const expressions = moduleExpressionContexts(doc, ref.uuid, naming);
 		const rewrites = print.rewrites;
 		switch (ref.slot) {
+			case "module_badge":
+				return text(
+					menuBadgeExpression(
+						expression,
+						expressions({ slot: ref.slot }),
+						naming,
+					),
+				);
 			case "module_display_condition":
 				return text(
 					emitModuleDisplayCondition(
@@ -1203,6 +1227,16 @@ function printSlotWith(
 						expressions({ slot: ref.slot }),
 						naming,
 						rewrites,
+					),
+				);
+			case "case_list_action_condition":
+				return text(
+					caseListActionCondition(
+						doc,
+						ref.uuid,
+						{ kind: "condition", condition: expression },
+						"hq-json",
+						naming,
 					),
 				);
 			case "case_list_filter":
@@ -1306,12 +1340,24 @@ function printSlotWith(
 		throw new Error(`The slot ${ref.slot} of ${ref.uuid} has no form.`);
 	const { emission, bindings } = formEmission(doc, formUuid, naming, print);
 	if (ref.entity === "form") {
-		if (ref.slot === "form_display_condition") {
+		if (ref.slot === "form_display_condition" || ref.slot === "form_badge") {
 			const moduleUuid = moduleUuidOfForm(doc, formUuid);
 			if (moduleUuid === undefined)
 				throw new Error(`The form ${formUuid} has no menu.`);
 			const links = linkContextOf(doc, naming);
 			const own = selectedCaseSessionDatum(doc, links, moduleUuid, formUuid);
+			if (ref.slot === "form_badge")
+				return text(
+					menuBadgeExpression(
+						expression,
+						emission.context(ref),
+						naming,
+						own?.id,
+						entryDatumIdResolver(
+							entryDatumIds(doc, links, moduleUuid, formUuid),
+						),
+					),
+				);
 			return text(
 				emitFormDisplayConditionForHq(
 					{ displayCondition: expression },

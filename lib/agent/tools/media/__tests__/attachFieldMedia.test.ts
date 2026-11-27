@@ -59,6 +59,39 @@ const input = (...attachments: ReturnType<typeof attachment>[]) => ({
 });
 
 describe("attachFieldMedia", () => {
+	it("sets an inline video on a label, checked as a video, and refuses one on a help text", async () => {
+		const video = testMediaAssetId("asset-inline-video");
+		seedTestAsset(video, "video");
+		const h = makeMediaFixture();
+		await h.runTool(
+			attachFieldMediaTool,
+			input(attachment(TEXT_FIELD, "label", { videoInline: video })),
+		);
+		const field = h.currentDoc().fields[TEXT_FIELD];
+		expect(
+			field && "label_media" in field ? field.label_media : undefined,
+		).toEqual({ videoInline: video });
+
+		// An image is no inline video: the attach verdict checks the kind.
+		const wrongKind = await h.runTool(
+			attachFieldMediaTool,
+			input(attachment(TEXT_FIELD, "label", { videoInline: ASSET_IMG_1 })),
+		);
+		expect(errorOf(wrongKind)).toContain("inline video");
+
+		const onHelp = await h.runTool(
+			attachFieldMediaTool,
+			input(attachment(TEXT_FIELD, "help", { videoInline: video })),
+		);
+		expect(errorOf(onHelp)).toContain(
+			"Only a question's label plays an inline video",
+		);
+		const after = h.currentDoc().fields[TEXT_FIELD];
+		expect(
+			after && "help_media" in after ? after.help_media : undefined,
+		).toBeUndefined();
+	});
+
 	it("sets the image on a field's label slot", async () => {
 		const h = makeMediaFixture();
 		const result = await h.runTool(

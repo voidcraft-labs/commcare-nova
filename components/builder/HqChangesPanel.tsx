@@ -31,6 +31,7 @@ import {
 } from "react";
 import { AccountFindings } from "@/components/bring-in/BringInAccount";
 import { BringInStopBlock } from "@/components/bring-in/BringInStop";
+import { ReviewOwnerRuleChoice } from "@/components/bring-in/ReviewOwnerRuleChoice";
 import { ReviewTableChoice } from "@/components/bring-in/ReviewTableChoice";
 import {
 	postHqChangesBringIn,
@@ -88,6 +89,7 @@ import {
 	showAllAction,
 } from "@/lib/publish/hqChangesCopy";
 import type { CircumstanceContext } from "@/lib/publish/hqFindingCopy";
+import { OWNER_RULE_OTHERWISE } from "@/lib/publish/ownerRuleCopy";
 import {
 	STOP_PUBLISHING_ACTION,
 	STOP_PUBLISHING_HELPER,
@@ -767,6 +769,27 @@ function ListsBody({
 					}
 				/>
 			))}
+			{lists.ownerRules.map((rule) => (
+				<ReviewOwnerRuleChoice
+					key={rule.level}
+					rule={rule}
+					domain={target.domain}
+					value={state.ownerRuleChoices[rule.level] ?? null}
+					onValueChange={(choice) =>
+						dispatch({ type: "owner-rule-chosen", level: rule.level, choice })
+					}
+					needsChoice={
+						state.ownerRuleChoices[rule.level] === undefined
+							? state.needsChoice
+							: null
+					}
+				/>
+			))}
+			{lists.ownerRules.length > 0 ? (
+				<p className="text-[13px] leading-relaxed text-nova-text-secondary">
+					{OWNER_RULE_OTHERWISE}
+				</p>
+			) : null}
 			{lists.notice !== null ? (
 				<div
 					role={lists.notice.role}

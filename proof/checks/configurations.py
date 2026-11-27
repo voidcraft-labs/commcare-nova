@@ -132,6 +132,21 @@ def _usercase_reads(content):
     """Every XPath the app hands HQ that a form reads with: each form's display condition, each XPath of its source
     (``_XPATH_ATTRIBUTES``), and each of its links' conditions and datums (``models/forms.py::FormLink``,
     ``FormDatum``)."""
+    for entity in [*_modules(content), *_forms(content)]:
+        icon = getattr(entity, "custom_icon", None)
+        if icon and icon.xpath:
+            yield icon.xpath
+    for module in _modules(content):
+        if getattr(module, "module_filter", None):
+            yield module.module_filter
+        for _, detail, active in module.get_details():
+            if not active:
+                continue
+            if getattr(detail, "filter", None):
+                yield detail.filter
+            for column in getattr(detail, "columns", []):
+                if column.useXpathExpression and column.field:
+                    yield column.field
     for form in _forms(content):
         condition = getattr(form, "form_filter", None)
         if condition:

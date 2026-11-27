@@ -114,6 +114,9 @@ function bindings(caseType = "Client", tableId?: string): QueryBindings {
 		recordProperty(recordType, property) {
 			return { kind: "prop", caseType: recordType, property };
 		},
+		forDeviceRecords(type) {
+			return bindings(type);
+		},
 		forRelation(relation) {
 			return bindings(
 				relation.kind === "subcase" || relation.kind === "any-relation"
@@ -131,6 +134,7 @@ const scope = bindings();
 const printContext: QueryPrintContext = {
 	typeContext: scope.typeContext,
 	choiceValues: () => undefined,
+	forDeviceRecords: () => printContext,
 	forRelation: () => printContext,
 	forTable: () => printContext,
 	name: (_kind, id) => id,

@@ -283,7 +283,11 @@ def _base_reads(base="hq-plain"):
     if (directory / "project-spaces.json").is_file():
         reads["projectSpaces"] = {
             "all": _answer(directory / "project-spaces.json"),
-            "flagged": _answer(directory / "project-spaces-flag.json"),
+            **{
+                key: _answer(directory / filename)
+                for key, filename in (("flagged", "project-spaces-flag.json"), ("caseListActions", "project-spaces-case-list-actions.json"))
+                if (directory / filename).is_file()
+            },
         }
     from proof.matrix.lane_input import fixture_rows_tag
 

@@ -432,6 +432,16 @@ const updateAppLocation = (summary: ToolCallSummary): string | null => {
 		...(summary.formLists?.incomplete !== undefined
 			? [`Incomplete forms ${summary.formLists.incomplete ? "on" : "off"}`]
 			: []),
+		...(summary.menuLayouts?.first
+			? [`First menu as a ${summary.menuLayouts.first}`]
+			: []),
+		...(summary.menuLayouts?.forms
+			? [
+					summary.menuLayouts.forms === "individual"
+						? "Layout chosen per menu"
+						: `Other menus as ${summary.menuLayouts.forms === "grid" ? "grids" : "lists"}`,
+				]
+			: []),
 		...(summary.captureLocation !== undefined
 			? [`Location for every form ${summary.captureLocation ? "on" : "off"}`]
 			: []),

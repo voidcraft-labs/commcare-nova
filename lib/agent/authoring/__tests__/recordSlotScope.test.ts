@@ -147,9 +147,11 @@ async function printsOf(document: CorpusDocument, doc: BlueprintDoc) {
 		const [root, ...rest] = path;
 		return root === "displayCondition"
 			? at(authored, ["display_condition"])
-			: root === "caseListConfig"
-				? at(authored, ["case_list_config", ...rest])
-				: at(authored, ["case_search_config", ...rest]);
+			: root === "caseListRegistrationForm"
+				? at(authored, ["caseListRegistrationForm", ...rest])
+				: root === "caseListConfig"
+					? at(authored, ["case_list_config", ...rest])
+					: at(authored, ["case_search_config", ...rest]);
 	};
 	const owners: ExpressionCarrierRef[] = [
 		...doc.moduleOrder.map((uuid) => ({ entity: "module" as const, uuid })),

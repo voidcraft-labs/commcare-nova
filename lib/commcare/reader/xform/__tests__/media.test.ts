@@ -419,6 +419,113 @@ describe("media on a text", () => {
 	});
 });
 
+describe("a question label's inline video", () => {
+	/** A form of one text question whose label and help each language gives. */
+	const question = (
+		translations: Readonly<Record<string, { label: string; help?: string }>>,
+	) =>
+		xformSource({
+			data: "<q/>",
+			model: `<bind nodeset="/data/q" type="xsd:string"/>${itext(
+				Object.fromEntries(
+					Object.entries(translations).map(([lang, { label, help }]) => [
+						lang,
+						`<text id="q-label"><value>Q</value>${label}</text>${
+							help === undefined
+								? ""
+								: `<text id="q-help"><value>H</value>${help}</text>`
+						}`,
+					]),
+				),
+			)}`,
+			body: `<input ref="/data/q"><label ref="jr:itext('q-label')"/>${
+				Object.values(translations).some((one) => one.help !== undefined)
+					? `<help ref="jr:itext('q-help')"/>`
+					: ""
+			}</input>`,
+		});
+	const inline = (path: string) => `<value form="video-inline">${path}</value>`;
+
+	it("holds one file every language shows, beside the label's image", async () => {
+		const reading = await readForm(
+			question({
+				en: {
+					label: `<value form="image">jr://file/commcare/q.png</value>${inline("jr://file/commcare/v.mp4")}`,
+				},
+				fr: {
+					label: `<value form="image">jr://file/commcare/q.png</value>${inline("jr://file/commcare/v.mp4")}`,
+				},
+			}),
+			{ langs: ["en", "fr"], media: index },
+		);
+		expect(codes(reading)).toEqual([]);
+		expect(unclaimedMedia(reading)).toEqual([]);
+		expect(field(reading, "q").label_media).toEqual({
+			image: "asset-q.png",
+			videoInline: "asset-v.mp4",
+		});
+		expect(
+			reading.ctx.facts.mediaReferences.map((reference) => [
+				reference.path,
+				reference.mediaKind,
+				reference.slot,
+			]),
+		).toEqual([
+			["jr://file/commcare/q.png", "image", "field_media_bundle"],
+			["jr://file/commcare/v.mp4", "video", "field_media_bundle"],
+		]);
+	});
+
+	it("holds a file per language, and refuses one the default language lacks or a blank beside a file", async () => {
+		const differing = await readForm(
+			question({
+				en: { label: inline("jr://file/commcare/v.mp4") },
+				fr: { label: inline("jr://file/commcare/v-fr.mp4") },
+			}),
+			{ langs: ["en", "fr"], media: index },
+		);
+		expect(codes(differing)).toEqual([]);
+		expect(field(differing, "q").label_media).toEqual({
+			videoInline: "asset-v.mp4",
+			mediaByLanguage: { fra: { videoInline: "asset-v-fr.mp4" } },
+		});
+		const missing = await readForm(
+			question({
+				en: { label: "" },
+				fr: { label: inline("jr://file/commcare/v.mp4") },
+			}),
+			{ langs: ["en", "fr"], media: index },
+		);
+		expect(codes(missing)).toEqual([
+			Q("media-form-missing-in-default-language"),
+		]);
+		expect(field(missing, "q").label_media).toBeUndefined();
+		const blank = await readForm(
+			question({
+				en: { label: inline("jr://file/commcare/v.mp4") },
+				fr: { label: inline("") },
+			}),
+			{ langs: ["en", "fr"], media: index },
+		);
+		expect(codes(blank)).toEqual([
+			Q("empty-media-form-beside-a-translated-file"),
+		]);
+	});
+
+	it("leaves an inline video on a help text not yet held", async () => {
+		const reading = await readForm(
+			question({
+				en: { label: "", help: inline("jr://file/commcare/v.mp4") },
+			}),
+			{ media: index },
+		);
+		expect(codes(reading)).toEqual([
+			Q("video-inline-form-on-a-text-other-than-a-question-label"),
+		]);
+		expect(field(reading, "q").help_media).toBeUndefined();
+	});
+});
+
 describe("a map of paths by language", () => {
 	async function context(media: (path: string) => ReaderMediaResolution) {
 		const body = {

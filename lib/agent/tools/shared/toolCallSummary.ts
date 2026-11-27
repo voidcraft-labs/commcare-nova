@@ -48,6 +48,14 @@ export interface ToolCallSummary {
 	 */
 	connect?: "learn" | "deliver" | "off";
 	/**
+	 * For an `update_app` call that changed a menu layout: each layout it
+	 * changed, at its new value.
+	 */
+	menuLayouts?: {
+		first?: "list" | "grid";
+		forms?: "list" | "grid" | "individual";
+	};
+	/**
 	 * For a call that changed the app's form-list settings: each setting it
 	 * changed, at its new value. Absent when it changed none, so a row
 	 * recorded before the settings existed reads as it always did.

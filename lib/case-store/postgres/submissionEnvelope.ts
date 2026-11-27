@@ -451,7 +451,9 @@ function allocateCreateIdentities(
 		const entryCaseKey = program.entryCaseKeys?.get(operation.uuid);
 		if (entryCaseKey !== undefined) {
 			allocations.set(index, {
-				caseId: entryDatumCaseId(appId, entryKey, entryCaseKey),
+				caseId:
+					program.suppliedCaseIds?.get(operation.uuid) ??
+					entryDatumCaseId(appId, entryKey, entryCaseKey),
 				authored: false,
 				entryNamed: true,
 			});
@@ -1515,6 +1517,23 @@ async function resolveOperationProgram(
 		anyIds: [...authoredIds, ...(program.sessionCaseIds ?? [])],
 	});
 
+	// A case id supplied by an entry can also appear as an independently
+	// resolved expression target or another create's allocation. Each
+	// executing create named by the entry requires a fresh row.
+	const entryNamedByCaseId = new Map<string, boolean>();
+	for (const [index, allocation] of allocations) {
+		if (!executing[index]) continue;
+		const entryNamed = allocation.entryNamed === true;
+		const prior = entryNamedByCaseId.get(allocation.caseId);
+		if (
+			(entryNamed &&
+				(knownRows.has(allocation.caseId) || prior !== undefined)) ||
+			prior === true
+		)
+			rejectTakenCaseId(allocation.caseId);
+		entryNamedByCaseId.set(allocation.caseId, entryNamed);
+	}
+
 	// Resolve every executing instance's target + links.
 	const resolvedInstances: ResolvedInstance[] = [];
 	for (const [index, instance] of instances.entries()) {
@@ -2261,6 +2280,14 @@ function partitionWrites(writes: ResolvedInstance["writes"]): {
 	};
 }
 
+function rejectTakenCaseId(caseId: string): never {
+	throw new SubmissionRejectedError({
+		kind: "new-case",
+		reason: "case-id-taken",
+		caseId,
+	});
+}
+
 async function applyCreateEffect(
 	trx: Transaction<Database>,
 	host: SubmissionEnvelopeHost,
@@ -2329,15 +2356,7 @@ async function applyCreateEffect(
 		// submission inside this transaction rather than merging; an exact
 		// retry of a saved entry replays its receipt before reaching here.
 		...(entry.entryNamed
-			? {
-					caseIdTaken: () => {
-						throw new SubmissionRejectedError({
-							kind: "new-case",
-							reason: "case-id-taken",
-							caseId: entry.caseId,
-						});
-					},
-				}
+			? { caseIdTaken: () => rejectTakenCaseId(entry.caseId) }
 			: {}),
 	});
 	createdInEnvelope.add(entry.caseId);

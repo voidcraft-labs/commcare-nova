@@ -817,7 +817,6 @@ describe("readReadingProjectData over Postgres", () => {
 				projectRevision: "0" as LookupRevision,
 				definitions: [],
 				rowsByTable: {},
-				keptColumns: {},
 			}),
 			referencingApps: async () => ({}),
 			siblings: async () => [],
@@ -1401,10 +1400,13 @@ describe("a birth that would write over what the Project holds now", () => {
 		);
 	}
 
-	it("offers no use-commcare-hq where CommCare HQ's fields and the columns apps still read pass 250, and refuses one answered before an app began to read them", async () => {
+	it("adopts CommCare HQ's table where its fields and the columns apps still read pass 250, keeping each column an app reads", async () => {
 		await h.seedProjectMember(ACTOR, PROJECT, "owner");
 		const project = await seedWidePlain();
 		const source = await namingSource();
+		/* An app reads the Project's own columns: CommCare HQ's three fields with
+		 * them make 251 columns, which the table holds. */
+		await readOwnColumns(project);
 		const data = await withHttpPeer(async (peer) => {
 			serveWithRegion(peer);
 			return readData(source);
@@ -1412,40 +1414,19 @@ describe("a birth that would write over what the Project holds now", () => {
 		const standing = data.gathered.tables[0].standing;
 		if (standing?.kind !== "choice") throw new Error("plain asks no choice");
 		expect(standing.options["use-commcare-hq"].offered).toBe(true);
-
-		/* An app begins to read the Project's own columns after the read: no table revision
-		 * moves, and CommCare HQ's three fields with them would be 251 columns. */
-		await readOwnColumns(project);
 		const answered = underTableChoices(data, { plain: "use-commcare-hq" });
-		const before = await rowCounts();
-		await expect(
-			birth(answered, PLAIN_READS, bornDoc(bindingOf(answered, "plain"))),
-		).rejects.toBeInstanceOf(BroughtInTableChangedError);
-		expect(await rowCounts()).toEqual(before);
-		expect(await getLookupTable(SCOPE, project.id)).toEqual(project);
-
-		const again = await withHttpPeer(async (peer) => {
-			serveWithRegion(peer);
-			return readData(source);
-		});
-		const now = again.gathered.tables[0].standing;
-		if (now?.kind !== "choice") throw new Error("plain asks no choice");
-		expect(now.options["use-commcare-hq"]).toEqual({
-			offered: false,
-			why: "too-many-columns",
-			name: "251",
-		});
-		const review = projectDataReview(
-			again,
-			PLAIN_READS,
-			bornDoc(bindingOf(again, "plain")),
-			mintingResolver(APP_ID),
+		await birth(answered, PLAIN_READS, bornDoc(bindingOf(answered, "plain")));
+		const adopted = await getLookupTable(SCOPE, project.id);
+		expect(adopted.hq?.managedBy).toBe("commcare-hq");
+		expect(adopted.columns).toHaveLength(251);
+		const kept = new Set(
+			project.columns
+				.filter((column) => column.wireName.startsWith("extra_"))
+				.map((column) => column.id),
 		);
-		expect(review.tables[0].choice?.options["use-commcare-hq"]).toEqual({
-			offered: false,
-			why: "too-many-columns",
-			name: "251",
-		});
+		expect(
+			adopted.columns.filter((column) => kept.has(column.id)),
+		).toHaveLength(248);
 	});
 
 	it("refuses a table a refresh stamped after the reading's read though no revision moved, and stamps each table it writes with that read's date", async () => {

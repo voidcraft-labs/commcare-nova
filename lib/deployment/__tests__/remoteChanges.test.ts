@@ -677,9 +677,17 @@ describe("a removed-file change", () => {
 		{ files: 18, location: true, media: 1, hidden: false, overflow: true },
 		{ files: 19, location: true, media: 0, hidden: true, overflow: true },
 		{ files: 20, location: false, media: 0, hidden: true, overflow: true },
+		{
+			files: 18,
+			location: true,
+			media: 0,
+			layouts: ["The first menu would change from a grid to a list."],
+			hidden: true,
+			overflow: true,
+		},
 	])(
-		"requires full review when the summary hides a file ($files files, location $location, media $media)",
-		({ files, location, media, hidden, overflow }) => {
+		"requires full review when the summary hides a file ($files files, location $location, media $media, layouts $layouts)",
+		({ files, location, media, layouts = [], hidden, overflow }) => {
 			const legacyLanguageRemoval =
 				"Publishing would remove Ganda (lug) from this app in CommCare HQ.";
 			const fixture = remoteAppInput(files);
@@ -702,13 +710,17 @@ describe("a removed-file change", () => {
 					: undefined,
 				mediaChanged: media,
 				legacyLanguageRemoval,
+				layoutReplacements: layouts,
 			};
 			const shown = appRemoteChange(input);
 			if (!shown) throw new Error("Expected the app's change");
-			expect(shown.parts[0]).toBe(legacyLanguageRemoval);
+			expect(shown.parts.slice(0, 1 + layouts.length)).toEqual([
+				legacyLanguageRemoval,
+				...layouts,
+			]);
 			expect(
 				shown.parts.filter((line) => line.startsWith("Publishing removes ")),
-			).toHaveLength(hidden ? 18 : files);
+			).toHaveLength(hidden ? 18 - layouts.length : files);
 			if (overflow) expect(shown.parts.at(-1)).toBe("and 2 more");
 			expect(shown.requiresReview).toBe(hidden ? true : undefined);
 			const discard = {
@@ -731,8 +743,23 @@ describe("a removed-file change", () => {
 						input.current.digest,
 						removed,
 						"complete",
+						layouts,
 					),
 				};
+				if (layouts.length > 0) {
+					const different = appRemoteChange({
+						...input,
+						discards: [complete],
+						layoutReplacements: [
+							"A different menu would change from a grid to a list.",
+						],
+					});
+					if (!different) throw new Error("Expected the revised disclosure");
+					expect(
+						decideRemoteChanges({ observed: [different], discards: [complete] })
+							.proceed,
+					).toBe(false);
+				}
 				const reviewed = appRemoteChange({ ...input, discards: [complete] });
 				if (!reviewed) throw new Error("Expected the reviewed change");
 				expect(reviewed.parts).toEqual(shown.parts);

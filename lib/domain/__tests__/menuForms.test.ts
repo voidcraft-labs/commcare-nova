@@ -197,11 +197,13 @@ describe("the case list registration readers", () => {
 		);
 	});
 
-	it("say nothing for a host with no always arm or a form no longer in the app", () => {
+	it("defaults an empty-search registration to the list and ignores missing forms", () => {
 		const doc = registry();
 		expect(caseListRegistrationReturnOf(doc, PATIENTS)).toBeUndefined();
 		offer(doc, INTAKE, { kind: "after-empty-search", formUuid: REGISTER });
-		expect(caseListRegistrationReturnOf(doc, INTAKE)).toBeUndefined();
+		expect(caseListRegistrationReturnOf(doc, INTAKE)).toEqual({
+			kind: "case-list",
+		});
 		offer(doc, PATIENTS, always("case-list", GONE));
 		expect(caseListRegistrationReturnOf(doc, PATIENTS)).toBeUndefined();
 	});

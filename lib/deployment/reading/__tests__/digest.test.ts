@@ -84,6 +84,7 @@ const REVIEW: ReadingReview = {
 	],
 	kept: ["automatic-app-updates"],
 	tables: [TABLE],
+	ownerRules: [],
 	places: { count: 12, digest: "b".repeat(64) },
 	mediaLeftOut: 1,
 	firstPublish: PRESELECTED.firstPublish,

@@ -137,8 +137,9 @@ def input_of(members: Mapping[str, bytes], *, claims: str = "full") -> dict:
         found["sourceFactoryReads"] = factories
     spaces = _optional(members, "project-spaces.json")
     flagged = _optional(members, "project-spaces-flag.json")
-    if spaces is not None and flagged is not None:
-        found["projectSpaces"] = {"all": spaces, "flagged": flagged}
+    if spaces is not None:
+        filters = {"flagged": flagged, "caseListActions": _optional(members, "project-spaces-case-list-actions.json")}
+        found["projectSpaces"] = {"all": spaces, **{key: value for key, value in filters.items() if value is not None}}
     if base["declaration"] != "preselected":
         found["declaration"] = base["declaration"]
     return found

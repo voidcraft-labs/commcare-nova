@@ -72,7 +72,7 @@ describe("displayConditionCopy", () => {
 		});
 		expect(copy.locus.join(" ")).toContain("mother");
 		expect(copy.scopeNote).toBe(
-			"The chosen mother's own information is available here. Information from connected cases, and counts of them, is not. CommCare cannot reach them from this screen.",
+			"The chosen mother, its connected records and records on the device are available here.",
 		);
 	});
 

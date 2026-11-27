@@ -964,6 +964,7 @@ export async function getEntryPointLinkAction(
 				sourceSequence,
 				entryPointUuid: parsed.data.entryPointUuid,
 				selections: parsed.data.selections,
+				creations: parsed.data.creations,
 			}),
 		};
 	} catch (error) {

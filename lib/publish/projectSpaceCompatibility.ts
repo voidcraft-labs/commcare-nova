@@ -68,9 +68,9 @@ export const PROJECT_SPACE_CAPABILITIES: Readonly<
 	},
 	"registration-after-empty-search": {
 		id: "registration-after-empty-search",
-		label: "Registration offered after an empty search",
+		label: "Forms offered on a case list",
 		description:
-			"Lets a case list offer its registration form only when a search finds no matches.",
+			"Lets a case list offer a form for its selected parent or a registration form when a search finds no matches.",
 	},
 	"multi-select-case-lists": {
 		id: "multi-select-case-lists",

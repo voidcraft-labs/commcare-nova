@@ -4,11 +4,13 @@ import {
 	entryPointIdProblem,
 	entryPointIdProblemSentence,
 	entryPointInventory,
+	listedFormLinkPause,
 	suffixUntilFree,
 } from "@/lib/domain";
 import { translationSourceFingerprintsEqual } from "@/lib/domain/localization";
 import { entryPointProjectionIssue } from "../../entryPointProjection";
 import { wordingSourceUnit } from "../../generatedSearchWording";
+import { menuFormSources } from "./menuFormSources";
 /**
  * App-level validation rules.
  *
@@ -535,7 +537,29 @@ function connectNoParticipatingForms(doc: BlueprintDoc): ValidationError[] {
 export function validEntryPoints(doc: BlueprintDoc): ValidationError[] {
 	const inventory = entryPointInventory(doc);
 	const ids = new Set<string>();
-	return inventory.flatMap(({ target, entryPoint }) => {
+	// The source form owns its supplies independently of an ordinary endpoint.
+	const standalone: ValidationError[] = [];
+	for (const moduleUuid of doc.moduleOrder)
+		for (const formUuid of doc.formOrder[moduleUuid] ?? []) {
+			const form = doc.forms[formUuid];
+			if (!form?.entryCaseCreations || form.entryPoint) continue;
+			const issue = entryPointProjectionIssue(doc, {
+				kind: "form",
+				moduleUuid,
+				formUuid,
+			});
+			if (issue)
+				standalone.push(
+					validationError(
+						"ENTRY_POINT_INVALID",
+						"form",
+						issue,
+						{ moduleUuid, formUuid },
+						{ reason: "case-creation" },
+					),
+				);
+		}
+	const configured = inventory.flatMap(({ target, entryPoint }) => {
 		const idProblem = entryPointIdProblem(entryPoint.id);
 		const refusal =
 			idProblem === undefined
@@ -555,8 +579,9 @@ export function validEntryPoints(doc: BlueprintDoc): ValidationError[] {
 			target.kind !== "form" &&
 			entryPoint.ignoreDisplayConditions !== undefined;
 		const duplicate = ids.has(entryPoint.id);
+		const paused = listedFormLinkPause(doc, target);
 		const shared =
-			refusal || displayConditions || duplicate
+			refusal || displayConditions || duplicate || paused
 				? undefined
 				: entryPointSharesFirstMenuCase(doc, target);
 		const reason = refusal
@@ -580,7 +605,9 @@ export function validEntryPoints(doc: BlueprintDoc): ValidationError[] {
 								target,
 								shared.aboveModuleUuid,
 							)
-						: entryPointProjectionIssue(doc, target);
+						: paused
+							? undefined
+							: entryPointProjectionIssue(doc, target);
 		ids.add(entryPoint.id);
 		return issue
 			? [
@@ -588,7 +615,10 @@ export function validEntryPoints(doc: BlueprintDoc): ValidationError[] {
 						"ENTRY_POINT_INVALID",
 						"app",
 						issue,
-						{ moduleUuid: target.moduleUuid },
+						{
+							moduleUuid: target.moduleUuid,
+							...(target.kind === "form" && { formUuid: target.formUuid }),
+						},
 						{
 							entryPointUuid: entryPoint.uuid,
 							reason,
@@ -603,6 +633,7 @@ export function validEntryPoints(doc: BlueprintDoc): ValidationError[] {
 				]
 			: [];
 	});
+	return [...standalone, ...configured];
 }
 
 /** The entry point's sentence where its frame opens through the first menu
@@ -617,10 +648,11 @@ function firstMenuSharedCaseEntryPointMessage(
 			? (doc.forms[target.formUuid]?.name ?? "")
 			: (doc.modules[target.moduleUuid]?.name ?? "");
 	const above = doc.modules[aboveModuleUuid]?.name ?? "";
-	return `The entry point on "${name}" opens through the app's first menu, where every form listed from a menu that shows its forms above opens one chosen case. CommCare HQ puts that case ahead of "${name}" in the entry point, and on Android CommCare keeps it on the first menu when a worker steps back, for the next form to open on. You can give "${above}" its own screen again (forms_in_menu_above null), or remove the entry point.`;
+	return `The entry point on "${name}" uses a first-menu selection that another command asks for with a different kind or number of records. You can give "${above}" its own screen again (forms_in_menu_above null), or use another entry point.`;
 }
 
 export const APP_RULES = [
+	menuFormSources,
 	authoredXmlText,
 	validEntryPoints,
 	// A link or a built-in `module` destination that opens through the first

@@ -39,6 +39,7 @@ from proof.conftest import timed  # noqa: F401  (HQ's tests time their operation
 # (``MIGRATION_WITNESSES``).
 DOCUMENTS = (
     "lookup-app",
+    "hq-lookup-data",
     "media-rich",
     "location-multirung",
     "search-parent",

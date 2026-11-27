@@ -146,7 +146,6 @@ function noProjectData(): ReadingProjectData {
 				projectRevision: "0" as LookupRevision,
 				rowsByTable: {},
 				apps: {},
-				keptColumns: {},
 				siblings: [],
 				mayAdminister: true,
 			},

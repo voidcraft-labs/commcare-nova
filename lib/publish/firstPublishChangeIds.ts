@@ -51,6 +51,7 @@ export const FIRST_PUBLISH_CHANGE_IDS = [
 	"unshown-form-media-removed",
 	"unused-media-entries-removed",
 	"names-respelled",
+	"badge-respelled",
 	"media-maps-respelled",
 	"text-spaces-dropped",
 	"form-text-characters-written-as-outputs",
@@ -58,6 +59,7 @@ export const FIRST_PUBLISH_CHANGE_IDS = [
 	"sort-by-entry-with-a-blank-name-dropped",
 	"form-titles-written",
 	"unread-fixture-declarations-dropped",
+	"owner-rule-given-to-worker",
 ] as const;
 export type FirstPublishChangeId = (typeof FIRST_PUBLISH_CHANGE_IDS)[number];
 
@@ -123,13 +125,25 @@ export const FIRST_PUBLISH_TOUCHES_WORKERS: Readonly<
 	"unused-media-entries-removed": false,
 	"names-respelled": false,
 	"media-maps-respelled": false,
+	"badge-respelled": false,
 	"text-spaces-dropped": true,
 	"form-text-characters-written-as-outputs": false,
 	"hidden-value-defaults-dropped": false,
 	"sort-by-entry-with-a-blank-name-dropped": true,
 	"form-titles-written": true,
 	"unread-fixture-declarations-dropped": true,
+	"owner-rule-given-to-worker": true,
 };
+
+/**
+ * The changes no reading gives alone: each stands on a list only where the
+ * person answered a review's question that makes it, and a later list keeps
+ * it only while the list it replaces holds it
+ * (`reading/firstPublishChanges.ts::withAnsweredChanges`).
+ */
+export const ANSWERED_FIRST_PUBLISH_CHANGES: readonly FirstPublishChangeId[] = [
+	"owner-rule-given-to-worker",
+];
 
 /** Ids another entry's sentence says to a person. */
 export const FIRST_PUBLISH_SAID_BY = {
@@ -138,6 +152,7 @@ export const FIRST_PUBLISH_SAID_BY = {
 	"question-display-respelled": "forms-and-settings-rewritten",
 	"names-respelled": "forms-and-settings-rewritten",
 	"media-maps-respelled": "forms-and-settings-rewritten",
+	"badge-respelled": "forms-and-settings-rewritten",
 } as const satisfies Partial<
 	Record<FirstPublishChangeId, FirstPublishChangeId>
 >;

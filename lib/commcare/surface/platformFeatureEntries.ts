@@ -128,6 +128,9 @@ export const PLATFORM_FEATURE_ENTRIES = {
 	],
 	"choice-media": ["questions/choice-image", "questions/choice-audio-video"],
 	"help-media": ["questions/help-media"],
+	"label-inline-video": ["questions/label-video-inline"],
+	"label-qr-code": ["questions/label-qrcode"],
+	"label-spoken-text": ["questions/label-tts"],
 	now: ["expressions-and-data/now"],
 	today: ["expressions-and-data/today"],
 	"random-and-unique-id": [
@@ -160,6 +163,12 @@ export const PLATFORM_FEATURE_ENTRIES = {
 		"menus-and-case-lists/session-endpoint-id",
 		"menus-and-case-lists/case-list-session-endpoint-id",
 		"forms-and-case-writes/session-endpoint-id",
+		"menus-and-case-lists/shadowmodule-form-session-endpoints-non-empty",
+	],
+	"menu-layout": [
+		"application-and-settings/46-hq-use-grid-menus",
+		"application-and-settings/47-hq-grid-form-menus-none-all-some",
+		"menus-and-case-lists/module-display-style-list-grid-read-when-grid-form-menus-some-on",
 	],
 	"case-list-menu-item": [
 		"menus-and-case-lists/module-case-list-on-a-formless-basic-module-show-true",
@@ -168,6 +177,10 @@ export const PLATFORM_FEATURE_ENTRIES = {
 	],
 	"case-list-registration-media": [
 		"menus-and-case-lists/case-list-form-media-image-media-audio",
+	],
+	"menu-badge": [
+		"forms-and-case-writes/custom-icons-0",
+		"menus-and-case-lists/custom-icons-0-badge-localized-text-or-xpath",
 	],
 	"tile-grouping": [
 		"menus-and-case-lists/detail-case-tile-group-index-identifier-header-rows",
@@ -205,6 +218,11 @@ export const PLATFORM_FEATURE_ENTRIES = {
 	],
 	"skip-to-results": [
 		"case-search/workflow-skip-to-default-results-auto-launch-true-default-search",
+	],
+	"first-menu-previous": [
+		"forms-and-case-writes/form-link-or-endpoint-through-a-first-menu-that-shares-one-case",
+		"menus-and-case-lists/case-list-form-on-a-host-under-a-menu-that-shares-the-first-menu-s-case",
+		"forms-and-case-writes/post-form-workflow-previous-screen-on-a-form-listed-on-the-first-menu",
 	],
 	"after-submit-home": ["forms-and-case-writes/post-form-workflow-default"],
 	"after-submit-several-destinations": [

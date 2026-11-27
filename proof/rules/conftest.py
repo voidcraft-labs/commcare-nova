@@ -64,6 +64,7 @@ CHECK = "proof4"
 DOCUMENTS = (
     "arithmetic",
     "case-capture-repeat",
+    "case-list-action-basic",
     "case-extension-registration",
     "case-list-inline",
     "case-list-local",

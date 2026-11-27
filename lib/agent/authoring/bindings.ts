@@ -12,6 +12,7 @@ import {
 	effectiveCaseTypes,
 	type FieldKind,
 	type Module,
+	menuWithInheritedCaseSettings,
 	moduleUuidOfForm,
 	searchInputRuntimeValueType,
 	type Uuid,
@@ -136,7 +137,9 @@ export function readScopeOptions(
 		tables,
 		formUuid,
 		moduleUuid: module,
-		currentCaseType: module ? doc.modules[module]?.caseType : undefined,
+		currentCaseType: module
+			? menuWithInheritedCaseSettings(doc, module)?.caseType
+			: undefined,
 		operations: formUuid
 			? (doc.forms[formUuid]?.caseOperations ?? []).map((operation) => ({
 					uuid: operation.uuid,
@@ -495,11 +498,12 @@ export class AuthoringScope implements QueryBindings, QueryPrintContext {
 			return id;
 		}
 	}
-	/** The app's menus, in menu order. */
+	/** The app's menus, in menu order. A menu listing another menu's forms
+	 *  carries the case type and selection of the menu that supplies them. */
 	private modules(): Module[] {
 		const { doc } = this.options;
 		return doc.moduleOrder
-			.map((uuid) => doc.modules[uuid])
+			.map((uuid) => menuWithInheritedCaseSettings(doc, uuid))
 			.filter((module): module is Module => module !== undefined);
 	}
 	/** A menu by its UUID, its name or its id, matching exactly one module. */
@@ -618,6 +622,13 @@ export class AuthoringScope implements QueryBindings, QueryPrintContext {
 		}
 		return id;
 	}
+	forDeviceRecords(caseType?: string): AuthoringScope {
+		return new AuthoringScope({
+			...this.options,
+			currentCaseType: caseType,
+			tableId: undefined,
+		});
+	}
 	forTable(tableId: string): AuthoringScope {
 		return new AuthoringScope({
 			...this.options,
@@ -645,10 +656,12 @@ export class AuthoringScope implements QueryBindings, QueryPrintContext {
 		}
 		if (term.kind === "session-user-property") {
 			const property = this.options.doc.userProperties?.[term.userPropertyUuid];
-			return property ? `user(${quote(property.slug)})` : undefined;
+			if (!property) return undefined;
+			const read = `user(${quote(property.slug)})`;
+			return term.source === "worker-record" ? `worker-record(${read})` : read;
 		}
 		if (term.kind === "session-user")
-			return `external-user(${quote(term.field)})`;
+			return `${term.source === "worker-record" ? "worker-record" : "external-user"}(${quote(term.field)})`;
 		if (
 			term.kind === "prop" &&
 			!term.via &&

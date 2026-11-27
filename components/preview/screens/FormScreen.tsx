@@ -56,7 +56,6 @@ import {
 	type FormType,
 	makeTranslationUnitId,
 	materializableCaseTypes as materializableCaseTypesFromDoc,
-	menuFormUuidsOf,
 	moduleFormsReadSearch,
 	POST_SUBMIT_DESTINATIONS,
 	type PostSubmitDestination,
@@ -89,12 +88,11 @@ import {
 	type PendingAfterSubmitFrame,
 } from "@/lib/preview/afterSubmitStack";
 import {
-	alwaysOfferedRegistrationReturn,
+	caseListActionCreatedDatum,
+	caseListActionReturn,
 	caseListRegistrationAdmission,
-	caseListRegistrationPostSubmit,
 	caseListRegistrationRefusalCopy,
 	formOpensSearchScreen,
-	isCaseListRegistrationForm,
 	readFormSearchAnswers,
 	registeredCaseOnDevice,
 	selectionsAfterRegistrationReturn,
@@ -132,6 +130,11 @@ import {
 	submittedEntryPath,
 } from "@/lib/preview/engine/formLinkEvaluation";
 import {
+	firstMenuSelections,
+	linkedFirstMenuCases,
+	moduleFirstMenuCases,
+} from "@/lib/preview/engine/frameLanding";
+import {
 	previewSessionValues,
 	type ResolvedPreviewIdentity,
 } from "@/lib/preview/engine/identity";
@@ -139,6 +142,7 @@ import { withNavigationWidth } from "@/lib/preview/engine/previewDevice";
 import {
 	resolvePreviousTask,
 	selectionsForModuleTask,
+	selectionsForStaticModuleTask,
 } from "@/lib/preview/engine/previousTask";
 import { moduleSearchReadsCaseDatabase } from "@/lib/preview/engine/searchCsqlRuntime";
 import type { PreviewScreen } from "@/lib/preview/engine/types";
@@ -159,6 +163,7 @@ import {
 	invalidateCaseData,
 	useCaseDataReplacementRevision,
 } from "@/lib/preview/hooks/caseDataInvalidation";
+import { showFrameFirstMenu } from "@/lib/preview/hooks/showFrameFirstMenu";
 import { useCaseData, useCases } from "@/lib/preview/hooks/useCaseDataBinding";
 import { useEngineEntry } from "@/lib/preview/hooks/useEngineEntry";
 import { useFormEngine } from "@/lib/preview/hooks/useFormEngine";
@@ -416,7 +421,7 @@ function describeSubmissionRejection(
 				? "Nothing was saved: a case automation tried to connect a case to itself."
 				: "Nothing was saved: this form's case automations disagree about a case's type partway through the submission. Review the automations' order and types.";
 		case "new-case":
-			return "This form's new case is already saved. You can open it from the case list.";
+			return "A case already uses this ID. You can start another form or reopen the deep link with a different new case ID.";
 		case "retype-not-portable": {
 			const lines = rejection.failures.map((f) => {
 				const field = f.path === "" ? "<root>" : f.path.replace(/^\//, "");
@@ -527,6 +532,7 @@ const INVALID_CONTROL_SELECTOR =
 	'[aria-invalid="true"], input:not([type="hidden"]), select, textarea, button, [role="textbox"], [tabindex]:not([tabindex="-1"])';
 
 export function FormScreen({ screen }: FormScreenProps) {
+	const { formUuid, moduleUuid } = screen;
 	const explicitCases = screen.cases;
 	const loc = useLocation();
 	const navigate = useNavigate();
@@ -541,7 +547,15 @@ export function FormScreen({ screen }: FormScreenProps) {
 	const personaUuid = usePreviewPersonaUuid();
 	const previewCaseTarget = usePreviewCaseTarget();
 	const menuSource = usePreviewMenuSource();
-	const menuCaseSelections = usePreviewMenuCaseSelections();
+	const registrationEntry = usePreviewCaseListRegistrationEntry();
+	const caseListRegistrationLaunch =
+		registrationEntry?.moduleUuid === moduleUuid &&
+		registrationEntry.formUuid === formUuid
+			? registrationEntry
+			: undefined;
+	const heldMenuCases = usePreviewMenuCaseSelections();
+	const menuCaseSelections =
+		caseListRegistrationLaunch?.selections ?? heldMenuCases;
 	// The worker's restore is derived from their assignment and the place tree,
 	// neither of which is an argument to these reads. See `useRestoreScopeKey`.
 	const restoreScopeKey = useRestoreScopeKey(personaUuid);
@@ -573,8 +587,6 @@ export function FormScreen({ screen }: FormScreenProps) {
 		loc.kind === "form-condition" ||
 		loc.kind === "form-operations" ||
 		loc.kind === "form-links";
-	const formUuid = screen.formUuid;
-	const moduleUuid = screen.moduleUuid;
 	/* Every route from this form back to a case list goes to the list that
 	 * chose its case, leaving the target that list continues with
 	 * (`menuProjection.ts::previewCaseListReturn`), read when it runs. */
@@ -621,15 +633,9 @@ export function FormScreen({ screen }: FormScreenProps) {
 			? previewCaseTarget.searchLaunch
 			: undefined;
 	/* The case list whose Register action opened this entry of this form,
-	 * which decides where it returns (`alwaysOfferedRegistrationReturn`). The
+	 * which decides where it returns (`caseListActionReturn`). The
 	 * launch names the form it opened and ends at any location off its path,
 	 * so this form reached any other way reads none. */
-	const registrationEntry = usePreviewCaseListRegistrationEntry();
-	const caseListRegistrationLaunch =
-		registrationEntry?.moduleUuid === moduleUuid &&
-		registrationEntry.formUuid === formUuid
-			? registrationEntry
-			: undefined;
 	const noMatchesAdmission = useMemo(
 		() =>
 			caseListRegistrationAdmission({
@@ -637,9 +643,17 @@ export function FormScreen({ screen }: FormScreenProps) {
 				formUuid,
 				moduleUuid,
 				launch: searchLaunch,
+				actionHost: caseListRegistrationLaunch?.hostModuleUuid,
 				searchState,
 			}),
-		[menuSource.doc, formUuid, moduleUuid, searchLaunch, searchState],
+		[
+			menuSource.doc,
+			formUuid,
+			moduleUuid,
+			searchLaunch,
+			caseListRegistrationLaunch?.hostModuleUuid,
+			searchState,
+		],
 	);
 	/* The search context keeps the screen's answers (a date range as its
 	 * two bounds); the engine's search-input instance holds one field per
@@ -1029,6 +1043,10 @@ export function FormScreen({ screen }: FormScreenProps) {
 	/* The running session the entry starts from: its bound cases and the
 	 * menu's choices. The controller builds the entry's session map, which
 	 * the form reads as `session/data` and its links read after submit. */
+	const entrySupplies =
+		previewCaseTarget?.formUuid === formUuid
+			? previewCaseTarget.entrySupplies
+			: undefined;
 	const entrySession = useMemo(
 		() =>
 			appId === undefined || mode !== "preview"
@@ -1037,6 +1055,7 @@ export function FormScreen({ screen }: FormScreenProps) {
 						appId,
 						boundCases: effectiveCases ?? [],
 						menuSelections: menuCaseSelections,
+						...(entrySupplies && { entrySupplies }),
 						...(searchResultsSnapshot === undefined
 							? {}
 							: { searchResults: searchResultsSnapshot }),
@@ -1049,6 +1068,7 @@ export function FormScreen({ screen }: FormScreenProps) {
 			menuCaseSelections,
 			searchResultsSnapshot,
 			caseListSearchText,
+			entrySupplies,
 		],
 	);
 	const controller = useFormEngine(
@@ -1488,20 +1508,35 @@ export function FormScreen({ screen }: FormScreenProps) {
 		(
 			dest: PostSubmitDestination,
 			submittedModuleUuid: Uuid | undefined,
-			submittedDoc: BlueprintDoc,
+			submitted: SubmittedContextSnapshot,
+			deviceCases: CaseDatabaseSnapshot = submitted.caseDatabase,
 		): void => {
+			const submittedDoc = submitted.doc;
 			/* Open a module with the selections its frame keeps: its own for
 			 * `module`, the parent's for `parentMenu`. */
 			const openModuleTask = (targetModuleUuid: Uuid): void => {
-				const selections = selectionsForModuleTask(
+				const selections = selectionsForStaticModuleTask(
 					submittedDoc,
 					targetModuleUuid,
 					session.getState().previewMenuCaseSelections,
+					submitted.entrySession?.values,
+					deviceCases,
 				);
 				setPreviewMenuCaseSelection(
 					targetModuleUuid,
 					selections[targetModuleUuid],
 				);
+				const prefix = moduleFirstMenuCases(submittedDoc, targetModuleUuid);
+				for (const root of prefix) {
+					setPreviewMenuCaseSelection(
+						root.moduleUuid,
+						selections[root.moduleUuid],
+					);
+					for (const recipient of root.destinationConsumers)
+						setPreviewMenuCaseSelection(recipient, selections[recipient]);
+				}
+				const home = firstMenuSelections(prefix, selections, platformRules);
+				if (home) showFrameFirstMenu(navigate, session, home);
 				navigate.openModule(targetModuleUuid);
 			};
 			switch (dest) {
@@ -1636,120 +1671,48 @@ export function FormScreen({ screen }: FormScreenProps) {
 			setPreviewCaseTarget(undefined);
 			letSubmittedSearchesGo();
 		};
-		/* Unless it explicitly returns to First menu, a no-matches registration
-		 * form returns to its module as the wire's
-		 * return frame does; the gate keeps such a form free of links, so
-		 * this is decided first. A host with menu forms lands on Results
-		 * showing the case it registered (the frame re-keys the search to
-		 * that case); a host without any has no frame beyond its command
-		 * (`caseListFormReturnFrames`), so the search context retires and the
-		 * module opens the way it first did: on Search, or on an automatic
-		 * Results when there is nothing to answer. */
-		const landOnResultsWithRegisteredCase = (
-			moduleUuid: Uuid,
-			caseId: string,
-		): void => {
+		/* The first form of an Android visit a deep link opened ends the
+		 * visit: Android resets the session and returns to the app that
+		 * opened the link before any after-submit or form link runs
+		 * (`SessionLaunchDelegate.kt::handleFormEntryResult` →
+		 * `exitFromExternalLaunch`), so Preview shows the phone's home
+		 * screen on a new session. */
+		if (session.getState().previewEntryPointVisit) {
+			retireCompletedTask();
 			announceWrite();
-			setPreviewSearchState(
-				moduleUuid,
-				menuFormUuidsOf(submitted.doc, moduleUuid).length > 0
-					? recordRegisteredCase(searchesAtSubmit[moduleUuid], caseId)
-					: undefined,
-			);
-			setPreviewSelectedCase(undefined);
-			setPreviewCaseTarget(undefined);
 			settleAttempt({ kind: "idle" });
 			forgetCompletedPages();
-			navigate.openCaseList(moduleUuid);
-		};
-		const submittedForm =
-			submitted.formUuid === undefined
-				? undefined
-				: submitted.doc.forms[submitted.formUuid];
-		const noMatchesRegistration =
-			submittedForm !== undefined &&
-			isCaseListRegistrationForm(submitted.doc, submitted.formUuid) &&
-			result.kind === "registration" &&
-			submitted.moduleUuid !== undefined
-				? { moduleUuid: submitted.moduleUuid, caseId: result.caseId }
-				: undefined;
-		if (noMatchesRegistration !== undefined) {
-			retireCompletedTask();
-			/* The return frame is pushed and opens like any other frame, so
-			 * what was pending stays only while the worker is on its path. */
-			if (submitted.formUuid !== undefined)
-				session.getState().setPreviewAfterSubmitStack(
-					completeAfterSubmitWithOwnFrame(
-						session.getState().previewAfterSubmitStack,
-						submittedEntryPath({
-							doc: submitted.doc,
-							moduleUuid: noMatchesRegistration.moduleUuid,
-							formUuid: submitted.formUuid,
-							caseIdsOf: (moduleUuid) =>
-								menuCaseSelections[moduleUuid]?.cases.map(
-									(choice) => choice.caseId,
-								) ?? [],
-						}),
-						caseListRegistrationPostSubmit(
-							submitted.doc,
-							submitted.formUuid,
-						) === "firstMenu"
-							? []
-							: afterSubmitPath(
-									submitted.doc,
-									{ moduleUuid: noMatchesRegistration.moduleUuid },
-									[],
-								),
-						platformRules.afterSubmitFrames,
-					),
-				);
-			// An explicitly authored First menu destination is HQ's empty root
-			// frame. It discards the scalar registration return rather than feeding
-			// that scalar into a host that may require a multiple-case selection.
-			if (
-				submitted.formUuid !== undefined &&
-				caseListRegistrationPostSubmit(submitted.doc, submitted.formUuid) ===
-					"firstMenu"
-			) {
-				announceWrite();
-				setPreviewSearchState(noMatchesRegistration.moduleUuid, undefined);
-				setPreviewSelectedCase(undefined);
-				setPreviewCaseTarget(undefined);
-				session.getState().setPreviewParentCaseRequest(undefined);
-				settleAttempt({ kind: "idle" });
-				forgetCompletedPages();
-				dispatchPostSubmit(
-					"firstMenu",
-					noMatchesRegistration.moduleUuid,
-					submitted.doc,
-				);
-				return;
-			}
-			landOnResultsWithRegisteredCase(
-				noMatchesRegistration.moduleUuid,
-				noMatchesRegistration.caseId,
-			);
+			navigate.goHome();
+			setPreviewAtDeviceHome(true);
 			return;
 		}
-		/* A form a case list always offers, opened from that list's Register
-		 * action, returns where the list's frame lands, as the wire's return
-		 * frames do; opened any other way, or with its own after-submit in
-		 * force, it routes as any form does. The host's selection is the
-		 * created case where the frame carries it. */
+		/* Both list actions return through the frames for the host that
+		 * opened this entry. The form's own navigation takes precedence. */
+		const hostUuid = submitted.caseListRegistrationLaunch?.hostModuleUuid;
+		const createdDatum =
+			hostUuid && submitted.formUuid
+				? caseListActionCreatedDatum(
+						submitted.doc,
+						hostUuid,
+						submitted.formUuid,
+					)
+				: undefined;
+		const registeredCaseId =
+			createdDatum === undefined
+				? undefined
+				: submitted.entrySession?.data[createdDatum];
 		const createdCase =
-			result.kind === "registration" && submitted.caseListRegistrationLaunch
+			registeredCaseId && hostUuid
 				? registeredCaseOnDevice(
 						result.caseDatabasePatch,
-						result.caseId,
-						submitted.doc.modules[
-							submitted.caseListRegistrationLaunch.hostModuleUuid
-						]?.caseType,
+						registeredCaseId,
+						submitted.doc.modules[hostUuid]?.caseType,
 					)
 				: undefined;
 		const registrationLanding =
 			submitted.formUuid === undefined
 				? undefined
-				: alwaysOfferedRegistrationReturn(
+				: caseListActionReturn(
 						submitted.doc,
 						submitted.formUuid,
 						submitted.caseListRegistrationLaunch,
@@ -1770,6 +1733,25 @@ export function FormScreen({ screen }: FormScreenProps) {
 				hostModuleUuid,
 				submitted.doc.modules[hostModuleUuid]?.caseType ?? "",
 				createdCase,
+				submitted.moduleCaseType && submitted.cases
+					? { caseType: submitted.moduleCaseType, cases: submitted.cases }
+					: undefined,
+				(operationUuid, caseType) => {
+					const datumId = registrationLanding.createdSelections?.find(
+						(row) => row.operationUuid === operationUuid,
+					)?.datumId;
+					const caseId =
+						datumId === undefined
+							? undefined
+							: submitted.entrySession?.data[datumId];
+					return caseId === undefined
+						? undefined
+						: registeredCaseOnDevice(
+								result.caseDatabasePatch,
+								caseId,
+								caseType,
+							);
+				},
 			);
 			for (const moduleUuid of Object.keys(current))
 				if (next[moduleUuid] === undefined)
@@ -1781,14 +1763,15 @@ export function FormScreen({ screen }: FormScreenProps) {
 			 * search now holds that case alone: its Results list it, or
 			 * nothing where the form created no case, and its forms read it
 			 * as what the search found. */
-			if (result.kind === "registration")
+			if (registeredCaseId !== undefined)
 				for (const moduleUuid of registrationLanding.newCaseSearchModuleUuids)
 					setPreviewSearchState(
 						moduleUuid,
 						recordRegisteredCase(
 							searchesAtSubmit[moduleUuid],
-							result.caseId,
+							registeredCaseId,
 							createdCase !== undefined,
+							registrationLanding.endsOnSearchOf !== moduleUuid,
 						),
 					);
 			setPreviewSelectedCase(undefined);
@@ -1824,8 +1807,15 @@ export function FormScreen({ screen }: FormScreenProps) {
 				);
 			settleAttempt({ kind: "idle" });
 			forgetCompletedPages();
-			if (landingScreen.kind === "first-menu") navigate.goHome();
-			else navigate.openModule(landingScreen.moduleUuid);
+			const home = firstMenuSelections(
+				registrationLanding.firstMenuCases,
+				next,
+				platformRules,
+			);
+			if (home) showFrameFirstMenu(navigate, session, home);
+			if (landingScreen.kind !== "first-menu")
+				navigate.openModule(landingScreen.moduleUuid);
+			else if (!home) navigate.goHome();
 			return;
 		}
 		/* A form without destinations, with nothing pending, goes straight to
@@ -1844,7 +1834,13 @@ export function FormScreen({ screen }: FormScreenProps) {
 			dispatchPostSubmit(
 				submitted.destination,
 				submitted.moduleUuid,
-				submitted.doc,
+				submitted,
+				result.caseDatabasePatch
+					? overlayCaseDatabasePatch(
+							submitted.caseDatabase,
+							result.caseDatabasePatch,
+						)
+					: submitted.caseDatabase,
 			);
 			return;
 		}
@@ -1971,6 +1967,7 @@ export function FormScreen({ screen }: FormScreenProps) {
 			const input = {
 				doc,
 				formUuid: sourceFormUuid,
+				routeMenuUuid: sourceModuleUuid,
 				session: previewSessionValues(entryIdentity, previewDevice),
 				usercase: postSubmissionUsercase,
 				/* The entry's own session map: the device's session does not
@@ -2059,8 +2056,10 @@ export function FormScreen({ screen }: FormScreenProps) {
 				const collections = collection === undefined ? [] : [collection];
 				const routeOnce = () =>
 					afterSubmitRoute({
+						sourceModuleUuid,
 						previousTask: () =>
 							resolvePreviousTask({
+								platform: previewDevice.platform,
 								doc,
 								formUuid: sourceFormUuid,
 								submittedCaseIds: resultCaseIds,
@@ -2170,7 +2169,7 @@ export function FormScreen({ screen }: FormScreenProps) {
 				announceWrite();
 				settleAttempt({ kind: "idle" });
 				forgetCompletedPages();
-				dispatchPostSubmit("app_home", sourceModuleUuid, submitted.doc);
+				dispatchPostSubmit("app_home", sourceModuleUuid, submitted);
 				return;
 			}
 			const { route } = next;
@@ -2263,6 +2262,12 @@ export function FormScreen({ screen }: FormScreenProps) {
 								projectedSelections,
 							)
 						: projectedSelections;
+				const home = firstMenuSelections(
+					linkedFirstMenuCases(route.caseSelections),
+					projectedSelections,
+					platformRules,
+				);
+				if (home) showFrameFirstMenu(navigate, session, home);
 				for (const selectedModuleUuid of routeMenuSource.moduleOrder) {
 					const current = menuCaseSelections[selectedModuleUuid];
 					const next = nextSelections[selectedModuleUuid];
@@ -2305,8 +2310,9 @@ export function FormScreen({ screen }: FormScreenProps) {
 					);
 					settleAttempt({ kind: "idle" });
 					forgetCompletedPages();
-					if (next.kind === "home") navigate.goHome();
-					else if (next.kind === "menu") navigate.openModule(next.moduleUuid);
+					if (next.kind === "home") {
+						showFrameFirstMenu(navigate, session, route.task.selections);
+					} else if (next.kind === "menu") navigate.openModule(next.moduleUuid);
 					else {
 						setPreviewCaseTarget({
 							formUuid: next.formUuid,
@@ -2340,7 +2346,8 @@ export function FormScreen({ screen }: FormScreenProps) {
 					dispatchPostSubmit(
 						route.destination,
 						submitted.moduleUuid,
-						submitted.doc,
+						submitted,
+						refreshedCaseDatabase,
 					);
 					return;
 				case "module":
@@ -2800,7 +2807,11 @@ export function FormScreen({ screen }: FormScreenProps) {
 					sensor.fix !== undefined &&
 					capturesDeviceLocation(finalDoc, finalDoc.forms[mutation.formUuid]);
 				return await submitFormAction(
-					recordFix ? { ...mutation, locationFix: sensor.fix } : mutation,
+					{
+						...mutation,
+						...(entrySupplies && { entrySupplies }),
+						...(recordFix && { locationFix: sensor.fix }),
+					},
 					submittedAppId,
 					finalBlueprintDigest,
 					viewerTimeZone(),
@@ -2879,7 +2890,7 @@ export function FormScreen({ screen }: FormScreenProps) {
 							? "module"
 							: submitted.destination,
 					submitted.moduleUuid,
-					submitted.doc,
+					submitted,
 				);
 				return;
 			}

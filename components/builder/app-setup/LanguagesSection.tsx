@@ -129,6 +129,7 @@ const STATUS_FILTER_ITEMS: Readonly<Record<TranslationStatusFilter, string>> = {
 const ROLE_LABELS: Readonly<Record<TranslationUnitRole, string>> = {
 	"app-name": "App name",
 	"module-name": "Module name",
+	"menu-badge": "Menu badge",
 	"form-name": "Form name",
 	"case-list-registration-label": "Register action label",
 	"case-list-menu-item-label": "Case list entry label",
@@ -136,6 +137,9 @@ const ROLE_LABELS: Readonly<Record<TranslationUnitRole, string>> = {
 	"field-hint": "Field hint",
 	"field-help": "Field help",
 	"field-validation-message": "Validation message",
+	"field-extended-text": "Extended text",
+	"field-qr-code": "QR code",
+	"field-spoken-text": "Spoken text",
 	"select-option-label": "Option label",
 	"case-list-header": "Case list header",
 	"case-list-sort-label": "Name in Sort by",

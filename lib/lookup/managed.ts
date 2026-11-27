@@ -24,7 +24,6 @@ import { validateLookupRowValues } from "./coercion";
 import {
 	formBuilderTagCollisionSentence,
 	LOOKUP_MAX_CHANGE_BYTES,
-	LOOKUP_MAX_COLUMNS,
 	reservedInstanceTagCause,
 } from "./constants";
 import { readLookupDefinitionsInTransaction } from "./definitionSnapshot";
@@ -1114,14 +1113,14 @@ export async function refreshManagedLookupTableInTransaction(
 			removed.push(column);
 		}
 	}
+	/* The table holds CommCare HQ's fields and the columns apps still read,
+	 * however many that makes: CommCare HQ caps no table's field count
+	 * (`fixtures/models.py::LookupTable.fields` is a list, and
+	 * `fixtures/resources/v0_1.py::LookupTableResource` saves the list it is
+	 * sent). What one inline copy writes is CommCare HQ's fields alone, held
+	 * to the inline cap by `holdCaps`; a kept column carries no value
+	 * from it. */
 	const columnCount = content.fields.length + kept.length;
-	if (!generation && columnCount > LOOKUP_MAX_COLUMNS) {
-		throw new LookupPastInlineCopyError(
-			managedLookupInlineCopyRefusal(table.tag, [
-				`${columnCount.toLocaleString("en-US")} columns with the ones apps still read`,
-			]),
-		);
-	}
 
 	// Every column's id before anything is written: a new field's is the one
 	// `newColumnIds` gives under the field's own key, or one Postgres mints

@@ -260,9 +260,11 @@ it.each([
 		},
 	},
 	{
+		/* No workbook can carry it, and a direct upload sends it through
+		 * CommCare HQ's JSON resources instead, so neither mode refuses it. */
 		name: "a lookup table tagged with the name of the workbook's own sheet",
 		source: () => searchApp("types-tag", table("types"), png),
-		refused: { "hq-upload": ["LOOKUP_TAG_RESERVED_BY_HQ"], ccz: [] },
+		refused: { "hq-upload": [], ccz: [] },
 	},
 ])(
 	"refuses what the export boundary refuses: $name",

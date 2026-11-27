@@ -159,6 +159,30 @@ describe("committed program input rejection", () => {
 		);
 	});
 
+	it("rejects supplied case IDs when the committed form no longer has the deep link or case operation", () => {
+		const { doc, formUuid } = acceptanceDoc(() => []);
+		const engine = engineFor(doc, formUuid);
+		const mutation = {
+			...engine.computeSubmissionMutation({
+				caseIds: [SESSION_CASE],
+				entryKey: ENTRY_KEY,
+			}),
+			entrySupplies: {
+				entryPointUuid: OP_ROOT,
+				creations: [{ operationUuid: formUuid, caseId: "planned-visit" }],
+			},
+		};
+		expect(() =>
+			buildCaseOperationProgramFromDoc({
+				device: webAppsDevice(),
+				blueprint: doc,
+				mutation,
+				projection: validateCaptureSubmissionProjection(mutation),
+				identity: IDENTITY,
+			}),
+		).toThrow("The deep link no longer opens this form");
+	});
+
 	it("rejects a forged batch-close discriminator against a committed followup form before effects", () => {
 		const { doc, formUuid } = acceptanceDoc(() => []);
 		const engine = engineFor(doc, formUuid);

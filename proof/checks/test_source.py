@@ -306,6 +306,12 @@ def test_an_itemset_is_compared_by_its_attributes_and_references():
     ]
     other = _form(model=declared.format("t"), body=itemset.format("instance('t')/t_list/t[x = 1]", "name"))
     assert ("changed", "/data/*/:control/itemset/@nodeset", "/data/q/:control/itemset/@nodeset") in _parts(a, other)
+    # A row's label read written another way is the same read: a respelling, as a nodeset's is.
+    quoted = _form(model=declared.format("t"), body=itemset.format("instance('t')/t_list/t", 'name[@lang=&quot;en&quot;][1]'))
+    spaced = _form(model=declared.format("t"), body=itemset.format("instance('t')/t_list/t", "name[@lang = 'en'][1]"))
+    assert _parts(quoted, spaced) == [
+        ("changed", "/data/*/:control/itemset/label/@ref/:respelled", "/data/q/:control/itemset/label/@ref/:respelled"),
+    ]
 
 
 def test_the_form_builder_s_escaped_copies_are_one_class_however_often_it_saved():

@@ -19,6 +19,7 @@ import {
 import { recordFromEntries } from "@/lib/domain/records";
 import {
 	hasGeneratedWording,
+	LABEL_TEXT_SLOT_OF_ROLE,
 	snapshotTranslationUnits,
 	type TranslationUnit,
 	translatedProseValueMode,
@@ -63,6 +64,16 @@ export function sourceSlotWriter(
 			return (draft, value) => {
 				draft.appName = text(value);
 			};
+		case "menu-badge":
+			return owner.kind === "form" || owner.kind === "module"
+				? (draft, value) => {
+						const badge =
+							owner.kind === "form"
+								? draft.forms[owner.formUuid]?.badge
+								: draft.modules[owner.moduleUuid]?.badge;
+						if (badge?.kind === "text") badge.text = text(value);
+					}
+				: undefined;
 		case "module-name":
 			return owner.kind === "module"
 				? (draft, value) => {
@@ -95,12 +106,16 @@ export function sourceSlotWriter(
 		case "field-label":
 		case "field-hint":
 		case "field-help":
-		case "field-validation-message": {
+		case "field-validation-message":
+		case "field-extended-text":
+		case "field-qr-code":
+		case "field-spoken-text": {
 			const slot = {
 				"field-label": "label",
 				"field-hint": "hint",
 				"field-help": "help",
 				"field-validation-message": "validate_msg",
+				...LABEL_TEXT_SLOT_OF_ROLE,
 			}[unit.role];
 			return owner.kind === "field"
 				? (draft, value) => {

@@ -223,6 +223,7 @@ async function readReview(client: Client) {
 			runs_only_on: preselected.runs_only_on,
 			split_datetime: preselected.split_datetime,
 			table_choices: {},
+			owner_rule_choices: {},
 		},
 	};
 }
@@ -687,6 +688,7 @@ describe("each refusal a call can make arrives with its tag and refusal", () => 
 				runs_only_on: null,
 				split_datetime: false,
 				table_choices: {},
+				owner_rule_choices: {},
 			},
 		],
 	] as const)(
@@ -730,6 +732,7 @@ describe("each refusal a call can make arrives with its tag and refusal", () => 
 					runs_only_on: null,
 					split_datetime: false,
 					table_choices: {},
+					owner_rule_choices: {},
 				});
 				for (const answer of [read, create])
 					expect(answer).toEqual({
@@ -744,7 +747,7 @@ describe("each refusal a call can make arrives with its tag and refusal", () => 
 	it("choice_missing and choice_not_offered, at bring_in_hq_app", async () => {
 		await seedProjectDistrict();
 		await withHttpPeer(async (peer) => {
-			serveFixtureApp(peer, { times: 3 });
+			serveFixtureApp(peer, { times: 4 });
 			await withTools(async (client) => {
 				const { body, args } = await readReview(client);
 				const tables = (body.review as { tables: Json[] }).tables;
@@ -764,8 +767,20 @@ describe("each refusal a call can make arrives with its tag and refusal", () => 
 					...args,
 					split_datetime: !args.split_datetime,
 					table_choices: { district: "use-project" },
+					owner_rule_choices: {},
 				});
 				expect(notOffered.body).toMatchObject({
+					error_type: "invalid_input",
+					refusal: "choice_not_offered",
+				});
+				/* An owner-rule answer reaches the create: this review asks
+				 * none, so one for a level is an answer it does not offer. */
+				const ownerNotOffered = await call(client, "bring_in_hq_app", {
+					...args,
+					table_choices: { district: "use-project" },
+					owner_rule_choices: { clinic: "worker" },
+				});
+				expect(ownerNotOffered.body).toMatchObject({
 					error_type: "invalid_input",
 					refusal: "choice_not_offered",
 				});
