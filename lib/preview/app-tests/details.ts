@@ -17,6 +17,7 @@ import { slotContext } from "@/lib/domain/expression/context";
 import type { CaseQueryReading } from "@/lib/domain/expression/temporalType";
 import { lookupReadTypes } from "@/lib/domain/lookupRead";
 import { projectProseTemplate } from "@/lib/domain/prose";
+import { searchResultDetailColumns } from "@/lib/domain/searchResultDetail";
 import { caseColumnLabel } from "../caseColumnLabel";
 import { ordinaryCaseResultCell } from "../caseMap";
 import { parentCaseConstraint } from "../caseSelectionNavigation";
@@ -33,6 +34,10 @@ import {
 	previewCaseStoreBindings,
 	withSearchInputExpressionValues,
 } from "../engine/runtimeBindings";
+import {
+	searchResultDetailProjection,
+	submittedSearchResultDetailAnswers,
+} from "../engine/searchResultDetailProjection";
 import { recordsReadSearch, searchedReading } from "../engine/serverSearchRead";
 import {
 	columnOutputWording,
@@ -81,7 +86,7 @@ export async function appTestDetails(
 		throw new AppTestActionError("Select the required parent record first.");
 	const searched = recordsReadSearch(mod, screen.source);
 	const reading = searchedReading(searched);
-	const result = await readDisplayRow(
+	const storedRow = await readDisplayRow(
 		context,
 		scope,
 		mod.uuid,
@@ -90,6 +95,38 @@ export async function appTestDetails(
 		screen.source.searchAnswers,
 		parentCaseConstraint(context.doc, screen.moduleUuid, selected.parentCase),
 	);
+	// The server persisted these submitted answers with the exact page the
+	// test selected from. A Search draft cannot enter a Details step.
+	const columns =
+		searched &&
+		screen.source.searchAnswers !== undefined &&
+		context.device.platform === "web-apps"
+			? searchResultDetailColumns(
+					context.doc,
+					context.doc.modules[screen.moduleUuid],
+				)
+			: [];
+	const calculated = searchResultDetailProjection(
+		columns,
+		submittedSearchResultDetailAnswers(
+			columns,
+			new Map(
+				screen.source.searchAnswers?.map(({ name, value }) => [name, value]),
+			),
+			screen.source.searchEntry?.defaultSearch === true,
+		),
+	);
+	const result =
+		storedRow.kind === "row" && calculated
+			? {
+					...storedRow,
+					row: {
+						...storedRow.row,
+						calculated: { ...storedRow.row.calculated, ...calculated },
+					},
+				}
+			: storedRow;
+
 	const project = appTestCellProjector(
 		context,
 		screen.moduleUuid,

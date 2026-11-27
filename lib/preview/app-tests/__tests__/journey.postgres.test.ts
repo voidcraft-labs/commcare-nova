@@ -32,6 +32,7 @@ import { readAppTestSteps } from "@/lib/db/appTests";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import {
+	calculatedColumn,
 	collectTranslationUnits,
 	columnSort,
 	makeTranslationUnitId,
@@ -1943,6 +1944,110 @@ it("searches every open record of the type when only the device list has a condi
 		"maya-active",
 		"maya-closed",
 	]);
+});
+
+it("shows the exact submitted optional Search answer on the chosen result's Details", async () => {
+	const inputUuid = testUuid("app-test-result-detail-input");
+	const columnUuid = testUuid("app-test-result-detail-column");
+	const list = caseListConfig([{ field: "case_name", header: "Name" }]);
+	const doc = buildDoc({
+		appSettings: { ...NEW_APP_SETTINGS, runsOnlyOn: "web-apps" },
+		caseTypes: [{ name: "person", properties: [] }],
+		modules: [
+			{
+				name: "People",
+				caseType: "person",
+				caseListConfig: {
+					columns: [
+						...list.columns,
+						{
+							...calculatedColumn(
+								columnUuid,
+								"Submitted name",
+								term(literal("Local")),
+								{
+									notOnList: true,
+									visibleInList: false,
+								},
+							),
+							searchResultDetail: {
+								inputUuid,
+								prefix: "Entered [",
+								suffix: "]",
+							},
+						},
+					],
+					listColumnOrder: [...list.listColumnOrder, columnUuid],
+					detailColumnOrder: [...list.detailColumnOrder, columnUuid],
+					searchInputs: [
+						simpleSearchInputDef(
+							inputUuid,
+							"person_name",
+							"Name",
+							"text",
+							"case_name",
+						),
+					],
+				},
+				forms: [
+					{
+						name: "Visit",
+						type: "followup",
+						fields: [f({ id: "note", kind: "text" })],
+					},
+				],
+			},
+		],
+	});
+	await h.seedProjectMember(scope.actorUserId, scope.projectId, "viewer");
+	await h.seedAppWithBlueprint(doc, {
+		id: scope.appId,
+		owner: scope.actorUserId,
+		projectId: scope.projectId,
+	});
+	for (const answer of ["Maya", undefined]) {
+		let current = await startAppTest(scope, {
+			requestId: answer ?? "without-answer",
+			expectedBlueprintSeq: 0,
+			input: {
+				purpose: "Show the submitted prompt from the settled result",
+				scenario: {
+					records: [
+						{
+							id: "maya-person",
+							caseType: "person",
+							name: "Maya",
+							properties: {},
+						},
+					],
+				},
+			},
+		});
+		const act = async (action: AppTestAction) => {
+			current = await continueAppTest(scope, {
+				testId: current.testId,
+				expectedStep: current.step,
+				requestId: `step-${current.step}`,
+				action,
+			});
+			return current.observation;
+		};
+		expect(
+			await act({ kind: "menu", moduleUuid: doc.moduleOrder[0] }),
+		).toMatchObject({ screen: "search" });
+		expect(
+			await act({
+				kind: "search",
+				answers: answer ? [{ name: "person_name", value: answer }] : [],
+			}),
+		).toMatchObject({ screen: "results", results: { kind: "rows" } });
+		expect(
+			await act({ kind: "select", caseIds: ["maya-person"] }),
+		).toMatchObject({
+			screen: "details",
+			record: { calculated: { [columnUuid]: `Entered [${answer ?? ""}]` } },
+		});
+	}
 });
 
 it("creates a place-owned record from empty entry using the worker reading advertised to authors", async () => {

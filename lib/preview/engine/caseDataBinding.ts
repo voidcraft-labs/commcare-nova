@@ -196,6 +196,10 @@ import {
 	searchInputSubmissionErrors,
 } from "./searchInputValidation";
 import {
+	searchResultDetailProjection,
+	submittedSearchResultDetailAnswers,
+} from "./searchResultDetailProjection";
+import {
 	keepSearchResult,
 	keepSearchResultDetail,
 	readKeptSearchResult,
@@ -874,18 +878,12 @@ export async function loadCasesAction(
 					keepSearchResultDetail(scope, prepared.context, {
 						visibleCaseIds,
 						answers: [
-							...new Map(
-								detailColumns.map(({ inputUuid, inputName }) => [
-									inputUuid,
-									{
-										inputUuid,
-										answer: args.defaultSearch
-											? null
-											: answers.get(inputName) || null,
-									},
-								]),
-							).values(),
-						],
+							...submittedSearchResultDetailAnswers(
+								detailColumns,
+								answers,
+								args.defaultSearch === true,
+							),
+						].map(([inputUuid, answer]) => ({ inputUuid, answer })),
 					}),
 			};
 		if (!args.automaticSelection)
@@ -1579,15 +1577,11 @@ export async function loadCaseDataAction(
 							caseId,
 						);
 						if (!answers) return;
-						const byId = new Map(
-							answers.map(({ inputUuid, answer }) => [inputUuid, answer]),
-						);
-						if (columns.some(({ inputUuid }) => !byId.has(inputUuid))) return;
-						return Object.fromEntries(
-							columns.map(({ columnUuid, inputUuid, prefix, suffix }) => [
-								columnUuid,
-								prefix + (byId.get(inputUuid) ?? "") + suffix,
-							]),
+						return searchResultDetailProjection(
+							columns,
+							new Map(
+								answers.map(({ inputUuid, answer }) => [inputUuid, answer]),
+							),
 						);
 					})();
 		if (resultDetail !== undefined && resultProjection === undefined)
