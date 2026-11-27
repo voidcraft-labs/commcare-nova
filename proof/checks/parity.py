@@ -84,6 +84,7 @@ from proof.checks.manifest_value_classes import (
     save_to_case_before_optional_own_update,
     save_to_case_retype_property_types,
     worker_record_save_to_case_shape,
+    worker_name_order_in_text_default,
     guarded_owner_after_fresh_create,
     standalone_result_detail_text,
     three_parent_links_text_prompt_key,
@@ -117,6 +118,7 @@ PARENT_PROMPT_SHAPES = {
     "case-search/prompt-key-matching-three-parent-links": three_parent_links_text_prompt_key,
 }
 ADDRESS_SAVED_TEXT = "case-search/address-picker-with-a-saved-text-default"
+ORDERED_SEARCH_DEFAULT = "case-search/default-value-ordering-the-worker-name"
 UNMATCHED_ADDRESS_TOPIC = "case-search/address-receiver-on-an-unmatched-topic-without-a-component"
 UNCLAIMED, ENTRY, STANDING, UNSEEN = "unclaimed", "entry", "standing", "unseen"
 
@@ -999,6 +1001,14 @@ def added_uses(base_source: dict, variant_source: dict, *, entries=()) -> list[D
                 Decided(use, manifest_usage.HELD, (entry,))
                 for use in found.uses
                 if use.key == "schema:CaseSearchProperty.default_value" and manual_address_with_saved_text(use, held)
+            )
+        if ORDERED_SEARCH_DEFAULT in entries:
+            entry = _entries_by_id(held)[ORDERED_SEARCH_DEFAULT]
+            decided.extend(
+                Decided(use, manifest_usage.HELD, (entry,))
+                for use in found.uses
+                if use.key == "schema:CaseSearchProperty.default_value"
+                and worker_name_order_in_text_default(use, held)
             )
         return decided
 

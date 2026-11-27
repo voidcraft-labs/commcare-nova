@@ -476,7 +476,14 @@ Preview shares its conversion between both paths. The parsed reader binds the an
 same field UUID and keeps the literal and both branches. The independent XML comparison
 requires the matching root text input and Hidden Value. Empty literals, clock-time and
 instant-shaped literals, form conditions, other operand shapes, and record and Search
-expressions keep their existing rules.
+expressions are outside that form calculation rule.
+
+A visible simple text Search prompt has the authenticated worker session
+when it computes a starting value. A direct greater-than comparison of the
+worker name and a nonblank, untyped text literal keeps its raw comparison
+and worker reference. Both native workers apply Core's numeric coercion
+before the first manual Search sends the value. The rule belongs to the
+prompt default, whose runtime supplies the session.
 
 **Where a literal spelled as a date or a date and time is typed.** A typed date or date-and-time
 literal prints the text the untyped literal of that text prints, so which one a record slot holds

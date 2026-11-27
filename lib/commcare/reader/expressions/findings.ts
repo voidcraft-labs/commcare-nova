@@ -14,6 +14,7 @@ import {
 	formFieldPath,
 	formStructure,
 } from "@/lib/domain/expression/formStructure";
+import { searchUsernameTextOrder } from "@/lib/domain/expression/ruleSets";
 import type {
 	CheckError,
 	CheckErrorCode,
@@ -148,6 +149,10 @@ export const EXPRESSION_CLAIMS = defineClaims("expressions", {
 	),
 	"default-value-lifting-into-valueexpression": take(
 		"case-search/default-value-lifting-into-valueexpression",
+		"schema:CaseSearchProperty.default_value",
+	),
+	"default-value-ordering-the-worker-name": take(
+		"case-search/default-value-ordering-the-worker-name",
 		"schema:CaseSearchProperty.default_value",
 	),
 	"default-value-outside-valueexpression": refuse(
@@ -2068,13 +2073,35 @@ export const SLOT_ENTRIES: Readonly<Record<RegisteredSlotName, SlotRow>> = {
 		},
 	},
 	search_input_default: {
-		held(doc, ref) {
+		held(doc, ref, bound) {
 			if (ref.entity === "module" && ref.slot === "search_input_default") {
 				const input = doc.modules[ref.uuid]?.caseListConfig?.searchInputs.find(
 					(candidate) => candidate.uuid === ref.member.searchInputUuid,
 				);
 				if (input?.kind !== "hidden" && input?.type === "date-range")
 					return C["default-value-on-a-date-range-input"].entry;
+				if (
+					input?.kind === "simple" &&
+					input.type === "text" &&
+					input.hidden !== true
+				) {
+					let containsOrder = false;
+					walkExpression(bound, {
+						visitExpression(expression) {
+							if (
+								expression.kind === "gt" &&
+								searchUsernameTextOrder(
+									expression.kind,
+									expression.left,
+									expression.right,
+								)
+							)
+								containsOrder = true;
+						},
+					});
+					if (containsOrder)
+						return C["default-value-ordering-the-worker-name"].entry;
+				}
 			}
 			return C["default-value-lifting-into-valueexpression"].entry;
 		},

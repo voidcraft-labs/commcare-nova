@@ -3,10 +3,7 @@
 from urllib.parse import parse_qs, urlsplit
 
 from proof.android import observe
-from proof.observe import services
-from proof.observe.record import Blobs
-from proof.observe.search_address import enable_address_search
-from proof.observe.search_ordered_default import (
+from proof.matrix.search_ordered_default import (
     COERCED,
     LITERAL,
     USERNAME,
@@ -15,6 +12,9 @@ from proof.observe.search_ordered_default import (
     query_scope,
     save_ordered_default,
 )
+from proof.observe import services
+from proof.observe.record import Blobs
+from proof.observe.search_address import enable_address_search
 from proof.webapps import hq as webapps_hq
 
 
@@ -59,5 +59,10 @@ def test_installed_search_uses_the_retained_ordered_default(android_documents, h
     for label, observed in observations.items():
         expected = observed["expected"]
         assert observed["query"]["RemoteQuerySessionManager.getRawQueryParams"]["village"] == [expected], (label, observed)
-        search, = observed["searched"]
+        # The installed walker independently exercises the generic quote and
+        # text controls. This request is the explicit search over our fixture.
+        search, = (
+            request for request in observed["searched"]
+            if "case_name = 'Amina'" in request["params"].get("_xpath_query", [])
+        )
         assert search["status"] == 200 and search["params"]["village"] == [expected], (label, observed)

@@ -2,8 +2,7 @@
 
 from proof.editors import pages
 from proof.hq import operations
-from proof.observe.search_address import enable_address_search
-from proof.observe.search_ordered_default import (
+from proof.matrix.search_ordered_default import (
     COERCED,
     LITERAL,
     SOUTH,
@@ -13,6 +12,7 @@ from proof.observe.search_ordered_default import (
     query_scope,
     save_ordered_default,
 )
+from proof.observe.search_address import enable_address_search
 from proof.webapps import hq as webapps_hq
 from proof.webapps import steps
 from proof.webapps.session import Session

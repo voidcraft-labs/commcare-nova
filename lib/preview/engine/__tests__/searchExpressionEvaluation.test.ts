@@ -12,6 +12,7 @@ import {
 	double,
 	eq,
 	gt,
+	ifExpr,
 	input,
 	isBlank,
 	literal,
@@ -23,7 +24,10 @@ import {
 } from "@/lib/domain/expression";
 import { slotContext } from "@/lib/domain/expression/context";
 import type { Expression } from "@/lib/domain/expression/types";
-import { webAppsDevice } from "@/lib/preview/engine/__tests__/fixtures/previewDevices";
+import {
+	androidDevice,
+	webAppsDevice,
+} from "@/lib/preview/engine/__tests__/fixtures/previewDevices";
 import { XPathInvalidPathError } from "@/lib/preview/xpath/runtimeValues";
 import type { PreviewSearchSessionValues } from "../identity";
 import { previewAsMe, previewSessionValues } from "../identity";
@@ -441,6 +445,40 @@ describe("preview case-search expression evaluation", () => {
 			"visit_date:from": "2024-03-10",
 			"visit_date:to": "2024-03-11",
 		});
+	});
+
+	it("orders the worker name numerically while starting a text Search", () => {
+		const prompt = simpleSearchInputDef(
+			testUuid("ordered-worker-search"),
+			"village",
+			"Village",
+			"text",
+			"village",
+			{
+				default: ifExpr(
+					gt(sessionContext("username"), literal("20")),
+					term(literal("north")),
+					term(literal("south")),
+				),
+			},
+		);
+		for (const device of [webAppsDevice(), androidDevice()]) {
+			for (const [username, expected] of [
+				["7", "south"],
+				["030", "north"],
+				["proof-worker", "south"],
+			]) {
+				const worker = previewAsMe({
+					id: "worker-42",
+					name: username,
+					email: "",
+				});
+				const session = previewSessionValues(worker, device);
+				expect(
+					resolveSearchInputDefaults([prompt], session).get("village"),
+				).toBe(expected);
+			}
+		}
 	});
 
 	it("splits excluded owners on whitespace, deduplicating without splitting commas", () => {

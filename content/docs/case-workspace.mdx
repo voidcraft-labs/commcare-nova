@@ -456,6 +456,10 @@ fixed values and current-user information. Case information belongs in the
 field's own match behavior or in **Cases available**, which run against each
 case.
 
+A visible text field's starting value can compare the worker name with fixed
+text using **Greater than**. On both platforms this comparison reads the
+operands as numbers, so a name that cannot be read as a number takes the
+fallback branch of the calculation.
 
 **Address search** lets workers choose a place in Web Apps. A text field or
 a multiple-choice field can fill from part of that address. Its

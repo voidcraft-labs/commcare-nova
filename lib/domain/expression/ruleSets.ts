@@ -216,6 +216,27 @@ export function literalShape(
 	return undefined;
 }
 
+/** Core numerically orders these text operands when a simple Search prompt
+ * calculates its starting value in the worker session. */
+export function searchUsernameTextOrder(
+	kind: ComparisonKind,
+	left: Expression,
+	right: Expression,
+): boolean {
+	return (
+		kind === "gt" &&
+		left.kind === "term" &&
+		left.term.kind === "session-context" &&
+		left.term.field === "username" &&
+		right.kind === "term" &&
+		right.term.kind === "literal" &&
+		right.term.data_type === undefined &&
+		typeof right.term.value === "string" &&
+		right.term.value.trim() !== "" &&
+		literalShape(right.term.value) === undefined
+	);
+}
+
 export function literalType(lit: Literal): ResolvedType {
 	if (lit.data_type) return lit.data_type;
 	if (lit.value === null) return ANY_TYPE;
