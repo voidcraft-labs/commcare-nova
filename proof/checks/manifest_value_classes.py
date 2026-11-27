@@ -40,7 +40,8 @@ from pathlib import Path
 from lxml import etree
 
 from proof.checks.case_property_names import (
-    SERVER_SEARCH_DEVICE_ONLY_KEYS, SAVE_TO_CASE_RESERVED_UPDATE_KEYS, order_key_reserved, searchable_order_key,
+    SERVER_ORDER_RECORD_KEYS, SERVER_SEARCH_DEVICE_ONLY_KEYS, SAVE_TO_CASE_RESERVED_UPDATE_KEYS,
+    order_key_reserved, searchable_order_key,
 )
 from proof.checks.compare.app_strings import is_locale_file_key
 from proof.checks.compare.names import nova_name
@@ -5132,6 +5133,43 @@ def _server_order_keys(use):
     row = at.nearest("CaseSearchCustomSortProperty")
     rows = [row] if row is not None else [each for each in config.get("custom_sort_properties") or [] if isinstance(each, dict)]
     return [row["property_name"] for row in rows if isinstance(row.get("property_name"), str)]
+
+
+def default_order_unmapped_comparison(use, manifest):
+    """A lone literal sort on a custom case property at the built-in Search receiver."""
+    at, config = _search(use)
+    if config is None:
+        return None
+    if at.nearest("Module") is None or config.get("case_search_endpoint_id") or config.get("data_registry"):
+        return False
+    if config.get("custom_sort_properties", []) != []:
+        return False
+    prompts = config.get("properties", [])
+    if not isinstance(prompts, list) or any(
+        isinstance(prompt, dict) and prompt.get("is_group") is not True
+        and prompt.get("name") in ("commcare_sort", "x_commcare_endpoint_id", "x_commcare_data_registry")
+        for prompt in prompts
+    ):
+        return False
+    defaults = config.get("default_properties")
+    if not isinstance(defaults, list) or any(
+        not isinstance(row, dict) or row.get("property") not in ("commcare_sort", "_xpath_query") for row in defaults
+    ):
+        return False
+
+    sorts = [row for row in defaults if row.get("property") == "commcare_sort"]
+    entry = at.nearest("DefaultCaseSearchProperty")
+    if len(sorts) != 1 or entry is not sorts[0]:
+        return False
+    text = _literal_text(entry.get("defaultValue"))
+    if text is None:
+        return False
+    key, separator, comparison = text.lstrip("+-").partition(":")
+    return (
+        bool(separator) and key not in SERVER_ORDER_RECORD_KEYS and searchable_order_key(key)
+        and re.fullmatch(r"[A-Za-z][A-Za-z0-9_-]*", comparison) is not None
+        and comparison not in ("exact", "numeric", "date", "phonetic")
+    )
 
 
 def server_order_reserved_property(use, manifest):
@@ -13891,6 +13929,7 @@ VALUE_CLASSES = {
     "forms-and-case-writes/session-endpoint-id-not-a-slug-fixed-point-or-duplicated": not_a_slug_or_duplicated,
     "forms-and-case-writes/any-other-undeclared-key": undeclared_key_no_row_names,
     # Case search
+    "case-search/default-order-with-an-unmapped-comparison": default_order_unmapped_comparison,
     "case-search/a-server-order-naming-a-property-nova-reserves": server_order_reserved_property,
     "case-search/a-server-order-naming-a-property-only-devices-hold": server_order_device_only_property,
     "case-search/a-related-record-property-only-devices-hold": related_case_device_only_property,

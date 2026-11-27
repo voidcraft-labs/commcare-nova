@@ -24,6 +24,14 @@ SESSION = "instance('commcaresession')/session"
 # Each menu is named by its position in the app as it stands when the value is set (``ops.set_json``).
 _ACTIVE_CLIENTS = {"$menu": 1}
 
+
+def default_filter_resets_earlier_sort(authoring, app_id):
+    """The blank comparison resets earlier order and sorts by three indexed representations."""
+    for term in ("-visit:date", "+priority::ignored", "-visit:date"):
+        ops.set_json(authoring, app_id, "/modules/1/search_config/default_properties/-", {
+            "property": "commcare_sort", "doc_type": "DefaultCaseSearchProperty", "defaultValue": f"'{term}'",
+        })
+
 # A text Search field as HQ's Case List page stores one, beside no other setting.
 _TEXT_FIELD = {
     "hint": {},

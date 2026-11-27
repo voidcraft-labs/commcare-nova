@@ -4,7 +4,9 @@ from lxml import etree
 import pytest
 
 from proof.editors import pages
-from proof.editors.conftest import publish_hq_app, save_section, write_evidence
+from proof.editors.conftest import corpus_document, publish_hq_app, save_section, write_evidence
+from proof.formplayer import apps
+from proof.formplayer.walk import screen_kind
 from proof.hq import operations, redis as hq_redis
 from proof.hq.check import hq_check
 from proof.hq.configuration import Configuration
@@ -71,13 +73,61 @@ def test_the_case_list_save_keeps_literal_sort_terms_the_receiver_interprets(hq,
         reset_columns = [next(iter(term)) for term in reset.es_query["sort"]]
         assert [column.rsplit(".", 1)[-1] for column in reset_columns] == ["numeric", "date", "exact", "date"]
 
+        single_saved, single = saved_query(["++priority:exact"])
+        single_ids = [hit["_id"] for hit in single.run().raw_hits]
+        assert len(single_ids) == 2 and single_ids[0] == "c" and single_ids[1] in {"a", "b"}
+
         invalid_saved, invalid = saved_query(["++priority:unknown"])
         with pytest.raises(ESError, match=r"(?i)No mapping found.+value\.unknown") as refused:
             invalid.run()
+
+        masked_saved, masked = saved_query(["++priority:unknown", "+priority::ignored", "-visit:date"])
+        masked_ids = [hit["_id"] for hit in masked.run().raw_hits]
+        assert masked.es_query["sort"] == reset.es_query["sort"]
+        assert masked_ids == reset_ids
 
     write_evidence("search-default-control-probe", {
         "canonical": {"saved": saved, "caseIds": canonical_ids},
         "ignoredSuffix": {"saved": suffix_saved, "caseIds": suffix_ids},
         "reset": {"saved": reset_saved, "caseIds": reset_ids, "sortColumns": reset_columns},
+        "validSingle": {"saved": single_saved, "caseIds": single_ids},
         "invalid": {"saved": invalid_saved, "response": str(refused.value)},
+        "maskedByReset": {"saved": masked_saved, "caseIds": masked_ids},
+    })
+
+
+
+def test_a_worker_sort_prompt_can_reset_the_competing_default(hq, core_runner, formplayer_runner):
+    document = corpus_document("targeted-searched-shared-visit")
+    key = "commcare_sort"
+    answer = "+priority::ignored"
+
+    def competing_prompt(stored):
+        search = stored["modules"][0]["search_config"]
+        prompt, = search["properties"]
+        prompt.update(name=key, label={"en": "Order override", "fra": "Ordre"})
+        search["default_properties"] = [{"property": key, "defaultValue": "'++priority:unknown'"}]
+
+    with apps.published(document, core_runner) as published:
+        with apps.served(published, formplayer_runner, change=competing_prompt) as served:
+            with served.run("competing-sort-prompt"):
+                web = apps.web(formplayer_runner, served)
+                path = ["0"]
+                prompt = web.navigate(path)
+                assert screen_kind(prompt) == "query", prompt
+                assert [(control["id"], control["text"]) for control in prompt["displays"]] == [(key, "Order override")]
+                assert not served.hq.searches
+                result = web.navigate(path, query_data={prompt["queryKey"]: {
+                    "inputs": {key: answer},
+                    "execute": True,
+                }})
+                request, = served.hq.searches
+                assert request.values(key) == ("++priority:unknown", answer), request.params
+                assert screen_kind(result) == "entities", result
+                returned = [row["id"] for row in result["entities"]]
+                assert returned and all(row.startswith("household-") for row in returned), returned
+    write_evidence("search-order-competing-worker-prompt", {
+        "prompt": key,
+        "sent": request.params,
+        "caseIds": returned,
     })
