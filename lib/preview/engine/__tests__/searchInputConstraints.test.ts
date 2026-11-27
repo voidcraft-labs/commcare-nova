@@ -103,16 +103,20 @@ it.each([false, true])(
 		};
 		const fields = [input];
 		const environment = constraintEnvironment(fields);
-		const caseRow = (case_type: string, phone = "yes"): CaseRow =>
-			({
-				app_id: "worker-search",
-				case_id: case_type,
-				case_type,
-				case_name: case_type,
-				owner_id: "worker",
-				status: "open",
-				properties: { phone },
-			}) as CaseRow;
+		const caseRow = (caseType: string, phone = "yes"): CaseRow => ({
+			app_id: "worker-search",
+			case_id: caseType,
+			case_type: caseType,
+			case_name: caseType,
+			owner_id: "worker",
+			status: "open",
+			closed_on: null,
+			external_id: null,
+			modified_on: new Date(0),
+			opened_on: new Date(0),
+			parent_case_id: null,
+			properties: { phone },
+		});
 		const withCases = (rows: CaseRow[]) => ({
 			...environment,
 			caseDatabase: { rows, indices: [] },
