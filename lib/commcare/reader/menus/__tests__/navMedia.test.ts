@@ -779,6 +779,41 @@ describe("an override of a generated media key in `translations`", () => {
 		},
 	);
 
+	it.each([
+		[
+			["en"],
+			"es",
+			"translations-generated-menu-icon-outside-installation-languages",
+		],
+		[["en", "es"], "es", "translations-generated-navigation-file-not-packaged"],
+		[["es"], "es", "translations-generated-navigation-file-not-packaged"],
+		[["en"], "en", undefined],
+	] as const)(
+		"accounts for an icon in a named %j installation with its carrier in %s",
+		async (languages, carrier, finding) => {
+			const outcome = await readWithMedia(app(), (json) => {
+				const menu = json.modules[0];
+				menu.media_image = { en: MENU_ICON };
+				(menu.forms[0] as Record<string, unknown>).media_image = {
+					[carrier]: OTHER_ICON,
+				};
+				json.multimedia_map = {
+					[OTHER_ICON]: {
+						media_type: "CommCareImage",
+						multimedia_id: "mapped-icon",
+					},
+				};
+				Object.assign(json, {
+					build_profiles: { field: { name: "Field", langs: languages } },
+				});
+				overriding(json, { "modules.m0.icon": OTHER_ICON });
+			});
+			expect(findings(outcome)).toEqual(
+				finding === undefined ? [] : [`application-and-settings/${finding}`],
+			);
+		},
+	);
+
 	it("refuses an override whose file HQ leaves out of the installation", async () => {
 		const outcome = await readWithMedia(app(), (json) => {
 			json.modules[0].media_image = { en: MENU_ICON };

@@ -18,6 +18,13 @@ def menu_icon_override_with_carrier_in_another_language(authoring, app_id):
     _menu_icon_override_with_form_carrier(authoring, app_id, "fr")
 
 
+def menu_icon_override_with_carrier_outside_named_profile(authoring, app_id):
+    _menu_icon_override_with_form_carrier(authoring, app_id, "fr")
+    ops.set_json(authoring, app_id, "/build_profiles", {
+        "english": {"doc_type": "BuildProfile", "name": "English", "langs": ["en"]},
+    })
+
+
 def _menu_icon_override_with_form_carrier(authoring, app_id, carrier_language):
     """Same mapped icon and English locale value, with or without a French form carrier."""
     from proof.checks.compare.app_strings import parse_app_strings

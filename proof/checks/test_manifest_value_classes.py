@@ -1975,6 +1975,20 @@ def _settings_and_forms():
     def links(**link):
         return {"doc_type": "FormLink", "form_id": "f2", **link}
 
+    translated_icon = "jr://file/commcare/image/mapped.png"
+
+    def icon_profile(languages, carrier):
+        return _with_forms(_app([
+            _module([{
+                **_form_json("none"),
+                "media_image": {carrier: translated_icon},
+            }], media_image={"en": "jr://file/commcare/image/menu.png"}),
+        ], langs=["en", "fr"], build_profiles={"field": {
+            "doc_type": "BuildProfile", "name": "Field", "langs": languages,
+        }}, multimedia_map={translated_icon: {
+            "media_type": "CommCareImage", "multimedia_id": "mapped-image",
+        }}, translations={"en": {"modules.m0.icon": translated_icon}}), f=QUESTIONS)
+
     case_id = "instance('commcaresession')/session/data/case_id"
     workflow = "/modules/0/forms/0/post_form_workflow"
     translations = "schema:Application.translations"
@@ -2040,6 +2054,12 @@ def _settings_and_forms():
                          "media_type": "CommCareImage", "multimedia_id": "mapped-image"
                      }}, translations={"en": {"modules.m0.icon": "jr://file/commcare/image/mapped.png"}}),
                      translations, "/translations"),
+        ),
+        "application-and-settings/translations-generated-menu-icon-outside-installation-languages": (
+            refused("app", icon_profile(["en"], "fr"), translations, "/translations"),
+            accepted("app", icon_profile(["en"], "en"), translations, "/translations"),
+            accepted("app", icon_profile(["en", "fr"], "fr"), translations, "/translations"),
+            accepted("app", icon_profile(["fr"], "fr"), translations, "/translations"),
         ),
         "application-and-settings/translations-key-that-is-no-locale-record-under-its-own-name": (
             refused("app", app(translations={"en": {" home.start": "Begin"}}), translations, "/translations"),

@@ -580,6 +580,8 @@ export const FIX_IN_HQ_SENTENCES: Readonly<
  * get past it. `findingLine` adds the name itself ("In CommCare HQ: …").
  */
 export const FIX_IN_HQ_ENTRY_SENTENCES: Readonly<Record<string, string>> = {
+	"application-and-settings/translations-generated-menu-icon-outside-installation-languages":
+		"A translated menu icon uses a file that a named installation leaves out. You can include the language that supplies the file in that installation, or attach the icon in the language the installation already includes.",
 	"application-and-settings/translations-generated-menu-icon-only-in-media-map":
 		"A translation points to a menu icon that CommCare HQ leaves out of the release. You can attach the intended icon in that language, or clear the translation to use the menu’s usual icon.",
 	"expressions-and-data/bare-fingerprint-query-without-a-supplier":

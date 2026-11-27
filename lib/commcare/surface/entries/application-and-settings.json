@@ -1992,10 +1992,30 @@
 		"surfaceKeys": ["schema:Application.translations"],
 		"valueClass": "generated-navigation-file-not-packaged",
 		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: the locale can choose this file only while a native package includes it. An ordinary source in another language can put the file in a full release and leave it out of a language-specific package.",
+		"dispositionCell": "**HELD-NEW**: the locale can choose this file only while a native package includes it. A carrier in another language can put the file in a full release. The separate named-installation row identifies the proved basic menu icon omission. Other path and audio cases need their own package evidence.",
 		"subject": "translation-overrides",
 		"owner": "settings-nova-comes-to-own",
 		"platforms": { "kind": "not-applicable", "cell": "n/a" },
+		"emission": { "cell": "—", "markers": [] },
+		"gates": []
+	},
+	{
+		"id": "application-and-settings/translations-generated-menu-icon-outside-installation-languages",
+		"area": "application-and-settings",
+		"section": "Application",
+		"item": "A generated menu icon whose only ordinary form image is in another language excluded by a named single-language installation",
+		"surfaceKeys": ["schema:Application.translations"],
+		"valueClass": "generated-menu-icon-outside-installation-languages",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: the named Android installation keeps the translated icon address and omits its file.",
+		"subject": "translation-overrides",
+		"reasons": [
+			{
+				"kind": "broken-at-runtime",
+				"named": "The release with both languages includes the file. The named single-language Android installation keeps the generated locale address but leaves out the ordinary form image in the excluded language. Android selects the address without an installed file."
+			}
+		],
+		"platforms": { "kind": "none", "cell": "—" },
 		"emission": { "cell": "—", "markers": [] },
 		"gates": []
 	},

@@ -304,6 +304,10 @@ const generatedMenuIconOnlyInMediaMap = refuse(
 	"application-and-settings/translations-generated-menu-icon-only-in-media-map",
 	"schema:Application.translations",
 );
+const generatedMenuIconOutsideInstallation = refuse(
+	"application-and-settings/translations-generated-menu-icon-outside-installation-languages",
+	"schema:Application.translations",
+);
 const generatedMediaNoEffect = account(
 	"application-and-settings/translations-generated-key-with-no-effect",
 	"schema:Application.translations",
@@ -313,6 +317,7 @@ defineClaims("menus.navMedia", {
 	generatedMediaNotPackaged,
 	generatedMenuIconWithoutMapping,
 	generatedMenuIconOnlyInMediaMap,
+	generatedMenuIconOutsideInstallation,
 	generatedMediaNoEffect,
 });
 const acceptedOverrides = new WeakMap<
@@ -386,27 +391,18 @@ function ordinarySourcePaths(ctx: ReadContext) {
 const localImagePath =
 	/^jr:\/\/file\/commcare\/image\/[A-Za-z0-9_][A-Za-z0-9_.-]*(?:\/[A-Za-z0-9_][A-Za-z0-9_.-]*)*$/;
 
-/** HQ prunes a mapped resource only if no ordinary carrier or logo in the
- * full app requests the path. Require a complete source inventory and leave
- * any other mention to its own carrier's reader. */
-function menuIconOnlyInMediaMap(ctx: ReadContext, path: string): boolean {
-	if (
-		!ctx.input.source.multimediaMap?.some(
+function mappedMenuIcon(ctx: ReadContext, path: string): boolean {
+	return (
+		ctx.input.source.multimediaMap?.some(
 			(item) =>
 				item.path === path &&
 				item.mediaType === "CommCareImage" &&
 				item.multimediaId !== null,
-		)
-	)
-		return false;
-	for (const [key, value] of Object.entries(ctx.input.source.raw))
-		if (
-			key !== "translations" &&
-			key !== "multimedia_map" &&
-			key !== "_attachments" &&
-			JSON.stringify(value)?.includes(path)
-		)
-			return false;
+		) === true
+	);
+}
+
+function xmlSourcesExcludeFile(ctx: ReadContext, path: string): boolean {
 	return ctx.input.source.modules.every((source, index) => {
 		const menu = ctx.draft.modules.find((one) => one.index === index);
 		return source.forms.every((form, formIndex) => {
@@ -425,6 +421,101 @@ function menuIconOnlyInMediaMap(ctx: ReadContext, path: string): boolean {
 			);
 		});
 	});
+}
+
+const mentionsPath = (value: unknown, path: string) =>
+	JSON.stringify(value)?.includes(path) === true;
+const fileInventoryKeys = new Set([
+	"translations",
+	"multimedia_map",
+	"_attachments",
+]);
+
+/** HQ prunes a mapped resource only if no ordinary carrier or logo in the
+ * full app requests the path. Require a complete source inventory and leave
+ * any other mention to its own carrier's reader. */
+function menuIconOnlyInMediaMap(ctx: ReadContext, path: string): boolean {
+	return (
+		mappedMenuIcon(ctx, path) &&
+		!Object.entries(ctx.input.source.raw).some(
+			([key, value]) =>
+				!fileInventoryKeys.has(key) && mentionsPath(value, path),
+		) &&
+		xmlSourcesExcludeFile(ctx, path)
+	);
+}
+
+/** The narrow named-package failure witnessed on Android. The translated
+ * menu icon is active in the chosen language. The only ordinary image files
+ * at that path are on basic form tiles in the languages HQ excluded. */
+function menuIconOutsideInstallation(
+	ctx: ReadContext,
+	path: string,
+	code: string,
+	place: HqPlace,
+): boolean {
+	const source = ctx.input.source;
+	if (
+		!mappedMenuIcon(ctx, path) ||
+		!("menu" in place) ||
+		!source.buildProfiles.some(
+			(profile) =>
+				profile.langs.length === 1 &&
+				profile.langs[0] === code &&
+				profile.practiceWorkerId === undefined,
+		)
+	)
+		return false;
+	const modules = source.raw.modules;
+	if (!Array.isArray(modules)) return false;
+	const selected = modules[place.menu];
+	if (
+		!isJsonObject(selected) ||
+		selected.use_default_image_for_all === true ||
+		!isJsonObject(selected.media_image) ||
+		typeof selected.media_image[code] !== "string" ||
+		!selected.media_image[code]
+	)
+		return false;
+	if (
+		Object.entries(source.raw).some(
+			([key, value]) =>
+				key !== "modules" &&
+				!fileInventoryKeys.has(key) &&
+				mentionsPath(value, path),
+		)
+	)
+		return false;
+	let foreignCarrier = false;
+	for (const module of modules) {
+		if (!isJsonObject(module)) return false;
+		const { forms, ...menu } = module;
+		if (mentionsPath(menu, path) || !Array.isArray(forms)) return false;
+		for (const form of forms) {
+			if (!isJsonObject(form)) return false;
+			const { media_image: images, ...other } = form;
+			if (mentionsPath(other, path)) return false;
+			if (!mentionsPath(images, path)) continue;
+			if (
+				menu.doc_type !== "Module" ||
+				form.doc_type !== "Form" ||
+				form.use_default_image_for_all === true ||
+				!isJsonObject(images)
+			)
+				return false;
+			for (const [language, value] of Object.entries(images)) {
+				if (!mentionsPath(value, path)) continue;
+				if (
+					value !== path ||
+					language === code ||
+					!source.langs.includes(language)
+				)
+					return false;
+				foreignCarrier = true;
+			}
+		}
+	}
+	return foreignCarrier && xmlSourcesExcludeFile(ctx, path);
 }
 
 export function accountNavigationMediaOverride(
@@ -446,6 +537,16 @@ export function accountNavigationMediaOverride(
 			claim = generatedMenuIconWithoutMapping;
 		else if (localMenuIcon && menuIconOnlyInMediaMap(ctx, override.path))
 			claim = generatedMenuIconOnlyInMediaMap;
+		else if (
+			localMenuIcon &&
+			menuIconOutsideInstallation(
+				ctx,
+				override.path,
+				held.language,
+				override.place,
+			)
+		)
+			claim = generatedMenuIconOutsideInstallation;
 		held.json.refuse(held.key, claim, { name: held.key });
 		return true;
 	}

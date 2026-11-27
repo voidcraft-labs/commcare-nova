@@ -24576,6 +24576,17 @@
 		}
 	},
 	{
+		"id": "hq-media/translation-overrides-a-menu-icon-outside-installation-languages",
+		"base": "hq-media",
+		"entry": "application-and-settings/translations-generated-menu-icon-outside-installation-languages",
+		"standing": "fix-in-hq",
+		"place": { "kind": "app" },
+		"change": {
+			"op": "named",
+			"name": "menu_icon_override_with_carrier_outside_named_profile"
+		}
+	},
+	{
 		"id": "hq-media/validation-message-media",
 		"base": "hq-media",
 		"entry": "questions/validation-message-media-constraintmediaitext-other-than-a",

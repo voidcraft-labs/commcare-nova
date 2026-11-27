@@ -2617,7 +2617,48 @@ def generated_menu_icon_only_in_media_map(use, manifest):
     return _generated_menu_icon_with_no_package_file(use, mapped=True)
 
 
-def _generated_menu_icon_with_no_package_file(use, *, mapped):
+def generated_menu_icon_outside_installation_languages(use, manifest):
+    """A single-language named release uses a translated icon whose only carrier is an excluded basic form tile."""
+    return _generated_menu_icon_with_no_package_file(use, mapped=True, profile_only=True)
+
+
+def _only_foreign_form_icons(app, code, codes, path):
+    """Conservatively subtract the ordinary form tiles that HQ demonstrably omits."""
+    body = app.doc
+    if any(path in json.dumps(value) for key, value in body.items()
+           if key not in ("translations", "multimedia_map", "_attachments", "modules")):
+        return False
+    foreign = False
+    for module in body.get("modules", ()):
+        if not isinstance(module, dict) or not isinstance(module.get("forms"), list):
+            return False
+        if any(path in json.dumps(value) for key, value in module.items() if key != "forms"):
+            return False
+        for form in module["forms"]:
+            if not isinstance(form, dict):
+                return False
+            if any(path in json.dumps(value) for key, value in form.items() if key != "media_image"):
+                return False
+            images = form.get("media_image")
+            if path not in json.dumps(images):
+                continue
+            if (module.get("doc_type") != "Module" or form.get("doc_type") != "Form"
+                    or form.get("use_default_image_for_all") is True or not isinstance(images, dict)):
+                return False
+            for language, value in images.items():
+                if path not in json.dumps(value):
+                    continue
+                if value != path or language == code or language not in codes:
+                    return False
+                foreign = True
+    return foreign and not any(
+        path in "".join(form.root.itertext()) or
+        any(path in value for node in form.root.iter() for value in node.attrib.values())
+        for form in app.forms.values()
+    )
+
+
+def _generated_menu_icon_with_no_package_file(use, *, mapped, profile_only=False):
     at = _json(use)
     if at is None or at.key != "translations" or not isinstance(at.value, dict):
         return None
@@ -2665,6 +2706,16 @@ def _generated_menu_icon_with_no_package_file(use, *, mapped):
                        for form in module.get("forms", ()) if isinstance(form, dict)):
                     return None
             elif path in media_map:
+                continue
+            if profile_only:
+                profiles = app.get("build_profiles")
+                if (not same_for_all and isinstance(icons.get(code), str) and icons[code]
+                        and isinstance(profiles, dict) and any(
+                            isinstance(profile, dict) and profile.get("langs") == [code]
+                            and not profile.get("practice_mobile_worker_id")
+                            for profile in profiles.values()
+                        ) and _only_foreign_form_icons(at.app, code, codes, path)):
+                    return True
                 continue
             # Leave a source with another possible carrier to its own check.
             if possible_carriers is None:
@@ -14007,6 +14058,7 @@ VALUE_CLASSES = {
     "application-and-settings/a-non-empty-langs-code-outside-that-grammar-or-repeated": invalid_or_repeated_code,
     "application-and-settings/translations-generated-menu-icon-without-mapping": generated_menu_icon_without_mapping,
     "application-and-settings/translations-generated-menu-icon-only-in-media-map": generated_menu_icon_only_in_media_map,
+    "application-and-settings/translations-generated-menu-icon-outside-installation-languages": generated_menu_icon_outside_installation_languages,
     "application-and-settings/translations-key-that-is-no-locale-record-under-its-own-name": (
         translation_key_not_its_own
     ),
