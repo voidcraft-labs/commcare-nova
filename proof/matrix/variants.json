@@ -17888,6 +17888,42 @@
 	{
 		"id": "hq-case-management/datetime-saved-straight-as-the-case-name",
 		"base": "hq-case-management",
+		"entry": "forms-and-case-writes/a-datetime-question-s-day-as-the-case-name",
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/0/forms/3/actions/update_case/update/name",
+			"value": {
+				"question_path": "/data/seen_at",
+				"update_mode": "always",
+				"doc_type": "ConditionalCaseUpdate"
+			}
+		},
+		"holds": [
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [0, 3]
+					}
+				],
+				"pointer": "/caseOperations/0/name/kind",
+				"value": "format-date"
+			},
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [0, 3]
+					}
+				],
+				"pointer": "/caseOperations/0/name/pattern",
+				"value": "%Y-%m-%d"
+			}
+		]
+	},
+	{
+		"id": "hq-case-management/datetime-saved-straight-as-the-case-owner",
+		"base": "hq-case-management",
 		"entry": "forms-and-case-writes/a-date-and-time-saved-straight-in-no-shape-nova-keeps",
 		"standing": "not-yet",
 		"place": {
@@ -17899,7 +17935,7 @@
 		},
 		"change": {
 			"op": "set-json",
-			"pointer": "/modules/0/forms/3/actions/update_case/update/name",
+			"pointer": "/modules/0/forms/3/actions/update_case/update/owner_id",
 			"value": {
 				"question_path": "/data/seen_at",
 				"update_mode": "always",

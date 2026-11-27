@@ -5336,6 +5336,24 @@
 		"slotChanges": []
 	},
 	{
+		"id": "forms-and-case-writes/a-datetime-question-s-day-as-the-case-name",
+		"area": "forms-and-case-writes",
+		"section": "Basic form actions",
+		"subsection": "Case-property typing",
+		"item": "A root datetime question’s calendar day as the selected case’s name",
+		"surfaceKeys": [],
+		"noSurfaceKey": "The question and the case update each have their own surface row. Their combination determines the calendar-day storage.",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: An ordinary one-case follow-up’s name update uses the answer’s calendar day. The direct question path stays on the Basic action. Other reads of the question keep the full date and time.",
+		"slotChanges": [],
+		"platforms": { "kind": "not-applicable", "cell": "n/a" },
+		"emission": {
+			"cell": "direct question path and untyped case name leaf",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
 		"id": "forms-and-case-writes/a-date-and-time-saved-straight-in-no-shape-nova-keeps",
 		"area": "forms-and-case-writes",
 		"section": "Basic form actions",

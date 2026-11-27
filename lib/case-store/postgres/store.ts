@@ -3179,6 +3179,7 @@ export class PostgresCaseStore implements CaseStore {
 			patch: CaseUpdate;
 			parentRelationship?: CaseIndicesTable["relationship"];
 			parentIdentifier?: string;
+			allowBlankName?: true;
 		},
 	): Promise<void> {
 		// Discover the immutable type without a row lock, then acquire its schema
@@ -3257,7 +3258,7 @@ export class PostgresCaseStore implements CaseStore {
 						case_name: normalizedCaseScalar(
 							"case_name",
 							args.patch.case_name,
-							"reject",
+							args.allowBlankName ? "allow" : "reject",
 						),
 					}),
 			...(args.patch.external_id === undefined

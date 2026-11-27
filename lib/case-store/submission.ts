@@ -156,6 +156,8 @@ export interface EnvelopeCaseOperation {
 	readonly viaCaseTypes?: ReadonlyMap<number, string>;
 	/** An untyped basic external-ID leaf serializes the datetime's calendar day. */
 	readonly basicExternalIdDay?: true;
+	/** A present, blank calendar-day source clears this Basic follow-up's case name. */
+	readonly basicOwnNameDay?: true;
 	/** Relevant labels with an installed empty answer still emit an empty leaf. */
 	readonly emptyTextWrites?: ReadonlySet<number>;
 	/** A proven text-to-date overwrite on this submission's fresh case. */

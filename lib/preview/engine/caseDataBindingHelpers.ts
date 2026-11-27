@@ -42,8 +42,10 @@ import {
 	sharedWorkerTarget,
 } from "@/lib/domain/advancedEntryDatums";
 import {
+	bareRead,
 	basicCaseSlots,
 	basicOwnExternalIdDayValue,
+	basicOwnNameCalendarDay,
 	caseSlotFacts,
 	externalIdCalendarDayField,
 } from "@/lib/domain/basicCaseSlots";
@@ -2827,9 +2829,10 @@ export function buildCaseOperationProgramFromDoc(args: {
 				operation.target.kind === "worker-record")
 		);
 	const facts =
-		externalIdCalendarDayField(own) === undefined
-			? undefined
-			: caseSlotFacts(doc, formUuid);
+		externalIdCalendarDayField(own) !== undefined ||
+		own?.name?.kind === "format-date"
+			? caseSlotFacts(doc, formUuid)
+			: undefined;
 	const basicOwnDaySlot =
 		entryUuid === formUuid &&
 		form.type === "followup" &&
@@ -2843,6 +2846,11 @@ export function buildCaseOperationProgramFromDoc(args: {
 		basicOwnDaySlot && facts !== undefined && operation.action === "own"
 			? basicOwnExternalIdDayValue(facts, write)
 			: undefined;
+	const nameDayField = (operation: CaseOperation) => {
+		if (!basicOwnDaySlot || facts === undefined) return;
+		const answer = basicOwnNameCalendarDay(facts, operation);
+		return answer === undefined ? undefined : bareRead(answer);
+	};
 	const withoutAbsentAnswerWrites = (
 		operation: CaseOperation,
 	): CaseOperation => {
@@ -2913,7 +2921,16 @@ export function buildCaseOperationProgramFromDoc(args: {
 			throw new CaptureSubmissionRejectedError(
 				"The linked cases no longer match this form. Reopen it to load the current case types.",
 			);
-		const operation = withoutAbsentAnswerWrites(boundOperation);
+		let operation = withoutAbsentAnswerWrites(boundOperation);
+		const calendarName = nameDayField(boundOperation);
+		if (
+			operation.action === "own" &&
+			calendarName !== undefined &&
+			absentRootFields.has(calendarName)
+		) {
+			const { name: _name, ...otherEffects } = operation;
+			operation = otherEffects;
+		}
 		const emptyTextWrites = new Set<number>();
 		if (operation.action === "own" && form.type === "followup") {
 			for (const [index, write] of (operation.writes ?? []).entries()) {
@@ -2966,6 +2983,7 @@ export function buildCaseOperationProgramFromDoc(args: {
 			},
 			...(viaCaseTypes.size > 0 && { viaCaseTypes }),
 			...(emptyTextWrites.size > 0 && { emptyTextWrites }),
+			...(calendarName !== undefined && { basicOwnNameDay: true as const }),
 			...(requiredDateRetypeProperty !== undefined && {
 				requiredDateRetypeProperty,
 			}),

@@ -180,7 +180,12 @@ export interface SubmissionEnvelopeHost {
 	/** The merge + orphan-shed + validate + stamp update core. */
 	updateCase(
 		trx: Transaction<Database>,
-		args: { appId: string; caseId: string; patch: CaseUpdate },
+		args: {
+			appId: string;
+			caseId: string;
+			patch: CaseUpdate;
+			allowBlankName?: true;
+		},
 	): Promise<void>;
 	checkFlatCloseSelection(
 		trx: Transaction<Database>,
@@ -2536,8 +2541,9 @@ async function resolveOperationProgram(
 		const prepareText = (
 			facet: "name" | "rename" | "owner",
 			raw: string,
+			blank: "allow" | "reject" = "reject",
 		): string => {
-			const prepared = prepareCaseScalarTextValue(raw, "reject");
+			const prepared = prepareCaseScalarTextValue(raw, blank);
 			if (!prepared.ok) {
 				throw new SubmissionRejectedError({
 					kind: "text-value",
@@ -2602,7 +2608,11 @@ async function resolveOperationProgram(
 			(instance.envelope.blankSavesNothing &&
 				blankText(evaluatedText(bag?.rename)))
 				? undefined
-				: prepareText("rename", evaluatedText(bag?.rename));
+				: prepareText(
+						"rename",
+						evaluatedText(bag?.rename),
+						instance.envelope.basicOwnNameDay ? "allow" : "reject",
+					);
 
 		// Executing writes, storage-converted against the operation's
 		// RESULT type — the retype destination when the operation
@@ -3487,6 +3497,9 @@ async function applyMutationEffect(
 			await host.updateCase(trx, {
 				appId,
 				caseId: entry.caseId,
+				...(entry.instance.envelope.basicOwnNameDay && {
+					allowBlankName: true,
+				}),
 				patch: {
 					...(entry.preparedRename === undefined
 						? {}
