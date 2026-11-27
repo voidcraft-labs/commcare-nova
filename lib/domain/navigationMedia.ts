@@ -187,6 +187,7 @@ export function navigationMediaProblem(
 	carrier: NavigationMedia | undefined,
 	app: EffectiveAppLocalization,
 	doc?: BlueprintDoc,
+	allowOtherLanguageFormIcon = false,
 ): NavigationMediaProblem | undefined {
 	if (!carrier) return;
 	for (const [language, slots] of Object.entries(
@@ -204,12 +205,55 @@ export function navigationMediaProblem(
 			if (
 				override !== undefined &&
 				doc !== undefined &&
-				!ordinaryNavigationAsset(doc, app, role, language, override)
+				!ordinaryNavigationAsset(doc, app, role, language, override) &&
+				!(
+					allowOtherLanguageFormIcon &&
+					role === "icon" &&
+					otherLanguageFormIconPacksMenuFile(doc, app, language, override)
+				)
 			)
 				return { kind: "override-needs-package", role };
 		}
 	}
 	return undefined;
+}
+
+/** A menu icon may use the exact ordinary form file kept by another
+ * installed language. Every profile that shows the override needs a carrier. */
+export function otherLanguageFormIconPacksMenuFile(
+	doc: BlueprintDoc,
+	app: EffectiveAppLocalization,
+	overrideLanguage: string,
+	asset: IconRef,
+): boolean {
+	const carried = (languages: readonly string[]) =>
+		doc.moduleOrder.some((moduleUuid) => {
+			const module = doc.modules[moduleUuid];
+			return (
+				module !== undefined &&
+				module.heldKind !== "advanced" &&
+				(doc.formOrder[moduleUuid] ?? []).some((formUuid) => {
+					const form = doc.forms[formUuid];
+					return (
+						form !== undefined &&
+						form.shadowOf === undefined &&
+						languages.some(
+							(language) =>
+								language !== overrideLanguage &&
+								storedNavigationFile(form, "icon", language) === asset,
+						)
+					);
+				})
+			);
+		});
+	return (
+		carried(app.languageOrder) &&
+		Object.values(doc.appSettings.installationProfiles ?? {}).every(
+			(profile) =>
+				!profile.languages.includes(overrideLanguage) ||
+				carried(profile.languages),
+		)
+	);
 }
 
 /** HQ installs only files referenced by its ordinary media surfaces. A locale
@@ -281,7 +325,7 @@ export function navigationMediaProblemText(
 	if (problem.kind === "language-outside-app")
 		return "This menu file names a language outside the app. Choose a language the app includes.";
 	if (problem.kind === "override-needs-package")
-		return "CommCare needs this translated file on an ordinary menu or form in the same language to include it in installations.";
+		return "CommCare needs an ordinary media field to include this translated file in every installation that shows it.";
 	return problem.role === "icon"
 		? "Choose a shared icon before adding an icon in another language, or clear the translated icon."
 		: "Choose a shared spoken label before adding audio in another language, or clear its translated audio.";

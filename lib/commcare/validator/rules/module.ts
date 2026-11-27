@@ -100,7 +100,12 @@ function localizedMenuMedia(
 			? mod.caseListRegistrationForm
 			: undefined,
 	]) {
-		const problem = navigationMediaProblem(carrier, app, doc);
+		const problem = navigationMediaProblem(
+			carrier,
+			app,
+			doc,
+			carrier === mod && mod.heldKind !== "advanced",
+		);
 		if (problem)
 			return [
 				validationError(

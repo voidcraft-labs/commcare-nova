@@ -249,6 +249,8 @@ function menuMediaLanguageCopy(e: ValidationError): string {
 			return e.details.mediaRole === "audioLabel"
 				? `${where} has translated spoken audio but no shared spoken label. You can choose the shared audio first, or clear the translated audio.`
 				: `${where} has a translated icon but no shared icon. You can choose the shared icon first, or clear the translated icon.`;
+		case "override-needs-package":
+			return `A translated file on ${where} needs an ordinary media field to include it in every installation that shows it. You can add the file to an included language or clear the translation.`;
 		default:
 			return `A menu file on ${where} is set for its languages in a way the app can't keep. You can choose a shared file for it.`;
 	}

@@ -13,6 +13,7 @@ import type { IconRef } from "@/lib/domain/builtinIcons";
 import {
 	navigationMediaOverride,
 	ordinaryNavigationAsset,
+	otherLanguageFormIconPacksMenuFile,
 	storedNavigationFile,
 } from "@/lib/domain/navigationMedia";
 import { NO_ENTRIES, recordFromEntries } from "@/lib/domain/records";
@@ -518,6 +519,51 @@ function menuIconOutsideInstallation(
 	return foreignCarrier && xmlSourcesExcludeFile(ctx, path);
 }
 
+/** The basic form's ordinary image is included when its language is
+ * installed, even if only another language uses the same raw path on a menu. */
+function menuIconPackagedByAnotherLanguage(
+	ctx: ReadContext,
+	path: string,
+	code: string,
+): boolean {
+	const source = ctx.input.source;
+	const modules = source.raw.modules;
+	if (!mappedMenuIcon(ctx, path) || !Array.isArray(modules)) return false;
+	const carrierCodes = new Set<string>();
+	for (const menu of modules) {
+		if (
+			!isJsonObject(menu) ||
+			menu.doc_type !== "Module" ||
+			!Array.isArray(menu.forms)
+		)
+			continue;
+		for (const form of menu.forms) {
+			if (
+				!isJsonObject(form) ||
+				form.doc_type !== "Form" ||
+				form.use_default_image_for_all === true ||
+				!isJsonObject(form.media_image)
+			)
+				continue;
+			for (const [language, value] of Object.entries(form.media_image))
+				if (
+					value === path &&
+					language !== code &&
+					source.langs.includes(language)
+				)
+					carrierCodes.add(language);
+		}
+	}
+	return (
+		carrierCodes.size > 0 &&
+		source.buildProfiles.every(
+			(profile) =>
+				!profile.langs.includes(code) ||
+				profile.langs.some((language) => carrierCodes.has(language)),
+		)
+	);
+}
+
 export function accountNavigationMediaOverride(
 	ctx: ReadContext,
 	doc: BlueprintDoc,
@@ -527,11 +573,17 @@ export function accountNavigationMediaOverride(
 	if (override === undefined) return false;
 	// HQ decides what to pack from ordinary carriers, even when the asset
 	// index cannot resolve the path. Check that source fact before handoff.
-	if (!ordinarySourcePaths(ctx).get(held.language)?.has(override.path)) {
-		const localMenuIcon =
-			override.carrierClass === "Module" &&
-			override.role === "icon" &&
-			localImagePath.test(override.path);
+	const localMenuIcon =
+		override.carrierClass === "Module" &&
+		override.role === "icon" &&
+		localImagePath.test(override.path);
+	const otherLanguageCarrier =
+		localMenuIcon &&
+		menuIconPackagedByAnotherLanguage(ctx, override.path, held.language);
+	if (
+		!ordinarySourcePaths(ctx).get(held.language)?.has(override.path) &&
+		!otherLanguageCarrier
+	) {
 		let claim = generatedMediaNotPackaged;
 		if (localMenuIcon && override.pending?.resolution === "no-entry")
 			claim = generatedMenuIconWithoutMapping;
@@ -584,13 +636,22 @@ export function accountNavigationMediaOverride(
 					: navigationMediaOverride(carrier, role, language);
 		if (
 			carrierAsset !== assetId ||
-			!ordinaryNavigationAsset(
+			(!ordinaryNavigationAsset(
 				doc,
 				effectiveAppLocalization(doc.localization),
 				role,
 				language,
 				assetId,
-			)
+			) &&
+				!(
+					otherLanguageCarrier &&
+					otherLanguageFormIconPacksMenuFile(
+						doc,
+						effectiveAppLocalization(doc.localization),
+						language,
+						assetId,
+					)
+				))
 		) {
 			held.json.refuse(held.key, generatedMediaNotPackaged, { name: held.key });
 			return true;

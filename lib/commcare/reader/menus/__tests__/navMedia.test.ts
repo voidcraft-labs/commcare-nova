@@ -21,13 +21,18 @@ import { describe, expect, it } from "vitest";
 import { testMediaAssetId, testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { recordDialectRoundTrip } from "@/lib/agent/authoring/recordRoundTrip";
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import type { BlueprintDoc } from "@/lib/domain";
 import { effectiveAppLocalization, proseText } from "@/lib/domain";
-import { navigationFilesInLanguage } from "@/lib/domain/navigationMedia";
+import {
+	navigationFilesInLanguage,
+	storedNavigationFile,
+} from "@/lib/domain/navigationMedia";
 import { manifestFor } from "../../../__tests__/fixtureMediaManifest";
 import { localAppStringTable } from "../../../appStrings";
 import { expandDoc } from "../../../expander";
 import type { AssetManifest } from "../../../multimedia/assetWirePath";
+import { runValidation } from "../../../validator/runner";
 import {
 	readerInput,
 	retainedSourceBody,
@@ -756,7 +761,7 @@ describe("an override of a generated media key in `translations`", () => {
 
 	it.each([
 		[undefined, "translations-generated-menu-icon-only-in-media-map"],
-		["es", "translations-generated-navigation-file-not-packaged"],
+		["es", undefined],
 	])(
 		"distinguishes a mapped icon from another language's carrier (%s)",
 		async (carrier, entry) => {
@@ -775,7 +780,55 @@ describe("an override of a generated media key in `translations`", () => {
 					};
 				overriding(json, { "modules.m0.icon": OTHER_ICON });
 			});
-			expect(findings(outcome)).toEqual([`application-and-settings/${entry}`]);
+			expect(findings(outcome)).toEqual(
+				entry ? [`application-and-settings/${entry}`] : [],
+			);
+			if (!entry) {
+				if (outcome.kind !== "read") throw new Error("The menu did not read.");
+				const doc = outcome.draft.doc;
+				const menuUuid = doc.moduleOrder[0];
+				expect(doc.modules[menuUuid].icon).toBe(testMediaAssetId("menu-icon"));
+				expect(doc.modules[menuUuid].mediaByLanguage?.eng?.iconOverride).toBe(
+					testMediaAssetId("other-icon"),
+				);
+				const formUuid = doc.formOrder[menuUuid][0];
+				const otherIcon = testMediaAssetId("other-icon");
+				expect(storedNavigationFile(doc.forms[formUuid], "icon", "spa")).toBe(
+					otherIcon,
+				);
+				const assets = new Map(manifestFor(doc));
+				const source = assets.get(otherIcon);
+				if (source === undefined) throw new Error("The carrier lost its file.");
+				assets.set(otherIcon, {
+					...source,
+					wirePath: OTHER_ICON.replace("jr://file/", ""),
+				});
+				const emitted = expandDoc(doc, { assets });
+				expect(emitted.modules[0].forms[0].media_image).toEqual({
+					es: OTHER_ICON,
+				});
+				expect(emitted.translations?.en["modules.m0.icon"]).toBe(OTHER_ICON);
+
+				const unavailable = produce(doc, (candidate) => {
+					const profile = testUuid("english-only");
+					candidate.appSettings.installationProfiles = {
+						[profile]: {
+							uuid: profile,
+							name: "English",
+							languages: ["eng"],
+							requiresPracticeWorker: false,
+						},
+					};
+				});
+				expect(
+					runValidation(unavailable, LOOKUP_CONTEXT_UNAVAILABLE),
+				).toContainEqual(
+					expect.objectContaining({
+						code: "MENU_MEDIA_LANGUAGE",
+						location: expect.objectContaining({ moduleUuid: menuUuid }),
+					}),
+				);
+			}
 		},
 	);
 
@@ -785,8 +838,8 @@ describe("an override of a generated media key in `translations`", () => {
 			"es",
 			"translations-generated-menu-icon-outside-installation-languages",
 		],
-		[["en", "es"], "es", "translations-generated-navigation-file-not-packaged"],
-		[["es"], "es", "translations-generated-navigation-file-not-packaged"],
+		[["en", "es"], "es", undefined],
+		[["es"], "es", undefined],
 		[["en"], "en", undefined],
 	] as const)(
 		"accounts for an icon in a named %j installation with its carrier in %s",

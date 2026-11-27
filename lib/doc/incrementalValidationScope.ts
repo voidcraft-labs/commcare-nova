@@ -459,11 +459,19 @@ function mutationFootprint(
 				break;
 			}
 
-			/* Media mutates only its owning form. */
 			case "setFormMedia":
 				if (mutation.registrationOf)
 					scope.moduleUuids.add(mutation.registrationOf);
 				else scope.formUuids.add(mutation.uuid);
+				// An ordinary form image may package a translated icon on a
+				// different menu. Revalidate every translated menu icon.
+				for (const uuid of doc.moduleOrder)
+					if (
+						Object.values(doc.modules[uuid]?.mediaByLanguage ?? {}).some(
+							(files) => files.iconOverride !== undefined,
+						)
+					)
+						scope.moduleUuids.add(uuid);
 				break;
 			case "renameForm":
 				scope.formUuids.add(mutation.uuid);
