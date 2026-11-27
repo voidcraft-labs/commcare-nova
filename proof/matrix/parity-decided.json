@@ -761,7 +761,8 @@
 		"hq-search/value-received-on-a-barcode-field",
 		"hq-search/value-received-with-invalid-topic",
 		"hq-search/visits-form-reads-a-search-field",
-		"hq-search/visits-form-reads-the-inline-results"
+		"hq-search/visits-form-reads-the-inline-results",
+		"hq-search/visits-list-reads-the-inline-results"
 	],
 	"hq-shared-table-journey": [],
 	"starter-agriculture": [],

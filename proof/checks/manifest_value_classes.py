@@ -6817,6 +6817,43 @@ def _detail_of(use):
     return at, detail, kind, module
 
 
+def inline_search_result_own_text_property(use, manifest):
+    """An ordinary Short field that names the current row in its own inline results."""
+    at, detail, kind, module = _detail_of(use)
+    if kind != "short" or at.key != "field" or not at.owner.get("useXpathExpression"):
+        return False
+    if at.owner.get("format", "plain") != "plain" or detail.get("case_tile_template") or detail.get("sort_elements"):
+        return False
+    search = module.get("search_config")
+    if (
+        module.get("doc_type") != "Module"
+        or not isinstance(search, dict)
+        or search.get("auto_launch") is not True
+        or search.get("inline_search") is not True
+        or search.get("default_search") is True
+        or search.get("case_search_endpoint_id")
+        or search.get("instance_name") not in (None, "inline")
+        or not (search.get("properties") or search.get("default_properties"))
+    ):
+        return False
+    source = at.value
+    if not isinstance(source, str) or not any(
+        spelling in source for spelling in ("instance('results:inline')", 'instance("results:inline")')
+    ):
+        return False
+    tree = expression_tree(source)
+    if not tree or tree[:2] != ["path", "instance:results:inline"] or not tree[4]:
+        return False
+    axis, property_name, predicates = tree[4][-1]
+    if axis != "child" or predicates or not re.fullmatch(r"[A-Za-z][A-Za-z0-9_-]{0,254}", property_name):
+        return False
+    canonical = expression_tree(
+        "instance('results:inline')/results/case[not(commcare_is_related_case = true())]"
+        f"[@case_id = current()/@case_id]/{property_name}"
+    )
+    return canonical is not None and _shape(tree) == _shape(canonical)
+
+
 def _standalone_result_detail_prompt(use):
     """One long-only text column with native roster and optional-node guards."""
     at, detail, kind, module = _detail_of(use)
@@ -14482,6 +14519,7 @@ VALUE_CLASSES = {
 # A positive class may need an observation beyond the use at its own source.
 # It grants HELD only when that observation establishes the supported class.
 POSITIVE_VALUE_CLASSES = {
+    "menus-and-case-lists/inline-search-result-own-text-property": inline_search_result_own_text_property,
     "case-search/address-picker-on-a-search-screen": ordinary_address_search_marker,
     "case-search/case-search-endpoint-id": configured_search_endpoint,
     "case-search/default-filter-orders-the-records-the-search-sends": named_search_order,

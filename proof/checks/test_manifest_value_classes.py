@@ -8873,6 +8873,32 @@ def _android_callout_shapes():
 
 
 
+def _inline_result_property_shapes():
+    source = ("instance('results:inline')/results/case[not(commcare_is_related_case = true())]"
+              "[@case_id = current()/@case_id]/village")
+
+    def app(expr=source, *, position="short", inline=True):
+        menu = _search_module(auto_launch=True, inline_search=inline, properties=[_prompt("village")])
+        menu["case_details"] = {
+            "doc_type": "DetailPair",
+            position: {"doc_type": "Detail", "columns": [_column(expr, useXpathExpression=True)]},
+        }
+        return _app([menu])
+
+    key = "schema:DetailColumn.field"
+    short = "/case_details/short/columns/0/field"
+    long = "/case_details/long/columns/0/field"
+    other = {"standing": manifest_usage.UNHELD}
+    return {
+        "menus-and-case-lists/inline-search-result-own-text-property": (
+            refused("app", app(), key, short),
+            accepted("app", app(inline=False), key, short, **other),
+            accepted("app", app(position="long"), key, long, **other),
+            accepted("app", app(source.replace("current()/@case_id", "@case_id")), key, short, **other),
+        ),
+    }
+
+
 def _standalone_result_detail_app(prompt, guarded=True):
     path = f"instance('search-input:results')/input/field[@name = '{prompt}']"
     text = f"if(count({path}) > 0, string({path}), '')" if guarded else f"string({path})"
@@ -8911,6 +8937,7 @@ def test_standalone_result_detail_positive_classifier(manifest, prompt, guarded,
 
 
 SHAPES = {
+    **_inline_result_property_shapes(),
     **_standalone_result_detail_shapes(),
     **_android_callout_shapes(),
     **_lookup_count_shapes(),
