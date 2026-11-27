@@ -38257,7 +38257,7 @@
 		]
 	},
 	{
-		"id": "hq-questions/save-to-case-keyed-beside-worker",
+		"id": "hq-questions/save-to-case-keyed-beside-root-close",
 		"base": "hq-questions",
 		"entry": "questions/a-keyed-savetocase-create-in-no-order-nova-holds-beside-the-form-s-other-changes",
 		"standing": "not-yet",
@@ -38270,8 +38270,29 @@
 		},
 		"change": {
 			"op": "named",
-			"name": "save_to_case_keyed_beside_worker"
+			"name": "save_to_case_keyed_beside_root_close"
 		}
+	},
+	{
+		"id": "hq-questions/save-to-case-keyed-beside-worker",
+		"base": "hq-questions",
+		"entry": "questions/savetocase-inside-a-repeat",
+		"change": {
+			"op": "named",
+			"name": "save_to_case_keyed_beside_worker"
+		},
+		"holds": [
+			{
+				"key": ["form", { "$xmlns": [0, 0] }],
+				"pointer": "/caseOperations/0/target/kind",
+				"value": "worker-record"
+			},
+			{
+				"key": ["form", { "$xmlns": [0, 0] }],
+				"pointer": "/caseOperations/1/caseType",
+				"value": "visit"
+			}
+		]
 	},
 	{
 		"id": "hq-questions/save-to-case-keyed-from-outside-its-row",

@@ -430,9 +430,21 @@ function keyedCreateOrderMatters(
 	creates: ReadonlyMap<Uuid, CaseOperation>,
 ): boolean {
 	if (operation.target.kind === "new") return false;
-	// A managed worker-record effect comes from HQ's action plan, not the
-	// generated Save to Case group whose placement this proof can compare.
-	if (operation.target.kind === "worker-record") return true;
+	// HQ provisions the managed worker's case with a fresh hex UUID. A
+	// repeat's namespaced key cannot name it. A free-form authored case ID
+	// does not provide that separation, so keep its original order rule.
+	if (operation.target.kind === "worker-record")
+		return !(
+			create.forEach !== undefined &&
+			create.target.kind === "new" &&
+			create.target.idFrom !== undefined &&
+			create.target.expr === undefined &&
+			operation.action === "update" &&
+			operation.forEach === undefined &&
+			operation.placement?.kind === "basic" &&
+			operation.placement.slot === "usercase" &&
+			!operation.writes?.some((write) => write.via !== undefined)
+		);
 	const writes = operation.writes ?? [];
 	// An index write to an ancestor has a separate target and block.
 	if (writes.some((write) => (write.via?.length ?? 0) > 0)) return true;

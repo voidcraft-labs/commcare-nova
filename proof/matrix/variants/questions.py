@@ -3336,6 +3336,26 @@ def save_to_case_keyed_beside_worker(authoring, app_id):
     )
 
 
+def save_to_case_keyed_beside_root_close(authoring, app_id):
+    """A root close may name a case that the repeated create will overwrite."""
+    close = _block(
+        "shut", "visit", "<close/>", "/data/full_name",
+        [("close", 'relevant="/data/weight &gt; 0"')],
+    )
+
+    def change(text):
+        text = _transplanted(
+            text, KEYED_IN_REPEAT_DATA, KEYED_IN_REPEAT_MODEL, KEYED_IN_REPEAT_BODY,
+            data_before="</members>", body_after=MEMBER_NAME_CLOSE,
+        )
+        return _with_blocks(
+            text, [close], data_before="<intro />", binds_before=FIRST_SETVALUE,
+            group_after="<h:body>", instances=(),
+        )
+
+    _edit(authoring, app_id, "save-to-case-keyed-beside-root-close", change)
+
+
 # hq-case-management's follow-up forms: the first writes the worker's record (``usercase_update``), the third the
 # household's ``note`` under a condition.
 

@@ -1358,10 +1358,12 @@ name with HQ's own `user.name or user.raw_username` fallback because
 field.
 
 **A form can save an answer into it.** The worker's record is a case
-operation's target, `{ kind: "worker-record" }`, of at most one update of
-`commcare-user` per form, on any form including a survey with no case type of
-its own; one form writes one worker record, so its writes take no repeat. The
-destination must be
+operation's target, `{ kind: "worker-record" }`, on any form including a survey
+with no case type of its own. Separate direct updates can write different
+properties when each runs at most once. A basic managed worker update can
+accompany a namespaced repeated create because the worker has an independent
+UUID. A single direct Save to Case update can also run once for each entry of
+one ordinary repeat. The destination must be
 a declared worker property (the slug is emitted as an XML element name), never
 a built-in worker field, and never `case_name`: HQ permits writing the name and
 its byte oracle asserts exactly that, but materialization owns the worker's
