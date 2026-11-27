@@ -2052,6 +2052,17 @@ A form's destinations and its otherwise run in the running app the way they run 
 
 ## The completed-search context and the case list registration form
 
+A Web Apps Details-only calculated column can show an optional text prompt
+from the same non-inline, search-first menu. The row-selected Detail entry
+keeps the result-page receipt in `previewEntryRecords.ts` while the Preview
+session stands. The browser history state and URL carry neither the receipt
+nor the submitted values. The server seals the completed submission and its
+actually offered primary page under the authenticated worker and configured
+Search target. A later Details read reauthorizes that exact receipt and case
+before applying the text branch. An unanswered prompt contributes empty text.
+An ordinary direct case read uses the column's literal text expression.
+
+
 The search of a menu whose forms read it is ONE fact per module in the session
 store, `previewSearchStates[moduleUuid]` (`lib/session/previewSearchState.ts`):
 `not-searched | running | failed | completed { matchCount, registeredCaseId? }`,

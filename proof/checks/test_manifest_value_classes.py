@@ -8765,7 +8765,35 @@ def _android_callout_shapes():
     }
 
 
+
+def _standalone_result_detail_shapes():
+    def app(prompt, guarded=True):
+        path = f"instance('search-input:results')/input/field[@name = '{prompt}']"
+        text = f"if(count({path}) > 0, string({path}), '')" if guarded else f"string({path})"
+        expr = f"if(count(current()/../../results) > 0, concat('Entered [', {text}, ']'), 'Unsearched case')"
+        module = _search_module(auto_launch=True, properties=[_prompt("village")])
+        module["case_details"] = {
+            "doc_type": "DetailPair",
+            "long": {"doc_type": "Detail", "columns": [_column(expr, useXpathExpression=True)]},
+        }
+        return {**_app([module]), "cloudcare_enabled": True}
+
+    key = "schema:DetailColumn.field"
+    field = "/case_details/long/columns/0/field"
+    return {
+        "menus-and-case-lists/standalone-search-result-detail-text": (
+            refused("app", app("village"), key, field),
+            accepted("app", app("not_offered"), key, field),
+        ),
+        "menus-and-case-lists/standalone-search-result-detail-without-its-offered-prompt": (
+            refused("app", app("not_offered"), key, field),
+            accepted("app", app("village"), key, field),
+            accepted("app", app("village", guarded=False), key, field),
+        ),
+    }
+
 SHAPES = {
+    **_standalone_result_detail_shapes(),
     **_android_callout_shapes(),
     **_lookup_count_shapes(),
     **_case_list_lookup_shapes(),
