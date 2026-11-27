@@ -88,6 +88,7 @@ import {
 import {
 	applySearchAddressMessage,
 	drawnSearchInputs,
+	openSearchRunState,
 	searchInputAnswerKeys,
 } from "../engine/searchRunState";
 import { prepareEntryPointLaunch } from "../entryPointLaunch";
@@ -1151,6 +1152,53 @@ export const PLATFORM_MODEL_CHECKS = {
 		]);
 		expect(searchInputAnswerKeys([source, receiver])).toEqual(
 			new Set(["city"]),
+		);
+	},
+	"saved-address-default": (on: Platform) => {
+		const picker = {
+			kind: "address",
+			type: "address",
+			uuid: testUuid("saved-address-picker"),
+			name: "village",
+			label: "Village",
+			savedDefault: "Old address",
+		} as const;
+		const name = simpleSearchInputDef(
+			testUuid("saved-address-name"),
+			"client_name",
+			"Name",
+			"text",
+			"client_name",
+			{ default: term(literal("Amina")) },
+		);
+		const inputs = [picker, name];
+		const rules = previewPlatformRules(on);
+		const doc = buildDoc({
+			modules: [
+				{
+					name: "Clients",
+					caseType: "client",
+					caseListConfig: {
+						...caseListConfig([]),
+						searchInputs: inputs,
+					},
+				},
+			],
+		});
+		const opened = openSearchRunState(
+			"saved-address",
+			inputs,
+			{
+				context: { userid: "worker" },
+				user: {},
+				userPropertySlugs: {},
+			},
+			{ doc, moduleUuid: doc.moduleOrder[0] },
+		);
+		expect(searchInputAnswerKeys(inputs)).toEqual(new Set(["client_name"]));
+		expect(opened.defaults).toEqual(new Map([["client_name", "Amina"]]));
+		expect(drawnSearchInputs(inputs, rules)).toEqual(
+			on === "web-apps" ? inputs : [name],
 		);
 	},
 	"search-unmatched-address-topic": (on: Platform) => {

@@ -200,6 +200,13 @@ export function advancedCaseSearchReasons(module: Module): string[] {
 	if (inputs.some((input) => searchInputDefault(input) !== undefined)) {
 		reasons.push("A Search field starts with a suggested value.");
 	}
+	if (
+		inputs.some(
+			(input) => input.kind === "address" && input.savedDefault !== undefined,
+		)
+	) {
+		reasons.push("An address field keeps a value saved in CommCare HQ.");
+	}
 	if (inputs.some((input) => input.kind === "hidden")) {
 		reasons.push(
 			"A Search screen carries a hidden value worked out when it opens.",

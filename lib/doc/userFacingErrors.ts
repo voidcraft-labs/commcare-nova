@@ -1488,6 +1488,8 @@ const USER_MESSAGE_BY_CODE: Record<
 		switch (e.details?.reason) {
 			case "project-search":
 				return "A Search supplied by the project space uses its own fields. You can add the address to a case Search screen.";
+			case "saved-default":
+				return "This address field keeps a value saved in CommCare HQ. You can keep it on a Search screen workers fill in, with no connected fields.";
 			case "receiver-type":
 				return "An address can only fill a visible text or multiple-choice field. You can link one of those fields or clear the link.";
 			case "single-choice":

@@ -301,15 +301,17 @@ export function searchPromptWire(
 	const seed =
 		input.kind === "hidden" ? input.value : searchInputDefault(input);
 	const defaultValue =
-		seed === undefined
-			? undefined
-			: compileDefaultExpression(
-					seed,
-					input.kind === "hidden"
-						? "search_input_hidden_value"
-						: "search_input_default",
-					emission,
-				);
+		input.kind === "address" && input.savedDefault !== undefined
+			? w.str(input.savedDefault)
+			: seed === undefined
+				? undefined
+				: compileDefaultExpression(
+						seed,
+						input.kind === "hidden"
+							? "search_input_hidden_value"
+							: "search_input_default",
+						emission,
+					);
 	return {
 		key,
 		label,

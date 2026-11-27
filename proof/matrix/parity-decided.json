@@ -683,6 +683,7 @@
 	"hq-search": [
 		"hq-search/address-choice-shares-its-receiver-with-text",
 		"hq-search/address-field",
+		"hq-search/address-picker-with-stored-default",
 		"hq-search/address-fills-a-single-choice-by-position",
 		"hq-search/address-receiver-with-an-extra-hyphen-segment",
 		"hq-search/address-receiver-without-a-component",

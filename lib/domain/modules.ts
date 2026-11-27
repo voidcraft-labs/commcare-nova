@@ -2139,6 +2139,12 @@ export const hiddenSearchInputSchema = searchInputBase
 	})
 	.strict();
 
+/** Text held as a canonical single-quoted XPath literal in the saved address picker. */
+export const savedSearchAddressDefaultSchema = z
+	.string()
+	.regex(/^[^'\p{Cc}\p{Cs}\uFEFF\uFFFE\uFFFF]+$/u)
+	.refine((value) => value.trim() !== "");
+
 /** A Web Apps search for a place supplies other prompts by identity. It
  * does not bind an ordinary search answer. */
 export const addressSearchInputSchema = searchInputBase.extend({
@@ -2151,6 +2157,8 @@ export const addressSearchInputSchema = searchInputBase.extend({
 	kind: z.literal("address"),
 	type: z.literal("address"),
 	excludeFromRequest: z.literal(true).optional(),
+	/** Imported text to preserve on export. It does not supply a Search answer. */
+	savedDefault: savedSearchAddressDefaultSchema.optional(),
 	// Match the optional slots read by shared prompt projections without
 	// allowing expressions or answer-entry settings on an address picker.
 	required: z.never().optional(),

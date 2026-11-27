@@ -2518,6 +2518,36 @@
 		"gates": ["privilege/geocoder", "toggle/CASE_SEARCH_ADVANCED"]
 	},
 	{
+		"id": "case-search/address-picker-with-a-saved-text-default",
+		"area": "case-search",
+		"section": "Case search",
+		"subsection": "Search prompts",
+		"item": "A manual, ungrouped Search address picker with one saved literal and no connected fields",
+		"surfaceKeys": [
+			"schema:CaseSearchProperty.default_value",
+			"parser:QueryPromptParser/prompt@default"
+		],
+		"valueClass": "stored-text-on-a-manual-address-picker",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: keeps the text on the saved app. Web Apps opens the picker blank and leaves the address out of the request. Android leaves out the field and the value.",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "IGNORED / IGNORED",
+			"webApps": {
+				"reading": "ignored"
+			},
+			"android": {
+				"reading": "ignored"
+			}
+		},
+		"emission": {
+			"cell": "`default_value` and query prompt `@default` under CASE_SEARCH_ADVANCED",
+			"markers": []
+		},
+		"gates": ["toggle/CASE_SEARCH_ADVANCED"]
+	},
+	{
 		"id": "case-search/appearance-address-with-required-or-validations",
 		"area": "case-search",
 		"section": "Case search",

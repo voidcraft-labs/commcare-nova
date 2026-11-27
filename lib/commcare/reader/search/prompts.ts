@@ -28,6 +28,7 @@ import {
 	SEARCH_INPUT_REQUIRED_DEFAULT_MESSAGE,
 	type SearchAddressReceiver,
 	type SearchInputLookupOptions,
+	savedSearchAddressDefaultSchema,
 	UNMATCHED_ADDRESS_TOPIC_PATTERN,
 } from "@/lib/domain/modules";
 import { NO_ENTRIES, recordFromEntries } from "@/lib/domain/records";
@@ -149,6 +150,10 @@ export const PROMPT_CLAIMS = defineClaims("search.prompts", {
 	addressPicker: take(
 		`${S}address-picker-on-a-search-screen`,
 		"schema:CaseSearchProperty.appearance",
+	),
+	addressStoredDefault: take(
+		`${S}address-picker-with-a-saved-text-default`,
+		"schema:CaseSearchProperty.default_value",
 	),
 	address: refuse(
 		`${S}appearance-address-geocoder-broadcast-emitted-input-address`,
@@ -769,9 +774,20 @@ export function readSearchPrompts(
 				if (isJsonObject(rule)) scan(rule.test, false);
 		}
 	}
+	const addressDefaults = readStoredAddressDefaults(
+		config,
+		prompts,
+		projectService,
+	);
 	const sourceNames = new Set(
 		prompts
-			.filter((prompt) => canReadAddressPrompt(prompt, projectService))
+			.filter((prompt) =>
+				canReadAddressPrompt(
+					prompt,
+					projectService,
+					addressDefaults.has(prompt),
+				),
+			)
 			.flatMap((prompt) => {
 				const name = prompt.peek("name");
 				return typeof name === "string" ? [name] : [];
@@ -829,6 +845,7 @@ export function readSearchPrompts(
 			groupReading.memberships.get(prompt),
 			suiteSources,
 			projectService,
+			addressDefaults.get(prompt),
 			sourceNames,
 			savedPublisherNames,
 			receiverDuplicates.has(prompt),
@@ -872,9 +889,55 @@ export function readSearchPrompts(
 	};
 }
 
+/** Core can seed the stored address in Formplayer. Keep it only on the
+ * ordinary manual Search, where the worker submits no address answer. */
+function readStoredAddressDefaults(
+	config: JsonCursor,
+	prompts: readonly JsonCursor[],
+	projectService: boolean,
+): ReadonlyMap<JsonCursor, string> {
+	const defaults = new Map<JsonCursor, string>();
+	if (
+		projectService ||
+		config.peek("auto_launch") !== true ||
+		config.peek("default_search") === true ||
+		config.peek("inline_search") === true ||
+		config.peek("search_on_clear") === true
+	)
+		return defaults;
+	const receiverTopics = new Set<string>();
+	for (const prompt of prompts) {
+		const receiver = prompt.peek("receiver_expression");
+		if (typeof receiver === "string")
+			receiverTopics.add(receiver.split("-", 1)[0]);
+	}
+	for (const prompt of prompts) {
+		const stored = prompt.peek("default_value");
+		if (
+			typeof stored !== "string" ||
+			stored === "" ||
+			prompt.peek("exclude") === true ||
+			prompt.peek("group_key") ||
+			receiverTopics.has(String(prompt.peek("name"))) ||
+			!canReadAddressPrompt(prompt, projectService, true)
+		)
+			continue;
+		const parsed = readFormSyntax(stored);
+		if (
+			parsed.ok &&
+			parsed.node?.kind === "string" &&
+			savedSearchAddressDefaultSchema.safeParse(parsed.node.value).success &&
+			stored === `'${parsed.node.value}'`
+		)
+			defaults.set(prompt, parsed.node.value);
+	}
+	return defaults;
+}
+
 function canReadAddressPrompt(
 	prompt: JsonCursor,
 	projectService: boolean,
+	withStoredDefault: boolean,
 ): boolean {
 	const required = prompt.peek("required");
 	const validations = prompt.peek("validations");
@@ -886,7 +949,7 @@ function canReadAddressPrompt(
 		prompt.peek("is_group") !== true &&
 		prompt.peek("appearance") === "address" &&
 		!prompt.peek("input_") &&
-		!prompt.peek("default_value") &&
+		(withStoredDefault || !prompt.peek("default_value")) &&
 		prompt.peek("hidden") !== true &&
 		prompt.peek("allow_blank_value") !== true &&
 		!prompt.peek("receiver_expression") &&
@@ -968,6 +1031,7 @@ function readPrompt(
 	group: Uuid | undefined,
 	suiteSources: ReadonlyMap<string, string>,
 	projectService: boolean,
+	storedAddressDefault: string | undefined,
 	addressSources: ReadonlySet<string>,
 	savedPublisherNames: ReadonlySet<string>,
 	receiverDuplicate: boolean,
@@ -1113,7 +1177,11 @@ function readPrompt(
 		else if (prompt.used("group_key")) refuseWith("group_key", P.groupLayout);
 		else refuseWith("group_key", P.groupMissing);
 	}
-	const address = canReadAddressPrompt(prompt, projectService);
+	const address = canReadAddressPrompt(
+		prompt,
+		projectService,
+		storedAddressDefault !== undefined,
+	);
 	const inputType = editorAppearance(prompt);
 	const sourceReceiver = prompt.peek("receiver_expression");
 	let addressReceiver:
@@ -1743,8 +1811,11 @@ function readPrompt(
 			at,
 		);
 	};
+	if (storedAddressDefault !== undefined)
+		prompt.take("default_value", P.addressStoredDefault, String).value;
 	const defaultText = prompt.peek("default_value");
 	const hasDefault =
+		storedAddressDefault === undefined &&
 		holds("default_value") &&
 		!refusedHere("default_value") &&
 		typeof defaultText === "string" &&
@@ -1913,6 +1984,9 @@ function readPrompt(
 			...(group !== undefined && { group }),
 			...(hint !== "" && { hint }),
 			...(exclude && { excludeFromRequest: true }),
+			...(storedAddressDefault !== undefined && {
+				savedDefault: storedAddressDefault,
+			}),
 		};
 	else {
 		const widget = {

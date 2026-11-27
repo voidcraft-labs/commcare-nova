@@ -131,7 +131,8 @@ def test_saved_address_default_stays_out_of_signed_web_search(
     assert run.page_errors == []
     assert initial == "" and selected == PLACE["place_name"]
     assert requests == [{"client_name": "Amina"}], requests
-    assert hq_searches and all("village" not in search for search in hq_searches), hq_searches
+    assert any("case_name = 'Amina'" in search.get("_xpath_query", []) for search in hq_searches), hq_searches
+    assert hq_searches and all("village" not in search and "Old address" not in str(search) for search in hq_searches), hq_searches
 
 
 def test_case_list_editor_keeps_search_address_receivers_after_reopening(

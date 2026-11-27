@@ -381,6 +381,12 @@ export const PLATFORM_CELLS: Readonly<
 		model("search-unmatched-address-topic"),
 	"case-search/address-receiver-on-an-unmatched-topic-without-a-component@android":
 		model("search-unmatched-address-topic"),
+	"case-search/address-picker-with-a-saved-text-default@web-apps": model(
+		"saved-address-default",
+	),
+	"case-search/address-picker-with-a-saved-text-default@android": model(
+		"saved-address-default",
+	),
 	"case-search/search-on-clear@android": model("desktop-search-on-clear"),
 	"case-search/default-value-on-a-date-range-input@android": model(
 		"starting-dates-android",
