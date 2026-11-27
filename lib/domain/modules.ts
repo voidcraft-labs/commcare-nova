@@ -2970,7 +2970,7 @@ export function isParentPathSearchProperty(property: string): boolean {
 }
 
 export const MAX_PARENT_PATH_SEARCH_LINKS = 3;
-export const MAX_PARENT_PATH_SEARCH_DATE_LINKS = 4;
+export const MAX_PARENT_PATH_SEARCH_DATE_LINKS = 5;
 
 function parentPathSearchKey(
 	input: Pick<SimpleSearchInputDef, "property" | "via" | "type" | "mode">,
@@ -3026,7 +3026,7 @@ export function searchInputRequestKey(input: SearchInputDef): string {
  * Whether a simple field can take the project space's own matching
  * (`matching: "project-space"`): its prompt rides the bare key CommCare HQ
  * matches by its own rule. The key names this case's own property, or an
- * ordinary property across up to three parent links for text or four for a
+ * ordinary property across up to three parent links for text or five for a
  * single date. HQ matches the answer whatever the property's type, so a field
  * whose widget doesn't fit the property's type can still search it there.
  * Shared by the commit gate and the builder so the builder offers the
