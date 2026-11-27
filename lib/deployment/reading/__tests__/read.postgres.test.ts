@@ -502,6 +502,7 @@ describe("readHqAppForReview", () => {
 			readonly serving: (peer: MockAgent) => void;
 			readonly key?: Partial<ReadingKey>;
 			readonly before?: () => Promise<void>;
+			readonly requests?: readonly string[];
 		}[] = [
 			{
 				code: "not-connected",
@@ -631,6 +632,24 @@ describe("readHqAppForReview", () => {
 						retainedGroupRead("publish/source-deleted"),
 					);
 				},
+			},
+			{
+				code: "installation-profile-key-unusable",
+				// This key collides with the ordinary all-language installation.
+				serving: (peer) => {
+					serve(peer, PATHS.application, application());
+					serve(
+						peer,
+						PATHS.source,
+						changed(source(), (body) => ({
+							...body,
+							build_profiles: {
+								default: { name: "Field team", langs: ["en"] },
+							},
+						})),
+					);
+				},
+				requests: [PATHS.application, PATHS.source],
 			},
 			{
 				code: "linked-app",
@@ -876,21 +895,28 @@ describe("readHqAppForReview", () => {
 			},
 		];
 
-		it.each(cases)("$code", async ({ code, serving, key, before }) => {
-			await before?.();
-			const counts = await rowCounts();
-			const { answer } = await read(serving, key === undefined ? {} : { key });
-			if (CIRCUMSTANCE_STANDINGS[code].standing === "stop") {
-				expect(answer).toMatchObject({ kind: "stop", finding: { code } });
-			} else {
-				expect(answer.kind).toBe("account");
-				expect(codes(answer)).toContain(code);
-			}
-			/* Whatever it answers, a read leaves no row, file or byte behind. */
-			expect(await rowCounts()).toEqual(counts);
-			expect(uploadAssetBytes).not.toHaveBeenCalled();
-			expect(deleteAsset).not.toHaveBeenCalled();
-		});
+		it.each(cases)(
+			"$code",
+			async ({ code, serving, key, before, requests }) => {
+				await before?.();
+				const counts = await rowCounts();
+				const { answer, requests: sent } = await read(
+					serving,
+					key === undefined ? {} : { key },
+				);
+				if (requests) expect(sent).toEqual(requests);
+				if (CIRCUMSTANCE_STANDINGS[code].standing === "stop") {
+					expect(answer).toMatchObject({ kind: "stop", finding: { code } });
+				} else {
+					expect(answer.kind).toBe("account");
+					expect(codes(answer)).toContain(code);
+				}
+				/* Whatever it answers, a read leaves no row, file or byte behind. */
+				expect(await rowCounts()).toEqual(counts);
+				expect(uploadAssetBytes).not.toHaveBeenCalled();
+				expect(deleteAsset).not.toHaveBeenCalled();
+			},
+		);
 
 		it("drives every code a read can raise, here or where its source is built", () => {
 			/* These codes are driven where their source is built: a source one byte over the
