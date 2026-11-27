@@ -2092,11 +2092,20 @@ function BindingPicker({
 					destinationProperties,
 					projectProse,
 				);
+	const parentDepth =
+		row.via?.kind === "ancestor" &&
+		parentPathSearchRequestKey(row) !== undefined
+			? row.via.via.length
+			: 0;
+	const linkedSource =
+		parentDepth === 3
+			? "Great-grandparent case"
+			: parentDepth === 2
+				? "Grandparent case"
+				: "Linked case";
 	const sourceLabel =
 		scope === "custom"
-			? parentPathSearchRequestKey(row)?.startsWith("parent/parent/")
-				? "Grandparent case"
-				: "Linked case"
+			? linkedSource
 			: scope === "parent"
 				? "Parent case"
 				: "This case";

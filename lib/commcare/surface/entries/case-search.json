@@ -2229,6 +2229,29 @@
 		"gates": ["toggle/CASE_SEARCH_RELATED_LOOKUPS"]
 	},
 	{
+		"id": "case-search/prompt-key-matching-three-parent-links",
+		"area": "case-search",
+		"section": "Case search",
+		"subsection": "Search prompts",
+		"item": "a labeled ordinary text prompt matched by a great-grandparent property key",
+		"surfaceKeys": ["schema:CaseSearchProperty.name"],
+		"valueClass": "three-parent-links-text-prompt-key",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: text matched by the project space on a property reached through three parent links",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": { "reading": "runs" },
+			"android": { "reading": "runs" }
+		},
+		"emission": {
+			"cell": "`name` derived from the three links and the property",
+			"markers": []
+		},
+		"gates": ["toggle/CASE_SEARCH_RELATED_LOOKUPS"]
+	},
+	{
 		"id": "case-search/prompt-key-outside-nova-s-name-grammar",
 		"area": "case-search",
 		"section": "Case search",

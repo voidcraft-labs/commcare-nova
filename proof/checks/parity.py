@@ -79,6 +79,7 @@ from proof.checks.manifest_value_classes import (
     save_to_case_retype_property_types,
     worker_record_save_to_case_shape,
     guarded_owner_after_fresh_create,
+    three_parent_links_text_prompt_key,
     two_parent_links_text_prompt_key,
     unaddressable_answer_root,
 )
@@ -99,6 +100,7 @@ TWO_PARENT_LINKS_PROMPT = "case-search/prompt-key-matching-two-parent-links"
 PARENT_PROMPT_SHAPES = {
     DIRECT_PARENT_PROMPT: direct_parent_text_prompt_key,
     TWO_PARENT_LINKS_PROMPT: two_parent_links_text_prompt_key,
+    "case-search/prompt-key-matching-three-parent-links": three_parent_links_text_prompt_key,
 }
 UNCLAIMED, ENTRY, STANDING, UNSEEN = "unclaimed", "entry", "standing", "unseen"
 

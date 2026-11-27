@@ -743,6 +743,7 @@ describe("a plain native parent Search field", () => {
 	it.each([
 		["parent/village", 1],
 		["parent/parent/village", 2],
+		["parent/parent/parent/village", 3],
 	] as const)(
 		"holds %s independently of a safe, unoccupied authoring name",
 		async (key, hops) => {
@@ -853,7 +854,8 @@ describe("a plain native parent Search field", () => {
 		["parent/village", "date"],
 		["parent/parent/village", "date"],
 		["host/parent/village", undefined],
-		["parent/parent/parent/village", undefined],
+		["parent/parent/parent/village", "date"],
+		["parent/parent/parent/parent/village", undefined],
 	])("refuses an unproved field %s with widget %s", async (key, widget) => {
 		expect(
 			await account((body) => {

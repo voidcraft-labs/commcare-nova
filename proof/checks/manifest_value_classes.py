@@ -13072,6 +13072,10 @@ def two_parent_links_text_prompt_key(use, manifest):
     return _parent_path_text_prompt_key(use, "parent/parent/")
 
 
+def three_parent_links_text_prompt_key(use, manifest):
+    return _parent_path_text_prompt_key(use, "parent/parent/parent/")
+
+
 def prompt_key_outside_nova_s_name_grammar(use, manifest):
     """``case-search/prompt-key-outside-nova-s-name-grammar``: a prompt's ``name`` outside a Search field's grammar
     (``SEARCH_INPUT_NAME``), or, on a prompt that is neither hidden nor ``exclude``, a case property Nova's grammar
@@ -13085,7 +13089,8 @@ def prompt_key_outside_nova_s_name_grammar(use, manifest):
     if not isinstance(name, str):
         return None
     if (name in PROMPT_REQUEST_KEYS or direct_parent_text_prompt_key(use, manifest)
-            or two_parent_links_text_prompt_key(use, manifest)):
+            or two_parent_links_text_prompt_key(use, manifest)
+            or three_parent_links_text_prompt_key(use, manifest)):
         return False
     if SEARCH_INPUT_NAME.fullmatch(name) is None:
         return True

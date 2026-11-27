@@ -93,24 +93,40 @@ export async function checkParentPathLookupLimit(
 		const match = propertyMatches(value, group, false, ctx);
 		const terminal = sql`select terminal.case_id from cases as terminal
 			where terminal.app_id = ${ctx.appId} and terminal.project_id = ${ctx.projectId} and ${match}`;
-		const lookup =
-			target.ancestors?.length === 2
-				? sql<{ exceeded: boolean }>`
-				with terminal_matches as materialized (${terminal} limit ${terminalLimit + 1})
-				select case when (select count(*) from terminal_matches) > ${terminalLimit} then true
-				else exists (
-					select 1 from cases as middle
-					where middle.app_id = ${ctx.appId} and middle.project_id = ${ctx.projectId}
-						and exists (
-							select 1 from case_indices as edge
-							join terminal_matches as matched on matched.case_id = edge.ancestor_id
-							where edge.case_id = middle.case_id and edge.depth = 1 and edge.identifier = 'parent'
-						)
-					offset ${intermediateLimit} limit 1
-				) end as exceeded`
-				: sql<{ exceeded: boolean }>`select exists (
-				${terminal} offset ${terminalLimit} limit 1
-			) as exceeded`;
+		const steps = [
+			{ name: "terminal_matches", limit: terminalLimit, query: terminal },
+		];
+		for (
+			let remaining = (target.ancestors?.length ?? 1) - 1;
+			remaining > 0;
+			remaining--
+		) {
+			const previous = steps[steps.length - 1];
+			const matches = sql.id(previous.name);
+			const query = sql`select child.case_id from cases as child
+				where child.app_id = ${ctx.appId} and child.project_id = ${ctx.projectId}
+					and not exists (select 1 from ${matches} offset ${previous.limit} limit 1)
+					and exists (
+						select 1 from case_indices as edge
+						join ${matches} as matched on matched.case_id = edge.ancestor_id
+						where edge.case_id = child.case_id and edge.depth = 1 and edge.identifier = 'parent'
+					)`;
+			steps.push({
+				name: `parent_matches_${remaining}`,
+				limit: intermediateLimit,
+				query,
+			});
+		}
+		const materialized = steps.map(
+			({ name, limit, query }) =>
+				sql`${sql.id(name)} as materialized (${query} limit ${limit + 1})`,
+		);
+		const exceeded = steps.map(
+			({ name, limit }) =>
+				sql`exists (select 1 from ${sql.id(name)} offset ${limit} limit 1)`,
+		);
+		const lookup = sql<{ exceeded: boolean }>`with ${sql.join(materialized)}
+			select (${sql.join(exceeded, sql` or `)}) as exceeded`;
 		if ((await lookup.execute(ctx.db)).rows[0]?.exceeded)
 			throw new CaseSearchUnavailableError({
 				kind: "parent-lookup-limit",
@@ -120,36 +136,28 @@ export async function checkParentPathLookupLimit(
 }
 
 /** A nonempty retained edge may reach data outside the authorized snapshot. */
-function missingParent(
-	ctx: PredicateCompileContext,
-	caseId: RawBuilder<unknown>,
-) {
-	return sql<boolean>`exists (
-		select 1 from case_indices as edge
-		where edge.case_id = ${caseId}
-			and edge.depth = 1 and edge.identifier = 'parent'
-			and edge.ancestor_id <> ''
-			and not exists (
-				select 1 from cases as parent
-				where parent.case_id = edge.ancestor_id
-					and parent.app_id = ${ctx.appId} and parent.project_id = ${ctx.projectId}
-					and ${caseHasNoUndismissedParkedValues(sql.ref("parent.case_id"))}
-			)
-	)`;
-}
-
 function unresolvedParentPath(ctx: PredicateCompileContext, hops: number) {
-	const candidateId = sql.ref(`${ctx.anchorAlias}.case_id`);
-	const firstMissing = missingParent(ctx, candidateId);
-	if (hops !== 2) return firstMissing;
-	return sql<boolean>`(${firstMissing} or exists (
-		select 1 from case_indices as first
-		join cases as middle on middle.case_id = first.ancestor_id
-			and middle.app_id = ${ctx.appId} and middle.project_id = ${ctx.projectId}
-			and ${caseHasNoUndismissedParkedValues(sql.ref("middle.case_id"))}
-		where first.case_id = ${candidateId} and first.depth = 1 and first.identifier = 'parent'
-			and ${missingParent(ctx, sql.ref("middle.case_id"))}
-	))`;
+	function hasUnavailableParent(
+		caseId: RawBuilder<unknown>,
+		remaining: number,
+	): RawBuilder<boolean> {
+		const alias = `prompt_parent_${remaining}`;
+		const parent = sql.ref(`${alias}.case_id`);
+		const unavailableAbove =
+			remaining > 1 ? hasUnavailableParent(parent, remaining - 1) : sql`false`;
+		return sql`exists (
+			select 1 from case_indices as edge
+			left join cases as ${sql.id(alias)}
+				on ${parent} = edge.ancestor_id
+				and ${sql.ref(`${alias}.app_id`)} = ${ctx.appId}
+				and ${sql.ref(`${alias}.project_id`)} = ${ctx.projectId}
+				and ${caseHasNoUndismissedParkedValues(parent)}
+			where edge.case_id = ${caseId}
+				and edge.depth = 1 and edge.identifier = 'parent' and edge.ancestor_id <> ''
+				and (${parent} is null or ${unavailableAbove})
+		)`;
+	}
+	return hasUnavailableParent(sql.ref(`${ctx.anchorAlias}.case_id`), hops);
 }
 
 export function nativeSearchTruth(
