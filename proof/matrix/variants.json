@@ -37048,6 +37048,37 @@
 		}
 	},
 	{
+		"id": "hq-questions/save-to-case-retype-required-date",
+		"base": "hq-questions",
+		"entry": "questions/a-fresh-case-retype-that-overwrites-text-with-a-required-date",
+		"change": {
+			"op": "named",
+			"name": "save_to_case_retype_required_date"
+		},
+		"holds": [
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [0, 0]
+					}
+				],
+				"pointer": "/caseOperations/1/retype",
+				"value": "visit"
+			},
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [0, 0]
+					}
+				],
+				"pointer": "/caseOperations/1/writes/0/property",
+				"value": "kept"
+			}
+		]
+	},
+	{
 		"id": "hq-questions/save-to-case-retype-keyed",
 		"base": "hq-questions",
 		"entry": "questions/a-savetocase-change-of-a-case-s-type-another-change-of-the-form-may-read-as-its-earlier-type",

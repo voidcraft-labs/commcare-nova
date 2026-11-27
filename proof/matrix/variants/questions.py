@@ -3156,8 +3156,8 @@ def save_to_case_date_as_text(authoring, app_id):
     )
 
 
-def save_to_case_retype_converts(authoring, app_id):
-    """Reverse the two question sources. The retained property would have to become a date."""
+def _save_to_case_retype_converts(authoring, app_id, *, required):
+    """Reverse the direct writers and optionally require the destination date."""
     model = RETYPE_CONVERTS_MODEL.replace(
         'mk/case/update/kept" calculate="/data/visit_date"',
         'mk/case/update/kept" calculate="/data/full_name"',
@@ -3165,12 +3165,21 @@ def save_to_case_retype_converts(authoring, app_id):
         'again/case/update/kept" calculate="/data/full_name"',
         'again/case/update/kept" calculate="/data/visit_date"',
     )
-    _edit(
-        authoring,
-        app_id,
-        "save-to-case-retype-converts",
-        lambda text: _transplanted(text, RETYPE_CONVERTS_DATA, model, RETYPE_CONVERTS_BODY),
-    )
+    def change(text):
+        if required:
+            bind = 'nodeset="/data/visit_date" type="xsd:date"'
+            text = _replaced(text, [(bind, f'{bind} required="true()"', 1)])
+        return _transplanted(text, RETYPE_CONVERTS_DATA, model, RETYPE_CONVERTS_BODY)
+
+    _edit(authoring, app_id, "retype-required-date" if required else "save-to-case-retype-converts", change)
+
+
+def save_to_case_retype_converts(authoring, app_id):
+    _save_to_case_retype_converts(authoring, app_id, required=False)
+
+
+def save_to_case_retype_required_date(authoring, app_id):
+    _save_to_case_retype_converts(authoring, app_id, required=True)
 
 
 def save_to_case_keyed_from_outside_its_row(authoring, app_id):

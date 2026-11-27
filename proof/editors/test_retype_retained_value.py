@@ -124,7 +124,7 @@ def test_vellum_and_signed_worker_retype_a_fresh_case_with_an_explicit_overwrite
                 visit_date=None, must_answer_date=True,
             )
             write_evidence(f"save-to-case-retype-{direction}", receipt)
-            assert receipt["missing"]["required"] is True, receipt
+            assert receipt["missing"]["required"] == 1, receipt
             assert receipt["missing"]["status"] != "success" and receipt["missing"]["submissions"] == 0, receipt
 
         scenarios = {"dated": ("blue", "2025-12-01")}
