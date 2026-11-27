@@ -425,11 +425,17 @@ function LinkRow({
 				<p className="text-[13px] font-medium text-nova-text-secondary">
 					How they are related
 				</p>
-				<RelationshipMenu
-					value={link.relationship}
-					canEdit={canEdit}
-					onChange={(relationship) => onChange({ ...link, relationship })}
-				/>
+				{link.relationshipQuestion === undefined ? (
+					<RelationshipMenu
+						value={link.relationship}
+						canEdit={canEdit}
+						onChange={(relationship) => onChange({ ...link, relationship })}
+					/>
+				) : (
+					<p className="text-[14px] text-nova-text">
+						From the question that names this case
+					</p>
+				)}
 			</div>
 		</div>
 	);

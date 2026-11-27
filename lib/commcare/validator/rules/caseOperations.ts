@@ -1126,9 +1126,11 @@ function validateLinks(
 				operation.target.idFrom === undefined &&
 				operation.target.expr === undefined &&
 				operation.owner === undefined &&
+				operation.ownerCondition === undefined &&
 				operation.ownerAfterCreate === undefined &&
 				operation.condition === undefined &&
 				operation.forEach === undefined &&
+				operation.closeCondition === undefined &&
 				!operation.closeAfter &&
 				!ctx.doc.appSettings.caseSharing &&
 				placementsOfForm().advanced?.opens.some(

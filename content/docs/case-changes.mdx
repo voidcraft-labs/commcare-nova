@@ -439,6 +439,12 @@ read the search, whose case list in the menu is narrowed, or whose cases link
 to their parent under more than one name can't be advanced, and Nova says so
 where you set the link.
 
+When you bring in an Advanced form, the required Text question that names a
+new case can also determine how it connects to the first selected case. If
+the question allows exactly `child` or `extension` and case sharing is off,
+Nova keeps that behavior. A child belongs to the submitting worker, and an
+extension uses the selected case as its host without a separate owner.
+
 ## Removing a change
 
 Removing is offered only when nothing depends on the change. When something
