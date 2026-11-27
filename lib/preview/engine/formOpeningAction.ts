@@ -208,8 +208,8 @@ async function readOpening(
 		const previous =
 			args.previous &&
 			(await verifyFormOpening(secret, audience, args.previous));
-		if (args.boundedFlatClose || previous?.boundedFlatClose) {
-			const profile = authoredBoundedFlatClose(doc, args.module, args.form);
+		const profile = authoredBoundedFlatClose(doc, args.module, args.form);
+		if (profile || args.boundedFlatClose || previous?.boundedFlatClose) {
 			if (
 				!profile ||
 				context.device.platform !== "web-apps" ||

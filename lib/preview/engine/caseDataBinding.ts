@@ -2432,7 +2432,15 @@ export async function submitFormAction(
 		);
 		const binding = projection.formOpening;
 		const committed = hydratePersistedBlueprint(authorized.app.blueprint);
-		if (!binding && formNeedsOpeningEvidence(committed, projection.formUuid)) {
+		const module = moduleUuidOfForm(committed, projection.formUuid);
+		const boundedFlatClose =
+			module !== undefined &&
+			!!authoredBoundedFlatClose(committed, module, projection.formUuid);
+		if (
+			!binding &&
+			(boundedFlatClose ||
+				formNeedsOpeningEvidence(committed, projection.formUuid))
+		) {
 			throw new CaptureSubmissionRejectedError(
 				"Reopen this form to load its opening records before submitting.",
 			);
@@ -2461,7 +2469,7 @@ export async function submitFormAction(
 		if (
 			opening &&
 			(!opening.complete ||
-				binding?.module !== moduleUuidOfForm(committed, projection.formUuid) ||
+				binding?.module !== module ||
 				("caseIds" in normalizedMutation &&
 					(normalizedMutation.caseIds.length !==
 						opening.primaryCaseIds.length ||
@@ -2473,16 +2481,12 @@ export async function submitFormAction(
 				"The selected records changed. Reopen the form to choose them again.",
 			);
 		}
+		const boundedOpening = opening?.boundedFlatClose;
 		if (
-			opening?.boundedFlatClose &&
-			(!binding ||
-				!authoredBoundedFlatClose(
-					committed,
-					binding.module,
-					projection.formUuid,
-				) ||
-				admitted.device.platform !== "web-apps" ||
-				opening.boundedFlatClose.expiresAt <= Date.now())
+			boundedFlatClose !== (boundedOpening !== undefined) ||
+			(boundedOpening &&
+				(admitted.device.platform !== "web-apps" ||
+					boundedOpening.expiresAt <= Date.now()))
 		)
 			throw new CaptureSubmissionRejectedError(
 				"Reopen this form to choose the records again.",

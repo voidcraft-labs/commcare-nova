@@ -331,9 +331,9 @@ function ConfiguredFormEntry({
 											selection: row.selectionUuid,
 											caseId: row.caseId,
 										})),
-										...(boundedFlatClose
-											? { boundedFlatClose: true as const }
-											: { afterSubmission: unsyncedEntries() }),
+										...(!boundedFlatClose && {
+											afterSubmission: unsyncedEntries(),
+										}),
 									}),
 						},
 						device,

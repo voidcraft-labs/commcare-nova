@@ -33,6 +33,7 @@ import {
 } from "../formOpeningSnapshot";
 import { previewAsPersona } from "../identity";
 import { resolveAuthorizedPreviewContext } from "../previewAuthorization";
+import { signFormOpening } from "../signedFormOpening";
 import { androidDevice, webAppsDevice } from "./fixtures/previewDevices";
 
 const member = vi.hoisted(() => ({
@@ -478,7 +479,7 @@ it.each([false, true])(
 		);
 		try {
 			const opened = await readFormOpeningAction(
-				{ ...request, bound: selected, boundedFlatClose: true },
+				{ ...request, bound: selected },
 				device,
 			);
 			if (opened.kind !== "opening")
@@ -495,10 +496,7 @@ it.each([false, true])(
 					[app, project, member.id],
 				);
 				expect(
-					await readFormOpeningAction(
-						{ ...request, bound: selected, boundedFlatClose: true },
-						device,
-					),
+					await readFormOpeningAction({ ...request, bound: selected }, device),
 				).toMatchObject({ kind: "record-unavailable" });
 			}
 			expect(
@@ -509,7 +507,7 @@ it.each([false, true])(
 					)
 				).kind,
 			).toBe("opening");
-			const submit = (caseIds: string[]) =>
+			const submit = (caseIds: string[], evidence?: typeof opened.evidence) =>
 				submitFormAction(
 					{
 						kind: "close",
@@ -517,11 +515,9 @@ it.each([false, true])(
 						formUuid: request.form,
 						entryKey: request.entry,
 						attachmentRefs: [],
-						formOpening: {
-							module,
-							run: request.run,
-							evidence: opened.evidence,
-						},
+						...(evidence && {
+							formOpening: { module, run: request.run, evidence },
+						}),
 						operationAnswers: { root: [], repeats: [] },
 					},
 					app,
@@ -531,10 +527,60 @@ it.each([false, true])(
 					undefined,
 					device,
 				);
-			expect((await submit(selected.toReversed())).kind).not.toBe("close");
-			const closed = await submit(selected);
+			expect(await submit(selected)).toMatchObject({
+				kind: "error",
+				message:
+					"Reopen this form to load its opening records before submitting.",
+			});
+			if (!automatic) {
+				const context = await resolveAuthorizedPreviewContext({
+					appId: app,
+					device,
+					required: "view",
+				});
+				if (
+					context.kind !== "ready" ||
+					context.baseSeq === undefined ||
+					!context.sessionId
+				)
+					throw new Error("Expected the fixture's authorized session.");
+				const { boundedFlatClose: _bounded, ...ordinary } = opened.projection;
+				const ordinaryEvidence = await signFormOpening(
+					"synthetic flat close secret",
+					{
+						app,
+						project: context.scope.projectId,
+						actor: context.identity.actorUserId,
+						session: context.sessionId,
+						worker: context.identity.ownerId,
+						persona: context.identity.personaUuid ?? null,
+						device: context.device,
+						run: request.run,
+						module,
+						form: request.form,
+						entry: request.entry,
+						revision: context.baseSeq,
+						blueprintDigest: request.blueprintDigest,
+					},
+					ordinary,
+				);
+				expect(
+					await readFormOpeningAction(
+						{ ...request, previous: ordinaryEvidence, restore: true },
+						device,
+					),
+				).toMatchObject({ kind: "reopen" });
+				expect(await submit(selected, ordinaryEvidence)).toMatchObject({
+					kind: "error",
+					message: "Reopen this form to choose the records again.",
+				});
+			}
+			expect(
+				(await submit(selected.toReversed(), opened.evidence)).kind,
+			).not.toBe("close");
+			const closed = await submit(selected, opened.evidence);
 			expect(closed).toMatchObject({ kind: "close", caseIds: selected });
-			expect(await submit(selected)).toEqual(closed);
+			expect(await submit(selected, opened.evidence)).toEqual(closed);
 			const stored = await pool.query<{ case_id: string; status: string }>(
 				"SELECT case_id,status FROM cases WHERE app_id=$1 AND case_id=ANY($2) ORDER BY case_id",
 				[app, [...selected, "unrelated"]],
