@@ -869,6 +869,10 @@ describe("bounded flat close", () => {
 				automaticMaximum: 101,
 			}),
 		).toBeUndefined();
+		await sql`UPDATE cases SET status = 'open' WHERE app_id = ${APP_ID}
+			AND project_id = ${PROJECT_A} AND case_id = ${parent}`.execute(
+			dbHandle.db,
+		);
 		const ordered = selected.toReversed();
 		const args = await signedProgram(store, ordered);
 		expect(args.operations?.openingReads?.cases).toMatchObject({
@@ -942,6 +946,13 @@ describe("bounded flat close", () => {
 				dbHandle.db,
 			);
 		expect(receipts.rows).toEqual([]);
+		await expect(
+			store.readFlatCloseSelection(request([SESSION_CASE_ID])),
+		).rejects.toThrow("too much data");
+		await sql`UPDATE cases SET properties = jsonb_build_object('notes', repeat('Ω', 300000))
+			WHERE app_id = ${APP_ID} AND project_id = ${PROJECT_A} AND case_id = ${SESSION_CASE_ID}`.execute(
+			dbHandle.db,
+		);
 		await expect(
 			store.readFlatCloseSelection(request([SESSION_CASE_ID])),
 		).rejects.toThrow("too much data");

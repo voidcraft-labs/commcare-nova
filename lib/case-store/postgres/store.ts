@@ -48,6 +48,7 @@ import {
 	type Kysely,
 	type RawBuilder,
 	type Selectable,
+	type SelectQueryBuilder,
 	sql,
 	type Transaction,
 } from "kysely";
@@ -1807,24 +1808,16 @@ export class PostgresCaseStore implements CaseStore {
 			.where("c.project_id", "=", args.projectId)
 			.where("c.case_id", "in", caseIds);
 
-		// Scrutinize the same case and direct-index projections before
-		// transferring any large JSON values to the Node process.
-		if (args.boundedFlatClose) {
-			const sizes = await caseRows
-				.clearSelect()
-				.select(
-					sql<string>`coalesce(sum(octet_length((to_jsonb(c) -
-					array['project_id','index_history_complete','cleared_index_identifiers'])::text)), 0)::text`.as(
-						"size",
-					),
+		const storedRows = args.boundedFlatClose
+			? await this.readWithinFlatCloseTransferBudget(
+					trx,
+					caseRows,
+					sql`payload.opened_on asc, payload.case_id asc`,
 				)
-				.executeTakeFirstOrThrow();
-			this.assertFlatCloseTransferSize(Number(sizes.size));
-		}
-		const storedRows = await caseRows
-			.orderBy("c.opened_on", "asc")
-			.orderBy("c.case_id", "asc")
-			.execute();
+			: await caseRows
+					.orderBy("c.opened_on", "asc")
+					.orderBy("c.case_id", "asc")
+					.execute();
 		const rows = storedRows.map(publicCaseRow);
 		// The read above already holds the tenant's own rows, so the indices
 		// are read for those ids alone and only the ancestor is checked, by
@@ -1860,18 +1853,15 @@ export class PostgresCaseStore implements CaseStore {
 						.orderBy("ci.case_id", "asc")
 						.orderBy("ci.identifier", "asc")
 						.orderBy("ci.ancestor_id", "asc");
-		if (args.boundedFlatClose && indicesQuery) {
-			const indexSizes = await trx
-				.selectFrom(indicesQuery.as("direct_edge"))
-				.select(
-					sql<string>`coalesce(sum(octet_length(to_jsonb(direct_edge)::text)), 0)::text`.as(
-						"size",
-					),
-				)
-				.executeTakeFirstOrThrow();
-			this.assertFlatCloseTransferSize(Number(indexSizes.size));
-		}
-		const indices = (await indicesQuery?.execute()) ?? [];
+		const indices = !indicesQuery
+			? []
+			: args.boundedFlatClose
+				? await this.readWithinFlatCloseTransferBudget(
+						trx,
+						indicesQuery.clearOrderBy(),
+						sql`payload.case_id asc, payload.identifier asc, payload.ancestor_id asc`,
+					)
+				: await indicesQuery.execute();
 		const propertyTypes = await this.readCaseDatabasePropertyTypes(
 			trx,
 			args.appId,
@@ -1881,12 +1871,41 @@ export class PostgresCaseStore implements CaseStore {
 		return { rows, indices, propertyTypes };
 	}
 
-	/** PostgreSQL's JSON representation includes spacing and the full stored
-	 * schema instead of its wire projection. This is a transfer budget,
-	 * distinct from the exact compact DTO budget verified after projection. */
-	private assertFlatCloseTransferSize(bytes: number): void {
-		if (bytes > 2 * FLAT_CLOSE_CASE_BYTES)
-			throw new FlatClosePayloadTooLargeError();
+	/**
+	 * Measure and return the same SQL snapshot even before locks in the
+	 * read-committed submission transaction. Keep raw transfer (including
+	 * database-only values and spacing) bounded separately from the exact
+	 * compact DTO. An explicit sentinel distinguishes overflow from no rows.
+	 */
+	private async readWithinFlatCloseTransferBudget<
+		Schema,
+		Table extends keyof Schema,
+		Row extends object,
+	>(
+		trx: Transaction<Database>,
+		query: SelectQueryBuilder<Schema, Table, Row>,
+		order: RawBuilder<unknown>,
+	): Promise<Row[]> {
+		const result = await sql<
+			Row & { _nova_present: true | null; _nova_within_budget: boolean }
+		>`
+			WITH payload AS MATERIALIZED (
+				SELECT source.*, true AS _nova_present FROM (${query}) AS source
+			), budget AS (
+				SELECT coalesce(sum(octet_length(to_jsonb(payload)::text)), 0)
+					<= ${2 * FLAT_CLOSE_CASE_BYTES} AS fits
+				FROM payload
+			)
+			SELECT payload.*, budget.fits AS _nova_within_budget
+			FROM budget LEFT JOIN payload ON budget.fits
+			ORDER BY ${order}
+		`.execute(trx);
+		const rows: Row[] = [];
+		for (const { _nova_present, _nova_within_budget, ...row } of result.rows) {
+			if (!_nova_within_budget) throw new FlatClosePayloadTooLargeError();
+			if (_nova_present) rows.push(row as Row);
+		}
+		return rows;
 	}
 
 	/** The source rows were selected in this transaction, including the worker
@@ -1944,17 +1963,14 @@ export class PostgresCaseStore implements CaseStore {
 			.selectFrom("case_type_schemas")
 			.where("app_id", "=", appId)
 			.where("case_type", "in", names);
-		if (boundedFlatClose) {
-			const sizes = await schemas
-				.select(
-					sql<string>`coalesce(sum(octet_length("schema"::text) + octet_length(case_type)), 0)::text`.as(
-						"size",
-					),
+		const projection = schemas.select(["case_type", "schema"]);
+		const schemaRows = boundedFlatClose
+			? await this.readWithinFlatCloseTransferBudget(
+					trx,
+					projection,
+					sql`payload.case_type asc`,
 				)
-				.executeTakeFirstOrThrow();
-			this.assertFlatCloseTransferSize(Number(sizes.size));
-		}
-		const schemaRows = await schemas.select(["case_type", "schema"]).execute();
+			: await projection.execute();
 		const propertyTypes: Record<
 			string,
 			Readonly<Record<string, CasePropertyDataType>>
