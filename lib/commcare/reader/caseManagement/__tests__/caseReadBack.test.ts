@@ -27,6 +27,7 @@ import { isDeepStrictEqual } from "node:util";
 import { expect, it } from "vitest";
 import { recordDialectRoundTrip } from "@/lib/agent/authoring/recordRoundTrip";
 import { manifestFor } from "@/lib/commcare/__tests__/compilerEvidence";
+import { readingAppStrings } from "@/lib/deployment/reading/appStrings";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import { ensureReferenceIndex } from "@/lib/doc/referenceIndex";
@@ -165,6 +166,7 @@ async function caseDifference(
 		...(JSON.parse(JSON.stringify(emitted)) as Record<string, unknown>),
 	};
 	const levels = levelsAsPublished(doc);
+	const lookupContext = lookupContextOf(document.lookup);
 	const overrides: Partial<ReaderInput> = {
 		resolver: matchingResolver(
 			doc.appId,
@@ -177,6 +179,7 @@ async function caseDifference(
 		saveOnlyEditedApplied: true,
 		recordDialect: recordDialectRoundTrip,
 		lookup: lookupCatalog(document),
+		appStrings: readingAppStrings(lookupContext),
 		organization: { levelCodes: levels.map((level) => level.code), levels },
 		media: {
 			resolve: (path): ReaderMediaResolution => {
@@ -216,7 +219,7 @@ async function caseDifference(
 	const verdict = mutationCommitVerdict(
 		outcome.draft.doc,
 		choice.mutations,
-		lookupContextOf(document.lookup),
+		lookupContext,
 	);
 	return verdict.ok
 		? null
@@ -237,8 +240,12 @@ it("reads every targeted and producer document back to its own case changes, int
 		ensureReferenceIndex(doc);
 		if (publishFindings(doc, document.lookup).length > 0) continue;
 		read++;
-		const why = await caseDifference(document, doc);
-		if (why !== null) failures.push(`${document.id}: ${why}`);
+		try {
+			const why = await caseDifference(document, doc);
+			if (why !== null) failures.push(`${document.id}: ${why}`);
+		} catch (error) {
+			throw new Error(`${document.id}: case read-back threw`, { cause: error });
+		}
 	}
 	expect(read).toBeGreaterThan(100);
 	expect(failures).toEqual([]);
