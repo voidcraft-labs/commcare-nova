@@ -41,11 +41,18 @@ def test_required_search_value_reads_the_worker_case_count(
     held_case = replace(initial, cases=(client,))
     no_cases = replace(initial, cases=(replace(client, properties=(*properties, ("standing", "inactive"))),) if match != "case-type" else ())
     observations = {}
-    for name, condition, database in (
+    samples = [
         ("case-count-empty", requirement, no_cases),
         ("case-count-one", requirement, held_case),
         ("constant-required", "true()", held_case),
-    ):
+    ]
+    if match == "property-comparison":
+        samples.extend([
+            ("one-property-missing", requirement, replace(held_case, cases=(replace(client, properties=(("standing", "active"),)),))),
+            ("both-properties-missing", requirement, replace(held_case, cases=(replace(client, properties=()),))),
+            ("both-properties-blank", requirement, replace(held_case, cases=(replace(client, properties=(("standing", ""), ("village", ""))),))),
+        ])
+    for name, condition, database in samples:
         with webapps_hq.authored_project(document, "A", configure=enable_address_search) as project:
             app = operations.held_app(project.unit, project.app_id)
             menu_id = app.modules[0].unique_id
@@ -86,3 +93,9 @@ def test_required_search_value_reads_the_worker_case_count(
         result = observations[label]
         assert not result["submitted"] and not result["errors"] and not result["dialogs"], result
         assert result["screens"][-1]["query"]["prompts"][1]["label"] == "Village", result
+
+    if match == "property-comparison":
+        assert len(observations["one-property-missing"]["submitted"]) == 1, observations
+        assert not observations["both-properties-missing"]["submitted"], observations
+        assert not observations["both-properties-blank"]["submitted"], observations
+        assert all(not outcome["errors"] and not outcome["dialogs"] for outcome in observations.values()), observations
