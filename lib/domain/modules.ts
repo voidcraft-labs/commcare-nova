@@ -2150,7 +2150,11 @@ const savedAddressText = z
 	.refine((value) => value.trim() !== "");
 
 /** The stored address is read independently of the Search answer. */
-export const SAVED_ADDRESS_WORKER_FIELDS = ["username", "userid"] as const;
+export const SAVED_ADDRESS_WORKER_FIELDS = [
+	"username",
+	"userid",
+	"deviceid",
+] as const;
 
 export const savedSearchAddressDefaultSchema = z.union([
 	savedAddressText,
