@@ -5748,6 +5748,29 @@ def worker_name_order_in_shared_owner_exclusion(use, manifest):
 
 
 
+def case_search_case_itemset_without_editor_source(use, manifest):
+    """The Case List editor calls includes() on this omitted source."""
+    from proof.checks.xpath_tree import tree
+
+    at, config = _search(use)
+    if at is None or config is None or at.key != "nodeset":
+        return None
+    prompt = at.nearest("CaseSearchProperty")
+    itemset = at.nearest("Itemset")
+    if (
+        prompt is None or prompt.get("input_") not in ("select", "select1")
+        or not isinstance(itemset, dict) or "instance_id" in itemset
+        or not isinstance(at.value, str)
+    ):
+        return False
+    match tree(at.value):
+        case ("path", "SLASH", instance, (
+            ("step", "child", "casedb", ()), ("step", "child", "case", _),
+        )):
+            return instance == tree("instance('casedb')")
+    return False
+
+
 def required_condition_counts_restored_cases(use, manifest):
     """A Search requirement counts case rows from one type in the restored instance."""
     from proof.checks.xpath_tree import tree
@@ -14859,6 +14882,7 @@ VALUE_CLASSES = {
     "case-search/input-no-runtime-names": input_no_runtime_names,
     "case-search/receiver-expression-on-a-prompt-whose-editor-appearance-is": receiver_on_another_appearance,
     "case-search/address-receiver-single-choice-lookup-position": single_choice_receives_from_address,
+    "case-search/case-itemset-without-an-editor-source": case_search_case_itemset_without_editor_source,
     "case-search/receiver-expression": address_receive_with_extra_hyphen,
     "case-search/address-receiver-matching-a-picker-without-a-component": address_receive_without_component,
     "case-search/address-receiver-shared-with-a-choice-field": address_receiver_shared_with_choice,
