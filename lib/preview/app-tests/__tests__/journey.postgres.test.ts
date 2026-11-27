@@ -5741,20 +5741,16 @@ it.each([false, true])(
 		};
 		try {
 			expect(await step({ kind: "menu", moduleUuid })).toMatchObject({
-				screen: "menu",
+				screen: automatic ? "menu" : "browse",
 			});
-			if (automatic) {
-				expect(await step({ kind: "form", formUuid })).toMatchObject({
-					screen: "form",
-				});
-			} else {
-				expect(await step({ kind: "form", formUuid })).toMatchObject({
-					screen: "records",
-				});
+			if (!automatic)
 				expect(await step({ kind: "select", caseIds: ordered })).toMatchObject({
-					screen: "form",
+					screen: "menu",
+					selected: ordered.map((id) => expect.objectContaining({ id })),
 				});
-			}
+			expect(await step({ kind: "form", formUuid })).toMatchObject({
+				screen: "form",
+			});
 			expect(await step({ kind: "submit" })).toMatchObject({
 				savedInTest: true,
 				effects: { primaryCaseIds: ordered },
