@@ -1,7 +1,10 @@
 import { execFile } from "node:child_process";
 import { resolve } from "node:path";
+import { PassThrough, Writable } from "node:stream";
+import { finished } from "node:stream/promises";
 import { promisify } from "node:util";
-import { it } from "vitest";
+import { expect, it } from "vitest";
+import { executeWithOutputPipes } from "../../run.mjs";
 
 // Saturate an actual nonblocking log descriptor before either child can write.
 // The ordinary inherited write fails immediately. The hosted runner can begin
@@ -53,4 +56,37 @@ it("keeps hosted shard output and the child's exit when the runner pipe fills", 
 		],
 		{ timeout: 10_000 },
 	);
+});
+
+it("reaps the child and cancels a blocked forwarder when the other sink breaks", async () => {
+	const writing = Promise.withResolvers<number>();
+	let release: (() => void) | undefined;
+	const stdout = new Writable({
+		write(chunk, _encoding, done) {
+			release = done;
+			writing.resolve(Number(chunk.toString()));
+		},
+	});
+	const stderr = new PassThrough();
+	const running = executeWithOutputPipes(
+		process.execPath,
+		[
+			"-e",
+			"process.stdout.write(String(process.pid)); setInterval(() => {}, 1000);",
+		],
+		{ stdout, stderr },
+	);
+	const pid = await writing.promise;
+	const failure = new Error("runner log sink broke");
+	stderr.destroy(failure);
+	try {
+		await expect(running).rejects.toBe(failure);
+		expect(() => process.kill(pid, 0)).toThrow("ESRCH");
+		expect(stdout.listenerCount("error")).toBe(0);
+		expect(stderr.listenerCount("error")).toBe(0);
+	} finally {
+		release?.();
+		stdout.end();
+		await finished(stdout, { cleanup: true });
+	}
 });

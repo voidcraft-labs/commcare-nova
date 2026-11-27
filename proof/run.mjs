@@ -169,14 +169,16 @@ function execute(command, args, options = {}) {
 	});
 }
 
-function forwardOutput(input, output) {
+function forwardOutput(input, output, signal) {
 	// Await writes without ending the shared process stream.
 	const sink = new Writable({
 		write: (chunk, _encoding, done) => output.write(chunk, done),
 	});
 	const failed = (error) => sink.destroy(error);
 	output.on("error", failed);
-	return pipeline(input, sink).finally(() => output.off("error", failed));
+	return pipeline(input, sink, { signal }).finally(() =>
+		output.off("error", failed),
+	);
 }
 
 /** Hosted Docker attaches to private output pipes. Inheriting a saturated,
@@ -190,17 +192,27 @@ export async function executeWithOutputPipes(
 		env,
 		stdio: ["inherit", "pipe", "pipe"],
 	});
-	const closed = once(child, "close");
+	const forwarding = new AbortController();
+	const work = [
+		once(child, "close"),
+		forwardOutput(child.stdout, stdout, forwarding.signal),
+		forwardOutput(child.stderr, stderr, forwarding.signal),
+	];
 	try {
-		const [[code, signal]] = await Promise.all([
-			closed,
-			forwardOutput(child.stdout, stdout),
-			forwardOutput(child.stderr, stderr),
-		]);
+		const [[code, signal]] = await Promise.all(work);
 		return childExit(code, signal);
 	} catch (error) {
-		child.kill();
-		await closed.catch(() => {});
+		// Another log stream can be waiting on a full runner pipe. Cancel
+		// both forwarders and reap the child before Compose cleanup starts.
+		forwarding.abort();
+		child.kill("SIGTERM");
+		const force = setTimeout(() => child.kill("SIGKILL"), 5_000);
+		force.unref();
+		try {
+			await Promise.allSettled(work);
+		} finally {
+			clearTimeout(force);
+		}
 		throw error;
 	}
 }
@@ -1122,6 +1134,12 @@ async function runServer({
 			],
 			{ env },
 		);
+	} catch (error) {
+		if (!hosted) throw error;
+		console.error(
+			`The hosted proof process could not complete: ${error.message}`,
+		);
+		return 2;
 	} finally {
 		process.off("SIGINT", interrupted);
 		process.off("SIGTERM", interrupted);
