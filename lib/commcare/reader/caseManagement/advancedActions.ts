@@ -3596,7 +3596,10 @@ export function writeAdvancedChains(ctx: ReadContext): void {
 			continue;
 		const chosen = forms
 			.map((form) => READINGS.get(form))
-			.filter((reading) => reading !== undefined && reading.chosen.length > 0);
+			.filter(
+				(reading): reading is AdvancedReading =>
+					reading !== undefined && reading.chosen.length > 0,
+			);
 		const identifier = chosen[0]?.chosen[1]?.index?.identifier;
 		if (
 			identifier !== undefined &&

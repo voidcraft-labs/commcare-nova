@@ -2254,7 +2254,7 @@ export function settleSearchSettings(
 		if (guarded.length === 0)
 			ctx.accounting.circumstance("unrecognized", place, { name: first });
 		for (const prompt of guarded) {
-			const input = list.searchInputs.find((one) => one.uuid === prompt.uuid);
+			const input = list?.searchInputs.find((one) => one.uuid === prompt.uuid);
 			const rule =
 				input?.kind === "simple" &&
 				input.type === "text" &&
