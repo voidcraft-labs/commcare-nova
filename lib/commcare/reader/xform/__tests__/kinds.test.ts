@@ -776,9 +776,15 @@ describe("a select's choices", () => {
 				`/hq_districts_list/hq_districts${predicate}"`,
 			);
 
-		it.each(["[2]", "[2.5]", "[2.99]"])(
+		it.each([
+			["[2]", 2],
+			["[2.5]", 2],
+			["[2.99]", 2],
+			["[0]", 0],
+			["[0.5]", 0],
+		])(
 			"reads and republishes fixture row %s as its exact position",
-			async (predicate) => {
+			async (predicate, ordinal) => {
 				const outcome = await read(rowPredicate(predicate));
 				expect(outcome.kind).toBe("read");
 				expect(outcome.defects).toEqual([]);
@@ -792,7 +798,10 @@ describe("a select's choices", () => {
 						filter: {
 							kind: "eq",
 							left: { kind: "call", fn: "position", args: [] },
-							right: { kind: "term", term: { kind: "literal", value: 2 } },
+							right: {
+								kind: "term",
+								term: { kind: "literal", value: ordinal },
+							},
 						},
 					},
 				});
@@ -800,7 +809,7 @@ describe("a select's choices", () => {
 					exportedBody(outcome.draft.doc, { expand: { lookupNaming: naming } }),
 				);
 				expect(authored).toContain(
-					"/hq_districts_list/hq_districts[position() = 2]",
+					`/hq_districts_list/hq_districts[position() = ${ordinal}]`,
 				);
 			},
 		);
@@ -822,10 +831,8 @@ describe("a select's choices", () => {
 		});
 
 		it.each([
-			"[0]",
 			"[-1]",
 			"[2.0]",
-			"[0.5]",
 			"[(2)]",
 			"[(2.5)]",
 			"[2147483648]",
