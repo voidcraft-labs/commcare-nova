@@ -516,7 +516,7 @@ describe("advanced action clauses", () => {
 });
 
 describe("the advanced procedure", () => {
-	it("keeps only a root passive label on the selected case's Advanced follow-up load", () => {
+	it("keeps the verified root label modes on the selected case's Advanced follow-up load", () => {
 		const { doc, formUuid } = advancedFixture({
 			menu: "members",
 			formType: "followup",
@@ -548,8 +548,12 @@ describe("the advanced procedure", () => {
 		);
 		for (const variant of [
 			{ ...label, askForConfirmation: true as const },
-			{ ...label, default_value: term(literal("later")) },
 			{ ...label, banner: "good" as const },
+		]) {
+			expect(placed(withLabel(variant))).toEqual(placed(doc));
+		}
+		for (const variant of [
+			{ ...label, default_value: term(literal("later")) },
 			{ ...label, banner: "hidden" as const },
 		]) {
 			expect(placed(withLabel(variant))?.kind).toBe("save-to-case");

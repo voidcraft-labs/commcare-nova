@@ -794,7 +794,8 @@ def _advanced_own_label_write(use):
         for path in row["preload"]
     ):
         return OTHER_ADVANCED_LABEL
-    return PASSIVE_LABEL_WRITE if control.get("appearance") in {"minimal", "selectable"} else OTHER_ADVANCED_LABEL
+    kept = {None, "", "minimal", "selectable", "floating-good", "floating-caution", "floating-bad"}
+    return PASSIVE_LABEL_WRITE if control.get("appearance") in kept else OTHER_ADVANCED_LABEL
 
 
 def _unicode_primary_root(use, held):

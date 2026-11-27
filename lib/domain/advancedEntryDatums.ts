@@ -506,7 +506,17 @@ export function isAdvancedOwnLabelProperty(property: string): boolean {
 	);
 }
 
-function readsOwnPassiveLabel(
+/** A confirmation or a visible banner can submit a present, empty label answer. */
+export function caseWriteLabelSavesEmpty(
+	askForConfirmation: unknown,
+	banner: unknown,
+): boolean {
+	return askForConfirmation === true
+		? banner === undefined
+		: banner === "good" || banner === "caution" || banner === "bad";
+}
+
+function readsOwnRootLabel(
 	f: CaseSlotFacts,
 	write: CaseOperationWrite,
 ): boolean {
@@ -521,8 +531,8 @@ function readsOwnPassiveLabel(
 	const field = f.doc.fields[source.field];
 	return (
 		field?.kind === "label" &&
-		field.askForConfirmation !== true &&
-		field.banner === undefined &&
+		((field.askForConfirmation !== true && field.banner === undefined) ||
+			caseWriteLabelSavesEmpty(field.askForConfirmation, field.banner)) &&
 		field.default_value === undefined &&
 		!f.form.openingAssignments?.some(({ field }) => field === source.field) &&
 		f.doc.fieldOrder[f.formUuid]?.includes(source.field) === true &&
@@ -566,7 +576,7 @@ function ownPassiveLabelNeedsSeparateClose(
 		f.module?.caseType !== USERCASE_CASE_TYPE &&
 		ownFormSelectionIndex(f.doc, f.formUuid) === load.index &&
 		!f.positionedOperations.has(own.uuid) &&
-		own.writes?.some((write) => readsOwnPassiveLabel(f, write)) === true &&
+		own.writes?.some((write) => readsOwnRootLabel(f, write)) === true &&
 		(heldOwnOrCreateBlockExpresses(f, own) ||
 			loadClause(f, own, load) === undefined)
 	);
@@ -605,7 +615,7 @@ export function loadClause(
 		writes.some(
 			(write) =>
 				!readsQuestion(f, write.value, undefined) &&
-				!(ownFollowup && readsOwnPassiveLabel(f, write)),
+				!(ownFollowup && readsOwnRootLabel(f, write)),
 		)
 	)
 		return "value-not-a-question";

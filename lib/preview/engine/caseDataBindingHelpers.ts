@@ -35,6 +35,7 @@ import "server-only";
 
 import { workerDistanceValueId } from "@/lib/domain";
 import {
+	caseWriteLabelSavesEmpty,
 	entryOperationCaseType,
 	formEntryRecord,
 	menuEmittedAdvanced,
@@ -2913,6 +2914,21 @@ export function buildCaseOperationProgramFromDoc(args: {
 				"The linked cases no longer match this form. Reopen it to load the current case types.",
 			);
 		const operation = withoutAbsentAnswerWrites(boundOperation);
+		const emptyTextWrites = new Set<number>();
+		if (operation.action === "own" && form.type === "followup") {
+			for (const [index, write] of (operation.writes ?? []).entries()) {
+				const answer = caseWriteValueField(write.value);
+				const field =
+					answer === undefined ? undefined : doc.fields[answer.field];
+				if (
+					write.via === undefined &&
+					field?.kind === "label" &&
+					caseWriteLabelSavesEmpty(field.askForConfirmation, field.banner)
+				) {
+					emptyTextWrites.add(index);
+				}
+			}
+		}
 		const guardConditions = [...(guards.get(operation.uuid) ?? [])]
 			.map((uuid) => operationsByUuid.get(uuid)?.condition)
 			.filter((condition): condition is Expression => condition !== undefined);
@@ -2948,6 +2964,7 @@ export function buildCaseOperationProgramFromDoc(args: {
 				links: snapshot?.links ?? new Map<number, string>(),
 			},
 			...(viaCaseTypes.size > 0 && { viaCaseTypes }),
+			...(emptyTextWrites.size > 0 && { emptyTextWrites }),
 			...(requiredDateRetypeProperty !== undefined && {
 				requiredDateRetypeProperty,
 			}),

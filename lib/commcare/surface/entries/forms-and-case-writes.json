@@ -6616,11 +6616,11 @@
 		"id": "forms-and-case-writes/an-advanced-follow-up-update-from-its-root-passive-label",
 		"area": "forms-and-case-writes",
 		"section": "Advanced form actions",
-		"item": "an advanced follow-up update from its root passive label",
+		"item": "an advanced follow-up update from its root label",
 		"surfaceKeys": ["schema:ConditionalCaseUpdate.question_path"],
 		"valueClass": "advanced-own-passive-label",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: a root passive label without a banner or starting value saves its submitted text to an ordinary property of the selected case. The last chosen load keeps the write and its tag. The widget supplies `OK` when shown. An irrelevant label leaves its previous value alone.",
+		"dispositionCell": "**HELD**: a root passive label, confirmation, or visible banner with no starting value saves its submitted text to an ordinary property of the selected case. The last chosen load keeps the write and its tag. An empty submitted label leaves the property present and empty. An irrelevant label leaves its previous value alone.",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
@@ -6642,7 +6642,7 @@
 		"id": "forms-and-case-writes/an-advanced-load-s-update-or-preload-or-an-open-action-s-name-or",
 		"area": "forms-and-case-writes",
 		"section": "Advanced form actions",
-		"item": "an advanced load's update or preload, or an open action's name or write, whose question is a label, outside the root passive label update above",
+		"item": "an advanced load's update or preload, or an open action's name or write, whose question is a label, outside the root label update above",
 		"surfaceKeys": [
 			"schema:LoadUpdateAction.case_properties",
 			"schema:LoadUpdateAction.preload",
