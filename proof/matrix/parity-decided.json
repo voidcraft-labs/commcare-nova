@@ -737,6 +737,7 @@
 		"hq-search/inline-search-skipping-to-results",
 		"hq-search/nested-date-field-named-by-a-parent-path",
 		"hq-search/optional-standalone-search-detail",
+		"hq-search/owner-exclusion-on-an-ordered-text",
 		"hq-search/owner-exclusion-twice",
 		"hq-search/registration-after-an-empty-search-back-to-the-list",
 		"hq-search/registration-after-an-empty-search-offered-again",

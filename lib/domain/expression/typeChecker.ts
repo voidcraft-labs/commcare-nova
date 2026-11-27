@@ -4247,12 +4247,12 @@ function checkComparison(
 			});
 			return;
 		}
-		// A simple text Search prompt evaluates its starting value with the
-		// worker session in scope. Its greater-than comparison coerces both
-		// text operands numerically in Core and in Preview.
+		// Core and Preview coerce both operands in these worker-name
+		// comparisons for a Search starting value or a shared owner rule.
 		if (
 			"profile" in ctx &&
-			ctx.profile.searchTextDefault === true &&
+			(ctx.profile.searchTextDefault === true ||
+				ctx.slot.slot === "excluded_owner_ids") &&
 			searchUsernameTextOrder(kind, left, right)
 		)
 			return;

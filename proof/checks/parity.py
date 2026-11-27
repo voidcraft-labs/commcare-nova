@@ -85,6 +85,7 @@ from proof.checks.manifest_value_classes import (
     save_to_case_before_optional_own_update,
     save_to_case_retype_property_types,
     worker_record_save_to_case_shape,
+    worker_name_order_in_shared_owner_exclusion,
     worker_name_order_in_text_default,
     guarded_owner_after_fresh_create,
     standalone_result_detail_text,
@@ -121,6 +122,7 @@ PARENT_PROMPT_SHAPES = {
 }
 ADDRESS_SAVED_TEXT = "case-search/address-picker-with-a-saved-text-default"
 ORDERED_SEARCH_DEFAULT = "case-search/default-value-ordering-the-worker-name"
+ORDERED_OWNER_EXCLUSION = "case-search/blacklisted-owner-ids-expression-lifting-into-valueexpression"
 UNMATCHED_ADDRESS_TOPIC = "case-search/address-receiver-on-an-unmatched-topic-without-a-component"
 UNCLAIMED, ENTRY, STANDING, UNSEEN = "unclaimed", "entry", "standing", "unseen"
 
@@ -1008,6 +1010,14 @@ def added_uses(base_source: dict, variant_source: dict, *, entries=()) -> list[D
                 Decided(use, manifest_usage.HELD, (entry,))
                 for use in found.uses
                 if use.key == "schema:CaseSearchProperty.default_value" and manual_address_with_saved_text(use, held)
+            )
+        if ORDERED_OWNER_EXCLUSION in entries:
+            entry = _entries_by_id(held)[ORDERED_OWNER_EXCLUSION]
+            decided.extend(
+                Decided(use, manifest_usage.HELD, (entry,))
+                for use in found.uses
+                if use.key == "schema:CaseSearch.blacklisted_owner_ids_expression"
+                and worker_name_order_in_shared_owner_exclusion(use, held)
             )
         if ORDERED_SEARCH_DEFAULT in entries:
             entry = _entries_by_id(held)[ORDERED_SEARCH_DEFAULT]
