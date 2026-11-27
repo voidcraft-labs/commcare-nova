@@ -2788,8 +2788,9 @@ async function resolveOperationProgram(
 			if (instance.envelope.blankSavesNothing && blankText(storedText(value)))
 				continue;
 			// Saved only when the answer differs from the case's value when the
-			// form opened, compared as the text each holds, as HQ's
-			// `case/update` relevance compares the casedb value with the answer.
+			// form opened, as HQ's `case/update` relevance compares the casedb
+			// value with the answer. Core converts the retained direct datetime
+			// to its calendar day for this comparison and for the untyped write.
 			if (write.onlyIfChanged === true) {
 				const stored = await storedValuesOf(destinationCaseId);
 				// CommCare Core unpacks each side of `!=` to one value, and an

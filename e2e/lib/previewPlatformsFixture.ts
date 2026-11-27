@@ -16,6 +16,7 @@ export const PLATFORM_IDS = {
 	place: testUuid("platforms-place"),
 	address: testUuid("platforms-address"),
 	addressCityCopy: testUuid("platforms-address-city-copy"),
+	datetime: testUuid("platforms-datetime"),
 	changeDay: testUuid("platforms-change-day"),
 	returnDay: testUuid("platforms-return-day"),
 	code: testUuid("platforms-code"),

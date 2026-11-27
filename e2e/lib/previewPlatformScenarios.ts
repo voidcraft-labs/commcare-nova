@@ -18,6 +18,7 @@ import type { Platform } from "@/lib/domain/platforms";
 export type PreviewPlatformFixture =
 	| "face-photo"
 	| "question-display"
+	| "datetime-picker"
 	| "android-app"
 	| "android-app-required"
 	| "questions"
@@ -35,6 +36,17 @@ export interface PreviewPlatformScenario {
 }
 
 export const PREVIEW_PLATFORM_SCENARIOS = {
+	"datetime-picker-android": {
+		platform: "android",
+		fixture: "datetime-picker",
+		describe: "commits the day and minute on the worker's local clock",
+	},
+	"datetime-picker-web-apps": {
+		platform: "web-apps",
+		fixture: "datetime-picker",
+		describe:
+			"keeps blank split questions and preserves seconds in the joined answer",
+	},
 	"face-photo-android": {
 		platform: "android",
 		fixture: "face-photo",

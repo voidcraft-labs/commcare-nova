@@ -1503,9 +1503,10 @@ function readUpdate(
 	readonly ok: boolean;
 } {
 	const path = cursor.peek("question_path");
+	const updateMode = cursor.peek("update_mode");
 	let onlyIfChanged: true | undefined;
 	const ok = true;
-	if (cursor.peek("update_mode") === "edit") {
+	if (updateMode === "edit") {
 		// Without the flag HQ's build saves every time: a follow-up's own update
 		// keeps its row, respelled; anywhere else the mode is inert.
 		if (edit === BASIC_CLAIMS.editHeld || r.applied) {
@@ -1521,7 +1522,7 @@ function readUpdate(
 						dayWrites?.hiddenClock === true && onlyIfChanged === undefined,
 					externalId:
 						dayWrites?.externalId === true &&
-						cursor.peek("update_mode") === "always",
+						(updateMode === "always" || updateMode === "edit"),
 				})
 			: undefined;
 	if (read === undefined || read.kind === "finding") {

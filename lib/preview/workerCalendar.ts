@@ -1,5 +1,11 @@
 import type { DateField } from "@/lib/domain";
+import {
+	instantDatetimeValue,
+	isReadableTemporalValue,
+	storageDatetimeValue,
+} from "@/lib/domain/temporalValues";
 import { NEPALI_FIRST_YEAR, NEPALI_MONTH_LENGTHS } from "./nepaliMonthLengths";
+import { XPathDate } from "./xpath/types";
 
 export type WorkerCalendar = "ethiopian" | "nepali" | "gregorian";
 /** The Gregorian editor can empty all three date parts. Its clear-button
@@ -10,6 +16,25 @@ export function androidCalendarCanBeEmpty(
 ): boolean {
 	return calendar === "gregorian" || calendar === "gregorian-with-clear";
 }
+/** Android populates its pickers from the instant in the device zone and
+ * reconstructs the answer from that local date, hour and minute. */
+export function androidDatetimePickerValue(
+	value: string,
+	zone: string,
+): string | undefined {
+	if (value !== "" && !isReadableTemporalValue("datetime", value))
+		return undefined;
+	const instant =
+		value === ""
+			? Date.now()
+			: XPathDate.parseExactInstant(
+					storageDatetimeValue(value, zone),
+				)?.instant();
+	if (instant === undefined) return undefined;
+	const shown = instantDatetimeValue(instant, zone);
+	return storageDatetimeValue(shown.slice(0, 16), zone);
+}
+
 export interface CalendarDay {
 	year: number;
 	month: number;

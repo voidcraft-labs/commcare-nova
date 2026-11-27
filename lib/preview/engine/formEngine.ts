@@ -124,6 +124,7 @@ import { type PreviewPlatformRules, previewPlatformRules } from "../platform";
 import { runtimeMessage } from "../runtimeMessages";
 import {
 	androidCalendarCanBeEmpty,
+	androidDatetimePickerValue,
 	isoOfCalendarDay,
 	localToday,
 } from "../workerCalendar";
@@ -799,7 +800,8 @@ export class FormEngine {
 	 *  keyed by tree identity so every tree rebuild refreshes it lazily. */
 	private fieldPathsCache: ReadonlyMap<Uuid, string> = new Map();
 	private fieldPathsCacheTree: FieldTreeNode[] | undefined;
-	private datePathTemplates: string[] = [];
+	private calendarPathTemplates: { path: string; kind: "date" | "datetime" }[] =
+		[];
 	/** Live repeat-instance counts for the DAG's generic→concrete
 	 *  materialization. Arrow property so it can pass as a bare callback. */
 	private repeatCounts = (repeatPath: string): number =>
@@ -1231,7 +1233,7 @@ export class FormEngine {
 			),
 		);
 		this.store.setState(state, true);
-		this.drawAndroidDates(this.activeScreenPath);
+		this.drawAndroidCalendarPickers(this.activeScreenPath);
 	}
 
 	/** Local required/type errors have no validation DAG node. Constraint
@@ -1336,7 +1338,7 @@ export class FormEngine {
 		}
 		if (Object.keys(updates).length > 0) this.store.setState(updates);
 		await this.settleLiveRepeatsAsync(evaluateAsync, beforeInsertion);
-		this.drawAndroidDates(this.activeScreenPath);
+		this.drawAndroidCalendarPickers(this.activeScreenPath);
 	}
 
 	async touchAsync(
@@ -1532,12 +1534,14 @@ export class FormEngine {
 				(current.keypadRefused === true) !== !stores ||
 				(current.androidPickerDay !== undefined &&
 					current.androidPickerDay !== value) ||
+				(current.androidPickerDatetime !== undefined &&
+					current.androidPickerDatetime !== value) ||
 				(isCapture && current.captureFileName !== value))
 		) {
 			const cleared =
 				value === "" &&
 				this.rules.datePicker === "shows-a-day" &&
-				field?.kind === "date" &&
+				(field?.kind === "date" || field?.kind === "datetime") &&
 				field.androidApp === undefined
 					? field
 					: undefined;
@@ -1550,6 +1554,12 @@ export class FormEngine {
 						androidPickerDay: androidCalendarCanBeEmpty(cleared.calendar)
 							? ""
 							: isoOfCalendarDay(localToday()),
+					}),
+					...(cleared?.kind === "datetime" && {
+						androidPickerDatetime: androidDatetimePickerValue(
+							"",
+							this.castZone,
+						),
 					}),
 					...(isCapture && { captureFileName: value }),
 				},
@@ -1595,7 +1605,7 @@ export class FormEngine {
 		this.settleLiveRepeats();
 		if (!this.asyncRuntime) {
 			this.reenterActiveScreen();
-			this.drawAndroidDates(this.activeScreenPath);
+			this.drawAndroidCalendarPickers(this.activeScreenPath);
 		}
 		return true;
 	}
@@ -2747,56 +2757,65 @@ export class FormEngine {
 		return { screens, prompts };
 	}
 
-	/** A native date control is constructed with an answer, or with the
-	 * device's current civil day. Only when the worker leaves does Android
-	 * ask the widget for that day. A fresh control after a return or a
-	 * relevance change is constructed again from the instance. */
-	private drawAndroidDates(screenPath: string | undefined): void {
+	/** Native calendar pickers display an answer or the device clock. The
+	 * form sees their value when the worker leaves the live screen. */
+	private drawAndroidCalendarPickers(screenPath: string | undefined): void {
 		if (this.rules.datePicker !== "shows-a-day") return;
 		this.fieldPathsByUuid();
-		if (this.datePathTemplates.length === 0) return;
+		if (this.calendarPathTemplates.length === 0) return;
 
 		const visible = this.effectivelyVisiblePaths();
 		const states = this.store.getState();
 		const updates: EngineStoreState = {};
 		let today: string | undefined;
-		for (const template of this.datePathTemplates) {
-			for (const path of this.materializePaths(template)) {
+		let now: string | undefined;
+		for (const template of this.calendarPathTemplates) {
+			const picker =
+				template.kind === "date" ? "androidPickerDay" : "androidPickerDatetime";
+			for (const path of this.materializePaths(template.path)) {
 				const state = states[path];
 				if (!state) continue;
+				let shown: string | undefined;
 				if (
 					screenPath &&
 					this.containsControl(screenPath, path) &&
-					visible.has(path) &&
-					!state.value
+					visible.has(path)
 				) {
-					if (state.androidPickerDay === undefined) {
+					if (template.kind === "date" && !state.value) {
 						today ??= isoOfCalendarDay(localToday());
-						updates[path] = { ...state, androidPickerDay: today };
+						shown = state.androidPickerDay ?? today;
+					} else if (template.kind === "datetime") {
+						if (state.value) {
+							shown = androidDatetimePickerValue(state.value, this.castZone);
+						} else {
+							now ??= androidDatetimePickerValue("", this.castZone);
+							shown = state.androidPickerDatetime ?? now;
+						}
 					}
-				} else if (state.androidPickerDay !== undefined) {
-					const { androidPickerDay: _shown, ...answer } = state;
-					updates[path] = answer;
+				}
+				if (shown !== state[picker]) {
+					const { [picker]: _previous, ...answer } = state;
+					updates[path] =
+						shown === undefined ? answer : { ...answer, [picker]: shown };
 				}
 			}
 		}
 		if (Object.keys(updates).length > 0) this.store.setState(updates);
 	}
 
-	/** Day suggestions are owned by the live screen. Materializing the
-	 * blueprint's date paths excludes removed fields and removed repeat rows. */
-	private pendingScreenDays(): { path: string; day: string }[] {
+	/** Only a rendered picker can commit its displayed answer. */
+	private pendingCalendarAnswers(): { path: string; value: string }[] {
 		const screenPath = this.activeScreenPath;
 		if (this.rules.datePicker !== "shows-a-day" || !screenPath) return [];
-		this.fieldPathsByUuid();
-		this.drawAndroidDates(screenPath);
-		return this.datePathTemplates.flatMap((template) =>
-			this.materializePaths(template).flatMap((path) => {
+		this.drawAndroidCalendarPickers(screenPath);
+		return this.calendarPathTemplates.flatMap((template) =>
+			this.materializePaths(template.path).flatMap((path) => {
 				const state = this.store.getState()[path];
-				return this.containsControl(screenPath, path) &&
-					state?.androidPickerDay &&
-					!state.value
-					? [{ path, day: state.androidPickerDay }]
+				const value = state?.androidPickerDay ?? state?.androidPickerDatetime;
+				return value &&
+					state?.value !== value &&
+					this.containsControl(screenPath, path)
+					? [{ path, value }]
 					: [];
 			}),
 		);
@@ -2828,7 +2847,7 @@ export class FormEngine {
 
 	hasScreenAnswersToSave(): boolean {
 		return (
-			this.pendingScreenDays().length > 0 ||
+			this.pendingCalendarAnswers().length > 0 ||
 			this.pendingScreenTextDefault() !== undefined
 		);
 	}
@@ -2838,10 +2857,12 @@ export class FormEngine {
 	 * different screen is only an inspection and never calls this. */
 	saveScreenAnswers(): string[] {
 		const saved: string[] = [];
-		for (const { path, day } of this.pendingScreenDays()) {
+		for (const { path, value } of this.pendingCalendarAnswers()) {
+			const state = this.getState(path);
 			if (
-				this.getState(path).androidPickerDay === day &&
-				this.setValue(path, day)
+				(state.androidPickerDay ?? state.androidPickerDatetime) === value &&
+				state.value !== value &&
+				this.setValue(path, value)
 			)
 				saved.push(path);
 		}
@@ -2965,7 +2986,7 @@ export class FormEngine {
 		if (path === this.rootPath) {
 			this.enterAllSections();
 			this.activeScreenPath = path;
-			this.drawAndroidDates(path);
+			this.drawAndroidCalendarPickers(path);
 			return;
 		}
 		const section = this.sectionAtScreenPath(path);
@@ -2974,7 +2995,7 @@ export class FormEngine {
 			return;
 		}
 		this.activeScreenPath = path;
-		this.drawAndroidDates(path);
+		this.drawAndroidCalendarPickers(path);
 	}
 
 	async enterScreenAsync(
@@ -2984,7 +3005,7 @@ export class FormEngine {
 		if (path === this.rootPath) {
 			await this.enterAllSectionsAsync(evaluateAsync);
 			this.activeScreenPath = path;
-			this.drawAndroidDates(path);
+			this.drawAndroidCalendarPickers(path);
 			return;
 		}
 		const section = this.sectionAtScreenPath(path);
@@ -2993,7 +3014,7 @@ export class FormEngine {
 			return;
 		}
 		this.activeScreenPath = path;
-		this.drawAndroidDates(path);
+		this.drawAndroidCalendarPickers(path);
 	}
 
 	private sectionAtScreenPath(path: string): Uuid | undefined {
@@ -6685,7 +6706,7 @@ export class FormEngine {
 		if (!resolved) this.activeSectionUuid = undefined;
 		else if (resolved.uuid !== sectionUuid) this.enterSection(resolved.uuid);
 		else this.activeScreenPath = resolved.path;
-		this.drawAndroidDates(resolved?.path);
+		this.drawAndroidCalendarPickers(resolved?.path);
 	}
 
 	async enterSectionAsync(
@@ -6710,7 +6731,7 @@ export class FormEngine {
 		else if (resolved.uuid !== sectionUuid)
 			await this.enterSectionAsync(resolved.uuid, evaluateAsync);
 		else this.activeScreenPath = resolved.path;
-		this.drawAndroidDates(resolved?.path);
+		this.drawAndroidCalendarPickers(resolved?.path);
 	}
 
 	/** Nova context recovery re-evaluates untouched defaults with retained row
@@ -7230,14 +7251,20 @@ export class FormEngine {
 	private fieldPathsByUuid(): ReadonlyMap<Uuid, string> {
 		if (this.fieldPathsCacheTree !== this.tree) {
 			const paths = new Map<Uuid, string>();
-			this.datePathTemplates = [];
+			this.calendarPathTemplates = [];
 			const walk = (nodes: FieldTreeNode[], prefix: string): void => {
 				for (const node of nodes) {
 					const nodePath = `${prefix}/${node.field.id}`;
 					paths.set(node.field.uuid, nodePath);
-					// An Android app replaces the Date widget, including its suggested day.
-					if (node.field.kind === "date" && node.field.androidApp === undefined)
-						this.datePathTemplates.push(nodePath);
+					// An Android app replaces the normal picker and its suggested value.
+					if (
+						(node.field.kind === "date" || node.field.kind === "datetime") &&
+						node.field.androidApp === undefined
+					)
+						this.calendarPathTemplates.push({
+							path: nodePath,
+							kind: node.field.kind,
+						});
 					if (node.children) walk(node.children, nodePath);
 				}
 			};

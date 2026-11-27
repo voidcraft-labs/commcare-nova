@@ -253,9 +253,38 @@ describe("a date-and-time question saved straight to a case", () => {
 			if (write === undefined) throw new Error("Expected the imported write");
 			write.update_mode = "edit";
 		});
-		const held = await read(edit);
+		for (const saveOnlyEditedApplied of [true, false]) {
+			const reading = await readHqApp(
+				await inputFor(edit, { saveOnlyEditedApplied }),
+			);
+			if (reading.kind !== "read")
+				throw new Error(JSON.stringify(reading.findings));
+			expect(reading.draft.declaration).toMatchObject({
+				kind: "choices",
+				choices: [
+					expect.objectContaining({ runsOnlyOn: "android", split: false }),
+				],
+			});
+			const edited = update(exportedBody(reading.draft.doc).modules, 3);
+			expect(edited.external_id).toMatchObject({
+				question_path: "/data/seen_at",
+				update_mode: saveOnlyEditedApplied ? "edit" : "always",
+			});
+			expect(edited.seen_at).toMatchObject({
+				question_path: "/data/nova_datetime_seen_at",
+			});
+		}
+
+		const rename = produce(asExternalId, (draft) => {
+			const writes = update(draft.modules, 3);
+			writes.name = writes.external_id;
+			delete writes.external_id;
+		});
+		const unsupported = await read(rename);
 		expect(
-			held.kind === "account" ? held.findings.map((one) => one.code) : [],
+			unsupported.kind === "account"
+				? unsupported.findings.map(({ code }) => code)
+				: [],
 		).toContain(`${F}/a-date-and-time-saved-straight-in-no-shape-nova-keeps`);
 	});
 	it("to the worker's record is refused under its own entry", async () => {

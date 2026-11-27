@@ -9,12 +9,16 @@ import { FormScreen } from "@/components/preview/screens/FormScreen";
 import { HomeScreen } from "@/components/preview/screens/HomeScreen";
 import { ToastContainer } from "@/components/ui/ToastContainer";
 import { buildDoc, type FieldSpec } from "@/lib/__tests__/docHelpers";
+import { planDatetimeSplit } from "@/lib/doc/datetimeSplit";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import { createBlueprintDocStore } from "@/lib/doc/store";
 import { NEW_APP_SETTINGS } from "@/lib/domain";
 import { literal, term } from "@/lib/domain/expression/builders";
 import type { Platform } from "@/lib/domain/platforms";
-import { admittedControllerDoc } from "@/lib/preview/engine/__tests__/fixtures/controllerDoc";
+import {
+	admittedControllerDoc,
+	applyControllerEdit,
+} from "@/lib/preview/engine/__tests__/fixtures/controllerDoc";
 import type { EngineController } from "@/lib/preview/engine/engineController";
 import {
 	BuilderFormEngineProvider,
@@ -69,6 +73,16 @@ function inSection(label: string, children: FieldSpec[]): FieldSpec {
 
 function fieldsOf(fixture: PreviewPlatformFixture): FieldSpec[] {
 	switch (fixture) {
+		case "datetime-picker":
+			return [
+				{
+					kind: "datetime",
+					id: "arrival_stamp",
+					uuid: IDS.datetime,
+					label: "Arrival stamp",
+				},
+				{ kind: "text", id: "review", label: "Review visit" },
+			];
 		case "face-photo":
 			return [
 				inSection("Visit", [
@@ -608,6 +622,14 @@ if (scenario.fixture === "screens")
 const doc = admittedControllerDoc(built);
 const docStore = createBlueprintDocStore();
 docStore.getState().load(doc);
+if (scenarioId === "datetime-picker-web-apps") {
+	const split = planDatetimeSplit(docStore.getState(), IDS.datetime);
+	if (!split.ok) throw new Error(split.message);
+	applyControllerEdit(docStore, [
+		...split.mutations,
+		{ kind: "setAppSettings", settings: { runsOnlyOn: "web-apps" } },
+	]);
+}
 docStore.getState().startTracking();
 const session = createBuilderSessionStore({
 	appId: doc.appId,
@@ -680,6 +702,9 @@ toastRoot.render(<ToastContainer />);
 
 window.previewPlatforms = {
 	answer: (uuid) => controller?.store.getState()[uuid]?.value,
+	async setAnswer(uuid, value) {
+		return (await controller?.onValueChangeAsync(uuid, value)) === true;
+	},
 	setPlatform(next) {
 		session.getState().setPreviewPlatform(next);
 	},
@@ -698,6 +723,7 @@ declare global {
 	interface Window {
 		previewPlatforms: {
 			answer(uuid: string): string | undefined;
+			setAnswer(uuid: string, value: string): Promise<boolean>;
 			/** Plays `next` as the builder's platform switch does. */
 			setPlatform(next: Platform): void;
 			settled(): Promise<void>;

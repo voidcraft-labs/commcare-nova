@@ -17667,6 +17667,42 @@
 	{
 		"id": "hq-case-management/datetime-saved-straight-as-the-external-id-on-edit",
 		"base": "hq-case-management",
+		"entry": "forms-and-case-writes/a-datetime-question-s-day-as-the-external-id",
+		"holds": [
+			{
+				"key": ["field", { "$xmlns": [0, 3] }, ["seen_at"]],
+				"pointer": "/kind",
+				"value": "datetime"
+			},
+			{
+				"key": ["form", { "$xmlns": [0, 3] }],
+				"pointer": "/caseOperations/0/placement/slot",
+				"value": "own"
+			},
+			{
+				"key": ["form", { "$xmlns": [0, 3] }],
+				"pointer": "/caseOperations/0/writes/1/value/kind",
+				"value": "date-coerce"
+			},
+			{
+				"key": ["form", { "$xmlns": [0, 3] }],
+				"pointer": "/caseOperations/0/writes/1/onlyIfChanged",
+				"value": true
+			}
+		],
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/0/forms/3/actions/update_case/update/external_id",
+			"value": {
+				"question_path": "/data/seen_at",
+				"update_mode": "edit",
+				"doc_type": "ConditionalCaseUpdate"
+			}
+		}
+	},
+	{
+		"id": "hq-case-management/datetime-saved-straight-as-the-case-name",
+		"base": "hq-case-management",
 		"entry": "forms-and-case-writes/a-date-and-time-saved-straight-in-no-shape-nova-keeps",
 		"standing": "not-yet",
 		"place": {
@@ -17678,10 +17714,10 @@
 		},
 		"change": {
 			"op": "set-json",
-			"pointer": "/modules/0/forms/3/actions/update_case/update/external_id",
+			"pointer": "/modules/0/forms/3/actions/update_case/update/name",
 			"value": {
 				"question_path": "/data/seen_at",
-				"update_mode": "edit",
+				"update_mode": "always",
 				"doc_type": "ConditionalCaseUpdate"
 			}
 		}
