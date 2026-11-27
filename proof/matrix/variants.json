@@ -36793,20 +36793,18 @@
 	{
 		"id": "hq-questions/save-to-case-bare-name",
 		"base": "hq-questions",
-		"entry": "questions/savetocase-block-outside-nova-s-own-block-shape",
-		"standing": "not-yet",
-		"place": {
-			"kind": "question",
-			"menu": 0,
-			"form": 0,
-			"menuName": "Questions",
-			"formName": "Survey",
-			"path": "nova_operations/make_household"
-		},
+		"entry": "questions/savetocase-create-case-type-literal-case-name-owner-id-uuid-case",
 		"change": {
 			"op": "named",
 			"name": "save_to_case_bare_name"
-		}
+		},
+		"holds": [
+			{
+				"key": ["form", { "$xmlns": [0, 0] }],
+				"pointer": "/caseOperations/0/keepNameText",
+				"value": true
+			}
+		]
 	},
 	{
 		"id": "hq-questions/save-to-case-blank-id",

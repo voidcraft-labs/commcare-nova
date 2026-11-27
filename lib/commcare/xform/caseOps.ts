@@ -1474,19 +1474,21 @@ export function buildCaseOperations(
 			const namePath = createPath.child("case_name");
 			requiredScalarTextPaths.push(namePath);
 			if (operation.name !== undefined) {
+				const value = emitExpression(
+					operation.name,
+					namePath,
+					ownSlot("case_operation_name"),
+				);
 				blockBinds.push(
 					xel(
 						"bind",
 						{
 							xpath: {
 								nodeset: namePath.toWire(),
-								calculate: caseScalarTextValueCalculation(
-									emitExpression(
-										operation.name,
-										namePath,
-										ownSlot("case_operation_name"),
-									),
-								),
+								calculate:
+									operation.action === "create" && operation.keepNameText
+										? value
+										: caseScalarTextValueCalculation(value),
 							},
 						},
 						context,

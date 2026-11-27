@@ -2697,6 +2697,7 @@ export class PostgresCaseStore implements CaseStore {
 			origin?: "existing-record";
 			caseId?: string;
 			ownerId?: string;
+			allowEmptyName?: true;
 			parentRelationship?: CaseIndicesTable["relationship"];
 			parentIdentifier?: string;
 			caseIdTaken?: () => never;
@@ -2734,7 +2735,7 @@ export class PostgresCaseStore implements CaseStore {
 			case_name: normalizedCaseScalar(
 				"case_name",
 				args.row.case_name,
-				"reject",
+				args.allowEmptyName ? "allow" : "reject",
 			),
 			...(args.row.external_id === null || args.row.external_id === undefined
 				? { external_id: null }
@@ -2953,6 +2954,7 @@ export class PostgresCaseStore implements CaseStore {
 					},
 					...(a.caseId === undefined ? {} : { caseId: a.caseId }),
 					...(a.ownerId === undefined ? {} : { ownerId: a.ownerId }),
+					...(a.allowEmptyName && { allowEmptyName: true as const }),
 					...(a.seed.parentRelationship === undefined
 						? {}
 						: { parentRelationship: a.seed.parentRelationship }),
