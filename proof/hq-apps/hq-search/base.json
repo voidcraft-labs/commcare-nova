@@ -8,6 +8,7 @@
 			"SYNC_SEARCH_CASE_CLAIM"
 		],
 		"namedPrivileges": [
+			"GEOCODER",
 			"LOOKUP_TABLES"
 		],
 		"commcareVersion": "2.57.0",
@@ -17,6 +18,8 @@
 	},
 	"declaration": "preselected",
 	"exhibits": [
+		"case-search/address-picker-on-a-search-screen",
+		"case-search/address-receiver-with-an-unused-suffix",
 		"case-search/appearance-barcode-scan",
 		"case-search/case-list-filter-clause-the-search-does-not-restate",
 		"case-search/date-only-comparison-on-date-opened-closed-on-last-modified",

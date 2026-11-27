@@ -2996,6 +2996,41 @@ const PAIRS: Readonly<
 				"'+name:exact:obsolete'";
 		}),
 	),
+	"search-address-receiver-suffix-removed": editedPair(
+		() =>
+			patients([plainColumn(uuid(1), "case_name", "Name")], {
+				search: {},
+				searchInputs: [
+					{
+						uuid: uuid(19),
+						kind: "address",
+						type: "address",
+						name: "home",
+						label: "Find an address",
+						excludeFromRequest: true,
+					},
+					{
+						uuid: uuid(20),
+						kind: "simple",
+						type: "text",
+						name: "name",
+						label: "Name",
+						property: "case_name",
+						matching: "project-space",
+						addressReceiver: {
+							kind: "address",
+							source: uuid(19),
+							parts: ["city"],
+						},
+					},
+				],
+			}),
+		onMenu((menu) => {
+			const fields = menu.search_config.properties as Record<string, unknown>[];
+			fields[1].receiver_expression = "home-city-extra";
+		}),
+	),
+
 	// A sort over a property the list does not show.
 	"sort-rule-kept-as-hidden-column": editedPair(
 		() => patients([plainColumn(uuid(1), "case_name", "Name")]),

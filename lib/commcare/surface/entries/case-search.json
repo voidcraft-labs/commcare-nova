@@ -3965,6 +3965,32 @@
 		"gates": []
 	},
 	{
+		"id": "case-search/address-receiver-with-an-unused-suffix",
+		"area": "case-search",
+		"section": "Case search",
+		"subsection": "Search prompts",
+		"item": "A text address recipient has one unused suffix on its saved selector",
+		"surfaceKeys": [
+			"schema:CaseSearchProperty.receiver_expression",
+			"parser:QueryPromptParser/prompt@receive"
+		],
+		"valueClass": "address-receiver-with-an-unused-suffix",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: a unique plain text recipient keeps its publisher and one component. Web Apps does not read the third selector segment as a component.",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / IGNORED",
+			"webApps": { "reading": "runs" },
+			"android": { "reading": "ignored" }
+		},
+		"emission": {
+			"cell": "address receiver with only the publisher and component",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
 		"id": "case-search/receiver-expression",
 		"area": "case-search",
 		"section": "Case search",
@@ -3976,7 +4002,7 @@
 		],
 		"valueClass": "receiver-with-a-topic-or-part-nova-cannot-hold",
 		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: other receiver spellings outside the address topic and component grammar, including an active receiver with additional hyphen segments",
+		"dispositionCell": "**HELD-NEW**: other receiver spellings outside the address topic and component grammar, including an active receiver whose first component is outside the address vocabulary",
 		"subject": "search-fields",
 		"owner": "case-search",
 		"platforms": {
