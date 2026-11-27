@@ -5890,7 +5890,7 @@
 					"date_format": "%d/%m/%y",
 					"doc_type": "DetailColumn",
 					"enum": [],
-					"field": "count(instance('casedb')/casedb/case[@case_type = 'patient'][village = 'north'])",
+					"field": "count(instance('casedb')/casedb/case[@case_type = 'patient'][phone = '555-0142'])",
 					"format": "plain",
 					"graph_configuration": {
 						"annotations": [],
@@ -5920,7 +5920,7 @@
 					}
 				],
 				"pointer": "/caseListConfig/columns/5/expression/via/where/1/right/term/value",
-				"value": "north"
+				"value": "555-0142"
 			}
 		]
 	},
