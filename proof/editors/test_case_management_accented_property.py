@@ -181,13 +181,18 @@ def test_signed_web_apps_distinguishes_case_property_element_names(hq, formplaye
                     *steps.open_app(APP_NAME), *steps.choose(MENU_NAME), *steps.select_case(SELECTED),
                     *steps.click(steps.MENU_ROW, FORM_NAME, visible=True, within=steps.WITHIN_MS),
                     *steps.arrive(any_screen=True), steps.SCREEN,
-                    *([*steps.answer("1", ANSWER), *steps.submit_and_land()] if opens else []),
+                    *([*steps.answer("0", ANSWER), *steps.submit_and_land()] if opens else []),
                 ], release.acting, deadline=90)
                 assert run.page_errors == [] and run.dialogs == []
                 screen, = run.screens
                 case = CommCareCase.objects.get_case(SELECTED, state.domain)
                 if opens:
                     assert screen["form"]["title"] == FORM_NAME
+                    note, = screen["form"]["questions"]
+                    assert note["label"] == "Note", note
+                    answer, = run.answered("answer")
+                    assert (answer.request_json()["ix"], answer.request_json()["answer"]) == ("0", ANSWER)
+                    assert answer.json()["status"] == "accepted", answer.json()
                     submission, = session.hq.submissions
                     _assert_wire(submission.instance, key)
                     assert case.case_json == {key: ANSWER}
