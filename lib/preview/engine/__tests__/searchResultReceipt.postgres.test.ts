@@ -12,6 +12,11 @@ import {
 	loadCasesAction,
 	loadSearchResultsSnapshotAction,
 } from "../caseDataBinding";
+import { resolveAuthorizedPreviewContext } from "../previewAuthorization";
+import {
+	keepSearchResult,
+	readKeptSearchResultDetail,
+} from "../searchResultReceipt";
 import { webAppsDevice } from "./fixtures/previewDevices";
 
 const ACTOR = "search-response-worker";
@@ -179,9 +184,113 @@ it("opens a form on the same search response that supplied Results", async () =>
 			searchSubmission: crypto.randomUUID(),
 		}),
 	).toMatchObject({ kind: "invalid-search" });
+	const opening = await loadSearchResultsSnapshotAction(form);
+	if (opening.kind !== "data")
+		throw new Error("The original results were lost.");
+	const resolveDetailContext = async () => {
+		const context = await resolveAuthorizedPreviewContext({
+			appId: APP,
+			required: "view",
+			loadBlueprint: true,
+			device: request.device,
+		});
+		if (context.kind !== "ready")
+			throw new Error("The fixture worker did not open.");
+		return context;
+	};
+	const context = await resolveDetailContext();
+	const resultScope = {
+		appId: APP,
+		moduleUuid,
+		caseType: "patient",
+		submission: request.searchSubmission,
+	};
+	const prompt = testUuid("search-response-name");
+	const unanswered = testUuid("search-response-unanswered");
+	const frame = [
+		{ inputUuid: prompt, answer: "original typed text" },
+		{ inputUuid: unanswered, answer: null },
+	];
+	const detailReceipt = await keepSearchResult(
+		resultScope,
+		context,
+		opening.snapshot,
+		frame,
+	);
+	frame[0].answer = "later draft";
+	expect(
+		await readKeptSearchResultDetail(
+			resultScope,
+			context,
+			detailReceipt,
+			"served",
+			prompt,
+		),
+	).toEqual({ answer: "original typed text" });
+	expect(
+		await readKeptSearchResultDetail(
+			resultScope,
+			context,
+			detailReceipt,
+			"served",
+			unanswered,
+		),
+	).toEqual({ answer: null });
+	expect(
+		await readKeptSearchResultDetail(
+			resultScope,
+			context,
+			detailReceipt,
+			"replacement",
+			prompt,
+		),
+	).toBeUndefined();
+	expect(
+		await readKeptSearchResultDetail(
+			resultScope,
+			context,
+			detailReceipt,
+			"served",
+			testUuid("other-prompt"),
+		),
+	).toBeUndefined();
+	expect(
+		await readKeptSearchResultDetail(
+			resultScope,
+			context,
+			results.resultReceipt,
+			"served",
+			prompt,
+		),
+	).toBeUndefined();
+	expect(
+		await readKeptSearchResultDetail(
+			{ ...resultScope, submission: crypto.randomUUID() },
+			context,
+			detailReceipt,
+			"served",
+			prompt,
+		),
+	).toBeUndefined();
+	expect(
+		await loadSearchResultsSnapshotAction({
+			...form,
+			resultReceipt: detailReceipt,
+		}),
+	).toEqual(opening);
+
 	const firstSession = auth.sessionId;
 	try {
 		auth.sessionId = secondSession;
+		expect(
+			await readKeptSearchResultDetail(
+				resultScope,
+				await resolveDetailContext(),
+				detailReceipt,
+				"served",
+				prompt,
+			),
+		).toBeUndefined();
 		expect(await loadSearchResultsSnapshotAction(form)).toMatchObject({
 			kind: "invalid-search",
 		});

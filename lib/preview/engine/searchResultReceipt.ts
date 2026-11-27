@@ -16,6 +16,7 @@ import {
 } from "@/lib/db/formOpeningData";
 import { withAppTx } from "@/lib/db/pg";
 import { previewSearchCatalogIn } from "@/lib/deployment/previewSearchSettings";
+import type { Uuid } from "@/lib/domain/uuid";
 import {
 	previewSearchTargetKey,
 	resolvePreviewSearchFacts,
@@ -37,6 +38,17 @@ interface SearchReceiptScope {
 	readonly caseType: string;
 	readonly submission: string;
 }
+
+/** The visible prompt identities this Search actually offered and their
+ * submitted values. Null is an offered but unanswered optional prompt. */
+export interface SearchResultDetailAnswer {
+	readonly inputUuid: Uuid;
+	readonly answer: string | null;
+}
+
+type KeptSearchResult = SearchResultsSnapshot & {
+	readonly detailAnswers?: readonly SearchResultDetailAnswer[];
+};
 
 async function withCurrentAudience<T>(
 	scope: SearchReceiptScope,
@@ -113,10 +125,13 @@ export async function keepSearchResult(
 	scope: SearchReceiptScope,
 	context: Context,
 	instance: SearchResultsSnapshot,
+	detailAnswers?: readonly SearchResultDetailAnswer[],
 ): Promise<string> {
 	const key = await withCurrentAudience(scope, context, (current) => current);
 	if (key === undefined) throw new Error("Search response scope is missing.");
-	const bytes = await compress(JSON.stringify(instance));
+	const snapshot: KeptSearchResult =
+		detailAnswers === undefined ? instance : { ...instance, detailAnswers };
+	const bytes = await compress(JSON.stringify(snapshot));
 	const contentDigest = bytesDigest(bytes);
 	await putFormOpeningData({ ...key, contentDigest }, bytes);
 	return contentDigest;
@@ -127,6 +142,34 @@ export async function readKeptSearchResult(
 	context: Context,
 	receipt: string | undefined,
 ): Promise<SearchResultsSnapshot | undefined> {
+	const snapshot = await readKeptSearchResponse(scope, context, receipt);
+	if (snapshot === undefined) return;
+	return { rows: snapshot.rows, totalMatches: snapshot.totalMatches };
+}
+
+/** Open only the prompt and primary result named by the originating response.
+ * A direct case lookup, an old rows-only receipt and an unoffered prompt hold
+ * no such read. */
+export async function readKeptSearchResultDetail(
+	scope: SearchReceiptScope,
+	context: Context,
+	receipt: string | undefined,
+	caseId: string,
+	inputUuid: Uuid,
+): Promise<{ readonly answer: string | null } | undefined> {
+	const snapshot = await readKeptSearchResponse(scope, context, receipt);
+	if (!snapshot?.rows.some((row) => row.case_id === caseId)) return;
+	const offered = snapshot.detailAnswers?.find(
+		(row) => row.inputUuid === inputUuid,
+	);
+	return offered === undefined ? undefined : { answer: offered.answer };
+}
+
+async function readKeptSearchResponse(
+	scope: SearchReceiptScope,
+	context: Context,
+	receipt: string | undefined,
+): Promise<KeptSearchResult | undefined> {
 	const parsed = digestKey.safeParse(receipt);
 	if (!parsed.success) return;
 	const bytes = await withCurrentAudience(scope, context, (key, tx) =>
@@ -135,5 +178,5 @@ export async function readKeptSearchResult(
 	if (bytes === undefined || bytesDigest(bytes) !== parsed.data) return;
 	return JSON.parse(
 		(await decompress(bytes)).toString("utf8"),
-	) as SearchResultsSnapshot;
+	) as KeptSearchResult;
 }
