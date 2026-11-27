@@ -414,6 +414,7 @@
 			"case-search/input-date",
 			"case-search/default-value-lifting-into-valueexpression",
 			"case-search/default-value-on-a-date-range-input",
+			"case-search/default-value-ordering-the-worker-name",
 			"case-search/default-value-outside-valueexpression",
 			"case-search/hidden-exclude-with-a-default-value-on-a-prompt-with-no-itemset",
 			"case-search/hidden-exclude-without-a-default-value-on-a-prompt-with-no",
