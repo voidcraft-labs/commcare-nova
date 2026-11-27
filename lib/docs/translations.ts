@@ -1,15 +1,7 @@
 /**
- * Nova's wording for fumadocs' own UI strings.
- *
- * The library ships Title Case ("Collapse Sidebar", "Open Search", "Copy
- * Anchor Link", "Next Page"), and Nova writes everything in sentence case.
- * These are the library's strings, not ours, so the only place to say so is
- * its translation table. Keys come from
- * `fumadocs-ui/dist/.translations/keys.json`; the parenthetical suffix is
- * part of the key, not part of what a person reads.
- *
- * Only entries that actually differ are listed. Anything absent falls
- * through to the library's default, which is already sentence case.
+ * Sentence-case overrides for the UI that Fumadocs renders in Nova's docs.
+ * The translation keys name the source text and its component. Nova's 404
+ * page owns its own copy.
  */
 import { defineTranslations } from "fumadocs-core/i18n";
 import { uiTranslations } from "fumadocs-ui/i18n";
@@ -17,7 +9,6 @@ import { uiTranslations } from "fumadocs-ui/i18n";
 export const docsTranslations = defineTranslations()
 	.extend(uiTranslations())
 	.add({
-		"Back to Home(404 page)": "Back to docs",
 		"Close Banner(banner)(aria-label)": "Close banner",
 		"Close Search(search dialog)(aria-label)": "Close search",
 		"Close Sidebar(sidebar)(aria-label)": "Close sidebar",
@@ -34,15 +25,14 @@ export const docsTranslations = defineTranslations()
 		"No Headings(table of contents)": "No headings",
 		"Open Search(search trigger)(aria-label)": "Open search",
 		"Open Sidebar(sidebar)(aria-label)": "Open sidebar",
-		"Page Not Found(404 page)": "Page not found",
 		"Previous Page(pagination)": "Previous page",
 		"Search failed(search dialog)":
 			"Couldn't search the docs. You can refresh the page to try again.",
 		"Search failed, showing results for {query}(search dialog)":
 			"Couldn't search the docs. Showing earlier results for {query}.",
+		"Skip to Content(skip link)": "Skip to content",
 		"System(theme switcher)(aria-label)": "System",
 		"Table of Contents(inline table of contents)": "Table of contents",
-		"Toggle Menu(mobile menu)(aria-label)": "Toggle menu",
 		"Toggle Theme(theme switcher)(aria-label)": "Toggle theme",
 		"View as Markdown(page actions)": "View as markdown",
 	});

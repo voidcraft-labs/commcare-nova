@@ -2250,6 +2250,9 @@ describe("barrier persistence", () => {
 			.executeTakeFirstOrThrow();
 		const model = peer.response();
 		const response = await post(editTurnRequest());
+		expect(response.headers.get("cache-control")).toBe(
+			"no-cache, no-transform",
+		);
 		const streamId = response.headers.get("x-workflow-run-id");
 		if (!streamId) throw new Error("no stream id");
 		const body = responseText(response);

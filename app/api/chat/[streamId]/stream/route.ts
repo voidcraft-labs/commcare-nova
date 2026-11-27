@@ -56,11 +56,11 @@
  * synthetic `finish`: a resuming client always terminates.
  */
 
-import { UI_MESSAGE_STREAM_HEADERS } from "ai";
 import { ApiError, handleApiError } from "@/lib/apiError";
 import type { Session } from "@/lib/auth";
 import { readSession, requireSession } from "@/lib/auth-utils";
 import { PRIVATE_HOLDER_NONCE_CHUNK_TYPE } from "@/lib/chat/privateHolderNonce";
+import { CHAT_STREAM_HEADERS } from "@/lib/chat/streamHeaders";
 import { isUserActive } from "@/lib/db/api-keys";
 import { AppAccessError } from "@/lib/db/appAccess";
 import { createCoalescedStreamPump } from "@/lib/db/coalescedStreamPump";
@@ -212,7 +212,7 @@ function finishOnlyResponse(): Response {
 			controller.close();
 		},
 	});
-	return new Response(body, { headers: { ...UI_MESSAGE_STREAM_HEADERS } });
+	return new Response(body, { headers: CHAT_STREAM_HEADERS });
 }
 
 /**
@@ -465,7 +465,7 @@ function openStream(args: {
 
 	return new Response(stream, {
 		headers: {
-			...UI_MESSAGE_STREAM_HEADERS,
+			...CHAT_STREAM_HEADERS,
 			"x-workflow-run-id": streamId,
 			...(tailHeader !== undefined
 				? { "x-workflow-stream-tail-index": tailHeader }

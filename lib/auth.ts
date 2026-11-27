@@ -893,17 +893,7 @@ export function createAuth(
 				 * authenticated service-account traffic. */
 				deferUpdates: true,
 				keyExpiration: {
-					/* `defaultExpiresIn` is in SECONDS despite the plugin type
-					 * docstring claiming milliseconds — the create endpoint
-					 * runs `getDate(defaultExpiresIn, "sec")`, which the
-					 * `getDate` helper interprets as seconds (multiplies by
-					 * 1000 internally). `minExpiresIn` and `maxExpiresIn` are
-					 * in DAYS (the create endpoint divides incoming
-					 * `expiresIn` by 86400 before comparing). The mixed units
-					 * inside one config block are confusing on a casual read;
-					 * the source of truth is the plugin's `getDate(...)` and
-					 * `expiresIn / (3600 * 24)` calls in
-					 * `node_modules/@better-auth/api-key/dist/index.mjs`. */
+					// The default is in seconds. The minimum and maximum are in days.
 					defaultExpiresIn: 365 * 24 * 60 * 60,
 					minExpiresIn: 1,
 					maxExpiresIn: 36500,

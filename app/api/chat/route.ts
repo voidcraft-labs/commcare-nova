@@ -37,10 +37,7 @@ import {
 	admitIncomingSources,
 	IncomingSourceUnavailableError,
 } from "@/lib/agent/incomingSources";
-import {
-	EDIT_TURN_LIMIT_MESSAGE,
-	SOLUTIONS_ARCHITECT_MAX_STEPS,
-} from "@/lib/agent/solutionsArchitect";
+import { EDIT_TURN_LIMIT_MESSAGE } from "@/lib/agent/solutionsArchitect";
 import { productionSourceMaterialDeps } from "@/lib/agent/sources.server";
 import { CHAT_REQUEST_MAX_BYTES, declaredBodyTooLarge } from "@/lib/apiError";
 import { resolveOpenAIKey } from "@/lib/auth-utils";
@@ -55,6 +52,7 @@ import {
 	type IncomingSourceReference,
 	incomingSourceReferences,
 } from "@/lib/chat/sourceAdmission";
+import { CHAT_STREAM_HEADERS } from "@/lib/chat/streamHeaders";
 import { createOpenPartTracker } from "@/lib/chat/streamPartClosure";
 import { commitThreadInputPause } from "@/lib/chat/threadInputRounds";
 import { validateChatMessages } from "@/lib/chat/validateMessages";
@@ -3550,14 +3548,8 @@ export async function POST(req: Request) {
 							!ctx.pausedOnInput()
 						) {
 							const pending = await work.status();
-							const steps = await result.steps;
-							// Hosted discovery can accompany a complete final answer. Only
-							// client-executed calls require another step to consume results.
 							const reachedLimit =
-								steps.length >= SOLUTIONS_ARCHITECT_MAX_STEPS &&
-								steps
-									.at(-1)
-									?.toolCalls.some((call) => call.providerExecuted !== true);
+								(await result.stoppedBy) === "stop-condition";
 							if (pending.pendingChanges > 0 && !reachedLimit) {
 								const text = pending.stale
 									? "These changes are still pending because the saved app changed. You can restart from the latest saved app or discard the pending changes."
@@ -3809,6 +3801,6 @@ export async function POST(req: Request) {
 	 * and replays the difference from the durable chunk log. */
 	return createUIMessageStreamResponse({
 		stream,
-		headers: { "x-workflow-run-id": streamId },
+		headers: { ...CHAT_STREAM_HEADERS, "x-workflow-run-id": streamId },
 	});
 }
