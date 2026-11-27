@@ -839,7 +839,12 @@ describe("bounded flat close", () => {
 				caseIds: ["unrelated-other-worker"],
 			}),
 		).toBeUndefined();
-		const datumOrder = selected.toSorted();
+		await sql`UPDATE cases AS c SET opened_on = now() + (selected.ordinality * interval '1 second')
+			FROM unnest(${selected}::text[]) WITH ORDINALITY AS selected(case_id, ordinality)
+			WHERE c.app_id = ${APP_ID} AND c.project_id = ${PROJECT_A} AND c.case_id = selected.case_id`.execute(
+			dbHandle.db,
+		);
+		const datumOrder = selected;
 		expect(
 			await store.readFlatCloseSelection({
 				...scope,

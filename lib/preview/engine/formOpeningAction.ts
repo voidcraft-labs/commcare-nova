@@ -1,6 +1,7 @@
 "use server";
 
 import { z } from "zod";
+import { FlatClosePayloadTooLargeError } from "@/lib/case-store/flatCloseBudget";
 import { AppAccessError } from "@/lib/db/appAccess";
 import {
 	hydratePersistedBlueprint,
@@ -690,7 +691,8 @@ async function readOpening(
 	} catch (error) {
 		if (
 			error instanceof InvalidWebActivityWindowError ||
-			error instanceof FormEvaluationInputError
+			error instanceof FormEvaluationInputError ||
+			error instanceof FlatClosePayloadTooLargeError
 		)
 			return { kind: "error", message: error.message } as const;
 		if (error instanceof AppAccessError)

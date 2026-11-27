@@ -4,6 +4,7 @@ import { CaptureSubmissionRejectedError } from "../errors";
 import {
 	FLAT_CLOSE_CASE_BYTES,
 	FLAT_CLOSE_SELECTED_RECORDS,
+	FlatClosePayloadTooLargeError,
 } from "../flatCloseBudget";
 import { searchSupportingIds } from "./searchSupportingIds";
 // lib/case-store/postgres/store.ts
@@ -1885,7 +1886,7 @@ export class PostgresCaseStore implements CaseStore {
 	 * distinct from the exact compact DTO budget verified after projection. */
 	private assertFlatCloseTransferSize(bytes: number): void {
 		if (bytes > 2 * FLAT_CLOSE_CASE_BYTES)
-			throw new CaptureSubmissionRejectedError(FLAT_CLOSE_LARGE);
+			throw new FlatClosePayloadTooLargeError();
 	}
 
 	/** The source rows were selected in this transaction, including the worker
@@ -5638,11 +5639,9 @@ function submissionCaseTypes(args: ApplySubmissionArgs): string[] {
  * external id, the device keeps the external id it had
  * (`submissionEnvelope.ts::DeviceExternalIds`) until its next sync.
  */
-const FLAT_CLOSE_LARGE = "These records hold too much data to close together.";
-
 function assertFlatCloseCaseBytes(patch: DeviceCaseDatabase): void {
 	if (Buffer.byteLength(JSON.stringify(patch), "utf8") > FLAT_CLOSE_CASE_BYTES)
-		throw new CaptureSubmissionRejectedError(FLAT_CLOSE_LARGE);
+		throw new FlatClosePayloadTooLargeError();
 }
 
 function devicePatch(

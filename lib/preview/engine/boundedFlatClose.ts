@@ -17,6 +17,7 @@ export function boundedFlatCloseForm(
 	const owner = doc.forms[form];
 	if (
 		doc.appSettings.runsOnlyOn !== "web-apps" ||
+		doc.appSettings.caseSharing ||
 		doc.moduleOrder.length !== 1 ||
 		doc.moduleOrder[0] !== module ||
 		!menu?.caseType ||
@@ -29,6 +30,7 @@ export function boundedFlatCloseForm(
 		menu.caseSearchConfig ||
 		menu.caseListMenuItem ||
 		menu.caseListRegistrationForm ||
+		!config ||
 		!selection ||
 		config.filter ||
 		config.additionalCaseTypes?.length ||
