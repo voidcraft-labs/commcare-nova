@@ -77,6 +77,7 @@
 
 import { spawn } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
+import { once } from "node:events";
 import { existsSync } from "node:fs";
 import {
 	copyFile,
@@ -93,6 +94,8 @@ import {
 } from "node:fs/promises";
 import { constants } from "node:os";
 import { basename, dirname, join, relative, resolve } from "node:path";
+import { Writable } from "node:stream";
+import { pipeline } from "node:stream/promises";
 import { fileURLToPath } from "node:url";
 import { startCheckpoints } from "./ci/checkpoints.mjs";
 import { hostCommands } from "./ci/hostCommands.mjs";
@@ -164,6 +167,42 @@ function execute(command, args, options = {}) {
 		child.on("error", reject);
 		child.on("exit", (code, signal) => resolveCode(childExit(code, signal)));
 	});
+}
+
+function forwardOutput(input, output) {
+	// Await writes without ending the shared process stream.
+	const sink = new Writable({
+		write: (chunk, _encoding, done) => output.write(chunk, done),
+	});
+	const failed = (error) => sink.destroy(error);
+	output.on("error", failed);
+	return pipeline(input, sink).finally(() => output.off("error", failed));
+}
+
+/** Hosted Docker attaches to private output pipes. Inheriting a saturated,
+ * nonblocking runner descriptor can give Compose EAGAIN and end the attach. */
+export async function executeWithOutputPipes(
+	command,
+	args,
+	{ env, stdout = process.stdout, stderr = process.stderr } = {},
+) {
+	const child = spawn(command, args, {
+		env,
+		stdio: ["inherit", "pipe", "pipe"],
+	});
+	const closed = once(child, "close");
+	try {
+		const [[code, signal]] = await Promise.all([
+			closed,
+			forwardOutput(child.stdout, stdout),
+			forwardOutput(child.stderr, stderr),
+		]);
+		return childExit(code, signal);
+	} catch (error) {
+		child.kill();
+		await closed.catch(() => {});
+		throw error;
+	}
 }
 
 /** Runs a command and resolves its exit code and what it printed on standard output. */
@@ -1058,8 +1097,9 @@ async function runServer({
 	process.once("SIGTERM", interrupted);
 	const stopWatching = output ? watchMemory(output, project) : async () => {};
 	const hosted = serve.includes("--deadline-at");
+	const run = hosted ? executeWithOutputPipes : execute;
 	try {
-		return await execute(
+		return await run(
 			"docker",
 			[
 				...compose,
