@@ -427,7 +427,8 @@ def test_vellum_changes_an_android_app_argument_and_keeps_shared_result_destinat
 
 @pytest.mark.parametrize("configuration", ["minimum", "maximum"])
 def test_vellum_groups_interleaved_android_app_result_destinations(hq, core_runner, editor_driver, configuration):
-    from proof.rules.conftest import build_differences, published
+    from proof.rules.android_intent_response_groups import RULE
+    from proof.rules.conftest import build_differences, published, stored_differences
 
     def responses(source):
         root = etree.fromstring(source.encode())
@@ -451,14 +452,20 @@ def test_vellum_groups_interleaved_android_app_result_destinations(hq, core_runn
             ("measurement", "/data/visits/reading"),
         ]
         assert saved == [original[0], original[2], original[1], *original[3:]]
+        def changed_response(change):
+            return "/intent[" in change.path and "/response[" in change.path
+
         changes = build_differences(before.build, after.build)
         assert sorted((change.before, change.after) for change in changes
-                      if "/intent[" in change.path and "/response[" in change.path) == sorted([
+                      if changed_response(change)) == sorted([
             ("correction", "measurement"),
             ("/data/visits/description", "/data/visits/reading"),
             ("measurement", "correction"),
             ("/data/visits/reading", "/data/visits/description"),
         ])
+        assert any(changed_response(change) for change in stored_differences(before.stored, after.stored))
+        assert not any(changed_response(change) for change in build_differences(before.build, after.build, rules=(RULE,)))
+        assert not any(changed_response(change) for change in stored_differences(before.stored, after.stored, rules=(RULE,)))
 
 
 def test_vellum_keeps_typed_case_choice_sort_and_refs(hq, editor_driver):

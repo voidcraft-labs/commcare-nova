@@ -723,6 +723,46 @@ def test_android_app_returns_update_only_the_invoking_row(android_documents, hq)
         assert _result_rows(invalid, "after") == _result_rows(invalid, "before")
 
 
+def test_android_app_response_grouping_keeps_distinct_key_collision_order(android_documents, hq):
+    from proof.android import observe
+    from proof.formplayer import hq as formplayer_hq
+    from proof.hq import operations
+    from proof.rules.conftest import published
+
+    document = android_documents["targeted-android-app-answers"]
+    # Aa and BB share a Java String hash and write the same answer. Only the
+    # first appearance of each name fixes insertion in Android's Hashtable.
+    first = ("Aa", "/data/visits/description")
+    other = ("BB", "/data/visits/description")
+    last = ("Aa", "/data/visits/reading")
+    samples = []
+    with published(document, None) as publication:
+        for label, rows in (
+            ("interleaved", (first, other, last)),
+            ("grouped", (first, last, other)),
+            ("changed-distinct-order", (other, first, last)),
+        ):
+            with publication.unit.fork():
+                app = operations.held_app(publication.unit, publication.app_id)
+                form = next(form for form in app.get_forms() if 'class="org.example.MEASURE"' in form.source)
+                root = etree.fromstring(form.source.encode())
+                intent, = root.xpath("//*[local-name()='intent' and @id='meter']")
+                for row in intent.findall("{http://www.w3.org/2002/xforms}response"):
+                    intent.remove(row)
+                for name, ref in rows:
+                    etree.SubElement(intent, "{http://www.w3.org/2002/xforms}response", key=name, ref=ref)
+                form.source = etree.tostring(root, encoding="unicode")
+                app.save()
+                with formplayer_hq.serve(publication.unit, document, publication.app_id) as served:
+                    walk, _ = _app(served, observe.release_archive(served), label, commands=[FORM], callouts={
+                        "meter": [[{"named": {"Aa": "17", "BB": "42"}}]],
+                    })
+                    sample, = _app_samples(walk)
+                    row = _result_rows(sample, "after")[0]
+                    samples.append((row["description"], row["reading"]))
+    assert samples == [("17", "17"), ("17", "17"), ("42", "17")]
+
+
 def test_android_app_raw_result_flag_distinguishes_bundled_updates(android_documents, hq):
     """The raw handler flag does not describe whether a mapped question changed."""
     with _served(android_documents["targeted-android-app-answers"]) as (served, archive):
