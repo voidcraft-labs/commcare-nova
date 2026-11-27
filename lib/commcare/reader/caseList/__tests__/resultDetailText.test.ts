@@ -3,6 +3,7 @@ import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc } from "@/lib/__tests__/docHelpers";
 import { literal, term } from "@/lib/domain/expression";
 import { calculatedColumn, simpleSearchInputDef } from "@/lib/domain/modules";
+import { hqHtmlUnescape, instanceScanCuts } from "../../../hqInstanceScan";
 import { serializeXml } from "../../../serializeXml";
 import { buildLongDetail } from "../../../suite/case-list/longDetail";
 import { hqExpressionField } from "../../../suite/case-list/orderPlanOptions";
@@ -40,6 +41,27 @@ describe("standalone Search result-detail text", () => {
 		});
 		expect(readResultDetailText(hq.text)).toEqual(parsed);
 	});
+
+	it.each(["instance('unknown-name')", "instance(&apos;unknown-name&apos;)"])(
+		"preserves protected literal text through HQ JSON without adding a false instance",
+		(prefix) => {
+			const content = {
+				inputName: "detail_marker",
+				prefix,
+				suffix: prefix,
+				localText: prefix,
+			};
+			const printed = serializeWire(resultDetailTextWire(content), {
+				target: "hq-json",
+				interpolation: "none",
+			});
+			expect(instanceScanCuts(hqHtmlUnescape(printed.text))).toHaveLength(2);
+			expect(readResultDetailText(printed.text)).toEqual(content);
+			const rawLiteral = prefix.includes("'") ? `"${prefix}"` : `'${prefix}'`;
+			const raw = formula.replace("'entered=['", rawLiteral);
+			expect(readResultDetailText(raw)).toBeUndefined();
+		},
+	);
 
 	it("emits only on Details in the HQ and local projections", () => {
 		const promptId = testUuid("result-detail-wire-prompt");
