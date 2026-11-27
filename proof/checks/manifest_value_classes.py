@@ -13505,9 +13505,8 @@ def auto_select_on_a_single_basic_list(use, manifest):
         return (module is not None and module.get("doc_type") in (None, "Module") and bool(module.get("case_type"))
                 and pair is not None and pair.get("short") is at.owner and at.value is True
                 and at.owner.get("multi_select") is not True)
-    at = _xml(use)
-    if at is not None and use.key == "parser:SessionDatumParser/datum@autoselect":
-        return at.element.get("autoselect") == "true"
+    # A runtime datum alone cannot identify the Basic list: HQ also emits an
+    # automatic single datum for Advanced loads from a lookup fixture.
     return None
 
 
