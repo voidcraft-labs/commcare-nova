@@ -24,7 +24,8 @@ from proof.webapps.hq import authored_project
     ("/data/code", "1970-01-02", ["late", "late", "late", "late", "early", "late", "late"]),
     ("concat(/data/code, 'x')", "m", ["late"] * 7),
     ("concat(/data/code, '0')", "30", ["early", "late", "late", "late", "early", "early", "late"]),
-], ids=["lexical-text", "numeric-text", "date-shaped-text", "assembled-nonnumeric", "assembled-numeric"])
+    ("concat(/data/code, /data/code_again)", "30", ["early", "late", "late", "late", "early", "early", "late"]),
+], ids=["lexical-text", "numeric-text", "date-shaped-text", "assembled-nonnumeric", "assembled-numeric", "two-text-answers"])
 def test_vellum_and_core_preserve_two_numeric_readings_of_text_order(hq, core_runner, editor_driver, tmp_path, operand, literal, outcomes):
     document = corpus_document("hq-expressions")
     samples = ["", " 2 ", "23", "a", "1970-01-01", "1970-01-03", "2e0"]
@@ -59,14 +60,19 @@ def test_vellum_and_core_preserve_two_numeric_readings_of_text_order(hq, core_ru
             values = []
             with admitted(core_runner, arrange(build.files, tmp_path / kind)) as installation:
                 assert installation["admitted"], installation["problems"]
-                for sample in samples:
+                for index, sample in enumerate(samples):
+                    answers = [{"path": "/data/code", "value": sample}]
+                    if "/data/code_again" in operand:
+                        endings = ["1", "0", "0", "7", "0", "0", "0"]
+                        answers.append({"path": "/data/code_again", "value": endings[index]})
                     run = core_runner.evaluate(app=installation["app"], xmlns=form.xmlns, restoreBase64=restored,
-                                               session={"command": "m0-f0"}, answers=[{"path": "/data/code", "value": sample}],
+                                               session={"command": "m0-f0"}, answers=answers,
                                                expressions=["/data/language"])
-                    assert run["answers"][0]["result"] == "ok", run
+                    assert all(answer["result"] == "ok" for answer in run["answers"]), run
                     values.append(run["values"][0]["value"])
             results[kind] = {"calculate": calculate, "answers": values}
-    shape = "assembled" if operand.startswith("concat(") else "direct"
+    shape = ("two-answers" if "/data/code_again" in operand else
+             "assembled" if operand.startswith("concat(") else "direct")
     write_evidence(f"text-number-order-{shape}-{literal}", {"samples": samples, "results": results})
     assert results["implicit"]["answers"] == outcomes
     assert results["explicit"]["answers"] == outcomes

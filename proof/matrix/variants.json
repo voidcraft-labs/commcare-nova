@@ -23563,6 +23563,28 @@
 	{
 		"id": "hq-expressions/multiple-answers-assembled-for-ordering",
 		"base": "hq-expressions",
+		"entry": "questions/bind-calculate-on-a-hidden-value",
+		"change": {
+			"op": "named",
+			"name": "multiple_answers_assembled_for_ordering"
+		},
+		"holds": [
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["language"]
+				],
+				"pointer": "/calculate/cond/left/args/0/parts/1/term/kind",
+				"value": "field"
+			}
+		]
+	},
+	{
+		"id": "hq-expressions/three-parts-assembled-for-ordering",
+		"base": "hq-expressions",
 		"entry": "expressions-and-data/a-form-expression-outside-what-nova-types",
 		"standing": "not-yet",
 		"place": {
@@ -23575,7 +23597,7 @@
 		},
 		"change": {
 			"op": "named",
-			"name": "multiple_answers_assembled_for_ordering"
+			"name": "three_parts_assembled_for_ordering"
 		}
 	},
 	{

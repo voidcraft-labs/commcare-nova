@@ -125,7 +125,7 @@ it.each([
 		"expressions-and-data/or-with-a-time-on-either-side-a-time-answer-property-or-string",
 	],
 	[
-		"if(concat(/data/code, /data/code) < 'm', 'early', 'late')",
+		"if(concat(/data/code, '-', /data/code) < 'm', 'early', 'late')",
 		"expressions-and-data/a-form-expression-outside-what-nova-types",
 	],
 ])("keeps the existing refusal for %s", async (calculate, entry) => {
