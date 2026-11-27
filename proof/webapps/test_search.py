@@ -178,6 +178,7 @@ def test_authored_blank_comparison_resets_sort_without_the_explicit_orders_missi
     monkeypatch.setattr(case_search, "CASE_SEARCH_MAX_RESULTS", 2)
     controls = (
         ("retained-reset", ("-visit:date", "+priority::ignored", "-visit:date"), ("two-later", "two-earlier")),
+        ("masked-comparison", ("++priority:unknown", "+priority::ignored", "-visit:date"), ("two-later", "two-earlier")),
         ("nova-republish", ("-visit:date", "+priority::ignored", "-visit:date"), ("two-later", "two-earlier")),
         ("explicit-order", ("+priority:numeric,+priority:date,+priority:exact,-visit:date",), ("letter", "two-later")),
     )
@@ -186,6 +187,8 @@ def test_authored_blank_comparison_resets_sort_without_the_explicit_orders_missi
             author = Authoring(project.unit, webapps_documents, document.id, operation=project.unit.operation)
             if label in ("retained-reset", "nova-republish"):
                 registry.named_change("default_filter_resets_earlier_sort")(author, project.app_id)
+            elif label == "masked-comparison":
+                registry.named_change("default_filter_reset_masks_an_unknown_comparison")(author, project.app_id)
             else:
                 ops.set_json(author, project.app_id, "/modules/1/search_config/default_properties/-", {
                     "property": "commcare_sort", "doc_type": "DefaultCaseSearchProperty", "defaultValue": f"'{terms[0]}'",
