@@ -163,7 +163,7 @@ const expressionTargetInputSchema = z.strictObject({
 const workerRecordTargetInputSchema = z
 	.strictObject({ kind: z.literal("worker-record") })
 	.describe(
-		"The worker's own record, for one commcare-user update on a form. Use a root condition or run once for each entry in one ordinary repeating section. The last entry's update takes effect. This target takes no links, owner, rename or retype.",
+		"The worker's own record, for one commcare-user update on a form. Use a root condition or run once for each entry in one ordinary repeating section. A repeat condition is checked per entry. The last matching entry's update takes effect. This target takes no links, owner, rename or retype.",
 	);
 
 const existingTargetInputSchema = z.discriminatedUnion("kind", [

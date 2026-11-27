@@ -2921,6 +2921,27 @@ def save_to_case_worker_under_repeat_condition(authoring, app_id):
     _edit(authoring, app_id, "save-to-case-worker-under-repeat-condition", transform)
 
 
+def save_to_case_worker_in_query_repeat(authoring, app_id):
+    """A query-driven form row supplies its answer to the worker change."""
+    group = "/data/rounds/item/nova_operations"
+    read = "current()/../../../../../round_note"
+    block = _block(
+        "worker", "commcare-user", "<update><last_member/></update>", WORKER_CASE,
+        [("update/last_member", f'relevant="count({read}) &gt; 0" calculate="{read}"')],
+        group=group,
+    )
+    note_end = ROUNDS_CLOSE.split("</repeat>", 1)[0].rstrip()
+
+    def transform(text):
+        row_start = text.index(ROUNDS_DATA_OPEN)
+        row_end = text.index("</item>", row_start)
+        close = text[row_end:text.index("</rounds>", row_end)]
+        return _with_blocks(text, [block], data_before=close, binds_before=FIRST_SETVALUE,
+                            group_after=note_end, group=group)
+
+    _edit(authoring, app_id, "save-to-case-worker-in-query-repeat", transform)
+
+
 # hq-new-app's follow-up form, which a menu of case type ``case`` opens with its case chosen.
 FOLLOWUP_DATA = "<default_label />"
 FOLLOWUP_BIND = '<bind vellum:nodeset="#form/default_label" nodeset="/data/default_label" />'

@@ -50,8 +50,6 @@ import { readHqApp } from "./heldReading";
 
 const WORKER =
 	"forms-and-case-writes/a-write-of-the-worker-s-record-to-a-key-no-worker-property-takes";
-const FACET =
-	"questions/a-savetocase-update-of-commcare-user-under-a-condition-or-inside-a-repeat";
 /** The worker property each export writes, renamed in the source to each key. */
 const WRITTEN = "zz_worker_note";
 const PROPERTY = testUuid("worker-keys-property") as Uuid;
@@ -597,26 +595,26 @@ describe("operation-level execution of a Save to Case worker update", () => {
 		]);
 	});
 
-	it("still refuses a guarded update in a repeat at its exact block", async () => {
+	it("keeps the condition on an ordinary repeated worker change", async () => {
+		const condition = eq(term(formField(NOTE)), literal("yes"));
 		const doc = workerApp({
 			forEach: { repeat: KIDS },
-			condition: eq(term(formField(NOTE)), literal("yes")),
+			condition,
 			writes: [{ property: WRITTEN, value: term(formField(KID)) }],
 		});
 		const verdict = mutationCommitVerdict(doc, [], LOOKUP_CONTEXT_UNAVAILABLE);
-		expect(
-			verdict.ok ? [] : verdict.findings.map((one) => one.details),
-		).toContainEqual(
-			expect.objectContaining({
-				reason: "worker-record-facet",
-				facet: "forEach",
-			}),
-		);
+		expect(verdict.ok ? [] : verdict.findings).toEqual([]);
 		const outcome = await readWith(doc, WRITTEN);
 		expect(outcome.defects).toEqual([]);
-		if (outcome.kind !== "account")
-			throw new Error("Expected a repeat refusal");
-		expect(outcome.findings.map((one) => one.code)).toEqual([FACET]);
+		if (outcome.kind !== "read")
+			throw new Error(JSON.stringify(outcome.findings));
+		expect(outcome.draft.doc.forms[FORM]?.caseOperations).toContainEqual(
+			expect.objectContaining({
+				target: { kind: "worker-record" },
+				forEach: { repeat: KIDS },
+				condition,
+			}),
+		);
 	});
 });
 

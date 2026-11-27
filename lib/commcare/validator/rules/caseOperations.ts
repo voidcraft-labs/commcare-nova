@@ -1987,13 +1987,12 @@ function workerRecordFindings(
 			else errors.push(workerRecordTwiceFinding(ctx, operation, first));
 		}
 		for (const [facet, words] of WORKER_RECORD_FACETS) {
-			// Only the direct worker-record target can carry a root condition.
+			// Only a direct worker-record target can carry its own condition.
 			if (facet === "condition" && operation.target.kind === "worker-record")
 				continue;
 			if (
 				facet === "forEach" &&
 				operation.target.kind === "worker-record" &&
-				operation.condition === undefined &&
 				operation.forEach !== undefined &&
 				ctx.form.uuid === ctx.formUuid
 			) {

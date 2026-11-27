@@ -1033,217 +1033,249 @@ describe("engine → builder → executor acceptance", () => {
 		);
 	});
 
-	it("applies live repeat rows in order to the worker case retained at opening", async () => {
-		const form = testUuid("repeated-worker-form");
-		const repeat = testUuid("repeated-worker-members");
-		const answer = testUuid("repeated-worker-member-name");
-		const showAnswer = testUuid("repeated-worker-show-member");
-		const property = testUuid("repeated-worker-property");
-		const doc = buildDoc(
-			{
-				appId: APP_ID,
-				modules: [
-					{
-						name: "Workers",
-						forms: [
-							{
-								uuid: form,
-								name: "Members",
-								type: "survey",
-								fields: [
-									f({
-										kind: "repeat",
-										uuid: repeat,
-										id: "members",
-										repeat_mode: "user_controlled",
-										children: [
-											f({ kind: "text", uuid: showAnswer, id: "show_member" }),
-											f({
-												kind: "text",
-												uuid: answer,
-												id: "member_name",
-												relevant: eq(
-													term(formField(showAnswer)),
-													literal("yes"),
-												),
-											}),
-										],
-									}),
-								],
-							},
-						],
-					},
-				],
-			},
-			(draft) => {
-				draft.userProperties = {
-					[property]: {
-						uuid: property,
-						slug: "visit_note",
-						label: "Visit note",
-					},
-				};
-				draft.userPropertyOrder = [property];
-				draft.forms[form].caseOperations = [
-					{
-						uuid: OP_REPEAT,
-						id: "worker",
-						action: "update",
-						caseType: "commcare-user",
-						target: { kind: "worker-record" },
-						forEach: { repeat },
-						writes: [
-							{ property: "visit_note", value: term(formField(answer)) },
-						],
-					},
-				];
-			},
-		);
-		expect(formNeedsOpeningEvidence(doc, form)).toBe(true);
-		const store = makeStore(true);
-		await store.applySchemaChange({
-			appId: APP_ID,
-			caseType: "commcare-user",
-			caseTypeSchemas: buildCaseTypeMap(doc),
-		});
-		const workerRows = () =>
-			store.query({
-				reading: SEARCH_READING,
+	it.each([false, true])(
+		"applies live repeat rows in order to the worker at opening, with condition %s",
+		async (guarded) => {
+			const form = testUuid("repeated-worker-form");
+			const repeat = testUuid("repeated-worker-members");
+			const answer = testUuid("repeated-worker-member-name");
+			const showAnswer = testUuid("repeated-worker-show-member");
+			const property = testUuid("repeated-worker-property");
+			const gate = testUuid("repeated-worker-gate");
+			const doc = buildDoc(
+				{
+					appId: APP_ID,
+					modules: [
+						{
+							name: "Workers",
+							forms: [
+								{
+									uuid: form,
+									name: "Members",
+									type: "survey",
+									fields: [
+										...(guarded
+											? [f({ kind: "text", uuid: gate, id: "gate" })]
+											: []),
+										f({
+											kind: "repeat",
+											uuid: repeat,
+											id: "members",
+											repeat_mode: "user_controlled",
+											children: [
+												f({
+													kind: "text",
+													uuid: showAnswer,
+													id: "show_member",
+												}),
+												f({
+													kind: "text",
+													uuid: answer,
+													id: "member_name",
+													relevant: eq(
+														term(formField(showAnswer)),
+														literal("yes"),
+													),
+												}),
+											],
+										}),
+									],
+								},
+							],
+						},
+					],
+				},
+				(draft) => {
+					draft.userProperties = {
+						[property]: {
+							uuid: property,
+							slug: "visit_note",
+							label: "Visit note",
+						},
+					};
+					draft.userPropertyOrder = [property];
+					draft.forms[form].caseOperations = [
+						{
+							uuid: OP_REPEAT,
+							id: "worker",
+							action: "update",
+							caseType: "commcare-user",
+							target: { kind: "worker-record" },
+							forEach: { repeat },
+							...(guarded && {
+								condition: eq(term(formField(gate)), literal("yes")),
+							}),
+							writes: [
+								{ property: "visit_note", value: term(formField(answer)) },
+							],
+						},
+					];
+				},
+			);
+			expect(formNeedsOpeningEvidence(doc, form)).toBe(true);
+			const store = makeStore(true);
+			await store.applySchemaChange({
 				appId: APP_ID,
 				caseType: "commcare-user",
+				caseTypeSchemas: buildCaseTypeMap(doc),
 			});
-		const apply = async (
-			entryKey: string,
-			rows: Awaited<ReturnType<typeof workerRows>>,
-			members: readonly (string | null)[],
-		) => {
-			const audience = {
-				app: APP_ID,
-				project: PROJECT,
-				actor: ACTOR,
-				worker: ACTOR,
-				session: "session",
-				persona: null,
-				device: webAppsDevice(),
-				module: doc.moduleOrder[0],
-				form,
-				entry: entryKey,
-				run: ENTRY_KEY,
-				revision: 0,
-				blueprintDigest: "0".repeat(64),
+			const workerRows = () =>
+				store.query({
+					reading: SEARCH_READING,
+					appId: APP_ID,
+					caseType: "commcare-user",
+				});
+			const apply = async (
+				entryKey: string,
+				rows: Awaited<ReturnType<typeof workerRows>>,
+				members: readonly (string | null)[],
+				save = true,
+			) => {
+				const audience = {
+					app: APP_ID,
+					project: PROJECT,
+					actor: ACTOR,
+					worker: ACTOR,
+					session: "session",
+					persona: null,
+					device: webAppsDevice(),
+					module: doc.moduleOrder[0],
+					form,
+					entry: entryKey,
+					run: ENTRY_KEY,
+					revision: 0,
+					blueprintDigest: "0".repeat(64),
+				};
+				const secret = "synthetic repeat worker opening key";
+				const signed = await signFormOpening(secret, audience, {
+					cases: openingCaseData({ rows, indices: [] }),
+					lookup: { projectRevision: "0", definitions: [], rowsByTable: {} },
+					choices: [],
+					primaryCaseIds: [],
+					datums: {},
+					resolvedEntries: {},
+					sessionData: {},
+					complete: true,
+				});
+				const opening = await verifyFormOpening(secret, audience, signed);
+				const input = buildEngineInput(doc, form, null);
+				if (!input) throw new Error("Expected the repeating worker survey");
+				const engine = new FormEngine(input);
+				if (guarded) engine.setValue("/data/gate", save ? "yes" : "no");
+				for (const [index, member] of members.entries()) {
+					engine.addRepeat("/data/members");
+					const path = `/data/members[${index}]`;
+					engine.setValue(
+						`${path}/show_member`,
+						member === null ? "no" : "yes",
+					);
+					if (member !== null) engine.setValue(`${path}/member_name`, member);
+				}
+				const mutation = engine.computeSubmissionMutation({ entryKey });
+				expect(
+					mutation.operationAnswers?.repeats[0].iterations.map((entries) =>
+						entries.find((entry) => entry.fieldUuid === answer),
+					),
+				).toEqual(
+					members.map((member) => ({
+						fieldUuid: answer,
+						value: member ?? "",
+						...(member === null && { absent: true }),
+					})),
+				);
+				const projection = validateCaptureSubmissionProjection(mutation);
+				const built = buildCaseOperationProgramFromDoc({
+					device: webAppsDevice(),
+					blueprint: doc,
+					mutation,
+					projection,
+					identity: IDENTITY,
+					opening,
+				});
+				return store.applySubmission(
+					submissionEnvelopeArgs(mutation, APP_ID, {
+						...built,
+						submissionReceipt: {
+							...buildSubmissionReceiptIdentity({
+								appId: APP_ID,
+								identity: IDENTITY,
+								mutation,
+								projection,
+							}),
+							expectedAppMutationSeq: 0,
+							blueprintDigest: audience.blueprintDigest,
+						},
+					}),
+				);
 			};
-			const secret = "synthetic repeat worker opening key";
-			const signed = await signFormOpening(secret, audience, {
-				cases: openingCaseData({ rows, indices: [] }),
-				lookup: { projectRevision: "0", definitions: [], rowsByTable: {} },
-				choices: [],
-				primaryCaseIds: [],
-				datums: {},
-				resolvedEntries: {},
-				sessionData: {},
-				complete: true,
-			});
-			const opening = await verifyFormOpening(secret, audience, signed);
-			const input = buildEngineInput(doc, form, null);
-			if (!input) throw new Error("Expected the repeating worker survey");
-			const engine = new FormEngine(input);
-			for (const [index, member] of members.entries()) {
-				engine.addRepeat("/data/members");
-				const path = `/data/members[${index}]`;
-				engine.setValue(`${path}/show_member`, member === null ? "no" : "yes");
-				if (member !== null) engine.setValue(`${path}/member_name`, member);
+			const entry = (suffix: number) =>
+				`11111111-1111-4111-8111-11111111111${suffix}`;
+			const absentAtOpening = await workerRows();
+			const skipped = await apply(entry(2), absentAtOpening, []);
+			expect(skipped.operations).toEqual([]);
+			expect(skipped.caseDatabasePatch?.rows).toEqual([]);
+			if (guarded) {
+				const inactive = await apply(
+					entry(7),
+					absentAtOpening,
+					["first", "last"],
+					false,
+				);
+				expect(inactive.operations).toMatchObject([
+					{ executed: false },
+					{ executed: false },
+				]);
+				expect(inactive.caseDatabasePatch?.rows).toEqual([]);
 			}
-			const mutation = engine.computeSubmissionMutation({ entryKey });
-			expect(
-				mutation.operationAnswers?.repeats[0].iterations.map((entries) =>
-					entries.find((entry) => entry.fieldUuid === answer),
-				),
-			).toEqual(
-				members.map((member) => ({
-					fieldUuid: answer,
-					value: member ?? "",
-					...(member === null && { absent: true }),
-				})),
-			);
-			const projection = validateCaptureSubmissionProjection(mutation);
-			const built = buildCaseOperationProgramFromDoc({
-				device: webAppsDevice(),
-				blueprint: doc,
-				mutation,
-				projection,
-				identity: IDENTITY,
-				opening,
+			await store.insert({
+				appId: APP_ID,
+				row: {
+					case_id: SECOND_SESSION_CASE,
+					case_type: "commcare-user",
+					case_name: "Worker",
+					status: "open",
+					properties: { hq_user_id: ACTOR, visit_note: "before" },
+				},
 			});
-			return store.applySubmission(
-				submissionEnvelopeArgs(mutation, APP_ID, {
-					...built,
-					submissionReceipt: {
-						...buildSubmissionReceiptIdentity({
-							appId: APP_ID,
-							identity: IDENTITY,
-							mutation,
-							projection,
-						}),
-						expectedAppMutationSeq: 0,
-						blueprintDigest: audience.blueprintDigest,
-					},
-				}),
-			);
-		};
-		const entry = (suffix: number) =>
-			`11111111-1111-4111-8111-11111111111${suffix}`;
-		const absentAtOpening = await workerRows();
-		const skipped = await apply(entry(2), absentAtOpening, []);
-		expect(skipped.operations).toEqual([]);
-		expect(skipped.caseDatabasePatch?.rows).toEqual([]);
-		await store.insert({
-			appId: APP_ID,
-			row: {
-				case_id: SECOND_SESSION_CASE,
-				case_type: "commcare-user",
-				case_name: "Worker",
-				status: "open",
-				properties: { hq_user_id: ACTOR, visit_note: "before" },
-			},
-		});
-		await expect(
-			apply(entry(3), absentAtOpening, ["first", "last"]),
-		).rejects.toThrow("worker's record is missing or has changed");
-		expect(await workerRows()).toMatchObject([
-			{
-				case_id: SECOND_SESSION_CASE,
-				properties: { visit_note: "before" },
-			},
-		]);
-		const updated = await apply(entry(4), await workerRows(), [
-			"first",
-			"last",
-		]);
-		expect(updated.operations).toMatchObject([
-			{ caseId: SECOND_SESSION_CASE, executed: true, iteration: 0 },
-			{ caseId: SECOND_SESSION_CASE, executed: true, iteration: 1 },
-		]);
-		expect(updated.caseDatabasePatch?.rows).toMatchObject([
-			{ case_id: SECOND_SESSION_CASE },
-		]);
-		expect(await workerRows()).toMatchObject([
-			{
-				case_id: SECOND_SESSION_CASE,
-				properties: { visit_note: "last" },
-			},
-		]);
-		await apply(entry(5), await workerRows(), ["retained", null]);
-		expect(await workerRows()).toMatchObject([
-			{
-				case_id: SECOND_SESSION_CASE,
-				properties: { visit_note: "retained" },
-			},
-		]);
-		await apply(entry(6), await workerRows(), ["replaced", ""]);
-		const [worker] = await workerRows();
-		expect(worker.case_id).toBe(SECOND_SESSION_CASE);
-		expect(worker.properties).not.toHaveProperty("visit_note");
-	});
+			await expect(
+				apply(entry(3), absentAtOpening, ["first", "last"]),
+			).rejects.toThrow("worker's record is missing or has changed");
+			expect(await workerRows()).toMatchObject([
+				{
+					case_id: SECOND_SESSION_CASE,
+					properties: { visit_note: "before" },
+				},
+			]);
+			const updated = await apply(entry(4), await workerRows(), [
+				"first",
+				"last",
+			]);
+			expect(updated.operations).toMatchObject([
+				{ caseId: SECOND_SESSION_CASE, executed: true, iteration: 0 },
+				{ caseId: SECOND_SESSION_CASE, executed: true, iteration: 1 },
+			]);
+			expect(updated.caseDatabasePatch?.rows).toMatchObject([
+				{ case_id: SECOND_SESSION_CASE },
+			]);
+			expect(await workerRows()).toMatchObject([
+				{
+					case_id: SECOND_SESSION_CASE,
+					properties: { visit_note: "last" },
+				},
+			]);
+			await apply(entry(5), await workerRows(), ["retained", null]);
+			expect(await workerRows()).toMatchObject([
+				{
+					case_id: SECOND_SESSION_CASE,
+					properties: { visit_note: "retained" },
+				},
+			]);
+			await apply(entry(6), await workerRows(), ["replaced", ""]);
+			const [worker] = await workerRows();
+			expect(worker.case_id).toBe(SECOND_SESSION_CASE);
+			expect(worker.properties).not.toHaveProperty("visit_note");
+		},
+	);
 
 	it("does not stamp the selected worker for a shared form with no live repeat rows", async () => {
 		const { doc, shared } = sharedWorkerRepeat(false, APP_ID);

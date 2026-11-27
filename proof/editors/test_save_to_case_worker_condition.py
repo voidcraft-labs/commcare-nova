@@ -115,7 +115,16 @@ REPEATED_WORKER_PATH = "/data/members/nova_operations/worker/case"
 MEMBER_NAME = "current()/../../../../../member_name"
 
 
-def _repeated_worker_form_source(xmlns, counted, last_answer):
+def _repeated_worker_form_source(xmlns, counted, last_answer, guarded):
+    wrapper = "/data/members/nova_operations/nova_condition_worker"
+    worker = f"{wrapper}/worker/case" if guarded else REPEATED_WORKER_PATH
+    member_name = "current()/../../../../../../member_name" if guarded else MEMBER_NAME
+    start, end = ("<nova_condition_worker>", "</nova_condition_worker>") if guarded else ("", "")
+    gate_node = "<gate/>" if guarded else ""
+    gate_bind = ('<bind nodeset="/data/gate" type="xsd:int"/>'
+                 f'<bind nodeset="{wrapper}" relevant="/data/gate &gt; 0"/>') if guarded else ""
+    gate_input = """<input ref="/data/gate"><label ref="jr:itext('gate-label')"/></input>""" if guarded else ""
+    group = f'<group ref="{wrapper}"/>' if guarded else ""
     count_node = "<count/>" if counted else ""
     count_bind = '<bind nodeset="/data/count" type="xsd:int"/>' if counted else ""
     count_input = '''<input ref="/data/count"><label ref="jr:itext('count-label')"/></input>''' if counted else ""
@@ -130,65 +139,72 @@ def _repeated_worker_form_source(xmlns, counted, last_answer):
       xmlns:xsd="http://www.w3.org/2001/XMLSchema">
       <h:head><h:title>Members</h:title><model>
         <instance><data xmlns="{xmlns}" name="Members" version="1" uiVersion="1">
-          {count_node}<members jr:template=""><note/><member_name/>
-            <nova_operations><worker vellum:role="SaveToCase" vellum:case_type="commcare-user">
+          {gate_node}{count_node}<members jr:template=""><note/><member_name/>
+            <nova_operations>{start}<worker vellum:role="SaveToCase" vellum:case_type="commcare-user">
               <case xmlns="{CASE}" case_id="" date_modified="" user_id=""><update><visits/></update></case>
-            </worker></nova_operations>
+            </worker>{end}</nova_operations>
           </members>
         </data></instance>
         <instance src="jr://instance/casedb" id="casedb"/>
         <instance src="jr://instance/session" id="commcaresession"/>
-        {count_bind}<bind nodeset="/data/members/note" type="xsd:string"/>
+        {gate_bind}{count_bind}<bind nodeset="/data/members/note" type="xsd:string"/>
         <bind nodeset="/data/members/member_name" calculate="{member_calculate}"{member_relevance}/>
-        <bind nodeset="{REPEATED_WORKER_PATH}/@date_modified" type="xsd:dateTime" calculate="/data/meta/timeEnd"/>
-        <bind nodeset="{REPEATED_WORKER_PATH}/@user_id" calculate="/data/meta/userID"/>
-        <bind nodeset="{REPEATED_WORKER_PATH}/@case_id" calculate="{TARGET}"/>
-        <bind nodeset="{REPEATED_WORKER_PATH}/update/visits" calculate="{MEMBER_NAME}" relevant="count({MEMBER_NAME}) &gt; 0"/>
+        <bind nodeset="{worker}/@date_modified" type="xsd:dateTime" calculate="/data/meta/timeEnd"/>
+        <bind nodeset="{worker}/@user_id" calculate="/data/meta/userID"/>
+        <bind nodeset="{worker}/@case_id" calculate="{TARGET}"/>
+        <bind nodeset="{worker}/update/visits" calculate="{member_name}" relevant="count({member_name}) &gt; 0"/>
         <itext><translation lang="en" default="">
+          <text id="gate-label"><value>Save these answers</value></text>
           <text id="count-label"><value>Number of members</value></text>
           <text id="members-label"><value>Members</value></text>
           <text id="note-label"><value>Note</value></text>
         </translation></itext>
       </model></h:head>
-      <h:body>{count_input}<group ref="/data/members"><label ref="jr:itext('members-label')"/>
+      <h:body>{gate_input}{count_input}<group ref="/data/members"><label ref="jr:itext('members-label')"/>
         <repeat nodeset="/data/members"{count_attributes}>
           <input ref="/data/members/note"><label ref="jr:itext('note-label')"/></input>
-          <group ref="/data/members/nova_operations"/>
+          <group ref="/data/members/nova_operations">{group}</group>
         </repeat></group></h:body>
     </h:html>'''
 
 
 @pytest.mark.parametrize(
-    "counted,last_answer",
+    "counted,last_answer,guarded",
     [
-        pytest.param(False, "present", id="user-controlled"),
-        pytest.param(True, "present", id="count-bound"),
-        pytest.param(False, "irrelevant", id="irrelevant-tail"),
-        pytest.param(False, "empty", id="present-empty-tail"),
+        pytest.param(False, "present", False, id="user-controlled"),
+        pytest.param(True, "present", False, id="count-bound"),
+        pytest.param(False, "irrelevant", False, id="irrelevant-tail"),
+        pytest.param(False, "empty", False, id="present-empty-tail"),
+        pytest.param(False, "present", True, id="guarded"),
     ],
 )
 def test_vellum_and_native_workers_apply_one_worker_update_per_repeat_row(
-    hq, core_runner, editor_driver, tmp_path, counted, last_answer
+    hq, core_runner, editor_driver, tmp_path, counted, last_answer, guarded
 ):
     with hq_check(Configuration(privileges={"VELLUM_SAVE_TO_CASE", "USERCASE"})) as (state, record):
         app_id = publish_hq_app(state, TWO_LANGUAGE_APP)
         form = operations.held_app(state, app_id).modules[0].forms[0]
-        source = _repeated_worker_form_source(form.xmlns, counted, last_answer)
+        source = _repeated_worker_form_source(form.xmlns, counted, last_answer, guarded)
         _patched(state, app_id, form.unique_id, source, "repeated worker save")
         saved = vellum.fresh_open_and_save(editor_driver, state, app_id, form.unique_id)
         assert saved.loaded and saved.saved, (saved.load_error, saved.save_refusal, saved.form_errors)
         root = etree.fromstring(saved.stored_source.encode())
         binds = {bind.get("nodeset"): bind for bind in root.iter(f"{{{XFORMS}}}bind")}
-        assert binds[f"{REPEATED_WORKER_PATH}/@case_id"].get("calculate") == TARGET
-        row = binds[f"{REPEATED_WORKER_PATH}/update/visits"]
-        assert row.get("calculate") == MEMBER_NAME
-        assert row.get("relevant") == f"count({MEMBER_NAME}) > 0"
+        worker = "/data/members/nova_operations/nova_condition_worker/worker/case" if guarded else REPEATED_WORKER_PATH
+        member_name = "current()/../../../../../../member_name" if guarded else MEMBER_NAME
+        assert binds[f"{worker}/@case_id"].get("calculate") == TARGET
+        row = binds[f"{worker}/update/visits"]
+        assert row.get("calculate") == member_name
+        assert row.get("relevant") == f"count({member_name}) > 0"
         built = compare.build(state, app_id, record)
         assert not built.errors, built.errors
         with admitted(core_runner, arrange(built.files, tmp_path)) as admission:
             assert admission["admitted"], admission["problems"]
             controls = ((0, False), (0, True), (2, True)) if last_answer == "present" else ((2, True),)
-            for number, worker_present in controls:
+            gates = ((0, False), (0, True), (1, True)) if guarded else ((1, True),)
+            for number, worker_present, gate in (
+                (2, worker_present, gate) for gate, worker_present in gates
+            ) if guarded else ((number, present, 1) for number, present in controls):
                 restore = etree.fromstring(TEMPLATE_RESTORE.read_bytes())
                 known = []
                 if worker_present:
@@ -199,6 +215,9 @@ def test_vellum_and_native_workers_apply_one_worker_update_per_repeat_row(
                 table = load_answer_table()
                 table["repeats"]["add"] = 0 if counted else number
                 kinds = None
+                if guarded:
+                    table["novaKinds"]["worker-repeat-gate"] = [str(gate)]
+                    kinds = {"/data/gate": "worker-repeat-gate"}
                 if counted:
                     table["novaKinds"]["worker-repeat-count"] = [str(number)]
                     kinds = {"/data/count": "worker-repeat-count"}
@@ -214,7 +233,8 @@ def test_vellum_and_native_workers_apply_one_worker_update_per_repeat_row(
                 form_data = etree.fromstring(step["submission"].encode())
                 submitted = list(form_data.iter(f"{{{CASE}}}case"))
                 # Core position(node) returns the selected reference’s zero-based multiplicity.
-                expected = [f"member-{index}" for index in range(number)]
+                effects = number if gate else 0
+                expected = [f"member-{index}" for index in range(effects)]
                 final = expected[-1:] or (["before"] if worker_present else [])
                 if last_answer != "present":
                     members = form_data.findall(f"{{{form.xmlns}}}members")
@@ -224,14 +244,14 @@ def test_vellum_and_native_workers_apply_one_worker_update_per_repeat_row(
                     )
                     expected[1] = None if last_answer == "irrelevant" else ""
                     final = ["member-0"] if last_answer == "irrelevant" else [""]
-                assert [case.get("case_id") for case in submitted] == [WORKER_CASE] * number
+                assert [case.get("case_id") for case in submitted] == [WORKER_CASE] * effects
                 assert [case.findtext(f"{{{CASE}}}update/{{{CASE}}}visits") for case in submitted] == expected
                 device = etree.fromstring(step["caseDb"].encode()).xpath(f"/*/case[@case_id='{WORKER_CASE}']")
                 assert [case.findtext("visits") for case in device] == final
                 submission, _ = unmarked_submission(run)
                 applied = operations.process_case_blocks(state, submission, cases=known)
                 assert applied.refusal is None
-                if number:
+                if effects:
                     assert list(applied.touched) == [WORKER_CASE]
                     assert applied.touched[WORKER_CASE].case.case_json["visits"] == final[0]
                 else:
