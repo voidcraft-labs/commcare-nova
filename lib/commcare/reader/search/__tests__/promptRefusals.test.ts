@@ -313,6 +313,21 @@ it("keeps the saved address through a label edit, both exports and normal HQ rea
 	).toEqual(cleared);
 });
 
+it("refuses a Search condition that tries to read the stored address as an answer", async () => {
+	const findings = await account((body) => {
+		addStoredAddressDefault(body);
+		const condition = promptsOf(body)[1].required as JsonObject;
+		const test = condition.test as string;
+		expect(test).toContain("'case_name'");
+		condition.test = test.replace("'case_name'", "'village'");
+	});
+	expect(findings).toContainEqual([
+		`${S}required-or-validation-test-outside-what-nova-types`,
+		"search",
+		String(promptsOf(exportedBody(PROMPTS))[1].name),
+	]);
+});
+
 it("refuses to put a held address default into an automatic search or connect a receiver", async () => {
 	const { doc } = await documentOf(addStoredAddressDefault);
 	const module = doc.modules[doc.moduleOrder[0]];

@@ -8897,6 +8897,11 @@ def _search_wire_shapes():
                     "prompt-input:address", "prompt[1]/@input"),
             accepted("suite", suite('<prompt key="address" input="address" receive="other"/>'),
                      "prompt-input:address", "prompt[1]/@input", **outside),
+            refused("suite", suite('<prompt key="village" input="address" default="&apos;Old address&apos;"/>'),
+                    "prompt-input:address", "prompt[1]/@input"),
+            accepted("suite", suite('<prompt key="village" input="address" default="&apos;Old address&apos;"/>'
+                                    '<prompt key="where" receive="village-city"/>'),
+                     "prompt-input:address", "prompt[1]/@input", **outside),
         ),
         "case-search/case-search-endpoint-id": (
             refused("suite", suite('<data key="x_commcare_endpoint_id" ref="&apos;17&apos;"/>'),

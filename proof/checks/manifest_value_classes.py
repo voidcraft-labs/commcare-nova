@@ -5640,9 +5640,8 @@ def _canonical_address_default(raw):
 
 def manual_address_with_saved_text(use, manifest):
     """The stored literal survives for the ungrouped manual picker with no active subscription."""
-    if use.key in ("prompt-input:address", "parser:QueryPromptParser/prompt@default"):
-        attr = "input" if use.key == "prompt-input:address" else "default"
-        prompt = _suite_search_child(use, "prompt", attr)
+    if use.key == "prompt-input:address":
+        prompt = _suite_search_child(use, "prompt", "input")
         if prompt is not None:
             query = prompt.getparent()
             return (
@@ -14689,7 +14688,6 @@ VALUE_CLASSES = {
 POSITIVE_VALUE_CLASSES = {
     "menus-and-case-lists/detail-max-select-value-for-flat-close": bounded_flat_close_maximum,
     "case-search/address-picker-on-a-search-screen": ordinary_address_search_marker,
-    "case-search/address-picker-with-a-saved-text-default": manual_address_with_saved_text,
     "case-search/case-search-endpoint-id": configured_search_endpoint,
     "case-search/default-filter-orders-the-records-the-search-sends": named_search_order,
     "case-search/default-filter-resets-order-with-index-fallback": default_filter_index_fallback,
