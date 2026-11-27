@@ -4376,12 +4376,12 @@ function checkComparison(
 		if (
 			"profile" in ctx &&
 			ctx.slot.slot === "search_input_options" &&
-			kind === "gt" &&
 			leftType === "text" &&
 			left.kind === "term" &&
 			left.term.kind === "table-column" &&
 			((rightType === "text" && searchChoiceColumnOrder(kind, left, right)) ||
-				(right.kind === "term" &&
+				(kind === "gt" &&
+					right.kind === "term" &&
 					right.term.kind === "literal" &&
 					typeof right.term.value === "string" &&
 					right.term.value.trim() !== "" &&

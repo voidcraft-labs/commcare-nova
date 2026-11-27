@@ -387,7 +387,7 @@ export function searchChoiceColumnOrder(
 	right: Expression,
 ): boolean {
 	return (
-		kind === "gt" &&
+		(kind === "gt" || kind === "lt" || kind === "gte" || kind === "lte") &&
 		left.kind === "term" &&
 		left.term.kind === "table-column" &&
 		right.kind === "term" &&
