@@ -306,27 +306,29 @@ def limit_101_with_visible_question(authoring, app_id):
     """The bounded follow-up's only question records text without a case write."""
     from corehq.apps.app_manager.xform_builder import XFormBuilder
 
-    def ordinary_source(name):
-        xform = XFormBuilder(name)
+    def ordinary_source(_root, held):
+        xform = XFormBuilder(held.default_name())
         xform.new_question("outcome", "Outcome")
-        return xform.tostring(xml_declaration=True).decode("utf-8")
+        xml = xform.tostring(xml_declaration=True).decode("utf-8")
+        return xml.replace(xform.xmlns, held.xmlns, 1)
 
     limit_101_outside_flat_close(authoring, app_id)
-    ops.upload_form_source(authoring, app_id, 0, 0, ordinary_source, "ordinary interactive question")
+    ops.set_form_source(authoring, app_id, 0, 0, ordinary_source, what="ordinary interactive question")
 
 
 def limit_101_with_two_visible_questions(authoring, app_id):
     """A second visible input is outside the bounded text-response profile."""
     from corehq.apps.app_manager.xform_builder import XFormBuilder
 
-    def ordinary_source(name):
-        xform = XFormBuilder(name)
+    def ordinary_source(_root, held):
+        xform = XFormBuilder(held.default_name())
         xform.new_question("outcome", "Outcome")
         xform.new_question("recommendation", "Recommendation")
-        return xform.tostring(xml_declaration=True).decode("utf-8")
+        xml = xform.tostring(xml_declaration=True).decode("utf-8")
+        return xml.replace(xform.xmlns, held.xmlns, 1)
 
     limit_101_outside_flat_close(authoring, app_id)
-    ops.upload_form_source(authoring, app_id, 0, 0, ordinary_source, "two independent interactive questions")
+    ops.set_form_source(authoring, app_id, 0, 0, ordinary_source, what="two independent interactive questions")
 
 
 def multi_select_above_a_hundred(authoring, app_id):
