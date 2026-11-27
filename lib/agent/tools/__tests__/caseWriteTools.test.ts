@@ -220,7 +220,6 @@ describe("this form's own case on the case change tools", () => {
 				uuid: seen,
 				kind: "datetime",
 				id: "seen",
-				label: proseText("Seen"),
 			};
 			draft.fieldOrder[form.uuid].push(seen);
 			const type = draft.caseTypes?.find(({ name }) => name === "household");
