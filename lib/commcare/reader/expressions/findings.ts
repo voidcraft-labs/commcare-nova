@@ -14,7 +14,10 @@ import {
 	formFieldPath,
 	formStructure,
 } from "@/lib/domain/expression/formStructure";
-import { searchUsernameTextOrder } from "@/lib/domain/expression/ruleSets";
+import {
+	readsRestoredCaseTypeQuery,
+	searchUsernameTextOrder,
+} from "@/lib/domain/expression/ruleSets";
 import type {
 	CheckError,
 	CheckErrorCode,
@@ -158,6 +161,10 @@ export const EXPRESSION_CLAIMS = defineClaims("expressions", {
 	"default-value-outside-valueexpression": refuse(
 		"case-search/default-value-outside-valueexpression",
 		"schema:CaseSearchProperty.default_value",
+	),
+	"required-condition-counts-restored-cases": take(
+		"case-search/required-condition-counts-restored-cases",
+		"schema:CaseSearchProperty.required",
 	),
 	"required-test-text": take(
 		"case-search/required-test-text",
@@ -2111,7 +2118,14 @@ export const SLOT_ENTRIES: Readonly<Record<RegisteredSlotName, SlotRow>> = {
 		C["default-value-lifting-into-valueexpression"].entry,
 		C["default-value-outside-valueexpression"].entry,
 	),
-	search_input_required_when: fixed(C["required-test-text"].entry, M6),
+	search_input_required_when: {
+		...fixed(C["required-test-text"].entry, M6),
+		held(_doc, _ref, bound) {
+			return readsRestoredCaseTypeQuery(bound)
+				? C["required-condition-counts-restored-cases"].entry
+				: C["required-test-text"].entry;
+		},
+	},
 	search_input_validation_rule: fixed(C["validations-0-test-text"].entry, M6),
 };
 

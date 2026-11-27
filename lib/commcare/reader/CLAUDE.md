@@ -725,6 +725,13 @@ A menu or form text badge keeps the editor’s ordinary text in `custom_icons` a
 A supported Android lookup results heading registers one module-owned `case_lists.m#.callout.header` for the case and standalone Search short details. The typed `lookup_field_header` keeps the ordinary Case List editor label.
 
 A lookup argument can be a saved sum of two fixed whole numbers. Pinned Android normally evaluates it and sends a string, but its legacy reporting-domain mode sends the saved value verbatim unless `force_xpath_parsing` is `yes`. The reader accounts a canonical bounded sum under its own held entry and keeps the existing gates for other calculation or configuration shapes.
+A regular Search prompt's required condition can count the worker's restored
+cases with a single declared case-type filter. It uses the normal case query and
+count AST and preserves its required message. Web Apps checks it before sending
+a Search. Android places no required rule on the worker's input. Preview loads
+the worker's authorized restore before opening the Web Apps prompt, and verifies
+the same scope server-side before using its response.
+
 A Search group heading uses the route’s group UUID and the exact `search_property.m#.group_header_#` emitted for its current row. Its ordinary label stays in the Case List editor. Web Apps draws the heading; Android draws the ordered fields. A unique legacy heading with complete, stable ordinary labels may move its exact wording to the canonical key of the same group. The first-publish notice records both source paths. A competing stored destination or a key with another possible role stays held. A key absent from the saved group rows never acquires wording ownership through respelling. A displayed heading that shares its locale with an ordinary field is refused before either role can supply wording for the other.
 A source or target override is held as the word the device reads for that language, including
 escaped line breaks and number signs. The app's `name` is also the profile's `name`, which Android's list of the apps on a

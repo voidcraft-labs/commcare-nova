@@ -591,9 +591,10 @@ answered, and the field shows as needing attention without saying why.
 Both the required condition and the check are
 decided on the Search screen itself, so they can look at this field, the other
 search fields (a field that has not been answered reads as blank), fixed
-values, and current-user information, but not at case information. They are
-also the one place a **matches a pattern** condition is available: it tests
-the answer against a regular expression, anchored with `^` and `$` when the
+values, and current-user information. A required condition can also count
+the cases of one type available to the worker on that device. A **matches a
+pattern** condition tests the answer against a regular expression. Use `^`
+and `$` when the
 whole answer must fit, which is the natural shape for an ID number or a phone
 number.
 

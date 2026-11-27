@@ -224,6 +224,7 @@ import {
 	evaluatePreviewSearchPredicate,
 	type PreviewSearchEnvironment,
 	type SearchScreenXPath,
+	searchRequirementsReadRestoredCases,
 } from "@/lib/preview/engine/searchExpressionEvaluation";
 import { searchOutcomeFromLoad } from "@/lib/preview/engine/searchPhase";
 import type { PreviewScreen } from "@/lib/preview/engine/types";
@@ -832,6 +833,12 @@ export function CaseListScreen({
 	const currentSearchScreen = useRef(current);
 	currentSearchScreen.current = current;
 	const clearFormRef = useRef<SearchFormClear>(null);
+	const waitsForRequiredCases =
+		platformRules.searchFieldChecks &&
+		navigationDeviceCases.snapshot === null &&
+		searchRequirementsReadRestoredCases(config?.searchInputs ?? []);
+	const requiredCasesFailed =
+		waitsForRequiredCases && deviceCaseLoad.status === "error";
 	const searchRun = useSearchInputRunState({
 		scopeKey: JSON.stringify([
 			scopeEpoch,
@@ -848,6 +855,7 @@ export function CaseListScreen({
 		environment: searchEnvironment,
 		rules: platformRules,
 		lookupLoadFailed: lookupStatus.kind === "error",
+		waitsForRequiredCases,
 	});
 	/* The submission whose search found nothing on a phone, which keeps the
 	 * search screen with the answers as typed (`caseListStep`). */
@@ -3426,28 +3434,35 @@ export function CaseListScreen({
 						</div>
 					)}
 				</div>
-				{accessPhase === "authorized" && searchRun.pending === true && (
-					<p
-						role="status"
-						data-search-waiting
-						className="text-sm text-nova-text-muted"
-					>
-						{searchRun.openingMessage && (
-							<span className="block">{searchRun.openingMessage}</span>
-						)}
-						{searchRun.retryOpening ? (
-							<Button
-								type="button"
-								variant="outline"
-								onClick={searchRun.retryOpening}
-							>
-								{message("retrySearchStartingDates")}
-							</Button>
-						) : (
-							message("searchGettingReady")
-						)}
-					</p>
-				)}
+				{accessPhase === "authorized" &&
+					searchRun.pending === true &&
+					(requiredCasesFailed ? (
+						<CasesLoadFailureNotice
+							onRetry={deviceCaseLoad.retry}
+							deviceCasesFailed
+						/>
+					) : (
+						<p
+							role="status"
+							data-search-waiting
+							className="text-sm text-nova-text-muted"
+						>
+							{searchRun.openingMessage && (
+								<span className="block">{searchRun.openingMessage}</span>
+							)}
+							{searchRun.retryOpening ? (
+								<Button
+									type="button"
+									variant="outline"
+									onClick={searchRun.retryOpening}
+								>
+									{message("retrySearchStartingDates")}
+								</Button>
+							) : (
+								message("searchGettingReady")
+							)}
+						</p>
+					))}
 				{/* A screen that draws no field still sends every field's
 				 *  answer: Web Apps only hides a hidden field's row
 				 *  (`query.js` adds `d-none`) and `getAnswers` collects it, so
@@ -3966,7 +3981,13 @@ export function CaseListScreen({
 			 * judged. */}
 			{step === "results" &&
 				accessPhase === "authorized" &&
-				searchRun.pending === true && (
+				searchRun.pending === true &&
+				(requiredCasesFailed ? (
+					<CasesLoadFailureNotice
+						onRetry={deviceCaseLoad.retry}
+						deviceCasesFailed
+					/>
+				) : (
 					<p
 						role="status"
 						data-search-waiting
@@ -3987,7 +4008,7 @@ export function CaseListScreen({
 							message("searchGettingReady")
 						)}
 					</p>
-				)}
+				))}
 			{alwaysRegisterAction !== undefined &&
 				step !== "search" &&
 				step !== "waiting" && (

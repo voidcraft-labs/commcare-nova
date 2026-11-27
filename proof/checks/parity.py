@@ -93,6 +93,7 @@ from proof.checks.manifest_value_classes import (
     unaddressable_answer_root,
     unmatched_address_receive_topic,
     manual_address_with_saved_text,
+    required_condition_counts_restored_cases,
 )
 from proof.observe.manifest import expression_tree
 
@@ -120,6 +121,7 @@ PARENT_PROMPT_SHAPES = {
     "case-search/prompt-key-matching-three-parent-links": three_parent_links_text_prompt_key,
 }
 ADDRESS_SAVED_TEXT = "case-search/address-picker-with-a-saved-text-default"
+SEARCH_REQUIRED_CASE_COUNT = "case-search/required-condition-counts-restored-cases"
 ORDERED_SEARCH_DEFAULT = "case-search/default-value-ordering-the-worker-name"
 UNMATCHED_ADDRESS_TOPIC = "case-search/address-receiver-on-an-unmatched-topic-without-a-component"
 UNCLAIMED, ENTRY, STANDING, UNSEEN = "unclaimed", "entry", "standing", "unseen"
@@ -1016,6 +1018,14 @@ def added_uses(base_source: dict, variant_source: dict, *, entries=()) -> list[D
                 for use in found.uses
                 if use.key == "schema:CaseSearchProperty.default_value"
                 and worker_name_order_in_text_default(use, held)
+            )
+        if SEARCH_REQUIRED_CASE_COUNT in entries:
+            entry = _entries_by_id(held)[SEARCH_REQUIRED_CASE_COUNT]
+            decided.extend(
+                Decided(use, manifest_usage.HELD, (entry,))
+                for use in found.uses
+                if use.key == "schema:CaseSearchProperty.required"
+                and required_condition_counts_restored_cases(use, held)
             )
         return decided
 

@@ -32,6 +32,7 @@ import {
 	type ExpressionContext,
 	slotContext,
 } from "@/lib/domain/expression/context";
+import { readsRestoredCaseTypeQuery } from "@/lib/domain/expression/ruleSets";
 import type {
 	Expression,
 	ModuleExpressionSlotRef,
@@ -137,6 +138,16 @@ export function searchScreenWorkerInstances(
  * suite fixture ids. */
 function printSearchScreenTree(wire: WireExpr): string {
 	return serializeWire(wire, { target: "preview" }).text;
+}
+
+export function searchRequirementsReadRestoredCases(
+	inputs: readonly SearchInputDef[],
+): boolean {
+	return inputs.some((input) => {
+		const condition =
+			input.kind === "hidden" ? undefined : input.required?.when;
+		return condition !== undefined && readsRestoredCaseTypeQuery(condition);
+	});
 }
 
 function searchScreenTree(
@@ -262,6 +273,12 @@ export function emitPreviewSearchPredicate(
 	const lookupData = environment.lookup;
 	const listAction = types.slot.slot === "case_list_action_condition";
 	const beforeSearch = types.slot.slot === "search_button_display_condition";
+	const requiredCases =
+		types.slot.slot === "search_input_required_when" &&
+		environment.caseDatabase != null &&
+		readsRestoredCaseTypeQuery(predicate)
+			? environment.caseDatabase
+			: undefined;
 	return {
 		source: printSearchScreenTree(
 			searchScreenTree(
@@ -296,6 +313,10 @@ export function emitPreviewSearchPredicate(
 							),
 						),
 						...(lookupData === undefined ? {} : { lookupData }),
+						...(requiredCases !== undefined && {
+							caseDatabase: requiredCases,
+							caseTypes: environment.doc.caseTypes ?? [],
+						}),
 						...(environment.sessionData === undefined
 							? {}
 							: { sessionData: environment.sessionData }),

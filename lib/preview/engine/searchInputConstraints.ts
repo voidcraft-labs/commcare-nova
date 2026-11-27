@@ -12,8 +12,8 @@
 //
 // Both predicates read the search-input instance, so a bare `input(...)` of
 // any sibling is meaningful here; an unanswered sibling holds no node there
-// and reads blank. There is no case row on this screen, and the validator
-// has already refused every case read in these slots.
+// and reads blank. A required condition can count restored cases of one
+// declared type. It reads the worker’s case database without a selected row.
 //
 // A predicate is judged by whichever evaluator can run it. The scalar
 // evaluator on the calling thread runs everything except a pattern match:
@@ -41,13 +41,11 @@ import {
 	expressionUsesPattern,
 	walkExpressionTerms,
 } from "@/lib/domain/expression";
+import { readsRestoredCaseTypeQuery } from "@/lib/domain/expression/ruleSets";
 import type { LanguageTag } from "@/lib/domain/localization";
 import type { PreviewPlatformRules } from "../platform";
 import type { PreviewSearchSessionValues } from "./identity";
-import {
-	type PreviewLookupData,
-	predicateLookupsCovered,
-} from "./lookupEvaluation";
+import { predicateLookupsCovered } from "./lookupEvaluation";
 import {
 	type SearchInputValues,
 	withSearchInputExpressionValues,
@@ -160,7 +158,7 @@ export async function searchInputConstraintErrorsOnDevice(
 			check.predicate !== undefined &&
 			expressionUsesPattern(check.predicate)
 		) {
-			holds = judgeable(check.predicate, environment.lookup, options)
+			holds = judgeable(check.predicate, environment, options)
 				? await options.evaluateOnDevice(
 						emitPreviewSearchPredicate(
 							check.predicate,
@@ -256,7 +254,7 @@ export async function searchInputRequiredMarksOnDevice(
 		if (input.kind === "hidden") continue;
 		const when = input.required?.when;
 		if (when === undefined || !expressionUsesPattern(when)) continue;
-		if (!judgeable(when, environment.lookup, options)) continue;
+		if (!judgeable(when, environment, options)) continue;
 		marks.set(
 			input.name,
 			await options.evaluateOnDevice(
@@ -409,7 +407,7 @@ function constraintJudge(
 	);
 	return (predicate, inputUuid, slot) => {
 		if (predicate === undefined) return undefined;
-		if (!judgeable(predicate, environment.lookup, options)) return undefined;
+		if (!judgeable(predicate, environment, options)) return undefined;
 		if (expressionUsesPattern(predicate)) return undefined;
 		return evaluatePreviewSearchPredicate(
 			predicate,
@@ -424,7 +422,7 @@ function constraintJudge(
 
 function judgeable(
 	predicate: Expression,
-	lookupData: PreviewLookupData | undefined,
+	environment: PreviewSearchEnvironment,
 	options: SearchInputConstraintOptions | undefined,
 ): boolean {
 	if (
@@ -433,7 +431,11 @@ function judgeable(
 	) {
 		return false;
 	}
-	return predicateLookupsCovered(predicate, lookupData);
+	return (
+		(environment.caseDatabase != null ||
+			!readsRestoredCaseTypeQuery(predicate)) &&
+		predicateLookupsCovered(predicate, environment.lookup)
+	);
 }
 
 function predicateReadsSession(predicate: Expression): boolean {

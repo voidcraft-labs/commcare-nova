@@ -5687,6 +5687,39 @@ def worker_name_order_in_text_default(use, manifest):
     return contains_order(tree(raw))
 
 
+
+def required_condition_counts_restored_cases(use, manifest):
+    """A Search requirement counts case rows from one type in the restored instance."""
+    from proof.checks.xpath_tree import tree
+
+    at, config = _search(use)
+    prompt = at.nearest("CaseSearchProperty") if config is not None else None
+    if (
+        prompt is None or _address_field(prompt) or prompt.get("hidden") or prompt.get("is_group")
+        or not _required(prompt)
+    ):
+        return False
+    raw = prompt["required"]["test"]
+    if not isinstance(raw, str):
+        return False
+    case_instance = tree("instance('casedb')")
+    case_type_attribute = tree("@case_type")
+
+    def contains_count(node):
+        if not isinstance(node, tuple):
+            return False
+        match node:
+            case ("call", "count", (("path", "SLASH", instance, (
+                ("step", "child", "casedb", ()),
+                ("step", "child", "case", (("EQ", field, ("str", found_type)),)),
+            )),)):
+                if instance == case_instance and field == case_type_attribute and found_type:
+                    return True
+        return any(contains_count(child) for child in node)
+
+    return contains_count(tree(raw))
+
+
 def manual_address_with_saved_text(use, manifest):
     """The stored text survives for the ungrouped manual picker with no active subscription."""
     if use.key == "prompt-input:address":

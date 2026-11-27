@@ -42862,13 +42862,7 @@
 	{
 		"id": "hq-search/required-reading-the-case-list",
 		"base": "hq-search",
-		"entry": "case-search/required-or-validation-test-outside-what-nova-types",
-		"standing": "not-yet",
-		"place": {
-			"kind": "search",
-			"menu": 0,
-			"name": "Clients"
-		},
+		"entry": "case-search/required-condition-counts-restored-cases",
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/0/search_config/properties/1",
@@ -42895,7 +42889,19 @@
 				"is_group": false,
 				"doc_type": "CaseSearchProperty"
 			}
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/searchInputs/1/required/when/left/via/source",
+				"value": "casedb"
+			}
+		]
 	},
 	{
 		"id": "hq-search/check-with-no-message-on-a-guarded-field",

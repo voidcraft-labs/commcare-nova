@@ -352,6 +352,29 @@ it("refuses a Search condition that tries to read the stored address as an answe
 	]);
 });
 
+it("reads a Search requirement that counts restored cases of a declared type", async () => {
+	const source =
+		"count(instance('casedb')/casedb/case[@case_type = 'patient']) > 0";
+	const { doc } = await documentOf((body) => {
+		first(body).required = {
+			test: source,
+			text: { en: "Give a name." },
+			doc_type: "Assertion",
+		};
+	});
+	expect(
+		doc.modules[doc.moduleOrder[0]].caseListConfig?.searchInputs[0],
+	).toMatchObject({
+		required: {
+			when: {
+				kind: "gt",
+				left: { kind: "count", via: { kind: "cases", source: "casedb" } },
+			},
+		},
+	});
+	expect(first(exportedBody(doc))).toHaveProperty("required.test", source);
+});
+
 it("refuses to put a held address default into an automatic search or connect a receiver", async () => {
 	const { doc } = await documentOf(addStoredAddressDefault);
 	const module = doc.modules[doc.moduleOrder[0]];
