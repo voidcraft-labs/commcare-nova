@@ -45,131 +45,142 @@ const h = setupAppStateTestDb("preview_search_response_", {
 	poolMax: 4,
 });
 
-it("checks a Search requirement against the authorized worker restore", async () => {
-	await h.seedProjectMember(ACTOR, PROJECT, "owner");
-	await sql`INSERT INTO auth_session (id, token, "userId", "expiresAt", "createdAt", "updatedAt")
+it.each(["literal", "property"] as const)(
+	"checks a Search requirement comparing a %s against the authorized worker restore",
+	async (match) => {
+		await h.seedProjectMember(ACTOR, PROJECT, "owner");
+		await sql`INSERT INTO auth_session (id, token, "userId", "expiresAt", "createdAt", "updatedAt")
 		VALUES (${auth.sessionId}, ${auth.sessionId}, ${ACTOR}, now()+interval '1 hour', now(), now())`.execute(
-		h.db(),
-	);
-	const required = gt(
-		count({
-			kind: "cases",
-			source: "casedb",
-			where: [
-				eq(
-					{ kind: "case-row-type" },
-					{ kind: "case-type", caseType: "patient" },
-				),
-				eq(prop("patient", "standing"), literal("active")),
-			],
-		}),
-		literal(0),
-	);
-	const doc = buildDoc({
-		appId: APP,
-		caseTypes: [
-			{
-				name: "patient",
-				properties: [
-					{ name: "standing", label: "Standing", data_type: "text" },
+			h.db(),
+		);
+		const required = gt(
+			count({
+				kind: "cases",
+				source: "casedb",
+				where: [
+					eq(
+						{ kind: "case-row-type" },
+						{ kind: "case-type", caseType: "patient" },
+					),
+					eq(
+						prop("patient", "standing"),
+						match === "literal"
+							? literal("active")
+							: prop("patient", "village"),
+					),
 				],
-			},
-		],
-		modules: [
-			{
-				name: "Patients",
-				caseType: "patient",
-				caseListMenuItem: {},
-				caseSearchConfig: {},
-				caseListConfig: {
-					...caseListConfig([{ field: "case_name", header: "Name" }]),
-					searchInputs: [
-						simpleSearchInputDef(
-							testUuid("required-worker-restore-name"),
-							"patient_name",
-							"Patient name",
-							"text",
-							"case_name",
-							{ required: { when: required, message: "Give a patient name." } },
-						),
+			}),
+			literal(0),
+		);
+		const doc = buildDoc({
+			appId: APP,
+			caseTypes: [
+				{
+					name: "patient",
+					properties: [
+						{ name: "standing", label: "Standing", data_type: "text" },
+						{ name: "village", label: "Village", data_type: "text" },
 					],
 				},
-			},
-		],
-	});
-	await h.seedAppWithBlueprint(doc, {
-		id: APP,
-		owner: ACTOR,
-		projectId: PROJECT,
-	});
-	const store = await withProjectContext(PROJECT, ACTOR, ACTOR);
-	await store.applySchemaChange({
-		appId: APP,
-		caseType: "patient",
-		caseTypeSchemas: buildCaseTypeMap(doc),
-	});
-	const saved = await setPreviewSearchSettings(
-		{ appId: APP, projectId: PROJECT },
-		ACTOR,
-		LOCAL,
-		"0",
-		{
-			maximum: 500,
-			propertyMatchers: { ignoredText: [], fuzzyProperties: [] },
-		},
-	);
-	if (saved.kind !== "saved")
-		throw new Error(`Search settings refused: ${saved.kind}`);
-	const revision = resolvePreviewSearchFacts(saved.catalog, LOCAL).revision;
-	const moduleUuid = doc.moduleOrder[0];
-	const search = (
-		device = webAppsDevice(),
-		inputValues: Record<string, string> = {},
-	) =>
-		loadCasesAction({
+			],
+			modules: [
+				{
+					name: "Patients",
+					caseType: "patient",
+					caseListMenuItem: {},
+					caseSearchConfig: {},
+					caseListConfig: {
+						...caseListConfig([{ field: "case_name", header: "Name" }]),
+						searchInputs: [
+							simpleSearchInputDef(
+								testUuid("required-worker-restore-name"),
+								"patient_name",
+								"Patient name",
+								"text",
+								"case_name",
+								{
+									required: { when: required, message: "Give a patient name." },
+								},
+							),
+						],
+					},
+				},
+			],
+		});
+		await h.seedAppWithBlueprint(doc, {
+			id: APP,
+			owner: ACTOR,
+			projectId: PROJECT,
+		});
+		const store = await withProjectContext(PROJECT, ACTOR, ACTOR);
+		await store.applySchemaChange({
 			appId: APP,
 			caseType: "patient",
-			moduleUuid,
-			blueprint: toRscSerializableDoc(doc),
-			caseListConfig: doc.modules[moduleUuid].caseListConfig,
-			search: true,
-			searchSubmission: crypto.randomUUID(),
-			device: { ...device, searchConfiguration: { target: LOCAL, revision } },
-			inputValues,
-			page: { offset: 0, limit: 10 },
+			caseTypeSchemas: buildCaseTypeMap(doc),
 		});
-	const insert = async (
-		caseStore: typeof store,
-		id: string,
-		standing = "active",
-	) =>
-		caseStore.insert({
-			appId: APP,
-			row: {
-				case_id: id,
-				case_type: "patient",
-				case_name: id,
-				properties: { standing },
+		const saved = await setPreviewSearchSettings(
+			{ appId: APP, projectId: PROJECT },
+			ACTOR,
+			LOCAL,
+			"0",
+			{
+				maximum: 500,
+				propertyMatchers: { ignoredText: [], fuzzyProperties: [] },
 			},
+		);
+		if (saved.kind !== "saved")
+			throw new Error(`Search settings refused: ${saved.kind}`);
+		const revision = resolvePreviewSearchFacts(saved.catalog, LOCAL).revision;
+		const moduleUuid = doc.moduleOrder[0];
+		const search = (
+			device = webAppsDevice(),
+			inputValues: Record<string, string> = {},
+		) =>
+			loadCasesAction({
+				appId: APP,
+				caseType: "patient",
+				moduleUuid,
+				blueprint: toRscSerializableDoc(doc),
+				caseListConfig: doc.modules[moduleUuid].caseListConfig,
+				search: true,
+				searchSubmission: crypto.randomUUID(),
+				device: { ...device, searchConfiguration: { target: LOCAL, revision } },
+				inputValues,
+				page: { offset: 0, limit: 10 },
+			});
+		const insert = async (
+			caseStore: typeof store,
+			id: string,
+			standing = "active",
+		) =>
+			caseStore.insert({
+				appId: APP,
+				row: {
+					case_id: id,
+					case_type: "patient",
+					case_name: id,
+					properties: { standing, village: "active" },
+				},
+			});
+		const other = await withProjectContext(PROJECT, ACTOR, "other-case-owner");
+		await insert(other, "outside-the-restore");
+		await insert(store, "inactive", "inactive");
+		expect(await search()).toMatchObject({ kind: "rows" });
+		await insert(store, "Amina");
+		expect(await search()).toMatchObject({
+			kind: "invalid-search",
+			repair: "inputs",
+			message: "Give a patient name.",
 		});
-	const other = await withProjectContext(PROJECT, ACTOR, "other-case-owner");
-	await insert(other, "outside-the-restore");
-	await insert(store, "inactive", "inactive");
-	expect(await search()).toMatchObject({ kind: "rows" });
-	await insert(store, "Amina");
-	expect(await search()).toMatchObject({
-		kind: "invalid-search",
-		repair: "inputs",
-		message: "Give a patient name.",
-	});
-	expect(
-		await search(webAppsDevice(), { patient_name: "Amina" }),
-	).toMatchObject({
-		kind: "rows",
-		rows: [{ case_id: "Amina" }],
-	});
-	expect(await search(androidDevice())).toMatchObject({ kind: "rows" });
-});
+		expect(
+			await search(webAppsDevice(), { patient_name: "Amina" }),
+		).toMatchObject({
+			kind: "rows",
+			rows: [{ case_id: "Amina" }],
+		});
+		expect(await search(androidDevice())).toMatchObject({ kind: "rows" });
+	},
+);
 
 it("opens a form on the same search response that supplied Results", async () => {
 	await h.seedProjectMember(ACTOR, PROJECT, "owner");

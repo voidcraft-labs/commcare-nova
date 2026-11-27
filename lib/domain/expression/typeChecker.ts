@@ -840,19 +840,20 @@ export function checkExpression(
 		walkExpression(expression, {
 			visitExpression(node, path) {
 				const match = restoredCasePropertyMatch(node);
+				const caseType = ctx.facts.caseTypes.find(
+					(one) => one.name === match?.caseType,
+				);
+				const isDeclaredText = (property: string) =>
+					!Object.hasOwn(STANDARD_CASE_LIST_PROPERTY_DATA_TYPES, property) &&
+					caseType?.properties.some(
+						(one) =>
+							one.name === property && (one.data_type ?? "text") === "text",
+					) === true;
 				if (
 					match !== undefined &&
-					(Object.hasOwn(
-						STANDARD_CASE_LIST_PROPERTY_DATA_TYPES,
-						match.property,
-					) ||
-						ctx.facts.caseTypes
-							.find((one) => one.name === match.caseType)
-							?.properties.some(
-								(one) =>
-									one.name === match.property &&
-									(one.data_type ?? "text") === "text",
-							) !== true)
+					(!isDeclaredText(match.property) ||
+						(match.match.kind === "property" &&
+							!isDeclaredText(match.match.value)))
 				)
 					errors.push({
 						path,

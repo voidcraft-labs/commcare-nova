@@ -242,7 +242,10 @@ function DeviceCountCard({
 			?.properties.filter(
 				({ data_type }) => (data_type ?? "text") === "text",
 			) ?? [];
-	const setPropertyMatch = (property: string, text: string) => {
+	const setPropertyMatch = (
+		property: string,
+		match: NonNullable<typeof propertyMatch>["match"],
+	) => {
 		if (requiredCaseType === undefined) return;
 		const typed = typeRows(requiredCaseType);
 		onChange({
@@ -254,7 +257,12 @@ function DeviceCountCard({
 							...typed,
 							where: [
 								...typed.where,
-								eq(prop(requiredCaseType, property), literal(text)),
+								eq(
+									prop(requiredCaseType, property),
+									match.kind === "property"
+										? prop(requiredCaseType, match.value)
+										: literal(match.value),
+								),
 							],
 						},
 		});
@@ -294,7 +302,10 @@ function DeviceCountCard({
 						value={propertyMatch?.property ?? "$any"}
 						onValueChange={(property) => {
 							if (property !== null)
-								setPropertyMatch(property, propertyMatch?.text ?? "");
+								setPropertyMatch(
+									property,
+									propertyMatch?.match ?? { kind: "text", value: "" },
+								);
 						}}
 					>
 						<SelectTrigger aria-label="Text property to match">
@@ -310,13 +321,48 @@ function DeviceCountCard({
 						</SelectContent>
 					</Select>
 					{propertyMatch && (
-						<BlurCommitTextInput
-							ariaLabel="Text to match"
-							value={propertyMatch.text}
-							onCommit={(text) =>
-								setPropertyMatch(propertyMatch.property, text)
-							}
-						/>
+						<>
+							<Select
+								value={
+									propertyMatch.match.kind === "property"
+										? propertyMatch.match.value
+										: "$text"
+								}
+								onValueChange={(choice) => {
+									if (choice !== null)
+										setPropertyMatch(
+											propertyMatch.property,
+											choice === "$text"
+												? { kind: "text", value: "" }
+												: { kind: "property", value: choice },
+										);
+								}}
+							>
+								<SelectTrigger aria-label="Compare with">
+									<SelectValue />
+								</SelectTrigger>
+								<SelectContent>
+									<SelectItem value="$text">Entered text</SelectItem>
+									{textProperties.map(({ name }) => (
+										<SelectItem key={name} value={name}>
+											{name}
+										</SelectItem>
+									))}
+								</SelectContent>
+							</Select>
+							{propertyMatch.match.kind === "text" && (
+								<BlurCommitTextInput
+									ariaLabel="Text to match"
+									value={propertyMatch.match.value}
+									onCommit={(text) =>
+										setPropertyMatch(propertyMatch.property, {
+											kind: "text",
+											value: text,
+										})
+									}
+								/>
+							)}
+						</>
 					)}
 				</>
 			)}

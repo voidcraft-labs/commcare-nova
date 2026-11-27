@@ -5777,8 +5777,12 @@ def required_condition_counts_restored_cases(use, manifest):
                     if not filters:
                         return True
                     match filters:
-                        case [("EQ", ("path", None, None, (("step", "child", key, ()),)), ("str", _))]:
-                            return bool(key)
+                        case [("EQ", ("path", None, None, (("step", "child", first, ()),)), other)]:
+                            match other:
+                                case ("str", _):
+                                    return bool(first)
+                                case ("path", None, None, (("step", "child", second, ()),)):
+                                    return bool(first and second)
         return any(contains_count(child) for child in node)
 
     return contains_count(tree(raw))

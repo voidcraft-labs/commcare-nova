@@ -44039,6 +44039,60 @@
 	{
 		"id": "hq-search/required-counting-a-case-list-with-a-property-comparison",
 		"base": "hq-search",
+		"entry": "case-search/required-condition-counts-restored-cases",
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/0/search_config/properties/1",
+			"value": {
+				"name": "village",
+				"label": {
+					"en": "Village"
+				},
+				"hint": {},
+				"hidden": false,
+				"allow_blank_value": false,
+				"exclude": false,
+				"required": {
+					"test": "count(instance('casedb')/casedb/case[@case_type = 'client'][standing = village]) > 0",
+					"text": {
+						"en": "Give a village."
+					},
+					"doc_type": "Assertion"
+				},
+				"validations": [],
+				"itemset": {
+					"doc_type": "Itemset"
+				},
+				"is_group": false,
+				"doc_type": "CaseSearchProperty"
+			}
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/searchInputs/1/required/when/left/via/where/1/left/term/property",
+				"value": "standing"
+			},
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/searchInputs/1/required/when/left/via/where/1/right/term/property",
+				"value": "village"
+			}
+		]
+	},
+	{
+		"id": "hq-search/required-counting-a-case-list-with-a-nested-property-comparison",
+		"base": "hq-search",
 		"entry": "case-search/required-or-validation-test-outside-what-nova-types",
 		"standing": "not-yet",
 		"place": {
@@ -44059,7 +44113,7 @@
 				"allow_blank_value": false,
 				"exclude": false,
 				"required": {
-					"test": "count(instance('casedb')/casedb/case[@case_type = 'client'][standing = village]) > 0",
+					"test": "count(instance('casedb')/casedb/case[@case_type = 'client'][standing = household/village]) > 0",
 					"text": {
 						"en": "Give a village."
 					},
