@@ -76,6 +76,7 @@ import {
 	planCaseRetype,
 	prepareCaseScalarTextValue,
 	RESERVED_CASE_OPERATION_TYPES,
+	requiredDateRetypeOverwrite,
 	sameCaseWriteKey,
 	type TargetedCaseOperation,
 	USERCASE_BUILT_IN_KEYS,
@@ -727,7 +728,16 @@ function validateOperation(
 					`Retyping ${operation.caseType} to ${operation.retype} cannot complete because its source or destination schema is missing.`,
 				),
 			);
-		} else if (!plan.wirePortable) {
+		} else if (
+			!plan.wirePortable &&
+			requiredDateRetypeOverwrite(
+				ctx.doc,
+				ctx.formUuid,
+				operation,
+				producer,
+				plan,
+			) === undefined
+		) {
 			const consequences = [
 				...(plan.parked.length > 0
 					? [

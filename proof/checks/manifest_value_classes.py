@@ -11961,7 +11961,7 @@ def save_to_case_before_optional_own_update(use):
             and path[4] == [["child", part, 0] for part in ("session", "data", "case_id")])
 
 
-def save_to_case_retype_property_types(use):
+def save_to_case_retype_property_types(use, *, required_date=False):
     """The original and destination bind types for one same-property pair of
     direct question writes across a literal retype of its earlier sibling's
     freshly created case. Wider graphs need the typed reader's verdict."""
@@ -12004,8 +12004,33 @@ def save_to_case_retype_property_types(use):
         return None
     source = _one_save_to_case_write(form, earlier, prior)
     final = _one_save_to_case_write(form, block, case)
-    if source is not None and final is not None and source[0] == final[0]:
-        return source[1], final[1]
+    if source is None or final is None or source[0] != final[0]:
+        return None
+    types = source[1], final[1]
+    if required_date:
+        root_group = block.getparent()
+        if types != ("string", "date") or root_group.getparent() is not form.data_root:
+            return None
+        if ([_local(node) for node in _children(prior)] != ["create", "update"]
+                or [_local(node) for node in _children(case)] != ["update"]):
+            return None
+        for holder in (root_group, earlier, block):
+            bind = form.bind(form.paths[holder])
+            if bind is not None and bind.get("relevant"):
+                return None
+        for action, node in (("create", earlier), ("update", block)):
+            case_path = f"{form.paths[node]}/case"
+            case_bind = form.bind(case_path)
+            writer = form.bind(f"{case_path}/update/{final[0]}")
+            if case_bind is not None and case_bind.get("relevant"):
+                return None
+            if writer is None or writer.get("relevant"):
+                return None
+            if action == "update":
+                question = form.bind(writer.get("calculate"))
+                if question is None or question.get("required") != "true()" or question.get("relevant"):
+                    return None
+    return types
 
 
 # Binds -------------------------------------------------------------------------------
