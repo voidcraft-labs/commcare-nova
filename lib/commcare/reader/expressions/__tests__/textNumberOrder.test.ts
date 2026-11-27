@@ -1,5 +1,6 @@
 import { expect, it } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import { serializeXmlValue } from "@/lib/commcare/serializeXml";
 import { literal, term } from "@/lib/domain/expression";
 import { evaluateAsync } from "@/lib/preview/xpath/asyncEvaluator";
 import { evaluate } from "@/lib/preview/xpath/evaluator";
@@ -49,7 +50,7 @@ it.each([
 			xml: (xml) =>
 				xml.replace(
 					'calculate="424242"',
-					`calculate="${implicit.replace("<", "&lt;")}"`,
+					() => `calculate="${serializeXmlValue(implicit, true)}"`,
 				),
 		});
 		const answer = readHqApp(await inputFor(body), { claims: "full" });
@@ -132,7 +133,7 @@ it.each([
 		xml: (xml) =>
 			xml.replace(
 				'calculate="424242"',
-				`calculate="${calculate.replace("<", "&lt;")}"`,
+				() => `calculate="${serializeXmlValue(calculate, true)}"`,
 			),
 	});
 	const read = readHqApp(await inputFor(body), { claims: "full" });

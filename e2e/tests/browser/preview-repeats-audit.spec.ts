@@ -224,7 +224,7 @@ test.describe("on Android, in a zone the stored offset matches", () => {
 test.describe("on Android, in a zone the stored offset is not", () => {
 	test.use({ timezoneId: "Asia/Kolkata" });
 
-	test("a preloaded date and time reads in the device's zone, and its two halves answer only what the worker gives", async ({
+	test("a preloaded date and time keeps the Android picker answer while the worker edits its clock", async ({
 		page,
 	}, testInfo) => {
 		const peer = await componentPeer(
@@ -263,40 +263,45 @@ test.describe("on Android, in a zone the stored offset is not", () => {
 					.toMatch(/^2024-01-16T01:00:00(\.000)?\+05:30$/);
 			});
 
-			await test.step("emptying the clock half answers nothing on the person's behalf", async () => {
-				// The date's own midnight is a value nobody chose, and committing it
-				// back here would make a cleared clock refill itself.
+			const answer = () =>
+				page.evaluate(
+					() =>
+						window.previewRepeatsAudit.answerValues()[
+							"/data/visit/recorded_at"
+						],
+				);
+			const original = "2024-01-16T01:00:00.000+05:30";
+			await test.step("an empty draft stays blank on blur and leaves the picker answer alone", async () => {
 				await clock.fill("");
+				await expect(clock).toHaveValue("");
+				await expect.poll(answer).toBe(original);
 				await clock.blur();
 				await expect(clock).toHaveValue("");
-				await expect(dateHalf).not.toHaveText(/Pick a date/);
+				await expect.poll(answer).toBe(original);
+				await expect(dateHalf).toHaveText("January 16, 2024");
 				await expect(clock).not.toHaveAttribute("aria-invalid", "true");
 			});
 
-			await test.step("a clock entered before its date reads back as typed", async () => {
-				// Clear the date too, so the clock really is the only half there.
-				// The join has to survive that: showing back "14:30:00" would be the
-				// field rewriting the person's own "2:30 PM" into a spelling they
-				// never used, and quoting the join at them in the error would put
-				// punctuation they never typed on screen.
-				await dateHalf.click();
-				await page.getByRole("button", { name: "Clear", exact: true }).click();
-				await expect(dateHalf).toHaveText(/Pick a date/);
-
-				await clock.fill("2:30 PM");
+			await test.step("a partial replacement can be corrected without resetting the picker", async () => {
+				await clock.fill("2:3");
 				await clock.blur();
-				await expect(clock).toHaveValue("2:30 PM");
-				await expect(
-					page.getByText("Pick a date: this question needs both."),
-				).toBeVisible();
-
-				// And clearing the remaining half empties the answer outright.
+				await expect(clock).toHaveValue("2:3");
+				await expect.poll(answer).toBe("2024-01-16T2:3");
 				await clock.fill("");
 				await clock.blur();
 				await expect(clock).toHaveValue("");
+				await expect.poll(answer).toBe(original);
+				await expect(clock).not.toHaveAttribute("aria-invalid", "true");
+
+				await dateHalf.click();
 				await expect(
-					page.getByText("Pick a date: this question needs both."),
-				).toBeHidden();
+					page.getByRole("button", { name: "Clear", exact: true }),
+				).toHaveCount(0);
+				await page.keyboard.press("Escape");
+				await clock.fill("2:30 PM");
+				await clock.blur();
+				await expect(clock).toHaveValue("2:30 PM");
+				await expect.poll(answer).toBe("2024-01-16T14:30:00.000+05:30");
 			});
 		} catch (error) {
 			await attachFailure(page, testInfo, "worker-datetime-zone");

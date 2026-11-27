@@ -1,4 +1,5 @@
 "use client";
+import { useRef, useState } from "react";
 import { useBuilderLanguage } from "@/components/builder/localization/BuilderLocalizationProvider";
 import { AlternateDatePicker } from "@/components/preview/shared/AlternateDatePicker";
 import { WorkerDatePicker } from "@/components/preview/shared/WorkerDatePicker";
@@ -10,6 +11,7 @@ import type {
 } from "@/lib/domain";
 import { hasOtherDisplay } from "@/lib/domain/questionDisplay";
 import {
+	isReadableTemporalValue,
 	paddedTimeOfDay,
 	storageDatetimeValue,
 	storageTimeValue,
@@ -18,10 +20,7 @@ import {
 import { viewerTimeZone } from "@/lib/preview/engine/caseDataBindingClient";
 import type { FieldState } from "@/lib/preview/engine/types";
 import { runtimeMessage } from "@/lib/preview/runtimeMessages";
-import {
-	androidCalendarCanBeEmpty,
-	androidDatetimePickerValue,
-} from "@/lib/preview/workerCalendar";
+import { androidCalendarCanBeEmpty } from "@/lib/preview/workerCalendar";
 import { usePreviewPlatformRules } from "@/lib/session/hooks";
 import { formatClockTime, parseClockTime } from "@/lib/ui/clockTime";
 import { ValidationError } from "./ValidationError";
@@ -115,6 +114,8 @@ export function DateField({
 	const rules = usePreviewPlatformRules();
 	const clearable = rules.datePicker === "clearable";
 	const { language } = useBuilderLanguage();
+	const [blankClockDraft, setBlankClockDraft] = useState(false);
+	const lastPickerAnswer = useRef<string | undefined>(undefined);
 	const showError = state.touched && !state.valid;
 	const stored = state.value;
 	const errorSlot = showError && state.errorMessage && (
@@ -217,9 +218,8 @@ export function DateField({
 	const timePart = separator === -1 ? "" : displayed.slice(separator + 1);
 
 	/**
-	 * Android saves a complete local minute and clearing returns its picker
-	 * to the current clock. Web Apps can leave either half empty while the
-	 * worker fills in an answer.
+	 * Android saves a complete local minute. A blank clock input is a draft
+	 * for editing the picker. Web Apps can save the halves independently.
 	 */
 	const commit = (date: string, time: string): void => {
 		const parsedClock = parseClockTime(time);
@@ -227,10 +227,7 @@ export function DateField({
 		if (!clearable) {
 			const minute = storedWallClock(time) ?? parsedClock;
 			const zone = viewerTimeZone();
-			if (date === "" || clock === "") {
-				onChange(androidDatetimePickerValue("", zone) ?? "");
-				return;
-			}
+			if (date === "" || clock === "") return;
 			if (minute !== null) {
 				onChange(storageDatetimeValue(`${date}T${minute.slice(0, 5)}`, zone));
 				return;
@@ -279,22 +276,37 @@ export function DateField({
 					className={`min-w-0 flex-1 ${PV_TRIGGER}`}
 				/>
 				<ClockTimeField
-					value={formatClockTime(timePart) ?? timePart}
-					onValueChange={(next) =>
-						// Both halves empty is an empty answer, not the `T` that
-						// joining two empty strings would leave behind: a value
-						// no schema accepts and no person typed.
+					value={blankClockDraft ? "" : (formatClockTime(timePart) ?? timePart)}
+					onValueChange={(next) => {
+						if (!clearable) {
+							const pickerAnswer = isReadableTemporalValue("datetime", stored)
+								? stored
+								: state.androidPickerDatetime;
+							if (pickerAnswer !== undefined && !editingClock)
+								lastPickerAnswer.current = pickerAnswer;
+							const blank = next.trim() === "";
+							setBlankClockDraft(blank);
+							if (blank) {
+								// Erasing the browser text does not operate Android's
+								// Clear action. Discard any incomplete clock text and
+								// keep the last complete answer for screen exit.
+								if (editingClock && lastPickerAnswer.current !== undefined)
+									onChange(lastPickerAnswer.current);
+								return;
+							}
+						}
 						onChange(
 							next === "" && datePart === "" ? "" : `${datePart}T${next}`,
-						)
-					}
+						);
+					}}
 					onBlur={(text) => {
 						// Merely focusing and leaving the displayed clock keeps the
 						// suggested answer local until the worker leaves this screen.
 						if (
-							editingClock ||
-							state.androidPickerDatetime === undefined ||
-							text !== (formatClockTime(timePart) ?? timePart)
+							(clearable || text.trim() !== "") &&
+							(editingClock ||
+								state.androidPickerDatetime === undefined ||
+								text !== (formatClockTime(timePart) ?? timePart))
 						)
 							commit(datePart, text);
 						onBlur();

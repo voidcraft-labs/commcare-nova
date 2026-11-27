@@ -697,18 +697,21 @@ def test_saved_address_default_stays_out_of_an_installed_android_search(
     from proof.android import observe
     from proof.observe import services
     from proof.observe.record import Blobs
-    from proof.webapps import hq as webapps_hq
-    from proof.webapps.test_search_geocoder import (
-        _address_default_database, _built_address_default, _enable_address_search, _stored_address_default,
+    from proof.observe.search_address import (
+        address_default_database,
+        built_address_default,
+        enable_address_search,
+        save_address_default,
     )
+    from proof.webapps import hq as webapps_hq
 
     document = android_documents["hq-search"]
     command = "search_command.m0"
-    with webapps_hq.authored_project(document, "A", configure=_enable_address_search) as project:
-        _stored_address_default(project)
-        with project.released(services.formplayer(), database=_address_default_database(document)) as release:
+    with webapps_hq.authored_project(document, "A", configure=enable_address_search) as project:
+        save_address_default(project)
+        with project.released(services.formplayer(), database=address_default_database(document)) as release:
             archive = observe.release_archive(release)
-            built = _built_address_default(archive)
+            built = built_address_default(archive)
             blobs = Blobs()
             record = observe.app(
                 release, blobs, label="address-default", archive=archive,

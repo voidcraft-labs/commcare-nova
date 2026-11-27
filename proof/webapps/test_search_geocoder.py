@@ -1,12 +1,16 @@
 """The Web Apps query screen broadcasts a selected address to its configured fields."""
 
-from dataclasses import replace
-
 import pytest
 
 from proof.editors import pages
 from proof.hq import operations
 from proof.observe import casedata
+from proof.observe.search_address import (
+    address_default_database,
+    built_address_default,
+    enable_address_search,
+    save_address_default,
+)
 from proof.webapps import hq as webapps_hq
 from proof.webapps import steps
 from proof.webapps.session import SMALL_SCREEN, Session
@@ -37,55 +41,6 @@ def _geocoder_fields(app, mode):
     })
 
 
-def _enable_address_search(config):
-    return replace(
-        config, privileges=config.privileges | {"CLOUDCARE", "GEOCODER"},
-        flags=config.flags | {"CASE_SEARCH_ADVANCED"},
-    )
-
-
-def _stored_address_default(project):
-    """Use the matrix's exact non-excluded prompt, with no attached receiver."""
-    from corehq.apps.app_manager.models.case_search import CaseSearchProperty
-
-    from proof.matrix.registry import load_variants
-
-    variant = next(row for row in load_variants() if row.id == "hq-search/address-picker-with-stored-default")
-    app = operations.held_app(project.unit, project.app_id)
-    menu = app.modules[0]
-    assert variant.change["pointer"] == "/modules/0/search_config/properties/1"
-    assert menu.search_config.properties[1].name == "village"
-    menu.search_config.properties[1] = CaseSearchProperty.wrap(dict(variant.change["value"]))
-    app.cloudcare_enabled = True
-    app.save()
-    return menu.unique_id
-
-
-def _address_default_database(document):
-    database = casedata.document_case_database(document)
-    original = next(case for case in database.cases if case.case_type == "client")
-    properties = dict(original.properties)
-    properties.update(client_name="Amina", last_visit="2025-12-01")
-    return replace(database, cases=(replace(original, name="Amina", properties=tuple(properties.items())),))
-
-
-def _built_address_default(archive):
-    from io import BytesIO
-    from zipfile import ZipFile
-
-    from lxml import etree
-
-    with ZipFile(BytesIO(archive)) as zipped:
-        suite = etree.fromstring(zipped.read("suite.xml"))
-    prompts = suite.xpath(".//query/prompt[@key='village'][@input='address']")
-    assert prompts, "HQ emitted no address picker for the saved Village field"
-    held = {(prompt.getparent().get("storage-instance"), prompt.get("default"), prompt.get("exclude")) for prompt in prompts}
-    (storage, default, exclude), = held
-    assert default == "'Old address'" and exclude is None, held
-    assert storage
-    return {"storage": storage, "default": default, "exclude": exclude}
-
-
 def test_saved_address_default_stays_out_of_signed_web_search(
     hq, formplayer_runner, editor_driver, webapps_documents, evidence
 ):
@@ -100,8 +55,8 @@ def test_saved_address_default_stays_out_of_signed_web_search(
         *steps.choose("Followup Form"),
         steps.SCREEN,
     ]
-    with webapps_hq.authored_project(document, "A", configure=_enable_address_search) as project:
-        menu_id = _stored_address_default(project)
+    with webapps_hq.authored_project(document, "A", configure=enable_address_search) as project:
+        menu_id = save_address_default(project)
         saved = pages.fresh_section_save(editor_driver, project.unit, pages.CASE_LIST, project.app_id, menu_id)
         menu = operations.held_app(project.unit, project.app_id).get_module_by_unique_id(menu_id)
         field = next(field for field in menu.search_config.properties if field.name == "village")
@@ -109,8 +64,8 @@ def test_saved_address_default_stays_out_of_signed_web_search(
         assert (field.appearance, field.exclude, field.default_value) == ("address", False, "'Old address'")
         assert field.receiver_expression in (None, "")
 
-        with project.released(formplayer_runner, database=_address_default_database(document)) as release:
-            built = _built_address_default(release.archive())
+        with project.released(formplayer_runner, database=address_default_database(document)) as release:
+            built = built_address_default(release.archive())
             run = Session(release, editor_driver).run([
                 *opening, address, TYPE_ADDRESS,
                 {"until": "webapps/choose_address",
@@ -149,7 +104,7 @@ def test_case_list_editor_keeps_search_address_receivers_after_reopening(
             if field.name in {"home", "district", "village"}
         ]
 
-    with webapps_hq.authored_project(document, "A", configure=_enable_address_search) as project:
+    with webapps_hq.authored_project(document, "A", configure=enable_address_search) as project:
         app = operations.held_app(project.unit, project.app_id)
         source = app.to_json()
         _geocoder_fields(source, "combined")
@@ -237,7 +192,7 @@ def test_address_query_sends_ordered_fallback_and_lookup_value_without_the_addre
 
     database = casedata.document_case_database(document)
     clear_and_choose = [CLEAR_ADDRESS, steps.SETTLE, RECEIVERS, *select] if viewport is None else []
-    with webapps_hq.authored_project(document, "A", configure=_enable_address_search) as project:
+    with webapps_hq.authored_project(document, "A", configure=enable_address_search) as project:
         with project.released(
             formplayer_runner, change=lambda app: _geocoder_fields(app, mode), database=database
         ) as release:
