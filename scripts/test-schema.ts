@@ -424,7 +424,7 @@ const SCHEMA_TESTS: readonly SchemaTest[] = [
 		description: editSearchFilterTool.description,
 		schema: editSearchFilterTool.inputSchema,
 		prompt:
-			"Add a search filter for module 11111111-1111-4111-8111-111111111111. Match the record owner with the constant text worker-a.",
+			"Add one indexed-fallback order filter for priority, ascending, to module 11111111-1111-4111-8111-111111111111. Search opens on results for one record type and has no search fields or separate order.",
 	},
 	{
 		name: "setCaseListFilter",

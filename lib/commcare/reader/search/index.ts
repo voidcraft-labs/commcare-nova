@@ -37,6 +37,7 @@ import { searchButtonUndeclaredInstances } from "../../suite/case-search/buttonC
 import { readSearchFilterTarget } from "../../suite/case-search/nativeFilters";
 import {
 	readDedicatedOrder,
+	readIndexResetOrderText,
 	readRequestOrderText,
 	requestOrderText,
 	requestOrderTextRefusal,
@@ -176,6 +177,14 @@ export const SEARCH_CLAIMS = defineClaims("search", {
 	),
 	defaultOrderValue: take(
 		`${S}default-filter-orders-the-records-the-search-sends`,
+		"schema:DefaultCaseSearchProperty.defaultValue",
+	),
+	defaultOrderFallback: take(
+		`${S}default-filter-resets-order-with-index-fallback`,
+		"schema:DefaultCaseSearchProperty.property",
+	),
+	defaultOrderFallbackValue: take(
+		`${S}default-filter-resets-order-with-index-fallback`,
 		"schema:DefaultCaseSearchProperty.defaultValue",
 	),
 	sortReserved: refuse(
@@ -391,7 +400,7 @@ function readDefaultFilters(
 	const entries = objectMembers(stored) ?? [];
 	const dedicatedOrder = cursor.peek("custom_sort_properties");
 	const prompts = cursor.peek("properties");
-	const singleBuiltInOrder =
+	const builtInOrderOnly =
 		module.json.peek("doc_type") === "Module" &&
 		!cursor.peek("case_search_endpoint_id") &&
 		!cursor.peek("data_registry") &&
@@ -406,11 +415,45 @@ function readDefaultFilters(
 				))) &&
 		(dedicatedOrder === undefined ||
 			(Array.isArray(dedicatedOrder) && dedicatedOrder.length === 0)) &&
-		entries.filter((entry) => entry.property === "commcare_sort").length ===
-			1 &&
 		entries.every(
 			(entry) =>
 				entry.property === "commcare_sort" || entry.property === "_xpath_query",
+		);
+	const orderEntries = entries.filter(
+		(entry) => entry.property === "commcare_sort",
+	);
+	const singleBuiltInOrder = builtInOrderOnly && orderEntries.length === 1;
+	const literalSortText = (value: unknown): string | undefined => {
+		if (typeof value !== "string") return undefined;
+		const syntax = readFormSyntax(value);
+		return syntax.ok && syntax.node?.kind === "string"
+			? syntax.node.value
+			: undefined;
+	};
+	const blankList = (value: unknown) =>
+		value === undefined || (Array.isArray(value) && value.length === 0);
+	const literalOrders = orderEntries.map((entry) =>
+		literalSortText(entry.defaultValue),
+	);
+	const carriesIndexReset =
+		builtInOrderOnly &&
+		Array.isArray(stored) &&
+		stored.length === entries.length &&
+		blankList(prompts) &&
+		blankList(cursor.peek("additional_case_types")) &&
+		blankList(cursor.peek("additional_registry_cases")) &&
+		!holdsText(cursor, "custom_related_case_property") &&
+		cursor.peek("include_all_related_cases") !== true &&
+		cursor.peek("auto_launch") === true &&
+		cursor.peek("default_search") === true &&
+		cursor.peek("inline_search") !== true &&
+		literalOrders.filter(
+			(text) => text !== undefined && readIndexResetOrderText(text),
+		).length === 1 &&
+		literalOrders.every(
+			(text) =>
+				text !== undefined &&
+				(readRequestOrderText(text) || readIndexResetOrderText(text)),
 		);
 	const markersOnly =
 		!hasPrompts &&
@@ -488,10 +531,10 @@ function readDefaultFilters(
 			let sortRefusal: ReturnType<typeof requestOrderTextRefusal>;
 			let unmappedComparison = false;
 			if (property === "commcare_sort") {
-				const syntax = readFormSyntax(value);
-				const text =
-					syntax.ok && syntax.node?.kind === "string"
-						? syntax.node.value
+				const text = literalSortText(value);
+				const reset =
+					text !== undefined && carriesIndexReset
+						? readIndexResetOrderText(text)
 						: undefined;
 				const parsedOrder =
 					text === undefined ? undefined : readRequestOrderText(text);
@@ -501,8 +544,9 @@ function readDefaultFilters(
 					text !== undefined &&
 					singleBuiltInOrder &&
 					unmappedSingleOrderComparison(text);
-				if (parsedOrder !== undefined) {
-					const { order, removedSuffix } = parsedOrder;
+				const order = reset ?? parsedOrder?.order;
+				if (order !== undefined) {
+					const removedSuffix = parsedOrder?.removedSuffix;
 					const occurrence = names.get(property)?.length ?? 0;
 					addName(property, row);
 					const uuid = accounting.identity(
@@ -517,11 +561,17 @@ function readDefaultFilters(
 						ok = false;
 						return;
 					}
-					row.take("property", C.defaultOrder, String).value;
-					row.take("defaultValue", C.defaultOrderValue, String).value;
+					const keyClaim =
+						reset === undefined ? C.defaultOrder : C.defaultOrderFallback;
+					const valueClaim =
+						reset === undefined
+							? C.defaultOrderValue
+							: C.defaultOrderFallbackValue;
+					row.take("property", keyClaim, String).value;
+					row.take("defaultValue", valueClaim, String).value;
 					accounting.claimEntry(
 						{ json: row, key: "property" },
-						C.defaultOrder.entry,
+						keyClaim.entry,
 						"csql-key:commcare_sort",
 						row.place,
 					);

@@ -11,7 +11,10 @@
 // (`es/case_search.py::sort_by_case_property`).
 
 import { authoredCasePropertyNameSchema } from "@/lib/domain/casePropertyName";
-import type { SearchRequestOrder } from "@/lib/domain/modules";
+import type {
+	SearchFilterOrder,
+	SearchRequestOrder,
+} from "@/lib/domain/modules";
 import {
 	FORBIDDEN_CASE_OPERATION_WRITE_PROPERTIES,
 	isDeviceOnlyCaseProperty,
@@ -202,19 +205,48 @@ export function readDedicatedOrder(
 }
 
 /** The `commcare_sort` text a default filter sends for `order`. */
-export function requestOrderText(order: SearchRequestOrder): string {
+export function requestOrderText(order: SearchFilterOrder): string {
 	return order
-		.map(
-			(term) =>
-				(term.implicitDirection
-					? ""
-					: term.direction === "descending"
-						? "-"
-						: "+") +
-				requestOrderKey(term) +
-				(term.implicitComparison ? "" : `:${WIRE_COMPARISON[term.comparison]}`),
+		.map((term) =>
+			term.comparison === "indexed-fallback"
+				? `+${term.property}::ignored`
+				: (term.implicitDirection
+						? ""
+						: term.direction === "descending"
+							? "-"
+							: "+") +
+					requestOrderKey(term) +
+					(term.implicitComparison
+						? ""
+						: `:${WIRE_COMPARISON[term.comparison]}`),
 		)
 		.join(",");
+}
+
+/** The fixed wire spelling of the retained ascending index reset. The
+ * caller verifies the whole built-in search before claiming this term. */
+export function readIndexResetOrderText(
+	text: string,
+): SearchFilterOrder | undefined {
+	const [signedProperty, blank, suffix, ...extra] = text.split(":");
+	if (
+		!signedProperty?.startsWith("+") ||
+		blank !== "" ||
+		suffix !== "ignored" ||
+		extra.length
+	)
+		return undefined;
+	const property = signedProperty.slice(1);
+	if (!indexedResetProperty(property)) return undefined;
+	return [{ property, comparison: "indexed-fallback", direction: "ascending" }];
+}
+
+export function indexedResetProperty(property: string): boolean {
+	return (
+		authoredCasePropertyNameSchema.safeParse(property).success &&
+		!SERVER_ORDER_RECORD_KEYS.has(property) &&
+		orderKeyRefusal(property) === undefined
+	);
 }
 
 /** The order a literal `commcare_sort` text names, or `undefined` for text

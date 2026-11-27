@@ -3522,36 +3522,50 @@ export type SearchFilterTarget = z.infer<typeof searchFilterTargetSchema>;
  * (`case_search/utils.py::CaseSearchQueryBuilder._apply_sort`). The device
  * list may still show the returned records in its own order.
  */
+const searchRequestOrderTermSchema = z
+	.strictObject({
+		property: authoredCasePropertyNameSchema,
+		/** The record name read by HQ's `name` key rather than `case_name`. */
+		recordName: z.literal(true).optional(),
+		comparison: z.enum(["text", "number", "date"]),
+		direction: z.enum(["ascending", "descending"]),
+		/** A default filter brought in from HQ that left these to HQ's
+		 *  defaults (text, ascending) keeps leaving them. */
+		implicitComparison: z.literal(true).optional(),
+		implicitDirection: z.literal(true).optional(),
+	})
+	.refine((term) => !term.recordName || term.property === "case_name", {
+		error: "Choose the record name.",
+	})
+	.refine((term) => !term.implicitComparison || term.comparison === "text", {
+		error: "Choose a comparison for this property.",
+	})
+	.refine((term) => !term.implicitDirection || term.direction === "ascending", {
+		error: "Choose a direction for this property.",
+	});
+
 export const searchRequestOrderSchema = z
-	.array(
-		z
-			.strictObject({
-				property: authoredCasePropertyNameSchema,
-				/** The record name read by HQ's `name` key rather than `case_name`. */
-				recordName: z.literal(true).optional(),
-				comparison: z.enum(["text", "number", "date"]),
-				direction: z.enum(["ascending", "descending"]),
-				/** A default filter brought in from HQ that left these to HQ's
-				 *  defaults (text, ascending) keeps leaving them. */
-				implicitComparison: z.literal(true).optional(),
-				implicitDirection: z.literal(true).optional(),
-			})
-			.refine((term) => !term.recordName || term.property === "case_name", {
-				error: "Choose the record name.",
-			})
-			.refine(
-				(term) => !term.implicitComparison || term.comparison === "text",
-				{
-					error: "Choose a comparison for this property.",
-				},
-			)
-			.refine(
-				(term) => !term.implicitDirection || term.direction === "ascending",
-				{ error: "Choose a direction for this property." },
-			),
-	)
+	.array(searchRequestOrderTermSchema)
 	.min(1);
 export type SearchRequestOrder = z.infer<typeof searchRequestOrderSchema>;
+
+/** The built-in index tries number, date, then text for this property, with
+ * missing values last. Choosing it discards all earlier request order terms. */
+const searchFilterResetTermSchema = z.strictObject({
+	property: authoredCasePropertyNameSchema,
+	comparison: z.literal("indexed-fallback"),
+	direction: z.literal("ascending"),
+});
+export const searchFilterOrderSchema = z
+	.array(z.union([searchRequestOrderTermSchema, searchFilterResetTermSchema]))
+	.min(1)
+	.refine(
+		(order) =>
+			order.length === 1 ||
+			order.every((term) => term.comparison !== "indexed-fallback"),
+		{ error: "Give the automatic comparison its own order filter." },
+	);
+export type SearchFilterOrder = z.infer<typeof searchFilterOrderSchema>;
 
 export const searchValueFilterSchema = z.strictObject({
 	uuid: uuidSchema,
@@ -3563,7 +3577,7 @@ export const searchValueFilterSchema = z.strictObject({
 export const searchOrderFilterSchema = z.strictObject({
 	uuid: uuidSchema,
 	kind: z.literal("order"),
-	order: searchRequestOrderSchema,
+	order: searchFilterOrderSchema,
 });
 export const searchRecordTypeRowSchema = z.strictObject({
 	uuid: uuidSchema,

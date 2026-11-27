@@ -987,6 +987,8 @@ A broad search can match more records than the worker receives. Under **Search f
 
 This order uses advanced case search in your CommCare HQ project space. If your project space doesn't have it, **Add order as a search filter** sets the same kind of order among the search filters instead. When a search has both, the server applies the filters' orders first, then the one above. An app you bring in from CommCare HQ keeps each order where it was. If an older order repeats a direction sign, publishing keeps the same sort direction.
 
+For a Search that opens on results for one record type without Search fields, related records or a separate order, an order filter can compare one property as **Numbers, dates, then text**. It sorts ascending with missing values last. This filter replaces earlier order filters. Later filters still break ties.
+
 To keep particular owners' records out of the online results, add a search filter and choose **Owners to leave out of Search**. Its value names the owner IDs, separated by spaces, and can come from the worker's Search answers. It applies to the online search only: **Assigned cases** still decides which records the device list shows. A search takes one such rule, so name every owner in its value.
 
 

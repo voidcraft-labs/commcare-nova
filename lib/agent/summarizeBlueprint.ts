@@ -2,6 +2,7 @@ import {
 	detailTabForColumn,
 	detailTabSearchChildType,
 } from "@/lib/domain/detailTabs";
+import { searchOrderResetPosition } from "@/lib/domain/searchOrder";
 /**
  * Compact blueprint-summary renderer. Walks `BlueprintDoc` directly and
  * emits domain-vocabulary text (`field`, `kind`, `caseWrite`) — no
@@ -23,9 +24,9 @@ import type {
 	Expression,
 	FormLinkTarget,
 	Module,
+	SearchFilterOrder,
 	SearchFilterTarget,
 	SearchInputDef,
-	SearchRequestOrder,
 	Uuid,
 } from "@/lib/domain";
 import {
@@ -404,13 +405,14 @@ function summarizeCaseList(mod: Module): string | undefined {
 	}
 	if (config.searchFilters !== undefined) {
 		lines.push("      search_filters:");
-		for (const filter of config.searchFilters)
+		const resetIndex = searchOrderResetPosition(config.searchFilters);
+		for (const [index, filter] of config.searchFilters.entries())
 			lines.push(
 				`        - ${filter.uuid}: ${
 					"target" in filter
 						? searchFilterTargetText(filter.target)
 						: filter.kind === "order"
-							? `order ${filter.order.map(orderTermText).join(", then ")}`
+							? `order ${filter.order.map(orderTermText).join(", then ")}${index < resetIndex ? " (overridden by a later order filter)" : ""}`
 							: filter.kind === "request-record-type"
 								? `request records of type ${filter.caseType}`
 								: `follow the record ID in ${filter.property}`
@@ -421,7 +423,9 @@ function summarizeCaseList(mod: Module): string | undefined {
 }
 
 /** One term of a search's server order, as the SA reads it. */
-function orderTermText(term: SearchRequestOrder[number]): string {
+function orderTermText(term: SearchFilterOrder[number]): string {
+	if (term.comparison === "indexed-fallback")
+		return `${term.property} as number, date, then text, ascending, missing last (replaces earlier orders)`;
 	return `${term.property} as ${term.comparison}, ${term.direction}`;
 }
 

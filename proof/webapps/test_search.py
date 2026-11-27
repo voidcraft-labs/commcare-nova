@@ -63,10 +63,13 @@ submits that screen, as the search workflow requires.
 from __future__ import annotations
 
 import dataclasses
+import io
 import json
 from pathlib import Path
+import zipfile
 
 import pytest
+from lxml import etree
 
 from proof.editors import pages
 from proof.observe import casedata
@@ -130,6 +133,123 @@ def test_authored_search_keeps_its_list_filter_out_of_the_request(
         }
         assert orders == [expected_order[publication]], orders
         assert [row["id"] for row in results["list"]["rows"]] == [f"row-{case_id}" for case_id in witness["rows"]]
+
+
+def test_authored_blank_comparison_resets_sort_without_the_explicit_orders_missing_rule(
+    hq, formplayer_runner, editor_driver, webapps_documents, evidence, monkeypatch,
+):
+    """The retained reset and an explicit three-comparison spelling select different capped matches."""
+    from corehq import privileges
+    from corehq.apps.case_search import utils as case_search
+    from django.core.files.uploadedfile import SimpleUploadedFile
+    from django.test.client import BOUNDARY, MULTIPART_CONTENT, encode_multipart
+
+    from proof.hq import operations
+    from proof.hq import redis as hq_redis
+    from proof.hq.seams import also_granted, api_rate_limits
+    from proof.matrix import ops, registry, retain
+    from proof.matrix.authoring import Authoring
+
+    document = webapps_documents["hq-search"]
+    factory = casedata.database_of_restore(
+        (Path(__file__).with_name("fixtures") / "restore-search-filter.xml").read_bytes()
+    )
+    cases = (
+        ("two-earlier", "2", "2024-01-01"),
+        ("two-later", "2", "2025-01-01"),
+        ("ten", "10", "2027-01-01"),
+        ("letter", "alpha", "2026-01-01"),
+        ("other-district", "1", "2028-01-01"),
+        ("not-active", "1", "2028-01-01"),
+    )
+    database = dataclasses.replace(factory, cases=tuple(
+        dataclasses.replace(
+            factory.cases[0], case_id=case_id, name=case_id,
+            properties=(
+                ("standing", "inactive" if case_id == "not-active" else "active"),
+                ("district", "d2" if case_id == "other-district" else "d1"),
+                ("priority", priority), ("visit", visit),
+            ),
+        )
+        for case_id, priority, visit in cases
+    ))
+    # Keep the real HQ receiver and index. A small cap makes the records
+    # selected by the query observable even if the worker list sorts again.
+    monkeypatch.setattr(case_search, "CASE_SEARCH_MAX_RESULTS", 2)
+    controls = (
+        ("retained-reset", ("-visit:date", "+priority::ignored", "-visit:date"), ("two-later", "two-earlier")),
+        ("nova-republish", ("-visit:date", "+priority::ignored", "-visit:date"), ("two-later", "two-earlier")),
+        ("explicit-order", ("+priority:numeric,+priority:date,+priority:exact,-visit:date",), ("letter", "two-later")),
+    )
+    for label, terms, expected in controls:
+        with webapps_hq.authored_project(document, "A") as project:
+            author = Authoring(project.unit, webapps_documents, document.id, operation=project.unit.operation)
+            if label in ("retained-reset", "nova-republish"):
+                registry.named_change("default_filter_resets_earlier_sort")(author, project.app_id)
+            else:
+                ops.set_json(author, project.app_id, "/modules/1/search_config/default_properties/-", {
+                    "property": "commcare_sort", "doc_type": "DefaultCaseSearchProperty", "defaultValue": f"'{terms[0]}'",
+                })
+            with project.unit.operation("enable-web-apps", b"enabled"):
+                app = operations.held_app(project.unit, project.app_id)
+                app.cloudcare_enabled = True
+                app.save()
+            if label == "nova-republish":
+                state = project.unit
+                with hq_redis.shared(None), state.committing(), also_granted(privileges.API_ACCESS), api_rate_limits(state):
+                    with state.operation("read-first-publish", b"retained-search-reset"):
+                        credential = operations.seed_api_user(
+                            state, f"api-{project.domain}@example.com", edit_locations=True
+                        )
+                    answers = retain.app_reads(author, project.app_id, credential)
+                    project_answers, media = retain.project_data_reads(author, project.app_id, credential)
+                source = retain.reading_input(answers, project_answers, media, registry.base(document.id), claims="full")
+                [read] = retain.run_bundle([{
+                    "id": "hq-search/default-filter-resets-earlier-sort",
+                    "mode": "first-read", "input": source,
+                    "emitApplication": {"appId": project.app_id, "domain": project.domain},
+                }])
+                assert read["kind"] == "read", read
+                order_changes = [
+                    path for change in read["firstPublishPlaces"] if change["id"].startswith("search-order-")
+                    for path in change["places"] if path.startswith("/menu/1/search_config/default_properties/")
+                ]
+                assert order_changes == [], order_changes
+                application = read["application"]
+                upload = operations.Upload(encode_multipart(BOUNDARY, {
+                    "app_id": project.app_id,
+                    "app_name": application["name"],
+                    "app_file": SimpleUploadedFile("app.json", json.dumps(application).encode(), "application/json"),
+                }), MULTIPART_CONTENT)
+                with project.unit.operation("first-publish", b"retained-search-reset"):
+                    result = operations.apply_upload(project.unit, upload)
+                assert result.status == 200 and result.response["success"], result
+            with project.released(
+                formplayer_runner, driver=editor_driver, saves=((pages.CASE_SEARCH, project.module_id(1)),),
+                database=database, label=label,
+            ) as release:
+                defaults = release.doc["modules"][1]["search_config"]["default_properties"]
+                saved = tuple(row["defaultValue"] for row in defaults if row["property"] == "commcare_sort")
+                with zipfile.ZipFile(io.BytesIO(release.archive())) as archive:
+                    suite = etree.fromstring(archive.read("suite.xml"))
+                query = suite.xpath("//query[data[@key='commcare_sort'] and data[@key='_xpath_query']]")
+                built = [tuple(each.xpath("data[@key='commcare_sort']/@ref")) for each in query]
+                assert saved == tuple(f"'{term}'" for term in terms)
+                assert saved in built, built
+                release.hq.capture_search_fixtures = True
+                run = Session(release, editor_driver).run([
+                    *steps.open_app("Client search"), *steps.choose("Active clients"),
+                    *steps.arrive(any_screen=True), steps.SCREEN,
+                ], deadline=75)
+                request, = [item for item in release.hq.searches if item.values("commcare_sort")]
+                returned = tuple(etree.fromstring(request.fixture).xpath("//*[local-name()='case']/@case_id"))
+            screen, = run.screens
+            evidence(label, {"saved": saved, "built": built, "parameters": request.params,
+                             "matches": returned, "screen": screen})
+            assert request.values("commcare_sort") == terms
+            assert returned == expected, returned
+            assert {row["id"] for row in screen["list"]["rows"]} == {f"row-{case_id}" for case_id in expected}
+            assert not run.page_errors and not run.dialogs
 
 
 def test_retained_guarded_name_search_messages(

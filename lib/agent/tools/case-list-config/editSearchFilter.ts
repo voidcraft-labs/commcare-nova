@@ -3,9 +3,9 @@ import { enableCaseSearchMutation } from "@/lib/doc/caseSearchConfigMutations";
 import type { Mutation } from "@/lib/doc/types";
 import {
 	effectiveCaseSearchConfig,
+	searchFilterOrderSchema,
 	searchRecordTypeRowSchema,
 	searchRelatedIdRowSchema,
-	searchRequestOrderSchema,
 	searchValueFilterSchema,
 	uuidSchema,
 } from "@/lib/domain";
@@ -32,13 +32,13 @@ export const editSearchFilterInputSchema = moduleAddressSchema
 			}),
 			z.strictObject({
 				operation: z.literal("add-order"),
-				order: searchRequestOrderSchema,
+				order: searchFilterOrderSchema,
 				uuid: uuidSchema.optional(),
 				after: uuidSchema.nullable().optional(),
 			}),
 			z.strictObject({
 				operation: z.literal("edit-order"),
-				order: searchRequestOrderSchema,
+				order: searchFilterOrderSchema,
 				uuid: uuidSchema,
 			}),
 			fields
@@ -69,7 +69,7 @@ type Result =
 
 export const editSearchFilterTool = {
 	description:
-		"Add, change, move or remove one online search filter. Its target chooses the information to match, and its value comes from the worker, an earlier selection, a search answer, a table or a constant. Rows on the same target send their values together. The excluded-owners target leaves records of the owners its value names (separated by spaces) out of the online matches only; give it placement search-setting for a new rule, and keep one per search. add-order and edit-order set an order among the filters that chooses which matches the server sends first, without advanced case search. Keep the placement of rules brought in from CommCare HQ. set-request-row includes a record type in the request or follows the record ID held on a match. Supply the existing row UUID to change its setting.",
+		"Add, change, move or remove one online search filter. Its target chooses the information to match, and its value comes from the worker, an earlier selection, a search answer, a table or a constant. Rows on the same target send their values together. The excluded-owners target leaves records of the owners its value names (separated by spaces) out of the online matches only; give it placement search-setting for a new rule, and keep one per search. add-order and edit-order set an order among the filters that chooses which matches the server sends first, without advanced case search. The indexed-fallback comparison uses one property, ascending, and replaces all earlier order rules with number, date, then text, with missing values last. Use it once in a Search that opens on results for one record type with no search fields, related records, or separate order. Keep the placement of rules brought in from CommCare HQ. set-request-row includes a record type in the request or follows the record ID held on a match. Supply the existing row UUID to change its setting.",
 	inputSchema: editSearchFilterInputSchema,
 	async execute(
 		input: z.infer<typeof editSearchFilterInputSchema>,

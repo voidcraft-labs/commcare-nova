@@ -641,3 +641,129 @@ it.each(["default filter", "dedicated setting"] as const)(
 		expect(authoredFindings("hq_user_id")).toEqual([]);
 	},
 );
+
+it("reads an ascending index fallback at its exact default filter and emits it in place", async () => {
+	const earlier = {
+		property: "visit",
+		comparison: "date",
+		direction: "descending",
+	} as const;
+	const reset = {
+		property: "priority",
+		comparison: "indexed-fallback",
+		direction: "ascending",
+	} as const;
+	const nativeDefaults = [
+		{ property: "commcare_sort", defaultValue: "'-visit:date'" },
+		{ property: "commcare_sort", defaultValue: "'+priority::ignored'" },
+		{ property: "commcare_sort", defaultValue: "'-visit:date'" },
+	];
+	const input = patients([], { search: { workflow: "skipToResults" } });
+	const read = await readLists(input, {
+		edit: (app) => {
+			app.modules[0].search_config.default_properties = nativeDefaults;
+		},
+	});
+	expect(closedCodes(read), JSON.stringify(read.findings)).toEqual([]);
+	expect(listOf(read).searchFilters).toMatchObject([
+		{ kind: "order", order: [earlier] },
+		{ kind: "order", order: [reset] },
+		{ kind: "order", order: [earlier] },
+	]);
+	expect(
+		read.ctx.facts.sameStateRewrites.filter((row) =>
+			row.path.includes("/default_properties/"),
+		),
+	).toEqual([]);
+	const authored = patients([], {
+		search: { workflow: "skipToResults" },
+		list: {
+			searchFilters: [earlier, reset, earlier].map((term, index) => ({
+				uuid: uuid(index + 70),
+				kind: "order",
+				order: [term],
+			})),
+		},
+	});
+	const roundTrip = await readLists(authored);
+	expect(roundTrip.app.modules[0].search_config.default_properties).toEqual(
+		nativeDefaults,
+	);
+	expect(closedCodes(roundTrip), JSON.stringify(roundTrip.findings)).toEqual(
+		[],
+	);
+});
+
+it.each([
+	"multiple resets",
+	"dynamic order",
+	"dedicated order",
+	"another receiver",
+	"search prompt",
+	"another record type",
+	"opens on Search",
+	"unmeasured reset spelling",
+] as const)("keeps the exact fallback held beside %s", async (control) => {
+	const reading = await readLists(
+		patients([], { search: { workflow: "skipToResults" } }),
+		{
+			edit: (app) => {
+				const config = app.modules[0].search_config;
+				const orders = [
+					{ property: "commcare_sort", defaultValue: "'+priority::ignored'" },
+				];
+				switch (control) {
+					case "multiple resets":
+						orders.push({
+							property: "commcare_sort",
+							defaultValue: "'+visit::ignored'",
+						});
+						break;
+					case "dynamic order":
+						orders.push({
+							property: "commcare_sort",
+							defaultValue:
+								"instance('commcaresession')/session/context/username",
+						});
+						break;
+					case "dedicated order":
+						config.custom_sort_properties = [
+							{
+								doc_type: "CaseSearchCustomSortProperty",
+								property_name: "priority",
+								sort_type: "numeric",
+								direction: "ascending",
+							},
+						];
+						break;
+					case "another receiver":
+						config.case_search_endpoint_id = 9;
+						config.properties = [
+							{ name: "priority", label: { en: "Priority" } },
+						];
+						break;
+					case "search prompt":
+						config.properties = [
+							{ name: "priority", label: { en: "Priority" } },
+						];
+						break;
+					case "another record type":
+						config.additional_case_types = ["other"];
+						break;
+					case "opens on Search":
+						config.default_search = false;
+						break;
+					case "unmeasured reset spelling":
+						orders[0].defaultValue = "'+priority:'";
+						break;
+				}
+				config.default_properties = orders;
+			},
+		},
+	);
+	expect(closedCodes(reading)).toContain(
+		control === "another receiver"
+			? "unrecognized:schema:DefaultCaseSearchProperty.property"
+			: "case-search/default-properties-entry-keyed-commcare-sort-x-commcare-custom",
+	);
+});

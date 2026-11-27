@@ -24,7 +24,14 @@ import type {
 	Uuid,
 } from "@/lib/domain";
 import { literal, term } from "@/lib/domain/expression";
-import { isOrdinaryCaseSearchConfig } from "@/lib/domain/modules";
+import {
+	isOrdinaryCaseSearchConfig,
+	searchRequestOrderSchema,
+} from "@/lib/domain/modules";
+import {
+	moduleAllowsSearchIndexFallback,
+	searchOrderResetPosition,
+} from "@/lib/domain/searchOrder";
 import {
 	CANONICAL_STANDARD_CASE_PROPERTY_LABELS,
 	isDeviceOnlyCaseProperty,
@@ -86,6 +93,13 @@ export function SearchFilters({
 		if (!propertyOptions.has(value)) properties.push({ value, label });
 	const orderProperties = properties.filter(
 		({ value }) => !isDeviceOnlyCaseProperty(value),
+	);
+	const resetIndex = searchOrderResetPosition(filters);
+	const canUseFallback =
+		module !== undefined && moduleAllowsSearchIndexFallback(module);
+	const fallbackProperties = relatedProperties.filter(
+		(property) =>
+			!Object.hasOwn(CANONICAL_STANDARD_CASE_PROPERTY_LABELS, property),
 	);
 	const [adding, setAdding] = useState(false);
 	const [text, setText] = useState("");
@@ -268,7 +282,9 @@ export function SearchFilters({
 								uuid: moduleUuid,
 								patch: {},
 								caseSearchConfigPatch: {
-									requestOrder: order.length ? order : null,
+									requestOrder: order.length
+										? searchRequestOrderSchema.parse(order)
+										: null,
 								},
 							},
 						])
@@ -281,10 +297,20 @@ export function SearchFilters({
 					key={row.uuid}
 					className="space-y-2 rounded-lg border border-white/[0.07] p-3"
 				>
+					{"order" in row && index < resetIndex && (
+						<p className="text-xs text-nova-text-secondary">
+							A later order filter replaces this one.
+						</p>
+					)}
 					{"order" in row ? (
 						<SearchResultOrder
 							order={row.order}
 							properties={orderProperties}
+							fallbackProperties={
+								canUseFallback && (resetIndex === -1 || resetIndex === index)
+									? fallbackProperties
+									: []
+							}
 							onChange={(order) =>
 								onEdit(
 									order.length

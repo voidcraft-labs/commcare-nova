@@ -1410,3 +1410,81 @@ describe("a completed search's snapshot", () => {
 		]);
 	});
 });
+
+it("preserves the retained default Search reset at the real server cap", async () => {
+	const ordinary = {
+		comparison: "date",
+		property: "visit",
+		direction: "descending",
+	} as const;
+	const reset = {
+		comparison: "indexed-fallback",
+		property: "priority",
+		direction: "ascending",
+	} as const;
+	const config = caseListConfig([{ field: "case_name", header: "Name" }]);
+	config.searchFilters = [ordinary, reset, ordinary].map((term, index) => ({
+		uuid: testUuid(`search-order-reset-${index}`),
+		kind: "order",
+		order: [term],
+	}));
+	const date = new Date("2026-05-02T12:00:00Z");
+	const cases = [
+		...Array.from({ length: SEARCH_RESULTS_CAP - 2 }, (_, index) => ({
+			id: `qualifying-${index}`,
+			priority: "1",
+			visit: "2020-01-01",
+		})),
+		{ id: "two-earlier", priority: "2", visit: "2024-01-01" },
+		{ id: "two-later", priority: "2", visit: "2025-01-01" },
+		{ id: "ten", priority: "10", visit: "2027-01-01" },
+		{ id: "letter", priority: "alpha", visit: "2026-01-01" },
+	];
+	await (dbHandle.db as unknown as Kysely<Database>)
+		.insertInto("cases")
+		.values(
+			cases.map(({ id, priority, visit }) => ({
+				case_id: id,
+				case_name: id,
+				case_type: "patient",
+				app_id: APP_ID,
+				project_id: PROJECT,
+				owner_id: WORKER,
+				status: "open",
+				opened_on: date,
+				modified_on: date,
+				properties: JSON.stringify({ priority, visit }),
+			})),
+		)
+		.execute();
+	const store = storeAs(WORKER);
+	const projected = completedSearchRequest({
+		caseListConfig: config,
+		caseSearchConfig: { workflow: "skipToResults" },
+	});
+	expect(projected.order).toEqual([
+		{ key: "priority", type: "number", direction: "asc", missing: "last" },
+		{ key: "priority", type: "date", direction: "asc", missing: "last" },
+		{ key: "priority", type: "text", direction: "asc", missing: "last" },
+		{ key: "visit", type: "date", direction: "desc" },
+	]);
+	const { configuration: _configuration, ...request } = projected;
+	const ids = async (order: CaseSearchRequest["order"]) => {
+		const snapshot = await readSearchResultsSnapshot(store, {
+			...SEARCH,
+			searchPopulation: {
+				...SEARCH.searchPopulation,
+				request: { ...request, order },
+			},
+		});
+		expect(snapshot.totalMatches).toBe(SEARCH_RESULTS_CAP);
+		return snapshot.rows
+			.map((row) => row.case_id)
+			.filter((id) => !id.startsWith("qualifying-"))
+			.sort();
+	};
+	expect(await ids(request.order)).toEqual(["two-earlier", "two-later"]);
+	expect(
+		await ids(request.order?.map(({ missing: _missing, ...term }) => term)),
+	).toEqual(["letter", "two-later"]);
+});

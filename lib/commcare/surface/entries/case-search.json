@@ -248,6 +248,37 @@
 		"gates": []
 	},
 	{
+		"id": "case-search/default-filter-resets-order-with-index-fallback",
+		"area": "case-search",
+		"section": "Case search",
+		"subsection": "Search configuration",
+		"item": "one literal ascending blank-comparison default order on a custom property, with the retained `+property::ignored` spelling and only supported neighboring order rules, on a basic built-in Search that opens on results for one record type without prompts",
+		"surfaceKeys": [
+			"csql-key:commcare_sort",
+			"schema:DefaultCaseSearchProperty.property",
+			"schema:DefaultCaseSearchProperty.defaultValue"
+		],
+		"valueClass": "default-filter-order-index-fallback",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: one typed default filter replaces all earlier server order rules. Its indexed number, date and text keys are ascending with missing values last. Later order rules still break ties. Nova keeps the exact spelling, including the suffix HQ ignores.",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "the same default-filter entry",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
 		"id": "case-search/default-order-with-an-unmapped-comparison",
 		"area": "case-search",
 		"section": "Case search",

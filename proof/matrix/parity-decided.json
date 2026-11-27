@@ -701,6 +701,7 @@
 		"hq-search/default-filter-naming-a-registry",
 		"hq-search/default-filter-naming-an-endpoint",
 		"hq-search/default-filter-reading-a-form-answer",
+		"hq-search/default-filter-resets-earlier-sort",
 		"hq-search/default-filter-sorting-by-a-repeated-direction",
 		"hq-search/default-filter-sorting-by-a-saved-status",
 		"hq-search/default-filter-sorting-by-an-unknown-comparison",

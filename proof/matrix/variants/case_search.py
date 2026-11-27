@@ -32,6 +32,14 @@ def default_filter_resets_earlier_sort(authoring, app_id):
             "property": "commcare_sort", "doc_type": "DefaultCaseSearchProperty", "defaultValue": f"'{term}'",
         })
 
+def default_filter_reset_masks_an_unknown_comparison(authoring, app_id):
+    """HQ's reset masks the missing index field. Its earlier comparator has no Nova meaning."""
+    for term in ("++priority:unknown", "+priority::ignored", "-visit:date"):
+        ops.set_json(authoring, app_id, "/modules/1/search_config/default_properties/-", {
+            "property": "commcare_sort", "doc_type": "DefaultCaseSearchProperty", "defaultValue": f"'{term}'",
+        })
+
+
 # A text Search field as HQ's Case List page stores one, beside no other setting.
 _TEXT_FIELD = {
     "hint": {},

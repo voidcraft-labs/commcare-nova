@@ -38,6 +38,7 @@ import {
 	MULTI_SELECT_SEARCH_ANSWER_DELIMITER,
 	parentPathSearchRequestKey,
 } from "@/lib/domain/modules";
+import { effectiveSearchOrder } from "@/lib/domain/searchOrder";
 import type { Uuid } from "@/lib/domain/uuid";
 import { searchesForBlank } from "./runtimeBindings";
 
@@ -79,12 +80,10 @@ export function completedSearchRequest(
 	// The default filters' orders reach HQ first, then the dedicated order
 	// (`remote_requests.py::_remote_request_query_datums`), and HQ sorts by
 	// every `commcare_sort` value in turn (`_parse_commcare_sort_properties`).
-	const order = [
-		...(module.caseListConfig?.searchFilters ?? []).flatMap((row) =>
-			"order" in row ? row.order : [],
-		),
-		...(effectiveCaseSearchConfig(module)?.requestOrder ?? []),
-	];
+	const order = effectiveSearchOrder(
+		list?.searchFilters ?? [],
+		search?.requestOrder ?? [],
+	);
 	const parameters = new Map<
 		string,
 		CaseSearchParameter & { values: string[] }
@@ -201,6 +200,7 @@ export function completedSearchRequest(
 					entry.direction === "ascending"
 						? ("asc" as const)
 						: ("desc" as const),
+				...(entry.missing && { missing: entry.missing }),
 			})),
 		}),
 		additionalRequestTypes: [...additionalRequestTypes],

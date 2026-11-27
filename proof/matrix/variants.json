@@ -39763,6 +39763,65 @@
 	{
 		"id": "hq-search/default-filter-resets-earlier-sort",
 		"base": "hq-search",
+		"entry": "case-search/default-filter-resets-order-with-index-fallback",
+		"change": {
+			"op": "named",
+			"name": "default_filter_resets_earlier_sort"
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 1
+					}
+				],
+				"pointer": "/caseListConfig/searchFilters/0/order",
+				"value": [
+					{
+						"property": "visit",
+						"comparison": "date",
+						"direction": "descending"
+					}
+				]
+			},
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 1
+					}
+				],
+				"pointer": "/caseListConfig/searchFilters/1/order",
+				"value": [
+					{
+						"property": "priority",
+						"comparison": "indexed-fallback",
+						"direction": "ascending"
+					}
+				]
+			},
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 1
+					}
+				],
+				"pointer": "/caseListConfig/searchFilters/2/order",
+				"value": [
+					{
+						"property": "visit",
+						"comparison": "date",
+						"direction": "descending"
+					}
+				]
+			}
+		]
+	},
+	{
+		"id": "hq-search/default-filter-reset-masks-an-unknown-comparison",
+		"base": "hq-search",
 		"entry": "case-search/default-properties-entry-keyed-commcare-sort-x-commcare-custom",
 		"standing": "not-yet",
 		"place": {
@@ -39772,7 +39831,7 @@
 		},
 		"change": {
 			"op": "named",
-			"name": "default_filter_resets_earlier_sort"
+			"name": "default_filter_reset_masks_an_unknown_comparison"
 		}
 	},
 	{

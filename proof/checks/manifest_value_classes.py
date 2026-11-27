@@ -5349,6 +5349,10 @@ def named_search_order(use, manifest):
         element = _suite_search_child(use, "data", "key")
         ref = element.get("ref") if element is not None else None
     text = _literal_text(ref) if isinstance(ref, str) else None
+    return _ordinary_sort_text(text)
+
+
+def _ordinary_sort_text(text):
     if text is None:
         return False
     repeated_signs = discarded_suffix = False
@@ -5364,6 +5368,65 @@ def named_search_order(use, manifest):
             return False
         discarded_suffix |= len(parts) == 3
     return not (repeated_signs and discarded_suffix)
+
+
+def _index_fallback_text(text):
+    match = re.fullmatch(r"\+([A-Za-z][A-Za-z0-9_-]*)::ignored", text or "")
+    if match is None:
+        return False
+    key = match.group(1)
+    return key not in SERVER_ORDER_RECORD_KEYS and searchable_order_key(key)
+
+
+def _single_index_fallback(values):
+    return (
+        sum(_index_fallback_text(value) for value in values) == 1
+        and all(_index_fallback_text(value) or _ordinary_sort_text(value) for value in values)
+    )
+
+
+def default_filter_index_fallback(use, manifest):
+    """The exact ascending reset alone in its filter, among ordinary built-in order values."""
+    at, config = _search(use)
+    if config is not None:
+        row = at.nearest("DefaultCaseSearchProperty")
+        if (
+            row is None or row.get("property") != "commcare_sort" or at.nearest("Module") is None
+            or config.get("case_search_endpoint_id") or config.get("data_registry")
+            or any(config.get(key, []) != [] for key in (
+                "properties", "custom_sort_properties", "additional_case_types", "additional_registry_cases",
+            ))
+            or config.get("inline_search") is True or config.get("include_all_related_cases") is True
+            or config.get("custom_related_case_property")
+            or config.get("auto_launch") is not True or config.get("default_search") is not True
+        ):
+            return False
+        defaults = config.get("default_properties")
+        if not isinstance(defaults, list) or any(
+            not isinstance(item, dict) or item.get("property") not in ("commcare_sort", "_xpath_query")
+            for item in defaults
+        ):
+            return False
+        def stored_sort(item):
+            value = item.get("defaultValue")
+            return _literal_text(value) if isinstance(value, str) else None
+
+        return _index_fallback_text(stored_sort(row)) and _single_index_fallback([
+            stored_sort(item) for item in defaults if item.get("property") == "commcare_sort"
+        ])
+    element = _suite_search_child(use, "data", "key")
+    if element is None or element.get("key") != "commcare_sort":
+        return False
+    query = element.getparent()
+    if query.xpath("./*[local-name()='prompt']") or any(
+        child.get("key") in ("x_commcare_endpoint_id", "x_commcare_data_registry", "x_commcare_custom_related_case_property")
+        for child in query
+    ):
+        return False
+    return _index_fallback_text(_literal_text(element.get("ref"))) and _single_index_fallback([
+        _literal_text(child.get("ref")) for child in query if child.get("key") == "commcare_sort"
+    ])
+
 
 def endpoint_id_key(use, manifest):
     """``case-search/default-properties-entry-keyed-x-commcare-endpoint-id``."""
@@ -14571,6 +14634,7 @@ POSITIVE_VALUE_CLASSES = {
     "case-search/address-picker-on-a-search-screen": ordinary_address_search_marker,
     "case-search/case-search-endpoint-id": configured_search_endpoint,
     "case-search/default-filter-orders-the-records-the-search-sends": named_search_order,
+    "case-search/default-filter-resets-order-with-index-fallback": default_filter_index_fallback,
     "expressions-and-data/companion-lookup-count": guarded_lookup_count_in_one_frame,
     "questions/android-app-callout-input-appearance-intent-id-bind-type-intent": held_android_app_payload,
 }

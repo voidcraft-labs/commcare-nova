@@ -15,15 +15,18 @@ import {
 	projectSpaceMatchingFits,
 	searchInputRequestKey,
 } from "@/lib/domain/modules";
+import { moduleAllowsSearchIndexFallback } from "@/lib/domain/searchOrder";
 import {
 	CASE_NODE_ATTRIBUTE_PROPERTIES,
 	isDeviceOnlyCaseProperty,
 	STANDARD_CASE_LIST_PROPERTY_DATA_TYPES,
 } from "@/lib/domain/standardCaseProperties";
+import { emittedModuleKind } from "../../../moduleKind";
 import {
 	readSearchFilterTarget,
 	searchFilterKey,
 } from "../../../suite/case-search/nativeFilters";
+import { indexedResetProperty } from "../../../suite/case-search/requestOrder";
 import { type ValidationError, validationError } from "../../errors";
 import {
 	checkErrorDetails,
@@ -50,6 +53,24 @@ export function nativeSearchFilters(
 			: []),
 		...filters.flatMap((row) => ("order" in row ? row.order : [])),
 	];
+	const resets = order.filter((term) => term.comparison === "indexed-fallback");
+	if (
+		resets.length > 0 &&
+		(resets.length !== 1 ||
+			!indexedResetProperty(resets[0].property) ||
+			!moduleAllowsSearchIndexFallback(mod) ||
+			emittedModuleKind(doc, moduleUuid) !== "basic")
+	) {
+		errors.push(
+			validationError(
+				"CASE_SEARCH_FILTER_INVALID",
+				"module",
+				"Keep one index fallback in a Search that opens on results for one record type. Choose a different comparison if the search also uses prompts, related records or a dedicated order.",
+				{ moduleUuid, moduleName: mod.name },
+				{ reason: "index-fallback-order" },
+			),
+		);
+	}
 	if (order.length > 0) {
 		const properties = types
 			.filter((type) => requested.includes(type.name))

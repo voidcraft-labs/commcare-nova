@@ -41,6 +41,8 @@ export interface CaseSearchRequest {
 		readonly key: string;
 		readonly type: "text" | "number" | "date";
 		readonly direction: "asc" | "desc";
+		/** The index fallback keeps missing values last even ascending. */
+		readonly missing?: "last";
 	}[];
 	readonly criteria?: readonly CaseSearchCriterion[];
 	readonly readsHitScore?: boolean;

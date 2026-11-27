@@ -71,6 +71,7 @@ from proof.checks.manifest_value_classes import (
     bare_fingerprint_query_without_supplier,
     HQ_CASE_RESERVED_WORDS,
     case_itemset_survey_readiness,
+    default_filter_index_fallback,
     direct_parent_date_prompt_key,
     direct_parent_text_prompt_key,
     extended_open_index_to_first_choice,
@@ -870,6 +871,9 @@ def _forms_variant_uses(found, held, entries):
         yield from _bare_lookup_count_uses(found, held, by_id[BARE_LOOKUP_COUNT])
 
 
+SEARCH_INDEX_FALLBACK = "case-search/default-filter-resets-order-with-index-fallback"
+
+
 SEARCH_CHECK_NO_MESSAGE = "case-search/a-required-or-validation-test-with-no-message-in-any-language"
 
 
@@ -920,6 +924,14 @@ def added_uses(base_source: dict, variant_source: dict, *, entries=()) -> list[D
                 Decided(use, manifest_usage.HELD, (entry,))
                 for use in found.uses
                 if use.key == "schema:CaseSearchProperty.name" and classifier(use, held)
+            )
+        if SEARCH_INDEX_FALLBACK in entries:
+            entry = _entries_by_id(held)[SEARCH_INDEX_FALLBACK]
+            decided.extend(
+                Decided(use, manifest_usage.HELD, (entry,))
+                for use in found.uses
+                if use.key in ("schema:DefaultCaseSearchProperty.property", "schema:DefaultCaseSearchProperty.defaultValue")
+                and default_filter_index_fallback(use, held)
             )
         if STANDALONE_RESULT_DETAIL in entries:
             entry = _entries_by_id(held)[STANDALONE_RESULT_DETAIL]
@@ -1024,7 +1036,7 @@ def _projects(decided: Decided, record: Record, held) -> tuple[bool, bool]:
     if standing == manifest_usage.HELD_NEW:
         return record.standing == "not-yet", record.entry in resting
     exact = PARENT_PROMPT_SHAPES.keys() | {
-        STANDALONE_RESULT_DETAIL, UNICODE_PRIMARY_ROOT, UNMATCHED_ADDRESS_TOPIC,
+        STANDALONE_RESULT_DETAIL, UNICODE_PRIMARY_ROOT, UNMATCHED_ADDRESS_TOPIC, SEARCH_INDEX_FALLBACK,
     }
     if standing == manifest_usage.HELD and len(resting) == 1 and resting <= exact:
         return record.standing == "held", record.entry in resting

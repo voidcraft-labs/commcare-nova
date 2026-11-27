@@ -257,7 +257,7 @@ export async function searchPopulationIds(
 			: sql.join(
 					order.map(
 						(o, i) =>
-							sql`${key(i)} ${o.direction === "asc" ? sql`asc nulls first` : sql`desc nulls last`}`,
+							sql`${key(i)} ${o.direction === "desc" ? sql`desc nulls last` : o.missing === "last" ? sql`asc nulls last` : sql`asc nulls first`}`,
 					),
 				);
 	const possible =

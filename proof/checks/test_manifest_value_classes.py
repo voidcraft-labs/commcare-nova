@@ -8904,6 +8904,25 @@ def _search_wire_shapes():
             accepted("suite", suite('<data key="x_commcare_endpoint_id" ref="17"/>'),
                      "csql-key:x_commcare_endpoint_id", "data[1]/@key", **outside),
         ),
+        "case-search/default-filter-resets-order-with-index-fallback": (
+            refused("suite", suite(
+                '<data key="commcare_sort" ref="&apos;-visit:date&apos;"/>'
+                '<data key="commcare_sort" ref="&apos;+priority::ignored&apos;"/>'
+                '<data key="commcare_sort" ref="&apos;-visit:date&apos;"/>'
+            ), "csql-key:commcare_sort", "data[2]/@key"),
+            accepted("suite", suite(
+                '<data key="commcare_sort" ref="&apos;++priority:unknown&apos;"/>'
+                '<data key="commcare_sort" ref="&apos;+priority::ignored&apos;"/>'
+            ), "csql-key:commcare_sort", "data[2]/@key", **outside),
+            accepted("suite", suite(
+                '<data key="commcare_sort" ref="&apos;+priority::ignored&apos;"/>'
+                '<data key="commcare_sort" ref="&apos;+priority::ignored&apos;"/>'
+            ), "csql-key:commcare_sort", "data[1]/@key", **outside),
+            accepted("suite", suite(
+                '<data key="x_commcare_endpoint_id" ref="&apos;17&apos;"/>'
+                '<data key="commcare_sort" ref="&apos;+priority::ignored&apos;"/>'
+            ), "csql-key:commcare_sort", "data[2]/@key", **outside),
+        ),
         "case-search/default-filter-orders-the-records-the-search-sends": (
             refused("suite", suite('<data key="commcare_sort" ref="&apos;+-name:exact,-@owner_id:date&apos;"/>'),
                     "csql-key:commcare_sort", "data[1]/@key"),
@@ -8911,6 +8930,29 @@ def _search_wire_shapes():
                      "csql-key:commcare_sort", "data[1]/@key", **outside),
         ),
     }
+
+
+@pytest.mark.parametrize(("config", "expected"), [
+    ({}, True),
+    ({"default_search": False}, False),
+    ({"properties": [_prompt("priority")]}, False),
+    ({"additional_case_types": ["other"]}, False),
+    ({"custom_sort_properties": [{"property_name": "priority", "sort_type": "exact"}]}, False),
+    ({"default_properties": [_default("commcare_sort", "'+priority:'")]}, False),
+    ({"default_properties": [_default("commcare_sort", 8)]}, False),
+    ({"default_properties": [_default("commcare_sort", "'-priority::ignored'")]}, False),
+    ({"default_properties": [_default("commcare_sort", "'+name::ignored'")]}, False),
+])
+def test_case_search_index_fallback_has_an_exact_source_owner(manifest, config, expected):
+    source = _app([_search_module(**({
+        "auto_launch": True,
+        "default_search": True,
+        "default_properties": [_default("commcare_sort", "'+priority::ignored'")],
+    } | config))])
+    found = manifest_usage.Uses()
+    manifest_usage.app_json_uses(source, manifest, "app.json", found)
+    (use,) = [use for use in found.uses if use.key == "schema:DefaultCaseSearchProperty.property"]
+    assert classes.default_filter_index_fallback(use, manifest) is expected
 
 
 def _android_callout_shapes():
