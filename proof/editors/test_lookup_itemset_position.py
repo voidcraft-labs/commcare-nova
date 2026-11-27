@@ -149,3 +149,43 @@ def test_positive_fixture_row_ordinal_and_predicate_position_offer_the_same_choi
                 observed[arm] = {"nodeset": nodeset, **actual}
 
     write_evidence("lookup-itemset-ordinal-predicate-position", observed)
+
+
+def test_fractional_fixture_row_index_truncates_after_vellum_reopens(
+    hq, core_runner, editor_driver, formplayer_runner,
+):
+    from proof.matrix.variants.questions import _itemset_filter_numeric_row
+
+    document = corpus_document("hq-lookups")
+    second = {"choices": ["Mbeya"], "submitted": "v2"}
+    samples = (
+        ("fractional", "2.5", second),
+        ("integer", "2", second),
+        ("explicit-position", "position() = 2", second),
+        ("empty-fractional-position", "position() = 2.5", {"choices": []}),
+    )
+    observed = {}
+    with hq_check(document.exports["minimum"].configuration.hq()) as (unit, _):
+        with unit.operation("fixture-fraction:source", b"hq-lookups"):
+            app_id, refusal, _ = publish.create_authored(unit, document)
+            assert refusal is None
+        authoring = Authoring(unit, {}, base=document.id, operation=unit.operation)
+        for kind, predicate, expected in samples:
+            _itemset_filter_numeric_row(authoring, app_id, predicate, f"fractional-ordinal-{kind}")
+            form = operations.held_app(unit, app_id).get_module(0).get_form(0)
+            before = _state(form.source)
+            assert before["nodeset"].endswith(f"villages[{predicate}]")
+            assert before["value"] == ["id"] and before["label"] == ["name"]
+            label = f"Updated farmer question {kind}"
+            changed = vellum.open_and_save(editor_driver, unit, app_id, form.unique_id, edit={
+                "path": "/data/farmer_name", "label": label, "way": "builder-model",
+            })
+            reopened = vellum.fresh_open_and_save(editor_driver, unit, app_id, form.unique_id)
+            for save in (changed, reopened):
+                assert save.loaded and save.saved and save.stored_source, (kind, save.load_error, save.save_refusal)
+                assert label in save.stored_source
+                assert _state(save.stored_source) == before
+            actual = _village_choices(unit, app_id, formplayer_runner, document, kind, submit="submitted" in expected)
+            assert actual == expected, (kind, actual)
+            observed[kind] = {"nodeset": before["nodeset"], **actual}
+    write_evidence("lookup-itemset-fractional-row-index", observed)
