@@ -18792,6 +18792,27 @@
 	{
 		"id": "hq-case-management/datetime-saved-straight-as-the-case-category",
 		"base": "hq-case-management",
+		"entry": "forms-and-case-writes/a-datetime-question-s-day-as-the-case-category",
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/0/forms/3/actions/update_case/update/category",
+			"value": {
+				"question_path": "/data/seen_at",
+				"update_mode": "always",
+				"doc_type": "ConditionalCaseUpdate"
+			}
+		},
+		"holds": [
+			{
+				"key": ["case-type", "household"],
+				"pointer": "/properties/category/data_type",
+				"value": "date"
+			}
+		]
+	},
+	{
+		"id": "hq-case-management/datetime-saved-straight-as-the-case-state",
+		"base": "hq-case-management",
 		"entry": "forms-and-case-writes/a-date-and-time-saved-straight-in-no-shape-nova-keeps",
 		"standing": "not-yet",
 		"place": {
@@ -18803,7 +18824,7 @@
 		},
 		"change": {
 			"op": "set-json",
-			"pointer": "/modules/0/forms/3/actions/update_case/update/category",
+			"pointer": "/modules/0/forms/3/actions/update_case/update/state",
 			"value": {
 				"question_path": "/data/seen_at",
 				"update_mode": "always",

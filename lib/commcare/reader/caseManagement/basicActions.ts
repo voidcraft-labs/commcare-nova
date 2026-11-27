@@ -313,6 +313,10 @@ export const BASIC_CLAIMS = defineClaims("caseManagement.basicActions", {
 		`${F}/a-datetime-question-saved-straight-through-a-parent-index`,
 		null,
 	),
+	categorizationDay: take(
+		`${F}/a-datetime-question-s-day-as-the-case-category`,
+		null,
+	),
 	nameCalendarDay: take(
 		`${F}/a-datetime-question-s-day-as-the-case-name`,
 		null,
@@ -948,6 +952,7 @@ export function questionValue(
 	property: string,
 	days: {
 		readonly hiddenClock?: boolean;
+		readonly category?: boolean;
 		readonly externalId?: boolean;
 		readonly name?: boolean;
 		readonly owner?: boolean;
@@ -1042,7 +1047,16 @@ export function questionValue(
 				},
 				datetimeSibling: false,
 			};
-		if (!DAY_PROPERTY_CLASS.test(property) || STANDARD_KEYS.has(property))
+		const ownCategoryDay =
+			days.category &&
+			property === "category" &&
+			field.parent === null &&
+			field.dataParent === null &&
+			!field.expressions.some((slot) => slot.slot === "default_value");
+		if (
+			!ownCategoryDay &&
+			(!DAY_PROPERTY_CLASS.test(property) || STANDARD_KEYS.has(property))
+		)
 			return { kind: "finding", claim: BASIC_CLAIMS.datetimeStraight };
 		return {
 			kind: "value",
@@ -1496,6 +1510,8 @@ function pathClaimOf(
 	if (read.value.link) return BASIC_CLAIMS.captureLink;
 	if (read.value.dayAsExternalId) return BASIC_CLAIMS.externalIdDay;
 	if (read.value.dayAsName) return BASIC_CLAIMS.nameCalendarDay;
+	if (read.value.day === true && keyClaim === BASIC_CLAIMS.categoryStateKey)
+		return BASIC_CLAIMS.categorizationDay;
 	if (read.value.day === true && read.value.field.kind === "hidden")
 		return BASIC_CLAIMS.hiddenDay;
 	if (read.datetimeSibling)
@@ -1519,6 +1535,7 @@ function readUpdate(
 	dayWrites?: {
 		readonly hiddenClock: boolean;
 		readonly parent: boolean;
+		readonly category?: boolean;
 		readonly externalId?: boolean;
 		readonly name?: boolean;
 		readonly owner?: boolean;
@@ -1549,6 +1566,7 @@ function readUpdate(
 					externalId:
 						dayWrites?.externalId === true &&
 						(updateMode === "always" || updateMode === "edit"),
+					category: dayWrites?.category === true && updateMode === "always",
 					name: dayWrites?.name === true && updateMode === "always",
 					owner: dayWrites?.owner === true && updateMode === "always",
 				})
@@ -1889,6 +1907,7 @@ function readUpdateMap(
 				via === undefined &&
 				!RESERVED_CASE_OPERATION_TYPES.has(r.caseType),
 			parent: linkedDay,
+			category: ordinaryOwnFollowup && property === "category",
 			externalId: ordinaryOwnFollowup && property === "external_id",
 			name: ordinaryOwnFollowup && property === "name",
 			owner: ordinaryOwnFollowup && property === "owner_id",

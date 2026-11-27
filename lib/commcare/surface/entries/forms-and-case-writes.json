@@ -5402,11 +5402,29 @@
 		]
 	},
 	{
+		"id": "forms-and-case-writes/a-datetime-question-s-day-as-the-case-category",
+		"area": "forms-and-case-writes",
+		"section": "Basic form actions",
+		"subsection": "Case-property typing",
+		"item": "An ordinary follow-up saves a root Date and time answer as the case category",
+		"surfaceKeys": [],
+		"noSurfaceKey": "The question type and its untyped basic case update together determine the stored calendar day.",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: a date property for category when all its writers save a day. The question still offers a date and time.",
+		"slotChanges": [],
+		"platforms": { "kind": "not-applicable", "cell": "n/a" },
+		"emission": {
+			"cell": "direct question path and untyped case update",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
 		"id": "forms-and-case-writes/a-date-and-time-saved-straight-in-no-shape-nova-keeps",
 		"area": "forms-and-case-writes",
 		"section": "Basic form actions",
 		"subsection": "Case-property typing",
-		"item": "a Hidden Value bound `xsd:dateTime` saved straight outside the basic hidden clock class, and a DateTime question saved straight to a case's name, other owner writes, external id outside the direct basic follow-up above, `location_id`, `hq_user_id`, `category` or `state`, to the worker's record, or through an index segment outside the single parent class (a property another writer gives something other than a day is `any-other-mixed-writer-pair`)",
+		"item": "a Hidden Value bound `xsd:dateTime` saved straight outside the basic hidden clock class, and a DateTime question saved straight to a case's name, other owner writes, external id outside the direct basic follow-up above, `location_id`, `hq_user_id`, `category` outside the root follow-up above or `state`, to the worker's record, or through an index segment outside the single parent class (a property another writer gives something other than a day is `any-other-mixed-writer-pair`)",
 		"surfaceKeys": [],
 		"noSurfaceKey": "A relation between a writer and the case property it writes (the type a date-and-time writer gives it), which no single surface item holds; the writer and the case write are named by their own rows.",
 		"disposition": "HELD-NEW",
