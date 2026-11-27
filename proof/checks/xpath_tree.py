@@ -266,24 +266,37 @@ def _fixture_itemset_path(node, instances):
     return None
 
 
+def _fixture_constant_number(predicate):
+    match predicate:
+        case ("num", number):
+            return number
+        case (("PLUS" | "MINUS" | "MULT") as op, left, right):
+            left = _fixture_constant_number(left)
+            right = _fixture_constant_number(right)
+            if left is not None and right is not None:
+                if op == "PLUS":
+                    return left + right
+                if op == "MINUS":
+                    return left - right
+                return left * right
+    return None
+
+
 def fixture_itemset_number(text, instances):
-    """A numeric fixture row predicate and its supported nonnegative Java-int ordinal, if any."""
+    """A finite constant on a declared fixture and its nonnegative Java-int ordinal, if any."""
     shape = _fixture_itemset_path(tree(text), instances)
-    if shape is None or shape[1][0] != "num":
+    if shape is None:
         return None
-    source, (_, number) = shape
-    tokens = _xpath.tokens(text)
-    start = max((i for i, token in enumerate(tokens) if token.kind == "LBRACK"), default=-1)
-    kinds = [token.kind for token in tokens[start + 1:-1]]
-    pivot = len(kinds) // 2
-    literal = kinds == ["LPAREN"] * pivot + ["NUM"] + ["RPAREN"] * pivot
-    if isfinite(number) and number >= 0 and start >= 0 and tokens[-1].kind == "RBRACK" and literal:
-        return source, number, min(int(number), 2_147_483_647)
-    return source, number, None
+    source, predicate = shape
+    number = _fixture_constant_number(predicate)
+    if number is None:
+        return None
+    ordinal = min(int(number), 2_147_483_647) if isfinite(number) and number >= 0 else None
+    return source, number, ordinal
 
 
 def fixture_itemset_ordinal_spelling(before, after, instances):
-    """A single literal fixture ordinal written as the same row predicate's position check."""
+    """A constant fixture ordinal written as the same row predicate's position check."""
     numeric = fixture_itemset_number(before, instances[0])
     if numeric is None or numeric[2] is None:
         return False

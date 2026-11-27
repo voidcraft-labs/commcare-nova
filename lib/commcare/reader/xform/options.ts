@@ -245,7 +245,28 @@ function positionOfNumber(predicate: FormSyntax): boolean {
 	);
 }
 
-/** Core truncates a numeric literal predicate and saturates to a Java int
+/** Core's numeric literals and arithmetic both return Double. Keep the
+ * constant subset separate from row-dependent filters and function calls. */
+function constantLookupPosition(syntax: FormSyntax): number | undefined {
+	const node = ungroupSyntax(syntax);
+	if (node.kind === "number") return node.value;
+	if (node.kind !== "binary") return undefined;
+	const left = constantLookupPosition(node.left);
+	const right = constantLookupPosition(node.right);
+	if (left === undefined || right === undefined) return undefined;
+	switch (node.op) {
+		case "+":
+			return left + right;
+		case "-":
+			return left - right;
+		case "*":
+			return left * right;
+		default:
+			return undefined;
+	}
+}
+
+/** Core truncates a finite numeric predicate and saturates to a Java int
  * before comparing it with the one-based row counter of a declared fixture. */
 function lookupPredicateText(
 	nodeset: string,
@@ -253,16 +274,10 @@ function lookupPredicateText(
 	declared: boolean,
 ): string {
 	const text = nodeset.slice(predicate.from, predicate.to);
-	let value = predicate;
-	while (value.kind === "group") value = value.value;
-	if (
-		!declared ||
-		value.kind !== "number" ||
-		!Number.isFinite(value.value) ||
-		value.value < 0
-	)
-		return text;
-	return `position() = ${Math.min(Math.trunc(value.value), 2_147_483_647)}`;
+	if (!declared) return text;
+	const value = constantLookupPosition(predicate);
+	if (value === undefined || !Number.isFinite(value) || value < 0) return text;
+	return `position() = ${Math.min(Math.trunc(value), 2_147_483_647)}`;
 }
 
 /** A ref that is one name step: the column's or the property's name. */

@@ -2455,6 +2455,11 @@ def itemset_filter_grouped_arithmetic_row_index(authoring, app_id):
     _itemset_filter_numeric_row(authoring, app_id, "(1 + 1)", "itemset-filter-grouped-arithmetic-row-index")
 
 
+def itemset_filter_function_row_index(authoring, app_id):
+    """A function-valued predicate stays outside constant fixture arithmetic."""
+    _itemset_filter_numeric_row(authoring, app_id, "number(&apos;2&apos;)", "itemset-filter-function-row-index")
+
+
 def itemset_over_cases(authoring, app_id):
     """The district select's choices read from every case the worker holds (``instance('casedb')``), declared in
     the model, in place of the table."""
