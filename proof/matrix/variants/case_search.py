@@ -304,7 +304,16 @@ def list_first_in_web_apps(authoring, app_id):
 def owner_exclusion_on_an_ordered_text(authoring, app_id):
     """Active clients' owner list chosen by ordering the worker's name against text, its case list's filter holding
     Nova's clause for the list."""
-    owners = f"if({SESSION}/context/username > 'm', 'a', 'b')"
+    _owner_exclusion_on_order(authoring, app_id, "username")
+
+
+def owner_exclusion_on_an_ordered_worker_id(authoring, app_id):
+    """Active clients' owner rule comparing the worker ID with arbitrary text."""
+    _owner_exclusion_on_order(authoring, app_id, "userid")
+
+
+def _owner_exclusion_on_order(authoring, app_id, field):
+    owners = f"if({SESSION}/context/{field} > 'm', 'a', 'b')"
     _set_each(
         authoring,
         app_id,
