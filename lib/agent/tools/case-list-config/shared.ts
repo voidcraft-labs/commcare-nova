@@ -719,6 +719,17 @@ const startingRangeSchema = z
 	])
 	.describe(STARTING_RANGE_DESCRIPTION);
 
+const authoredAddressSearchInputSchema = addressSearchInputSchema.omit({
+	uuid: true,
+	group: true,
+	required: true,
+	validation: true,
+	default: true,
+	hidden: true,
+	addressReceiver: true,
+	savedDefault: true,
+});
+
 export const searchInputDefInputSchema = z
 	.union([
 		simpleScalarSearchInputSchema.omit({ uuid: true, group: true }).extend({
@@ -770,18 +781,7 @@ export const searchInputDefInputSchema = z
 			...visibleSearchInputSlots,
 			default: valueExpressionInputSchema.optional(),
 		}),
-		addressSearchInputSchema
-			.omit({
-				uuid: true,
-				group: true,
-				required: true,
-				validation: true,
-				default: true,
-				hidden: true,
-				addressReceiver: true,
-				savedDefault: true,
-			})
-			.extend(searchInputUuidSlot),
+		authoredAddressSearchInputSchema.extend(searchInputUuidSlot),
 		hiddenSearchInputSchema.omit({ uuid: true, group: true }).extend({
 			...searchInputUuidSlot,
 			/* The bare AST node, so the wire projection keeps it a `$ref`; a
@@ -837,15 +837,7 @@ export const searchInputUpdateInputSchema = z
 			...visibleSearchInputSlots,
 			default: valueExpressionInputSchema.optional(),
 		}),
-		addressSearchInputSchema.omit({
-			uuid: true,
-			group: true,
-			required: true,
-			validation: true,
-			default: true,
-			hidden: true,
-			addressReceiver: true,
-		}),
+		authoredAddressSearchInputSchema,
 		hiddenSearchInputSchema.omit({ uuid: true, group: true }).extend({
 			value: valueExpressionInputSchema.optional(),
 		}),

@@ -350,6 +350,34 @@ describe("case-list author command boundaries", () => {
 		expect(result.success).toBe(true);
 	});
 
+	it("keeps the brought-in address default outside Search authoring", () => {
+		const searchInput = {
+			kind: "address",
+			type: "address",
+			name: "visit_address",
+			label: "Visit address",
+		};
+		for (const body of [
+			searchInput,
+			{ ...searchInput, savedDefault: "Old address" },
+		]) {
+			const expected = body === searchInput;
+			expect(
+				addSearchInputsTool.inputSchema.safeParse({
+					moduleUuid: MODULE_UUID,
+					searchInputs: [body],
+				}).success,
+			).toBe(expected);
+			expect(
+				updateSearchInputTool.inputSchema.safeParse({
+					moduleUuid: MODULE_UUID,
+					searchInputUuid: testUuid("address-search"),
+					searchInput: body,
+				}).success,
+			).toBe(expected);
+		}
+	});
+
 	it("addSearchInputs: parses a representative advanced payload", () => {
 		const result = addSearchInputsTool.inputSchema.safeParse({
 			moduleUuid: MODULE_UUID,
