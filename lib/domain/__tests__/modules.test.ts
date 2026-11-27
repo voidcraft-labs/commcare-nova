@@ -154,7 +154,7 @@ describe("caseListConfigSchema — canonical shape", () => {
 		).toBe(false);
 	});
 
-	it.each([1, 100])(
+	it.each([1, 100, 101])(
 		"round-trips multiple selection with maximum %i",
 		(maximum) => {
 			const config = {
@@ -171,7 +171,7 @@ describe("caseListConfigSchema — canonical shape", () => {
 		},
 	);
 
-	it.each([0, 101, 1.5, -0])(
+	it.each([0, 102, 1.5, -0])(
 		"rejects a noncanonical multiple-selection maximum (%s)",
 		(maximum) => {
 			expect(

@@ -71,7 +71,7 @@
 		"hq-advanced/worker-load-after-the-chosen-loads",
 		"hq-advanced/worker-record-load-of-another-type"
 	],
-	"hq-bounded-flat-close": [],
+	"hq-bounded-flat-close": ["hq-bounded-flat-close/ordinary-close-is-inert"],
 	"hq-case-lists": [
 		"hq-case-lists/address-column",
 		"hq-case-lists/address-in-a-web-apps-grouped-tile-body",

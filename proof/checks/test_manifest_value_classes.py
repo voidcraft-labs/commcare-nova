@@ -79,7 +79,7 @@ def test_each_positive_reader_has_a_held_value_class(manifest):
         assert entry.disposition == "HELD" and entry.value_class
 
 
-def test_the_positive_flat_close_class_uses_the_actual_close_form(manifest):
+def _bounded_flat_close_shapes():
     source = b"""<h:html xmlns:h="http://www.w3.org/1999/xhtml" xmlns="http://www.w3.org/2002/xforms"
         xmlns:vellum="http://commcarehq.org/xforms/vellum" xmlns:jr="http://openrosa.org/javarosa">
     <h:head><model><instance><data xmlns="urn:test"><done/>
@@ -95,8 +95,11 @@ def test_the_positive_flat_close_class_uses_the_actual_close_form(manifest):
           calculate="current()/../../../../@id"/></model></h:head><h:body>
     <repeat nodeset="/data/nova_selected_cases/item" jr:count="/data/nova_selected_cases/@count"/>
     </h:body></h:html>"""
-    def holds(maximum=101, *, form_source=source, web_apps=True):
-        app = _with_forms({
+    key = "schema:Detail.max_select_value"
+    where = "/case_details/short/max_select_value"
+
+    def app(maximum=101, *, form_source=source, web_apps=True):
+        return _with_forms({
             "doc_type": "Application",
             "cloudcare_enabled": web_apps,
             "modules": [{
@@ -113,17 +116,20 @@ def test_the_positive_flat_close_class_uses_the_actual_close_form(manifest):
                 }],
             }],
         }, close=form_source)
-        found = manifest_usage.Uses()
-        manifest_usage.app_json_uses(app, manifest, "app.json", found)
-        use, = [use for use in found.uses if use.key == "schema:Detail.max_select_value"]
-        return classes.bounded_flat_close_maximum(use, manifest)
 
-    assert holds() is True
-    assert holds(102) is False
-    assert holds(form_source=source.replace(b"<close/>", b"<update/>")) is False
-    assert holds(form_source=source.replace(b"jr:count", b"unused")) is False
-    assert holds(web_apps=False) is False
-    assert holds(form_source=source.replace(b"'yes'", b"../record")) is False
+    unsupported = (
+        app(form_source=source.replace(b"<close/>", b"<update/>")),
+        app(form_source=source.replace(b"jr:count", b"unused")),
+        app(web_apps=False),
+        app(form_source=source.replace(b"'yes'", b"../record")),
+    )
+    return {
+        "menus-and-case-lists/detail-max-select-value-for-flat-close": (
+            refused("app", app(), key, where),
+            accepted("app", app(102), key, where),
+            *(accepted("app", body, key, where, standing=manifest_usage.HELD) for body in unsupported),
+        ),
+    }
 
 
 def test_a_configured_project_search_uses_an_endpoint_datum_and_owns_its_parameter_row(manifest):
@@ -9008,6 +9014,7 @@ def test_standalone_result_detail_positive_classifier(manifest, prompt, guarded,
 
 
 SHAPES = {
+    **_bounded_flat_close_shapes(),
     **_standalone_result_detail_shapes(),
     **_android_callout_shapes(),
     **_lookup_count_shapes(),
@@ -9136,7 +9143,15 @@ def _holds_its_shapes(entry_id, manifest, readings=None):
                     None: manifest_usage.UNDECIDED,
                 }
                 assert kind == (shape.standing or expected[shape.verdict]), f"{entry_id} stands {kind} at {shape.where}"
-                assert (entry in held) == (shape.verdict is not False or shape.standing == manifest_usage.UNHELD)
+                # An ordinary allowing row takes precedence and returns no attribution.
+                if shape.verdict is True and not held:
+                    assert any(
+                        other.disposition in ("HELD", "TARGET-OWNED", "INERT")
+                        and other.id not in classes.POSITIVE_VALUE_CLASSES
+                        for other in manifest.entries.get(shape.key, ())
+                    )
+                else:
+                    assert (entry in held) == (shape.verdict is not False or shape.standing == manifest_usage.UNHELD)
             elif shape.verdict:
                 refuses = not manifest_usage.is_build(use.artifact) or entry.judges_builds()
                 assert kind == (manifest_usage.REFUSED if refuses else manifest_usage.SOURCE) and entry in held

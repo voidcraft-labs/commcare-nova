@@ -67,7 +67,9 @@ from dataclasses import dataclass
 from proof.checks import appearance_rows, changes, lookup_parity, manifest_usage, observations, proof6, readerbundle
 from proof.checks.differences import Difference, pointer_token
 from proof.checks.manifest_value_classes import (
+    _basic_multi_select_maximum,
     _guarded_lookup_count,
+    bounded_flat_close_maximum,
     bare_fingerprint_query_without_supplier,
     HQ_CASE_RESERVED_WORDS,
     case_itemset_survey_readiness,
@@ -871,6 +873,8 @@ def _forms_variant_uses(found, held, entries):
         yield from _bare_lookup_count_uses(found, held, by_id[BARE_LOOKUP_COUNT])
 
 
+FLAT_CLOSE_MAXIMUM = "menus-and-case-lists/detail-max-select-value-for-flat-close"
+OTHER_101_MAXIMUM = "menus-and-case-lists/detail-max-select-value-101-outside-flat-close"
 SEARCH_INDEX_FALLBACK = "case-search/default-filter-resets-order-with-index-fallback"
 
 
@@ -914,6 +918,17 @@ def added_uses(base_source: dict, variant_source: dict, *, entries=()) -> list[D
         decided.extend(_forms_variant_uses(found, held, entries))
         if SEARCH_CHECK_NO_MESSAGE in entries:
             decided.extend(_empty_search_check_messages(found, held))
+
+        if FLAT_CLOSE_MAXIMUM in entries or OTHER_101_MAXIMUM in entries:
+            by_id = _entries_by_id(held)
+            for use in found.uses:
+                if use.key != "schema:Detail.max_select_value" or _basic_multi_select_maximum(use) != 101:
+                    continue
+                bounded = bounded_flat_close_maximum(use, held)
+                if bounded is True and FLAT_CLOSE_MAXIMUM in entries:
+                    decided.append(Decided(use, manifest_usage.HELD, (by_id[FLAT_CLOSE_MAXIMUM],)))
+                if bounded is False and OTHER_101_MAXIMUM in entries:
+                    decided.append(Decided(use, manifest_usage.HELD_NEW, (by_id[OTHER_101_MAXIMUM],)))
 
         for entry_id in PARENT_PROMPT_SHAPES.keys() & set(entries):
             entry = _entries_by_id(held)[entry_id]
@@ -1037,6 +1052,7 @@ def _projects(decided: Decided, record: Record, held) -> tuple[bool, bool]:
         return record.standing == "not-yet", record.entry in resting
     exact = PARENT_PROMPT_SHAPES.keys() | {
         STANDALONE_RESULT_DETAIL, UNICODE_PRIMARY_ROOT, UNMATCHED_ADDRESS_TOPIC, SEARCH_INDEX_FALLBACK,
+        FLAT_CLOSE_MAXIMUM,
     }
     if standing == manifest_usage.HELD and len(resting) == 1 and resting <= exact:
         return record.standing == "held", record.entry in resting
