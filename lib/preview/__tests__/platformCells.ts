@@ -577,6 +577,9 @@ export const PLATFORM_CELLS: Readonly<
 		stated("named-case-tile"),
 	"menus-and-case-lists/long-detail-custom-tile-case-detail-laid-out-as-a-tile@android":
 		stated("details-tile"),
+	"menus-and-case-lists/standalone-search-result-list-text@android": structural(
+		"search-result-detail-text",
+	),
 	"menus-and-case-lists/standalone-search-result-detail-text@android":
 		structural("search-result-detail-text"),
 	"menus-and-case-lists/standalone-search-result-detail-fixed-text@android":

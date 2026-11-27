@@ -2506,6 +2506,7 @@ export const NON_REFERENCE_MODULE_PATHS: Readonly<
 	"caseListConfig.columns[].readFrom": "discriminator",
 	"caseListConfig.columns[].showOwner": "config",
 	"caseListConfig.columns[].header": "display-text",
+	"caseListConfig.columns[].searchResultDetail.onList": "config",
 	"caseListConfig.columns[].searchResultDetail.prefix": "display-text",
 	"caseListConfig.columns[].searchResultDetail.suffix": "display-text",
 	"caseListConfig.columns[].searchResultDetail.text": "display-text",
