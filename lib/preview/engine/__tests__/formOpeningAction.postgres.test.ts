@@ -1638,11 +1638,21 @@ it("matches the device's numeric only-if-changed write onto a retained text prop
 		VALUES ($1,$2,$1,now(),now(),now()+interval '1 day')`,
 		[member.session, member.id],
 	);
+	// The prior writer keeps these lexical strings. The typed count compares
+	// as a number even though the property stores text.
+	const cases = [
+		{ id: "date-text", before: "1970-01-08", answer: "7", after: "1970-01-08" },
+		{ id: "decimal", before: "007.0", answer: "7", after: "007.0" },
+		{ id: "leading-zero", before: "007", answer: "7", after: "007" },
+		{ id: "missing", before: null, answer: "0", after: "0" },
+		{ id: "negative-trim", before: " -007 ", answer: "-7", after: " -007 " },
+		{ id: "ordinary-text", before: "several", answer: "7", after: "7" },
+		{ id: "plus-sign", before: "+007", answer: "7", after: "7" },
+	];
 	await pool.query(
 		`INSERT INTO cases (app_id,project_id,case_id,case_type,case_name,status,owner_id,properties)
-		VALUES ($1,$2,'leading-zero','household','First record','open',$3,'{}'),
-		       ($1,$2,'ordinary-text','household','Second record','open',$3,'{}')`,
-		[app, project, member.id],
+		SELECT $1,$2,id,'household',id,'open',$3,'{}'::jsonb FROM unnest($4::text[]) AS id`,
+		[app, project, member.id, cases.map(({ id }) => id)],
 	);
 	const blueprintDigest = await blueprintRevisionDigest(doc);
 	const device = webAppsDevice();
@@ -1684,21 +1694,21 @@ it("matches the device's numeric only-if-changed write onto a retained text prop
 	};
 	const read = async () =>
 		(
-			await pool.query<{ case_id: string; members: string }>(
+			await pool.query<{ case_id: string; members: string | null }>(
 				"SELECT case_id, properties->>'members' AS members FROM cases WHERE app_id = $1 AND project_id = $2 AND case_type = 'household' ORDER BY case_id",
 				[app, project],
 			)
 		).rows;
-	await submit(describe, text, "leading-zero", "007");
-	await submit(describe, text, "ordinary-text", "several");
-	expect(await read()).toEqual([
-		{ case_id: "leading-zero", members: "007" },
-		{ case_id: "ordinary-text", members: "several" },
-	]);
-	await submit(count, number, "leading-zero", "7");
-	await submit(count, number, "ordinary-text", "7");
-	expect(await read()).toEqual([
-		{ case_id: "leading-zero", members: "007" },
-		{ case_id: "ordinary-text", members: "7" },
-	]);
+	for (const { id, before } of cases) {
+		if (before !== null) await submit(describe, text, id, before);
+	}
+	expect(await read()).toEqual(
+		cases.map(({ id, before }) => ({ case_id: id, members: before })),
+	);
+	for (const { id, answer } of cases) {
+		await submit(count, number, id, answer);
+	}
+	expect(await read()).toEqual(
+		cases.map(({ id, after }) => ({ case_id: id, members: after })),
+	);
 });

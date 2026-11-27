@@ -3038,6 +3038,7 @@ export function buildCaseOperationProgramFromDoc(args: {
 					([uuid, field]) => [uuid, field.type],
 				),
 			),
+			dayNumberEpoch: previewPlatformRules(args.device.platform).dayNumberEpoch,
 			formFieldHeld: new Map(
 				[...(formExpressionFacts(doc, formUuid)?.fields ?? [])].flatMap(
 					([uuid, field]) =>

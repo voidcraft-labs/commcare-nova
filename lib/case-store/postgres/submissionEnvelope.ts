@@ -90,6 +90,8 @@ import {
 	storageDatetimeValue,
 	storageTimeValue,
 } from "@/lib/domain/temporalValues";
+import { compareEqual } from "@/lib/preview/xpath/coerce";
+import { evaluateInDeviceZone } from "@/lib/preview/xpath/coreDays";
 import {
 	type ResolvedCaseOperationTypeStep,
 	validateCaseOperationTargetDescriptor,
@@ -119,6 +121,7 @@ import {
 } from "../sql/compileRestoreScope";
 import type { FormFieldBindingValue, TermBindings } from "../sql/compileTerm";
 import type { Database, JsonObject, JsonValue } from "../sql/database";
+import { resolveViewerTimeZone } from "../sql/viewerTimeZone";
 import type { CaseUpdate } from "../store";
 import type {
 	ApplySubmissionArgs,
@@ -2143,6 +2146,7 @@ async function resolveOperationProgram(
 		opening &&
 		new Map(opening.cases.rows.map((row) => [row.case_id, row.case_type]));
 	const resolvedInstances: ResolvedInstance[] = [];
+	let numericComparisonZone: string | undefined;
 	for (const [index, openedInstance] of instances.entries()) {
 		let instance = openedInstance;
 		let operation = instance.envelope.operation;
@@ -2805,7 +2809,30 @@ async function resolveOperationProgram(
 							: write.property === "location_id"
 								? (stored?.locationId ?? "")
 								: storedText(stored?.properties[write.property]);
-				if (before === storedText(value)) continue;
+				const source = caseWriteValueField(write.value);
+				const evaluated = bag?.writes.get(writeIndex);
+				// HQ compares the casedb's untyped text with the question's
+				// typed node before its untyped case leaf renders the answer.
+				const numericTextWrite =
+					!isScalarColumnWrite(write.property) &&
+					!isFacetWriteThroughIndex(write) &&
+					writeDataType(program, instance.envelope, writeIndex) === "text" &&
+					source?.link === false &&
+					program.formFieldHeld?.get(source.field) === "number" &&
+					typeof evaluated === "number";
+				if (numericTextWrite) {
+					numericComparisonZone ??= resolveViewerTimeZone(
+						program.viewerTimeZone,
+					);
+					if (
+						evaluateInDeviceZone(numericComparisonZone, () =>
+							compareEqual(before, evaluated, program.dayNumberEpoch ?? "utc"),
+						)
+					)
+						continue;
+				} else if (before === storedText(value)) {
+					continue;
+				}
 			}
 			if (write.via !== undefined) {
 				viaWrites.push({

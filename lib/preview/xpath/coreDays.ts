@@ -209,16 +209,16 @@ let evaluationZone: string | undefined;
 
 /** A server rendering a worker's expression uses the worker's calendar for
  * the whole synchronous XPath calculation, including today, date arithmetic
- * and formatting. Only an evaluated string can leave the scope. */
-export function evaluateTextInDeviceZone(
+ * and formatting. The evaluation must finish within the synchronous scope. */
+export function evaluateInDeviceZone<T extends string | boolean>(
 	zone: string | undefined,
-	evaluateText: () => string,
-): string {
-	if (zone === undefined) return evaluateText();
+	evaluate: () => T,
+): T {
+	if (zone === undefined) return evaluate();
 	const previous = evaluationZone;
 	evaluationZone = zone;
 	try {
-		return evaluateText();
+		return evaluate();
 	} finally {
 		evaluationZone = previous;
 	}
