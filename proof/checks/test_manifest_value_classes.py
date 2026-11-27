@@ -9543,3 +9543,43 @@ def test_the_pollsensor_hqs_build_writes_is_held_in_a_local_archive_and_refused_
                     classes.second_default,
                 ):
                     assert reader(use, manifest) is False, (reader.__name__, use.where)
+
+@pytest.mark.parametrize(("layout", "stored", "held"), [
+    ("manual", "'Old address'", True),
+    ("manual", "concat('Old ', 'address')", False),
+    ("manual", "''", False),
+    ("manual", '"Old address"', False),
+    ("linked", "'Old address'", False),
+    ("bare-topic", "'Old address'", False),
+    ("excluded", "'Old address'", False),
+    ("automatic", "'Old address'", False),
+    ("inline", "'Old address'", False),
+    ("clear", "'Old address'", False),
+    ("grouped", "'Old address'", False),
+])
+def test_saved_address_default_is_decided_only_for_the_manual_unlinked_shape(manifest, layout, stored, held):
+    from proof.checks import parity
+
+    picker = _prompt("village", appearance="address", default_value=stored)
+    neighbor = _prompt("name")
+    config = {"auto_launch": True}
+    if layout == "linked":
+        neighbor["receiver_expression"] = "village-city"
+    if layout == "bare-topic":
+        neighbor["receiver_expression"] = "village"
+    if layout == "excluded":
+        picker["exclude"] = True
+    if layout == "automatic":
+        config["default_search"] = True
+    if layout == "inline":
+        config["inline_search"] = True
+    if layout == "clear":
+        config["search_on_clear"] = True
+    if layout == "grouped":
+        picker["group_key"] = "location"
+    base = _app([_search_module(properties=[_prompt("village"), neighbor], **config)])
+    saved = _app([_search_module(properties=[picker, neighbor], **config)])
+    pointer = "/modules/0/search_config/properties/0/default_value"
+    decided = parity.added_uses(base, saved, entries=(parity.ADDRESS_SAVED_TEXT,))
+    claims = [one.use.where for one in decided if any(entry.id == parity.ADDRESS_SAVED_TEXT for entry in one.entries)]
+    assert claims == ([pointer] if held else [])

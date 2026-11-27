@@ -2874,7 +2874,14 @@ function diffSearchInputs(
 			continue;
 		}
 		if (!contentEqualIgnoringOrder(p, input)) {
-			out.push(searchInputUpdateMutation(moduleUuid, p, cloneEntity(input)));
+			out.push(
+				searchInputUpdateMutation(
+					moduleUuid,
+					p,
+					cloneEntity(input),
+					"document-diff",
+				),
+			);
 		}
 	}
 	// `searchInputs` IS the sequence, so a reorder is whatever moves turn the

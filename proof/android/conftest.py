@@ -19,6 +19,7 @@ import pytest
 # Every corpus document a test of this package reads, by id, and no other.
 DOCUMENTS = (
     "hq-question-display",
+    "hq-search",
     "media-language-files",
     "case-list-action-advanced",
     "case-list-action-basic",

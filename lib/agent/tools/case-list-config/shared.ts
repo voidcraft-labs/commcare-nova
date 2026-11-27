@@ -778,6 +778,7 @@ export const searchInputDefInputSchema = z
 				default: true,
 				hidden: true,
 				addressReceiver: true,
+				savedDefault: true,
 			})
 			.extend(searchInputUuidSlot),
 		hiddenSearchInputSchema.omit({ uuid: true, group: true }).extend({
