@@ -128,3 +128,28 @@ def test_formplayer_opens_and_submits_advanced_index_producer(hq, formplayer_run
                 index, = created.indices
                 assert (index.identifier, index.referenced_id) == (name, PARENT)
                 evidence("advanced-index-submitted", {"name": name, "caseType": created.type})
+
+
+@pytest.mark.reader("android")
+def test_installed_android_submits_advanced_unicode_index(hq, evidence):
+    from corehq.form_processor.models import CommCareCase
+    from proof.android import observe
+    from proof.observe.record import Blobs
+
+    name = "Ωprobe"
+    database = _worker_database(_worker_case(PARENT, "clinic", "Selected clinic"))
+    with hq_check(Configuration(privileges={"CHILD_CASES"})) as (state, _):
+        app_id = _advanced_index_producer(state, name, web_apps=False)
+        with serve(state, None, app_id, database=database, platforms={"android"}) as served:
+            archive = observe.release_archive(served)
+            blobs, sent = Blobs(), []
+            result = observe.app(
+                served, blobs, label="advanced-unicode-index", archive=archive, delivered=True,
+                commands=["m1-f1"], questions={"/data/req_name": ["One requisition"]}, sent=sent,
+            )
+            assert len(sent) == 1, blobs.get_json(result["answer"])
+            case_id = _assert_produced_index(sent[0], name)
+            created = CommCareCase.objects.get_case(case_id, state.domain)
+            index, = created.indices
+            assert (index.identifier, index.referenced_id) == (name, PARENT)
+            evidence("advanced-unicode-android-submitted", {"name": name, "caseType": created.type})
