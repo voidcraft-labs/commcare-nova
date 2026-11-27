@@ -844,12 +844,14 @@ describe("bounded flat close", () => {
 			dbHandle.db,
 		);
 		const scope = request();
-		expect(
-			await store.readFlatCloseSelection({
-				...scope,
-				caseIds: [...selected, parent],
-			}),
-		).toBeUndefined();
+		// The device holds the linked parent, so it can read 102 records.
+		// The write budget still refuses a close that would touch all 102.
+		const overflow = await signedProgram(store, [...selected, parent]);
+		expect((await rejection(submit(store, overflow))).rejection).toMatchObject({
+			kind: "selection",
+			reason: "too-many",
+			maximum: 101,
+		});
 		expect(
 			await store.readFlatCloseSelection({
 				...scope,
@@ -944,6 +946,67 @@ describe("bounded flat close", () => {
 		expect((await patientRow(store, parent))?.status).toBe("open");
 	});
 
+	it("reads and submits 500 records without effects and refuses a 501st", async () => {
+		const store = makeStore();
+		const records = Array.from(
+			{ length: 501 },
+			(_, index) => `followup-${index}`,
+		);
+		await sql`INSERT INTO cases (
+			app_id, project_id, case_id, case_type, case_name, owner_id,
+			status, opened_on, modified_on, properties
+		)
+		SELECT ${APP_ID}, ${PROJECT_A}, record.id, 'patient', record.id, ${ACTOR},
+			'open', now() + record.ordinality * interval '1 second', now(), '{}'::jsonb
+		FROM unnest(${records}::text[]) WITH ORDINALITY AS record(id, ordinality)`.execute(
+			dbHandle.db,
+		);
+		const caseIds = records.slice(0, 500);
+		const opening = await store.readFlatCloseSelection(request(caseIds));
+		expect(opening?.rows.map((row) => row.case_id)).toEqual(caseIds);
+		expect(
+			await store.readFlatCloseSelection(request(records)),
+		).toBeUndefined();
+		if (!opening) throw new Error("Expected a 500-record snapshot.");
+
+		const followup: TestSubmissionArgs = {
+			appId: APP_ID,
+			ordinary: {
+				kind: "followup",
+				caseType: "patient",
+				caseIds,
+				selection: { kind: "multiple", maximum: 500 },
+			},
+			boundedFlatClose: true,
+			operations: {
+				...ownProgram("followup", [ownOp()]),
+				sessionCaseIds: caseIds,
+				openingReads: { currentOwnerIds: [ACTOR], cases: opening },
+			},
+		};
+		const saved = await submit(store, followup);
+		expect(saved.primaryCaseIds).toEqual(caseIds);
+		expect(saved.operations).toEqual([]);
+		expect(await store.readFlatCloseSelection(request(caseIds))).toEqual(
+			opening,
+		);
+
+		const excess: TestSubmissionArgs = {
+			...followup,
+			ordinary: {
+				kind: "followup",
+				caseType: "patient",
+				caseIds: records,
+				selection: { kind: "multiple", maximum: 501 },
+			},
+		};
+		expect((await rejection(submit(store, excess))).rejection).toMatchObject({
+			kind: "selection",
+			reason: "too-many",
+			maximum: 500,
+		});
+	});
+
 	it.each(["case data", "schema metadata"] as const)(
 		"rechecks growing %s after waiting for the case write locks",
 		async (grown) => {
@@ -988,7 +1051,7 @@ describe("bounded flat close", () => {
 					{
 						status: "rejected",
 						reason: expect.objectContaining({
-							message: "These records hold too much data to close together.",
+							message: "These records hold too much data to open together.",
 						}),
 					},
 				]);
@@ -3892,8 +3955,15 @@ describe("retype", () => {
 		expect(err.rejection).toMatchObject({
 			kind: "retype-not-portable",
 			operationUuid: OP_A,
-			failures: [expect.objectContaining({ path: "/seen_on" })],
+			failures: expect.arrayContaining([
+				{ path: "/seen_on", message: 'must match format "date"' },
+			]),
 		});
+		if (err.rejection.kind !== "retype-not-portable")
+			throw new Error("Expected the typed retype to refuse.");
+		expect(new Set(err.rejection.failures.map(({ path }) => path))).toEqual(
+			new Set(["/seen_on"]),
+		);
 		expect(
 			await store.query({
 				reading: SEARCH_READING,
