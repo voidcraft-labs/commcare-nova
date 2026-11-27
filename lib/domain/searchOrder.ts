@@ -43,25 +43,26 @@ export function effectiveSearchOrder(
 	filters: readonly SearchFilter[],
 	dedicated: readonly SearchRequestOrder[number][],
 ): EffectiveOrderTerm[] {
-	const resetPosition = searchOrderResetPosition(filters);
+	const order = filters.flatMap((filter) =>
+		"order" in filter ? filter.order : [],
+	);
+	const resetPosition = order.findLastIndex(
+		(term) => term.comparison === "indexed-fallback",
+	);
 	return [
-		...filters
+		...order
 			.slice(Math.max(resetPosition, 0))
-			.flatMap((filter): EffectiveOrderTerm[] =>
-				"order" in filter
-					? filter.order.flatMap((term): EffectiveOrderTerm[] =>
-							term.comparison === "indexed-fallback"
-								? (["number", "date", "text"] as const).map((comparison) => ({
-										property: term.property,
-										direction: "ascending",
-										comparison,
-										missing: "last",
-									}))
-								: term.comparison === "discarded"
-									? []
-									: [term],
-						)
-					: [],
+			.flatMap((term): EffectiveOrderTerm[] =>
+				term.comparison === "indexed-fallback"
+					? (["number", "date", "text"] as const).map((comparison) => ({
+							property: term.property,
+							direction: "ascending",
+							comparison,
+							missing: "last",
+						}))
+					: term.comparison === "discarded"
+						? []
+						: [term],
 			),
 		...dedicated,
 	];

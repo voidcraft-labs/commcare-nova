@@ -5474,7 +5474,13 @@ def _ordinary_sort_text(text):
 
 
 def _index_fallback_text(text):
-    match = re.fullmatch(r"\+([A-Za-z][A-Za-z0-9_-]*)::ignored", text or "")
+    terms = (text or "").split(",")
+    if len(terms) == 2:
+        if not re.fullmatch(r"-[A-Za-z][A-Za-z0-9_-]*:date", terms[0]) or not _ordinary_sort_text(terms[0]):
+            return False
+        match = re.fullmatch(r"\+([A-Za-z][A-Za-z0-9_-]*)::obsolete", terms[1])
+    else:
+        match = re.fullmatch(r"\+([A-Za-z][A-Za-z0-9_-]*)::ignored", text or "")
     if match is None:
         return False
     key = match.group(1)
