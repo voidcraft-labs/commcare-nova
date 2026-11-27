@@ -57,6 +57,10 @@ import {
 	USERCASE_CASE_TYPE,
 } from "@/lib/domain";
 import {
+	AUTHORED_CASE_PROPERTY_NAME_PATTERN,
+	isBasicAndroidCasePropertyName,
+} from "@/lib/domain/casePropertyName";
+import {
 	compilerBugMessage,
 	unhandledKindMessage,
 } from "@/lib/domain/expression/errors";
@@ -6006,7 +6010,7 @@ function decodeStoredCaseSchema(
 	}
 	const dataTypes = new Map<string, CasePropertyDataType>();
 	for (const [name, propertySchema] of Object.entries(record.properties)) {
-		assertSafeIdentifierFragment(name);
+		assertStoredCasePropertyName(name);
 		if (CASE_SCALAR_PROPERTY_NAMES.has(name)) {
 			throw new Error(
 				`Stored case schema for "${caseType}" in app "${appId}" declares reserved scalar "${name}" as a JSON property.`,
@@ -6039,17 +6043,20 @@ function strictStoredDataType(
 	);
 }
 
-/** A stored schema's property name, which the SQL compiler reads as a JSONB
- * key, holds the catalog's property grammar. Case types take a wider grammar
- * (one may start with a digit, `_` or `-`) and are not checked here. */
-function assertSafeIdentifierFragment(fragment: string): void {
-	if (!/^[A-Za-z][A-Za-z0-9_-]*$/.test(fragment)) {
+/** A stored schema's property name is an exact JSONB key. The write-only
+ * Basic name class is also a storage key; only the blueprint gate decides
+ * where it is legal to write it. Case types have another grammar. */
+function assertStoredCasePropertyName(name: string): void {
+	if (
+		!AUTHORED_CASE_PROPERTY_NAME_PATTERN.test(name) &&
+		!isBasicAndroidCasePropertyName(name)
+	) {
 		throw new Error(
 			compilerBugMessage({
-				where: "case-store.assertSafeIdentifierFragment",
-				invariant: `property name \`${fragment}\` contains characters other than letters, digits, underscores, and hyphens, or does not start with a letter`,
+				where: "case-store.assertStoredCasePropertyName",
+				invariant: `property name \`${name}\` is outside the admitted case-property grammar`,
 				detail:
-					"The blueprint AST's `CASE_PROPERTY_PATTERN` (at `lib/domain/expression/types.ts`) restricts property names to a leading letter followed by letters / digits / underscores / hyphens; the case-store's property-name contract aligns with that AST pattern. Reaching this throw means a name bypassed the AST gate (e.g., a runtime-constructed blueprint that skipped Zod parsing).\n\nHint: rename the offending property at the blueprint layer; restoring AST-gated construction is the structural fix.",
+					"A stored case schema holds an exact accepted JSONB key. This name bypassed the blueprint gate or the stored schema no longer matches that document.",
 			}),
 		);
 	}

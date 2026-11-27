@@ -237,6 +237,62 @@ describe("PostgresCaseStore selected-parent sets", () => {
 });
 
 describe("PostgresCaseStore.readDeviceCaseDatabase", () => {
+	it("keeps an accented case-property key distinct in storage and in the device snapshot", async () => {
+		const store = makeStore(OWNER_A);
+		const caseTypeSchemas = buildSchemaMap({
+			name: "patient",
+			properties: ["estado_e", "estado_é"].map((name) => ({
+				name,
+				label: proseText(name),
+				data_type: "text",
+			})),
+		});
+		await store.applySchemaChange({
+			appId: APP_ID,
+			caseType: "patient",
+			caseTypeSchemas,
+		});
+		for (const caseId of ["selected", "unselected"]) {
+			await store.insert({
+				appId: APP_ID,
+				row: {
+					case_id: caseId,
+					case_type: "patient",
+					case_name: caseId,
+					properties: { estado_e: "ASCII", estado_é: "before" },
+				},
+			});
+		}
+		await store.update({
+			appId: APP_ID,
+			caseId: "selected",
+			patch: { properties: { estado_é: "after" } },
+		});
+		await expect(
+			store.update({
+				appId: APP_ID,
+				caseId: "selected",
+				patch: { properties: { "estado_e\u0301": "different key" } },
+			}),
+		).rejects.toBeInstanceOf(CasePropertiesValidationError);
+		const snapshot = await store.readDeviceCaseDatabase({
+			appId: APP_ID,
+			restoreScope: { ownerIds: [OWNER_A] },
+		});
+		expect(snapshot.propertyTypes?.patient).toEqual({
+			estado_e: "text",
+			estado_é: "text",
+		});
+		expect(
+			Object.fromEntries(
+				snapshot.rows.map((row) => [row.case_id, row.properties]),
+			),
+		).toEqual({
+			selected: { estado_e: "ASCII", estado_é: "after" },
+			unselected: { estado_e: "ASCII", estado_é: "before" },
+		});
+	});
+
 	it("returns every direct parent and custom edge with ancestor metadata", async () => {
 		const store = makeStore(OWNER_A);
 		const caseTypes: CaseType[] = [
