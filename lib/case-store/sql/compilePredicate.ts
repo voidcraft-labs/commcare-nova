@@ -206,14 +206,14 @@ export function compilePredicate(
 		pred,
 		ctx.currentCaseType,
 	);
-	// A candidate already witnesses its own type. For two cases, check the
-	// same worker's restore once for the list, independently of row pagination.
+	// A candidate already witnesses its own type. The worker’s restore can
+	// stop scanning once it finds a case past the threshold, independent of pagination.
 	if (restoredThreshold === 0) return eb.lit(true) as Expression<SqlBool>;
-	if (restoredThreshold === 1 && ctx.currentCaseType !== undefined)
+	if (restoredThreshold !== undefined && ctx.currentCaseType !== undefined)
 		return eb.exists(
 			restoredTypeRows(ctx, ctx.currentCaseType)
 				.select(eb.lit(1).as("present"))
-				.offset(1)
+				.offset(restoredThreshold)
 				.limit(1),
 		);
 	if (pred.kind === "term") return compileBareRead(pred.term, ctx);

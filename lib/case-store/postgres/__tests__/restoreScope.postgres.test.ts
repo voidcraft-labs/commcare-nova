@@ -158,52 +158,57 @@ describe("the outer scan", () => {
 		).resolves.toBe(2);
 	});
 
-	it("counts a second visible case of the same type across pages", async () => {
-		const records = store();
-		const args = {
-			reading: CASEDB_READING,
-			appId: APP_ID,
-			caseType: "patient",
-			caseTypeSchemas: schemas,
-			restoreScope: RESTORE,
-			predicate: gt(
-				countOf({
-					kind: "cases",
-					source: "casedb",
-					where: [
-						eq(
-							{ kind: "case-row-type" },
-							{ kind: "case-type", caseType: "patient" },
-						),
-					],
-				}),
-				literal(1),
-			),
-		} as const;
-		await addCase({ id: "mine-first", caseType: "patient", owner: WORKER });
-		await addCase({ id: "other-worker", caseType: "patient", owner: OTHER });
-		await addCase({ id: "other-type", caseType: "household", owner: WORKER });
-		await expect(records.query(args)).resolves.toEqual([]);
-		await expect(records.count(args)).resolves.toBe(0);
+	it.each([1, 2])(
+		"counts past a threshold of %i visible cases across pages",
+		async (threshold) => {
+			const records = store();
+			const args = {
+				reading: CASEDB_READING,
+				appId: APP_ID,
+				caseType: "patient",
+				caseTypeSchemas: schemas,
+				restoreScope: RESTORE,
+				predicate: gt(
+					countOf({
+						kind: "cases",
+						source: "casedb",
+						where: [
+							eq(
+								{ kind: "case-row-type" },
+								{ kind: "case-type", caseType: "patient" },
+							),
+						],
+					}),
+					literal(threshold),
+				),
+			} as const;
+			await addCase({ id: "mine-first", caseType: "patient", owner: WORKER });
+			await addCase({ id: "other-worker", caseType: "patient", owner: OTHER });
+			await addCase({ id: "other-type", caseType: "household", owner: WORKER });
+			if (threshold === 2)
+				await addCase({ id: "mine-third", caseType: "patient", owner: WORKER });
+			await expect(records.query(args)).resolves.toEqual([]);
+			await expect(records.count(args)).resolves.toBe(0);
 
-		await addCase({ id: "mine-second", caseType: "patient", owner: WORKER });
-		await expect(records.count(args)).resolves.toBe(2);
-		const first = await records.query({ ...args, limit: 1 });
-		const second = await records.query({ ...args, limit: 1, offset: 1 });
-		expect([...first, ...second].map((row) => row.case_id).sort()).toEqual([
-			"mine-first",
-			"mine-second",
-		]);
+			await addCase({ id: "mine-second", caseType: "patient", owner: WORKER });
+			await expect(records.count(args)).resolves.toBe(threshold + 1);
+			const first = await records.query({ ...args, limit: 1 });
+			const second = await records.query({ ...args, limit: 1, offset: 1 });
+			expect([...first, ...second].map((row) => row.case_id).sort()).toEqual([
+				"mine-first",
+				"mine-second",
+			]);
 
-		await h.pool.query(
-			`INSERT INTO parked_case_values
+			await h.pool.query(
+				`INSERT INTO parked_case_values
 			 (app_id, case_id, case_type, property, original_value, reason, from_type, to_type)
 			 VALUES ($1, 'mine-second', 'patient', 'size', '"big"', 'retype', 'text', 'integer')`,
-			[APP_ID],
-		);
-		await expect(records.query(args)).resolves.toEqual([]);
-		await expect(records.count(args)).resolves.toBe(0);
-	});
+				[APP_ID],
+			);
+			await expect(records.query(args)).resolves.toEqual([]);
+			await expect(records.count(args)).resolves.toBe(0);
+		},
+	);
 
 	it.each([false, true])(
 		"displays the population count from the worker’s whole restored type (filtered %s)",

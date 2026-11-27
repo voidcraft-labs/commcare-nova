@@ -345,11 +345,11 @@ export function isRestoredColumnCaseQuery(expression: Expression): boolean {
 	);
 }
 
-/** The two bounded whole-list checks use only the restored candidates’ type. */
+/** A whole-list threshold counts only restored candidates of the list’s own type. */
 export function sameTypeRestoredThreshold(
 	expression: Expression,
 	caseType: string | undefined,
-): 0 | 1 | undefined {
+): number | undefined {
 	if (
 		expression.kind !== "gt" ||
 		!countsOwnRestoredType(expression.left, caseType) ||
@@ -359,7 +359,12 @@ export function sameTypeRestoredThreshold(
 	)
 		return undefined;
 	const threshold = expression.right.term.value;
-	return threshold === 0 || threshold === 1 ? threshold : undefined;
+	return typeof threshold === "number" &&
+		Number.isInteger(threshold) &&
+		threshold >= 0 &&
+		threshold <= 2_147_483_647
+		? threshold
+		: undefined;
 }
 
 export function readsRestoredCaseTypeQuery(
