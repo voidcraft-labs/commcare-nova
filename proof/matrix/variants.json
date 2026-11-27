@@ -11974,6 +11974,48 @@
 	{
 		"id": "hq-bounded-flat-close/large-selection-with-two-interactive-questions",
 		"base": "hq-bounded-flat-close",
+		"entry": "menus-and-case-lists/detail-max-select-value-for-flat-followup",
+		"change": {
+			"op": "named",
+			"name": "limit_101_with_two_visible_questions"
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/selection/maximum",
+				"value": 101
+			},
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [0, 0]
+					}
+				],
+				"pointer": "/type",
+				"value": "followup"
+			},
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["recommendation"]
+				],
+				"pointer": "/kind",
+				"value": "text"
+			}
+		]
+	},
+	{
+		"id": "hq-bounded-flat-close/large-selection-with-a-required-text-answer",
+		"base": "hq-bounded-flat-close",
 		"entry": "menus-and-case-lists/detail-max-select-value-101-outside-flat-close",
 		"standing": "not-yet",
 		"place": {
@@ -11983,7 +12025,7 @@
 		},
 		"change": {
 			"op": "named",
-			"name": "limit_101_with_two_visible_questions"
+			"name": "limit_101_with_required_text"
 		}
 	},
 	{

@@ -3538,7 +3538,7 @@
 		"surfaceKeys": ["schema:Detail.max_select_value"],
 		"valueClass": "101-on-a-web-apps-flat-followup-without-writes",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: `selection.maximum` of 101 for the bounded Web Apps follow-up. The form may collect one plain text answer and leaves its selected records unchanged",
+		"dispositionCell": "**HELD**: `selection.maximum` of 101 for the bounded Web Apps follow-up. The form may collect optional plain text answers and leaves its selected records unchanged",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",

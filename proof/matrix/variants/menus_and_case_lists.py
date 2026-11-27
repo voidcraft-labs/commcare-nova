@@ -317,7 +317,7 @@ def limit_101_with_visible_question(authoring, app_id):
 
 
 def limit_101_with_two_visible_questions(authoring, app_id):
-    """A second visible input is outside the bounded text-response profile."""
+    """The bounded follow-up collects two independent Text answers."""
     from corehq.apps.app_manager.xform_builder import XFormBuilder
 
     def ordinary_source(_root, held):
@@ -329,6 +329,16 @@ def limit_101_with_two_visible_questions(authoring, app_id):
 
     limit_101_outside_flat_close(authoring, app_id)
     ops.set_form_source(authoring, app_id, 0, 0, ordinary_source, what="two independent interactive questions")
+
+
+def limit_101_with_required_text(authoring, app_id):
+    limit_101_with_two_visible_questions(authoring, app_id)
+
+    def require_answer(root, _form):
+        (bind,) = root.xpath("//*[local-name()='bind'][@nodeset='/data/recommendation']")
+        bind.set("required", "true()")
+
+    ops.set_form_source(authoring, app_id, 0, 0, require_answer, what="require one answer")
 
 
 def multi_select_above_a_hundred(authoring, app_id):

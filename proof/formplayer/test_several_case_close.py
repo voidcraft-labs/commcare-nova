@@ -288,7 +288,7 @@ def test_basic_automatic_multi_selection_uses_the_whole_datum_and_refuses_overfl
 
 
 
-@pytest.mark.parametrize("kind", ["close", "followup", "answer"])
+@pytest.mark.parametrize("kind", ["close", "followup", "answer", "answers"])
 def test_the_authored_bounded_case_list_selects_101_and_refuses_the_102nd(
     hq, formplayer_runner, formplayer_documents, evidence, kind,
 ):
@@ -317,7 +317,11 @@ def test_the_authored_bounded_case_list_selects_101_and_refuses_the_102nd(
             assert refusal is None, refusal
             if followup:
                 author = Authoring(unit, {}, doc.id, operation=unit.operation)
-                change = "limit_101_with_visible_question" if kind == "answer" else "limit_101_outside_flat_close"
+                change = {
+                    "followup": "limit_101_outside_flat_close",
+                    "answer": "limit_101_with_visible_question",
+                    "answers": "limit_101_with_two_visible_questions",
+                }[kind]
                 registry.named_change(change)(author, app_id)
         for batch, count in (("at-maximum", witness["selectedCount"]), ("overflow", witness["overflowCount"])):
             overflow = batch == "overflow"
@@ -344,16 +348,19 @@ def test_the_authored_bounded_case_list_selects_101_and_refuses_the_102nd(
                             ids = {case.case_id for case in supplied.cases}
                             before = _held(served.domain, sorted(ids)) if followup else None
                             answers = {}
-                            if kind == "answer":
-                                question, = [node for node in page["tree"] if node.get("type") == "question"]
-                                answers[question["ix"]] = "Reviewed"
+                            if kind in ("answer", "answers"):
+                                questions = [node for node in page["tree"] if node.get("type") == "question"]
+                                expected = ["Reviewed", "Call again"] if kind == "answers" else ["Reviewed"]
+                                answers = {question["ix"]: value for question, value in zip(questions, expected, strict=True)}
                             result = web.submit(page["session_id"], answers)
                             assert result["status"] == "success", result
                             (submission,) = served.hq.submissions
                             if followup:
                                 payload = etree.fromstring(submission.instance, PARSER)
                                 assert not list(payload.iter(CASE))
-                                assert payload.findtext("{*}outcome") == ("Reviewed" if kind == "answer" else "done")
+                                assert payload.findtext("{*}outcome") == ("Reviewed" if answers else "done")
+                                if kind == "answers":
+                                    assert payload.findtext("{*}recommendation") == "Call again"
                                 assert _held(served.domain, sorted(ids)) == before
                                 observations[batch] = {"caseTransactions": 0, "offered": count}
                             else:
