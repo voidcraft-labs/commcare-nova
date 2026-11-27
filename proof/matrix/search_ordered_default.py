@@ -22,6 +22,7 @@ def ordered_default_variant(field="username"):
     variant = {
         "username": "starting-value-of-an-ordered-text",
         "userid": "starting-value-ordering-a-worker-id",
+        "deviceid": "starting-value-ordering-a-device-id",
     }[field]
     return next(row for row in registry.load_variants() if row.id == f"hq-search/{variant}")
 

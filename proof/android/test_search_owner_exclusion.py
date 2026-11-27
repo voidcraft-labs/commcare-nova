@@ -21,7 +21,7 @@ from proof.webapps import hq as webapps_hq
 pytestmark = pytest.mark.reader("android")
 
 
-@pytest.mark.parametrize("source", ["text", "worker-id"])
+@pytest.mark.parametrize("source", ["text", "worker-id", "device-id"])
 def test_installed_search_sends_the_owner_the_worker_comparison_selects(
     android_documents, hq, android_walk_evidence, source,
 ):

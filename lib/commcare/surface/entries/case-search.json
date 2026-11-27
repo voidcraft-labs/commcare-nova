@@ -3278,14 +3278,14 @@
 		"area": "case-search",
 		"section": "Case search",
 		"subsection": "Search prompts",
-		"item": "A visible simple text prompt's starting value uses a greater-than comparison of the worker name or ID with plain text",
+		"item": "A visible simple text prompt's starting value uses a greater-than comparison of the worker name, worker ID or device ID with plain text",
 		"surfaceKeys": [
 			"schema:CaseSearchProperty.default_value",
 			"parser:QueryPromptParser/prompt@default"
 		],
 		"valueClass": "simple-text-default-worker-name-order",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: `searchInputs[].default` keeps the worker reference and the original greater-than comparison. The native query screen compares the values numerically",
+		"dispositionCell": "**HELD**: `searchInputs[].default` keeps the session reference and the original greater-than comparison. The native query screen compares the values numerically",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",

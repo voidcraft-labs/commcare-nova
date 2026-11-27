@@ -311,6 +311,11 @@ def search_button_orders_worker_id_with_session(authoring, app_id):
     _search_button_orders_worker_with_session(authoring, app_id, "userid")
 
 
+def search_button_orders_device_id_with_session(authoring, app_id):
+    """The declared session also supplies the device ID."""
+    _search_button_orders_worker_with_session(authoring, app_id, "deviceid")
+
+
 def _search_button_orders_worker_with_session(authoring, app_id, field):
     _set_each(
         authoring,
@@ -336,8 +341,13 @@ def owner_exclusion_on_an_ordered_device_id(authoring, app_id):
     _owner_exclusion_on_order(authoring, app_id, "deviceid")
 
 
-def _owner_exclusion_on_order(authoring, app_id, field):
-    owners = f"if({SESSION}/context/{field} > 'm', 'a', 'b')"
+def owner_exclusion_on_a_less_than_device_id(authoring, app_id):
+    """The neighboring less-than comparison remains outside the admitted scope."""
+    _owner_exclusion_on_order(authoring, app_id, "deviceid", comparison="<")
+
+
+def _owner_exclusion_on_order(authoring, app_id, field, *, comparison=">"):
+    owners = f"if({SESSION}/context/{field} {comparison} 'm', 'a', 'b')"
     _set_each(
         authoring,
         app_id,

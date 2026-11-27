@@ -94,7 +94,7 @@ import {
 	recordPositionVerdict,
 	restoredCasePropertyMatch,
 	sameTypeRestoredPresence,
-	searchWorkerTextOrder,
+	searchSessionTextOrder,
 	TEXT_SHAPED_TYPES,
 	TIME_ORDERING_MESSAGE,
 	typesCompatible,
@@ -4333,14 +4333,14 @@ function checkComparison(
 			});
 			return;
 		}
-		// Core and Preview coerce both operands in these worker-session
+		// Core and Preview coerce both operands in these session
 		// comparisons for a Search starting value, its action, or a shared owner rule.
 		if (
 			"profile" in ctx &&
 			(ctx.profile.searchTextDefault === true ||
 				ctx.slot.slot === "excluded_owner_ids" ||
 				ctx.slot.slot === "search_button_display_condition") &&
-			searchWorkerTextOrder(kind, left, right)
+			searchSessionTextOrder(kind, left, right)
 		)
 			return;
 		// A Search choice filter orders its text column by the device's

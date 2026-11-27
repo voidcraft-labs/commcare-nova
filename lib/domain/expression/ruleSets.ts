@@ -320,8 +320,8 @@ export function readsRestoredCaseTypeQuery(expression: Expression): boolean {
 	return reads;
 }
 
-/** Core coerces these worker-session operands before comparing them. */
-export function searchWorkerTextOrder(
+/** Core coerces these session operands before comparing them. */
+export function searchSessionTextOrder(
 	kind: ComparisonKind,
 	left: Expression,
 	right: Expression,
@@ -330,7 +330,9 @@ export function searchWorkerTextOrder(
 		kind === "gt" &&
 		left.kind === "term" &&
 		left.term.kind === "session-context" &&
-		(left.term.field === "username" || left.term.field === "userid") &&
+		(left.term.field === "username" ||
+			left.term.field === "userid" ||
+			left.term.field === "deviceid") &&
 		right.kind === "term" &&
 		right.term.kind === "literal" &&
 		right.term.data_type === undefined &&
