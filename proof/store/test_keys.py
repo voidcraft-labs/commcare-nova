@@ -456,6 +456,20 @@ def test_a_changed_reader_bundle_judges_every_corpus_document_again_and_observes
     assert after["classes"] == {"cached": every, "judged": [], "observed": []}
 
 
+@pytest.mark.parametrize("relative", [
+    "lib/domain/portableNameRanges.json",
+    "lib/domain/androidNameRanges.json",
+])
+def test_shared_name_ranges_rejudge_documents_and_rerun_native_packages(checkout, relative):
+    path = checkout / relative
+    path.parent.mkdir(parents=True)
+    path.write_text('{"initial":[[65,90]]}')
+    original = fingerprints.compute(checkout, arch="arm64")
+    path.write_text('{"initial":[[65,91]]}')
+    changed = fingerprints.compute(checkout, arch="arm64")
+    assert {scope for scope in changed if changed[scope] != original[scope]} == {"judge", "harness"}
+
+
 def test_a_git_checkout_is_fingerprinted_from_its_index_and_its_edits_as_a_walked_copy_is(tmp_path, checkout):
     if shutil.which("git") is None:
         pytest.fail("git is not on PATH, and the fingerprints of a checkout are read through it.")

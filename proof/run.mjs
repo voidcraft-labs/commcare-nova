@@ -341,12 +341,14 @@ async function checkoutFiles(root) {
 
 /**
  * What a CI shard's container and the surface extraction read of the
- * checkout: the harness and the surface, and the files that pin its
- * dependencies (a shard's checkout holds no more, proof/CLAUDE.md).
+ * checkout: the harness, surface, shared name ranges and dependency pins
+ * (the container reads only these paths, proof/CLAUDE.md).
  */
 export const HARNESS_PATHS = [
 	"proof/",
 	"lib/commcare/surface/",
+	"lib/domain/portableNameRanges.json",
+	"lib/domain/androidNameRanges.json",
 	".nvmrc",
 	"package.json",
 	"package-lock.json",

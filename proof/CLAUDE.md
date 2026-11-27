@@ -615,10 +615,12 @@ harness keeps, each with its reason.
   proof.lane.gate <output> --documents <id>,<id>`; `proof/README.md`,
   "Seeing a reader's verdict before a merge"). A test that starts a served
   reader is marked `reader`, by its fixture or by hand, and the readers-off
-  run refuses one left unmarked. A shard's checkout holds `proof/`,
-  `lib/commcare/surface/` and its two actions, with no `node_modules`, so a
-  lane test reads nothing else of the repository: one that does passes on a
-  proof machine, which copies the whole tree, and fails on every shard. What
+  run refuses one left unmarked. A shard's container sees `proof/`,
+  `lib/commcare/surface/`, the two XML name-range JSON files used by the
+  manifest and Advanced editor checks, and the dependency pins, with no
+  installed `node_modules`. The shard's checkout also holds its own actions.
+  A local proof copies the whole tree. The hosted view limits what a lane
+  test can read from the repository. What
   the lane's code and a workflow must say alike is tested on the vitest
   side, where the checkout is whole (`proof/ci/__tests__/`). Hosted jobs have
   four vCPUs and 16 GiB: the served-reader profile runs two workers (about
