@@ -162,8 +162,9 @@ def test_signed_web_apps_submits_the_accented_case_property_to_hq(hq, formplayer
         with forms_hq.serve(state, None, app_id, runner=formplayer_runner, database=database) as release:
             session = Session(release, editor_driver)
             run = session.run([
-                *steps.open_app(APP_NAME), *steps.choose(MENU_NAME), *steps.choose(FORM_NAME),
-                *steps.select_case(SELECTED), steps.SCREEN, *steps.answer("1", ANSWER),
+                *steps.open_app(APP_NAME), *steps.choose(MENU_NAME), *steps.select_case(SELECTED),
+                *steps.click(steps.MENU_ROW, FORM_NAME, visible=True, within=steps.WITHIN_MS),
+                *steps.arrive(form=True), steps.SCREEN, *steps.answer("1", ANSWER),
                 *steps.submit_and_land(),
             ])
             assert run.page_errors == [] and run.dialogs == []
