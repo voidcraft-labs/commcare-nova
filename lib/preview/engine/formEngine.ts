@@ -1541,7 +1541,7 @@ export class FormEngine {
 			const cleared =
 				value === "" &&
 				this.rules.datePicker === "shows-a-day" &&
-				field?.kind === "date" &&
+				(field?.kind === "date" || field?.kind === "datetime") &&
 				field.androidApp === undefined
 					? field
 					: undefined;
