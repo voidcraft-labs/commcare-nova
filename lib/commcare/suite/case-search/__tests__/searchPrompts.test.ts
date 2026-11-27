@@ -232,7 +232,7 @@ it("binds both choice widgets to the entire filtered fixture row contract", () =
 it("sorts lookup choices by the chosen column, the label column by default", () => {
 	const { config, expressions, validations } = projection("prompt-widgets");
 	const sortedByCode = config.searchInputs.map((searchInput) =>
-		isSelectSearchInput(searchInput)
+		isSelectSearchInput(searchInput) && searchInput.options.kind === "lookup"
 			? {
 					...searchInput,
 					options: {

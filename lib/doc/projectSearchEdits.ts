@@ -25,19 +25,36 @@ type Change =
 	| { kind: "remove"; uuid: Uuid }
 	| { kind: "ordinary"; properties: ReadonlyMap<Uuid, string> };
 
-function toParameter(
-	field: Extract<SearchInputDef, { kind: "simple" | "advanced" }>,
-): SearchInputDef {
+type OrdinarySearchField = Extract<
+	SearchInputDef,
+	{ kind: "simple" | "advanced" }
+>;
+
+function questionWithoutMatching(field: OrdinarySearchField) {
 	if (field.kind === "advanced") {
 		const { predicate: _predicate, ...question } = field;
-		return { ...question, kind: "parameter", sendAnswer: true };
+		return question;
 	}
 	const {
 		property: _property,
 		via: _via,
 		mode: _mode,
+		matching: _matching,
 		...question
-	} = { ...field, mode: "mode" in field ? field.mode : undefined };
+	} = field;
+	return question;
+}
+
+function toParameter(field: OrdinarySearchField): SearchInputDef {
+	const question = questionWithoutMatching(field);
+	if ("options" in question) {
+		const { options, ...visible } = question;
+		if (options.kind !== "lookup")
+			throw new Error(
+				`Choose a lookup table for “${question.label || question.name}” before switching to a project search.`,
+			);
+		return { ...visible, options, kind: "parameter", sendAnswer: true };
+	}
 	return { ...question, kind: "parameter", sendAnswer: true };
 }
 
