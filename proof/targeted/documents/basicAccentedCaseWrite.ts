@@ -86,9 +86,7 @@ export function basicAccentedCaseWrite() {
 			}),
 		},
 		expected: {
-			intent: [
-				{ ...intent, request: { ...intent.request, restore: "restore.xml" } },
-			],
+			intent: [{ ...intent, restore: "restore.xml" }],
 		},
 	});
 }
