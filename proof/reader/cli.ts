@@ -188,6 +188,7 @@ function withValues(
 	expected: BlueprintDoc,
 	found: BlueprintDoc,
 	differences: readonly ReadBackDifference[],
+	offered: readonly LaneDeclaration[] | null,
 ): readonly ValuedDifference[] {
 	if (differences.length === 0) return [];
 	const expectedShape = toPersistableDoc(expected);
@@ -195,7 +196,13 @@ function withValues(
 	return differences.map((difference) => ({
 		...difference,
 		expected: valueAt(expectedShape, difference.path),
-		found: valueAt(foundShape, difference.path),
+		found:
+			offered !== null &&
+			difference.path.length === 2 &&
+			difference.path[0] === "appSettings" &&
+			difference.path[1] === "runsOnlyOn"
+				? offered
+				: valueAt(foundShape, difference.path),
 	}));
 }
 
@@ -349,6 +356,7 @@ async function answer(request: Request): Promise<Answer> {
 									}))
 								: null,
 					}),
+					request.mode === "read-back" ? reading.offered : null,
 				);
 	return {
 		...base,
