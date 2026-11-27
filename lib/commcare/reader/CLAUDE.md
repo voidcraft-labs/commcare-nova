@@ -1117,7 +1117,8 @@ Ordinary forms are identified by their namespace. A shadow's external identity u
 
 
 An ordinary Search address picker keeps a canonical single-quoted text
-default or the concatenation of two fixed nonblank text pieces. The picker
+default, a join of two fixed nonblank text pieces, or a fixed prefix followed
+by the signed-in worker’s username. The picker
 uses the manual Search flow, without a group, exclusion, automatic clear,
 or an address subscription. The Reader takes the exact
 `CaseSearchProperty.default_value` leaf without registering a pending

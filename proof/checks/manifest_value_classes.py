@@ -5634,6 +5634,10 @@ def _canonical_address_default(raw):
     if parsed[0] == "str":
         pieces = (parsed,)
     elif parsed[:2] == ("call", "concat") and len(parsed[2]) == 2:
+        prefix, value = parsed[2]
+        worker_name = "instance('commcaresession')/session/context/username"
+        if prefix[0] == "str" and value == tree(worker_name):
+            return _canonical_address_default(f"'{prefix[1]}'") and raw == f"concat('{prefix[1]}', {worker_name})"
         pieces = parsed[2]
     else:
         return False

@@ -944,9 +944,7 @@ function readStoredAddressDefaults(
 			node.kind === "string"
 				? node.value
 				: node.kind === "call" && node.name === "concat"
-					? node.args.map((arg) =>
-							arg.kind === "string" ? arg.value : undefined,
-						)
+					? storedAddressConcat(node.args)
 					: undefined;
 		const saved = savedSearchAddressDefaultSchema.safeParse(candidate);
 		if (
@@ -957,6 +955,16 @@ function readStoredAddressDefaults(
 			defaults.set(prompt, saved.data);
 	}
 	return defaults;
+}
+
+function storedAddressConcat(parts: readonly FormSyntax[]) {
+	if (parts.length !== 2) return;
+	const [first, second] = parts;
+	if (first.kind !== "string") return;
+	if (second.kind === "string") return [first.value, second.value];
+	// The caller compares the complete canonical expression, including this
+	// worker source. It admits no other expression in the second argument.
+	return { prefix: first.value, worker: "username" } as const;
 }
 
 function canReadAddressPrompt(
