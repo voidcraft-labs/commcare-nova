@@ -11,9 +11,11 @@ import {
 	type TranslationUnitId,
 } from "@/lib/domain";
 
+import { propertiesReachedByColumn } from "@/lib/domain/columnRelation";
 import {
 	columnWordingRole,
 	generatedWordingId,
+	imageDescriptionWordingId,
 } from "@/lib/domain/generatedWording";
 import type { ColumnDisplayContext } from "./columnDisplay";
 
@@ -36,7 +38,7 @@ export function columnOutputWording(
 		const type = columnPropertyCaseType(column, listCaseType, caseTypes);
 		if (type === undefined) continue;
 		const property =
-			column.via === undefined
+			column.via === undefined && !column.readFrom
 				? caseProperties.find((p) => p.name === column.field)
 				: relatedProperties.get(column.uuid);
 		if (!property?.options?.length) continue;
@@ -58,10 +60,8 @@ export function columnOutputWording(
 	}
 	return {
 		columnProperties,
-		imageDescription: (column, value) => {
-			const text = values.get(
-				generatedWordingId(column, role, "image-description", value),
-			);
+		imageDescription: (column, row) => {
+			const text = values.get(imageDescriptionWordingId(column, role, row));
 			return typeof text === "string" && text !== "" ? text : undefined;
 		},
 	};
@@ -114,10 +114,18 @@ export function relatedColumnProperties(
 ): ReadonlyMap<Column["uuid"], CaseProperty | undefined> {
 	const out = new Map<Column["uuid"], CaseProperty | undefined>();
 	for (const column of config?.columns ?? []) {
-		if (column.kind === "calculated" || column.via === undefined) continue;
+		if (
+			column.kind === "calculated" ||
+			(column.via === undefined && !column.readFrom)
+		)
+			continue;
 		const reached = columnPropertyCaseType(column, listCaseType, caseTypes);
-		const properties =
-			caseTypes.find((type) => type.name === reached)?.properties ?? [];
+		const properties = propertiesReachedByColumn(
+			column,
+			listCaseType,
+			caseTypes,
+			column.field,
+		);
 		out.set(
 			column.uuid,
 			projectLocalizedCaseProperties(reached, properties, localizedValues).find(

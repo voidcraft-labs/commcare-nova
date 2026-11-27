@@ -93,6 +93,7 @@ function dispatchMutation(
 		case "retireCaseType":
 		case "addCaseProperty":
 		case "setCaseProperty":
+		case "moveCaseProperty":
 		case "removeCaseProperty":
 		case "setCaseTypeMeta":
 			applyAppMutation(draft, mut);
@@ -112,6 +113,9 @@ function dispatchMutation(
 		case "renameModule":
 		case "updateModule":
 		case "setModuleMedia":
+		case "addCalculatedSort":
+		case "updateCalculatedSort":
+		case "removeCalculatedSort":
 		case "addColumn":
 		case "updateColumn":
 		case "removeColumn":

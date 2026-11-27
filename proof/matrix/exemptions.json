@@ -43,6 +43,10 @@
 		"reason": "not-in-app-source",
 		"note": "Its key is a project space setting, which no app's source holds and no reading reads; lib/commcare/__tests__/planPrivileges.test.ts holds the forms a publish asks a person to confirm it for."
 	},
+	"menus-and-case-lists/android-only-value-in-a-grouped-tile-body": {
+		"reason": "no-surface-key",
+		"note": "This is the declaration and placement an author can keep together. The Web Apps source refusal has a keyed retained variant."
+	},
 	"case-search/list-first-where-web-apps-is-declared": {
 		"reason": "no-surface-key",
 		"note": "The entry names no surface key, and it allows what it describes."
@@ -235,10 +239,6 @@
 		"reason": "no-surface-key",
 		"note": "The entry names no surface key, and it allows what it describes."
 	},
-	"menus-and-case-lists/7pp-invisible-inside-a-data-tab-over-a-nodeset": {
-		"reason": "stated-by-its-part",
-		"note": "Part 07 decided it (its section 11.2): a column of a data tab stands under the tab's own finding, so no reading names this class on its own."
-	},
 	"menus-and-case-lists/a-geo-column-on-the-case-detail-beside-the-column-it-depends-on": {
 		"reason": "stated-by-its-part",
 		"note": "Part 07 decided it (its section 11.1): the class stands only beside an address column on the same detail, which 8-address refuses, so no reading holds it and the reading counts it beside that finding."
@@ -246,10 +246,6 @@
 	"menus-and-case-lists/a-stored-tab-without-istab": {
 		"reason": "stated-by-its-part",
 		"note": "Part 07 decided it (its section 11.1): every stored tab is refused by its kind, so no reading holds one."
-	},
-	"menus-and-case-lists/case-tile-field-template-slot-on-icon-text-grid": {
-		"reason": "stated-by-its-part",
-		"note": "Part 07 decided it (its section 11.2): a slot of a template tile stands under the template's own finding, so no reading names this class on its own."
 	},
 	"menus-and-case-lists/hq-computed-datums-case-id-new-type-n-usercase-id-datum-parent": {
 		"reason": "only-in-a-build",

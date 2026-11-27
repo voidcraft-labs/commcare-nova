@@ -50,6 +50,8 @@ import {
 	moduleSearchWorkflow,
 	type SearchInputDef,
 	tileCellFor,
+	tileCellIsGroupBody,
+	tileCellOnlyOnAndroid,
 } from "./modules";
 import { holdsLabelOnlyMedia } from "./multimedia";
 import {
@@ -537,6 +539,35 @@ function moduleUses(
 					: "caseListRegistrationForm.audioLabel",
 			),
 		);
+	if (list?.tile?.namedSlots && wanted("named-case-tile"))
+		own.push(
+			slotUse("named-case-tile", owner, "caseListConfig.tile.namedSlots"),
+		);
+	if (list?.detailTile && wanted("details-tile"))
+		own.push(slotUse("details-tile", owner, "caseListConfig.detailTile"));
+	if (list?.optimizations === true && wanted("case-list-faster-loading"))
+		own.push(
+			slotUse(
+				"case-list-faster-loading",
+				owner,
+				"caseListConfig.optimizations",
+			),
+		);
+	if (list?.emptyText !== undefined && wanted("case-list-empty-text"))
+		own.push(
+			slotUse("case-list-empty-text", owner, "caseListConfig.emptyText"),
+		);
+	if (
+		list?.selectButtonText !== undefined &&
+		wanted("case-list-continue-label")
+	)
+		own.push(
+			slotUse(
+				"case-list-continue-label",
+				owner,
+				"caseListConfig.selectButtonText",
+			),
+		);
 	// A menu's badge: Android hides and shortens what Web Apps shows whole.
 	if (module.badge !== undefined && wanted("menu-badge"))
 		own.push(slotUse("menu-badge", owner, "badge"));
@@ -616,7 +647,27 @@ function moduleUses(
 		const target = columnOwner(column.uuid);
 		const uses: PlatformFeatureUse[] = [...byOwner(target)];
 		const slot = (path: string) => `caseListConfig.columns[${index}].${path}`;
+		if (column.kind === "worker-distance" && wanted("worker-distance"))
+			uses.push(slotUse("worker-distance", target, slot("kind")));
+		if (column.sort?.comparator === "distance" && wanted("sort-by-distance")) {
+			uses.push(slotUse("sort-by-distance", target, slot("sort.comparator")));
+		}
 		const cell = tileCellFor(column, list?.tile);
+		if (tileCellOnlyOnAndroid(column, cell)) {
+			const feature =
+				list?.tile?.namedSlots === undefined &&
+				tileCellIsGroupBody(cell, list?.tile?.grouping?.headerRows)
+					? "raw-grouped-tile-body-field"
+					: "raw-custom-tile-field";
+			if (wanted(feature))
+				uses.push(
+					slotUse(
+						feature,
+						target,
+						slot(cell?.androidOnly ? "tile.androidOnly" : "kind"),
+					),
+				);
+		}
 		if (
 			cell !== undefined &&
 			cell.verticalAlign !== "middle" &&
@@ -650,6 +701,46 @@ function moduleUses(
 			);
 		if (columnSortLabelShows(column) && wanted("case-list-sort-label"))
 			uses.push(slotUse("case-list-sort-label", target, slot("sort.label")));
+		if (column.kind === "image-map" && wanted("case-image-descriptions")) {
+			const described = column.mapping.findIndex(
+				(row) => row.altText !== undefined && row.altText.trim() !== "",
+			);
+			if (described >= 0)
+				uses.push(
+					slotUse(
+						"case-image-descriptions",
+						target,
+						slot(`mapping[${described}].altText`),
+					),
+				);
+		}
+		if (column.kind === "map-location" && wanted("case-map-location"))
+			uses.push(slotUse("case-map-location", target, slot("kind")));
+		/* A later location of an advanced menu's detail is where Android, which
+		 * marks a case at its first location that holds one, reads past a
+		 * blank earlier one. */
+		if (
+			column.kind === "map-location" &&
+			wanted("case-map-fallback-locations") &&
+			(list?.columns ?? [])
+				.slice(0, index)
+				.some((earlier) => earlier.kind === "map-location")
+		)
+			uses.push(slotUse("case-map-fallback-locations", target, slot("kind")));
+		if (column.kind === "map-layer" && wanted("case-map-layers"))
+			uses.push(slotUse("case-map-layers", target, slot("layer")));
+		if (
+			(column.kind === "formatted-text" ||
+				(column.kind === "calculated" && column.showAs === "formatted-text")) &&
+			wanted("formatted-case-text")
+		)
+			uses.push(
+				slotUse(
+					"formatted-case-text",
+					target,
+					slot(column.kind === "calculated" ? "showAs" : "kind"),
+				),
+			);
 		if (column.kind === "link" && wanted("link-column"))
 			uses.push(slotUse("link-column", target, slot("kind")));
 		out.push(...inFeatureOrder(uses));

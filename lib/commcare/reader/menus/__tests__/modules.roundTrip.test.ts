@@ -9,8 +9,16 @@
  */
 import { produce } from "immer";
 import { describe, expect, it } from "vitest";
-import { buildDoc, f } from "@/lib/__tests__/docHelpers";
-import { type BlueprintDoc, makeTranslationUnitId } from "@/lib/domain";
+import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
+import {
+	asUuid,
+	type BlueprintDoc,
+	calculatedColumn,
+	caseListWordingUnitId,
+	linkColumn,
+	makeTranslationUnitId,
+} from "@/lib/domain";
+import { prop, term } from "@/lib/domain/expression";
 import { proseText } from "@/lib/domain/prose";
 import { advancedFixture } from "../../../__tests__/advancedPlacementFixture";
 import { caseListLabelAsBuilt } from "../modules";
@@ -353,7 +361,7 @@ describe("names in two languages", () => {
 		).toBeUndefined();
 	});
 
-	it("refuses a menu with no case type whose empty list says other words", async () => {
+	it("reads past a menu with no case type whose empty list says other words, which no worker reads", async () => {
 		const reading = await readMenusOf(inSpanish(app(), new Map()), (json) => {
 			const details = json.modules[2]?.case_details as JsonObject;
 			(details.short as JsonObject).no_items_text = {
@@ -361,9 +369,99 @@ describe("names in two languages", () => {
 				es: "La lista está vacía.",
 			};
 		});
-		expect(codesOf(reading)).toContain(
-			`${M}/detail-no-items-text-other-than-hq-s-default-en-list-is-empty`,
+		expect(codesOf(reading)).toEqual([]);
+		const survey = moduleNamed(reading.doc as BlueprintDoc, "Survey");
+		expect(survey.caseListConfig).toBeUndefined();
+	});
+});
+
+describe("a case list's own words", () => {
+	/** `caseMenus` with the Patients list's own words, each with its Spanish. */
+	const worded = (): BlueprintDoc => {
+		const doc = produce(caseMenus(), (draft) => {
+			const patients = Object.values(draft.modules).find(
+				(one) => one.name === "Patients",
+			);
+			if (patients === undefined)
+				throw new Error("The fixture holds no Patients menu.");
+			patients.caseListConfig = {
+				...caseListConfig([{ field: "case_name", header: "Name" }]),
+				emptyText: "No patients yet",
+				selectButtonText: "Visit these patients",
+			};
+		});
+		const uuid = moduleNamed(doc, "Patients").uuid;
+		return inSpanish(
+			doc,
+			new Map([
+				[caseListWordingUnitId(uuid, "empty"), "Aún no hay pacientes"],
+				[caseListWordingUnitId(uuid, "select"), "Visitar a estos pacientes"],
+			]),
 		);
+	};
+
+	it("writes each language's words and reads them back as the list's own", async () => {
+		const reading = await readMenusOf(worded());
+		expect(codesOf(reading)).toEqual([]);
+		const details = reading.app.modules[0]?.case_details as JsonObject;
+		const short = details.short as JsonObject;
+		expect(short.no_items_text).toEqual({
+			en: "No patients yet",
+			es: "Aún no hay pacientes",
+		});
+		expect(short.select_text).toEqual({
+			en: "Visit these patients",
+			es: "Visitar a estos pacientes",
+		});
+		const read = reading.doc as BlueprintDoc;
+		const patients = moduleNamed(read, "Patients");
+		expect(patients.caseListConfig?.emptyText).toBe("No patients yet");
+		expect(patients.caseListConfig?.selectButtonText).toBe(
+			"Visit these patients",
+		);
+		const spanish = read.localization?.translations.spa;
+		expect(
+			spanish?.[caseListWordingUnitId(patients.uuid, "empty")]?.value,
+		).toBe("Aún no hay pacientes");
+		expect(
+			spanish?.[caseListWordingUnitId(patients.uuid, "select")]?.value,
+		).toBe("Visitar a estos pacientes");
+	});
+
+	it("reads words HQ's Case List page saved for one language, the other showing HQ's default", async () => {
+		const reading = await readMenusOf(
+			inSpanish(caseMenus(), new Map()),
+			(json) => {
+				const details = json.modules[0]?.case_details as JsonObject;
+				(details.short as JsonObject).no_items_text = {
+					en: "List is empty.",
+					es: "La lista está vacía.",
+				};
+			},
+		);
+		expect(codesOf(reading)).toEqual([]);
+		const read = reading.doc as BlueprintDoc;
+		const patients = moduleNamed(read, "Patients");
+		// The source keeps HQ's default; Spanish holds its own words.
+		expect(patients.caseListConfig?.emptyText).toBe("List is empty.");
+		expect(
+			read.localization?.translations.spa?.[
+				caseListWordingUnitId(patients.uuid, "empty")
+			]?.value,
+		).toBe("La lista está vacía.");
+	});
+
+	it("reads past a case detail's own words, which HQ's build never writes", async () => {
+		const reading = await readMenusOf(
+			inSpanish(caseMenus(), new Map()),
+			(json) => {
+				const details = json.modules[0]?.case_details as JsonObject;
+				(details.long as JsonObject).select_text = { en: "Go on" };
+			},
+		);
+		expect(codesOf(reading)).toEqual([]);
+		const patients = moduleNamed(reading.doc as BlueprintDoc, "Patients");
+		expect(patients.caseListConfig?.selectButtonText).toBeUndefined();
 	});
 });
 
@@ -643,5 +741,130 @@ describe("caseListLabelAsBuilt", () => {
 	it("writes a lone null as None, and an empty map as Case List", () => {
 		expect(caseListLabelAsBuilt({ es: null }, ["en"])).toEqual({ en: "None" });
 		expect(caseListLabelAsBuilt({}, ["en"])).toEqual({ en: "Case List" });
+	});
+});
+
+describe("faster loading", () => {
+	const SECOND = asUuid("00000000-0000-4000-8000-0000000c5b01");
+	/** `caseMenus` with Patients' faster loading on and a second column, a calculation unless
+	 *  `link` says a link, holding `behavior`. */
+	const optimized = (
+		behavior: "cache" | "defer" | "cache-and-defer",
+		link = false,
+	) =>
+		produce(caseMenus(), (draft) => {
+			const patients = Object.values(draft.modules).find(
+				(one) => one.name === "Patients",
+			);
+			if (patients === undefined)
+				throw new Error("The fixture holds no Patients menu.");
+			const base = caseListConfig([{ field: "case_name", header: "Name" }]);
+			const visits = {
+				...(link
+					? linkColumn(SECOND, "case_name", "Record", "Open")
+					: calculatedColumn(
+							SECOND,
+							"Visits",
+							term(prop("patient", "case_name")),
+						)),
+				loadBehavior: behavior,
+			};
+			patients.caseListConfig = {
+				...base,
+				columns: [...base.columns, visits],
+				listColumnOrder: [...base.listColumnOrder, visits.uuid],
+				detailColumnOrder: [...base.detailColumnOrder, visits.uuid],
+				optimizations: true,
+			};
+		});
+
+	it.each([
+		["cache", "cache"],
+		["defer", "lazy_load"],
+		["cache-and-defer", "cache_and_lazy_load"],
+	] as const)(
+		"writes %s as HQ's %s and reads it back",
+		async (behavior, hq) => {
+			const reading = await readMenusOf(optimized(behavior));
+			expect(codesOf(reading)).toEqual([]);
+			const module = reading.app.modules[0] as JsonObject;
+			expect(module.show_case_list_optimization_options).toBe(true);
+			const details = module.case_details as JsonObject;
+			const short = details.short as JsonObject;
+			expect(
+				(short.columns as JsonObject[]).map((one) => one.optimization),
+			).toEqual([undefined, hq]);
+			const list = moduleNamed(
+				reading.doc as BlueprintDoc,
+				"Patients",
+			).caseListConfig;
+			expect(list?.optimizations).toBe(true);
+			expect(
+				list?.columns.map((one) =>
+					"loadBehavior" in one ? one.loadBehavior : undefined,
+				),
+			).toEqual([undefined, behavior]);
+		},
+	);
+
+	it.each(["cache", "defer", "cache-and-defer"] as const)(
+		"reads a link's %s back as the link's own",
+		async (behavior) => {
+			const reading = await readMenusOf(optimized(behavior, true));
+			expect(codesOf(reading)).toEqual([]);
+			const column = moduleNamed(
+				reading.doc as BlueprintDoc,
+				"Patients",
+			).caseListConfig?.columns.find((one) => one.header === "Record");
+			expect(column?.kind).toBe("link");
+			expect(
+				column !== undefined && "loadBehavior" in column
+					? column.loadBehavior
+					: undefined,
+			).toBe(behavior);
+		},
+	);
+
+	it("reads an attribute column HQ keeps a choice on as the calculation that holds it", async () => {
+		// HQ's Case List page can store an expression column over `@case_id` with a load behavior,
+		// which its build writes; Nova's plain column holds none, so the reading is a calculation.
+		const reading = await readMenusOf(optimized("cache"), (json) => {
+			const module = json.modules[0] as JsonObject;
+			const details = module.case_details as JsonObject;
+			for (const screen of ["short", "long"] as const) {
+				const second = (
+					(details[screen] as JsonObject).columns as JsonObject[]
+				)[1];
+				if (second === undefined) continue;
+				second.field = "@case_id";
+				second.format = "plain";
+				second.useXpathExpression = true;
+			}
+		});
+		expect(codesOf(reading)).toEqual([]);
+		const column = moduleNamed(
+			reading.doc as BlueprintDoc,
+			"Patients",
+		).caseListConfig?.columns.find((one) => one.header === "Visits");
+		expect(column?.kind).toBe("calculated");
+		expect(
+			column !== undefined && "loadBehavior" in column
+				? column.loadBehavior
+				: undefined,
+		).toBe("cache");
+	});
+
+	it("reads past a column's choice where the menu's faster loading is off, which HQ's build never writes", async () => {
+		const reading = await readMenusOf(optimized("cache"), (json) => {
+			const module = json.modules[0] as JsonObject;
+			module.show_case_list_optimization_options = false;
+		});
+		expect(codesOf(reading)).toEqual([]);
+		const list = moduleNamed(
+			reading.doc as BlueprintDoc,
+			"Patients",
+		).caseListConfig;
+		expect(list?.optimizations).toBeUndefined();
+		expect(list?.columns.some((one) => "loadBehavior" in one)).toBe(false);
 	});
 });

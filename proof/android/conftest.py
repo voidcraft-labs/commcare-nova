@@ -35,7 +35,12 @@ DOCUMENTS = (
     "targeted-menu-badges",
     "targeted-form-link-hidden-target",
     "targeted-forms-in-menu-above-one-case",
+    "targeted-case-choice-values",
+    "targeted-case-map",
+    "targeted-relative-case-dates",
     "targeted-hidden-column",
+    "targeted-independent-case-order",
+    "targeted-nearest-clinics",
     "targeted-hidden-from-menu",
     "targeted-listed-forms",
     "targeted-menu-layouts",
@@ -48,6 +53,12 @@ DOCUMENTS = (
     "targeted-preview-android-renders",
     "targeted-styled-value",
     "targeted-tile-hidden-order",
+    "tile-detail-layout",
+    "tile-detail-tabs",
+    "tile-named-layout",
+    "tile-persistent-external",
+    "tile-persistent-inline",
+    "tile-persistent-line",
 )
 
 

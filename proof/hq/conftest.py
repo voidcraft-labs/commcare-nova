@@ -38,6 +38,7 @@ from proof.conftest import timed  # noqa: F401  (HQ's tests time their operation
 # the eight migration witnesses whose A the migration groups of ``test_retained_reads.py`` publish
 # (``MIGRATION_WITNESSES``).
 DOCUMENTS = (
+    "targeted-calculation-text-names",
     "lookup-app",
     "hq-lookup-data",
     "media-rich",

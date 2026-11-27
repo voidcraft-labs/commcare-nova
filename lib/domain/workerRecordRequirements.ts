@@ -20,7 +20,11 @@ export interface WorkerRecordRequirement {
 	readonly writes: boolean;
 }
 
-function readsWorkerRecord(value: unknown): boolean {
+/**
+ * Whether a slot value reads the worker's own record: a worker-record read
+ * in an expression, or a prose reference to worker information.
+ */
+export function readsWorkerRecord(value: unknown): boolean {
 	if (isProseTemplate(value))
 		return value.parts.some(
 			(part) =>
@@ -122,17 +126,19 @@ export function workerRecordRequirements(
 export function menusUsingWorkerRecord(doc: BlueprintDoc) {
 	return doc.moduleOrder.flatMap((uuid) => {
 		const mod = doc.modules[uuid];
-		if (
-			!mod ||
-			!MODULE_REFERENCE_SLOTS.some(
-				(slot) =>
-					slot.kind === "expression" &&
-					readSlotValues(mod, slot.path).some(({ value }) =>
-						readsWorkerRecord(value),
-					),
-			)
-		)
-			return [];
-		return [{ uuid, name: mod.name, reads: true, writes: false }];
+		if (!mod) return [];
+		const readsColumn = mod.caseListConfig?.columns.some(
+			(column) => "readFrom" in column && column.readFrom === "worker-record",
+		);
+		const readsExpression = MODULE_REFERENCE_SLOTS.some(
+			(slot) =>
+				slot.kind === "expression" &&
+				readSlotValues(mod, slot.path).some(({ value }) =>
+					readsWorkerRecord(value),
+				),
+		);
+		return readsColumn || readsExpression
+			? [{ uuid, name: mod.name.trim() || mod.id, reads: true, writes: false }]
+			: [];
 	});
 }

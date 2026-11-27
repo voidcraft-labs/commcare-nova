@@ -27,10 +27,12 @@ import {
 	type LanguageTag,
 	type LocalizedValue,
 	type Media,
+	type Module,
 	makeTranslationUnitId,
 	operationCaseType,
 	ownCaseOperationId,
 	type SelectOption,
+	type TileCell,
 	type TranslationEntry,
 	type TranslationUnitId,
 	translationSourceFingerprint,
@@ -38,6 +40,9 @@ import {
 	type Uuid,
 } from "@/lib/domain";
 import { blueprintDocSchema } from "@/lib/domain/blueprint";
+import { casePropertyShowsOptionLabels } from "@/lib/domain/caseListOrder";
+import { columnPropertyCaseType } from "@/lib/domain/columnRelation";
+import { effectiveCaseTypes } from "@/lib/domain/effectiveCaseTypes";
 import { effectiveFilterForEmission } from "@/lib/domain/expression/simplify";
 import { formWireName } from "@/lib/domain/formWireName";
 import { generatedWordingId } from "@/lib/domain/generatedWording";
@@ -45,6 +50,7 @@ import {
 	editableLanguageEntries,
 	languageEntries,
 } from "@/lib/domain/localization";
+import { caseListColumnTextShows } from "@/lib/domain/modules";
 import { PLATFORM_FEATURES } from "@/lib/domain/platforms";
 import type { PlatformFeatureUse } from "@/lib/domain/platformUses";
 import { isPortableName } from "@/lib/domain/portableName";
@@ -863,6 +869,75 @@ export const READER_CANONICAL_CHOICES: readonly ReaderCanonicalChoice[] = [
 			}),
 	},
 	{
+		/** A tile cell's border or shading switched off, and none: HQ keeps an off switch as no
+		 *  switch and both wires write neither (`suite/case-list/tileStyle.ts::storedTileCell`), so
+		 *  the reader returns none, on the case list's cells and the case detail's alike. */
+		id: "tile-switches-off-are-absent",
+		kind: "one-wire",
+		apply: (doc) => {
+			const off = (cell: TileCell | undefined) =>
+				cell !== undefined &&
+				(cell.showBorder === false || cell.showShading === false);
+			const holds = Object.values(doc.modules).some((module) => {
+				const config = module.caseListConfig;
+				return (
+					config !== undefined &&
+					(config.columns.some((column) => off(column.tile)) ||
+						Object.values(config.detailTile?.cells ?? {}).some(off))
+				);
+			});
+			if (!holds) return doc;
+			const clear = (cell: TileCell | undefined) => {
+				if (cell?.showBorder === false) delete cell.showBorder;
+				if (cell?.showShading === false) delete cell.showShading;
+			};
+			return withCandidate(doc, (draft) => {
+				for (const module of Object.values(draft.modules)) {
+					const config = module.caseListConfig;
+					if (config === undefined) continue;
+					for (const column of config.columns) clear(column.tile);
+					for (const cell of Object.values(config.detailTile?.cells ?? {}))
+						clear(cell);
+				}
+			});
+		},
+	},
+	{
+		/** A menu's own tile kept above forms beside another menu's tile expanded there, and the
+		 *  same with no switch stored: the wire switches this menu's persistence on beside every
+		 *  such tile (`hqJson/caseList.ts`), so both print one export, and the document means the
+		 *  same either way (`caseFormContext.ts::resolveCaseFormContext`); the reader reads the
+		 *  switch as the source's setting and returns none (`caseList/details.ts::
+		 *  persistHeldByExternalPullDown`). */
+		id: "own-tile-persistence-beside-an-expanded-menu-tile-is-absent",
+		kind: "one-wire",
+		apply: (doc) => {
+			const held = (module: Module | undefined) => {
+				const config = module?.caseListConfig;
+				const context = config?.contextAboveForm;
+				if (
+					config?.tile?.persistOnForms !== true ||
+					context?.kind !== "menu-tile" ||
+					context.expandDetails !== true
+				)
+					return false;
+				const source = doc.modules[context.moduleUuid];
+				return (
+					source?.caseListConfig?.tile !== undefined &&
+					source.caseType === module?.caseType
+				);
+			};
+			const menus = Object.values(doc.modules).filter(held);
+			if (menus.length === 0) return doc;
+			return withCandidate(doc, (draft) => {
+				for (const { uuid } of menus) {
+					const tile = draft.modules[uuid]?.caseListConfig?.tile;
+					if (tile !== undefined) delete tile.persistOnForms;
+				}
+			});
+		},
+	},
+	{
 		/** A list filter that simplifies to `match-all`, and none: `effectiveFilterForEmission` is
 		 *  every print's one reading of a filter, and it gives none for such a filter, so both print
 		 *  one source and the reader returns none. */
@@ -1022,7 +1097,33 @@ export const READER_CANONICAL_CHOICES: readonly ReaderCanonicalChoice[] = [
 		kind: "one-wire",
 		apply: (doc) => {
 			const caseTypes = catalogAsRead(doc);
+			const emittedTypes = effectiveCaseTypes(doc);
 			return withCandidate(doc, (draft) => {
+				for (const mod of Object.values(draft.modules)) {
+					for (const column of mod.caseListConfig?.columns ?? []) {
+						if (column.kind !== "plain") continue;
+						const owner = columnPropertyCaseType(
+							column,
+							mod.caseType,
+							doc.caseTypes ?? [],
+						);
+						const readType = caseTypes
+							.find((type) => type.name === owner)
+							?.properties.find((p) => p.name === column.field)?.data_type;
+						const emitted = emittedTypes
+							.find((type) => type.name === owner)
+							?.properties.find((p) => p.name === column.field);
+						// A shown raw property keeps its value display when the catalog subsequently gains labels.
+						if (
+							caseListColumnTextShows(column) &&
+							(readType === "single_select" || readType === "multi_select") &&
+							(column.showChoice === "saved-value" ||
+								!casePropertyShowsOptionLabels(emitted))
+						)
+							column.showChoice = "saved-value";
+						else delete column.showChoice;
+					}
+				}
 				draft.caseTypes =
 					caseTypes.length === 0 ? null : (caseTypes as typeof draft.caseTypes);
 			});

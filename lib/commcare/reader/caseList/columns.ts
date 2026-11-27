@@ -8,6 +8,7 @@
  * `projectCaseListForHq` writes the stored details back
  * (`caseList/index.ts::settleCaseLists`).
  */
+
 import type {
 	BlueprintDoc,
 	CaseProperty,
@@ -15,13 +16,17 @@ import type {
 	ColumnVia,
 	LanguageTag,
 } from "@/lib/domain";
-import {
-	AUTHORED_CASE_PROPERTY_NAME_PATTERN,
-	MAX_AUTHORED_CASE_PROPERTY_NAME_LENGTH,
-} from "@/lib/domain/casePropertyName";
+import { caseMappingComparison } from "@/lib/domain/caseMappingRows";
+import { AUTHORED_CASE_PROPERTY_NAME_PATTERN } from "@/lib/domain/casePropertyName";
 import { COMMCARE_DATE_PATTERN_REGEX } from "@/lib/domain/commCareDatePattern";
+import type { ColumnRecordSource } from "@/lib/domain/modules";
 import {
+	CASE_MAP_LAYER_KINDS,
+	type ColumnLoadBehavior,
+	DATE_COUNT_DAYS,
+	DATE_COUNT_PERIODS,
 	INTERVAL_DISPLAYS,
+	idMappingValueHoldsForbiddenCharacter,
 	TIME_SINCE_UNIT_DAYS,
 	TIME_SINCE_UNITS,
 	type TimeSinceUnit,
@@ -29,6 +34,7 @@ import {
 import { proseText } from "@/lib/domain/prose";
 import { NO_ENTRIES, recordFromEntries } from "@/lib/domain/records";
 import type { TranslationUnitRole } from "@/lib/domain/translationUnits";
+import { USERCASE_CASE_TYPE } from "@/lib/domain/usercase";
 import type { HqPlace } from "@/lib/publish/hqFindings";
 import { hqXPath, hqXPathText } from "../../hqJson/xpath";
 import { type SourceTable, tableOf } from "../../sourceKeys";
@@ -38,6 +44,8 @@ import {
 	linkColumnDisplayXpath,
 	plainSelectDisplayXpath,
 } from "../../suite/case-list/columns";
+import { hqMappingKeyIsExpression } from "../../suite/case-list/keyVariable";
+import { CASE_MAP_FORMATS } from "../../suite/case-list/mapLayers";
 import { hqEnumPlaceholder } from "../../suite/case-list/orderPlanOptions";
 import { columnPropertyPath, isHqDetailField } from "../../suite/wire";
 import { type FormSyntax, literalInstanceId } from "../../xpath/formSyntax";
@@ -93,8 +101,12 @@ export const COLUMN_CLAIMS = defineClaims("caseList.columns", {
 		`${A}field-failing-details-utils-js-isvalidpropertyname-non`,
 		"schema:DetailColumn.field",
 	),
-	fieldOutsideGrammar: refuse(
-		`${A}column-field-outside-nova-s-property-grammar`,
+	longProperty: take(
+		`${A}column-reading-a-property-name-over-255-characters`,
+		"schema:DetailColumn.field",
+	),
+	hashProperty: refuse(
+		`${A}column-reading-an-unknown-hash-property`,
 		"schema:DetailColumn.field",
 	),
 	fieldCalculated: take(
@@ -125,13 +137,13 @@ export const COLUMN_CLAIMS = defineClaims("caseList.columns", {
 		`${A}name-date-opened-external-id-status-owner-id-hq-renames-to-case`,
 		"detail-field-type:property",
 	),
-	relationPath: refuse(
+	relationPath: take(
 		`${A}idx-prop-in-a-menu-that-offers-search-or-through-an-index`,
 		"detail-field-type:property",
 	),
-	userProp: refuse(`${A}user-prop-usercase`, "detail-field-type:property"),
-	userSteps: refuse(`${A}user-steps-prop`, "detail-field-type:property"),
-	ownerName: refuse(`${A}owner-name`, "detail-field-type:property"),
+	userProp: take(`${A}user-prop-usercase`, "detail-field-type:property"),
+	userSteps: take(`${A}user-steps-prop`, "detail-field-type:property"),
+	ownerName: take(`${A}owner-name`, "detail-field-type:property"),
 	prefixed: refuse(
 		`${A}property-x-or-prefix-x-with-a-prefix-hq-registers-no-generator`,
 		"detail-field-type:property",
@@ -155,7 +167,7 @@ export const COLUMN_CLAIMS = defineClaims("caseList.columns", {
 		`${A}1-plain-over-a-property-that-is-not-a-select-with-options`,
 		"schema:DetailColumn.format",
 	),
-	plainSelect: refuse(
+	plainSelect: take(
 		`${A}1p-plain-over-a-property-select-questions-write`,
 		"schema:DetailColumn.format",
 	),
@@ -171,7 +183,7 @@ export const COLUMN_CLAIMS = defineClaims("caseList.columns", {
 		`${A}2p-date-any-other-date-format`,
 		"schema:DetailColumn.date_format",
 	),
-	timeAgo: refuse(
+	timeAgo: take(
 		`${A}3-time-ago-time-ago-interval-the-7-menu-values-years-months`,
 		"schema:DetailColumn.format",
 	),
@@ -179,7 +191,7 @@ export const COLUMN_CLAIMS = defineClaims("caseList.columns", {
 		`${A}3p-time-ago-other-interval`,
 		"schema:DetailColumn.format",
 	),
-	timeAgoInterval: refuse(
+	timeAgoInterval: take(
 		`${A}3-time-ago-time-ago-interval-the-7-menu-values-years-months`,
 		"schema:DetailColumn.time_ago_interval",
 	),
@@ -190,10 +202,7 @@ export const COLUMN_CLAIMS = defineClaims("caseList.columns", {
 	phone: take(`${A}4-phone`, "schema:DetailColumn.format"),
 	enumFormat: take(`${A}5-enum-id-mapping`, "schema:DetailColumn.format"),
 	enumMapping: take(`${A}5-enum-id-mapping`, "schema:DetailColumn.enum"),
-	enumBlankKey: refuse(
-		`${A}5pp-enum-key-that-is-empty-or-holds-whitespace`,
-		"schema:DetailColumn.enum",
-	),
+
 	enumSpecialKey: refuse(
 		`${A}5p-enum-key-containing`,
 		"schema:DetailColumn.enum",
@@ -202,16 +211,16 @@ export const COLUMN_CLAIMS = defineClaims("caseList.columns", {
 		`${A}an-enum-enum-image-conditional-enum-or-translatable-enum-column`,
 		"schema:DetailColumn.enum",
 	),
-	lateFlag: refuse(`${A}6-late-flag-late-flag-1`, "schema:DetailColumn.format"),
-	lateFlagZero: refuse(
+	lateFlag: take(`${A}6-late-flag-late-flag-1`, "schema:DetailColumn.format"),
+	lateFlagZero: take(
 		`${A}6p-late-flag-late-flag-0`,
 		"schema:DetailColumn.format",
 	),
-	lateFlagValue: refuse(
+	lateFlagValue: take(
 		`${A}6-late-flag-late-flag-1`,
 		"schema:DetailColumn.late_flag",
 	),
-	lateFlagZeroValue: refuse(
+	lateFlagZeroValue: take(
 		`${A}6p-late-flag-late-flag-0`,
 		"schema:DetailColumn.late_flag",
 	),
@@ -219,34 +228,50 @@ export const COLUMN_CLAIMS = defineClaims("caseList.columns", {
 		`${A}7-invisible-search-only-on-the-case-list-outside-a-custom-tile`,
 		"schema:DetailColumn.format",
 	),
+	dataTabOrder: take(
+		`${A}7pp-invisible-inside-a-data-tab-over-a-nodeset`,
+		"schema:DetailColumn.format",
+	),
 	invisibleLong: take(
 		`${A}7p-invisible-on-the-case-detail-outside-a-data-tab-over-a`,
 		"schema:DetailColumn.format",
 	),
-	invisibleInTile: refuse(
+	namedInvisible: take(
+		`${A}raw-value-in-a-named-case-tile`,
+		"schema:DetailColumn.format",
+	),
+	invisibleGroupedBody: refuse(
+		`${A}invisible-text-in-a-web-apps-grouped-tile-body`,
+		"schema:DetailColumn.format",
+	),
+	addressGroupedBody: refuse(
+		`${A}address-in-a-web-apps-grouped-tile-body`,
+		"schema:DetailColumn.format",
+	),
+	invisibleInTile: take(
 		`${A}invisible-or-address-column-in-a-custom-tile`,
 		"schema:DetailColumn.format",
 	),
-	address: refuse(`${A}8-address`, "schema:DetailColumn.format"),
-	distance: refuse(`${A}9-distance`, "schema:DetailColumn.format"),
+	address: take(`${A}8-address`, "schema:DetailColumn.format"),
+	distance: take(`${A}9-distance`, "schema:DetailColumn.format"),
 	markdownLink: take(
 		`${A}10-markdown-any-property-or-expression`,
 		"schema:DetailColumn.format",
 	),
-	markdownOther: refuse(
+	markdownOther: take(
 		`${A}10-markdown-outside-the-link-shape`,
 		"schema:DetailColumn.format",
 	),
-	geoBoundary: refuse(`${A}11-geo-boundary`, "schema:DetailColumn.format"),
-	geoBoundaryColor: refuse(
+	geoBoundary: take(`${A}11-geo-boundary`, "schema:DetailColumn.format"),
+	geoBoundaryColor: take(
 		`${A}12-geo-boundary-color-on-the-case-list-only-needs-an-address`,
 		"schema:DetailColumn.format",
 	),
-	geoPoints: refuse(
+	geoPoints: take(
 		`${A}13-geo-points-on-the-case-list-only`,
 		"schema:DetailColumn.format",
 	),
-	geoPointsColors: refuse(
+	geoPointsColors: take(
 		`${A}14-geo-points-colors-on-the-case-list-only-needs-an-address`,
 		"schema:DetailColumn.format",
 	),
@@ -262,7 +287,7 @@ export const COLUMN_CLAIMS = defineClaims("caseList.columns", {
 		`${A}more-than-one-address-column-or-more-than-one-image-or-geo`,
 		"schema:DetailColumn.format",
 	),
-	severalAddressAdvanced: refuse(
+	severalAddressAdvanced: take(
 		`${A}more-than-one-address-column-in-a-detail-of-an-advanced-module`,
 		"schema:DetailColumn.format",
 	),
@@ -305,15 +330,19 @@ export const COLUMN_CLAIMS = defineClaims("caseList.columns", {
 		`${A}usexpathexpression-field-xpath-lifting-into-valueexpression`,
 		"schema:DetailColumn.field",
 	),
-	enumImagePlain: refuse(
+	enumImagePlain: take(
 		`${A}19-enum-image-whose-keys-are-plain-values`,
 		"schema:DetailColumn.format",
 	),
-	enumImageOther: refuse(
+	enumImageOther: take(
 		`${A}19pp-enum-image-whose-keys-are-conditions-of-any-other-form-dot`,
 		"schema:DetailColumn.format",
 	),
-	conditionalEnum: refuse(
+	conditionalMapping: take(
+		`${A}20-conditional-enum`,
+		"schema:DetailColumn.enum",
+	),
+	conditionalEnum: take(
 		`${A}20-conditional-enum`,
 		"schema:DetailColumn.format",
 	),
@@ -325,7 +354,7 @@ export const COLUMN_CLAIMS = defineClaims("caseList.columns", {
 		`${A}21-translatable-enum-authored`,
 		"schema:DetailColumn.enum",
 	),
-	translatableEnumOther: refuse(
+	translatableEnumOther: take(
 		`${A}21-translatable-enum-outside-nova-s-two-projections`,
 		"schema:DetailColumn.format",
 	),
@@ -333,7 +362,7 @@ export const COLUMN_CLAIMS = defineClaims("caseList.columns", {
 		`${A}21p-translatable-enum-key-outside-a-za-z0-9`,
 		"schema:DetailColumn.enum",
 	),
-	translatableEnumOwn: refuse(
+	translatableEnumOwn: take(
 		`${A}translatable-enum-on-a-column-that-is-not-a-calculated-property-over-a-property`,
 		"schema:DetailColumn.format",
 	),
@@ -341,7 +370,7 @@ export const COLUMN_CLAIMS = defineClaims("caseList.columns", {
 		`${A}translatable-enum-on-a-column-that-is-not-a-calculated-property-relation-offers`,
 		"schema:DetailColumn.format",
 	),
-	translatableEnumRelationDoes: refuse(
+	translatableEnumRelationDoes: take(
 		`${A}translatable-enum-on-a-column-that-is-not-a-calculated-property-relation-does`,
 		"schema:DetailColumn.format",
 	),
@@ -363,7 +392,7 @@ export const COLUMN_CLAIMS = defineClaims("caseList.columns", {
 		`${A}enum-mappingitem-alt-text-lang`,
 		"schema:MappingItem.alt_text",
 	),
-	altText: refuse(
+	altText: take(
 		`${A}enum-mappingitem-alt-text-non-blank`,
 		"schema:MappingItem.alt_text",
 	),
@@ -409,8 +438,12 @@ export const COLUMN_CLAIMS = defineClaims("caseList.columns", {
 		`${A}case-id-as-a-property-column-s-field`,
 		"detail-field-type:property",
 	),
-	optimization: refuse(
+	optimization: take(
 		`${A}optimization-cache-lazy-load-cache-and-lazy-load`,
+		"schema:DetailColumn.optimization",
+	),
+	optimizationUnread: drop(
+		`${A}optimization-on-a-column-that-cannot-use-it`,
 		"schema:DetailColumn.optimization",
 	),
 	endpointOnImage: drop(
@@ -448,7 +481,10 @@ export const HQ_PROPERTY_RENAMES: SourceTable<string> = tableOf({
 export function renamedField(field: string): string {
 	const parts = field.split("/");
 	const last = parts.pop() as string;
-	return [...parts, HQ_PROPERTY_RENAMES.get(last) ?? last].join("/");
+	return [
+		...(parts[0] === "user" ? ["user"] : parts),
+		HQ_PROPERTY_RENAMES.get(last) ?? last,
+	].join("/");
 }
 
 /** The text of a property field of indices and a property, as HQ's build substitutes it into
@@ -456,10 +492,14 @@ export function renamedField(field: string): string {
 export function imageMapFieldText(field: string): string {
 	const parts = field.split("/");
 	const last = parts.pop() as string;
+	const readFrom = parts[0] === "user" ? ("worker-record" as const) : undefined;
+	const owner = last === "#owner_name";
+	const prop = owner ? "owner_id" : (HQ_PROPERTY_RENAMES.get(last) ?? last);
 	const [first, ...rest] = parts.map((identifier) => ({ identifier }));
 	return imageMapPropertyText(
-		last,
-		first === undefined ? undefined : [first, ...rest],
+		prop,
+		readFrom || !first ? undefined : [first, ...rest],
+		{ readFrom, showOwner: owner ? "name" : undefined },
 	);
 }
 
@@ -566,20 +606,6 @@ const BOOKKEEPING_KEYS = [
 	"relevant",
 ];
 
-/** The intervals HQ's Time Since or Until Date menu offers, in days
- *  (`static/app_manager/js/details/utils.js::TIME_AGO`, the menu in
- *  `details/bootstrap5/column.js`): years, months, weeks and days since; days, weeks and months
- *  until. */
-const TIME_AGO_MENU: readonly number[] = [
-	365.25,
-	365.25 / 12,
-	7,
-	1,
-	-1,
-	-7,
-	-365.25 / 12,
-];
-
 /** The formats a geo format needs beside it in its detail
  *  (`static/app_manager/js/details/utils.js::COLUMN_FORMAT_DEPENDENCIES`). */
 const GEO_DEPENDENCIES: SourceTable<readonly string[]> = tableOf({
@@ -647,6 +673,8 @@ export interface ColumnExpressionSource {
 	readonly mode: ReadMode;
 	readonly place: HqPlace;
 	readonly key: string;
+	/** The column's own read claims the node (`PendingExpression.readerClaimed`). */
+	readonly readerClaimed?: true;
 }
 
 /** `Omit` over each arm of a union. */
@@ -672,6 +700,8 @@ export interface ColumnProposal {
 	readonly texts: Readonly<Record<string, Readonly<Record<string, string>>>>;
 	/** A calculated column's expression, registered by the join once the column is minted. */
 	readonly expression?: ColumnExpressionSource;
+	readonly conditions?: ReadonlyMap<number, ColumnExpressionSource>;
+	readonly textKeys?: readonly string[];
 	/** True for an `invisible` short column, which joins by `field` and header alone. */
 	readonly invisible: boolean;
 	/** The cursor the column was read from, for the tile and the comparison. */
@@ -918,7 +948,7 @@ export type FieldClass =
  *  the field of the hidden column HQ's build appends for a sort element no column joins
  *  (`util.py::create_temp_sort_column`). */
 export function classifyField(field: string): FieldClass {
-	if (field === "#owner_name") return { kind: "finding", claim: C.ownerName };
+	if (field === "#owner_name") return { kind: "property", name: "owner_id" };
 	const colon = field.indexOf(":");
 	if (colon > 0) {
 		const prefix = field.slice(0, colon);
@@ -942,27 +972,28 @@ export function classifyField(field: string): FieldClass {
 									: C.prefixed;
 		return { kind: "finding", claim };
 	}
-	if (field.startsWith("user/"))
-		return {
-			kind: "finding",
-			claim: field.split("/").length > 2 ? C.userSteps : C.userProp,
-		};
-	if (field.includes("/")) return { kind: "finding", claim: C.relationPath };
+	// HQ's build reads `user/…/prop` from the worker's own case and drops
+	// every step between `user` and the property
+	// (`detail_screen.py::PropertyXpathGenerator.xpath`).
+	if (field.startsWith("user/")) {
+		if (!isHqDetailField(field))
+			return { kind: "finding", claim: C.fieldInvalid };
+		return classifyField(field.slice(field.lastIndexOf("/") + 1));
+	}
+	if (field.includes("/") && isHqDetailField(field))
+		return classifyField(field.slice(field.lastIndexOf("/") + 1));
 	if (!isHqDetailField(field))
 		return { kind: "finding", claim: C.fieldInvalid };
 	// HQ's page accepts a `#` before the last word and a name of any length;
-	// Nova's property grammar takes neither.
+	// Core accepts the long child name. Only #owner_name has a native rewrite.
 	const renamed = HQ_PROPERTY_RENAMES.get(field) ?? field;
 	// HQ's build reads a property field through `CASE_PROPERTY_MAP`, which maps `status` and
 	// `owner_id` to their attributes and has no entry for `case_id`, so it reads the child element
 	// `case_id`, which no case holds (Core holds the id as the attribute alone,
 	// `CaseChildElement`): the column is blank for every case.
 	if (renamed === "case_id") return { kind: "finding", claim: C.caseIdElement };
-	if (
-		!AUTHORED_CASE_PROPERTY_NAME_PATTERN.test(renamed) ||
-		renamed.length > MAX_AUTHORED_CASE_PROPERTY_NAME_LENGTH
-	)
-		return { kind: "finding", claim: C.fieldOutsideGrammar };
+	if (!AUTHORED_CASE_PROPERTY_NAME_PATTERN.test(renamed))
+		return { kind: "finding", claim: C.hashProperty };
 	return { kind: "property", name: renamed };
 }
 
@@ -1000,18 +1031,11 @@ const REGISTERED_FORMATS = new Set([
 ]);
 
 const FORMAT_FINDING: SourceTable<Claim<"refuse">> = tableOf({
-	address: C.address,
-	distance: C.distance,
 	"address-popup": C.addressPopup,
 	picture: C.picture,
 	audio: C.audio,
-	"conditional-enum": C.conditionalEnum,
 	graph: C.graph,
 	image: C.image,
-	"geo-boundary": C.geoBoundary,
-	"geo-boundary-color": C.geoBoundaryColor,
-	"geo-points": C.geoPoints,
-	"geo-points-colors": C.geoPointsColors,
 });
 
 /** What `COLUMN_FORMAT_LABELS` shows for a column's format, where HQ's page has a label for it. */
@@ -1075,6 +1099,7 @@ function claimAltText(
 	item: JsonCursor,
 	codes: readonly string[],
 	buildsImage: boolean,
+	keep?: (texts: Readonly<Record<string, string>>) => void,
 ): boolean {
 	const stored = item.peek("alt_text");
 	const alt = shownTexts(stored, codes);
@@ -1100,8 +1125,31 @@ function claimAltText(
 	} else if (!buildsImage) item.drop("alt_text", C.altTextNoImage);
 	else if (alt === undefined) return false;
 	else {
-		item.refuse("alt_text", C.altText);
-		return false;
+		const held = heldTextsIn(
+			stored,
+			codes,
+			sourceCode(ctx),
+			"case-list-image-description",
+		);
+		if (!held) {
+			refuseUnheldKey(
+				item,
+				"alt_text",
+				codes,
+				sourceCode(ctx),
+				"case-list-image-description",
+			);
+			return false;
+		}
+		item.take("alt_text", C.altText, languageMap).value;
+		keep?.(held.texts);
+		noteRespelled(
+			ctx,
+			C.altText.entry,
+			`${item.pointer}/alt_text`,
+			stored,
+			held,
+		);
 	}
 	return true;
 }
@@ -1115,11 +1163,27 @@ function claimAltTexts(
 	ctx: ReadContext,
 	column: JsonCursor,
 	codes: readonly string[],
+	conditional?: (item: JsonCursor, index: number) => boolean,
 ): boolean {
 	let ok = true;
-	for (const item of column.list("enum", "MappingItem", C.enumMapping)) {
+	for (const [index, item] of column
+		.list(
+			"enum",
+			"MappingItem",
+			conditional ? C.conditionalMapping : C.enumMapping,
+		)
+		.entries()) {
 		if (!claimAltText(ctx, item, codes, false)) ok = false;
-		item.derived("key", derivedEnumKey);
+		const key = item.peek("key");
+		if (!conditional?.(item, index))
+			item.derived(
+				"key",
+				conditional
+					? ITEM_CLAIMS.conditionalKey
+					: typeof key === "string" && (key === "" || /\s/.test(key))
+						? ITEM_CLAIMS.sequenceKey
+						: derivedEnumKey,
+			);
 		const value = heldTextsIn(
 			item.peek("value"),
 			codes,
@@ -1136,10 +1200,13 @@ function claimAltTexts(
 				"case-list-mapping-label",
 			);
 		} else {
-			item.derived("value", derivedEnumValue);
+			item.derived(
+				"value",
+				conditional ? ITEM_CLAIMS.conditionalValue : derivedEnumValue,
+			);
 			noteRespelled(
 				ctx,
-				derivedEnumValue.entry,
+				(conditional ? ITEM_CLAIMS.conditionalValue : derivedEnumValue).entry,
 				`${item.pointer}/value`,
 				item.peek("value"),
 				value,
@@ -1150,7 +1217,16 @@ function claimAltTexts(
 }
 
 const ITEM_CLAIMS = defineClaims("caseList.columns.item", {
+	conditionalValue: derived(
+		`${A}20-conditional-enum`,
+		"schema:MappingItem.value",
+	),
+	conditionalKey: derived(`${A}20-conditional-enum`, "schema:MappingItem.key"),
 	key: derived(`${A}5-enum-id-mapping`, "schema:MappingItem.key"),
+	sequenceKey: derived(
+		`${A}5pp-enum-key-that-is-empty-or-holds-whitespace`,
+		"schema:MappingItem.key",
+	),
 	value: derived(`${A}5-enum-id-mapping`, "schema:MappingItem.value"),
 	imageKey: derived(
 		`${A}19p-enum-image-whose-keys-are-conditions-contain-any-of-each-a`,
@@ -1174,11 +1250,14 @@ function claimOtherKeys(
 	column: JsonCursor,
 	format: string,
 	screen: "short" | "long",
+	namedTile: boolean,
+	optimizationsOn: boolean,
 ): boolean {
 	let ok = true;
 	column.drop("filter_xpath", C.filterXpath);
 	column.drop("advanced", C.advanced);
-	column.drop("case_tile_field", C.tileFieldInert);
+	if (!namedTile || !column.used("case_tile_field"))
+		column.drop("case_tile_field", C.tileFieldInert);
 	// A configuration at HQ's default (an empty graph) is of neither class, so it is left unclaimed.
 	if (column.peek("graph_configuration") === null)
 		column.drop("graph_configuration", C.graphNull);
@@ -1194,9 +1273,14 @@ function claimOtherKeys(
 	// The save writes the ID Mapping list too, which only the formats with a mapping read
 	// (`detail_screen.py::Enum` and its subclasses, `app_strings.py`).
 	if (!MAPPING_FORMATS.has(format)) column.drop("enum", C.enumElsewhere);
+	// HQ keeps a load behavior only on an expression column of a format that can use it, and
+	// discards any other as it reads the column (`models/case_list.py::DetailColumn.wrap`); its
+	// build writes one only where the menu's faster loading is on.
 	if (column.used("optimization")) {
-		column.refuse("optimization", C.optimization);
-		ok = false;
+		const behavior = optimizationsOn ? storedLoadBehavior(column) : undefined;
+		if (behavior !== undefined)
+			column.take("optimization", C.optimization, () => behavior).value;
+		else column.drop("optimization", C.optimizationUnread);
 	}
 	if (column.used("endpoint_action_id")) {
 		if (format === "enum-image")
@@ -1246,12 +1330,53 @@ function fieldOf(column: JsonCursor): { text: string; xpath: boolean } {
  *  inert one that changes no build, or `undefined` where its row raised a finding. */
 export type ColumnReading = ColumnProposal | "dropped" | undefined;
 
+/** HQ's formats that keep a load behavior (`const.py::FORMATS_SUPPORTING_CASE_LIST_OPTIMIZATIONS`). */
+const OPTIMIZED_FORMATS: ReadonlySet<string> = new Set([
+	"address",
+	"date",
+	"markdown",
+	"phone",
+	"plain",
+	"enum",
+]);
+
+const LOAD_BEHAVIORS = {
+	cache: "cache",
+	lazy_load: "defer",
+	cache_and_lazy_load: "cache-and-defer",
+} as const satisfies Record<string, ColumnLoadBehavior>;
+
+/** The load behavior a stored column keeps as HQ reads it: an expression column of a format
+ *  that can use one (`models/case_list.py::DetailColumn.supports_optimizations`), else none. */
+export function storedLoadBehavior(
+	column: JsonCursor,
+): ColumnLoadBehavior | undefined {
+	const stored = column.peek("optimization");
+	const format = column.peek("format") ?? "plain";
+	if (
+		column.peek("useXpathExpression") !== true ||
+		typeof format !== "string" ||
+		!OPTIMIZED_FORMATS.has(format) ||
+		typeof stored !== "string" ||
+		!Object.hasOwn(LOAD_BEHAVIORS, stored)
+	)
+		return undefined;
+	return LOAD_BEHAVIORS[stored as keyof typeof LOAD_BEHAVIORS];
+}
+
 /** What a column's reading needs of its detail and its menu. */
 export interface ColumnOptions {
 	/** Whether a property is one whose choices the reading's catalog keeps. */
 	readonly selectProperty: SelectProperty;
 	/** Whether the short detail is a custom tile. */
 	readonly inTile: boolean;
+	readonly namedTile?: boolean;
+	readonly widthZeroValueShowsInWebApps?: boolean;
+	/** Whether the menu's faster loading is on, without which HQ's build writes no column's
+	 *  load behavior (`detail_screen.py::FormattedDetailColumn.fields`). */
+	readonly optimizationsOn?: boolean;
+	readonly dataRows?: boolean;
+	readonly fixtureRow?: boolean;
 	/** How many columns of each format the detail holds. */
 	readonly formats: ReadonlyMap<string, number>;
 	/** Whether the menu is an advanced module. */
@@ -1269,20 +1394,12 @@ export interface ColumnOptions {
 	 *  the type it reaches; undefined where a step reaches no type. */
 	readonly relationVia?: (
 		steps: readonly string[],
-	) => { readonly via: ColumnVia; readonly caseType: string } | undefined;
+	) => { readonly via: ColumnVia; readonly caseType?: string } | undefined;
 }
 
-/** A relation step Nova's walk can name: an XML name (`expression/types.ts::relationStepSchema`). */
-const RELATION_STEP = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
-
-/**
- * A property column's field of indices and a property, as Nova reads it: the walk its indices
- * name and the property it reads there (`modules.ts::columnViaSchema`), the property's last word
- * renamed as HQ's build reads it (`CASE_PROPERTY_MAP`). A field HQ's page would not accept, an
- * index Nova's walk cannot name, a step that reaches no type, a property read as an attribute
- * (`case_id`, `status`, `owner_id`, which Nova writes as an expression), and a menu that offers
- * Search, whose results HQ reads such a column through, stay the field's finding.
- */
+/** The last word of a native field is mapped by HQ before it joins each saved
+ * index. The case roster comes from the detail and can be the Search results.
+ * A historical link that no current form writes still reads its reached case. */
 export function readRelationField(
 	field: string,
 	options: Pick<ColumnOptions, "offersSearch" | "relationVia">,
@@ -1290,29 +1407,43 @@ export function readRelationField(
 	| {
 			readonly kind: "property";
 			readonly name: string;
-			readonly via: ColumnVia;
-			readonly caseType: string;
+			readonly via?: ColumnVia;
+			readonly caseType?: string;
+			readonly readFrom?: "worker-record";
+			readonly showOwner?: "name";
 	  }
 	| { readonly kind: "finding"; readonly claim: Claim<"refuse"> }
 	| undefined {
-	if (!isRelationPath(field) || field.startsWith("user/")) return undefined;
+	if (field === "#owner_name")
+		return { kind: "property", name: "owner_id", showOwner: "name" };
+	if (field.startsWith("user/")) {
+		const source = classifyField(field);
+		if (source.kind === "finding") return source;
+		return {
+			...source,
+			readFrom: "worker-record",
+			caseType: USERCASE_CASE_TYPE,
+			...(field.endsWith("/#owner_name") && { showOwner: "name" }),
+		};
+	}
+	if (!isRelationPath(field)) return undefined;
 	if (!isHqDetailField(field))
 		return { kind: "finding", claim: C.fieldInvalid };
-	const finding = { kind: "finding", claim: C.relationPath } as const;
-	if (options.offersSearch || options.relationVia === undefined) return finding;
 	const parts = field.split("/");
 	const last = parts.pop() as string;
-	if (parts.some((step) => !RELATION_STEP.test(step))) return finding;
-	const name = HQ_PROPERTY_RENAMES.get(last) ?? last;
-	if (
-		ATTRIBUTE_PROPERTIES.has(name) ||
-		!AUTHORED_CASE_PROPERTY_NAME_PATTERN.test(name) ||
-		name.length > MAX_AUTHORED_CASE_PROPERTY_NAME_LENGTH
-	)
-		return finding;
-	const walk = options.relationVia(parts);
-	if (walk === undefined) return finding;
-	return { kind: "property", name, via: walk.via, caseType: walk.caseType };
+	const classified = classifyField(last);
+	if (classified.kind === "finding") return classified;
+	const walk = options.relationVia?.(parts) ?? {
+		via: parts.map((identifier) => ({ identifier })) as ColumnVia,
+	};
+	const name = classified.name;
+	return {
+		kind: "property",
+		name,
+		via: walk.via,
+		...(walk.caseType !== undefined && { caseType: walk.caseType }),
+		...(last === "#owner_name" && { showOwner: "name" }),
+	};
 }
 
 /** HQ's word for a column's property a relation path reads: `parent/prop`, `host/prop`. */
@@ -1331,41 +1462,258 @@ const HQ_RENAMED_FIELDS: ReadonlySet<string> = new Set([
 	"owner_id",
 ]);
 
-/** A non-calculated `translatable-enum` column, by its rows: the property it reads, a key outside
- *  the editor's grammar or two entries of one key, and the format over a property Nova reads.
- *  Always a finding, and every key of the column is claimed, each refusal at its own key. */
-function readOwnTranslatableEnum(
+/** Claims the field of a property column that reads another case: the
+ *  worker's own (`user/prop`, `user/…/prop`, whose intermediate steps HQ's
+ *  build drops and Nova writes back as `user/prop`), a case its indices
+ *  reach, or the owner's name (`#owner_name`) of either or of the row. */
+function claimPropertySource(
+	ctx: ReadContext,
 	column: JsonCursor,
 	field: string,
+	relation: {
+		readonly via?: ColumnVia;
+		readonly caseType?: string;
+		readonly readFrom?: "worker-record";
+		readonly showOwner?: "name";
+	},
 	offersSearch: boolean,
-): undefined {
-	const named = field === "" ? undefined : { name: field };
-	const classified = isRelationPath(field) ? undefined : classifyField(field);
-	if (classified?.kind === "finding")
+): void {
+	const claimField = (claim: Claim<"take">) => {
+		if (claim.key !== null)
+			ctx.accounting.claimEntry(
+				{ json: column, key: "field" },
+				claim.entry,
+				claim.key,
+				column.place,
+			);
+	};
+	if (relation.via !== undefined) {
+		column.take(
+			"field",
+			offersSearch || relation.caseType === undefined
+				? C.relationPath
+				: C.relationField,
+			String,
+		).value;
+	} else {
+		column.take("field", C.field, String).value;
+		if (relation.readFrom) {
+			const steps = field.split("/").length > 2;
+			claimField(steps ? C.userSteps : C.userProp);
+			if (steps)
+				recordTextRewrite(
+					ctx,
+					{ entry: C.userSteps.entry, path: `${column.pointer}/field` },
+					"list-settings-respelled",
+					false,
+				);
+		}
+	}
+	// An owner's name read from a reached case or the worker's record is a
+	// use of both classes at the one field.
+	if (relation.showOwner && C.ownerName.key !== null)
+		ctx.accounting.claimEntryClass(
+			{ json: column, key: "field" },
+			C.ownerName.entry,
+			C.ownerName.key,
+			column.place,
+		);
+}
+
+/** Read an ordinary saved property with a native translation table. HQ also
+ * retains table rows its display does not reference, so keep every phrase.
+ * Check the native field and table keys independently for refusal recovery. */
+function readOwnTranslatableEnum(
+	ctx: ReadContext,
+	column: JsonCursor,
+	field: string,
+	options: ColumnOptions,
+	header: Readonly<Record<string, string>>,
+	base: { header: string },
+	others: boolean,
+): ColumnProposal | undefined {
+	const relation = readRelationField(field, options);
+	const source = relation ?? classifyField(field);
+	const keysOk = calculationKeysAreEditable(column);
+	// A search fetches the related cases a non-calculated path of more than one step names
+	// (`case_search/utils.py::get_search_detail_relationship_paths` reads only non-calculated
+	// columns, the worker's `user/` among them), which the calculated spelling Nova keeps would
+	// not ask for.
+	if (
+		options.offersSearch &&
+		field.includes("/") &&
+		relation?.kind === "property"
+	) {
+		if (isRelationPath(field))
+			column.take("field", C.relationPath, String).value;
+		else claimPropertySource(ctx, column, field, relation, true);
+		column.refuse("format", C.translatableEnumRelationOffers, { name: field });
+		return undefined;
+	}
+	if (relation?.kind === "property")
+		return readRelationTranslatableEnum(
+			ctx,
+			column,
+			field,
+			relation,
+			header,
+			base,
+			others,
+		);
+	column.take("format", C.translatableEnumOwn, String).value;
+	if (source.kind === "finding") {
 		column.refuse(
 			"field",
-			classified.claim,
-			classified.claim === C.fieldInvalid ? undefined : named,
+			source.claim,
+			source.claim === C.fieldInvalid ? undefined : { name: field },
 		);
-	else column.take("field", C.field, String).value;
-	const entries = enumEntries(column, []);
-	const keys = entries.map((entry) => entry.key);
+		return undefined;
+	}
+	column.take("field", C.field, String).value;
+	if (!keysOk) return undefined;
+	const property = imageMapPropertyText(source.name);
+	return readGeneralCalculation(
+		ctx,
+		column,
+		property,
+		header,
+		base,
+		others,
+		C.translatableEnumOwn,
+		false,
+	);
+}
+
+/**
+ * A non-calculated `translatable-enum` over a path that leaves the row: a walk of its indices
+ * (`parent/prop`, `host/parent/prop`) or the worker's record (`user/prop`). HQ's build reads
+ * the path's last word on the case the walk reaches, of whatever type, or on the worker's
+ * record (`detail_screen.py::PropertyXpathGenerator`), and the column's calculation over that
+ * read is the same state (`TranslatableEnum` hands `self.xpath` to the enum either way). Nova
+ * holds it as the calculation: the expression stage binds the walk as a reached read
+ * (`PropertyRef.readReached`), whose print is HQ's. A read the stage holds no tree for (an
+ * owner's name, HQ's `owner_name` over the groups fixture) is the stage's finding at the field
+ * (`provisional.ts::applyExpressionReading`), never an empty calculation.
+ */
+function readRelationTranslatableEnum(
+	ctx: ReadContext,
+	column: JsonCursor,
+	field: string,
+	relation: Extract<
+		ReturnType<typeof readRelationField>,
+		{ readonly kind: "property" }
+	>,
+	header: Readonly<Record<string, string>>,
+	base: { header: string },
+	others: boolean,
+): ColumnProposal | undefined {
+	column.take("format", C.translatableEnumRelationDoes, String).value;
+	claimPropertySource(ctx, column, field, relation, false);
+	if (!calculationKeysAreEditable(column)) return undefined;
+	return readGeneralCalculation(
+		ctx,
+		column,
+		imageMapPropertyText(relation.name, relation.via, relation),
+		header,
+		base,
+		others,
+		C.translatableEnumRelationDoes,
+		false,
+	);
+}
+
+function calculationKeysAreEditable(column: JsonCursor): boolean {
+	const keys = enumEntries(column, []).map((entry) => entry.key);
 	if (
 		keys.some((key) => typeof key !== "string" || !/^[A-Za-z0-9_-]+$/.test(key))
-	)
+	) {
 		column.refuse("enum", C.translatableEnumKey);
-	else if (new Set(keys).size !== keys.length)
+		return false;
+	}
+	if (new Set(keys).size !== keys.length) {
 		column.refuse("enum", C.enumDuplicateKey);
-	column.refuse(
-		"format",
-		!isRelationPath(field)
-			? C.translatableEnumOwn
-			: offersSearch
-				? C.translatableEnumRelationOffers
-				: C.translatableEnumRelationDoes,
-		named,
+		return false;
+	}
+	return true;
+}
+function readGeneralCalculation(
+	ctx: ReadContext,
+	column: JsonCursor,
+	field: string,
+	header: Readonly<Record<string, string>>,
+	base: { header: string },
+	others: boolean,
+	claim: Claim<"take">,
+	calculated: boolean,
+): ColumnProposal | undefined {
+	const codes = appCodes(ctx);
+	const entries = enumEntries(column, codes, sourceCode(ctx));
+	if (calculated) {
+		column.take("format", claim, String).value;
+		column.take("useXpathExpression", C.projectionXpath, Boolean).value;
+		if (!calculationKeysAreEditable(column)) {
+			column.take("field", C.projectionField, String).value;
+			return undefined;
+		}
+	}
+	const keys = entries.map((entry) => entry.key as string);
+	const texts = recordFromEntries(
+		entries.map((entry, index) => [keys[index], entry.value ?? NO_ENTRIES]),
 	);
-	return undefined;
+	for (const item of column.list(
+		"enum",
+		"MappingItem",
+		C.translatableEnumMapping,
+	)) {
+		item.derived("key", ITEM_CLAIMS.labelKey);
+		const value = heldTextsIn(
+			item.peek("value"),
+			codes,
+			sourceCode(ctx),
+			"case-list-calculation-text",
+		);
+		if (!value) {
+			refuseUnheldKey(
+				item,
+				"value",
+				codes,
+				sourceCode(ctx),
+				"case-list-calculation-text",
+			);
+			return undefined;
+		}
+		item.derived("value", ITEM_CLAIMS.labelValue);
+		noteRespelled(
+			ctx,
+			ITEM_CLAIMS.labelValue.entry,
+			`${item.pointer}/value`,
+			item.peek("value"),
+			value,
+		);
+		claimAltText(ctx, item, codes, false);
+	}
+	return others
+		? {
+				column: {
+					kind: "calculated",
+					...base,
+					expression: pendingPlaceholder("value"),
+				},
+				header,
+				texts,
+				textKeys: keys,
+				invisible: false,
+				json: column,
+				expression: {
+					text: field,
+					at: { json: column, key: "field" },
+					mode: { target: "hq-json", interpolation: "none" },
+					place: column.place,
+					key: "schema:DetailColumn.field",
+					...(!calculated && { readerClaimed: true as const }),
+				},
+			}
+		: undefined;
 }
 
 /**
@@ -1441,25 +1789,57 @@ function readColumn(
 		typeof column.peek("format") === "string"
 			? (column.peek("format") as string)
 			: "plain";
-	const others = claimOtherKeys(column, format, screen) && header !== undefined;
+	if (options.widthZeroValueShowsInWebApps) {
+		const address = format === "address";
+		column.refuse(
+			"format",
+			address ? C.addressGroupedBody : C.invisibleGroupedBody,
+			{
+				reason: address
+					? "Web Apps displays this map value below the group heading."
+					: "Web Apps displays this Search Only value below the group heading.",
+			},
+		);
+		return undefined;
+	}
+	const others =
+		claimOtherKeys(
+			column,
+			format,
+			screen,
+			options.namedTile === true,
+			options.optimizationsOn === true,
+		) && header !== undefined;
 	const field = fieldOf(column);
 	const base = { header: sourceText(ctx, header ?? NO_ENTRIES) };
 	// The walk of a property column read through a relation, once its field is read.
 	let via: ColumnVia | undefined;
+	let recordSource: ColumnRecordSource = {};
+	const loadBehavior =
+		options.optimizationsOn === true ? storedLoadBehavior(column) : undefined;
 	const proposal = (
 		kind: ColumnProposal["column"],
 		extra: Partial<
-			Pick<ColumnProposal, "texts" | "expression" | "invisible">
+			Pick<ColumnProposal, "texts" | "expression" | "invisible" | "conditions">
 		> = {},
 	): ColumnProposal | undefined =>
 		others
 			? {
 					column:
-						via === undefined || kind.kind === "calculated"
-							? kind
-							: ({ ...kind, via } as ColumnProposal["column"]),
+						kind.kind === "calculated"
+							? {
+									...kind,
+									...(loadBehavior !== undefined &&
+										kind.texts === undefined && { loadBehavior }),
+								}
+							: ({
+									...kind,
+									...(via && { via }),
+									...recordSource,
+								} as ColumnProposal["column"]),
 					header: header ?? NO_ENTRIES,
 					texts: extra.texts ?? NO_ENTRIES,
+					...(extra.conditions && { conditions: extra.conditions }),
 					...(extra.expression !== undefined && {
 						expression: extra.expression,
 					}),
@@ -1471,8 +1851,9 @@ function readColumn(
 	// A calculated field: an expression column, an attribute, or one of Nova's two projections.
 	// An `invisible` short column outside a custom tile reads its expression as a `plain` one does,
 	// and stands on the list hidden: Nova writes a hidden calculated or attribute-backed field so.
-	const hiddenOnList =
-		format === "invisible" && screen === "short" && !options.inTile;
+	const hiddenOnList = format === "invisible" && screen === "short";
+	const rowOrder =
+		format === "invisible" && screen === "long" && options.dataRows;
 	if (
 		field.xpath &&
 		!options.searchInstancesRead &&
@@ -1481,14 +1862,55 @@ function readColumn(
 		column.refuse("field", C.fieldSearchInstances);
 		return undefined;
 	}
+	if (
+		!field.xpath &&
+		options.fixtureRow &&
+		(format === "plain" || rowOrder) &&
+		!field.text.includes("/") &&
+		isHqDetailField(field.text)
+	) {
+		const name = renamedField(field.text);
+		const text = ["status", "owner_id"].includes(name) ? `@${name}` : name;
+		if (column.used("useXpathExpression"))
+			column.take("useXpathExpression", C.fieldCalculated, Boolean).value;
+		column.take("format", rowOrder ? C.dataTabOrder : C.plain, String).value;
+		return proposal(
+			{
+				kind: "calculated",
+				rowField: true,
+				...base,
+				expression: pendingPlaceholder("value"),
+			},
+			{
+				expression: {
+					text,
+					at: { json: column, key: "field" },
+					mode: { target: "hq-json", interpolation: "none" },
+					place,
+					key: "schema:DetailColumn.field",
+				},
+			},
+		);
+	}
 	if (field.xpath) {
 		const tree = parse(field.text);
 		const attribute = oneAttribute(tree);
-		const formatClaim = hiddenOnList ? C.invisible : C.plain;
+		const formatClaim = rowOrder
+			? C.dataTabOrder
+			: hiddenOnList
+				? options.namedTile
+					? C.namedInvisible
+					: options.inTile
+						? C.invisibleInTile
+						: C.invisible
+				: C.plain;
+		// A load behavior is a calculated value's, so an attribute column that keeps one reads as
+		// the calculation it is (below), which Nova writes back with the behavior.
 		if (
-			(format === "plain" || hiddenOnList) &&
+			(format === "plain" || hiddenOnList || rowOrder) &&
 			attribute !== undefined &&
-			ATTRIBUTE_PROPERTIES.has(attribute)
+			ATTRIBUTE_PROPERTIES.has(attribute) &&
+			loadBehavior === undefined
 		) {
 			column.take("useXpathExpression", C.fieldAttribute, Boolean).value;
 			column.take("field", C.fieldAttributeField, String).value;
@@ -1502,12 +1924,19 @@ function readColumn(
 				{ invisible: hiddenOnList },
 			);
 		}
-		if (format === "plain" || hiddenOnList) {
+		const authoredMarkdown =
+			format === "markdown" && linkCandidate(field.text, options) === undefined;
+		if (format === "plain" || hiddenOnList || authoredMarkdown || rowOrder) {
 			column.take("useXpathExpression", C.fieldCalculated, Boolean).value;
-			column.take("format", formatClaim, String).value;
+			column.take(
+				"format",
+				authoredMarkdown ? C.markdownOther : formatClaim,
+				String,
+			).value;
 			return proposal(
 				{
 					kind: "calculated",
+					...(authoredMarkdown && { showAs: "formatted-text" }),
 					...base,
 					expression: pendingPlaceholder("value"),
 				} as ColumnProposal["column"],
@@ -1533,17 +1962,26 @@ function readColumn(
 				base,
 				others,
 				options,
+				loadBehavior,
 			);
 	}
 
 	if (format === "translatable-enum")
-		return readOwnTranslatableEnum(column, field.text, options.offersSearch);
+		return readOwnTranslatableEnum(
+			ctx,
+			column,
+			field.text,
+			options,
+			header ?? NO_ENTRIES,
+			base,
+			others,
+		);
 
 	if (format === "invisible" && screen === "long") {
-		column.take("format", C.invisibleLong, String).value;
-	} else if (format === "invisible" && options.inTile) {
-		column.refuse("format", C.invisibleInTile, formatName(format));
-		return undefined;
+		column.take("format", rowOrder ? C.dataTabOrder : C.invisibleLong, String)
+			.value;
+	} else if (format === "invisible" && options.inTile && options.namedTile) {
+		column.take("format", C.namedInvisible, String).value;
 	}
 
 	// A column of any other format over the case's id: Nova writes a column over `case_id` as the
@@ -1571,10 +2009,20 @@ function readColumn(
 	if (attribute !== undefined && classified.name === attribute) {
 		column.take("useXpathExpression", C.fieldAttribute, Boolean).value;
 		column.take("field", C.fieldAttributeField, String).value;
-	} else if (relation?.kind === "property")
-		column.take("field", C.relationField, String).value;
-	else {
-		column.take("field", C.field, String).value;
+	} else if (relation?.kind === "property") {
+		claimPropertySource(
+			ctx,
+			column,
+			field.text,
+			relation,
+			options.offersSearch,
+		);
+	} else {
+		column.take(
+			"field",
+			field.text.length > 255 ? C.longProperty : C.field,
+			String,
+		).value;
 		const type = HQ_RENAMED_FIELDS.has(field.text)
 			? C.renamedType
 			: field.text === "last_modified"
@@ -1592,26 +2040,36 @@ function readColumn(
 	const fieldName = { name };
 	const relatedType =
 		relation?.kind === "property" ? relation.caseType : undefined;
-	if (relation?.kind === "property") via = relation.via;
+	if (relation?.kind === "property") {
+		via = relation.via;
+		recordSource = {
+			...(relation.readFrom && { readFrom: relation.readFrom }),
+			...(relation.showOwner && { showOwner: relation.showOwner }),
+		};
+	}
 
 	switch (format) {
 		case "plain": {
-			// A property select questions write keeps no choices where no column shows their
-			// labels (`details.ts::withholdRawShownChoices`), so a plain column over it shows its
-			// values, as Nova writes one; where another column shows them, Nova's would too.
-			if (options.selectProperty(name, relatedType)) {
-				column.refuse("format", C.plainSelect, fieldName);
-				return undefined;
-			}
-			column.take("format", C.plain, String).value;
+			const saved = options.selectProperty(name, relatedType);
+			column.take("format", saved ? C.plainSelect : C.plain, String).value;
 			return proposal({
 				kind: "plain",
+				...(saved && { showChoice: "saved-value" }),
 				field: name,
 				...base,
 			} as ColumnProposal["column"]);
 		}
 		case "invisible": {
-			if (screen === "short") column.take("format", C.invisible, String).value;
+			if (screen === "short")
+				column.take(
+					"format",
+					options.namedTile
+						? C.namedInvisible
+						: options.inTile
+							? C.invisibleInTile
+							: C.invisible,
+					String,
+				).value;
 			return proposal(
 				{ kind: "plain", field: name, ...base } as ColumnProposal["column"],
 				{
@@ -1647,39 +2105,68 @@ function readColumn(
 				...base,
 			} as ColumnProposal["column"]);
 		case "enum":
-			return readIdMapping(ctx, column, name, base, proposal);
+		case "conditional-enum":
+			return readIdMapping(
+				ctx,
+				column,
+				name,
+				base,
+				proposal,
+				format === "conditional-enum",
+				via,
+				recordSource,
+			);
 		case "enum-image":
-			return readImageMap(ctx, module, column, name, base, proposal, via);
+			return readImageMap(
+				ctx,
+				module,
+				column,
+				name,
+				base,
+				proposal,
+				via,
+				recordSource,
+			);
 		case "late-flag": {
-			const flag = column.peek("late_flag");
-			const zero = typeof flag === "number" && flag <= 0;
-			column.refuse(
-				"format",
-				zero ? C.lateFlagZero : C.lateFlag,
-				formatName(format),
-			);
-			column.refuse(
+			const flag = column.peek("late_flag") ?? 30;
+			if (typeof flag !== "number" || !Number.isSafeInteger(flag))
+				return undefined;
+			column.take("format", flag <= 0 ? C.lateFlagZero : C.lateFlag, String)
+				.value;
+			column.take(
 				"late_flag",
-				zero ? C.lateFlagZeroValue : C.lateFlagValue,
-				formatName(format),
-			);
-			return undefined;
+				flag <= 0 ? C.lateFlagZeroValue : C.lateFlagValue,
+				Number,
+			).value;
+			return proposal({
+				kind: "overdue-marker",
+				field: name,
+				afterDays: flag,
+				...base,
+			} as ColumnProposal["column"]);
 		}
 		case "time-ago": {
-			const interval = column.peek("time_ago_interval");
-			const onMenu =
-				typeof interval === "number" && TIME_AGO_MENU.includes(interval);
-			column.refuse(
-				"format",
-				onMenu ? C.timeAgo : C.timeAgoOther,
-				formatName(format),
+			const interval = column.peek("time_ago_interval") ?? 365.25;
+			const period = DATE_COUNT_PERIODS.find(
+				(one) => DATE_COUNT_DAYS[one] === interval,
 			);
-			column.refuse(
-				"time_ago_interval",
-				onMenu ? C.timeAgoInterval : C.timeAgoOtherInterval,
-				formatName(format),
-			);
-			return undefined;
+			if (period === undefined) {
+				column.refuse("format", C.timeAgoOther, formatName(format));
+				column.refuse(
+					"time_ago_interval",
+					C.timeAgoOtherInterval,
+					formatName(format),
+				);
+				return undefined;
+			}
+			column.take("format", C.timeAgo, String).value;
+			column.take("time_ago_interval", C.timeAgoInterval, Number).value;
+			return proposal({
+				kind: "date-count",
+				field: name,
+				period,
+				...base,
+			} as ColumnProposal["column"]);
 		}
 		case "clickable-icon":
 			column.refuse(
@@ -1694,8 +2181,12 @@ function readColumn(
 			);
 			return undefined;
 		case "markdown":
-			column.refuse("format", C.markdownOther, formatName(format));
-			return undefined;
+			column.take("format", C.markdownOther, String).value;
+			return proposal({
+				kind: "formatted-text",
+				field: name,
+				...base,
+			} as ColumnProposal["column"]);
 		case "filter":
 			// HQ's build writes no field for it (`detail_screen.py::Filter`); the detail decides
 			// whether it moves the default sort, a sort element, a calculated column's index or a
@@ -1709,14 +2200,40 @@ function readColumn(
 	}
 	// Several of a format HQ admits once per detail: refused before the format's own row.
 	const count = options.formats.get(format) ?? 0;
-	if (count > 1 && (format === "address" || ONCE_PER_DETAIL.has(format))) {
+	if (format === "distance") {
+		column.take("format", C.distance, String).value;
+		return proposal({
+			kind: "worker-distance",
+			field: name,
+			...base,
+		} as ColumnProposal["column"]);
+	}
+	if (format === "address") {
+		if (count > 1 && !options.advanced) {
+			column.refuse("format", C.severalOfOneFormat, formatName(format));
+			return undefined;
+		}
+		// HQ writes a zero template width. Android draws the address at its
+		// cell and Web Apps hides it on ordinary tiles and group headings.
+		column.take(
+			"format",
+			count > 1
+				? C.severalAddressAdvanced
+				: options.inTile && screen === "short"
+					? C.invisibleInTile
+					: C.address,
+			String,
+		).value;
+		return proposal({
+			kind: "map-location",
+			field: name,
+			...base,
+		} as ColumnProposal["column"]);
+	}
+	if (count > 1 && ONCE_PER_DETAIL.has(format)) {
 		column.refuse(
 			"format",
-			!options.advanced
-				? C.severalOfOneFormat
-				: format === "address"
-					? C.severalAddressAdvanced
-					: C.severalImageGeoAdvanced,
+			options.advanced ? C.severalImageGeoAdvanced : C.severalOfOneFormat,
 			formatName(format),
 		);
 		return undefined;
@@ -1735,10 +2252,23 @@ function readColumn(
 				...base,
 			} as ColumnProposal["column"]);
 		}
-	}
-	if (format === "address" && options.inTile && screen === "short") {
-		column.refuse("format", C.invisibleInTile, formatName(format));
-		return undefined;
+		const layer = CASE_MAP_LAYER_KINDS.find(
+			(one) => CASE_MAP_FORMATS[one].hq === format,
+		);
+		if (layer === undefined) return undefined;
+		const claims = {
+			boundary: C.geoBoundary,
+			"boundary-color": C.geoBoundaryColor,
+			points: C.geoPoints,
+			"point-colors": C.geoPointsColors,
+		};
+		column.take("format", claims[layer], String).value;
+		return proposal({
+			kind: "map-layer",
+			field: name,
+			layer,
+			...base,
+		} as ColumnProposal["column"]);
 	}
 	const finding = FORMAT_FINDING.get(format);
 	if (finding !== undefined) {
@@ -1770,14 +2300,68 @@ function readsSearchInstances(text: string): boolean {
 	});
 }
 
-/** A key HQ's enum editor admits: one word with none of `& < > " '`. */
-function enumKeyProblem(key: unknown): "blank" | "special" | undefined {
-	if (typeof key !== "string" || key.trim() === "" || /\s/.test(key))
-		return "blank";
-	if (/[&<>"']/.test(key)) return "special";
-	return undefined;
+/** Read ordered value labels, preserving each key exactly as HQ's mapping editor stores it. */
+/** The property that a native dot denotes is bound by the ordinary record
+ * parser. The shorthand has no persistent meaning outside this source column. */
+type MappingSource = { value: string; match?: "exact" } | { text: string };
+function nativeSource(
+	key: string,
+	property: string,
+	image: boolean,
+): MappingSource {
+	if (!hqMappingKeyIsExpression(key))
+		return image ? { value: key, match: "exact" } : { value: key };
+	const text = dotInterpolate(key, property);
+	if (image) {
+		const selected = selectedValue(key, property);
+		if (selected !== undefined) return { value: selected };
+	}
+	const comparison = parse(key);
+	if (
+		comparison?.kind === "binary" &&
+		comparison.op === "=" &&
+		comparison.left.kind === "self"
+	) {
+		const value = literalText(comparison.right);
+		if (value !== undefined)
+			return image ? { value, match: "exact" } : { value };
+	}
+	return { text };
 }
-
+/** The editor rejects equal *keys*. A label or image can still have two
+ * differently spelled rules that match the same case. Prefer a plain key's
+ * ordinary value form and keep equivalent XPath rows as scoped conditions. */
+function readMappingSources(
+	keys: readonly string[],
+	property: string,
+	image: boolean,
+): MappingSource[] {
+	const sources = keys.map((key) => nativeSource(key, property, image));
+	const preferred = new Map<string, number>();
+	sources.forEach((source, index) => {
+		if (!("value" in source)) return;
+		const id = caseMappingComparison(source);
+		if (!preferred.has(id) || !hqMappingKeyIsExpression(keys[index]))
+			preferred.set(id, index);
+	});
+	return sources.map((source, index) =>
+		"value" in source && preferred.get(caseMappingComparison(source)) !== index
+			? { text: dotInterpolate(keys[index], property) }
+			: source,
+	);
+}
+function mappingConditionSource(
+	item: JsonCursor,
+	text: string,
+): ColumnExpressionSource {
+	return {
+		text,
+		place: item.place,
+		at: { json: item, key: "key" },
+		key: "schema:MappingItem.key",
+		mode: { target: "hq-json", interpolation: "none" },
+	};
+}
 function readIdMapping(
 	ctx: ReadContext,
 	column: JsonCursor,
@@ -1785,51 +2369,88 @@ function readIdMapping(
 	base: { header: string },
 	proposal: (
 		column: ColumnProposal["column"],
-		extra?: Partial<Pick<ColumnProposal, "texts">>,
+		extra?: Partial<Pick<ColumnProposal, "texts" | "conditions">>,
 	) => ColumnProposal | undefined,
+	conditional: boolean,
+	via?: ColumnVia,
+	source?: ColumnRecordSource,
 ): ColumnProposal | undefined {
 	const codes = appCodes(ctx);
 	const entries = enumEntries(column, codes, sourceCode(ctx));
-	const seen = new Set<string>();
+	const keys: string[] = [];
 	for (const entry of entries) {
-		const problem = enumKeyProblem(entry.key);
-		if (problem !== undefined) {
-			column.refuse(
-				"enum",
-				problem === "blank" ? C.enumBlankKey : C.enumSpecialKey,
-				{ name: field },
-			);
+		if (typeof entry.key !== "string") return undefined;
+		if (!conditional && idMappingValueHoldsForbiddenCharacter(entry.key)) {
+			column.refuse("enum", C.enumSpecialKey, { name: field });
 			return undefined;
 		}
-		if (seen.has(entry.key as string)) {
-			column.refuse("enum", C.enumDuplicateKey, { name: field });
-			return undefined;
-		}
-		seen.add(entry.key as string);
+		keys.push(entry.key);
 	}
-	column.take("format", C.enumFormat, String).value;
-	if (!claimAltTexts(ctx, column, codes)) return undefined;
-	const texts = recordFromEntries<Readonly<Record<string, string>>>([]);
-	for (const entry of entries)
-		texts[entry.key as string] = entry.value ?? NO_ENTRIES;
+	if (new Set(keys).size !== keys.length) {
+		column.refuse("enum", C.enumDuplicateKey, { name: field });
+		return undefined;
+	}
+	const sources: MappingSource[] = conditional
+		? readMappingSources(keys, imageMapPropertyText(field, via, source), false)
+		: keys.map((value) => ({ value }));
+	column.take("format", conditional ? C.conditionalEnum : C.enumFormat, String)
+		.value;
+	const conditions = new Map<number, ColumnExpressionSource>();
+	if (
+		!claimAltTexts(
+			ctx,
+			column,
+			codes,
+			conditional
+				? (item, index) => {
+						const source = sources[index];
+						if ("text" in source) {
+							conditions.set(index, mappingConditionSource(item, source.text));
+							return true;
+						}
+						return false;
+					}
+				: undefined,
+		)
+	)
+		return undefined;
+	const texts = recordFromEntries(
+		entries.map((entry, index) => [String(index), entry.value ?? NO_ENTRIES]),
+	);
 	return proposal(
 		{
 			kind: "id-mapping",
+			...(conditional && { behavior: "first-match" }),
 			field,
 			...base,
-			mapping: entries.map((entry) => ({
-				value: entry.key as string,
-				label: sourceText(ctx, entry.value ?? NO_ENTRIES),
+			mapping: sources.map((source, index) => ({
+				...("text" in source
+					? { when: pendingPlaceholder("condition") }
+					: { value: source.value }),
+				label: sourceText(ctx, entries[index].value ?? NO_ENTRIES),
 			})),
-		} as ColumnProposal["column"],
-		{ texts },
+		},
+		{ texts, conditions },
 	);
 }
 
 /** The text of a column's property as HQ's build substitutes it into each image map key
  *  (`detail_screen.py::Enum._template_xpath`, `models/case_list.py::MappingItem.key_as_condition`). */
-export function imageMapPropertyText(field: string, via?: ColumnVia): string {
-	return hqXPathText(hqXPath(columnPropertyPath({ field, via })));
+export function imageMapPropertyText(
+	field: string,
+	via?: ColumnVia,
+	source?: ColumnRecordSource,
+): string {
+	return hqXPathText(
+		hqXPath(
+			columnPropertyPath({
+				field,
+				via,
+				readFrom: source?.readFrom,
+				showOwner: source?.showOwner,
+			}),
+		),
+	);
 }
 
 /**
@@ -1877,61 +2498,90 @@ function readImageMap(
 	column: JsonCursor,
 	field: string,
 	base: { header: string },
-	proposal: (column: ColumnProposal["column"]) => ColumnProposal | undefined,
+	proposal: (
+		column: ColumnProposal["column"],
+		extra?: Pick<ColumnProposal, "texts" | "conditions">,
+	) => ColumnProposal | undefined,
 	via?: ColumnVia,
+	source?: ColumnRecordSource,
 ): ColumnProposal | undefined {
 	const codes = appCodes(ctx);
 	const entries = enumEntries(column, []);
-	const values: string[] = [];
+	const keys: string[] = [];
 	for (const entry of entries) {
-		if (typeof entry.key !== "string") {
-			column.refuse("format", C.enumImageOther, { name: field });
-			return undefined;
-		}
-		const value = selectedValue(entry.key, imageMapPropertyText(field, via));
-		if (value === undefined) {
-			const plain = parse(entry.key);
-			column.refuse(
-				"format",
-				plain === undefined || plain.kind === "name" || plain.kind === "number"
-					? C.enumImagePlain
-					: C.enumImageOther,
-				{ name: field },
-			);
-			return undefined;
-		}
-		if (values.includes(value)) {
-			column.refuse("enum", C.enumDuplicateKey, { name: field });
-			return undefined;
-		}
-		values.push(value);
+		if (typeof entry.key !== "string") return undefined;
+		keys.push(entry.key);
 	}
-	column.take("format", C.enumImage, String).value;
+	if (new Set(keys).size !== keys.length) {
+		column.refuse("enum", C.enumDuplicateKey, { name: field });
+		return undefined;
+	}
+	const definitions = readMappingSources(
+		keys,
+		imageMapPropertyText(field, via, source),
+		true,
+	);
+	column.take(
+		"format",
+		definitions.some((item) => "text" in item)
+			? C.enumImageOther
+			: definitions.some((item) => "match" in item && item.match === "exact")
+				? C.enumImagePlain
+				: C.enumImage,
+		String,
+	).value;
+	const conditions = new Map<number, ColumnExpressionSource>();
 	const items = column.list("enum", "MappingItem", C.enumImageMapping);
-	const mapping: { value: string; assetId: string }[] = [];
+	// The proposal holds the asset id the media reader read; the column's
+	// schema brands it when the reading is parsed.
+	const mapping: (Omit<
+		Extract<Column, { kind: "image-map" }>["mapping"][number],
+		"assetId"
+	> & { assetId?: string })[] = [];
+	const texts = recordFromEntries<Readonly<Record<string, string>>>([]);
 	let ok = true;
 	items.forEach((item, index) => {
-		item.derived("key", ITEM_CLAIMS.imageKey);
-		if (!claimAltText(ctx, item, codes, true)) ok = false;
+		const source = definitions[index];
+		if ("text" in source)
+			conditions.set(index, mappingConditionSource(item, source.text));
+		else item.derived("key", ITEM_CLAIMS.imageKey);
+		let description: string | undefined;
+		if (
+			!claimAltText(ctx, item, codes, true, (byCode) => {
+				texts[String(index)] = byCode;
+				description = sourceText(ctx, byCode);
+			})
+		)
+			ok = false;
 		const asset = readImageAsset(ctx, item);
-		const value = values[index];
-		if (asset === undefined || value === undefined) ok = false;
-		else mapping.push({ value, assetId: asset });
+		const definition = definitions[index];
+		if (asset === undefined || definition === undefined) ok = false;
+		else
+			mapping.push({
+				...("text" in definition
+					? { when: pendingPlaceholder("condition") }
+					: definition),
+				...(asset !== null && { assetId: asset }),
+				...(description !== undefined && { altText: description }),
+			});
 	});
 	if (!ok) return undefined;
-	return proposal({
-		kind: "image-map",
-		field,
-		...base,
-		mapping,
-	} as ColumnProposal["column"]);
+	return proposal(
+		{
+			kind: "image-map",
+			field,
+			...base,
+			mapping,
+		} as ColumnProposal["column"],
+		{ texts, conditions },
+	);
 }
 
 /** The asset of one image map entry's `{lang: jr://...}` map, through the media reader. */
 function readImageAsset(
 	ctx: ReadContext,
 	item: JsonCursor,
-): string | undefined {
+): string | null | undefined {
 	// Each language's image as HQ's build writes its app string, so a path stored in one
 	// language is the image of every language.
 	// A path the reader cannot know is left unclaimed, for the close to name at the entry.
@@ -1943,7 +2593,7 @@ function readImageAsset(
 		slot: "image_map_mapping",
 		mediaKind: "image",
 	});
-	if (read.kind !== "asset") return undefined;
+	if (read.kind !== "asset" && read.kind !== "none") return undefined;
 	item.take("value", C.enumImageValue, languageMap).value;
 	// A path is no text: it is held as shown, and no worker reads another.
 	noteRespelled(
@@ -1953,7 +2603,7 @@ function readImageAsset(
 		item.peek("value"),
 		{ texts: shown, workersSeeAnother: false },
 	);
-	return read.assetId;
+	return read.kind === "none" ? null : read.assetId;
 }
 
 /** The printed text of a wire tree, as HQ JSON holds it. */
@@ -2188,8 +2838,9 @@ function intervalCandidate(
 }
 
 /** A calculated `markdown` or `translatable-enum` column, read as one of Nova's projections:
- *  a link, an interval, or a plain column over a select property with the choices its label
- *  projection holds (which the comparison of the whole menu holds against the catalog). */
+ *  a link (with the load behavior it keeps), an interval, or a plain column over a select
+ *  property with the choices its label projection holds (which the comparison of the whole menu
+ *  holds against the catalog). */
 function readProjection(
 	ctx: ReadContext,
 	column: JsonCursor,
@@ -2199,6 +2850,7 @@ function readProjection(
 	base: { header: string },
 	others: boolean,
 	options: Pick<ColumnOptions, "relationVia">,
+	loadBehavior: ColumnLoadBehavior | undefined,
 ): ColumnProposal | undefined {
 	const codes = appCodes(ctx);
 	const entries = enumEntries(column, codes, sourceCode(ctx));
@@ -2244,12 +2896,16 @@ function readProjection(
 		}
 	}
 	if (candidate === undefined) {
-		column.refuse(
-			"format",
-			format === "markdown" ? C.markdownOther : C.translatableEnumOther,
-			formatName(format),
+		return readGeneralCalculation(
+			ctx,
+			column,
+			text,
+			header,
+			base,
+			others,
+			C.translatableEnumOther,
+			true,
 		);
-		return undefined;
 	}
 	column.take("useXpathExpression", C.projectionXpath, Boolean).value;
 	column.take("field", C.projectionField, String).value;
@@ -2297,7 +2953,14 @@ function readProjection(
 	)
 		return undefined;
 	return {
-		column: { ...candidate, ...base } as ColumnProposal["column"],
+		// A link is the one projection a load behavior is stored on (`storedLoadBehavior`: a
+		// markdown expression column); a translatable-enum's format keeps none.
+		column: {
+			...candidate,
+			...base,
+			...(candidate.kind === "link" &&
+				loadBehavior !== undefined && { loadBehavior }),
+		} as ColumnProposal["column"],
 		header,
 		texts,
 		invisible: false,
@@ -2312,7 +2975,10 @@ function readProjection(
  * (`selectLabelCandidate`). Read over the stored JSON before any column is claimed, so a menu's
  * columns know which properties the reading's catalog keeps choices for.
  */
-export function labelShownProperty(column: unknown): string | undefined {
+export function labelShownProperty(
+	column: unknown,
+	relationVia: ColumnOptions["relationVia"],
+): { field: string; via?: ColumnVia } | undefined {
 	if (
 		!isJsonObject(column) ||
 		column.format !== "translatable-enum" ||
@@ -2324,11 +2990,9 @@ export function labelShownProperty(column: unknown): string | undefined {
 	const select = selectLabelCandidate(
 		column.field,
 		enumEntriesOf(column.enum, []),
-		{
-			relationVia: () => undefined,
-		},
+		{ relationVia },
 	);
-	return select?.via === undefined ? select?.field : undefined;
+	return select;
 }
 
 /** The document a label projection is printed against: its labels are enum variables, so it

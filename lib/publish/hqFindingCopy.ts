@@ -73,7 +73,6 @@ export const SUBJECT_LABELS: Readonly<Record<Subject, string>> = {
 	"case-list-registration": "Registration from the case list",
 	"case-list-setup": "Case list setup",
 	"case-list-sorting": "Case list order",
-	"case-list-text": "Case list wording",
 	"case-preloads": "Loading case values into questions",
 	"case-property-names": "Case property names",
 	"case-sharing": "Case sharing",
@@ -189,8 +188,8 @@ export const FINDING_COPY: Readonly<
 			"This uses pictures or files saved on a case itself, which Nova doesn't bring in.",
 	},
 	"case-detail-tabs": {
-		"not-yet":
-			"This uses tabs on the case detail screen, which Nova can't hold yet.",
+		never:
+			"A tab on the case detail screen here lists records, or shows under a condition, that doesn't lead to one kind of record, which Nova doesn't bring in.",
 	},
 	"case-list-callout": {
 		"not-yet":
@@ -206,8 +205,6 @@ export const FINDING_COPY: Readonly<
 	},
 	"case-list-optimizations": {
 		never: "This uses a case list speed setting, which Nova doesn't bring in.",
-		"not-yet":
-			"This uses a case list speed setting, which Nova can't hold yet.",
 	},
 	"case-list-registration": {
 		never:
@@ -217,12 +214,8 @@ export const FINDING_COPY: Readonly<
 		"not-yet": "This case list is set up in a way Nova can't hold yet.",
 	},
 	"case-list-sorting": {
-		"not-yet":
-			"This uses a way of ordering the case list, which Nova can't hold yet.",
-	},
-	"case-list-text": {
-		"not-yet":
-			"This uses its own wording for an empty list or the Continue button, which Nova can't hold yet.",
+		never:
+			"This orders the case list by a value whose kind Nova can't tell, which Nova doesn't bring in.",
 	},
 	"case-preloads": {
 		"not-yet":
@@ -235,6 +228,8 @@ export const FINDING_COPY: Readonly<
 	},
 	"case-sharing": {},
 	"case-tiles": {
+		never:
+			"A case tile here is missing a field one of its positions needs, or shows the case above a form in a way CommCare can't settle, which Nova doesn't bring in.",
 		"not-yet": "This uses a case tile layout, which Nova can't hold yet.",
 	},
 	"case-types": {},

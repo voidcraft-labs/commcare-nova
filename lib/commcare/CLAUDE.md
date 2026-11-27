@@ -1756,9 +1756,11 @@ Both detail surfaces (`<detail id="m{n}_case_short">` / `m{n}_case_long`) share 
 
 **A list's fields and order are one derived plan.** `lib/domain/caseListOrder.ts::caseListOrderPlan` states what HQ's build writes for the app Nova sends: the short detail's fields in stored order, each field's wire class (property or expression) and join text (its HQ `field`), the sort key each field keeps with no rule, each rule's element, and the carriers HQ appends for a rule no field's text equals. Its three readers are `hqJson/caseList.ts` (the stored columns and `sort_elements`), `suite/case-list/` (`shortDetail.ts` walks the plan's fields; `sortKeys.ts::planSortNodes` writes each field's `<sort>`, and a carrier as an appended width 0 field), and Preview through the case store. Every reader builds it through `suite/case-list/orderPlanOptions.ts::caseListOrderOptions`, so none can pass different options; the validator and Preview pass `mediaOn: true` and no lookup naming (join texts print under `lookup/naming.ts::identityLookupWireNaming`). A difference proof 3 reports between HQ's build and the local suite is a wrong rule in the plan or a wrong spelling in an emitter, never a register entry. A column that is not on the list (`Column.notOnList`) is no field of the short detail in either layout, takes no order rule and has no carrier; the case detail alone holds it, so no device matches it when a worker filters the list (`validator/rules/case-list/columnNotOnList.ts`, `CASE_LIST_COLUMN_NOT_ON_LIST_INVALID`, refuses it shown on Results or with an order rule). `reader/caseList` inverts the order plan and joins the two details into one set of columns, reading a column the detail alone shows as not on the list.
 
+A tile's extra property choices and every list's independent calculations each keep their own worker menu sequence. CommCare HQ introduces them in the order of each raw key's first occurrence and applies the rule at its final occurrence. A property rule's optional `menuPosition` puts it among the early extra choices. Remaining choices follow the default priority. The `calculatedSorts` array gives calculations their menu sequence. The writer repeats only the prefix each group needs in `sort_elements` and both suites and Preview follow the two native sequences. The reader drops stale earlier labels, keeps the current label and rule, and reports any actual rewrite in the first-publish review.
+
 A column over the case's id (`lib/domain/standardCaseProperties.ts::EXPRESSION_ONLY_COLUMN_PROPERTIES`) is an expression column on HQ's paths, shown or hidden: `field: "@case_id"` with `useXpathExpression: true`, because HQ reads a property column's `field` as a property name, which takes no `@`, through its `CASE_PROPERTY_MAP`, which has no entry for `case_id`. A column over `status` or `owner_id` is the property column HQ's Case List page stores (`status` is one of the page's own defaults, `views/modules.py::_setup_case_property_builder`), which the map reads as the case's attribute, so a column of an app made in CommCare HQ keeps its `field` and the app string ids HQ's build gives it by that `field` (`id_strings.py::detail_column_header_locale`). An image-map field written as images (`lib/domain/modules.ts::imageMapShowsImages`) writes `width="13%"` on its header and template on both details, as HQ's `EnumImage` does. HQ writes a date column's pattern unescaped between straight apostrophes, so a pattern holding `'` builds a suite Core refuses; the gate refuses it (`CASE_LIST_DATE_PATTERN_APOSTROPHE`).
 
-Every short detail of the local suite, the search target's included, carries `<select_text>` (`m<N>_select_text=Continue`), written after the fields and the action; every form has `forms.m<N>f<M>.submit_label=Submit` in every language; every image-map field carries `<alt_text>` as its last child, built as HQ's `EnumImage.alt_text` builds it. `<no_items_text>` (`List is empty.`) is written exactly where HQ's build writes it, which is where the target's flag is on: every publish reads that flag, stores it as `app_deployments.target_empty_case_list_text`, and a `.ccz` made for that deployment reads it. The texts are one constant each (`suite/case-list/detailTexts.ts::SELECT_TEXT`, `EMPTY_CASE_LIST_TEXT`, `suite/formStrings.ts::FORM_SUBMIT_LABEL`). The HQ JSON holds the empty-list text on every menu's short detail, a menu with no case list included, under every app language's wire code (`expander.ts::expandDoc`): HQ's model default holds `en` alone, and its module settings save writes the page's language into the short detail of every menu, which reads blank in an app with no English.
+Every short detail of the local suite, the search target's included, carries `<select_text>` (`m<N>_select_text=Continue`), written after the fields and the action; every form has `forms.m<N>f<M>.submit_label=Submit` in every language; every image-map field carries `<alt_text>` as its last child, built as HQ's `EnumImage.alt_text` builds it. `<no_items_text>` (`List is empty.`) is written exactly where HQ's build writes it, which is where the target's flag is on: every publish reads that flag, stores it as `app_deployments.target_empty_case_list_text`, and a `.ccz` made for that deployment reads it. The texts are one constant each (`suite/case-list/detailTexts.ts::SELECT_TEXT`, `EMPTY_CASE_LIST_TEXT`, `suite/formStrings.ts::FORM_SUBMIT_LABEL`), except where a case list holds its own (`caseListConfig.emptyText`, `selectButtonText`): then its unit (`module:<uuid>:list-empty-text`, `list-select-text`) gives each language's string, locally and in the HQ JSON's `no_items_text`/`select_text` maps (`hqJson/caseList.ts`), and the empty text needs the target's flag (capability `empty-case-list-text`). The reader holds a short detail's non-default texts as these fields with their translations; a case detail's, or a menu with no case type's, no worker reads (`detail-texts-no-worker-reads`, INERT, respelled to the default by the first publish). A case list's faster loading (`caseListConfig.optimizations`, capability `case-list-optimizations`) writes `show_case_list_optimization_options` on the menu and each calculated or link column's `loadBehavior` as HQ's `optimization` on every detail column it projects to, and locally as `lazy_loading`/`cache_enabled` on the field and, as HQ's build promotes them, on the detail (`suite/case-list/optimizations.ts`). The reader holds a column's `optimization` only where HQ keeps one (an expression column of a format `FORMATS_SUPPORTING_CASE_LIST_OPTIMIZATIONS` names, in a menu whose setting is on), on the link or calculated column it reads (an expression over a lone attribute that keeps one reads as the calculation, since a plain column holds none); any other reads as inert. The gate twins the schema's two rules (`CASE_LIST_LOAD_BEHAVIOR_INVALID`: a behavior on a column that can't use one, or on a list whose faster loading is off), and the Builder's column edits keep the setting in step (`lib/doc/caseListColumnMutations.ts::fasterLoadingFollowsColumn`): a column's first behavior turns it on, clearing or removing the last turns it off, and an edit that gives or takes none leaves a setting held with no column's choice as it is. The HQ JSON holds the empty-list text on every menu's short detail, a menu with no case list included, under every app language's wire code (`expander.ts::expandDoc`): HQ's model default holds `en` alone, and its module settings save writes the page's language into the short detail of every menu, which reads blank in an app with no English.
 
 Every search's `search_config` holds `title_label` and `description` under every app language's wire code, blank where nothing is authored (`hqShells.ts::caseSearchConfigShell`), because HQ's Case List save writes both for the page's language on every menu (`views/modules.py::_gather_and_update_search_properties`); the oracle refuses a map missing a language (`HQJSON_BAD_SEARCH_LABEL`). Locally every search's `<query>` writes `<description>` after its `<title>` (`suite/case-search/searchSession.ts::buildSearchQuery`), whose `case_search.m<N>.description` is a blank string where no subtitle is authored, written as a non-breaking space as HQ's locale writer writes it.
 
@@ -1766,13 +1768,13 @@ Every search's `search_config` holds `title_label` and `description` under every
 
 `suite/case-list/tileStyle.ts` is the ONLY place the package emits CommCare's grid vocabulary, and `<style>` + `<grid>` is one indivisible wire unit, not an element with an optional child: `commcare-core .../xml/DetailFieldParser.java::parseStyle` runs `GridParser` unconditionally after `StyleParser`, `GridParser::parse` opens with `checkNode("grid")`, and all four coordinates go through UNGUARDED `Integer.parseInt`. So a `<style>` with no `<grid>` is an install-time `InvalidStructureException` and a `<grid>` missing one attribute is a raw `NumberFormatException` outside the parser's structured-error path. CCHQ can emit both (its custom branch guards on `any(... is not None ...)`, not `all(...)`); Nova can't, because `TileCell` carries the four as required slots of one object. The corollary reaches authoring: the five presentation attributes are reachable only for a placed cell, so no surface may offer alignment / size / border / shading on an unplaced column.
 
-**Whether a column holds a square is `lib/domain/modules.ts::tileCellFor`'s decision and nobody else's.** All FOUR consumers call it — `suite/case-list/columns.ts::tileStyleChildren`, `hqJson/caseList.ts::applyTileLayoutToShortDetail`, `lib/preview/caseTileRendering.ts::tileResultsColumns`, and the SA read surface `lib/agent/summarizeBlueprint.ts::tilePlace`.
+`tileCellFor` resolves each stored Results rectangle. The suite, HQ JSON, Preview and authoring reads share it. An independent Details rectangle comes from `detailTile.cells[column.uuid]`. Named image and text positions use their own fixed rectangles.
 
-Every surface that decides this independently diverges. An HQ JSON writer (the PRIMARY delivery path) without the visibility check draws a different tile from the local `.ccz`. A read surface that reports a placement the wire refuses, or reports one in the Details block, which is never a tile, is not cosmetic: the SA reasons about overlap from that text, so a phantom cell makes the model route around an obstacle that is not on the grid and then refuse its own next layout for a collision that cannot happen. A new delivery path, renderer, or read surface calls this predicate rather than re-deriving the rule. `__tests__/tileEmissionParity.test.ts` asserts the three emission paths against one document; `lib/agent/tools/case-list-config/__tests__/caseListReadProjection.test.ts` covers the read surface.
+A read surface reports placement on the screen where the worker sees it. `tileEmissionParity.test.ts` compares wire paths, and `caseListReadProjection.test.ts` exercises the authoring read.
 
-Its two conditions: the case list has a `tile` layout, and the column is shown in Results. Cells persist while the layout is off (switching tiles off keeps the drawing) and emit nothing until it is on. Which detail SURFACE is a separate axis that stays with the emitter — the detail must be SHORT, and the case-detail screen stays a plain field list even though CCHQ allows `custom` there. `case_tile_template` is written only on the HQ-JSON short detail, and `Module.search_detail`'s deepcopy is what carries the tile to search results — never a second projection.
+A Results rectangle stays in the document when its layout is turned off. Placed fields in a custom layout are visible on both platforms unless the source marks them Android-only. HQ’s case-search detail copies the relevant layouts. A custom Details layout is rendered in Web Apps, and Android renders those same fields in ordinary rows.
 
-In a tile list a column hidden from Results is no field of the short detail: a stored hidden column would be given a cell by HQ's Case List save and a `<style>` by the build after it. Its order rule rides as a sort-only property carrier, a sort row on the property with no stored column, unless a placed column's join text is that property, which then takes the rule. HQ appends the carrier as a width 0 field with its `<sort>` and no `<style>` (`util.py::create_temp_sort_column`); `owner_id` and `status` ride under their bare names. A hidden calculated column, or a hidden column over `case_id`, with an order rule has no spelling HQ's editors keep and is refused (`CASE_TILE_HIDDEN_CALCULATED_SORT`). The carrier draws nothing on any runtime: Android lays out the placed cells alone, and the Web Apps client keeps the carrier's cell out of the layout. Width 0 is CCHQ's own reserved hidden-field spelling: `commcare-core .../suite/model/Style.java::Style(DetailField)` comments "'0' is reserved for hidden (Search) fields", both cloudcare tile templates branch on `styles[index].widthHint === 0` into a `d-none` wrapper, `views.js::buildCellLayout` writes no rule for a null tile entry, and `formplayer-common/grid.scss::.box` adds no box size. So a tile keeps the hide-but-sort affordance a row layout has. A tile list's search matches a hidden column only through that carrier.
+In a custom tile list, an ordinary unplaced column hidden from Results is no field of the short detail: a stored hidden column would be given a cell by HQ's Case List save and a `<style>` by the build after it. Its order rule rides as a sort-only property carrier, a sort row on the property with no stored column, unless a placed column's join text is that property, which then takes the rule. HQ appends the carrier as a width 0 field with its `<sort>` and no `<style>` (`util.py::create_temp_sort_column`); `owner_id` and `status` ride under their bare names. A hidden calculated column, or a hidden column over `case_id`, with an order rule has no spelling HQ's editors keep and is refused (`CASE_TILE_HIDDEN_CALCULATED_SORT`). The carrier draws nothing on any runtime: Android lays out the placed cells alone, and the Web Apps client keeps the carrier's cell out of the layout. Width 0 is CCHQ's own reserved hidden-field spelling: `commcare-core .../suite/model/Style.java::Style(DetailField)` comments "'0' is reserved for hidden (Search) fields", both cloudcare tile templates branch on `styles[index].widthHint === 0` into a `d-none` wrapper, `views.js::buildCellLayout` writes no rule for a null tile entry, and `formplayer-common/grid.scss::.box` adds no box size. So a tile keeps the hide-but-sort affordance a row layout has. A tile list's search matches a hidden column only through that carrier.
 
 Nova's authoring words for vertical alignment (`top`/`middle`/`bottom`) map to `start`/`center`/`end` at emission through `TILE_VERTICAL_ALIGN_WIRE`, because `cloudcare .../menus/views.js::getValidFieldAlignment` silently rewrites anything outside `constants.js::ALLOWED_FIELD_ALIGNMENTS` to `start` — CCHQ's own `icon_text_grid` template emits a `vert-align` its renderer ignores. Both emitters write alignment and size on every cell: `horizontal_align`, `vertical_align` and `font_size` in the HQ JSON, and `horz-align`, `vert-align` and `font-size` on `<style>`. The document requires the three (`tileCell()` fills `left`, `top` and `medium`), because HQ's Case List save writes all three into a cell that holds none, so a cell without them changes on the first save. `showBorder` and `showShading` stay optional and stay off the wire when unset.
 
@@ -1799,6 +1801,13 @@ Six facts the shape depends on:
 - **Child order is not a constraint.** `commcare-core .../xml/DetailParser::parse` dispatches children by name. Nova appends the group last; actual HQ regeneration puts a Search action after it. Both parse correctly, so tests compare the consumed detail contract rather than requiring byte order.
 - **`function` is validated only by `XPathParseTool.parseXPath`** (`DetailGroupParser::parse`), so the identifier's schema — `XML_ELEMENT_NAME_PATTERN` on `CaseTileGrouping.identifier` — is what makes the interpolation total. There is no escaping anywhere, by construction.
 - **The grouping is Web-Apps-only at the RENDERER.** `commcare-core` parses `<group>`, stores it on `Detail`, and evaluates the key in `cases/entity/AsyncEntity::getGroupKey` — but the only consumers of that key are `util/screen/EntityScreenHelper::groupEntities` (the `src/cli` session engine formplayer builds on) and formplayer's `EntityListResponse`. Nothing in `commcare-android` reads it, so on Android a grouped list is an ordinary tile list. Say that in author-facing copy rather than implying parity.
+
+Web Apps hides a zero-width Search Only or Address field on an ordinary tile
+and in a group heading. `tile_grouped_item.html` renders each body row's raw value
+without checking the width hint. The import reader refuses the stored
+`DetailColumn.format` where HQ already serves Web Apps and the zero-width field
+is placed in that body. The shared platform gate admits the Android-only
+placement and excludes it from Web Apps heading choices.
 
 The three refusals live in `validator/rules/case-list/caseTileGrouping.ts`, all walking only the cells `tileCellFor` admits. `lib/domain/modules.ts::tileGroupHeaderRowChoices` is their constructive twin — the depths that cut a tile cleanly — and the builder offers exactly that list, with a test pinning the two against each other in both directions. The fourth state the unit worried about is unrepresentable: `grouping` lives INSIDE `caseTileLayoutSchema`, so a `<group>` on a detail with no tile cannot be constructed.
 
@@ -2383,7 +2392,24 @@ Details; the translation units and the media reference walks read it. Hiding
 never creates deferred invalid state and revealing never repairs or rewrites a
 definition.
 
-Sort lives on each column. `lib/domain/caseListOrder.ts::caseListOrderPlan` is the one statement of a list's order: what HQ's build writes for the app Nova sends, each rule with its citation in the module. Its `fields` are the short detail's fields in stored order, each with its wire class (a property column or an expression column), the text HQ joins a sort element to it by, the sort key it keeps with no rule, and its rule if the list orders by it; its `carriers` are the hidden sort fields HQ appends for rules that join no field. Authored rules become elements in `priority` order, ties by Results position; each lands on the first field whose join text equals its own; a list with no authored rule orders by its first shown field's own key, ascending, compared as text; blanks follow the rule's own blanks, first ascending and last descending where the author says nothing. HQ JSON, the local suite and Preview's case store all read the plan, so the three order alike. `CASE_LIST_DUPLICATE_SORT_PRIORITY` stays soundness, and `CASE_LIST_SORT_PROPERTY_AMBIGUOUS` refuses two rules over one value, and a rule that would land on a field with another key, so in an admitted document every rule orders as authored. The schema has no parallel `SortKey[]` array, so sort directives cannot refer to a non-existent column. HQ JSON writes each element in the Case List page's own spelling (`type` `plain`, `date`, `int` or `double`, `blanks` `first` or `last`, `display` keyed by the first language's wire code, `sort_calculation` empty), so a save there changes nothing.
+A column's order rule lives on the column. A separate calculation can order
+cases without adding a field to Results or Details. Each calculation has its
+own identity, typed expression, priority, comparison and optional translated
+worker name. `lib/domain/caseListOrder.ts::caseListOrderPlan` resolves both
+kinds of rule for HQ JSON, the local suite and Preview's case store. A field
+rule joins HQ's first matching short-detail field or supplies a hidden field.
+With no authored rule the first shown field orders the list by its own key,
+ascending as text. With an authored rule its comparison, direction and blank
+placement decide the order. The gate rejects ambiguous field ownership and
+duplicate priority. The HQ writer spells comparisons and blank placement as
+the Case List editor saves them.
+HQ groups calculation-only order rows by their exact expression text. The first
+occurrence places the worker choice and its last occurrence sets precedence.
+The case list writer keeps this distinction for reading, applying an HQ edit
+and projecting an app back to the Case List editor. The target needs
+`SORT_CALCULATION_IN_CASE_LIST` to keep these rules on save. A sort over a
+named property that no displayed column shows still uses a hidden column.
+
 
 The comparator of each element is derived in the plan, not authored: integer or decimal only for a `property` or `calculated` key over an integer or decimal value (`caseListOrder.ts::comparatorForDataType`, and the plan's `calculatedType` option for a calculated column), and text for every key a field keeps on its own (a date's stored value, a mapping's position, a select's label, an interval's text).
 
@@ -2561,7 +2587,7 @@ every emitted field stomps the target's value on every republish.
 HQ features the pipeline does not cover yet — the validator's `app`/`module`/`form`/`field` rules gate additions as they land:
 
 - Shadow modules, parent-select cycles
-- Smart links, case list field actions
+- Smart links; a case list icon's destination (see "Case list icon actions" below)
 - Sort field format regex, multimedia
 - Itemset `<copy>` mode (lookup-backed selects emit value/label itemsets)
 - Repeat homogeneity
@@ -2617,6 +2643,34 @@ compares known XPath slots through the Lezer tree, ignoring only spelling whites
 and quote delimiters while preserving operands, grouping and literal contents.
 Canonical wire formatting therefore does not invalidate an already published endpoint;
 ordinary values and URLs remain exact, and malformed or unknown shapes fail closed.
+
+### Case list icon actions
+
+An image column on Results may name a form's deep link by identity
+(`Column.entryPointUuid`, image-map only): CommCare's clickable icon, which a
+worker taps in Web Apps to submit that form for the tapped case without leaving
+the list. `listIconAction.ts` is the one place that decides it. A destination
+is a form's entry point on a form that requires a chosen case
+(`Form.requires_case`), is reached from the menu or ignores display conditions,
+and takes exactly one argument, a single case of the type the tap passes. The
+tap passes the row's case, a grouped tile's header passes the group's index
+target, and a grouped tile's body is refused, since Web Apps keeps only each
+group's first case and passes it for every body icon (`menus/views.js::iconClick`,
+`CaseTileGroupedListView.initialize`). Android shows the image's path and runs
+nothing, so an app that runs on Android holds none. HQ's Case List editor offers
+only forms whose XForm makes `Pragma-Submit-Automatically` a question's label
+(`views/modules.py::_form_endpoint_options`, `Form.is_auto_submitting_form`);
+that answer comes from `lib/domain/automaticSubmission.ts`, and while Nova has no
+automatic submission no form qualifies and the gate refuses every icon action
+(`CASE_LIST_ICON_ACTION_INVALID`, an app rule, since an edit to another menu's
+form can strand it). The HQ JSON writes the short detail's column as
+`clickable-icon` with the destination's current `endpoint_action_id`; the suite
+writes `template form="clickable-icon"` and `<endpoint_action endpoint_id=…
+background="true"/>` after the template (`xml_models.py::Field.ORDER`), and in a
+named tile after the cell's template as `icon_text_grid.xml` does. The case
+detail keeps the image. The project space needs `CASE_LIST_CLICKABLE_ICON`
+beside the deep links' `SESSION_ENDPOINTS`. The reader still refuses an HQ
+clickable icon as HELD-NEW (`menus-and-case-lists/16-clickable-icon-…`).
 
 ### Manual links into Search
 
@@ -2726,3 +2780,22 @@ For a source-backed menu, the emitted command identifies the route menu and the 
 The reader binds `previous_screen` to the form’s explicit Previous choice wherever the form’s menu offers it. The frame projector uses the actual ordered entries to distinguish a commandless Home frame from a form command that still needs a selection. For Android, the projected Home frame includes each other form and browse command that reads the same selected datum and record type. A shared datum that an unrelated command uses for a different record type raises a placed finding.
 
 HQ’s `function_datum_endpoints` stores computed datum names on each source form independently of `session_endpoint_id`. `availableEntryCaseCreations` joins the actual frame’s function datums to the case operations whose XForms use them. An exposed creation becomes one scalar argument and a bound stack datum on that form’s endpoint. It contributes no claim request. Source order and repeated choices survive an HQ read and publish. HQ tests membership as it walks the frame, so a repeated choice still yields one argument. The reader places a finding when a purported supply has no unique case creation on its frame.
+
+A calculated case field with translated wording lowers to an HQ
+`translatable-enum`. Its declared variables bind both template and sort.
+HQ expands each native key across its entire field, including quoted
+literals, in declaration order. The reader performs that expansion before
+binding real variable nodes to their scoped text UUIDs. Export chooses keys
+that cannot rewrite literal data or resolved property and lookup names.
+
+### Long detail and persistent context
+
+The HQ writer and suite compiler use the same tab partition, selected-case
+condition and typed row source. Direct fixture fields keep HQ's property-header
+identity. Calculations use a calculated header identity. The long detail emits
+localized nested detail titles in the physical column order. A custom long
+tile uses its own geometry on each span. Named short tiles use the fixed
+reader order and the native label prefix. Form entries carry the effective
+source's persistent detail, and an inline detail replaces case confirmation.
+The one-line fallback emits a dedicated centered detail. An unrelated menu's
+tile always renders the case already selected for this entry.

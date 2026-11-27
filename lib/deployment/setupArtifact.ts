@@ -876,28 +876,28 @@ function levelsInSetupOrder(
 function workerRecordSection(
 	input: SetupArtifactInput,
 ): SetupArtifactSection | null {
-	const forms = [
-		...menusUsingWorkerRecord(input.doc),
-		...formsUsingWorkerRecord(input.doc).map((form) => ({
-			...form,
-			uuid: form.formUuid,
-		})),
-	];
-	if (forms.length === 0) return null;
+	const forms = formsUsingWorkerRecord(input.doc);
+	const menus = menusUsingWorkerRecord(input.doc);
+	if (forms.length === 0 && menus.length === 0) return null;
 	return {
 		id: "worker-record",
 		title: workerRecordSetup.title,
 		summary: workerRecordSetup.detail,
 		url: null,
-		steps: forms.map((form) =>
-			step(form.uuid, form.name, [
-				form.reads && form.writes
-					? "Reads and saves worker information"
-					: form.reads
-						? "Reads worker information"
-						: "Saves worker information",
-			]),
-		),
+		steps: [
+			...forms.map((form) =>
+				step(form.formUuid, form.name, [
+					form.reads && form.writes
+						? "Reads and saves worker information"
+						: form.reads
+							? "Reads worker information"
+							: "Saves worker information",
+				]),
+			),
+			...menus.map((menu) =>
+				step(menu.uuid, menu.name, ["Shows worker information in a case view"]),
+			),
+		],
 		caveats: [workerRecordSetup.consequences],
 	};
 }

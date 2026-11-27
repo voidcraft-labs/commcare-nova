@@ -1831,7 +1831,9 @@ that plays its audio (`views/EntityActionViewUtils.java`). The platform row
 ### Case tiles
 
 A module's case list is laid out either as a row of columns or as a **tile** — a
-12 × 12 grid where each Results field occupies a rectangle. The layout lives on
+grid twelve columns wide with a row for each field it shows, at least six
+(`lib/domain/modules.ts::tileRowLimit`), where each Results field occupies a
+rectangle. The layout lives on
 `caseListConfig.tile` and its presence IS the switch; each column carries its own
 `tile` cell (`{x, y, width, height}` plus optional alignment, text size, border,
 and shading). Placement is deliberately separate from the case list's two
@@ -1903,8 +1905,23 @@ The wire facts that shape the emitter:
   enforcement is a Knockout dropdown range, and its parity assertion
   (`tests/test_suite_case_tiles.py::SuiteCaseTilesTest.test_case_tile_column_count`)
   lints only the two shipped named templates and never sees a `custom` tile.
-  Nova enforces 12 columns and 12 rows itself, plus no-overlap and full coverage,
-  in `lib/commcare/validator/rules/case-list/caseTileLayout.ts`.
+  Nova enforces 12 columns itself, plus no-overlap and full coverage, in
+  `lib/commcare/validator/rules/case-list/caseTileLayout.ts`.
+- **The rows are the rows HQ's own pages keep.** The Case List and Case Detail
+  pages offer a cell's start row and height from `max(columns + 1, 7)`, the
+  columns being that screen's non-filter columns and, on the case detail, its
+  tabs (`details/bootstrap5/screen.js`, `caseTileRowMax`; `column.js`,
+  `tileRowOptions`, `tileHeightOptions`), each a Knockout `value` with
+  `options` and no `valueAllowUnset`, so a stored start the page does not offer
+  comes back as row 1 and a height it does not offer as 1, and the page's next
+  save writes that (proof 4 over `targeted-tile-row-bound`). So a cell's bottom
+  edge may reach `max(fields, 6)` (`tileRowLimit`; `resultsTileFieldCount`,
+  `detailsTileFieldCount`), and a tile of more than twelve fields is taller than
+  twelve rows, which both runtimes draw to its last cell. A field or tab that
+  leaves a screen takes a row with it, so the batch that removes or hides it
+  fits a cell below the new bottom back in (`lib/doc/detailFieldVisibility.ts`,
+  `fitTileCellIntoRows`); the reader refuses a cell below the rows the page
+  offers (`custom-tile-cell-below-the-rows-hq-s-page-offers`).
 - **Vertical alignment is authored in Nova's words and emitted in the wire's.**
   `top` / `middle` / `bottom` emit as `start` / `center` / `end`, because
   `views.js::getValidFieldAlignment` silently rewrites anything outside
@@ -1926,11 +1943,39 @@ Emitted bytes are asserted against HQ's own fixtures —
 `case_tile_pulldown_session.xml` for `detail-persistent`.
 `lib/commcare/CLAUDE.md` (§ Case-tile emission) owns the emitter detail.
 
-Two scope fences are deliberate. Long-detail tiles stay out: CommCare allows
-`custom` on the case-detail screen, and Nova keeps that screen a field list.
-Pull-down (`detail-inline`) stays out because it is a navigation change rather
-than a layout one — it replaces the case-detail confirm screen by folding the
-long detail into the persistent tile.
+### Detail tabs and case context above a form
+
+Each Details tab has a UUID, localized title and first visible column UUID. All visible
+columns belong to exactly one contiguous tab. HQ stores physical offsets and creates
+one child detail for each span. Nova derives offsets from the current Details order.
+HQ gives a group no ID. During bring-in, its least external member key identifies
+it across title changes, moves and reordering fields within the group.
+A tab's condition reads the selected case. HQ collects instance declarations from
+the entry, its query, referenced detail fields and row sources. A condition alone
+cannot introduce a fixture. Nova checks the routes that open a tab, including
+standalone search and another menu's expanded context. The compiler checks each
+condition's instance ID and source against the finished entry. Its optional row source selects either
+open children through the parent index or a typed collection of cases, table rows
+or places. Each field in that tab reads its displayed row. A direct table column
+keeps its identity when the table column is renamed. Hidden ordering fields on
+an ordinary data tab use ascending text order in physical order. Duplicate wire
+fields take the last position assigned to their first occurrence.
+
+Results supports either a custom grid or the complete ten-position arrangement
+defined by the native reader. On an independent Details grid, cell coordinates
+belong to the Details field UUID and can differ from its Results placement. Web
+Apps draws this grid. Android's long-detail adapter draws labeled rows. Fields
+from distinct tabs at the same grid row require an advanced menu when its
+case selections and existing placement allow it.
+
+A form can retain a chosen case using another menu's Results tile, the local
+persistent tile or a one-line expression. The source menu supplies the display.
+The selecting menu and its chosen case still supply the record. A pull-down
+uses the source's long detail, with the local persistent tile's detail as a
+fallback. It opens the form directly and shows Details when the worker expands
+the context. Project compatibility checks the capabilities required for the
+selected layout and line. The source reader keeps a reachable local fallback
+and reports a dangling or incompatible source at the selection that needs repair.
 
 ### Grouped case tiles
 
@@ -3593,6 +3638,8 @@ ordinary choice widget can appear unanswered until another path needs the
 selection. A leading empty multi-select token fails during initialization.
 The pinned evidence and retained regression are recorded in
 `docs/research/inline-choice-starting-values.md`.
+
+For a tab over an explicit collection, HQ’s `get_child_case_types` independently reads the tab’s child type from every search-enabled menu of the matching case type. Nova keeps it as `rowSource.includeChildrenOfType`. Search expansion includes related cases even when the detail collection does not display them.
 
 ## Forms listed in another menu
 

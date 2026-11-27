@@ -109,6 +109,29 @@ final class Forms {
         }
         form.put("loaded", true);
         describe(activity, started, form);
+        if (views) {
+            // Read the holder the activity's breadcrumb bar installed. Its
+            // own information button opens and closes the inline detail.
+            Views.fillScreen(activity);
+            View context = activity.findViewById(R.id.com_tile_holder_frame);
+            if (context != null && context.isShown()) {
+                JSONObject tile = new JSONObject();
+                form.put("caseContext", tile);
+                tile.put("values", Views.texts(context));
+                View info = activity.findViewById(R.id.com_tile_holder_btn_open);
+                boolean expands = info != null && info.isShown();
+                tile.put("expands", expands);
+                if (expands) {
+                    info.performClick();
+                    ShadowLooper.idleMainLooper();
+                    Views.fillScreen(activity);
+                    View detail = activity.findViewById(R.id.com_tile_holder_detail_frame);
+                    tile.put("detail", Views.texts(detail));
+                    info.performClick();
+                    ShadowLooper.idleMainLooper();
+                }
+            }
+        }
         // The cases the device holds as the form opens, to say whether a form it then refuses left any mark.
         String casesBefore = Cases.read().toString();
         // The records the device held as the form opened, each with its status: what this form's save and send

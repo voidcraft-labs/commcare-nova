@@ -89,6 +89,7 @@ import {
 	RelationEvaluationScopeError,
 } from "@/lib/domain/expression/normalizeRelationEvaluationScopes";
 import { normalizeRelationPropertyReads as liftPropertyVias } from "@/lib/domain/expression/normalizeRelationReads";
+import { walkExpressionTerms } from "@/lib/domain/expression/walk";
 import { type ValidationError, validationError } from "../../errors";
 import type { LookupTypeIndex } from "../../lookupTypeContext";
 import { relationEvaluationContext } from "./shared";
@@ -188,6 +189,10 @@ function scanPredicate(
 	predicate: Expression,
 	ctx: ExpressionContext,
 ): NestedWalkFinding[] {
+	// The checker refuses a reached read where HQ's server search runs
+	// (`typeChecker.ts`, reason `reached-in-search`), and the CSQL lift has
+	// no spelling of one, so the predicate holds no envelope to judge.
+	if (holdsReachedRead(predicate)) return [];
 	let normalized: Expression;
 	try {
 		normalized = normalizeRelationEvaluationScopes(
@@ -208,6 +213,14 @@ function scanPredicate(
 	const findings: NestedWalkFinding[] = [];
 	walkOuter(lifted, findings);
 	return findings;
+}
+
+function holdsReachedRead(expression: Expression): boolean {
+	let found = false;
+	walkExpressionTerms(expression, (term) => {
+		if (term.kind === "prop" && term.readReached) found = true;
+	});
+	return found;
 }
 
 /**

@@ -5,23 +5,33 @@
  * tile list, are no part of any wire Nova writes, so they are claimed and
  * dropped (`modules.ts::tileCellFor`).
  */
+
 import {
 	type BlueprintDoc,
 	type Column,
 	makeTranslationUnitId,
+	NAMED_TILE_SLOTS,
+	type NamedTileSlot,
 	orderedColumns,
 	plainColumn,
 	type Uuid,
 } from "@/lib/domain";
+import { effectiveCaseTypes } from "@/lib/domain/effectiveCaseTypes";
 import { XML_ELEMENT_NAME_PATTERN } from "@/lib/domain/expression/types";
 import {
 	type CaseListConfig,
+	caseTileGroupingSchema,
 	TILE_FONT_SIZES,
+	TILE_GRID_COLUMNS,
 	TILE_HORIZONTAL_ALIGNS,
 	type TileCell,
 	type TileVerticalAlign,
+	tileCellIsGroupBody,
+	tileCellsOverlap,
+	tileRowLimit,
 } from "@/lib/domain/modules";
 import { recordFromEntries } from "@/lib/domain/records";
+import { readNamedTileSlot } from "../../suite/case-list/namedTile";
 import { TILE_VERTICAL_ALIGN_WIRE } from "../../suite/case-list/tileStyle";
 import { DERIVED_WIRE_IDENTITY } from "../../wireIdentity";
 import { withCandidate } from "../candidate";
@@ -30,7 +40,8 @@ import type { DraftModule, ReadContext } from "../context";
 import { externalKey } from "../identity";
 import { reReadUuidOf } from "../identityMap";
 import { isJsonObject, type JsonCursor } from "../jsonCursor";
-import type { JoinedDetails } from "./details";
+import { storedColumnKind } from "./columnIdentity";
+import { type JoinedDetails, persistHeldByExternalPullDown } from "./details";
 import { claimRestUnderFinding } from "./refusedWhole";
 
 const A = "menus-and-case-lists/";
@@ -52,9 +63,21 @@ export const TILE_CLAIMS = defineClaims("caseList.tile", {
 		`${A}detail-case-tile-template-custom`,
 		"schema:Detail.case_tile_template",
 	),
-	iconTextGrid: refuse(
+	iconTextGrid: take(
 		`${A}detail-case-tile-template-icon-text-grid`,
 		"schema:Detail.case_tile_template",
+	),
+	namedSlot: take(
+		`${A}case-tile-field-template-slot-on-icon-text-grid`,
+		"schema:DetailColumn.case_tile_field",
+	),
+	incompleteNamedTile: refuse(
+		`${A}named-case-tile-missing-a-required-slot`,
+		"schema:Detail.case_tile_template",
+	),
+	inactiveNamedSlot: drop(
+		`${A}unused-slot-of-a-named-case-tile`,
+		"schema:DetailColumn.case_tile_field",
 	),
 	personSimple: refuse(
 		`${A}detail-case-tile-template-person-simple`,
@@ -64,7 +87,7 @@ export const TILE_CLAIMS = defineClaims("caseList.tile", {
 		`${A}detail-case-tile-template-other-than-custom-person-simple-or`,
 		"schema:Detail.case_tile_template",
 	),
-	longCustom: refuse(
+	longCustom: take(
 		`${A}long-detail-custom-tile-case-detail-laid-out-as-a-tile`,
 		"schema:Detail.case_tile_template",
 	),
@@ -137,6 +160,34 @@ export const TILE_CLAIMS = defineClaims("caseList.tile", {
 		`${A}custom-tile-font-size-null`,
 		"schema:DetailColumn.font_size",
 	),
+	overlapping: refuse(
+		`${A}custom-tile-cells-covering-the-same-square`,
+		"schema:DetailColumn.grid_x",
+	),
+	outsideGrid: refuse(
+		`${A}custom-tile-cell-outside-the-grid`,
+		"schema:DetailColumn.grid_x",
+	),
+	pastOfferedRows: refuse(
+		`${A}custom-tile-cell-below-the-rows-hq-s-page-offers`,
+		"schema:DetailColumn.grid_y",
+	),
+	tallX: take(
+		`${A}custom-tile-cell-below-the-twelfth-row`,
+		"schema:DetailColumn.grid_x",
+	),
+	tallY: take(
+		`${A}custom-tile-cell-below-the-twelfth-row`,
+		"schema:DetailColumn.grid_y",
+	),
+	tallWidth: take(
+		`${A}custom-tile-cell-below-the-twelfth-row`,
+		"schema:DetailColumn.width",
+	),
+	tallHeight: take(
+		`${A}custom-tile-cell-below-the-twelfth-row`,
+		"schema:DetailColumn.height",
+	),
 });
 
 const T = TILE_CLAIMS;
@@ -160,6 +211,8 @@ export interface TileReading {
 	readonly config?: NonNullable<CaseListConfig["tile"]>;
 	/** Each placed column's cell, by its index in the join. */
 	readonly cells: ReadonlyMap<number, TileCell>;
+	readonly detailCells?: ReadonlyMap<number, TileCell>;
+	readonly slots?: ReadonlyMap<NamedTileSlot, number>;
 }
 
 /** HQ's vertical words read back to Nova's, by the table the projection writes them with. */
@@ -189,6 +242,8 @@ function readCell(
 	ctx: ReadContext,
 	column: JsonCursor,
 	template: string,
+	rows: number,
+	overlapping = false,
 ): TileCell | "finding" {
 	const refused = (claim: Claim<"refuse">): "finding" => {
 		ctx.accounting.findingAt(claim, column.place, column.pointer);
@@ -216,6 +271,10 @@ function readCell(
 	)
 		return refused(T.alignNull);
 	if (font === null || font === undefined) return refused(T.fontNull);
+	const grid = gridFit(column, rows);
+	if (grid === "outside") return refused(T.outsideGrid);
+	if (grid === "past-offered-rows") return refused(T.pastOfferedRows);
+	if (overlapping) return refused(T.overlapping);
 	const verticalWord =
 		typeof vertical === "string" ? VERTICAL_FROM_WIRE.get(vertical) : undefined;
 	if (
@@ -240,11 +299,12 @@ function readCell(
 		return "finding";
 	}
 	column.take("vertical_align", T.vertical, String).value;
+	const tall = grid === "below-the-twelfth-row";
 	const cell: TileCell = {
-		x: column.take("grid_x", T.gridX, Number).value,
-		y: column.take("grid_y", T.gridY, Number).value,
-		width: column.take("width", T.width, Number).value,
-		height: column.take("height", T.height, Number).value,
+		x: column.take("grid_x", tall ? T.tallX : T.gridX, Number).value,
+		y: column.take("grid_y", tall ? T.tallY : T.gridY, Number).value,
+		width: column.take("width", tall ? T.tallWidth : T.width, Number).value,
+		height: column.take("height", tall ? T.tallHeight : T.height, Number).value,
 		horizontalAlign: column.take("horizontal_align", T.horizontal, String)
 			.value as TileCell["horizontalAlign"],
 		verticalAlign: verticalWord,
@@ -261,12 +321,145 @@ function readCell(
 }
 
 /**
+ * Where a stored cell stands against the grid of the screen that holds it, of `rows` rows
+ * (`screenTileRows`). `outside`: a cell starting left of or above the grid, spanning less than one
+ * square, or running past the twelfth column. HQ's Case List page bounds its pickers to the twelve
+ * columns (`details/bootstrap5/column.js`, `tileColumnMax`), so only an imported app holds one, and
+ * Android does not draw it: a cell past the twelfth column stops the list
+ * (`views/EntityViewTile.java::coordinatesInvalid`, "grid coordinates out of bounds"), one left of
+ * or above the grid is skipped, and a span of none has no size (`getLayoutParamsForField`).
+ * `past-offered-rows`: a cell inside those columns whose bottom edge passes the rows HQ's page
+ * offers that screen, `max(columns, 6)` (`lib/domain/modules.ts::TILE_MIN_ROWS`): the page's next
+ * save moves it to the first row or makes it one row tall (observed by proof 4 over
+ * `targeted-tile-row-bound`), and Nova's gate refuses it. `below-the-twelfth-row`: a cell inside
+ * the offered rows that runs past the twelfth, which a screen of more than twelve columns offers
+ * and both runtimes size the tile to (Core's `Detail.getMaxWidthHeight`, Android's `getMaxRows`).
+ * `fits` otherwise, and where a number is not there to judge.
+ */
+function gridFit(
+	column: JsonCursor,
+	rows: number,
+): "fits" | "outside" | "past-offered-rows" | "below-the-twelfth-row" {
+	const box = storedBox(column);
+	if (box === undefined) return "fits";
+	if (
+		box.x < 0 ||
+		box.y < 0 ||
+		box.width < 1 ||
+		box.height < 1 ||
+		box.x + box.width > TILE_GRID_COLUMNS
+	)
+		return "outside";
+	const bottom = box.y + box.height;
+	if (bottom > rows) return "past-offered-rows";
+	return bottom > TWELVE_ROWS ? "below-the-twelfth-row" : "fits";
+}
+
+/** The row past which a held cell is the class `custom-tile-cell-below-the-twelfth-row`: the
+ *  twelve rows Nova's grid held before it followed HQ's page, kept as the class's edge. */
+const TWELVE_ROWS = 12;
+
+/**
+ * The rows HQ's Case List or Case Detail page offers one detail's tile: `max(n, 6)`, n its
+ * non-filter columns and, on a long detail, its tabs, which the page holds as columns
+ * (`details/bootstrap5/screen.js`, `caseTileRowMax`, the tabs spliced into the columns before the
+ * filters are dropped). The same count as `lib/domain/modules.ts::tileRowLimit` over the
+ * document the reading gives.
+ */
+function screenTileRows(detail: JsonCursor, withTabs: boolean): number {
+	const columns = detail.peek("columns");
+	const tabs = detail.peek("tabs");
+	const counted =
+		(Array.isArray(columns) ? columns : []).filter(
+			(column) => !isJsonObject(column) || column.format !== "filter",
+		).length + (withTabs && Array.isArray(tabs) ? tabs.length : 0);
+	return tileRowLimit(counted);
+}
+
+/** A stored cell's square, where its four numbers are all there. */
+function storedBox(column: JsonCursor): TileCell | undefined {
+	const [x, y, width, height] = (
+		["grid_x", "grid_y", "width", "height"] as const
+	).map((key) => column.peek(key));
+	if (
+		typeof x !== "number" ||
+		typeof y !== "number" ||
+		typeof width !== "number" ||
+		typeof height !== "number"
+	)
+		return undefined;
+	return { x, y, width, height } as TileCell;
+}
+
+/** Body placement of a width-zero field in a custom Web Apps tile. */
+export function widthZeroTileValueShowsInWebApps(
+	short: JsonCursor,
+	column: JsonCursor,
+): boolean {
+	const group = short.peek("case_tile_group");
+	const format = column.peek("format");
+	if (
+		short.peek("case_tile_template") !== "custom" ||
+		(format !== "invisible" && format !== "address") ||
+		!isJsonObject(group)
+	)
+		return false;
+	// An omitted header is the two rows HQ's CaseTileGroupConfig supplies.
+	const grouping = caseTileGroupingSchema.safeParse({
+		identifier: group.index_identifier,
+		headerRows: group.header_rows === undefined ? 2 : group.header_rows,
+	});
+	if (!grouping.success) return false;
+	const cell = storedBox(column);
+	if (cell === undefined || !Object.values(cell).every(Number.isSafeInteger))
+		return false;
+	const fit = gridFit(column, screenTileRows(short, false));
+	return (
+		(fit === "fits" || fit === "below-the-twelfth-row") &&
+		tileCellIsGroupBody(cell, grouping.data.headerRows)
+	);
+}
+
+/**
+ * The columns among `group` whose stored cell covers a square another one of the group covers.
+ * CommCare HQ saves such a tile as it is, and the device draws one field over the other, while
+ * Nova's tile gives every shown field a square of its own
+ * (`validator/rules/case-list/caseTileLayout.ts`), so each such cell is a finding the person can
+ * resolve in HQ's Case List page by moving one of the fields.
+ */
+function overlappingCells(group: readonly JsonCursor[]): Set<JsonCursor> {
+	const boxes = group.flatMap((cursor) => {
+		const box = storedBox(cursor);
+		return box === undefined ? [] : [{ cursor, box }];
+	});
+	const found = new Set<JsonCursor>();
+	for (let a = 0; a < boxes.length; a++)
+		for (let b = a + 1; b < boxes.length; b++)
+			if (tileCellsOverlap(boxes[a].box, boxes[b].box)) {
+				found.add(boxes[a].cursor);
+				found.add(boxes[b].cursor);
+			}
+	return found;
+}
+
+/** Each long column's tab, by the first column of each tab (`DetailTab.starting_index`); one
+ *  group where the detail holds no tab whose start is a number. */
+function tabGroupOf(long: JsonCursor): (index: number) => number {
+	const tabs = long.peek("tabs");
+	const starts = (Array.isArray(tabs) ? tabs : [])
+		.map((tab) => (isJsonObject(tab) ? tab.starting_index : undefined))
+		.filter((start): start is number => typeof start === "number")
+		.sort((a, b) => a - b);
+	return (index) => starts.filter((start) => start <= index).length;
+}
+
+/**
  * Reads the short detail's tile into the case list's `tile` and each placed column's cell, and
  * claims the cell keys no wire writes. A tile on the long detail is a finding.
  */
 export function readTile(
 	ctx: ReadContext,
-	_module: DraftModule,
+	module: DraftModule,
 	short: JsonCursor,
 	long: JsonCursor,
 	joined: JoinedDetails,
@@ -277,34 +470,100 @@ export function readTile(
 	let ok = true;
 	const cells = new Map<number, TileCell>();
 	const longTemplate = long.peek("case_tile_template");
-	if (typeof longTemplate === "string" && longTemplate !== "") {
-		long.refuse(
-			"case_tile_template",
-			longTemplate === "custom" ? T.longCustom : T.longOther,
+	let detailCells: Map<number, TileCell> | undefined;
+	if (longTemplate === "custom") {
+		long.take("case_tile_template", T.longCustom, String).value;
+		detailCells = new Map();
+		const groupOf = tabGroupOf(long);
+		const placedLong = new Map<number, JsonCursor[]>();
+		for (const column of joined.columns) {
+			if (column.long === undefined) continue;
+			const group = groupOf(column.long);
+			placedLong.set(group, [
+				...(placedLong.get(group) ?? []),
+				longColumns[column.long],
+			]);
+		}
+		const longRows = screenTileRows(long, true);
+		const overlapsLong = new Set(
+			[...placedLong.values()].flatMap((group) => [...overlappingCells(group)]),
 		);
-		ok = false;
+		for (const [index, column] of joined.columns.entries()) {
+			if (column.long === undefined) continue;
+			const cursor = longColumns[column.long];
+			const cell = readCell(
+				ctx,
+				cursor,
+				`${long.pointer}/case_tile_template`,
+				longRows,
+				overlapsLong.has(cursor),
+			);
+			if (cell === "finding") ok = false;
+			else detailCells.set(index, cell);
+		}
+	} else {
+		if (typeof longTemplate === "string" && longTemplate !== "") {
+			long.refuse("case_tile_template", T.longOther);
+			ok = false;
+		}
+		for (const column of longColumns) dropCells(column);
 	}
-	for (const column of longColumns) dropCells(column);
 	const template = short.peek("case_tile_template");
 	if (template === null || template === undefined || template === "") {
 		for (const column of shortColumns) dropCells(column);
-		return { ok, cells };
+		return { ok, cells, detailCells };
 	}
-	if (template !== "custom") {
+	if (template !== "custom" && template !== "icon_text_grid") {
 		short.refuse(
 			"case_tile_template",
-			template === "icon_text_grid"
-				? T.iconTextGrid
-				: template === "person_simple"
-					? T.personSimple
-					: T.otherTemplate,
+			template === "person_simple" ? T.personSimple : T.otherTemplate,
 		);
 		for (const column of shortColumns) dropCells(column);
-		return { ok: false, cells };
+		return { ok: false, cells, detailCells };
 	}
-	short.take("case_tile_template", T.custom, String).value;
+	const named = template === "icon_text_grid";
+	const slots = new Map<NamedTileSlot, number>();
+	if (named) {
+		const assignments = new Map<NamedTileSlot, number>();
+		shortColumns.forEach((cursor, i) => {
+			const slot = readNamedTileSlot(cursor.peek("case_tile_field"));
+			if (slot) assignments.set(slot, i);
+		});
+		shortColumns.forEach((cursor, i) => {
+			if (!cursor.used("case_tile_field")) return;
+			const slot = readNamedTileSlot(cursor.peek("case_tile_field"));
+			if (slot && assignments.get(slot) === i)
+				cursor.take("case_tile_field", T.namedSlot, String).value;
+			else cursor.drop("case_tile_field", T.inactiveNamedSlot);
+		});
+		for (const [i, col] of joined.columns.entries()) {
+			if (col.short === undefined) continue;
+			const slot = readNamedTileSlot(
+				shortColumns[col.short].peek("case_tile_field"),
+			);
+			if (slot && assignments.get(slot) === col.short) slots.set(slot, i);
+		}
+		if (assignments.size !== NAMED_TILE_SLOTS.length) {
+			short.refuse("case_tile_template", T.incompleteNamedTile);
+			ok = false;
+		} else short.take("case_tile_template", T.iconTextGrid, String).value;
+	} else short.take("case_tile_template", T.custom, String).value;
 	const config: NonNullable<CaseListConfig["tile"]> = {};
-	if (short.peek("persist_tile_on_forms") === true) {
+	const rawSlots = [...slots]
+		.filter(([, i]) => {
+			const key = joined.columns[i]?.short;
+			return (
+				key !== undefined && shortColumns[key].peek("format") === "invisible"
+			);
+		})
+		.map(([slot]) => slot);
+	if (rawSlots.length) config.rawSlots = rawSlots;
+	// Beside another menu's tile expanded above the forms, the switch is that source's setting
+	// (`details.ts::persistHeldByExternalPullDown`), read there, never this tile persisting.
+	if (
+		short.peek("persist_tile_on_forms") === true &&
+		!persistHeldByExternalPullDown(ctx, module, short)
+	) {
 		short.take("persist_tile_on_forms", T.persist, Boolean).value;
 		config.persistOnForms = true;
 	}
@@ -333,24 +592,55 @@ export function readTile(
 			};
 		}
 	}
+	const placesCell = (column: JoinedDetails["columns"][number]) => {
+		const cursor =
+			column.short === undefined ? undefined : shortColumns[column.short];
+		return cursor !== undefined &&
+			!named &&
+			!(column.visibleInList === false && cursor.peek("format") !== "invisible")
+			? cursor
+			: undefined;
+	};
+	const shortRows = screenTileRows(short, false);
+	const overlapsShort = overlappingCells(
+		joined.columns.flatMap((column) => placesCell(column) ?? []),
+	);
 	joined.columns.forEach((column, index) => {
 		if (column.short === undefined) return;
 		const cursor = shortColumns[column.short];
 		if (cursor === undefined) return;
-		if (column.visibleInList === false) {
+		if (placesCell(column) === undefined) {
 			dropCells(cursor);
 			return;
 		}
-		const cell = readCell(ctx, cursor, `${short.pointer}/case_tile_template`);
+		const cell = readCell(
+			ctx,
+			cursor,
+			`${short.pointer}/case_tile_template`,
+			shortRows,
+			overlapsShort.has(cursor),
+		);
 		if (cell === "finding") ok = false;
-		else cells.set(index, cell);
+		else
+			cells.set(
+				index,
+				cursor.peek("format") === "invisible"
+					? { ...cell, androidOnly: true }
+					: cell,
+			);
 	});
 	// A column an inert row dropped writes no field, so no cell (`detail_screen.py::Filter`).
 	for (const index of dropped) {
 		const cursor = shortColumns[index];
 		if (cursor !== undefined) dropCells(cursor);
 	}
-	return { ok, config, cells };
+	return {
+		ok,
+		config,
+		cells,
+		detailCells,
+		...(named && slots.size === NAMED_TILE_SLOTS.length && { slots }),
+	};
 }
 
 /**
@@ -380,6 +670,7 @@ export function tileColumnsShownNowhereAsRead(doc: BlueprintDoc): BlueprintDoc {
 		);
 	});
 	if (changed.length === 0) return doc;
+	const effectiveTypes = effectiveCaseTypes(doc);
 	const reRead = reReadUuidOf(doc, DERIVED_WIRE_IDENTITY);
 	return withCandidate(doc, (draft) => {
 		for (const uuid of changed) {
@@ -412,9 +703,17 @@ export function tileColumnsShownNowhereAsRead(doc: BlueprintDoc): BlueprintDoc {
 			];
 			const source = doc.modules[uuid]?.caseListConfig;
 			if (source === undefined) continue;
+			const kinds = new Map(
+				source.columns.map((c) => [
+					c.uuid,
+					storedColumnKind(c, doc.modules[uuid]?.caseType, effectiveTypes),
+				]),
+			);
+			const raw = (id: Uuid) => kinds.get(id) !== "choice-label";
 			const renamed = carriersAsPlainColumns(
 				config,
-				plainColumnKeys(source),
+				plainColumnKeys(source, raw),
+				raw,
 				(field, n) =>
 					reRead(
 						externalKey.caseListColumn(
@@ -442,11 +741,14 @@ export function tileColumnsShownNowhereAsRead(doc: BlueprintDoc): BlueprintDoc {
 
 /** The identity of each plain column of `config`, by its field and its ordinal among plain
  *  columns of that field in the list's order: the key a reading claims a plain column under. */
-function plainColumnKeys(config: CaseListConfig): ReadonlyMap<string, Uuid> {
+function plainColumnKeys(
+	config: CaseListConfig,
+	raw: (id: Uuid) => boolean,
+): ReadonlyMap<string, Uuid> {
 	const keys = new Map<string, Uuid>();
 	const counts = new Map<string, number>();
 	for (const column of orderedColumns(config, "list")) {
-		if (column.kind !== "plain") continue;
+		if (column.kind !== "plain" || !raw(column.uuid)) continue;
 		const n = counts.get(column.field) ?? 0;
 		counts.set(column.field, n + 1);
 		keys.set(JSON.stringify([column.field, n]), column.uuid);
@@ -463,6 +765,7 @@ function plainColumnKeys(config: CaseListConfig): ReadonlyMap<string, Uuid> {
 function carriersAsPlainColumns(
 	config: CaseListConfig,
 	known: ReadonlyMap<string, Uuid>,
+	raw: (id: Uuid) => boolean,
 	mint: (field: string, n: number) => Uuid,
 ): ReadonlyMap<Uuid, Uuid> {
 	const byUuid = new Map(config.columns.map((column) => [column.uuid, column]));
@@ -471,7 +774,8 @@ function carriersAsPlainColumns(
 	for (const uuid of config.listColumnOrder) {
 		const column = byUuid.get(uuid);
 		if (column === undefined || column.kind === "calculated") continue;
-		const plain = column.kind === "plain" || shownNowhere(column);
+		const plain =
+			(column.kind === "plain" && raw(column.uuid)) || shownNowhere(column);
 		if (!plain) continue;
 		const n = counts.get(column.field) ?? 0;
 		counts.set(column.field, n + 1);
@@ -496,6 +800,8 @@ function carriersAsPlainColumns(
 	const rename = (one: Uuid) => renamed.get(one) ?? one;
 	config.listColumnOrder = config.listColumnOrder.map(rename);
 	config.detailColumnOrder = config.detailColumnOrder.map(rename);
+	for (const tab of config.detailTabs ?? [])
+		tab.startColumnUuid = rename(tab.startColumnUuid);
 	return renamed;
 }
 

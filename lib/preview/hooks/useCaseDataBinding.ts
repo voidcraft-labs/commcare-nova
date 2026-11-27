@@ -634,9 +634,11 @@ export function useCaseData(args: {
 	ancestorDepth: number;
 	/** Optional one-row display projection for canonical Details URLs. */
 	caseListConfig?: CaseListConfig;
+	language?: string;
 	/** Exact live document and menu that own the calculated projection. */
 	blueprint?: BlueprintDoc;
 	moduleUuid?: string;
+	selectionMenuUuid?: string;
 	/** Live compiler catalog paired with `caseListConfig`. */
 	caseTypes?: readonly CaseType[];
 	/** The review surface's View case dialog reads a HELD case by
@@ -676,6 +678,7 @@ export function useCaseData(args: {
 		caseListConfig,
 		blueprint,
 		moduleUuid,
+		selectionMenuUuid,
 		caseTypes,
 		includeHeld,
 		deviceScoped,
@@ -683,6 +686,7 @@ export function useCaseData(args: {
 		search = false,
 		positionScreen,
 		searchAnswers,
+		language,
 	} = args;
 	const searchAnswersKey =
 		searchAnswers === undefined ? "" : JSON.stringify(searchAnswers);
@@ -707,7 +711,7 @@ export function useCaseData(args: {
 	 * case/revision for that one render would let a case-loading form submit an
 	 * identity that has already been replaced. */
 	const requestKey = ready
-		? `${scopeEpoch}\u0000${appId}\u0000${caseType}\u0000${caseId}\u0000${parentCaseSelectionKey(parentCase)}\u0000${ancestorDepth}\u0000${includeHeld === true}\u0000${deviceScoped === true}\u0000${scopeKey}\u0000${caseDataRevision}\u0000${search}\u0000${deviceKey}\u0000${searchAnswersKey}`
+		? `${scopeEpoch}\u0000${appId}\u0000${caseType}\u0000${caseId}\u0000${parentCaseSelectionKey(parentCase)}\u0000${ancestorDepth}\u0000${includeHeld === true}\u0000${deviceScoped === true}\u0000${scopeKey}\u0000${caseDataRevision}\u0000${search}\u0000${deviceKey}\u0000${searchAnswersKey}\u0000${language ?? ""}\u0000${selectionMenuUuid ?? ""}`
 		: "";
 	const personaRequestKey = ready
 		? `${requestKey}\u0000${personaUuid ?? "me"}`
@@ -769,6 +773,9 @@ export function useCaseData(args: {
 									: null,
 								withNavigationWidth(device),
 								searchAnswers,
+								...(language === undefined && selectionMenuUuid === undefined
+									? ([] as const)
+									: ([language, selectionMenuUuid] as const)),
 							),
 						}),
 					},

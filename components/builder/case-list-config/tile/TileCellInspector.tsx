@@ -43,16 +43,17 @@ import {
 	DropdownMenuTrigger,
 } from "@/components/shadcn/dropdown-menu";
 import { Input } from "@/components/shadcn/input";
+import { useDeclaredPlatforms } from "@/lib/doc/hooks/useDeclaredPlatforms";
 import { useOwnerPlatformFeatures } from "@/lib/doc/hooks/usePlatformNotes";
 import {
 	type CaseListConfig,
 	type Column,
 	TILE_GRID_COLUMNS,
-	TILE_GRID_ROWS,
 	type TileCell,
 	type TileFontSize,
 	type TileHorizontalAlign,
 	type TileVerticalAlign,
+	tileCellIsGroupBody,
 	type Uuid,
 } from "@/lib/domain";
 import { projectTileGrid } from "@/lib/preview/caseTileLayout";
@@ -60,6 +61,7 @@ import { PlatformNoteRow } from "../../shared/PlatformNoteRow";
 import {
 	describeTilePlace,
 	planColumnTilePlacement,
+	resultsTileRows,
 	type TileGeometry,
 	tileMemberUuids,
 	tileShowsColumn,
@@ -74,6 +76,10 @@ export interface TileCellInspectorProps {
 	readonly config: CaseListConfig;
 	/** Whether the case list is currently laid out as a tile. */
 	readonly tileOn: boolean;
+	readonly details?: boolean;
+	/** The tile's rows where `config` is a slice of a larger screen (a
+	 *  Details tab): the whole screen's. */
+	readonly rows?: number;
 	/** This field's tile problems, in the words the canvas shows. */
 	readonly issues: readonly string[];
 	readonly canEdit: boolean;
@@ -87,6 +93,8 @@ export function TileCellInspector({
 	column,
 	config,
 	tileOn,
+	details,
+	rows,
 	issues,
 	canEdit,
 	onPlace,
@@ -95,6 +103,7 @@ export function TileCellInspector({
 }: TileCellInspectorProps) {
 	const onTile = tileShowsColumn(column);
 	const cell = column.tile;
+	const webApps = useDeclaredPlatforms().includes("web-apps");
 	/* Placing a field replaces this whole branch with the editor below, so
 	 * the button that did it unmounts. The first exact-place input is the
 	 * successor; without this, focus lands on the page. */
@@ -169,6 +178,7 @@ export function TileCellInspector({
 				<PlacementFields
 					column={column}
 					config={config}
+					rows={rows}
 					cell={cell}
 					canEdit={canEdit}
 					autoFocus={focusPlaceOnMount}
@@ -232,6 +242,23 @@ export function TileCellInspector({
 							/>
 						</div>
 
+						{!details && (
+							<ToggleRow
+								label="Show this tile value only on Android"
+								checked={cell.androidOnly === true}
+								disabledReason={
+									webApps &&
+									cell.androidOnly !== true &&
+									tileCellIsGroupBody(cell, config.tile?.grouping?.headerRows)
+										? "Web Apps shows this value below the group heading. You can move the field into the heading first."
+										: undefined
+								}
+								onChange={(value) => {
+									const { androidOnly: old, ...rest } = cell;
+									onPlace(value ? { ...rest, androidOnly: true } : rest);
+								}}
+							/>
+						)}
 						<ToggleRow
 							label="Border"
 							checked={cell.showBorder === true}
@@ -465,6 +492,7 @@ function TileIssueList({ issues }: { readonly issues: readonly string[] }) {
 function PlacementFields({
 	column,
 	config,
+	rows: screenRows,
 	cell,
 	canEdit,
 	autoFocus = false,
@@ -472,6 +500,7 @@ function PlacementFields({
 }: {
 	readonly column: Column;
 	readonly config: CaseListConfig;
+	readonly rows?: number;
 	readonly cell: TileCell;
 	readonly canEdit: boolean;
 	/** Take focus on mount: set when the action that revealed these
@@ -481,10 +510,12 @@ function PlacementFields({
 }) {
 	const [refusal, setRefusal] = useState<string | null>(null);
 	const refusalId = useId();
+	const rows = screenRows ?? resultsTileRows(config);
 
 	const commit = (patch: Partial<TileGeometry>): boolean => {
 		const verdict = planColumnTilePlacement({
 			config,
+			rows,
 			column,
 			geometry: {
 				x: cell.x,
@@ -518,7 +549,7 @@ function PlacementFields({
 				<NumberField
 					label="Row"
 					value={cell.y + 1}
-					max={TILE_GRID_ROWS}
+					max={rows}
 					disabled={!canEdit}
 					describedBy={refusal === null ? undefined : refusalId}
 					onCommit={(next) => commit({ y: next - 1 })}
@@ -534,7 +565,7 @@ function PlacementFields({
 				<NumberField
 					label="Rows tall"
 					value={cell.height}
-					max={TILE_GRID_ROWS}
+					max={rows}
 					disabled={!canEdit}
 					describedBy={refusal === null ? undefined : refusalId}
 					onCommit={(next) => commit({ height: next })}

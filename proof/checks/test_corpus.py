@@ -918,12 +918,12 @@ def test_every_republish_over_a_persons_saves_was_sent_as_its_document_states():
 # The documents the corpus's fixed floor emits: its producers', workforce, expander and targeted documents that
 # Nova admits, and one a base CommCare HQ made (``proof/hq-apps/``). Every pull request that adds or removes a
 # document writes the count its sources then give.
-FIXED_DOCUMENTS = 493
+FIXED_DOCUMENTS = 508
 
 
 def test_the_corpus_emits_every_document_its_sources_name():
     """Contract: the corpus emits its fixed floor whole, beside the fuzz sample it was asked for, so the count is
-    the floor plus the sample's size (533 with the default sample of 40). Catches a source that silently stops
+    the floor plus the sample's size. Catches a source that silently stops
     emitting a document, which every other test would pass by reading less."""
     corpus = cases.load_corpus()
     emitted = len(corpus.emitted)

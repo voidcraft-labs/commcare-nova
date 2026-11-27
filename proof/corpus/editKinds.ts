@@ -48,6 +48,7 @@ import {
 	alwaysOfferedRegistrationChoices,
 	alwaysOfferedRegistrationMutations,
 } from "@/lib/doc/alwaysOfferedRegistration";
+import { calculatedSortMutations } from "@/lib/doc/calculatedSortMutations";
 import { caseListRegistrationFormMutations } from "@/lib/doc/caseListRegistrationForm";
 import {
 	addCaseOperationMutations,
@@ -127,6 +128,7 @@ import {
 	automationsOf,
 	type BlueprintDoc,
 	CASE_SCALAR_PROPERTY_NAMES,
+	type CalculatedSort,
 	type CaseOperation,
 	type Column,
 	canonicalProseTemplate,
@@ -177,6 +179,7 @@ import {
 	formField,
 	literal,
 	neq,
+	prop,
 	sessionUser,
 	term,
 } from "@/lib/domain/expression";
@@ -1035,6 +1038,17 @@ const setCaseProperty: KindGenerator = (ctx) => {
 	);
 };
 
+const moveCaseProperty: KindGenerator = (ctx) => {
+	const targets = (ctx.doc.caseTypes ?? []).flatMap((type) =>
+		type.properties
+			.slice(1)
+			.map((property) => ({ caseType: type.name, property: property.name })),
+	);
+	return take(ctx, targets).map(({ caseType, property }) =>
+		batch([{ kind: "moveCaseProperty", caseType, property, after: null }]),
+	);
+};
+
 const removeCaseProperty: KindGenerator = (ctx) => {
 	const { doc } = ctx;
 	const unused = (doc.caseTypes ?? []).flatMap((ct) =>
@@ -1393,6 +1407,81 @@ const addColumn: KindGenerator = (ctx) =>
 		batch(addColumnsMutation(m, [freshColumn(ctx, m)]).mutations),
 	);
 
+function nextOrderPriority(m: Module): number {
+	const fields =
+		m.caseListConfig?.columns.flatMap((column) =>
+			column.sort ? [column.sort.priority] : [],
+		) ?? [];
+	const calculations =
+		m.caseListConfig?.calculatedSorts?.map((rule) => rule.priority) ?? [];
+	return Math.max(-1, ...fields, ...calculations) + 1;
+}
+
+function freshCalculatedSort(ctx: GenContext, module: Module): CalculatedSort {
+	const caseType = module.caseType;
+	if (caseType === undefined)
+		throw new Error("An order calculation needs a case list.");
+	const property =
+		ctx.rng.shuffle(textPropertiesOf(ctx.doc, caseType))[0] ?? "case_name";
+	return {
+		uuid: ctx.mint.uuid(),
+		direction: "asc",
+		priority: nextOrderPriority(module),
+		expression: term(prop(caseType, property)),
+		label: "Case order",
+	};
+}
+
+const addCalculatedSort: KindGenerator = (ctx) =>
+	forTargets(ctx, caseListModules(ctx.doc), (module) => {
+		const before = module.caseListConfig?.calculatedSorts ?? [];
+		return batch(
+			calculatedSortMutations(module.uuid, before, [
+				...before,
+				freshCalculatedSort(ctx, module),
+			]),
+		);
+	});
+
+const updateCalculatedSort: KindGenerator = (ctx) =>
+	forTargets(ctx, caseListModules(ctx.doc), (module) => {
+		const existing = module.caseListConfig?.calculatedSorts ?? [];
+		const before = existing.length
+			? existing
+			: [freshCalculatedSort(ctx, module)];
+		const selected = ctx.rng.shuffle(before)[0];
+		if (!selected) return undefined;
+		const after = before.map((rule) =>
+			rule.uuid === selected.uuid
+				? { ...rule, label: edited(rule.label ?? "") }
+				: rule,
+		);
+		return batch([
+			...calculatedSortMutations(module.uuid, existing, before),
+			...calculatedSortMutations(module.uuid, before, after),
+		]);
+	});
+
+/** A list with no order calculation yet gets one in the same batch, as
+ *  `updateCalculatedSort` does, so the removal has a target on every list. */
+const removeCalculatedSort: KindGenerator = (ctx) =>
+	forTargets(ctx, caseListModules(ctx.doc), (module) => {
+		const existing = module.caseListConfig?.calculatedSorts ?? [];
+		const before = existing.length
+			? existing
+			: [freshCalculatedSort(ctx, module)];
+		const selected = ctx.rng.shuffle(before)[0];
+		if (!selected) return undefined;
+		return batch([
+			...calculatedSortMutations(module.uuid, existing, before),
+			...calculatedSortMutations(
+				module.uuid,
+				before,
+				before.filter((rule) => rule.uuid !== selected.uuid),
+			),
+		]);
+	});
+
 const updateColumn: KindGenerator = (ctx) =>
 	forTargets(
 		ctx,
@@ -1400,9 +1489,6 @@ const updateColumn: KindGenerator = (ctx) =>
 			(m.caseListConfig?.columns ?? []).map((column) => ({ m, column })),
 		),
 		({ m, column }) => {
-			const priorities = (m.caseListConfig?.columns ?? []).flatMap((c) =>
-				c.sort === undefined ? [] : [c.sort.priority],
-			);
 			const arm = ctx.rng.int(3);
 			const replacement: Column =
 				arm === 0 && "header" in column
@@ -1412,7 +1498,7 @@ const updateColumn: KindGenerator = (ctx) =>
 								...structuredClone(column),
 								sort: {
 									direction: "desc",
-									priority: Math.max(-1, ...priorities) + 1,
+									priority: nextOrderPriority(m),
 								},
 							}
 						: {
@@ -3115,6 +3201,7 @@ export const EDIT_KIND_GENERATORS = {
 	retireCaseType,
 	addCaseProperty: hosted(CASE_TYPE_HOST, addCaseProperty),
 	setCaseProperty: hosted(CASE_TYPE_HOST, setCaseProperty),
+	moveCaseProperty,
 	removeCaseProperty,
 	setCaseTypeMeta: hosted(CASE_TYPE_HOST, setCaseTypeMeta),
 	addUserProperty,
@@ -3139,6 +3226,9 @@ export const EDIT_KIND_GENERATORS = {
 	editAutomationItem: hosted(CASE_MODULE_HOST, editAutomationItem),
 	setAutomationSchedule: hosted(CASE_MODULE_HOST, setAutomationSchedule),
 	updateAutomationSchedule: hosted(CASE_MODULE_HOST, updateAutomationSchedule),
+	addCalculatedSort: hosted(CASE_LIST_HOST, addCalculatedSort),
+	updateCalculatedSort: hosted(CASE_LIST_HOST, updateCalculatedSort),
+	removeCalculatedSort: hosted(CASE_LIST_HOST, removeCalculatedSort),
 	addColumn: hosted(CASE_LIST_HOST, addColumn),
 	updateColumn: hosted(CASE_LIST_HOST, updateColumn),
 	removeColumn,

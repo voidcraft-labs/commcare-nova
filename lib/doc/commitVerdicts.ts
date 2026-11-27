@@ -62,11 +62,13 @@ import {
 export { formLogicFinding } from "@/lib/commcare/validator/formLogicFindings";
 export { lookupTypeIndex } from "@/lib/commcare/validator/lookupTypeContext";
 
+import { hqOfferedChildCaseTypes } from "@/lib/commcare/hqOfferedChildTypes";
 import { emittedModuleKind } from "@/lib/commcare/moduleKind";
 import {
 	CASE_LIST_ORDER_RULES,
 	MODULE_RULES,
 } from "@/lib/commcare/validator/rules/module";
+import { implicitTabMembershipChange } from "@/lib/doc/caseDetailTabMutations";
 import {
 	type CasePropertyRenamePlan,
 	type CasePropertyRenamePlanIssue,
@@ -188,16 +190,19 @@ export function expressionEditVerdict(
 		if (issue !== undefined)
 			return { ok: false, reason: predicateEditIssueReason(issue) };
 	}
-	if (
-		remote &&
-		context.slot.slot === "case_list_column_expression" &&
-		classifyRelatedCaseSearchExpression(candidate, context).kind ===
-			"unsupported"
-	) {
+	const projection =
+		(remote || context.runsOnSearchResults) &&
+		(context.slot.slot === "case_list_column_expression" ||
+			context.slot.slot === "case_list_mapping_condition" ||
+			context.slot.slot === "case_list_sort_expression")
+			? classifyRelatedCaseSearchExpression(candidate, context)
+			: undefined;
+	if (projection?.kind === "unsupported") {
 		return {
 			ok: false,
-			reason:
-				"Search can show one parent property by itself, but it can't use other related-case information in this calculated item. Choose the parent property by itself, or build the calculation from this case.",
+			reason: projection.reached
+				? "Search can't supply whichever case a link reaches, of any type. You can read the parent through a link this app declares, or build the calculation from this case."
+				: "Search can show one parent property by itself, but it can't use other related-case information in this calculated item. Choose the parent property by itself, or build the calculation from this case.",
 		};
 	}
 	const dateIssue = device
@@ -490,6 +495,7 @@ export interface PreparedMutationCandidate {
 	readonly mutations: AdmittedMutationBatch;
 	readonly nextDoc: BlueprintDoc;
 	readonly results: MutationResult[];
+	readonly detailTabMoveIssue?: Uuid;
 	readonly identityAdmissionIssue?: MutationIdentityAdmissionIssue;
 	readonly sequenceAdmissionIssue?: MutationSequenceAdmissionIssue;
 	readonly targetAdmissionIssue?: true;
@@ -612,6 +618,14 @@ export function* prepareMutationCandidateSteps(
 	const nextDoc = produce(prevDoc, (draft) => {
 		results = applyMutations(draft, mutations);
 	});
+	const moveIssue = implicitTabMembershipChange(prevDoc, nextDoc, mutations);
+	if (moveIssue)
+		return {
+			mutations,
+			nextDoc: prevDoc,
+			results: [],
+			detailTabMoveIssue: moveIssue,
+		};
 	return {
 		mutations,
 		nextDoc,
@@ -633,6 +647,7 @@ export function preparedCandidateHasAdmissionIssue(
 	prepared: PreparedMutationCandidate,
 ): boolean {
 	return (
+		prepared.detailTabMoveIssue !== undefined ||
 		prepared.identityAdmissionIssue !== undefined ||
 		prepared.sequenceAdmissionIssue !== undefined ||
 		prepared.targetAdmissionIssue === true ||
@@ -671,6 +686,19 @@ export function evaluatePreparedMutationCandidate(
 function admissionIssueVerdict(
 	prepared: PreparedMutationCandidate,
 ): RefusedCommitVerdict | undefined {
+	if (prepared.detailTabMoveIssue)
+		return {
+			ok: false,
+			nextDoc: prepared.nextDoc,
+			findings: [
+				validationError(
+					"CASE_DETAIL_TAB_MOVE_NEEDS_GROUP",
+					"module",
+					"This move would change which tab shows a field. Open Edit tabs to choose where it belongs.",
+					{ moduleUuid: prepared.detailTabMoveIssue },
+				),
+			],
+		};
 	if (prepared.identityAdmissionIssue !== undefined) {
 		const issue = prepared.identityAdmissionIssue;
 		return {
@@ -1014,3 +1042,15 @@ export function describeCommitFindings(
 /** The inspector filters display choices against the same per-question rule
  * the commit gate runs. The document boundary owns the platform projection. */
 export { fieldDisplayProblem as proposedDisplayProblem } from "@/lib/commcare/xform/readDisplaySettings";
+
+/**
+ * The child case types a Details tab of a `caseType` menu can read, as the gate admits them: those
+ * a form of a menu of that case type adds as a child case (`hqOfferedChildTypes.ts`), the ones
+ * CommCare HQ's Case Detail page keeps. The Builder's tab editor offers exactly these, sorted.
+ */
+export function detailTabChildTypeChoices(
+	doc: BlueprintDoc,
+	caseType: string | undefined,
+): string {
+	return [...hqOfferedChildCaseTypes(doc, caseType)].sort().join("\n");
+}

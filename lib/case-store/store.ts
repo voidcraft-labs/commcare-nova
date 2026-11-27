@@ -71,10 +71,16 @@ import type {
  * (`__nova_calc__<uuid>`); the `expression` is the per-row
  * `DomainExpression` the SQL emitter compiles into a projection.
  */
-export type CalculatedColumn = Extract<Column, { kind: "calculated" }>;
+type CalculatedDisplayColumn = Extract<Column, { kind: "calculated" }>;
+export type CalculatedColumn =
+	| CalculatedDisplayColumn
+	| Pick<CalculatedDisplayColumn, "uuid" | "expression">;
 
 /** One value a case list reads off another case (`QueryArgs.related`). */
 export interface RelatedRead {
+	readonly showOwner?: "name";
+	/** A distance cell derives its label from this source and the same fix the query sorts with. */
+	readonly display?: "distance";
 	readonly uuid: string;
 	readonly expression: DomainExpression;
 }
@@ -210,7 +216,7 @@ export type CaseUpdateArgs = {
  * holds as a token, as text, `""` when it holds none. Neither can be stated
  * as a `DomainExpression`.
  */
-export type SortKey =
+export type SortKey = { readonly showOwner?: "name" } & (
 	| {
 			readonly kind: "expression";
 			readonly expression: DomainExpression;
@@ -219,12 +225,19 @@ export type SortKey =
 			readonly blanks: "first" | "last";
 	  }
 	| {
+			readonly kind: "distance";
+			readonly valueId: string;
+			readonly expression: DomainExpression;
+			readonly comparator: "text" | "integer" | "decimal";
+			readonly direction: "asc" | "desc";
+			readonly blanks: "first" | "last";
+	  }
+	| {
 			readonly kind: "interval-text";
+			readonly readFrom?: "worker-record";
 			readonly property: string;
-			/** The walk to the case whose property it reads, and that case's
-			 *  type; absent for the row's own. */
+			/** An interval column follows these index names from each listed row. */
 			readonly relation?: {
-				readonly caseType: string;
 				readonly via: readonly [RelationStep, ...RelationStep[]];
 			};
 			readonly display: "always" | "flag";
@@ -239,16 +252,18 @@ export type SortKey =
 			 *  `if(selected(<value>, '<entry>'), <index>, ...)` gives it: an entry
 			 *  matches where it is one of the value's space-separated tokens
 			 *  (commcare-core `XPathSelectedFunc`), compared as text. */
-			readonly kind: "mapping-position";
-			/** The value read, as a device reads it (a multi select's tokens
-			 *  joined by one space). */
+			readonly kind: "case-mapping";
 			readonly expression: DomainExpression;
-			/** Each entry's value in table order, trimmed as `selected()` trims
-			 *  it (Java `String.trim`). */
-			readonly values: readonly string[];
+			readonly rows: readonly ({
+				readonly result: string;
+			} & (
+				| { readonly match: "exact" | "selected"; readonly value: string }
+				| { readonly match: "condition"; readonly when: DomainExpression }
+			))[];
 			readonly direction: "asc" | "desc";
 			readonly blanks: "first" | "last";
-	  };
+	  }
+);
 
 export {
 	CASEDB_READING,
@@ -272,6 +287,8 @@ export type { CaseFilterReading, CaseQueryReading };
  * reading, the stored truth. Only the running preview passes one.
  */
 export interface RestoreScope {
+	/** The ordered group fixture supplied by this worker’s authorized restore. */
+	readonly groups?: readonly { readonly id: string; readonly name: string }[];
 	/**
 	 * The worker's owner ids: their own id plus one per case-sharing group
 	 * (`lib/organization/ownerSets.ts`, mirroring `CouchUser.get_owner_ids`).
@@ -389,7 +406,14 @@ export interface QueryArgs {
 	knownInputs?: readonly SearchInputDecl[];
 	predicate?: DomainExpression;
 	sort?: SortKey[];
-	calculated?: ReadonlyArray<CalculatedColumn>;
+	calculated?: ReadonlyArray<
+		| CalculatedColumn
+		| {
+				readonly uuid: string;
+				readonly expression: DomainExpression;
+				readonly deviceText: true;
+		  }
+	>;
 	/**
 	 * Values a case list reads off another case, each the text a device holds
 	 * for its expression (`compileDeviceTextExpression`: a multi select's

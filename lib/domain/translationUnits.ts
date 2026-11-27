@@ -6,7 +6,9 @@
 // none independently walks display slots.
 
 import { canonicalJsonText } from "@/lib/utils/canonicalJsonText";
+import { caseTypesWithRelations } from "./appCaseRelations";
 import type { BlueprintDoc, CaseProperty } from "./blueprint";
+import { caseMappingTextUnit } from "./caseMappingRows";
 import { columnPropertyCaseType } from "./columnRelation";
 import { effectiveCaseTypes } from "./effectiveCaseTypes";
 import type { ItextUnit, ProseSlotRef } from "./expression/types";
@@ -65,10 +67,15 @@ export const translationUnitRoles = [
 	"field-qr-code",
 	"field-spoken-text",
 	"select-option-label",
+	"case-detail-tab-title",
 	"case-list-header",
 	"case-list-sort-label",
+	"case-list-calculation-text",
+	"case-list-image-description",
 	"case-list-mapping-label",
 	"case-list-interval-text",
+	"case-list-empty-text",
+	"case-list-select-text",
 	"search-input-label",
 	"search-input-hint",
 	"search-input-required-message",
@@ -97,6 +104,15 @@ export const LABEL_TEXT_SLOT_OF_ROLE: Readonly<
 	"field-qr-code": "qr_code",
 	"field-spoken-text": "spoken_text",
 };
+
+/** The unit of a case list's own empty-list text (`"empty"`) or Continue
+ *  label (`"select"`): the module's, since the list has no identity of its own. */
+export function caseListWordingUnitId(
+	moduleUuid: Uuid,
+	slot: "empty" | "select",
+): TranslationUnitId {
+	return makeTranslationUnitId("module", moduleUuid, `list-${slot}-text`);
+}
 
 export const translationUnitOwnerKinds = [
 	"app",
@@ -156,6 +172,7 @@ export interface TranslationUnitContext {
 	readonly fieldId?: string;
 	readonly fieldKind?: Field["kind"];
 	readonly columnKind?: string;
+	readonly detailTabUuid?: Uuid;
 	readonly optionValue?: string;
 	readonly caseType?: string;
 	readonly caseProperty?: string;
@@ -184,6 +201,7 @@ export type TranslationStatus =
 	| "ready";
 
 const NONBLANK_TRANSLATION_ROLES: ReadonlySet<TranslationUnitRole> = new Set([
+	"case-detail-tab-title",
 	"app-name",
 	"module-name",
 	"form-name",
@@ -191,6 +209,8 @@ const NONBLANK_TRANSLATION_ROLES: ReadonlySet<TranslationUnitRole> = new Set([
 	"case-list-menu-item-label",
 	"case-list-registration-label",
 	"case-list-sort-label",
+	"case-list-empty-text",
+	"case-list-select-text",
 	"search-screen-title",
 	"search-screen-subtitle",
 	"search-input-label",
@@ -586,6 +606,7 @@ export function collectTranslationUnits(
 		}),
 	];
 	const seenCaseOptions = new Set<TranslationUnitId>();
+	let relationTypes: ReturnType<typeof caseTypesWithRelations> | undefined;
 	const dormantBases: TranslationUnit[] = [];
 	const dormantCaseOptions = new Set<TranslationUnitId>();
 	let hasSearchInputs = false;
@@ -719,6 +740,60 @@ export function collectTranslationUnits(
 		}
 
 		const list = module.caseListConfig;
+		for (const [slot, role, source, label] of [
+			["empty", "case-list-empty-text", list?.emptyText, "empty list text"],
+			[
+				"select",
+				"case-list-select-text",
+				list?.selectButtonText,
+				"Continue button",
+			],
+		] as const) {
+			if (source === undefined) continue;
+			out.push(
+				unit({
+					id: caseListWordingUnitId(moduleUuid, slot),
+					valueKind: "text",
+					role,
+					source,
+					owner: { kind: "module", moduleUuid },
+					breadcrumb: [...moduleBreadcrumb, "Cases", "Results", label],
+					context: { moduleName: module.name },
+				}),
+			);
+		}
+		for (const rule of list?.calculatedSorts ?? []) {
+			if (rule.label)
+				out.push(
+					unit({
+						id: makeTranslationUnitId("case-sort", rule.uuid, "label"),
+						valueKind: "text",
+						role: "case-list-sort-label",
+						source: rule.label,
+						owner: { kind: "module", moduleUuid },
+						breadcrumb: [
+							...moduleBreadcrumb,
+							"Cases",
+							"Default order",
+							rule.label,
+						],
+						context: { moduleName: module.name },
+					}),
+				);
+		}
+		for (const tab of list?.detailTabs ?? []) {
+			out.push(
+				unit({
+					id: makeTranslationUnitId("detail-tab", tab.uuid, "title"),
+					role: "case-detail-tab-title",
+					valueKind: "text",
+					source: tab.title,
+					owner: { kind: "module", moduleUuid },
+					breadcrumb: [...moduleBreadcrumb, "Cases", "Details", tab.title],
+					context: { moduleName: module.name, detailTabUuid: tab.uuid },
+				}),
+			);
+		}
 		for (const column of list?.columns ?? []) {
 			// A sort rule's name in the list's Sort by menu, on a column hidden
 			// from Results, whether or not Details shows the column.
@@ -743,6 +818,34 @@ export function collectTranslationUnits(
 					context: { moduleName: module.name, columnKind: column.kind },
 				}),
 			);
+			if (column.kind === "calculated") {
+				for (const [index, item] of (column.texts ?? []).entries())
+					out.push(
+						unit({
+							id: makeTranslationUnitId(
+								"column",
+								column.uuid,
+								"calculation-text",
+								item.uuid,
+							),
+							valueKind: "text",
+							role: "case-list-calculation-text",
+							source: item.label,
+							owner: {
+								kind: "case-list-column",
+								moduleUuid,
+								columnUuid: column.uuid,
+							},
+							breadcrumb: [
+								...moduleBreadcrumb,
+								"Cases",
+								column.header,
+								`Text ${index + 1}`,
+							],
+							context: { moduleName: module.name, columnKind: column.kind },
+						}),
+					);
+			}
 			const visible = caseListColumnTextShows(column);
 			const columnUnits = visible ? out : dormantBases;
 			const owner = {
@@ -765,16 +868,32 @@ export function collectTranslationUnits(
 					context,
 				}),
 			);
-			if (column.kind === "id-mapping") {
-				for (const mapping of column.mapping) {
+			if (column.kind === "image-map") {
+				for (const [index, item] of column.mapping.entries()) {
+					if (item.altText === undefined) continue;
 					columnUnits.push(
 						unit({
-							id: makeTranslationUnitId(
-								"column",
-								column.uuid,
-								"mapping",
-								mapping.value,
-							),
+							id: caseMappingTextUnit(column.uuid, item, "image-description"),
+							valueKind: "text",
+							role: "case-list-image-description",
+							source: item.altText,
+							owner,
+							breadcrumb: [
+								...moduleBreadcrumb,
+								"Cases",
+								column.header,
+								item.value ?? `Rule ${index + 1}`,
+							],
+							context: { ...context, optionValue: item.value },
+						}),
+					);
+				}
+			}
+			if (column.kind === "id-mapping") {
+				for (const [index, mapping] of column.mapping.entries()) {
+					columnUnits.push(
+						unit({
+							id: caseMappingTextUnit(column.uuid, mapping, "mapping"),
 							valueKind: "text",
 							role: "case-list-mapping-label",
 							source: mapping.label,
@@ -783,7 +902,7 @@ export function collectTranslationUnits(
 								...moduleBreadcrumb,
 								"Cases",
 								column.header,
-								mapping.value,
+								mapping.value ?? `Rule ${index + 1}`,
 							],
 							context: { ...context, optionValue: mapping.value },
 						}),
@@ -808,13 +927,15 @@ export function collectTranslationUnits(
 					}),
 				);
 			}
-			if (column.kind === "plain") {
+			if (column.kind === "plain" && column.showChoice !== "saved-value") {
 				// A column read through a relation shows the options of the case
 				// its walk reaches.
+				if (column.via !== undefined)
+					relationTypes ??= caseTypesWithRelations(doc);
 				const caseType = columnPropertyCaseType(
 					column,
 					module.caseType,
-					doc.caseTypes ?? [],
+					relationTypes ?? doc.caseTypes ?? [],
 				);
 				const property = caseProperty(doc, caseType, column.field);
 				if (property !== undefined && caseType !== undefined) {

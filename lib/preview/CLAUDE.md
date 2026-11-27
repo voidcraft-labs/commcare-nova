@@ -1531,6 +1531,13 @@ walk, and the cell and the quick filter read that value through
 `columnDisplay.ts::columnSourceValue` and `columnRawText`, with the related
 type's catalog entry from `ColumnDisplayContext.relatedProperties`.
 
+Independent order calculations read case rows in the same SQL query as the
+visible fields' sort rules. An Android distance rule reads the current
+worker fix once per query, uses Core's rounded metres, and assigns a missing
+case location the sentinel 2147483647. Changing the worker fix can reverse
+the row order. Named calculations join the Android Sort by choices under
+their translated name without adding a visible cell.
+
 The quick filter (`components/preview/shared/listFilter.tsx::rowsMatchingFilterText`)
 matches what a device's search matches, all from the plan: each shown column's
 text, each hidden field's text (the raw property, or a hidden calculated
@@ -1637,9 +1644,18 @@ shows the popped visit's.
 A `caseListConfig.tile` turns each Results row into a grid. `caseTileLayout.ts`
 resolves the geometry and `caseTileRendering.ts` turns it into declarations;
 `components/preview/shared/CaseTile.tsx` is the only renderer, shared by the
-Results rows and the pinned tile, so the two cannot draw one case
-differently. Both files carry the CommCare citations — read them before changing
+Results rows, the pinned tile and Web Apps Details. Each surface passes its own layout. Both files carry the CommCare citations — read them before changing
 a number.
+
+Web Apps draws an independent Details grid when configured. Android draws ordinary
+labeled Details fields. A conditional tab reads the selected record. Preview
+reads no tab's records yet: a tab with a `rowSource` shows a note in place of
+its fields, and every field that reads such a tab's row
+(`detailTabs.ts::columnReadsDetailTabRow`) stays out of the calculated and
+related reads sent to the case store, whose compiler has no row scope for it.
+A signed app test can open an available
+tab by identity and expand the case context above a form. The selecting menu
+and case identify the data even when a different menu supplies the display.
 
 **The pinned tile is one rule over the session's held cases**
 (`pinnedCaseTile.ts::previewPinnedCaseTile`, drawn by
@@ -2325,7 +2341,7 @@ After submit a frame lands where `engine/frameLanding.ts::screenOfFrame` says:
 the screen of its last menu command (the first menu where it holds none),
 with its selections applied to the menus that supply them, then the form its
 form command names. An entry point refuses a form whose entries are off the
-menu (`entryPointLaunch.ts::moduleEntriesOffTheMenu`). App Tests list and admit
+menu (`lib/domain/menuScreens.ts::moduleEntriesOffTheMenu`). App Tests list and admit
 choices by the same projection.
 
 A deep link, form link or list action can supply a case before the frame's first command. `frameLanding.ts::firstMenuCases` records the physical datum ID and the menus whose entries read the same type and cardinality at that ID. The destination receives its selection immediately. On Android, Back to the first menu retains this case for every compatible command. Web Apps opens a fresh first menu. A new worker, app or Preview session starts with fresh selections on both platforms. A static menu return reads the submitting form’s exact session value and transaction-captured case snapshot. Register uses the chosen list action’s return case and preserves any earlier selections the return frame names; each of those is matched to the form’s own datums, so a case the form creates replaces the earlier selection of its type (`CaseListFormReturnFrame.createdSelections`). A deep link’s Android carry is its first claimed case, whatever menu the destination is in (`EntryPointProjection.homeFrame`, `lib/commcare/CLAUDE.md` § Named entry points), and it stands for a menu or case list destination only: on Android the first form of a visit a deep link opened ends the visit, submitted (`FormScreen.dispatchAfterSubmit`, before any after-submit or form link) or left by Back or a crumb (`BreadcrumbStrip`), on the phone's home screen and a new session (`previewEntryPointVisit`, `SessionLaunchDelegate.kt::exitFromExternalLaunch`), so a form destination's launch installs no first-menu history entry (`useEntryPointLaunch.ts`).
@@ -2616,6 +2632,9 @@ emitting those changes; evaluation still reports case operations as unevaluated.
 Unexpected worker failures cross the thread boundary as structured-cloned Error
 objects, preserving their original stack and cause for server reporting.
 
+Case calculations bind pieces of wording from the running app’s language
+before projecting a value or sorting its cases. A blank translated piece
+uses the native locale string’s nonbreaking space.
 A menu, form, search field or case column can supply its own worker wording in
 the selected language. Home, menu and form screens use the stable control's
 output. Web Apps reads its form's submit label. Android keeps its native form

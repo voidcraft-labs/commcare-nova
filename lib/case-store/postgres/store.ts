@@ -34,7 +34,6 @@ import { isDeepStrictEqual } from "node:util";
 import Ajv2020, { type ValidateFunction } from "ajv/dist/2020";
 import addFormats from "ajv-formats";
 import {
-	type AliasableExpression,
 	type Insertable,
 	type InsertObject,
 	type Kysely,
@@ -91,6 +90,8 @@ import {
 	type PredicateCompileContext,
 	type RestoreScopeQuery,
 } from "../sql";
+import { compileCaseDistance } from "../sql/compileCaseDistance";
+import { coreSortNumber } from "../sql/coreSortNumber";
 import type {
 	CaseIndicesTable,
 	Database,
@@ -103,7 +104,6 @@ import type {
 	ApplyCasePropertyRenameArgs,
 	ApplyCaseTypeSchemaRetirementArgs,
 	ApplySchemaChangeArgs,
-	CalculatedColumn,
 	CalculatedValue,
 	CaseFilterReading,
 	CaseInsert,
@@ -445,9 +445,6 @@ function automationDateCriterionClause(criterion: {
  */
 const GROUP_KEY_ALIAS = "__nova_group_key";
 
-/** A whole number or decimal, as the numeric comparators read one. */
-const SORT_NUMBER_PATTERN = "^-?[0-9]+(\\.[0-9]+)?$";
-
 /**
  * The index of the first of `values` that `deviceText` holds as a token, as
  * text, `''` when none: Core's `selected(s1, s2)` is
@@ -455,16 +452,25 @@ const SORT_NUMBER_PATTERN = "^-?[0-9]+(\\.[0-9]+)?$";
  * (commcare-core `xpath/expr/XPathSelectedFunc`), a blank value reading as
  * `""`. `strpos` compares exactly, with no pattern characters to escape.
  */
-function compileMappingPosition(
-	deviceText: AliasableExpression<unknown>,
-	values: readonly string[],
+function compileCaseMapping(
+	key: Extract<SortKey, { kind: "case-mapping" }>,
+	ctx: ExpressionCompileContext,
 ): RawBuilder<unknown> {
-	const padded = sql<string>`(' ' || coalesce((${deviceText})::text, '') || ' ')`;
-	return values.reduceRight<RawBuilder<unknown>>(
-		(elseArm, value, index) =>
-			sql<unknown>`(case when strpos(${padded}, ${` ${value} `}::text) > 0 then ${String(index)}::text else ${elseArm} end)`,
-		sql<unknown>`''::text`,
+	const deviceText = compileDeviceTextExpression(
+		key.expression,
+		key.showOwner ? { ...ctx, showColumnOwnerName: true } : ctx,
 	);
+	const value = sql<string>`coalesce((${deviceText})::text,'')`;
+	const padded = sql<string>`(' ' || ${value} || ' ')`;
+	return key.rows.reduceRight<RawBuilder<unknown>>((otherwise, row) => {
+		const matches =
+			row.match === "condition"
+				? compilePredicate(row.when, ctx)
+				: row.match === "exact"
+					? sql<boolean>`${value} = ${row.value}::text`
+					: sql<boolean>`strpos(${padded}, ${` ${row.value} `}::text) > 0`;
+		return sql<unknown>`(case when ${matches} then ${row.result}::text else ${otherwise} end)`;
+	}, sql<unknown>`''::text`);
 }
 
 /**
@@ -496,16 +502,17 @@ function compileSortKey(
 	readonly expression: RawBuilder<unknown>;
 	readonly direction: "asc" | "desc";
 }[] {
-	const value =
-		key.kind === "mapping-position"
-			? compileMappingPosition(
-					compileDeviceTextExpression(key.expression, exprCtx),
-					key.values,
-				)
+	const context = key.showOwner
+		? { ...exprCtx, showColumnOwnerName: true }
+		: exprCtx;
+	const rawValue =
+		key.kind === "case-mapping"
+			? compileCaseMapping(key, exprCtx)
 			: key.kind === "interval-text"
 				? compileIntervalText(
 						{
-							caseType: key.relation?.caseType ?? caseType,
+							caseType,
+							readFrom: key.readFrom,
 							...(key.relation !== undefined && { via: key.relation.via }),
 							property: key.property,
 							display: key.display,
@@ -513,14 +520,21 @@ function compileSortKey(
 							divisorDays: key.divisorDays,
 							text: key.text,
 						},
-						exprCtx,
+						context,
 					)
-				: compileDeviceTextExpression(key.expression, exprCtx);
+				: compileDeviceTextExpression(key.expression, context);
+	const value =
+		key.kind === "distance"
+			? compileCaseDistance(rawValue, exprCtx.bindings.viewerLocation)
+			: rawValue;
 	const blanks = {
 		expression: sql<unknown>`((${value}) is null or (${value})::text = '')`,
 		direction: key.blanks === "first" ? ("desc" as const) : ("asc" as const),
 	};
-	const comparator = key.kind === "expression" ? key.comparator : "text";
+	const comparator =
+		key.kind === "expression" || key.kind === "distance"
+			? key.comparator
+			: "text";
 	if (comparator === "text") {
 		return [
 			blanks,
@@ -530,27 +544,15 @@ function compileSortKey(
 			},
 		];
 	}
-	const trimmed = sql<string>`btrim((${value})::text)`;
-	// A missing value is no number, exactly as a blank one is, so the two tie
-	// on every term after the blanks term and keep the read's tie-break.
-	const isNumber = sql<boolean>`coalesce(${trimmed} ~ ${SORT_NUMBER_PATTERN}, false)`;
-	const number = sql<unknown>`(case when ${isNumber} then (${trimmed})::numeric end)`;
-	const terms = [
+	const terms = coreSortNumber(
+		value,
+		comparator,
+		exprCtx.bindings.viewerTimeZone,
+	);
+	return [
 		blanks,
-		{ expression: sql<unknown>`(not ${isNumber})`, direction: key.direction },
-		{
-			expression:
-				comparator === "integer" ? sql<unknown>`trunc(${number})` : number,
-			direction: key.direction,
-		},
+		...terms.map((expression) => ({ expression, direction: key.direction })),
 	];
-	if (comparator === "integer") {
-		terms.push({
-			expression: sql<unknown>`(${number} >= 0)`,
-			direction: key.direction,
-		});
-	}
-	return terms;
 }
 const ROW_ORDINAL_ALIAS = "__nova_row_ordinal";
 const GROUP_FIRST_ALIAS = "__nova_group_first";
@@ -856,7 +858,12 @@ export class PostgresCaseStore implements CaseStore {
 	 * in window functions; `query` orders and paginates it directly.
 	 */
 	private buildCaseSelect(args: QueryArgs) {
-		const calculated: ReadonlyArray<CalculatedColumn> = args.calculated ?? [];
+		const calculated = args.calculated ?? [];
+		const distances = new Map(
+			(args.sort ?? []).flatMap((key) =>
+				key.kind === "distance" ? [[key.valueId, key] as const] : [],
+			),
+		);
 		const related: ReadonlyArray<RelatedRead> = args.related ?? [];
 		if (args.caseIds !== undefined) {
 			if (
@@ -906,10 +913,19 @@ export class PostgresCaseStore implements CaseStore {
 		// Calculated columns and sort keys read the row as the columns'
 		// reading holds it; under an effective Search that is the results
 		// instance, not the query that chose the rows.
-		const exprCtx = expressionContextFor({
-			...ctx,
-			reading: args.reading.columns,
-		});
+		const deviceGroups = (args.restoreScope ?? args.searchPopulation?.heldBy)
+			?.groups;
+		const exprCtx: ExpressionCompileContext = {
+			...expressionContextFor({ ...ctx, reading: args.reading.columns }),
+			...(heldBy && { restrictWorkerToRestore: heldBy.restrict }),
+			...(deviceGroups !== undefined &&
+				(related.some((read) => read.showOwner) ||
+					args.sort?.some((key) => key.showOwner)) && {
+					workerGroupNames: JSON.stringify(
+						deviceGroups.map(({ id, name }) => ({ id, name })),
+					),
+				}),
+		};
 
 		// Calculated-column aliases are EMITTED with a fixed prefix so
 		// they cannot collide with any `cases` column the
@@ -1048,12 +1064,34 @@ export class PostgresCaseStore implements CaseStore {
 		// Project each calculated column under its prefixed alias, and each
 		// value read off another case as the text a device holds for it.
 		for (const column of calculated) {
-			const expr = compileExpression(column.expression, exprCtx);
+			const expr =
+				"deviceText" in column
+					? compileDeviceTextExpression(column.expression, exprCtx)
+					: compileExpression(column.expression, exprCtx);
 			qb = qb.select(expr.as(aliasFor(column.uuid)));
 		}
+		for (const [id, key] of distances) {
+			qb = qb.select(
+				compileCaseDistance(
+					compileDeviceTextExpression(key.expression, exprCtx),
+					exprCtx.bindings.viewerLocation,
+				).as(aliasFor(id)),
+			);
+		}
 		for (const read of related) {
-			const text = compileDeviceTextExpression(read.expression, exprCtx);
-			qb = qb.select(text.as(aliasFor(read.uuid)));
+			const text = compileDeviceTextExpression(
+				read.expression,
+				read.showOwner ? { ...exprCtx, showColumnOwnerName: true } : exprCtx,
+			);
+			const shown =
+				read.display === "distance"
+					? compileCaseDistance(
+							text,
+							exprCtx.bindings.viewerLocation,
+							"display",
+						)
+					: text;
+			qb = qb.select(shown.as(aliasFor(read.uuid)));
 		}
 
 		if (args.predicate !== undefined) {
@@ -1066,7 +1104,11 @@ export class PostgresCaseStore implements CaseStore {
 		// alias (`__nova_calc__<uuid>`) with the consumer-facing key
 		// (the column's `uuid`) so the loop body needs no extra
 		// string ops per row.
-		const calcAliases = [...calculated, ...related].map((c) => ({
+		const calcAliases = [
+			...calculated,
+			...related,
+			...Array.from(distances.keys(), (uuid) => ({ uuid })),
+		].map((c) => ({
 			alias: aliasFor(c.uuid),
 			uuid: c.uuid,
 		}));

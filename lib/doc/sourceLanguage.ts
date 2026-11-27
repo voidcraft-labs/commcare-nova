@@ -6,6 +6,7 @@ import type {
 	LocalizedValue,
 	TranslationEntry,
 } from "@/lib/domain";
+import { caseMappingTextUnit } from "@/lib/domain/caseMappingRows";
 import {
 	rebaseFormMediaLanguages,
 	rebaseNavigationMedia,
@@ -13,6 +14,7 @@ import {
 import {
 	effectiveAppLocalization,
 	languageEntries,
+	makeTranslationUnitId,
 	translationSourceFingerprint,
 	translationSourceFingerprintsEqual,
 } from "@/lib/domain/localization";
@@ -143,8 +145,21 @@ export function sourceSlotWriter(
 							option.label = value as typeof option.label;
 					}
 				: undefined;
+		case "case-detail-tab-title":
+			return owner.kind === "module"
+				? (draft, value) => {
+						const tab = draft.modules[
+							owner.moduleUuid
+						]?.caseListConfig?.detailTabs?.find(
+							(item) => item.uuid === unit.context.detailTabUuid,
+						);
+						if (tab) tab.title = text(value);
+					}
+				: undefined;
 		case "case-list-header":
 		case "case-list-interval-text":
+		case "case-list-calculation-text":
+		case "case-list-image-description":
 		case "case-list-mapping-label":
 			return owner.kind === "case-list-column"
 				? (draft, value) => {
@@ -160,11 +175,40 @@ export function sourceSlotWriter(
 							column.kind === "interval"
 						)
 							column.text = text(value);
-						else if (column.kind === "id-mapping") {
-							const mapping = column.mapping.find(
-								(one) => one.value === unit.context.optionValue,
+						else if (
+							unit.role === "case-list-calculation-text" &&
+							column.kind === "calculated"
+						) {
+							const piece = column.texts?.find(
+								(one) =>
+									makeTranslationUnitId(
+										"column",
+										column.uuid,
+										"calculation-text",
+										one.uuid,
+									) === unit.id,
 							);
-							if (mapping !== undefined) mapping.label = text(value);
+							if (piece !== undefined) piece.label = text(value);
+						} else if (
+							unit.role === "case-list-image-description" &&
+							column.kind === "image-map"
+						) {
+							// A row is its unit's own: by UUID, or by value before row identities.
+							const row = column.mapping.find(
+								(one) =>
+									caseMappingTextUnit(column.uuid, one, "image-description") ===
+									unit.id,
+							);
+							if (row !== undefined) row.altText = text(value);
+						} else if (
+							unit.role === "case-list-mapping-label" &&
+							column.kind === "id-mapping"
+						) {
+							const row = column.mapping.find(
+								(one) =>
+									caseMappingTextUnit(column.uuid, one, "mapping") === unit.id,
+							);
+							if (row !== undefined) row.label = text(value);
 						}
 					}
 				: undefined;
@@ -177,6 +221,29 @@ export function sourceSlotWriter(
 							(one) => one.uuid === owner.columnUuid,
 						);
 						if (column?.sort !== undefined) column.sort.label = text(value);
+					}
+				: owner.kind === "module"
+					? (draft, value) => {
+							// A named calculation in the list's default order.
+							const rule = draft.modules[
+								owner.moduleUuid
+							]?.caseListConfig?.calculatedSorts?.find(
+								(one) =>
+									makeTranslationUnitId("case-sort", one.uuid, "label") ===
+									unit.id,
+							);
+							if (rule !== undefined) rule.label = text(value);
+						}
+					: undefined;
+		case "case-list-empty-text":
+		case "case-list-select-text":
+			return owner.kind === "module"
+				? (draft, value) => {
+						const list = draft.modules[owner.moduleUuid]?.caseListConfig;
+						if (list === undefined) return;
+						if (unit.role === "case-list-empty-text")
+							list.emptyText = text(value);
+						else list.selectButtonText = text(value);
 					}
 				: undefined;
 		case "case-property-option-label":

@@ -118,6 +118,10 @@ import {
 	type TermCompileContext,
 } from "./compileTerm";
 import { compileCoreDayNumber } from "./coreDayNumber";
+import {
+	JAVA_TRIMMED_CHARACTERS,
+	PLAIN_DECIMAL_PATTERN,
+} from "./coreSortNumber";
 import type { Database } from "./database";
 
 /** Module-scoped expression builder. Same shape as the sibling compilers. */
@@ -697,9 +701,6 @@ function dayTextEquals(
 
 /** Java's `String.trim` removes every character up to U+0020 at both ends;
  *  Postgres text holds no U+0000. */
-const JAVA_TRIMMED_CHARACTERS = Array.from({ length: 32 }, (_, index) =>
-	String.fromCharCode(index + 1),
-).join("");
 
 function javaTrimmed(text: string): string {
 	let start = 0;
@@ -1709,7 +1710,6 @@ function unitFactor(
 
 /** The text Core's `number()` reads as a number once trimmed: digits with an
  *  optional sign and fraction, no exponent (`FunctionUtils.java::toNumeric`). */
-const PLAIN_DECIMAL_PATTERN = String.raw`^-?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)$`;
 
 /** Canonical CCHQ geopoint text: commas to spaces, whitespace collapsed. */
 function normalizeGeopointText(

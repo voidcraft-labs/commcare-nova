@@ -39,6 +39,7 @@ import {
 	type CaseTileLayout,
 	type Column,
 	columnOnList,
+	NAMED_TILE_SLOTS,
 	tileCellFor,
 } from "@/lib/domain";
 import {
@@ -58,6 +59,9 @@ export interface TileResultsColumn {
 	 * has none.
 	 */
 	readonly valueHidden: boolean;
+	readonly prefixLabel?: boolean;
+	readonly rawValue?: boolean;
+	readonly namedSlot?: boolean;
 }
 
 /**
@@ -83,7 +87,25 @@ export function tileResultsColumns(
 		// `tileCellFor` is the ONE decision about whether a column holds a
 		// square, shared with both emitters.
 		const cell = tileCellFor(column, layout);
-		if (cell !== undefined) return [{ column, valueHidden: hidden }];
+		if (cell !== undefined)
+			return [
+				{
+					column: layout?.namedSlots ? { ...column, tile: cell } : column,
+					valueHidden: hidden,
+					...(layout?.namedSlots && {
+						namedSlot: true,
+						rawValue: layout.rawSlots?.some(
+							(slot) => layout.namedSlots?.[slot] === column.uuid,
+						),
+						prefixLabel: NAMED_TILE_SLOTS.some(
+							(slot) =>
+								slot.endsWith("Text") &&
+								layout.namedSlots?.[slot] === column.uuid,
+						),
+					}),
+				},
+			];
+		if (layout?.namedSlots) return [];
 		const { tile: _unemittedCell, ...carried } = column;
 		return [{ column: carried as Column, valueHidden: hidden }];
 	});

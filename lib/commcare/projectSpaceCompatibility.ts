@@ -22,6 +22,7 @@ import {
 	tileCellFor,
 	type Uuid,
 } from "@/lib/domain";
+import { caseContextLine } from "@/lib/domain/caseFormContext";
 import { relationDestinationCaseType } from "@/lib/domain/expression/rewrite";
 import type { Expression, Term } from "@/lib/domain/expression/types";
 import { walkExpressionTerms } from "@/lib/domain/expression/walk";
@@ -63,7 +64,13 @@ export type HqPrivateFeatureFlagId =
 	| "large-search-performance"
 	| "related-case-lookups"
 	| "case-tiles"
+	| "detail-tab-rows"
+	| "case-form-context"
+	| "empty-case-list-text"
+	| "case-list-optimizations"
+	| "case-list-icon-actions"
 	| "custom-case-tiles"
+	| "calculated-case-order"
 	| "save-only-edited-answers"
 	| "same-type-links-dropped";
 
@@ -90,7 +97,13 @@ export const HQ_PRIVATE_FEATURE_FLAG_SYMBOLS = {
 	"large-search-performance": "CUSTOM_PROPERTIES",
 	"related-case-lookups": "CASE_SEARCH_RELATED_LOOKUPS",
 	"case-tiles": "CASE_LIST_TILE",
+	"detail-tab-rows": "DETAIL_LIST_TAB_NODESETS",
+	"case-form-context": "SHOW_PERSIST_CASE_CONTEXT_SETTING",
+	"empty-case-list-text": "USH_EMPTY_CASE_LIST_TEXT",
+	"case-list-optimizations": "CASE_LIST_OPTIMIZATIONS",
+	"case-list-icon-actions": "CASE_LIST_CLICKABLE_ICON",
 	"custom-case-tiles": "CASE_LIST_TILE_CUSTOM",
+	"calculated-case-order": "SORT_CALCULATION_IN_CASE_LIST",
 	"save-only-edited-answers": "SAVE_ONLY_EDITED_FORM_FIELDS",
 	"same-type-links-dropped": "DONT_INDEX_SAME_CASETYPE",
 } as const satisfies Record<HqPrivateFeatureFlagId, string>;
@@ -479,19 +492,62 @@ export function projectSpaceCompatibilityProbePlan(
 		}
 	}
 
+	let customTile = false;
 	for (const module of Object.values(doc.modules)) {
 		/* A case list reaches HQ only for a module that has cases: one with
 		 * a case type and a form that is not a survey, or a case list alone
 		 * (`moduleCaseTypeForActions`, the gate `expandDoc` reads). */
 		if (moduleCaseTypeForActions(doc, module.uuid) === "") continue;
+		if (module.caseListConfig?.calculatedSorts?.length)
+			addReason(
+				"calculated-case-order",
+				`${module.name} orders cases using a calculation.`,
+			);
 		if (module.caseListConfig?.selection?.kind === "multiple") {
 			addReason(
 				"multi-select-case-lists",
 				"A case list lets workers choose several cases.",
 			);
 		}
-		if (moduleHasCaseTiles(module)) {
-			addReason("case-tiles", "A case list is laid out as tiles.");
+		if (module.caseListConfig?.detailTabs?.some((tab) => tab.rowSource))
+			addReason(
+				"detail-tab-rows",
+				"Workers see a collection of records in case details.",
+			);
+		/* HQ writes a list's empty text only where the project space holds
+		 * the flag (`feature_support.py::supports_empty_case_list_text`). */
+		if (module.caseListConfig?.emptyText !== undefined)
+			addReason(
+				"empty-case-list-text",
+				`The ${module.name} case list has its own words for an empty list.`,
+			);
+		/* HQ writes a load behavior only where the project space holds the
+		 * flag (`feature_support.py::supports_case_list_optimizations`). */
+		if (module.caseListConfig?.optimizations === true)
+			addReason(
+				"case-list-optimizations",
+				`The ${module.name} case list loads some values faster on phones.`,
+			);
+		if (caseContextLine(module.caseListConfig?.contextAboveForm))
+			addReason(
+				"case-form-context",
+				"A form shows a one-line value from its selected case.",
+			);
+		if (
+			module.caseListConfig?.columns.some(
+				(column) =>
+					column.kind === "image-map" && column.entryPointUuid !== undefined,
+			)
+		)
+			addReason(
+				"case-list-icon-actions",
+				`An icon on the ${module.name} case list submits a form for the tapped case.`,
+			);
+		if (moduleHasCaseTiles(module) || module.caseListConfig?.detailTile) {
+			customTile ||=
+				module.caseListConfig?.detailTile !== undefined ||
+				!module.caseListConfig?.tile?.namedSlots;
+			addReason("case-tiles", "A case list or its details use a tile layout.");
 		}
 	}
 
@@ -575,15 +631,23 @@ export function projectSpaceCompatibilityProbePlan(
 		["multi-select-case-lists", ["advanced-case-search"]],
 		["related-case-search", ["related-case-lookups"]],
 		["case-tiles", ["case-tiles", "custom-case-tiles"]],
+		["case-form-context", ["case-form-context"]],
+		["empty-case-list-text", ["empty-case-list-text"]],
+		["case-list-optimizations", ["case-list-optimizations"]],
+		["case-list-icon-actions", ["case-list-icon-actions"]],
+		["detail-tab-rows", ["detail-tab-rows"]],
 		["commcare-connect", ["commcare-connect"]],
 		["attachment-links", ["attachment-links"]],
+		["calculated-case-order", ["calculated-case-order"]],
 		["save-only-edited-answers", ["save-only-edited-answers"]],
 	] as const) {
 		const reasons = reasonsByCapability.get(capability);
 		if (!reasons) continue;
 		capabilities.push({
 			capability: projectSpaceCapabilityUse(capability, [...reasons]),
-			featureFlags: flags.map((flag) => HQ_PRIVATE_FEATURE_FLAGS[flag]),
+			featureFlags: flags
+				.filter((flag) => flag !== "custom-case-tiles" || customTile)
+				.map((flag) => HQ_PRIVATE_FEATURE_FLAGS[flag]),
 			featureFlagsOff: [],
 			runtimeProbes: [],
 		});

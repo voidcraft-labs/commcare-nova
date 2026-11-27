@@ -1,5 +1,12 @@
 import { createEntryPointProjector } from "@/lib/commcare/entryPointProjection";
-import type { BlueprintDoc, EntryPointTarget, Uuid } from "@/lib/domain";
+import { listIconDestinations } from "@/lib/commcare/listIconAction";
+import {
+	type BlueprintDoc,
+	type Column,
+	type EntryPointTarget,
+	entryPointTargetLabel,
+	type Uuid,
+} from "@/lib/domain";
 
 export { entryPointSharesFirstMenuCase } from "@/lib/commcare/validator/rules/formsInMenuAbove";
 
@@ -87,4 +94,25 @@ export function entryPointRequirements(
 	target: EntryPointTarget,
 ): EntryPointRequirements {
 	return createEntryPointRequirements(doc)(target);
+}
+
+/** A form a case list icon may submit, as the Builder offers it. */
+export interface ListIconChoice {
+	readonly entryPointUuid: Uuid;
+	readonly label: string;
+}
+
+/** The forms a tap on this column's icon may submit, in deep link order
+ * (`lib/commcare/listIconAction.ts::listIconDestinations`). */
+export function listIconChoices(
+	doc: BlueprintDoc,
+	moduleUuid: Uuid,
+	column: Column,
+): readonly ListIconChoice[] {
+	const module = doc.modules[moduleUuid];
+	if (module === undefined) return [];
+	return listIconDestinations(doc, module, column).map((destination) => ({
+		entryPointUuid: destination.entryPointUuid,
+		label: entryPointTargetLabel(doc, destination.target),
+	}));
 }

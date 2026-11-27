@@ -36,7 +36,9 @@
  * (`PreviewViewedDatum`). Formplayer's details answer carries no tile
  * (`MenuController.getDetails`).
  */
+
 import { type Module, moduleFormsReadSearch, type Uuid } from "@/lib/domain";
+import { resolveCaseFormContext } from "@/lib/domain/caseFormContext";
 import type {
 	PreviewSearchAnswers,
 	PreviewSearchState,
@@ -128,7 +130,7 @@ function keepsTileOnScreen(
 	modules: Readonly<Record<string, Module | undefined>>,
 	moduleUuid: Uuid,
 ): boolean {
-	return modules[moduleUuid]?.caseListConfig?.tile?.persistOnForms === true;
+	return resolveCaseFormContext(modules, moduleUuid) !== undefined;
 }
 
 /** How the pinned tile reads its case: from the search that found it, with

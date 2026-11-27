@@ -25,6 +25,9 @@ import { type ValidationError, validationError } from "../errors";
 import type { LookupTypeIndex } from "../lookupTypeContext";
 import { ancestorExistsCannotNestSubcase } from "./case-list/ancestorExistsCannotNestSubcase";
 import { calculatedColumnTypeCheck } from "./case-list/calculatedColumnTypeCheck";
+import { caseFormContext } from "./case-list/caseFormContext";
+import { caseListLoadBehavior } from "./case-list/caseListLoadBehavior";
+import { caseMapLayers } from "./case-list/caseMapLayers";
 import { caseTileGrouping } from "./case-list/caseTileGrouping";
 import { caseTileHiddenCalculatedSort } from "./case-list/caseTileHiddenCalculatedSort";
 import { caseTileLayout } from "./case-list/caseTileLayout";
@@ -35,6 +38,8 @@ import { columnRelation } from "./case-list/columnRelation";
 import { csqlPredicateRepresentability } from "./case-list/csqlPredicateRepresentability";
 import { dateAddOnDeviceCompatibility } from "./case-list/dateAddOnDeviceCompatibility";
 import { dateColumnPattern } from "./case-list/dateColumnPattern";
+import { detailTabPartition } from "./case-list/detailTabPartition";
+import { detailTabTypeCheck } from "./case-list/detailTabTypeCheck";
 import { filterTypeCheck } from "./case-list/filterTypeCheck";
 import { idMappingKeyCharacters } from "./case-list/idMappingKeyCharacters";
 import { matchModeOnDeviceCompatibility } from "./case-list/matchModeOnDeviceCompatibility";
@@ -314,8 +319,13 @@ export const MODULE_RULES: readonly ModuleRule[] = [
 	columnRelation,
 	columnReferences,
 	columnKindPropertyType,
+	caseMapLayers,
 	filterTypeCheck,
 	calculatedColumnTypeCheck,
+	detailTabTypeCheck,
+	detailTabPartition,
+	caseListLoadBehavior,
+	caseFormContext,
 	imageMapValueUnique,
 	idMappingKeyCharacters,
 	dateColumnPattern,

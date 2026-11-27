@@ -176,6 +176,15 @@ export function toWire(expr: Expression, ctx: WireBuildContext): WireExpr {
 	const { normalized, context } = prepareWire(expr, ctx);
 	return emitExpression(normalized, context);
 }
+/** `toWire` for a consumer that reads the expression as a node-set: a
+ * detail's `nodeset`, which Core evaluates as the rows it lists. A read of an
+ * instance built from its rows alone stays bare there, as it does inside
+ * `count`, since Core counts an empty instance's rows as none and the value
+ * guard's `''` branch is no node-set. */
+export function toWireNodes(expr: Expression, ctx: WireBuildContext): WireExpr {
+	const { normalized, context } = prepareWire(expr, ctx);
+	return emitExpression(normalized, context, "nodes");
+}
 /**
  * A date and time written to a case, as the text CommCare HQ stores
  * (`instant.ts::storedDatetimeValue`): `expr` classified leaf by leaf in its
@@ -530,6 +539,24 @@ function term(input: Term, ctx: Context): WireExpr {
 			const self = input.via === undefined || input.via.kind === "self";
 			if (self && bindings.emitSelfProperty !== undefined)
 				return bindings.emitSelfProperty(input);
+			if (input.readReached && input.via?.kind === "ancestor") {
+				// The walk starts at the case the slot reads: a case list's row
+				// (`current()`), or, in a form, the case its menu chose
+				// (`rootCaseIdWireExpr`), since a form bind's `current()` is
+				// its own node and holds no index.
+				if (bindings.lookup?.rowScope?.caseAnchor.kind === "unaddressable")
+					throw new Error(
+						`Case property '${input.property}' is read inside a lookup-row filter whose case cannot be addressed from current(). Validation should reject this shape before emission.`,
+					);
+				return w.append(
+					buildAncestorJoinNodeset(
+						input.via.via.map(({ identifier }) => ({ identifier })),
+						root,
+						origin(ctx),
+					),
+					[casePropertyStep(input.property)],
+				);
+			}
 			const anchored = bindings.caseProperty?.(
 				input,
 				root,
@@ -1009,6 +1036,8 @@ function lowerExpression(expr: Expression, ctx: Context, use: Use): WireExpr {
 				? nodes()
 				: guardAbsentNode(nodes([w.num(1)]), nodes());
 		}
+		case "case-text":
+			return { k: "case-text-variable", textUuid: expr.textUuid };
 		case "itext": {
 			const id = ctx.bindings.itextId?.(expr.unit);
 			if (id === undefined)
@@ -1115,10 +1144,13 @@ function lowerExpression(expr: Expression, ctx: Context, use: Use): WireExpr {
 			);
 		case "term": {
 			const input = expr.term;
+			// A reached read walks its links to whatever case each reaches, of any type: no
+			// declared destination to canonicalize it toward.
 			if (
 				input.kind !== "prop" ||
 				input.via === undefined ||
-				input.via.kind === "self"
+				input.via.kind === "self" ||
+				input.readReached
 			)
 				return term(input, ctx);
 			const scope = relationScope(ctx);

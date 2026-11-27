@@ -223,6 +223,7 @@ export const SHARED_TOOL_PRESENTATION = {
 		"Updating available cases",
 		"Updated available cases",
 	),
+	setCaseDetailTabs: change("Updating Details tabs", "Updated Details tabs"),
 	setCaseListTile: change("Updating record tiles", "Updated record tiles"),
 	updateCaseListColumn: change("Updating column", "Updated column"),
 	updateSearchInput: change("Updating search field", "Updated search field"),

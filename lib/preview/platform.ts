@@ -123,6 +123,16 @@ export interface PreviewPlatformRules {
 	/** Android's markdown arm is on the case detail only
 	 *  (`views/EntityDetailView.java`, `FORM_MARKDOWN`). */
 	readonly linkColumnInList: "link" | "raw-text";
+	/** A Details tile's layout. Web Apps draws the long detail's own grid
+	 *  (`formplayer` `EntityDetailResponse` carries each field's style, and
+	 *  `case-layout.js` reads its grid area); Android draws a long detail's
+	 *  fields as ordinary labeled rows (`views/EntityDetailView.java`). */
+	readonly detailTile: "laid-out" | "rows";
+	/** A Search Only field placed on a custom tile. Web Apps hides a field
+	 *  whose header width is zero; Android draws every placed cell of its
+	 *  list tile unless the cell's coordinate is negative
+	 *  (`EntityViewTile.java`). */
+	readonly searchOnlyTileCell: "hidden" | "drawn";
 	/** A search's title, description and field hints (manifest
 	 *  `case-search/title-label-lang-non-empty`, `description-lang-markdown`,
 	 *  `hint-lang`, which Android ignores). */
@@ -232,6 +242,8 @@ export interface PreviewPlatformRules {
 	 *  is inside the label and describes one at any other address, so label
 	 *  text never makes the builder's page request anything
 	 *  (`lib/markdown.tsx::labelMarkdownOptions`). */
+	readonly readsCaseImageDescriptions: boolean;
+	readonly caseLocationDetail: "text" | "show-address";
 	readonly labelMarkdown: {
 		readonly singleNewline: "break" | "space";
 		readonly html: "literal" | "dropped";
@@ -381,13 +393,15 @@ export interface PreviewPlatformRules {
 	readonly capture: "attach" | "device";
 	/** Android's last screen reads `form.entry.finish.button`. */
 	readonly submitLabel: "submit" | "finish";
-	/** A case list's own selection button and empty-list text, the detail's
-	 *  `select_text` and `no_items_text`. Formplayer sends both
-	 *  (`beans/menus/EntityListResponse.java`, `setSelectText`,
-	 *  `setNoItemsText`) and Web Apps draws them
-	 *  (`cloudcare/js/formplayer/menus/views.js`); commcare-android holds no
-	 *  reader of `Detail.getSelectText` or `getNoItemsText`, so its list keeps
-	 *  its own Continue and empty-list wording. */
+	/** A case list's own empty-list text and Continue label, the detail's
+	 *  `no_items_text` and `select_text`. Formplayer sends both
+	 *  (`beans/menus/EntityListResponse.java`, `setNoItemsText`,
+	 *  `setSelectText`) and Web Apps draws the empty text on an empty list and
+	 *  the select text on its several-case Continue only
+	 *  (`cloudcare/js/formplayer/menus/views.js`,
+	 *  `partials/case_list/multi_select_continue_button.html`);
+	 *  commcare-android holds no reader of `Detail.getNoItemsText` or
+	 *  `getSelectText`, so its list keeps its own wording. */
 	readonly caseListDetailWording: boolean;
 	/** A form that requests the device location when it opens. Android
 	 *  registers the `pollsensor` action (`engine/extensions/PollSensorExtensionParser.java`,
@@ -513,6 +527,18 @@ export interface PreviewPlatformRules {
 	 *  `MediaPlayer`) and, returning false, leaves the tap that opens the
 	 *  tile to the release. A list row offers its audio on both. */
 	readonly gridMenuAudio: "none" | "hold";
+	/**
+	 * The case list's map. Web Apps offers it only where the project's
+	 * CASE_LIST_MAP switch is on and the list has an address, and marks each
+	 * case at the first address column's value alone
+	 * (`cloudcare/js/formplayer/menus/views.js`, `mapAvailable` and
+	 * `addressIndex`). Android offers it whenever the list has an address,
+	 * marks each case at its first address that parses, and draws the
+	 * boundary and point layers with their colors
+	 * (`gis/EntityMapUtils.kt::getEntityLocation`, `getEntityBoundary`,
+	 * `getEntityPoints`).
+	 */
+	readonly caseMap: "switched-first-address" | "address-and-layers";
 }
 
 /** The one table. Both members are frozen, and the `satisfies` makes a field
@@ -535,6 +561,8 @@ export const PREVIEW_PLATFORM_RULES = {
 		tileBorderShading: true,
 		tileVerticalAlign: "as-authored",
 		linkColumnInList: "link",
+		detailTile: "laid-out",
+		searchOnlyTileCell: "hidden",
 		searchScreenText: true,
 		searchScreenCaseTile: true,
 		caseDetailsCaseTile: false,
@@ -553,6 +581,8 @@ export const PREVIEW_PLATFORM_RULES = {
 		help: "label-icon",
 		helpMediaWithoutText: "hidden",
 		hint: "markdown",
+		readsCaseImageDescriptions: true,
+		caseLocationDetail: "text",
 		labelMarkdown: Object.freeze({
 			singleNewline: "break",
 			html: "literal",
@@ -608,6 +638,7 @@ export const PREVIEW_PLATFORM_RULES = {
 		caseListReturn: Object.freeze({ back: "address", search: "keeps-sort" }),
 		menuBadge: "whole",
 		gridMenuAudio: "none",
+		caseMap: "switched-first-address",
 	}),
 	android: Object.freeze({
 		unavailableInlineChoice: "summary-or-restore",
@@ -626,6 +657,8 @@ export const PREVIEW_PLATFORM_RULES = {
 		tileBorderShading: false,
 		tileVerticalAlign: "middle-only",
 		linkColumnInList: "raw-text",
+		detailTile: "rows",
+		searchOnlyTileCell: "drawn",
 		searchScreenText: false,
 		searchScreenCaseTile: false,
 		caseDetailsCaseTile: true,
@@ -644,6 +677,8 @@ export const PREVIEW_PLATFORM_RULES = {
 		help: "info-button",
 		helpMediaWithoutText: "shown",
 		hint: "plain",
+		readsCaseImageDescriptions: false,
+		caseLocationDetail: "show-address",
 		labelMarkdown: Object.freeze({
 			singleNewline: "space",
 			html: "dropped",
@@ -699,6 +734,7 @@ export const PREVIEW_PLATFORM_RULES = {
 		caseListReturn: Object.freeze({ back: "new-list", search: "new-list" }),
 		menuBadge: "shortened",
 		gridMenuAudio: "hold",
+		caseMap: "address-and-layers",
 	}),
 } as const satisfies Readonly<Record<Platform, PreviewPlatformRules>>;
 

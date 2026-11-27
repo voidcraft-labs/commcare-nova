@@ -1318,7 +1318,7 @@ export interface ReachedDeploymentTargetRow {
 	readonly domain: string;
 	readonly hqAppId: string;
 	/**
-	 * The target's `USH_EMPTY_CASE_LIST_TEXT` as the last publish read it;
+	 * The target's empty case list text flag (`lib/commcare` names it) as the last publish read it;
 	 * false where no publish has read it.
 	 */
 	readonly emptyCaseListText: boolean;
@@ -2288,7 +2288,7 @@ export interface RecordRemoteAppInput
 		DeploymentFence {
 	readonly uploadedAt: string;
 	/**
-	 * The target's `USH_EMPTY_CASE_LIST_TEXT` as this publish read it, written
+	 * The target's empty case list text flag (`lib/commcare` names it) as this publish read it, written
 	 * with the upload's fold. Left out where the read failed, so the column
 	 * keeps what an earlier publish read.
 	 */

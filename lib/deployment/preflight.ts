@@ -389,7 +389,7 @@ export type PreflightResult =
 					readonly learned: HqMediaRecord;
 				} | null;
 				/**
-				 * Whether the project space holds `USH_EMPTY_CASE_LIST_TEXT`, read
+				 * Whether the project space holds the empty case list text flag (`lib/commcare` names it), read
 				 * by every publish whatever the app holds; `null` where the read
 				 * failed. The publish stores a definite answer with the
 				 * deployment, and a `.ccz` made for it writes the empty-list text
@@ -2486,19 +2486,19 @@ export async function runDeploymentPreflight(
 	// A restored worker record is not observable through the API key. The
 	// plan half (user cases) is a confirmation of `plan-features`; this edge
 	// keeps the device half.
-	const workerRecordForms = [
-		...menusUsingWorkerRecord(boundary.prepared.doc),
+	const workerRecordUses = [
 		...formsUsingWorkerRecord(boundary.prepared.doc),
+		...menusUsingWorkerRecord(boundary.prepared.doc),
 	];
 	checks.push({
 		id: "worker-record-access",
 		title: workerRecordSetup.title,
-		status: workerRecordForms.length === 0 ? "passed" : "attention",
+		status: workerRecordUses.length === 0 ? "passed" : "attention",
 		detail:
-			workerRecordForms.length === 0
-				? "This app does not use the worker's own record."
+			workerRecordUses.length === 0
+				? "This app uses no information from the worker's own record."
 				: `${workerRecordSetup.detail} ${workerRecordSetup.consequences}`,
-		items: workerRecordForms.map((form) => form.name),
+		items: workerRecordUses.map((use) => use.name),
 	});
 
 	return {

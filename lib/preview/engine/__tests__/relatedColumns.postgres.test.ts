@@ -168,3 +168,95 @@ describe("a column read through the parent, in Preview's Results read", () => {
 		]);
 	});
 });
+
+it("reads the worker record and names group, individual and unfamiliar owners before sorting", async () => {
+	const store = makeStore();
+	const { doc, config } = membersDoc();
+	const workerProperty = testUuid("worker-cell");
+	const ownerName = testUuid("owner-name");
+	const parentOwner = testUuid("parent-owner");
+	config.columns = [
+		plainColumn(workerProperty, "district", "My district", {
+			readFrom: "worker-record",
+		}),
+		plainColumn(ownerName, "owner_id", "Assigned to", {
+			showOwner: "name",
+			sort: columnSort("asc", 0, "last"),
+		}),
+		plainColumn(parentOwner, "owner_id", "Household owner", {
+			showOwner: "name",
+			via: [{ identifier: "parent" }],
+		}),
+	];
+	config.listColumnOrder = config.columns.map((column) => column.uuid);
+	config.detailColumnOrder = [...config.listColumnOrder];
+	await seed(store, doc);
+	const db = dbHandle.db as unknown as Kysely<Database>;
+	for (const [id, owner] of [
+		["member-1", "group-west"],
+		["member-2", "worker-a"],
+		["member-3", "outside"],
+		["house-b", "group-west"],
+	] as const) {
+		await db
+			.updateTable("cases")
+			.set({ owner_id: owner })
+			.where("case_id", "=", id)
+			.where("app_id", "=", APP_ID)
+			.where("project_id", "=", PROJECT_ID)
+			.execute();
+	}
+	await dbHandle.pool.query(
+		"insert into cases(app_id, project_id, case_id, case_type, case_name, status, owner_id, properties) values ($1,$2,$3,$4,$5,$6,$7,$8::jsonb)",
+		[
+			APP_ID,
+			PROJECT_ID,
+			"worker-record",
+			"commcare-user",
+			"Worker A",
+			"open",
+			"worker-a",
+			JSON.stringify({ hq_user_id: "worker-a", district: "North" }),
+		],
+	);
+	const mod = Object.values(doc.modules)[0];
+	if (!mod?.caseType) throw new Error("Expected the Members list");
+	const result = await readCases(store, {
+		reading: CASEDB_READING,
+		tileGrouping: "flat",
+		appId: APP_ID,
+		caseType: mod.caseType,
+		caseListConfig: config,
+		caseTypeSchemas: buildCaseTypeMap(doc),
+		restoreScope: {
+			ownerIds: ["worker-a", "group-west", "outside", "owner-a"],
+			groups: [{ id: "group-west", name: "Birch team" }],
+		},
+		bindings: {
+			sessionContext: new Map([
+				["userid", "worker-a"],
+				["username", "Ada"],
+			]),
+		},
+		order: previewCaseStoreOrder(
+			{ ...mod, caseType: mod.caseType },
+			doc,
+			config,
+			"eng",
+		),
+	});
+	if (result.kind !== "rows")
+		throw new Error(`Expected rows, got ${result.kind}.`);
+	expect(
+		result.rows.map((row) => [
+			row.case_id,
+			row.calculated[workerProperty],
+			row.calculated[ownerName],
+			row.calculated[parentOwner] ?? "",
+		]),
+	).toEqual([
+		["member-2", "North", "Ada", ""],
+		["member-1", "North", "Birch team", "Birch team"],
+		["member-3", "North", "", ""],
+	]);
+});

@@ -7,12 +7,15 @@ import {
 	type CaseType,
 	type Column,
 	calculatedColumn,
+	idMappingColumn,
 	plainColumn,
 	simpleSearchInputDef,
 } from "@/lib/domain";
 import {
 	ancestorPath,
 	double,
+	eq,
+	literal,
 	prop,
 	relationStep,
 	slotContext,
@@ -125,5 +128,36 @@ it("does not restore a related calculation after a peer enables Search", () => {
 	]);
 	expect(committed.modules[moduleUuid].caseListConfig?.columns[0]).toEqual(
 		next,
+	);
+});
+
+it("keeps a first-match label and its rule identity when rebuilding the active display", () => {
+	const column = {
+		...idMappingColumn(testUuid("rule-display"), "status", "Visit status", [
+			{
+				uuid: testUuid("status-rule"),
+				when: eq(term(prop("patient", "status")), term(literal("held"))),
+				label: "Hold",
+			},
+		]),
+		behavior: "first-match" as const,
+	};
+	const context = {
+		currentCaseType: "patient",
+		caseTypes: [
+			{
+				name: "patient",
+				properties: [
+					{
+						name: "status",
+						label: proseText("Status"),
+						data_type: "text" as const,
+					},
+				],
+			},
+		],
+	};
+	expect(nextColumnDisplay(column, "id-mapping", context, new Map())).toEqual(
+		column,
 	);
 });

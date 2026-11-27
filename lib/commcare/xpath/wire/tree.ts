@@ -1,3 +1,4 @@
+import type { Uuid } from "@/lib/domain/uuid";
 import type { JavaRosaFunction } from "../functionCapabilities";
 import type { InstanceDecl } from "./instances";
 
@@ -47,6 +48,12 @@ export type WireExpr =
 	| { readonly k: "case-id-var" | "next-input-var" | "calculated-property-var" }
 	| { readonly k: "enum-label-var" | "hq-enum-var"; readonly index: number }
 	| { readonly k: "image-alt-var"; readonly value: string }
+	| {
+			readonly k: "case-text-variable";
+			readonly textUuid: Uuid;
+			readonly variant?: number;
+	  }
+	| { readonly k: "image-mapping-variable"; readonly key: string }
 	| { readonly k: "endpoint-argument-var"; readonly name: string };
 
 export interface WirePath {

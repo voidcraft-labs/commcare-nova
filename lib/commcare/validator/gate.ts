@@ -120,6 +120,7 @@ export const VALIDITY_CLASS_BY_CODE = {
 	// ── App-level ────────────────────────────────────────────────────
 	MENU_FORM_SOURCE_INVALID: "soundness",
 	ENTRY_POINT_INVALID: "soundness",
+	CASE_LIST_ICON_ACTION_INVALID: "soundness",
 	SUITE_ENDPOINT_INVALID: "oracle",
 	EMPTY_APP_NAME: "soundness",
 	APP_TEXT_UNREPRESENTABLE: "soundness",
@@ -175,6 +176,7 @@ export const VALIDITY_CLASS_BY_CODE = {
 	LOCATION_PROPERTY_REQUIRED_CAPACITY: "soundness",
 	PERSONA_LOCATION_PRIMARY_REPEATED: "soundness",
 	// ── Module-level ─────────────────────────────────────────────────
+	CASE_RELATION_INVALID: "soundness",
 	NO_CASE_TYPE: "soundness",
 	CASE_PARENT_SELECTION_INVALID: "soundness",
 	CASE_PARENT_SELECTION_CONFLICT: "soundness",
@@ -200,7 +202,20 @@ export const VALIDITY_CLASS_BY_CODE = {
 	CASE_LIST_COLUMN_RELATION_INVALID: "soundness",
 	CASE_LIST_COLUMN_KIND_PROPERTY_TYPE_MISMATCH: "soundness",
 	CASE_LIST_FILTER_TYPE_ERROR: "soundness",
+	// A field move that would change which Details tab shows it is refused
+	// before validation, so the author regroups the field explicitly.
+	CASE_DETAIL_TAB_MOVE_NEEDS_GROUP: "soundness",
+	CASE_DETAIL_TAB_CONDITION_INVALID: "soundness",
+	CASE_DETAIL_TAB_ROWS_INVALID: "soundness",
+	CASE_DETAIL_TABS_INVALID: "soundness",
+	CASE_LIST_LOAD_BEHAVIOR_INVALID: "soundness",
 	CASE_LIST_CALCULATED_COLUMN_TYPE_ERROR: "soundness",
+	CASE_LIST_MAPPING_CONDITION: "soundness",
+	CASE_LIST_CALCULATED_SORT_TYPE_ERROR: "soundness",
+	CASE_LIST_DISTANCE_NEEDS_LOCATION: "soundness",
+	// A map layer and the location it draws on are authored together; a
+	// layer without its location, or two of one kind, is no map a worker sees.
+	CASE_MAP_SOURCE_INVALID: "soundness",
 	CASE_LIST_SEARCH_INPUT_UNKNOWN_PROPERTY: "soundness",
 	CASE_LIST_SEARCH_INPUT_MODE_PROPERTY_TYPE_MISMATCH: "soundness",
 	CASE_LIST_SEARCH_INPUT_TYPE_PROPERTY_TYPE_MISMATCH: "soundness",
@@ -244,9 +259,12 @@ export const VALIDITY_CLASS_BY_CODE = {
 	// cells on one square, or a shown field with nowhere to sit each
 	// produce a layout the running app draws differently from the one the
 	// author arranged.
+	CASE_DETAIL_TILE_LAYOUT_INVALID: "soundness",
+	CASE_FORM_CONTEXT_INVALID: "soundness",
 	CASE_LIST_TILE_CELL_OUT_OF_GRID: "soundness",
 	CASE_LIST_TILE_CELLS_OVERLAP: "soundness",
 	CASE_LIST_TILE_COLUMN_NOT_PLACED: "soundness",
+	CASE_LIST_NAMED_TILE_SLOT_INVALID: "soundness",
 	CASE_LIST_TILE_GROUP_HEADER_ROWS_OUT_OF_RANGE: "soundness",
 	CASE_LIST_TILE_GROUP_CELL_STRADDLES_HEADER: "soundness",
 	CASE_LIST_TILE_GROUP_HEADER_EMPTY: "soundness",

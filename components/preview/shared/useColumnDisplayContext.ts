@@ -35,6 +35,7 @@ import {
 	projectLocalizedCaseProperties,
 	relatedColumnProperties,
 } from "@/lib/preview/localizedCaseProperties";
+import { usePreviewPlatformRules } from "@/lib/session/hooks";
 import { useLocalCalendarDay } from "@/lib/ui/hooks/useLocalCalendarDay";
 
 /**
@@ -60,6 +61,11 @@ export function useColumnDisplayContext(
 		"columnProperties" | "imageDescription"
 	>;
 } {
+	const {
+		labelMarkdown: markdownRendering,
+		caseLocationDetail,
+		readsCaseImageDescriptions,
+	} = usePreviewPlatformRules();
 	const effectiveCaseTypes = useEffectiveCaseTypes();
 	const effectiveCaseType = effectiveCaseTypes.find(
 		(candidate) => candidate.name === currentCaseType,
@@ -154,6 +160,9 @@ export function useColumnDisplayContext(
 			...rowWording,
 			detailWording,
 			language,
+			markdownRendering,
+			caseLocationDetail,
+			readsCaseImageDescriptions,
 			calculatedTemporalTypes,
 			caseProperties,
 			relatedProperties,
@@ -165,6 +174,9 @@ export function useColumnDisplayContext(
 			rowWording,
 			detailWording,
 			language,
+			markdownRendering,
+			caseLocationDetail,
+			readsCaseImageDescriptions,
 			calculatedTemporalTypes,
 			caseProperties,
 			relatedProperties,

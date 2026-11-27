@@ -219,6 +219,8 @@ const CASE_LIST_MENU_ITEM_WEB_APPS_NOTE =
 export const PLATFORM_FEATURE_IDS = [
 	"datetime-question",
 	"case-list-here",
+	"worker-distance",
+	"sort-by-distance",
 	"forms-read-search",
 	"list-first",
 	"several-cases",
@@ -257,12 +259,24 @@ export const PLATFORM_FEATURE_IDS = [
 	"case-list-menu-item",
 	"case-list-registration-media",
 	"menu-badge",
+	"named-case-tile",
+	"details-tile",
+	"raw-custom-tile-field",
+	"raw-grouped-tile-body-field",
 	"tile-grouping",
+	"case-list-empty-text",
+	"case-list-continue-label",
+	"case-list-faster-loading",
 	"tile-alignment",
 	"tile-border-and-shading",
 	"column-hidden-from-results",
 	"case-list-sort-label",
 	"link-column",
+	"formatted-case-text",
+	"case-image-descriptions",
+	"case-map-location",
+	"case-map-fallback-locations",
+	"case-map-layers",
 	"search-screen-text",
 	"search-field-checks",
 	"barcode-search-field",
@@ -286,6 +300,8 @@ export type PlatformFeatureId = (typeof PLATFORM_FEATURE_IDS)[number];
 export const REFUSABLE_PLATFORM_FEATURE_IDS = [
 	"datetime-question",
 	"case-list-here",
+	"worker-distance",
+	"sort-by-distance",
 	"forms-read-search",
 	"list-first",
 	"several-cases",
@@ -294,6 +310,7 @@ export const REFUSABLE_PLATFORM_FEATURE_IDS = [
 	"connect-app",
 	"case-list-search-text",
 	"window-width",
+	"raw-grouped-tile-body-field",
 ] as const satisfies readonly PlatformFeatureId[];
 export type RefusablePlatformFeatureId =
 	(typeof REFUSABLE_PLATFORM_FEATURE_IDS)[number];
@@ -332,6 +349,35 @@ export const PLATFORM_FEATURES: Readonly<
 			what: "reads here(), the worker's location",
 			why: "Web Apps doesn't know where the worker is, so here() reads blank there, or a fixed place while the list is built.",
 			alternative: "take here() out of this value",
+		},
+	},
+	"worker-distance": {
+		label: "Distance from worker",
+		channel: "structure",
+		webApps: {
+			reading: "unavailable",
+			note: "the worker's current location isn't known there, so a case's distance from it can't be shown",
+		},
+		android: { reading: "runs" },
+		refusal: {
+			what: "shows each case's distance from the worker",
+			why: "Web Apps doesn't know where the worker is, so it can't show how far away each case is.",
+			alternative: "show the saved location instead",
+		},
+	},
+	"sort-by-distance": {
+		label: "Case lists ordered by distance",
+		channel: "structure",
+		webApps: {
+			reading: "unavailable",
+			note: "the worker's current location isn't known there, so cases can't be ordered by their distance from it",
+		},
+		android: { reading: "runs" },
+		refusal: {
+			what: "orders cases by distance from the worker",
+			why: "Web Apps doesn't know the worker's current location.",
+			alternative:
+				"choose a different default order or run this app on Android",
 		},
 	},
 	"forms-read-search": {
@@ -768,6 +814,75 @@ export const PLATFORM_FEATURES: Readonly<
 			note: "a badge that is empty or reads 0 is hidden, and one longer than three characters shows as 999+ when it reads as a whole number, otherwise as its first three characters and two dots",
 		},
 	},
+	"named-case-tile": {
+		label: "Named image and text positions",
+		channel: "structure",
+		webApps: { reading: "runs" },
+		android: {
+			reading: "different",
+			note: "icon fields show the stored image path",
+		},
+	},
+	"details-tile": {
+		label: "Tile layout in Details",
+		channel: "structure",
+		webApps: { reading: "runs" },
+		android: { reading: "ignored", note: "the fields appear in ordinary rows" },
+	},
+	"raw-custom-tile-field": {
+		label: "A raw field in a Results tile",
+		channel: "structure",
+		webApps: { reading: "runs", note: "the field stays hidden" },
+		android: {
+			reading: "different",
+			note: "the cell displays the stored value",
+		},
+	},
+	"raw-grouped-tile-body-field": {
+		label: "An Android-only value below a group heading",
+		channel: "structure",
+		webApps: {
+			reading: "unavailable",
+			note: "the value is visible below the group heading",
+		},
+		android: { reading: "runs" },
+		refusal: {
+			what: "places an Android-only field below a group heading",
+			why: "Web Apps displays the value there, including saved map locations.",
+			alternative:
+				"move the field into the heading, remove it from the tile, or turn off grouping",
+		},
+	},
+	"case-list-empty-text": {
+		label: "Your own empty case list text",
+		channel: "structure",
+		webApps: { reading: "runs" },
+		android: {
+			reading: "ignored",
+			note: "an empty list keeps the phone's own wording",
+		},
+	},
+	"case-list-continue-label": {
+		label: "Your own Continue label",
+		channel: "structure",
+		webApps: {
+			reading: "different",
+			note: "the label shows only on Continue after choosing several cases",
+		},
+		android: {
+			reading: "ignored",
+			note: "the phone keeps its own wording for Continue",
+		},
+	},
+	"case-list-faster-loading": {
+		label: "Faster case list loading",
+		channel: "structure",
+		webApps: {
+			reading: "different",
+			note: "the whole list loads later and nothing is kept between visits",
+		},
+		android: { reading: "runs" },
+	},
 	"tile-grouping": {
 		label: "Grouped tiles",
 		channel: "structure",
@@ -809,6 +924,51 @@ export const PLATFORM_FEATURES: Readonly<
 			note: "only a case tile list's Sort By lists the column under its name",
 		},
 		android: { reading: "runs" },
+	},
+	"case-map-location": {
+		label: "Case map locations",
+		channel: "structure",
+		webApps: {
+			reading: "different",
+			note: "the location is hidden in Results and shown as coordinates in Details, and a project space with the case list map can show each case's first location on a map",
+		},
+		android: { reading: "runs" },
+	},
+	"case-image-descriptions": {
+		label: "Case image descriptions",
+		channel: "structure",
+		webApps: { reading: "runs" },
+		android: {
+			reading: "ignored",
+			note: "a case list image shows without its description",
+		},
+	},
+	"case-map-fallback-locations": {
+		label: "Several case map locations",
+		channel: "structure",
+		webApps: { reading: "runs" },
+		android: {
+			reading: "different",
+			note: "a case whose first location is blank is marked at the next location that holds one",
+		},
+	},
+	"case-map-layers": {
+		label: "Case map boundaries and points",
+		channel: "structure",
+		webApps: {
+			reading: "ignored",
+			note: "the map shows case locations without additional boundaries, points or their colors",
+		},
+		android: { reading: "runs" },
+	},
+	"formatted-case-text": {
+		label: "Formatted case text",
+		channel: "structure",
+		webApps: { reading: "runs" },
+		android: {
+			reading: "different",
+			note: "case lists show the saved Markdown, details format it, and tiles read inline HTML",
+		},
 	},
 	"link-column": {
 		label: "Link columns",

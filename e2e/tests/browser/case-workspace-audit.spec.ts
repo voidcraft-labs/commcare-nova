@@ -75,6 +75,38 @@ test("a native threshold blur preserves invalid drafts and commits corrected val
 	await expect(page.getByLabel("Saved column")).toContainText('"unit":"weeks"');
 });
 
+test("an author can use a translated phrase in a case calculation and keep its identity when editing the wording", async ({
+	page,
+}) => {
+	await page.goto(`${peer.origin}/?scenario=calculated`);
+	const saved = page.getByLabel("Saved column");
+	const format = page.getByRole("group", { name: "Show as" });
+	await format.getByRole("button", { name: "Translated text" }).click();
+	await page.getByRole("button", { name: "Add translated text" }).click();
+	const phrase = page.getByRole("textbox", { name: "Translated text 1" });
+	await phrase.fill("Next visit");
+	await phrase.press("Tab");
+	await expect(saved).toContainText('"label":"Next visit"');
+	const piece = JSON.parse(await saved.innerText()).texts[0].uuid;
+	await page
+		.getByRole("button", {
+			name: "Value source: Other case information",
+			exact: true,
+		})
+		.click();
+	await page.getByRole("menuitem", { name: /^Translated text/ }).click();
+	// Replacing the saved property asks first, as any kind change does.
+	await page.getByRole("button", { name: "Replace", exact: true }).click();
+	await expect(saved).toContainText(`"textUuid":"${piece}"`);
+	await expect(
+		page.getByRole("button", { name: "Remove text 1" }),
+	).toBeDisabled();
+	await phrase.fill("Upcoming visit");
+	await phrase.press("Tab");
+	await expect(saved).toContainText('"label":"Upcoming visit"');
+	await expect(saved).toContainText(`"textUuid":"${piece}"`);
+});
+
 for (const search of [false, true]) {
 	test(`calculated column checks parent-value wrapping when Search is ${search ? "enabled" : "absent"}`, async ({
 		page,
@@ -243,63 +275,60 @@ test("native link text refuses a blank label and commits replacement wording", a
 	);
 });
 
-test("native mapping drafts reject invalid values, commit complete rows, and retain row identity on Enter", async ({
+test("mapping rules accept empty and multiword saved values and retain their identity through edits", async ({
 	page,
 }) => {
 	await page.goto(`${peer.origin}/?scenario=mapping`);
 	const saved = page.getByLabel("Saved column");
 	const before = await saved.innerText();
-	await page.getByRole("button", { name: "Add value", exact: true }).click();
+	const add = page.getByRole("button", { name: "Add value", exact: true });
+	await add.click();
 	const pending = page.getByRole("textbox", {
 		name: "Value 3 saved value",
 		exact: true,
 	});
 	const save = page.getByRole("button", { name: "Save value", exact: true });
-	for (const invalid of ["", "not active", "active"]) {
+	for (const invalid of ["&", "active"]) {
 		await pending.fill(invalid);
 		await expect(save).toBeDisabled();
 		await expect(saved).toHaveText(before);
 	}
-	await pending.fill("waiting");
+	await pending.fill("");
 	await page
 		.getByRole("textbox", { name: "Value 3 display label", exact: true })
-		.fill("Waiting");
+		.fill("Unassigned");
 	await expect(saved).toHaveText(before);
 	await save.click();
 	await expect
-		.poll(async () => JSON.parse(await saved.innerText()).mapping)
-		.toContainEqual({ value: "waiting", label: "Waiting" });
-	const first = page.getByRole("textbox", {
-		name: "Value 1 saved value",
+		.poll(async () => JSON.parse(await saved.innerText()).mapping[2])
+		.toMatchObject({
+			value: "",
+			label: "Unassigned",
+			uuid: expect.any(String),
+		});
+	const id = JSON.parse(await saved.innerText()).mapping[2].uuid;
+	const stored = page.getByRole("textbox", {
+		name: "Value 3 saved value",
 		exact: true,
 	});
-	const handle = await first.elementHandle();
-	await first.fill("registered");
-	await first.press("Enter");
-	await expect(first).toBeFocused();
+	const element = await stored.elementHandle();
+	await stored.fill("east bank");
+	await stored.press("Enter");
+	await expect(stored).toBeFocused();
 	expect(
-		await first.evaluate((element, previous) => element === previous, handle),
+		await stored.evaluate((current, previous) => current === previous, element),
 	).toBe(true);
 	await expect
-		.poll(async () => JSON.parse(await saved.innerText()).mapping)
-		.toContainEqual({ value: "registered", label: "Active" });
-	for (const invalid of ["", "not active", "inactive"]) {
-		await first.fill(invalid);
-		await page.getByRole("button", { name: "Leave inspector" }).click();
-		await expect
-			.poll(async () => JSON.parse(await saved.innerText()).mapping)
-			.toContainEqual({ value: "registered", label: "Active" });
-		await expect(
-			page.getByText(
-				/Enter a saved value\.|Saved values cannot contain spaces\.|That saved value already has a label\./,
-			),
-		).toBeVisible();
-	}
-	await first.fill("ready");
-	await first.press("Enter");
+		.poll(async () => JSON.parse(await saved.innerText()).mapping[2])
+		.toEqual({ uuid: id, value: "east bank", label: "Unassigned" });
+	await stored.fill("inactive");
+	await page.getByRole("button", { name: "Leave inspector" }).click();
+	await expect(
+		page.getByText("That saved value already has a label."),
+	).toBeVisible();
 	await expect
-		.poll(async () => JSON.parse(await saved.innerText()).mapping)
-		.toContainEqual({ value: "ready", label: "Active" });
+		.poll(async () => JSON.parse(await saved.innerText()).mapping[2])
+		.toEqual({ uuid: id, value: "east bank", label: "Unassigned" });
 });
 
 test("native mapping reorder carries row DOM and removal moves focus to surviving controls", async ({
@@ -423,13 +452,7 @@ test("native image mapping stages a value until an actual library selection and 
 		name: "Value 1 saved value",
 		exact: true,
 	});
-	for (const invalid of ["", "not active"]) {
-		await pending.fill(invalid);
-		await expect(
-			page.getByRole("button", { name: "Attach", exact: true }),
-		).toHaveCount(0);
-	}
-	await pending.fill("active");
+	await pending.fill("north ridge");
 	await expect(saved).toContainText('"mapping":[]');
 	await page.getByRole("button", { name: "Attach", exact: true }).click();
 	await page.getByRole("tab", { name: "Library", exact: true }).click();
@@ -438,7 +461,10 @@ test("native image mapping stages a value until an actual library selection and 
 		.click();
 	await expect
 		.poll(async () => JSON.parse(await saved.innerText()).mapping)
-		.toEqual([{ value: "active", assetId: firstId }]);
+		.toMatchObject([
+			{ value: "north ridge", assetId: firstId, uuid: expect.any(String) },
+		]);
+	const firstRuleId = JSON.parse(await saved.innerText()).mapping[0].uuid;
 	const input = page.getByRole("textbox", {
 		name: "Value 1 saved value",
 		exact: true,
@@ -466,6 +492,7 @@ test("native image mapping stages a value until an actual library selection and 
 	await page
 		.getByRole("button", { name: "Choose alert.png", exact: true })
 		.click();
+	const secondRuleId = JSON.parse(await saved.innerText()).mapping[1].uuid;
 	const firstGroup = page.getByRole("group", {
 		name: "Value 1 image",
 		exact: true,
@@ -508,8 +535,8 @@ test("native image mapping stages a value until an actual library selection and 
 	await expect
 		.poll(async () => JSON.parse(await saved.innerText()).mapping)
 		.toEqual([
-			{ value: "registered", assetId: secondId },
-			{ value: "waiting", assetId: firstId },
+			{ uuid: firstRuleId, value: "registered", assetId: secondId },
+			{ uuid: secondRuleId, value: "waiting", assetId: firstId },
 		]);
 	await expect(replace).toBeFocused();
 	expect(
@@ -523,6 +550,18 @@ test("native image mapping stages a value until an actual library selection and 
 		.click();
 	await firstGroup
 		.getByRole("button", { name: "Remove image", exact: true })
+		.click();
+	await expect
+		.poll(async () => JSON.parse(await saved.innerText()).mapping)
+		.toEqual([
+			{ uuid: firstRuleId, value: "registered" },
+			{ uuid: secondRuleId, value: "waiting" },
+		]);
+	await page
+		.getByRole("button", { name: "Remove value 2", exact: true })
+		.click();
+	await page
+		.getByRole("button", { name: "Remove value 1", exact: true })
 		.click();
 	await expect(saved).toContainText('"mapping":[]');
 	await expect(

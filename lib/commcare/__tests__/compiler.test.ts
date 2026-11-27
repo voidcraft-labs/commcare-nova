@@ -1,4 +1,5 @@
 import AdmZip from "adm-zip";
+import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { appProfileProperties } from "@/lib/commcare/appProfileSettings";
@@ -12,13 +13,20 @@ import {
 import { runValidation } from "@/lib/commcare/validator/runner";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
-import { type BlueprintDoc, blueprintDocSchema } from "@/lib/domain";
+import {
+	asUuid,
+	type BlueprintDoc,
+	blueprintDocSchema,
+	calculatedColumn,
+} from "@/lib/domain";
 import {
 	and,
 	eq,
 	literal,
 	matchNone,
+	prop,
 	sessionUser,
+	term,
 } from "@/lib/domain/expression";
 import {
 	compilerNavigationFixture,
@@ -554,6 +562,64 @@ describe("the texts HQ's build writes for a list and a form", () => {
 			expect(appStrings(zip, dir).get("m0_no_items_text")).toBe(
 				"List is empty.",
 			);
+	});
+});
+
+describe("a case list's own words on the local path", () => {
+	it("writes the list's own select and empty-list text where HQ's build writes each", () => {
+		const doc = produce(temporalSearchFixture("legacy"), (draft) => {
+			const list = draft.modules[draft.moduleOrder[0]]?.caseListConfig;
+			if (list === undefined)
+				throw new Error("The fixture holds no case list.");
+			list.emptyText = "No patients yet";
+			list.selectButtonText = "Visit these patients";
+		});
+		for (const flag of [false, true]) {
+			const { zip } = exported(doc, { emptyCaseListText: flag });
+			for (const dir of ["default", ...commCareLocalization(doc).languages]) {
+				const table = appStrings(zip, dir);
+				expect(table.get("m0_select_text")).toBe("Visit these patients");
+				// Without the flag HQ's build writes no empty-list text, the list's own included.
+				expect(table.get("m0_no_items_text")).toBe(
+					flag ? "No patients yet" : undefined,
+				);
+			}
+		}
+	});
+});
+
+describe("faster loading on the local path", () => {
+	it("writes a calculation's load behavior on its field and on each detail that shows it", () => {
+		const doc = produce(temporalSearchFixture("legacy"), (draft) => {
+			const list = draft.modules[draft.moduleOrder[0]]?.caseListConfig;
+			if (list === undefined)
+				throw new Error("The fixture holds no case list.");
+			const visits = {
+				...calculatedColumn(
+					asUuid("00000000-0000-4000-8000-0000000c5b02"),
+					"Visits",
+					term(prop("patient", "case_name")),
+				),
+				loadBehavior: "defer" as const,
+			};
+			list.columns.push(visits);
+			list.listColumnOrder.push(visits.uuid);
+			list.detailColumnOrder.push(visits.uuid);
+			list.optimizations = true;
+		});
+		const { suite } = exported(doc);
+		const details = xmlChildren(suite, "detail").filter((detail) =>
+			["m0_case_short", "m0_case_long"].includes(detail.attributes.id ?? ""),
+		);
+		expect(details).toHaveLength(2);
+		for (const detail of details) {
+			expect(detail.attributes.lazy_loading).toBe("true");
+			expect(detail.attributes.cache_enabled).toBeUndefined();
+			const deferred = xmlChildren(detail, "field").filter(
+				(field) => field.attributes.lazy_loading === "true",
+			);
+			expect(deferred).toHaveLength(1);
+		}
 	});
 });
 

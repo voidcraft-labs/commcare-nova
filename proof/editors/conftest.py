@@ -78,6 +78,7 @@ DOCUMENTS = (
     "case-list-inline",
     "search-multiple",
     "targeted-custom-tile",
+    "targeted-independent-case-order",
     "targeted-supply-point-text",
     "targeted-plain-help",
     "targeted-menu-badges",

@@ -246,6 +246,8 @@ function factsOf(
 ): FirstPublishFacts {
 	const choice = change.choice ?? proposedChoice(reading);
 	return firstPublishFactsOf({
+		lookup: reading.input.lookup,
+		columnFieldWords: reading.draft.identities.columnFieldWords,
 		source: change.source ?? reading.source,
 		doc: change.doc ?? docUnder(reading, choice),
 		facts: { ...reading.draft.facts, ...change.facts },
@@ -919,6 +921,35 @@ describe("where each change stands", () => {
 			]),
 		);
 	});
+
+	it.each(["date_opened", "external-id"])(
+		"records the added hidden ordering column when HQ uses the other word for %s",
+		async (field) => {
+			const doc = patients([plainColumn(uuid(1), "case_name", "Name")]);
+			const reading = await readAs(
+				doc,
+				onMenu((menu) => {
+					menu.case_details.short.sort_elements = [
+						{
+							doc_type: "SortElement",
+							field,
+							type: "plain",
+							direction: "ascending",
+							blanks: "",
+							display: {},
+							sort_calculation: "",
+						},
+					];
+				}),
+			);
+			const [change] = firstPublishChangePlaces(factsOf(reading), [
+				"sort-rule-kept-as-hidden-column",
+			]);
+			expect(
+				change?.places.filter((path) => path.includes("/short/columns/")),
+			).toEqual([placeOf("menu", 0, "case_details", "short", "columns", 1)]);
+		},
+	);
 
 	it("places each missing media claim at its own slot and names only unreferenced map entries as unused", async () => {
 		const neutral = {
@@ -3425,6 +3456,19 @@ function caseListTextsDoc(): BlueprintDoc {
 	return inSpanish(
 		produce(doc, (draft) => {
 			const menu = draft.modules[draft.moduleOrder[0] ?? ""];
+			if (menu?.caseListConfig)
+				menu.caseListConfig.detailTabs = [
+					{
+						uuid: testUuid("patient-overview"),
+						title: "Overview",
+						startColumnUuid: uuid(1),
+					},
+					{
+						uuid: testUuid("patient-notes"),
+						title: "Notes",
+						startColumnUuid: uuid(2),
+					},
+				];
 			if (menu !== undefined) menu.caseListMenuItem = { label: "All patients" };
 		}),
 		new Map(),

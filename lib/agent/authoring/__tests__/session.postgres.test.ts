@@ -1,12 +1,19 @@
 import { Client } from "pg";
 import { expect, it, vi } from "vitest";
 import { z } from "zod";
+import { buildDoc, caseListConfig } from "@/lib/__tests__/docHelpers";
 import { ChangeSetMutationWorkspace } from "@/lib/agent/change-set/workspace";
 import { getAuthDb } from "@/lib/auth/db";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
-import { createExplicitBlankApp } from "@/lib/db/appGenesis";
+import {
+	createExplicitBlankApp,
+	prepareGenesisCandidate,
+	writePreparedGenesisInTransaction,
+} from "@/lib/db/appGenesis";
 import { commitGuardedBatch, loadApp } from "@/lib/db/apps";
+import { diffDocsToMutations } from "@/lib/doc/diffDocsToMutations";
 import { admitMutationBatch } from "@/lib/doc/mutationAdmission";
+import { emptyBlueprintDoc } from "@/lib/doc/scaffolds";
 import { collectLocalizedTranslationUnits } from "@/lib/domain";
 import {
 	beginWork,
@@ -50,7 +57,57 @@ async function existing() {
 }
 
 it("saves and reviews translations after persisted prose references cross workspace replay and canonical reads", async () => {
-	const { appId, args } = await existing();
+	const appId = crypto.randomUUID();
+	const registration = buildDoc({
+		appId,
+		appName: "Original",
+		caseTypes: [{ name: "repair", properties: [] }],
+		modules: [
+			{
+				name: "Repairs",
+				caseType: "repair",
+				caseListConfig: caseListConfig([
+					{ field: "case_name", header: "Name" },
+				]),
+				forms: [
+					{
+						name: "Register",
+						type: "registration",
+						fields: [
+							{
+								kind: "text",
+								id: "name",
+								label: "Item",
+								caseWrite: { caseType: "repair", property: "case_name" },
+							},
+						],
+					},
+				],
+			},
+		],
+	});
+	await h.seedProjectMember(actorUserId, projectId, "owner");
+	const candidate = prepareGenesisCandidate({
+		appId,
+		projectId,
+		mutations: diffDocsToMutations(emptyBlueprintDoc(appId), registration),
+	});
+	await h.withTransaction((tx) =>
+		writePreparedGenesisInTransaction(tx, {
+			candidate,
+			actorUserId,
+			runId: crypto.randomUUID(),
+			status: "complete",
+		}),
+	);
+	const { workId } = await beginWork({
+		actorUserId,
+		projectId,
+		host,
+		target: { appId },
+		requestId: "open",
+	});
+	const args = { actorUserId, host, workId };
 	let request = 0;
 	const call = async (toolName: string, input: unknown) => {
 		const result = await executeWorkTool({
@@ -93,18 +150,6 @@ it("saves and reviews translations after persisted prose references cross worksp
 		expect(items).toHaveLength(1);
 		return items[0];
 	};
-	await call("createModule", { name: "Repairs", case_type: "repair" });
-	await call("createForm", {
-		moduleUuid: "Repairs",
-		name: "Register",
-		type: "registration",
-	});
-	await call("addFields", {
-		formUuid: "Register",
-		fields: [{ kind: "text", id: "name", label: "Item" }],
-	});
-	await call("updateForm", { formUuid: "Register", recordName: "#form/name" });
-	await save();
 	// Introduce the reference in the retained mutation suffix, where JSONB key
 	// order used to survive workspace replay but change at canonical admission.
 	await call("createForm", {

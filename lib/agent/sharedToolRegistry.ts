@@ -27,6 +27,7 @@ import { removeCaseListColumnTool } from "@/lib/agent/tools/case-list-config/rem
 import { removeSearchInputTool } from "@/lib/agent/tools/case-list-config/removeSearchInput";
 import { reorderCaseListColumnsTool } from "@/lib/agent/tools/case-list-config/reorderCaseListColumns";
 import { reorderSearchInputsTool } from "@/lib/agent/tools/case-list-config/reorderSearchInputs";
+import { setCaseDetailTabsTool } from "@/lib/agent/tools/case-list-config/setCaseDetailTabs";
 import { setCaseListFilterTool } from "@/lib/agent/tools/case-list-config/setCaseListFilter";
 import { setCaseListTileTool } from "@/lib/agent/tools/case-list-config/setCaseListTile";
 import { updateCaseListColumnTool } from "@/lib/agent/tools/case-list-config/updateCaseListColumn";
@@ -773,6 +774,13 @@ export const SHARED_TOOL_REGISTRY = [
 		saName: "setCaseListFilter",
 		mcpName: "set_case_list_filter",
 		tool: setCaseListFilterTool,
+		requires: "edit",
+		policy: BLUEPRINT_WRITE_POLICY,
+	},
+	{
+		saName: "setCaseDetailTabs",
+		mcpName: "set_case_detail_tabs",
+		tool: setCaseDetailTabsTool,
 		requires: "edit",
 		policy: BLUEPRINT_WRITE_POLICY,
 	},

@@ -49,6 +49,7 @@
  */
 
 import { MAX_FORM_ATTACHMENTS } from "@/lib/commcare/constants";
+import { listIconActionSentence } from "@/lib/commcare/listIconAction";
 import { changedByHqManagedRemedy } from "@/lib/commcare/lookup/hqCellText";
 import { selectSourceManagedRemedy } from "@/lib/commcare/lookup/selectSourceRows";
 import { unrepresentableManagedRemedy } from "@/lib/commcare/lookup/xmlText";
@@ -128,6 +129,30 @@ const fieldName = (e: ValidationError): string =>
 /** A `details` value, or the fallback. */
 const det = (e: ValidationError, key: string, fallback: string): string =>
 	present(e.details?.[key], fallback);
+
+/** What a value of a type a distance comparison can't read holds, as a
+ *  person names it. */
+const distanceValueNoun = (type: string): string => {
+	switch (type) {
+		case "int":
+			return "whole numbers";
+		case "decimal":
+			return "decimal numbers";
+		case "date":
+			return "dates";
+		case "time":
+			return "times";
+		case "datetime":
+			return "dates and times";
+		case "single_select":
+		case "multi_select":
+			return "choices";
+		case "boolean":
+			return "true or false values";
+		default:
+			return "values";
+	}
+};
 
 /** The last sentence of a choice list's row finding: the remedy in Project
  * data, or, for a table CommCare HQ manages (`managedInDomain`), the managed
@@ -279,11 +304,13 @@ function columnRelationSentence(e: ValidationError): string {
 		case "worker":
 			return `An item in ${module} reads ${item} through a link called user, which CommCare reads as the worker's own information. You can choose another link.`;
 		case "index-name":
-			return `An item in ${module} reads ${item} through a link whose name doesn't start with a letter, which CommCare HQ can't keep in a case list. You can rename the link so it starts with a letter.`;
+			return `An item in ${module} reads ${item} through a link CommCare HQ can't keep in a case list, where a link name starts with a letter and holds only letters, numbers, underscores and hyphens. You can read it through a link named that way.`;
 		case "search":
-			return `An item in ${module} shows ${item} from the case above, and this case list offers Search, where such an item shows only as a calculated value. You can add a calculated value that reads the case above instead.`;
+			return `An item in ${module} shows ${item} from a related case as a link, a time since or an option label, and this case list offers Search, where CommCare HQ would show it blank for the cases Search finds. You can show the related value's saved text instead.`;
+		case "unresolved":
+			return `An item in ${module} shows ${item} through a link from a case type this app doesn't have. You can choose the case above again.`;
 		default:
-			return `An item in ${module} shows ${item} through a link that doesn't lead to one case type. You can choose the case above again.`;
+			return `An item in ${module} can't show ${item} as its information is set up. You can choose its information again.`;
 	}
 }
 
@@ -662,6 +689,16 @@ const PLATFORM_BUILDER_COPY = {
 			`${subject} asks for a date and time, which Web Apps can't show.`,
 		alternative: "ask for the date and the time separately",
 	},
+	"worker-distance": {
+		lead: (subject) =>
+			`${subject} shows how far each case is from the worker. Web Apps can't read the worker's location.`,
+		alternative: "show the saved location instead",
+	},
+	"sort-by-distance": {
+		lead: (subject) =>
+			`${subject} uses the worker's location to put nearby cases first. Web Apps can't read that location.`,
+		alternative: "choose a different order",
+	},
 	"case-list-here": {
 		lead: (subject) =>
 			`${subject} uses the worker's location, which Web Apps doesn't know.`,
@@ -706,6 +743,11 @@ const PLATFORM_BUILDER_COPY = {
 			`${subject} reads the window width, which Android doesn't have.`,
 		alternative: "take it out",
 	},
+	"raw-grouped-tile-body-field": {
+		lead: (subject) =>
+			`${subject} is visible below the group heading in Web Apps, where its value is meant to stay hidden.`,
+		alternative: "move it into the heading or take it out of the tile",
+	},
 } as const satisfies Readonly<
 	Record<RefusablePlatformFeatureId, PlatformBuilderCopy>
 >;
@@ -718,11 +760,13 @@ const PLATFORM_REFUSAL_FALLBACK =
 const platformFindingSubject = (e: ValidationError): string | undefined =>
 	e.details?.inputName !== undefined
 		? `Search field ${q(e.details.inputName)}`
-		: e.location.fieldId !== undefined
-			? q(e.location.fieldId)
-			: e.location.moduleName !== undefined
-				? q(e.location.moduleName)
-				: undefined;
+		: e.details?.columnHeader !== undefined
+			? `Column ${q(e.details.columnHeader)}`
+			: e.location.fieldId !== undefined
+				? q(e.location.fieldId)
+				: e.location.moduleName !== undefined
+					? q(e.location.moduleName)
+					: undefined;
 
 /**
  * A platform refusal (`PLATFORM_FEATURE_UNAVAILABLE`, or the checker's
@@ -926,6 +970,8 @@ const USER_MESSAGE_BY_CODE: Record<
 				return `${formulaSubject(e)} reads the window width, which CommCare sends only while a menu or a list loads, so a form can't rely on it. You can use it in a display condition or a case list instead.`;
 			case "case-list-search-text-slot":
 				return `${formulaSubject(e)} reads what the worker typed into a case list's search box, which only a form's questions and Connect settings can read. You can read it in one of the form's questions instead.`;
+			case "case-text":
+				return `${formulaSubject(e)} uses translated text from a different calculated field. Choose one of this field’s own pieces of text.`;
 			case "here":
 				return e.details?.hereSurface === "record"
 					? `${formulaSubject(e)} uses here(), which is where the worker is. Only a case list's calculated column can read that. You can show it in a calculated column instead.`
@@ -1051,6 +1097,19 @@ const USER_MESSAGE_BY_CODE: Record<
 	LOCATION_OWNER_EXPORT_NOT_ACTIVE: (e) =>
 		`${q(formName(e))} assigns new cases to one particular place, and the exported rule names that place by Nova's own id, which CommCare HQ doesn't recognize, so the rule would match nobody. Assign to a place beneath the current case owner instead, or remove this owner rule.`,
 	MENU_FORM_SOURCE_INVALID: menuFormSourceLine,
+	CASE_LIST_ICON_ACTION_INVALID: (e) => {
+		const reason = e.details?.reason;
+		return listIconActionSentence(
+			reason === "android" ||
+				reason === "not-on-results" ||
+				reason === "grouped-body"
+				? reason
+				: "no-destination",
+			e.details?.columnLabel,
+			e.details?.caseType,
+			e.details?.anotherForm === "yes",
+		);
+	},
 	ENTRY_POINT_INVALID: (e) => {
 		switch (e.details?.reason) {
 			case "duplicate-id":
@@ -1083,6 +1142,12 @@ const USER_MESSAGE_BY_CODE: Record<
 		`${q(modName(e))} needs a compatible parent list. Choose a menu that uses a different record type, or turn off parent selection.`,
 	CASE_PARENT_SELECTION_CONFLICT: (e) =>
 		`${q(modName(e))} would reuse a different parent selected in its containing menu. Choose that containing module as the parent selector, or move this module out of the submenu.`,
+	CASE_RELATION_INVALID: (e) => {
+		const link = det(e, "identifier", "related case");
+		return e.details?.reason === "duplicate"
+			? `The ${q(link)} link appears twice with the same case type and relationship. You can keep one copy.`
+			: `The ${q(link)} link needs a case type in this app. You can choose a related case type or remove the link.`;
+	},
 	NO_CASE_TYPE: (e) =>
 		`${q(modName(e))} has forms that work with cases, but you haven't picked a case type for it yet. Choose the kind of case it manages, like "patient" or "household".`,
 	CASE_LIST_MENU_ITEM_NO_CASE_TYPE: (e) =>
@@ -1190,9 +1255,52 @@ const USER_MESSAGE_BY_CODE: Record<
 	CASE_LIST_CALCULATED_COLUMN_TYPE_ERROR: (e) =>
 		recordFindingCopy(e, `A calculated value in ${q(modName(e))}`) ??
 		`A calculated value in ${q(modName(e))} has a calculation that doesn't quite add up. Open it and fix the calculation.`,
+	CASE_DETAIL_TAB_MOVE_NEEDS_GROUP: () =>
+		"This move would change which tab shows a field. Open Edit tabs to choose where it belongs.",
+	CASE_DETAIL_TAB_ROWS_INVALID: (e) =>
+		(det(e, "reason", "") === "child-type-not-added"
+			? `The ${q(String(e.details?.tabTitle ?? "this tab"))} tab reads ${q(String(e.details?.caseType ?? ""))} child cases, which no form adds to this menu's cases, so CommCare HQ would drop that type when the app is saved there. You can add a form that adds one, or choose another child type in Edit tabs.`
+			: undefined) ??
+		recordFindingCopy(
+			e,
+			`The records on ${q(String(e.details?.tabTitle ?? "this tab"))}`,
+		) ??
+		`The records on ${q(String(e.details?.tabTitle ?? "a Details tab"))} in ${q(modName(e))} can't be shown here. You can choose them again in Details.`,
+	CASE_DETAIL_TABS_INVALID: (e) =>
+		det(e, "reason", "") === "order-fields"
+			? `The ${q(String(e.details?.tabTitle ?? "this tab"))} tab orders its rows by a field it can't use. You can open Edit tabs and choose its ordering fields again.`
+			: `The Details tabs of ${q(modName(e))} no longer match the fields shown in Details. You can open Edit tabs and save the tabs again.`,
+	CASE_LIST_LOAD_BEHAVIOR_INVALID: (e) => {
+		const subject =
+			e.details?.columnLabel !== undefined
+				? q(e.details.columnLabel)
+				: "A column";
+		return det(e, "reason", "") === "column"
+			? `${subject} chooses how a phone loads it, which only a calculated value or a link can. You can clear its loading choice.`
+			: `${subject} chooses how a phone loads it, and the case list's faster loading is off. You can turn on faster loading for the case list, or clear the column's loading choice.`;
+	},
+	CASE_DETAIL_TAB_CONDITION_INVALID: (e) =>
+		recordFindingCopy(
+			e,
+			`The display condition for ${q(String(e.details?.tabTitle ?? "this tab"))}`,
+		) ??
+		`The display condition for ${q(String(e.details?.tabTitle ?? "this tab"))} can't be used here. You can edit it in Details.`,
 	CASE_LIST_FILTER_TYPE_ERROR: (e) =>
 		recordFindingCopy(e, `The Cases available setting in ${q(modName(e))}`) ??
 		`The Cases available setting in ${q(modName(e))} compares values that don't go together. Open the condition and adjust the comparison.`,
+	CASE_LIST_MAPPING_CONDITION: (e) =>
+		recordFindingCopy(e, `A display rule in ${q(modName(e))}`) ??
+		`Open the display rule in ${q(modName(e))} and choose a condition that applies to this case.`,
+	CASE_LIST_CALCULATED_SORT_TYPE_ERROR: (e) =>
+		recordFindingCopy(
+			e,
+			`A calculation in the default order for ${q(modName(e))}`,
+		) ??
+		`The default order for ${q(modName(e))} needs a calculation that gives one value for each case.`,
+	CASE_LIST_DISTANCE_NEEDS_LOCATION: (e) =>
+		det(e, "shape", "") === "translated-labels"
+			? `${q(det(e, "columnLabel", "An item"))} in ${q(modName(e))}'s Default order compares by distance, but it shows translated labels rather than a location. You can choose another comparison, or order by an item that holds a location.`
+			: `${q(det(e, "columnLabel", "An item"))} in ${q(modName(e))}'s Default order compares by distance, but it holds ${distanceValueNoun(det(e, "valueType", ""))} rather than a location. You can choose another comparison, or order by an item that holds a location.`,
 	CASE_LIST_DUPLICATE_SORT_PRIORITY: (e) =>
 		`Two items in ${q(modName(e))}'s Default order use the same position. Move one of them or remove it from the order.`,
 	CASE_LIST_SORT_PROPERTY_AMBIGUOUS: (e) =>
@@ -1212,6 +1320,26 @@ const USER_MESSAGE_BY_CODE: Record<
 			: det(e, "reason", "") === "lands-on-shown"
 				? `A column hidden from Results in ${q(modName(e))} has a name in Sort by, but its sort rule lands on ${q(det(e, "landingColumnLabel", "an earlier column"))}, which shows on Results, so workers never see that name. You can remove the name, or hide that column on Results.`
 				: `${q(det(e, "columnLabel", "A column"))} in ${q(modName(e))} shows on Results, so workers already find it under its header in Sort by. You can remove its name in Sort by, or hide the column on Results.`,
+	CASE_MAP_SOURCE_INVALID: (e) => {
+		const item = q(det(e, "columnLabel", "A map item"));
+		const where = q(modName(e));
+		switch (det(e, "reason", "")) {
+			case "several-locations":
+				return `${item} is a second map location on one screen of ${where}, which can use one. You can keep one location or move the other to a separate screen.`;
+			case "layer-off-results":
+				return `${item} in ${where} is a map layer outside Results. You can keep the layer on Results and show its saved value as a separate item in Details.`;
+			case "layer-without-location":
+				return `${item} in ${where} is a map layer, and Results has no map location for it. You can add a location or remove the layer.`;
+			case "several-layers":
+				return `${item} in ${where} is a second map layer of its kind, and a map can use one of each. You can choose which layer to keep.`;
+			case "color-without-boundary":
+				return `${item} in ${where} colors a boundary the map doesn't have. You can add a boundary or remove its color.`;
+			case "colors-without-points":
+				return `${item} in ${where} colors points the map doesn't have. You can add points or remove their colors.`;
+			default:
+				return `The map in ${where} needs its locations and layers set up together. Open the map items in Results and check each one.`;
+		}
+	},
 	CASE_LIST_COLUMN_NOT_ON_LIST_INVALID: (e) =>
 		det(e, "reason", "") === "sorted"
 			? "This isn't on the list, so the list can't sort by it. You can turn on List search matches this to sort by it."
@@ -1220,10 +1348,21 @@ const USER_MESSAGE_BY_CODE: Record<
 		`${q(modName(e))} has a value label for ${q(det(e, "value", "a saved value"))}, and a saved value there can't hold &, <, >, " or '. You can change the value or remove its label.`,
 	CASE_LIST_DATE_PATTERN_APOSTROPHE: (e) =>
 		`A date style in ${q(modName(e))} holds a straight apostrophe ('), and CommCare HQ's date column has no way to store one. You can use a curved one (’).`,
+	// Each refusal states its own reason, in Nova's words, beside the finding.
+	CASE_DETAIL_TILE_LAYOUT_INVALID: (e) =>
+		e.details?.reason ??
+		`A field on the Details tile of ${q(modName(e))} doesn't fit its layout. You can move or resize it in Details.`,
+	CASE_FORM_CONTEXT_INVALID: (e) =>
+		e.details?.reason ??
+		`The case shown above the forms of ${q(modName(e))} can't be shown that way. You can choose what to show again in its case list settings.`,
 	CASE_LIST_TILE_CELL_OUT_OF_GRID: (e) =>
-		`An item on ${q(modName(e))}'s tile runs off the edge of the layout. Move it back inside, or make it narrower or shorter.`,
+		e.details?.rows
+			? `An item on ${q(modName(e))}'s tile runs off the edge of the layout. The tile has ${e.details.rows} rows, one for each field it shows and at least six. You can move it back inside, or make it narrower or shorter.`
+			: `An item on ${q(modName(e))}'s tile runs off the edge of the layout. You can move it back inside, or make it narrower or shorter.`,
 	CASE_LIST_TILE_CELLS_OVERLAP: (e) =>
 		`Two items on ${q(modName(e))}'s tile sit on top of each other. Move or resize one of them so they don't share the same space.`,
+	CASE_LIST_NAMED_TILE_SLOT_INVALID: (e) =>
+		`A position on ${q(modName(e))}'s tile needs its own field shown in Results. Choose one for it, or turn the named tile off.`,
 	CASE_LIST_TILE_COLUMN_NOT_PLACED: (e) =>
 		`An item shown in ${q(modName(e))} has no place on the tile yet. Put it on the layout, or hide it from the case list.`,
 	CASE_LIST_TILE_GROUP_HEADER_ROWS_OUT_OF_RANGE: (e) =>
@@ -1526,7 +1665,9 @@ const USER_MESSAGE_BY_CODE: Record<
 	CASE_LIST_REGISTRATION_ADVANCED_MENU: (e) =>
 		`${q(modName(e))} offers ${q(registrationFormName(e))} on its case list, but ${q(det(e, "offendingFormName", "one of its forms"))} chooses its records differently from the menu's other forms. CommCare HQ keeps ${q(modName(e))} as an advanced menu, and offers a form from such a menu's case list only where every form of the menu chooses the same records the same way. You can move ${q(det(e, "offendingFormName", "that form"))} to another menu, or stop offering ${q(registrationFormName(e))} there.`,
 	CASE_SEARCH_RELATED_CALCULATION_UNREPRESENTABLE: (e) =>
-		`In ${q(modName(e))}, ${q(det(e, "columnHeader", "Calculated value"))} uses related-case information that Search can't show consistently. Show one parent property by itself, build the calculation from the current case, or delete this calculated item.`,
+		det(e, "reason", "") === "reached"
+			? `In ${q(modName(e))}, ${det(e, "columnHeader", "") === "" ? "the order calculation" : q(det(e, "columnHeader", ""))} reads whichever case its link reaches, of any type, and Search can't supply that case. You can read the parent through a link this app declares, build the calculation from the current case, or delete it.`
+			: `In ${q(modName(e))}, ${q(det(e, "columnHeader", "Calculated value"))} uses related-case information that Search can't show consistently. Show one parent property by itself, build the calculation from the current case, or delete this calculated item.`,
 
 	// ── Form-level ───────────────────────────────────────────────────
 	EMPTY_FORM: (e) =>

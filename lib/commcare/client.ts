@@ -343,14 +343,7 @@ export async function probeHqProjectSpaceCompatibility(
  * filtered list that holds the target is the project space's own flag and
  * never the publisher's (`toggles/__init__.py`, `namespaces=[NAMESPACE_DOMAIN]`).
  */
-const EMPTY_CASE_LIST_TEXT_FLAG = (() => {
-	const flag = domainFeatureFlag("USH_EMPTY_CASE_LIST_TEXT");
-	return {
-		id: "empty-case-list-text",
-		slug: flag.slug,
-		namespace: flag.namespace,
-	} as const;
-})();
+const EMPTY_CASE_LIST_TEXT_FLAG = hqPrivateFeatureFlag("empty-case-list-text");
 
 type PrivateProbeState = "available" | "missing" | "unverified";
 type PrivateProbeAssessment = {

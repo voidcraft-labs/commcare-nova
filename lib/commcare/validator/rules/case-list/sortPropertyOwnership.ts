@@ -37,8 +37,10 @@ import {
 	type CaseListOrderPlan,
 	type CaseListShortField,
 	type Column,
+	caseListColumnValueType,
 	caseListOrderPlan,
 	caseListSortKeysMatch,
+	distanceComparisonAdmits,
 	type Module,
 	type Uuid,
 } from "@/lib/domain";
@@ -58,9 +60,7 @@ export function sortPropertyOwnership(
 	const config = mod.caseListConfig;
 	if (config === undefined) return [];
 	const columns = config.columns;
-	if (!columns.some((column) => column.sort !== undefined)) {
-		return [];
-	}
+	if (!columns.some((column) => column.sort !== undefined)) return [];
 
 	const caseProperties =
 		validationContextFor(doc).augmentedCaseTypes.find(
@@ -74,6 +74,42 @@ export function sortPropertyOwnership(
 	);
 	const location = { moduleUuid, moduleName: mod.name };
 	const errors: ValidationError[] = [];
+
+	/* An authored comparison is the author's choice and stays theirs while
+	 * the field's own comparison comes to agree with it (a property later
+	 * typed int under an integer rule) or a display format takes the order
+	 * over (a property that gains options): neither is a wrong thing, and
+	 * refusing it would refuse an edit to the property instead. What no
+	 * runtime can order is distance over a value that holds no location:
+	 * Core's `distance()` throws on any value but two numbers. */
+	for (const rule of plan.authored) {
+		const column = columns[indexByUuid.get(rule.column) ?? -1];
+		if (column?.sort?.comparator !== "distance") continue;
+		const landing = landingField(plan, rule.landsOn);
+		const translated =
+			landing?.key?.kind === "distance-calculated" && landing.key.unbound;
+		const valueType = translated
+			? undefined
+			: caseListColumnValueType(column, caseProperties, options);
+		if (!translated && distanceComparisonAdmits(valueType)) continue;
+		const columnIndex = indexByUuid.get(column.uuid) ?? -1;
+		errors.push(
+			validationError(
+				"CASE_LIST_DISTANCE_NEEDS_LOCATION",
+				"module",
+				translated
+					? `The order rule on ${describeColumn(column, columnIndex)} in module "${mod.name}" orders by distance, but that column shows translated labels. Choose a column that holds a location to put nearby cases first.`
+					: `The order rule on ${describeColumn(column, columnIndex)} in module "${mod.name}" orders by distance, but that column holds ${valueType} values, which are never a location. Choose a column that holds a location to put nearby cases first.`,
+				location,
+				{
+					...columnDetails(column, columnIndex),
+					columnLabel: caseListColumnLabel(column),
+					shape: translated ? "translated-labels" : "not-a-location",
+					...(valueType !== undefined && { valueType }),
+				},
+			),
+		);
+	}
 
 	// (a) one join text, two rules: the first in rule order keeps it.
 	const firstByJoinText = new Map<string, Uuid>();

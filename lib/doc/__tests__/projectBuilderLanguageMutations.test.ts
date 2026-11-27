@@ -8,6 +8,7 @@ import { applyMutations } from "@/lib/doc/mutations";
 import { projectBuilderLanguageMutations } from "@/lib/doc/projectBuilderLanguageMutations";
 import type { BlueprintDoc, Mutation } from "@/lib/doc/types";
 import {
+	caseListWordingUnitId,
 	collectTranslationUnits,
 	effectiveAppLocalization,
 	isOrdinaryCaseSearchConfig,
@@ -20,7 +21,12 @@ import {
 	simpleSearchInputDef,
 	type TranslationUnit,
 } from "@/lib/domain";
-import { input, matchesPattern } from "@/lib/domain/expression/builders";
+import {
+	input,
+	literal,
+	matchesPattern,
+	term,
+} from "@/lib/domain/expression/builders";
 
 const MODULE = testUuid("localized-builder-module");
 const FORM = testUuid("localized-builder-form");
@@ -466,7 +472,7 @@ describe("projectBuilderLanguageMutations", () => {
 		});
 	});
 
-	it("requires a source-lens edit when an ID-mapping key would create a new string", () => {
+	it("requires a source-lens edit when an ID-mapping row would create a new string", () => {
 		const doc = fixture();
 		const localized = projectLocalizedModule(doc, "spa", MODULE);
 		if (localized?.caseListConfig === undefined) {
@@ -478,10 +484,7 @@ describe("projectBuilderLanguageMutations", () => {
 		}
 		const planned = columnSnapshotMutations(MODULE, current, {
 			...current,
-			mapping: [
-				{ ...current.mapping[0], value: "open_now" },
-				current.mapping[1],
-			],
+			mapping: [...current.mapping, { value: "pending", label: "Pendiente" }],
 		});
 
 		expect(projectBuilderLanguageMutations(doc, "spa", planned)).toEqual({
@@ -489,6 +492,44 @@ describe("projectBuilderLanguageMutations", () => {
 			message:
 				"Add this worker-facing content in English first, then translate it into Español.",
 		});
+	});
+
+	it("reads an ID-mapping row whose saved value changes in place as the row it was", () => {
+		// A row keyed by its saved value moves to another text unit as its value changes; the
+		// edit is structural, and its words stay the source's (the Builder's commit carries the
+		// row's translations, `mappingRowTranslationCarry`).
+		const doc = fixture();
+		const localized = projectLocalizedModule(doc, "spa", MODULE);
+		const current = localized?.caseListConfig?.columns[0];
+		if (current?.kind !== "id-mapping") {
+			throw new Error("Expected an ID-mapping column.");
+		}
+		const planned = columnSnapshotMutations(MODULE, current, {
+			...current,
+			mapping: [
+				{ ...current.mapping[0], value: "open_now" },
+				current.mapping[1],
+			],
+		});
+
+		const projection = projectBuilderLanguageMutations(doc, "spa", planned);
+		if (!projection.ok) throw new Error(projection.message);
+		const update = projection.mutations.find(
+			(mutation) => mutation.kind === "updateColumn",
+		);
+		expect(
+			update?.kind === "updateColumn" && update.column?.kind === "id-mapping"
+				? update.column.mapping
+				: undefined,
+		).toEqual([
+			{ value: "open_now", label: "Open" },
+			{ value: "closed", label: "Closed" },
+		]);
+		expect(
+			projection.mutations.some(
+				(mutation) => mutation.kind === "setTranslation",
+			),
+		).toBe(false);
 	});
 
 	it("writes an actual column and derived Search-default edit to target overlays", () => {
@@ -595,6 +636,45 @@ describe("projectBuilderLanguageMutations", () => {
 			message:
 				"The selected worker language no longer belongs to this app. Choose another language and try again.",
 		});
+	});
+
+	it("writes a case list's own words edited under another language to that language alone", () => {
+		const doc = produce(fixture(), (draft) => {
+			const list = draft.modules[MODULE]?.caseListConfig;
+			if (list === undefined)
+				throw new Error("The fixture holds no case list.");
+			list.emptyText = "No patients yet";
+		});
+		const unit = caseListWordingUnitId(MODULE, "empty");
+		const projected = project(doc, [
+			{
+				kind: "setCaseListMeta",
+				uuid: MODULE,
+				patch: { emptyText: "Aún no hay pacientes" },
+			},
+		]);
+		expect(projected).toEqual([
+			expect.objectContaining({
+				kind: "setTranslation",
+				language: "spa",
+				unitId: unit,
+				entry: expect.objectContaining({ value: "Aún no hay pacientes" }),
+			}),
+		]);
+		const next = apply(doc, projected);
+		expect(next.modules[MODULE]?.caseListConfig?.emptyText).toBe(
+			"No patients yet",
+		);
+		// The Continue label the source never held is the source's to add first.
+		expect(
+			projectBuilderLanguageMutations(doc, "spa", [
+				{
+					kind: "setCaseListMeta",
+					uuid: MODULE,
+					patch: { selectButtonText: "Seguir" },
+				},
+			]).ok,
+		).toBe(false);
 	});
 
 	it("requires optional worker content to be created in the source language first", () => {
@@ -811,6 +891,59 @@ describe("projectBuilderLanguageMutations", () => {
 				)
 			]?.value,
 		).toBe("Use mayúscula inicial");
+	});
+
+	it("keeps a physical Sort by move when the same edit translates or clears its name", () => {
+		const first = testUuid("first-calculation");
+		const second = testUuid("second-calculation");
+		const doc = apply(
+			fixture(),
+			[first, second].map((uuid, priority) => ({
+				kind: "addCalculatedSort",
+				moduleUuid: MODULE,
+				sort: {
+					uuid,
+					priority,
+					direction: "asc",
+					expression: term(literal(priority)),
+					label: priority ? "Second" : "First",
+				},
+			})),
+		);
+		const update: Mutation = {
+			kind: "updateCalculatedSort",
+			moduleUuid: MODULE,
+			uuid: second,
+			after: null,
+			patch: { label: "Segundo" },
+		};
+		const moved = apply(doc, project(doc, [update]));
+		const raw = moved.modules[MODULE]?.caseListConfig?.calculatedSorts;
+		expect(raw?.map((rule) => [rule.uuid, rule.label])).toEqual([
+			[second, "Second"],
+			[first, "First"],
+		]);
+		expect(
+			projectLocalizedModule(moved, "spa", MODULE)?.caseListConfig
+				?.calculatedSorts?.[0]?.label,
+		).toBe("Segundo");
+		const cleared = apply(
+			moved,
+			project(moved, [{ ...update, after: first, patch: { label: null } }]),
+		);
+		expect(
+			projectLocalizedModule(
+				cleared,
+				"spa",
+				MODULE,
+			)?.caseListConfig?.calculatedSorts?.map((rule) => [
+				rule.uuid,
+				rule.label,
+			]),
+		).toEqual([
+			[first, "First"],
+			[second, "Second"],
+		]);
 	});
 
 	it("clears a Search prompt's translated hint when the worker-language editor removes it, keeping the source", () => {

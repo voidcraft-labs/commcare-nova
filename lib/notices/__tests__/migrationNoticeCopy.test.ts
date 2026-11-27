@@ -2313,6 +2313,14 @@ describe("the platforms cutover's lines", () => {
 		);
 	});
 
+	it("names the grouped tile fields when a platform notice records that cause", () => {
+		expect(
+			declared({ runsOn: "android", causes: "raw-grouped-tile-body-field" }),
+		).toBe(
+			"This app now runs on Android only, because Web Apps can't run its Android-only fields below tile group headings. If workers use it in Web Apps too, you can change those and then set it to run in Web Apps as well, in App settings.",
+		);
+	});
+
 	it("say a Connect app runs on Android only because its workers open it there", () => {
 		expect(
 			declared({ runsOn: "android", causes: "datetime-question,connect-app" }),

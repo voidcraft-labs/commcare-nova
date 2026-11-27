@@ -252,7 +252,11 @@ function propertyScope(
 			destination: string;
 	  }
 	| undefined {
-	if (property.via === undefined || property.via.kind === "self")
+	if (
+		property.readReached ||
+		property.via === undefined ||
+		property.via.kind === "self"
+	)
 		return undefined;
 	const relation = canonicalizeRelationPath(property.via, {
 		...context,

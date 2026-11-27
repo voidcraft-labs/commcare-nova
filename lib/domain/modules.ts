@@ -34,9 +34,15 @@
 
 import { z } from "zod";
 import { formIconRefSchema, moduleIconRefSchema } from "./builtinIcons";
-import { authoredCasePropertyNameSchema } from "./casePropertyName";
+import { caseFormContextSchema } from "./caseFormContext";
+import { uniqueCaseMappingRows } from "./caseMappingRows";
+import {
+	authoredCasePropertyNameSchema,
+	readCasePropertyNameSchema,
+} from "./casePropertyName";
 import type { CasePropertyDataType } from "./casePropertyTypes";
 import { COMMCARE_DATE_PATTERN_REGEX } from "./commCareDatePattern";
+import { detailTabSpans, detailTabsSchema } from "./detailTabSchema";
 import { entryPointSchema } from "./entryPoints";
 import type {
 	Expression,
@@ -51,6 +57,7 @@ import {
 	XML_ELEMENT_NAME_PATTERN,
 } from "./expression/types";
 import {
+	persistableJsonIntegerSchema,
 	persistableJsonNonnegativeIntegerSchema,
 	persistableJsonPositiveIntegerSchema,
 } from "./jsonNumber";
@@ -79,10 +86,8 @@ import { type Uuid, uuidSchema } from "./uuid";
 // whole-document admission enforces uniqueness. The positional tie-break keeps
 // the pure projection deterministic without weakening that stored invariant.
 //
-// The comparator type (lexicographic / numeric / date / decimal)
-// is NOT authored here — wire emission derives it from the case
-// property's `data_type` (or, for calculated columns, from the
-// expression's resolved result type).
+// A rule follows the value’s type unless the author selects another
+// comparison. A display format with its own key still decides its comparison.
 
 export const SORT_DIRECTIONS = ["asc", "desc"] as const;
 export type SortDirection = (typeof SORT_DIRECTIONS)[number];
@@ -108,7 +113,27 @@ export function defaultSortBlanks(direction: SortDirection): SortBlanks {
 
 /** A rule's keys with no rule between them: what a tool input takes before
  *  `columnSort` stores it. */
+export const SORT_COMPARISONS = [
+	"text",
+	"integer",
+	"decimal",
+	"distance",
+] as const;
+export type SortComparison = (typeof SORT_COMPARISONS)[number];
+
 export const columnSortShape = {
+	/** Earlier positions name hidden choices before those that follow the default order. */
+	menuPosition: persistableJsonNonnegativeIntegerSchema
+		.optional()
+		.describe(
+			"Position among the extra choices workers can pick in Sort by, starting at 0. Leave it out to follow the default case order. Displayed fields already follow their Results positions.",
+		),
+	comparator: z
+		.enum(SORT_COMPARISONS)
+		.optional()
+		.describe(
+			"How to compare the values. Leave it out to use the field’s usual order. Text orders 10 before 2. A whole-number or decimal comparison orders 2 before 10. Distance orders locations from the worker’s position on Android.",
+		),
 	direction: z.enum(SORT_DIRECTIONS),
 	priority: persistableJsonNonnegativeIntegerSchema,
 	/** Where cases with no value sort. Stored only where it differs from the
@@ -132,8 +157,8 @@ export const columnSortShape = {
 
 /**
  * Per-column sort directive: direction, priority, and where blanks sort
- * where that differs from the direction's own. The comparator type is
- * derived at wire emission, not authored.
+ * where that differs from the direction's own. The field supplies its ordinary comparator.
+ * An explicit comparator chooses another reading.
  *
  * `priority` is a non-negative integer; tie-break to Results display
  * order is uniform across saga / preview / wire layers (no layer
@@ -185,6 +210,8 @@ export function columnSort(
 	priority: number,
 	blanks?: SortBlanks,
 	label?: string,
+	comparator?: SortComparison,
+	menuPosition?: number,
 ): ColumnSort {
 	return {
 		direction,
@@ -192,6 +219,8 @@ export function columnSort(
 		...(blanks !== undefined &&
 			blanks !== defaultSortBlanks(direction) && { blanks }),
 		...(label !== undefined && { label }),
+		...(comparator !== undefined && { comparator }),
+		...(menuPosition !== undefined && { menuPosition }),
 	};
 }
 
@@ -310,13 +339,67 @@ const columnCommonSlots = z.strictObject({
 export const TILE_GRID_COLUMNS = 12;
 
 /**
- * Rows in one tile. CommCare bounds the row extent nowhere — the
- * renderer sizes the grid from whatever the fields occupy — so this
- * is declared Nova policy: a tile is a 12 x 12 grid, which keeps the
- * layout editor a fixed, learnable surface and keeps a tile visually
- * comparable to the row it replaces.
+ * The fewest rows a tile offers. Neither runtime bounds a tile's rows:
+ * both size the grid from the cells it holds (Core's
+ * `Detail.getMaxWidthHeight`, Android's `EntityViewTile.getMaxRows`). The
+ * bound is CommCare HQ's own Case List and Case Detail pages, which offer
+ * a cell's start row and height from `max(columns + 1, 7)`, the columns
+ * being the screen's own non-filter columns, a long detail's tabs among
+ * them (`static/app_manager/js/details/bootstrap5/screen.js`,
+ * `caseTileRowMax`; `column.js`, `tileRowOptions` and `tileHeightOptions`).
+ * Each select binds Knockout's `value` with `options` and no
+ * `valueAllowUnset`, so a stored start row the page does not offer comes
+ * back as the first row, and a height it does not offer as one row, and
+ * the page's next save writes that: observed on HQ's own pages by proof 4
+ * over `targeted-tile-row-bound`. So a cell's bottom edge may reach
+ * `max(fields, 6)` rows, and a tile holding more than twelve fields may
+ * be taller than twelve rows (`tileRowLimit`).
  */
-export const TILE_GRID_ROWS = 12;
+export const TILE_MIN_ROWS = 6;
+
+/**
+ * The rows a tile of `fields` fields offers: the bottom edge a cell may
+ * reach (`TILE_MIN_ROWS` says where the number comes from). The fields are
+ * the columns HQ's page shows for that screen: a Results tile's
+ * (`resultsTileFieldCount`) or a Details tile's
+ * (`detailsTileFieldCount`).
+ */
+export function tileRowLimit(fields: number): number {
+	return Math.max(fields, TILE_MIN_ROWS);
+}
+
+/**
+ * The fields of a custom Results tile's short detail, which are the
+ * columns HQ's Case List page counts: every column on the list that the
+ * tile shows (`lib/domain/caseListOrder.ts`, rule 1: a column hidden from
+ * Results is no field of a tile list, and a column that is not on the
+ * list is no field of any). Counted as the tile would hold them whether
+ * or not the layout is on, so a placement kept while tiles are off still
+ * fits when they come back on.
+ */
+export function resultsTileFieldCount(
+	config: Pick<CaseListConfig, "columns">,
+): number {
+	return config.columns.filter(
+		(column) => columnOnList(column) && column.visibleInList !== false,
+	).length;
+}
+
+/**
+ * The columns HQ's Case Detail page counts for a Details tile: every field
+ * shown in Details and each tab, which the page holds as a column of its
+ * own (`screen.js`, the tabs spliced into the columns before the filters
+ * are dropped). Observed: a Details tile of six fields and two tabs keeps a
+ * cell ending on the eighth row.
+ */
+export function detailsTileFieldCount(
+	config: Pick<CaseListConfig, "columns" | "detailTabs">,
+): number {
+	return (
+		config.columns.filter((column) => column.visibleInDetail !== false).length +
+		(config.detailTabs?.length ?? 0)
+	);
+}
 
 // Alignment vocabulary is constrained by what the Web Apps renderer
 // HONORS, not by what the suite parser accepts.
@@ -393,6 +476,7 @@ export type TileFontSize = (typeof TILE_FONT_SIZES)[number];
  * off the wire when unset.
  */
 export const tileCellSchema = z.strictObject({
+	androidOnly: z.literal(true).optional(),
 	x: persistableJsonNonnegativeIntegerSchema,
 	y: persistableJsonNonnegativeIntegerSchema,
 	width: persistableJsonPositiveIntegerSchema,
@@ -404,6 +488,9 @@ export const tileCellSchema = z.strictObject({
 	showShading: z.boolean().optional(),
 });
 export type TileCell = z.infer<typeof tileCellSchema>;
+export const detailTileSchema = z.strictObject({
+	cells: z.record(uuidSchema, tileCellSchema),
+});
 
 /** The alignment and size a cell takes when its maker states none: HQ's own
  *  defaults, which its first Case List save would write. */
@@ -444,6 +531,7 @@ export function tileCell(
 			presentation.verticalAlign ?? TILE_CELL_DEFAULTS.verticalAlign,
 		fontSize: presentation.fontSize ?? TILE_CELL_DEFAULTS.fontSize,
 	};
+	if (presentation.androidOnly) out.androidOnly = true;
 	if (presentation.showBorder !== undefined)
 		out.showBorder = presentation.showBorder;
 	if (presentation.showShading !== undefined)
@@ -511,12 +599,36 @@ export function tileCellsOverlap(a: TileCell, b: TileCell): boolean {
  * case-detail screen is a plain field list whatever the case list does.
  */
 export function tileCellFor(
-	column: Pick<Column, "tile" | "visibleInList">,
+	column: Pick<Column, "tile" | "visibleInList"> & { uuid?: Uuid },
 	layout: CaseTileLayout | undefined,
 ): TileCell | undefined {
 	if (layout === undefined) return undefined;
 	if (column.visibleInList === false) return undefined;
+	if (layout.namedSlots) {
+		const slot = NAMED_TILE_SLOTS.find(
+			(slot) => layout.namedSlots?.[slot] === column.uuid,
+		);
+		return slot ? namedTileCell(slot) : undefined;
+	}
 	return column.tile;
+}
+
+/**
+ * Whether a Results tile cell draws only on Android. HQ writes an
+ * `invisible` field (a cell marked `androidOnly`) and an `address` (a map
+ * location) with a zero template width (`detail_screen.py::HideShortColumn`):
+ * Web Apps hides a zero-width field on ordinary tiles and in group headings.
+ * The platform gate keeps these fields out of grouped bodies on Web Apps.
+ * Android draws the value at its cell (`EntityViewTile.addFieldView`).
+ */
+export function tileCellOnlyOnAndroid(
+	column: Pick<Column, "kind">,
+	cell: TileCell | undefined,
+): boolean {
+	return (
+		cell !== undefined &&
+		(cell.androidOnly === true || column.kind === "map-location")
+	);
 }
 
 /**
@@ -613,7 +725,22 @@ export type ColumnVia = [RelationStep, ...RelationStep[]];
 
 /** The slot every property-backed column kind carries beside its `field`. */
 const propertyColumnSlots = {
-	field: authoredCasePropertyNameSchema,
+	workerPropertyUuid: uuidSchema
+		.optional()
+		.describe(
+			"The worker information this field reads, when it is defined in the app.",
+		),
+	readFrom: z
+		.literal("worker-record")
+		.optional()
+		.describe("Use the signed-in worker’s case record for this field."),
+	showOwner: z
+		.literal("name")
+		.optional()
+		.describe(
+			"Show the name of the group or worker who owns this case. Choose the owner ID field.",
+		),
+	field: readCasePropertyNameSchema,
 	/** Shows `field` of the case these indices reach rather than the list's own. */
 	via: columnViaSchema.optional(),
 };
@@ -625,6 +752,12 @@ const propertyColumnSlots = {
 const plainColumnSchema = columnBase.extend({
 	kind: z.literal("plain"),
 	...propertyColumnSlots,
+	showChoice: z
+		.literal("saved-value")
+		.optional()
+		.describe(
+			"Show the saved choice value in this column. Leave this out to show the choice label.",
+		),
 	header: z.string(),
 });
 
@@ -652,6 +785,71 @@ const dateColumnSchema = columnBase.extend({
  * Phone-number column — renders the property as a tappable phone
  * link in the running app. Plain text in static contexts.
  */
+export const DATE_COUNT_PERIODS = [
+	"years-since",
+	"months-since",
+	"weeks-since",
+	"days-since",
+	"days-until",
+	"weeks-until",
+	"months-until",
+] as const;
+export type DateCountPeriod = (typeof DATE_COUNT_PERIODS)[number];
+
+/** A count is the signed number of whole periods separating two local calendar dates. */
+export const DATE_COUNT_DAYS: Readonly<Record<DateCountPeriod, number>> = {
+	"years-since": TIME_SINCE_UNIT_DAYS.years,
+	"months-since": TIME_SINCE_UNIT_DAYS.months,
+	"weeks-since": TIME_SINCE_UNIT_DAYS.weeks,
+	"days-since": 1,
+	"days-until": -1,
+	"weeks-until": -TIME_SINCE_UNIT_DAYS.weeks,
+	"months-until": -TIME_SINCE_UNIT_DAYS.months,
+};
+const dateCountColumnSchema = columnBase.extend({
+	kind: z.literal("date-count"),
+	...propertyColumnSlots,
+	header: z.string(),
+	period: z.enum(DATE_COUNT_PERIODS),
+});
+
+export const CASE_MAP_LAYER_KINDS = [
+	"boundary",
+	"boundary-color",
+	"points",
+	"point-colors",
+] as const;
+export type CaseMapLayerKind = (typeof CASE_MAP_LAYER_KINDS)[number];
+const workerDistanceColumnSchema = columnBase.extend({
+	kind: z.literal("worker-distance"),
+	...propertyColumnSlots,
+	header: z.string(),
+});
+const mapLocationColumnSchema = columnBase.extend({
+	kind: z.literal("map-location"),
+	...propertyColumnSlots,
+	header: z.string(),
+});
+const mapLayerColumnSchema = columnBase.extend({
+	kind: z.literal("map-layer"),
+	...propertyColumnSlots,
+	header: z.string(),
+	layer: z.enum(CASE_MAP_LAYER_KINDS),
+});
+
+const formattedTextColumnSchema = columnBase.extend({
+	kind: z.literal("formatted-text"),
+	...propertyColumnSlots,
+	header: z.string(),
+});
+
+const overdueMarkerColumnSchema = columnBase.extend({
+	kind: z.literal("overdue-marker"),
+	...propertyColumnSlots,
+	header: z.string(),
+	afterDays: persistableJsonIntegerSchema,
+});
+
 const phoneColumnSchema = columnBase.extend({
 	kind: z.literal("phone"),
 	...propertyColumnSlots,
@@ -666,22 +864,31 @@ const phoneColumnSchema = columnBase.extend({
  * sorts the column by (`lib/domain/caseListOrder.ts`, the
  * `mapping-position` key), which is CommCare HQ's `enum` sort.
  */
-const idMappingEntrySchema = z.strictObject({
-	// Nonempty whitespace-free token. A blank new-row control is local
-	// component state and is never a persisted mapping entry. The wire
-	// emits the entry as `selected(field, '<value>')`. CommCare's
-	// `selected()` trims the value and looks for it whole among the
-	// property's space-separated tokens
-	// (`commcare-core/.../xpath/expr/XPathSelectedFunc.multiSelected`), so
-	// a value holding a space matches only a property holding that same
-	// run of tokens, which no single select or saved token does. The
-	// characters HQ's ID mapping cannot hold are a validator rule
-	// (`CASE_LIST_ID_MAPPING_KEY_CHARACTERS`), not a schema check.
+// Old literal rows may have no identity. Every newly saved row gets one at
+// creation. A condition binds a row in its own record expression slot.
+const mappingSource = {
+	uuid: uuidSchema.optional(),
 	value: z
 		.string()
-		.regex(/^\S+$/, "A mapping value is one word with no spaces."),
-	label: z.string(),
-});
+		.optional()
+		.describe(
+			"The exact saved value, including spaces or an empty string. Omit when the row has a condition.",
+		),
+	when: conditionSchema
+		.optional()
+		.describe(
+			"Show this row when the case meets this condition. Omit for a literal saved value.",
+		),
+};
+const oneMappingSource = (row: { value?: string; when?: Expression }) =>
+	(row.value !== undefined) !== (row.when !== undefined);
+const mappingSourceIssue = "Choose a saved value or a condition for this row.";
+const idMappingEntrySchema = z
+	.strictObject({
+		...mappingSource,
+		label: z.string(),
+	})
+	.refine(oneMappingSource, { error: mappingSourceIssue });
 
 /** The characters CommCare HQ's ID mapping cannot hold in a key: its build
  *  writes a key unescaped inside an XPath string literal, and its mapping
@@ -704,6 +911,12 @@ export function idMappingValueHoldsForbiddenCharacter(value: string): boolean {
 
 const idMappingColumnSchema = columnBase.extend({
 	kind: z.literal("id-mapping"),
+	behavior: z
+		.literal("first-match")
+		.optional()
+		.describe(
+			"Show the first matching label and sort by that label in the worker’s language. Without this setting, show each matching choice label and sort by mapping position.",
+		),
 	...propertyColumnSlots,
 	header: z.string(),
 	// The table may be empty: that is the complete "show no mapped labels"
@@ -715,15 +928,10 @@ const idMappingColumnSchema = columnBase.extend({
 	// surfaces nothing the authoring layer predicts. Authors who
 	// genuinely want one value to render as multiple labels concatenate
 	// them inside one `label` slot.
-	mapping: z
-		.array(idMappingEntrySchema)
-		.refine(
-			(entries) => new Set(entries.map((e) => e.value)).size === entries.length,
-			{
-				error:
-					"Mapping values are not unique within this column. Two or more entries share the same `value`. The wire layer matches one row against every entry with a matching value, so duplicates would produce a cell that concatenates each matching label. Keep one entry per value and merge any duplicate labels into that entry's `label` slot.",
-			},
-		),
+	mapping: z.array(idMappingEntrySchema).refine(uniqueCaseMappingRows, {
+		error:
+			"Mapping values are not unique within this column. Two or more entries share the same `value`. The wire layer matches one row against every entry with a matching value, so duplicates would produce a cell that concatenates each matching label. Keep one entry per value and merge any duplicate labels into that entry's `label` slot.",
+	}),
 });
 
 /**
@@ -735,16 +943,25 @@ const idMappingColumnSchema = columnBase.extend({
  * text label. The entry order is the order the list sorts the column by
  * (`lib/domain/caseListOrder.ts`, the `mapping-position` key).
  */
-const imageMapEntrySchema = z.strictObject({
-	// Same one-word constraint and rationale as the id-mapping entry's
-	// `value`.
-	value: z
-		.string()
-		.regex(/^\S+$/, "A mapping value is one word with no spaces."),
-	assetId: mediaAssetIdSchema,
-});
+const imageMapEntrySchema = z
+	.strictObject({
+		...mappingSource,
+		/** With no comparison the image looks for the value among the worker's selected choices. */
+		match: z.literal("exact").optional(),
+		altText: z.string().optional(),
+		assetId: mediaAssetIdSchema.optional(),
+	})
+	.refine(oneMappingSource, { error: mappingSourceIssue })
+	.refine((row) => !(row.when && row.match), {
+		error: "A condition supplies its own comparison.",
+	});
 const imageMapColumnSchema = columnBase.extend({
 	kind: z.literal("image-map"),
+	/** On Results, the deep link of the form a worker's tap on the image
+	 * submits for the tapped case (CommCare's clickable icon). The image stays
+	 * an image on the case detail. `lib/commcare/listIconAction.ts` decides
+	 * which entry points qualify. */
+	entryPointUuid: uuidSchema.optional(),
 	...propertyColumnSlots,
 	header: z.string(),
 	// The table may be empty: that is the complete "show no mapped images"
@@ -753,15 +970,10 @@ const imageMapColumnSchema = columnBase.extend({
 	// arm per entry, so two entries sharing a value both match the same
 	// row and the cell concatenates their image paths into one
 	// unrenderable string.
-	mapping: z
-		.array(imageMapEntrySchema)
-		.refine(
-			(entries) => new Set(entries.map((e) => e.value)).size === entries.length,
-			{
-				error:
-					"Mapping values are not unique within this image-map column. Two or more entries share the same `value`. The wire layer matches one row against every entry with a matching value, so duplicates would concatenate each matching image path into one unrenderable cell. Keep one entry per value.",
-			},
-		),
+	mapping: z.array(imageMapEntrySchema).refine(uniqueCaseMappingRows, {
+		error:
+			"This image table repeats the same comparison and saved value. Give each rule a distinct comparison or value.",
+	}),
 });
 
 /**
@@ -792,6 +1004,24 @@ const intervalColumnSchema = columnBase.extend({
 	display: z.enum(INTERVAL_DISPLAYS),
 	text: z.string(),
 });
+
+/**
+ * How a phone loads a column's value: kept between visits (`cache`), worked
+ * out after the list first shows (`defer`), or both. HQ writes each on the
+ * column's field and promotes it to the detail
+ * (`detail_screen.py::FormattedDetailColumn._set_case_list_optimizations`,
+ * `suite_xml/sections/details.py::_add_detail_optimizations`), only for a
+ * column HQ reads through an expression in the address, date, markdown,
+ * phone, plain or enum format (`models/case_list.py::DetailColumn.supports_optimizations`).
+ * Android keeps each per field (`AsyncNodeEntityFactory`); Web Apps loads the
+ * whole list later and keeps nothing.
+ */
+export const columnLoadBehaviorSchema = z
+	.enum(["cache", "defer", "cache-and-defer"])
+	.describe(
+		"How a phone loads this value: cache keeps it between visits, defer works it out after the list shows, cache-and-defer does both. Needs the case list's faster loading turned on.",
+	);
+export type ColumnLoadBehavior = z.infer<typeof columnLoadBehaviorSchema>;
 
 /**
  * Link column — renders the property's value as a tappable link
@@ -825,6 +1055,7 @@ const linkColumnSchema = columnBase.extend({
 			/^[^\[\]]+$/,
 			"Link text can't contain square brackets. The cell is rendered as markdown, where a bracket ends the link's label early and the row shows the raw text instead of a link.",
 		),
+	loadBehavior: columnLoadBehaviorSchema.optional(),
 });
 
 /**
@@ -839,14 +1070,39 @@ const linkColumnSchema = columnBase.extend({
  * from the expression's resolved result type.
  */
 const calculatedColumnSchema = columnBase.extend({
+	/** An individual value picked from the tab's records. An authored calculation
+	 * over a record uses the ordinary calculation control. */
+	rowField: z.literal(true).optional(),
 	kind: z.literal("calculated"),
 	header: z.string(),
+	texts: z
+		.array(z.strictObject({ uuid: uuidSchema, label: z.string() }))
+		.refine(
+			(entries) =>
+				new Set(entries.map((entry) => entry.uuid)).size === entries.length,
+			{ error: "Each piece of translated text needs its own identity." },
+		)
+		.optional(),
+
+	showAs: z
+		.literal("formatted-text")
+		.optional()
+		.describe(
+			"Show this calculation as formatted text. Workers on Web Apps can follow Markdown links in a case result.",
+		),
 	expression: valueSchema,
+	loadBehavior: columnLoadBehaviorSchema.optional(),
 });
 
 export const columnSchema = z.discriminatedUnion("kind", [
 	plainColumnSchema,
 	dateColumnSchema,
+	dateCountColumnSchema,
+	overdueMarkerColumnSchema,
+	formattedTextColumnSchema,
+	workerDistanceColumnSchema,
+	mapLocationColumnSchema,
+	mapLayerColumnSchema,
 	phoneColumnSchema,
 	idMappingColumnSchema,
 	imageMapColumnSchema,
@@ -870,6 +1126,35 @@ export function columnRelationPath(
 		: { kind: "ancestor", via: column.via };
 }
 
+/** A translated value ordered by distance needs a physical location field.
+ * The property arm reads one saved value directly. A calculation with its
+ * own conditions or a type-restricted walk cannot use this representation. */
+export function translatedDistanceProperty(
+	column: Column,
+): Pick<PropertyColumn, "field" | "via" | "uuid"> | undefined {
+	if (
+		column.kind !== "calculated" ||
+		column.texts === undefined ||
+		column.sort?.comparator !== "distance" ||
+		column.visibleInList === false ||
+		column.expression.kind !== "term"
+	)
+		return undefined;
+	const source = column.expression.term;
+	if (source.kind !== "prop" || source.property === "case_id") return undefined;
+	if (
+		source.via &&
+		source.via.kind !== "self" &&
+		(source.via.kind !== "ancestor" ||
+			source.via.via.some((step) => step.throughCaseType !== undefined))
+	)
+		return undefined;
+	return {
+		uuid: column.uuid,
+		field: source.property,
+		...(source.via?.kind === "ancestor" && { via: source.via.via }),
+	};
+}
 /**
  * The text CommCare HQ's case list stores as a property column's `field`:
  * each index of the column's walk, then the property, joined by `/`, which
@@ -877,11 +1162,13 @@ export function columnRelationPath(
  * index by index. A step's case type is Nova's alone and no part of it.
  */
 export function columnFieldText(
-	column: Pick<PropertyColumn, "field" | "via">,
+	column: Pick<PropertyColumn, "field" | "via" | "readFrom" | "showOwner">,
 ): string {
+	const field = column.showOwner === "name" ? "#owner_name" : column.field;
+	if (column.readFrom === "worker-record") return `user/${field}`;
 	return column.via === undefined
-		? column.field
-		: [...column.via.map((step) => step.identifier), column.field].join("/");
+		? field
+		: [...column.via.map((step) => step.identifier), field].join("/");
 }
 
 /** Whether two column walks are one walk: the same indices, each naming the
@@ -955,7 +1242,7 @@ export function imageMapShowsImages(
 	column: Extract<Column, { kind: "image-map" }>,
 	mediaOn: boolean,
 ): boolean {
-	return mediaOn || column.mapping.length === 0;
+	return mediaOn || column.mapping.every((row) => row.assetId === undefined);
 }
 
 /** Single id-mapping entry — value-to-label pair surfaced by the
@@ -998,7 +1285,15 @@ export interface ColumnCommonSlots {
 
 /** The slots a property column's builder takes: the common ones and the
  *  walk to the case whose property it shows (`columnViaSchema`). */
-export interface PropertyColumnSlots extends ColumnCommonSlots {
+export interface ColumnRecordSource {
+	readonly workerPropertyUuid?: Uuid;
+	readonly readFrom?: "worker-record";
+	readonly showOwner?: "name";
+}
+
+export interface PropertyColumnSlots
+	extends ColumnCommonSlots,
+		ColumnRecordSource {
 	readonly via?: ColumnVia;
 }
 
@@ -1007,9 +1302,15 @@ function withPropertySlots<T extends Record<string, unknown>>(
 	base: T,
 	slots: PropertyColumnSlots,
 ): T & PropertyColumnSlots {
-	const out: T & { via?: ColumnVia } = withCommonSlots(base, slots);
-	if (slots.via !== undefined) out.via = slots.via;
-	return out;
+	return {
+		...withCommonSlots(base, slots),
+		...(slots.via && { via: slots.via }),
+		...(slots.readFrom && { readFrom: slots.readFrom }),
+		...(slots.workerPropertyUuid && {
+			workerPropertyUuid: slots.workerPropertyUuid,
+		}),
+		...(slots.showOwner && { showOwner: slots.showOwner }),
+	};
 }
 
 /**
@@ -1046,10 +1347,16 @@ export function plainColumn(
 	uuid: Uuid,
 	field: string,
 	header: string,
-	slots: PropertyColumnSlots = {},
+	slots: PropertyColumnSlots & { showChoice?: "saved-value" } = {},
 ): Extract<Column, { kind: "plain" }> {
 	return withPropertySlots(
-		{ uuid, kind: "plain" as const, field, header },
+		{
+			uuid,
+			kind: "plain" as const,
+			field,
+			header,
+			...(slots.showChoice && { showChoice: slots.showChoice }),
+		},
 		slots,
 	);
 }
@@ -1082,6 +1389,84 @@ export function dateColumn(
  * referenced property as a tappable telephone link; static
  * contexts fall back to plain text.
  */
+export function dateCountColumn(
+	uuid: Uuid,
+	field: string,
+	header: string,
+	period: DateCountPeriod,
+	slots: PropertyColumnSlots = {},
+): Extract<Column, { kind: "date-count" }> {
+	return withPropertySlots(
+		{ uuid, kind: "date-count" as const, field, header, period },
+		slots,
+	);
+}
+
+export function workerDistanceColumn(
+	uuid: Uuid,
+	field: string,
+	header: string,
+	slots: PropertyColumnSlots = {},
+): Extract<Column, { kind: "worker-distance" }> {
+	return withPropertySlots(
+		{ uuid, kind: "worker-distance" as const, field, header },
+		slots,
+	);
+}
+export function workerDistanceValueId(uuid: Uuid): string {
+	return `km:${uuid}`;
+}
+
+export function mapLocationColumn(
+	uuid: Uuid,
+	field: string,
+	header: string,
+	slots: PropertyColumnSlots = {},
+): Extract<Column, { kind: "map-location" }> {
+	return withPropertySlots(
+		{ uuid, kind: "map-location" as const, field, header },
+		slots,
+	);
+}
+
+export function mapLayerColumn(
+	uuid: Uuid,
+	field: string,
+	header: string,
+	layer: CaseMapLayerKind,
+	slots: PropertyColumnSlots = {},
+): Extract<Column, { kind: "map-layer" }> {
+	return withPropertySlots(
+		{ uuid, kind: "map-layer" as const, field, header, layer },
+		{ visibleInDetail: false, ...slots },
+	);
+}
+
+export function formattedTextColumn(
+	uuid: Uuid,
+	field: string,
+	header: string,
+	slots: PropertyColumnSlots = {},
+): Extract<Column, { kind: "formatted-text" }> {
+	return withPropertySlots(
+		{ uuid, kind: "formatted-text" as const, field, header },
+		slots,
+	);
+}
+
+export function overdueMarkerColumn(
+	uuid: Uuid,
+	field: string,
+	header: string,
+	afterDays: number,
+	slots: PropertyColumnSlots = {},
+): Extract<Column, { kind: "overdue-marker" }> {
+	return withPropertySlots(
+		{ uuid, kind: "overdue-marker" as const, field, header, afterDays },
+		slots,
+	);
+}
+
 export function phoneColumn(
 	uuid: Uuid,
 	field: string,
@@ -1157,10 +1542,17 @@ export function imageMapColumn(
 	field: string,
 	header: string,
 	mapping: readonly ImageMapEntry[],
-	slots: PropertyColumnSlots = {},
+	slots: PropertyColumnSlots & { readonly entryPointUuid?: Uuid } = {},
 ): Extract<Column, { kind: "image-map" }> {
 	return withPropertySlots(
-		{ uuid, kind: "image-map" as const, field, header, mapping: [...mapping] },
+		{
+			uuid,
+			kind: "image-map" as const,
+			...(slots.entryPointUuid && { entryPointUuid: slots.entryPointUuid }),
+			field,
+			header,
+			mapping: [...mapping],
+		},
 		slots,
 	);
 }
@@ -1169,9 +1561,9 @@ export function imageMapColumn(
  *  helper so ad-hoc literals can't drift out of the schema shape. */
 export function imageMapEntry(
 	value: string,
-	assetId: MediaAssetId,
+	assetId?: MediaAssetId,
 ): ImageMapEntry {
-	return { value, assetId };
+	return { value, ...(assetId !== undefined && { assetId }) };
 }
 
 /**
@@ -2405,12 +2797,13 @@ export const caseTileGroupingSchema = z.strictObject({
 	 * — so an omitted attribute silently halves or doubles the
 	 * header depending on which side reads it.
 	 *
-	 * The bound here is the grid; the real constraint is
-	 * layout-relative (strictly less than the tile's occupied row
-	 * extent, and never splitting a cell) and lives in
-	 * `lib/commcare/validator/rules/case-list/caseTileGrouping.ts`.
+	 * The constraint is layout-relative (strictly less than the tile's
+	 * occupied row extent, and never splitting a cell) and lives in
+	 * `lib/commcare/validator/rules/case-list/caseTileGrouping.ts`; a
+	 * tile's rows follow its fields (`tileRowLimit`), so no fixed bound
+	 * stands here.
 	 */
-	headerRows: persistableJsonPositiveIntegerSchema.max(TILE_GRID_ROWS - 1),
+	headerRows: persistableJsonPositiveIntegerSchema,
 });
 export type CaseTileGrouping = z.infer<typeof caseTileGroupingSchema>;
 
@@ -2438,6 +2831,14 @@ export function tileCellIsGroupHeader(
 	return cell.y < headerRows;
 }
 
+/** Web Apps partitions grouped tile cells by their starting row. */
+export function tileCellIsGroupBody(
+	cell: Pick<TileCell, "y"> | undefined,
+	headerRows: number | undefined,
+): boolean {
+	return cell !== undefined && headerRows !== undefined && cell.y >= headerRows;
+}
+
 /**
  * Every header depth that cuts THIS tile cleanly, ascending.
  *
@@ -2454,11 +2855,15 @@ export function tileCellIsGroupHeader(
  * emits no `<style>`, so it is not on the tile and must not widen this
  * arithmetic either.
  *
+ * For Web Apps, pass the shown cells whose value should only appear on
+ * Android. A cut must keep every one of them in the heading.
+ *
  * Empty when the tile has no shown cell, and empty for a one-row tile:
  * a single row has no room for both a header and a body.
  */
 export function tileGroupHeaderRowChoices(
 	cells: readonly TileCell[],
+	androidOnlyCells: readonly TileCell[] = [],
 ): readonly number[] {
 	if (cells.length === 0) return [];
 	const occupiedRows = Math.max(...cells.map(tileCellBottomEdge));
@@ -2470,6 +2875,8 @@ export function tileGroupHeaderRowChoices(
 				tileCellBottomEdge(cell) > headerRows,
 		);
 		if (straddles) continue;
+		if (androidOnlyCells.some((cell) => tileCellIsGroupBody(cell, headerRows)))
+			continue;
 		if (!cells.some((cell) => tileCellIsGroupHeader(cell, headerRows)))
 			continue;
 		choices.push(headerRows);
@@ -2477,7 +2884,49 @@ export function tileGroupHeaderRowChoices(
 	return choices;
 }
 
+export const NAMED_TILE_SLOTS = [
+	"topLeftImage",
+	"topLeftText",
+	"topRightImage",
+	"topRightText",
+	"middleLeftImage",
+	"middleLeftText",
+	"middleRightImage",
+	"middleRightText",
+	"bottomLeftImage",
+	"bottomLeftText",
+] as const;
+export type NamedTileSlot = (typeof NAMED_TILE_SLOTS)[number];
+export const namedTileSlotsSchema = z.record(
+	z
+		.enum(NAMED_TILE_SLOTS)
+		.describe(
+			"a named tile position: topLeftImage, topLeftText, topRightImage, topRightText, middleLeftImage, middleLeftText, middleRightImage, middleRightText, bottomLeftImage or bottomLeftText, each holding the field placed there",
+		),
+	uuidSchema,
+);
+
+export function namedTileCell(slot: NamedTileSlot): TileCell {
+	const i = NAMED_TILE_SLOTS.indexOf(slot);
+	const image = i % 2 === 0;
+	const x = (Math.floor(i / 2) % 2) * 6;
+	return tileCell(
+		x + (image ? 0 : 1),
+		Math.floor(i / 4),
+		image ? 1 : 5,
+		1,
+		image
+			? { fontSize: "small", horizontalAlign: "center", verticalAlign: "top" }
+			: {
+					fontSize: "medium",
+					horizontalAlign: "left",
+					verticalAlign: "middle",
+				},
+	);
+}
 export const caseTileLayoutSchema = z.strictObject({
+	namedSlots: namedTileSlotsSchema.optional(),
+	rawSlots: z.array(z.enum(NAMED_TILE_SLOTS)).min(1).optional(),
 	/**
 	 * Keep the tile on screen once a case is chosen from this list: above
 	 * the menu its case opens, the forms and every screen after it while the
@@ -2537,6 +2986,58 @@ export type CaseSelection = z.infer<typeof caseSelectionSchema>;
 
 export type CaseSelectionCardinality = "single" | "multiple";
 
+/** The text an empty case list shows where the list holds none of its own,
+ *  HQ's model default (`models/case_list.py::Detail.no_items_text`). */
+export const CASE_LIST_EMPTY_TEXT_DEFAULT = "List is empty.";
+
+/** The label of the button that carries chosen cases forward where the list
+ *  holds none of its own, HQ's model default
+ *  (`models/case_list.py::Detail.select_text`). */
+export const CASE_LIST_SELECT_TEXT_DEFAULT = "Continue";
+
+/** A case list's own wording: a worker-facing text with no blank spelling. */
+export const caseListWordingSchema = z.string().trim().min(1);
+
+/** An independent rule of Default order. Its value never becomes a Results
+ * or Details column. Its optional name is the entry workers can choose in Sort by. */
+export const calculatedSortSchema = z
+	.strictObject({
+		uuid: uuidSchema,
+		expression: valueSchema,
+		direction: columnSortShape.direction,
+		priority: columnSortShape.priority,
+		comparator: z
+			.enum(["text", "integer", "decimal"])
+			.optional()
+			.describe(
+				"How to compare the values. Leave it out to use the calculation’s own type. Text orders 10 before 2. A whole-number or decimal comparison orders 2 before 10.",
+			),
+		blanks: columnSortShape.blanks,
+		label: columnSortShape.label,
+	})
+	.superRefine((rule, ctx) => {
+		if (
+			rule.label !== undefined &&
+			(rule.label.trim() === "" ||
+				[...rule.label].every((char) => (char.codePointAt(0) ?? 0) <= 32))
+		) {
+			ctx.addIssue({
+				code: "custom",
+				path: ["label"],
+				message:
+					"Give the calculation a name workers can read, or leave it unnamed.",
+			});
+		}
+		if (rule.blanks === defaultSortBlanks(rule.direction)) {
+			ctx.addIssue({
+				code: "custom",
+				path: ["blanks"],
+				message: "Leave out the ordinary blank placement for this direction.",
+			});
+		}
+	});
+export type CalculatedSort = z.infer<typeof calculatedSortSchema>;
+
 export const caseListConfigSchema = z
 	.strictObject({
 		/**
@@ -2545,6 +3046,7 @@ export const caseListConfigSchema = z
 		 * sequences over these same columns and one array cannot hold both.
 		 */
 		columns: z.array(columnSchema),
+		calculatedSorts: z.array(calculatedSortSchema).min(1).optional(),
 		/**
 		 * The Results sequence, and the Details sequence — each a complete
 		 * permutation of `columns` by uuid.
@@ -2556,6 +3058,9 @@ export const caseListConfigSchema = z
 		 */
 		listColumnOrder: z.array(uuidSchema),
 		detailColumnOrder: z.array(uuidSchema),
+		detailTabs: detailTabsSchema.optional(),
+		detailTile: detailTileSchema.optional(),
+		contextAboveForm: caseFormContextSchema.optional(),
 		filter: conditionSchema.optional(),
 		searchInputs: z.array(searchInputDefSchema),
 		/**
@@ -2565,12 +3070,61 @@ export const caseListConfigSchema = z
 		 */
 		selection: caseSelectionSchema.optional(),
 		/**
+		 * What Results says when it holds no case, in the source language;
+		 * absent is `CASE_LIST_EMPTY_TEXT_DEFAULT`. Its other languages are the
+		 * translations of its unit (`module:<uuid>:list-empty-text`). Web Apps
+		 * shows it; Android keeps its own empty-list wording.
+		 */
+		emptyText: caseListWordingSchema.optional(),
+		/**
+		 * The label of the button that carries a worker's chosen cases forward
+		 * from Results, in the source language; absent is
+		 * `CASE_LIST_SELECT_TEXT_DEFAULT`. Its other languages are the
+		 * translations of its unit (`module:<uuid>:list-select-text`). Web Apps
+		 * labels only its several-case Continue with it; Android keeps its own.
+		 */
+		selectButtonText: caseListWordingSchema.optional(),
+		/**
+		 * Faster loading is on: a calculated or link column may say how a
+		 * phone loads its value (`loadBehavior`). HQ's
+		 * `Module.show_case_list_optimization_options`, which the project
+		 * space's `CASE_LIST_OPTIMIZATIONS` gates.
+		 */
+		optimizations: z.literal(true).optional(),
+		/**
 		 * Tile layout for the Results surface. Absent ≡ the ordinary row
 		 * layout. See `caseTileLayoutSchema`.
 		 */
 		tile: caseTileLayoutSchema.optional(),
 	})
 	.superRefine((config, ctx) => {
+		if (
+			config.tile?.rawSlots &&
+			(!config.tile.namedSlots ||
+				new Set(config.tile.rawSlots).size !== config.tile.rawSlots.length)
+		)
+			ctx.addIssue({
+				code: "custom",
+				path: ["tile", "rawSlots"],
+				message: "Choose a raw value only once for a named tile position.",
+			});
+		for (const [index, column] of config.columns.entries())
+			if ("loadBehavior" in column && column.loadBehavior !== undefined) {
+				if (!columnSupportsLoadBehavior(column))
+					ctx.addIssue({
+						code: "custom",
+						path: ["columns", index, "loadBehavior"],
+						message:
+							"Only a calculated value or a link can choose how a phone loads it. Clear its loading choice first.",
+					});
+				else if (config.optimizations !== true)
+					ctx.addIssue({
+						code: "custom",
+						path: ["columns", index, "loadBehavior"],
+						message:
+							"Turn on faster loading for this case list before choosing how a phone loads a value.",
+					});
+			}
 		const columnUuids = config.columns.map((column) => column.uuid);
 		const columnSet = new Set(columnUuids);
 		if (columnSet.size !== columnUuids.length) {
@@ -2579,6 +3133,16 @@ export const caseListConfigSchema = z
 				path: ["columns"],
 				message: "Case-list column UUIDs must be unique.",
 			});
+		}
+		const memberIds = new Set(columnUuids);
+		for (const [index, rule] of (config.calculatedSorts ?? []).entries()) {
+			if (memberIds.has(rule.uuid))
+				ctx.addIssue({
+					code: "custom",
+					path: ["calculatedSorts", index, "uuid"],
+					message: "Each default order rule needs its own identity.",
+				});
+			memberIds.add(rule.uuid);
 		}
 		const checkOrder = (
 			order: readonly Uuid[],
@@ -2614,8 +3178,101 @@ export const caseListConfigSchema = z
 		};
 		checkOrder(config.listColumnOrder, "listColumnOrder");
 		checkOrder(config.detailColumnOrder, "detailColumnOrder");
+		if (config.tile?.namedSlots) {
+			const assignments = Object.values(config.tile.namedSlots);
+			const eligible = new Set(
+				config.columns
+					.filter(
+						(column) =>
+							column.visibleInList !== false && column.notOnList !== true,
+					)
+					.map((column) => column.uuid),
+			);
+			if (
+				new Set(assignments).size !== assignments.length ||
+				assignments.some((id) => !eligible.has(id))
+			)
+				ctx.addIssue({
+					code: "custom",
+					path: ["tile", "namedSlots"],
+					message:
+						"Choose a different Results field for each image and text position.",
+				});
+		}
+		if (config.detailTile) {
+			const shown = config.columns.filter(
+				(column) => column.visibleInDetail !== false,
+			);
+			const printed = new Set(shown.map((column) => column.uuid));
+			const cells = Object.keys(config.detailTile.cells) as Uuid[];
+			if (
+				!cells.length ||
+				cells.length !== shown.length ||
+				cells.some((id) => !printed.has(id))
+			)
+				ctx.addIssue({
+					code: "custom",
+					path: ["detailTile", "cells"],
+					message: "Give each field shown in Details a place on its tile.",
+				});
+		}
+		if (config.detailTabs) {
+			const shown = new Set(
+				config.columns
+					.filter((col) => col.visibleInDetail !== false)
+					.map((col) => col.uuid),
+			);
+			const fields = config.detailColumnOrder
+				.filter((uuid) => shown.has(uuid))
+				.map((uuid) => ({ uuid }));
+			const spans = detailTabSpans(config.detailTabs, fields);
+			if (!spans)
+				ctx.addIssue({
+					code: "custom",
+					path: ["detailTabs"],
+					message:
+						"Each tab needs a different first field in Details order, starting with the first field shown.",
+				});
+			for (const { tab, start, end } of spans ?? []) {
+				if (!tab.orderFields) continue;
+				const own = fields
+					.slice(start, end)
+					.filter(({ uuid }) => tab.orderFields?.includes(uuid));
+				if (
+					!tab.rowSource ||
+					own.length !== tab.orderFields.length ||
+					own.some((field, i) => field.uuid !== tab.orderFields?.[i]) ||
+					own.some(
+						({ uuid }) =>
+							!config.columns.some(
+								(c) =>
+									c.uuid === uuid &&
+									(c.kind === "plain" || c.kind === "calculated"),
+							),
+					)
+				)
+					ctx.addIssue({
+						code: "custom",
+						path: ["detailTabs"],
+						message:
+							"A tab of records can order its rows by text or calculated fields in that tab, in Details order.",
+					});
+			}
+		}
 	});
 export type CaseListConfig = z.infer<typeof caseListConfigSchema>;
+
+/** Whether HQ keeps a load behavior on this column: one it reads through an
+ *  expression as plain text or markdown (a calculation without translated
+ *  text, or a link), `DetailColumn.supports_optimizations`. */
+export function columnSupportsLoadBehavior(column: Column): boolean {
+	return (
+		(column.kind === "calculated" &&
+			column.texts === undefined &&
+			column.rowField !== true) ||
+		column.kind === "link"
+	);
+}
 
 /**
  * A case list with no columns and no search — the shape a config is BORN with.

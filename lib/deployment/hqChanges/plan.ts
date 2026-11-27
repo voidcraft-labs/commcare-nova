@@ -443,6 +443,7 @@ function narrowed(
 			case "updateUserProperty":
 			case "removeLocationProperty":
 			case "updateLocationProperty":
+			case "moveCaseProperty":
 			case "removeCaseProperty":
 			case "setCaseProperty":
 				break;
@@ -758,6 +759,9 @@ export function touchedBy(
 			case "setModuleMedia":
 				menu(mutation.uuid);
 				break;
+			case "addCalculatedSort":
+			case "updateCalculatedSort":
+			case "removeCalculatedSort":
 			case "addColumn":
 			case "updateColumn":
 			case "removeColumn":
@@ -852,6 +856,7 @@ export function touchedBy(
 			case "retireCaseType":
 			case "addCaseProperty":
 			case "setCaseProperty":
+			case "moveCaseProperty":
 			case "removeCaseProperty":
 			case "setCaseTypeMeta":
 			case "addUserProperty":
@@ -1648,6 +1653,8 @@ export function* planHqChangesSteps(input: PlanInput): Steps<HqChangePlan> {
 	const changedPublishForms = new Set<string>();
 	try {
 		const baseFacts = firstPublishFactsOf({
+			lookup: readings.inputs.base.lookup,
+			columnFieldWords: baseDraft.identities.columnFieldWords,
 			source: readings.inputs.base.source,
 			doc: B,
 			facts: baseDraft.facts,

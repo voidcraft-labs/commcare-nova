@@ -128,6 +128,9 @@ function bindings(caseType = "Client", tableId?: string): QueryBindings {
 		forTable(id) {
 			return bindings(caseType, id);
 		},
+		forRows(type) {
+			return bindings(type);
+		},
 	};
 }
 const scope = bindings();
@@ -137,6 +140,7 @@ const printContext: QueryPrintContext = {
 	forDeviceRecords: () => printContext,
 	forRelation: () => printContext,
 	forTable: () => printContext,
+	forRows: () => printContext,
 	name: (_kind, id) => id,
 	reference(term) {
 		if (term.kind === "prop" && !term.via)
@@ -368,6 +372,7 @@ it("preserves authored values when a read result is submitted back as an edit", 
 		"format-date(today(), 'iso')",
 		"lookup('districts', 'name', #row/code = 'north')",
 		"property('Client', 'case_name', ancestor('parent'))",
+		"property('Client', 'village', reached('host', 'parent'))",
 		"via(ancestor('parent'), #Household/case_name)",
 		"session('userid')",
 		"user('region')",
@@ -419,6 +424,32 @@ it("preserves authored values when a read result is submitted back as an edit", 
 			source,
 		).toEqual(parsed);
 	}
+});
+
+it("spells a reached read as the links it walks to whatever record each reaches", () => {
+	const reached = parseQueryValue(
+		"property('Client', 'village', reached('host', 'parent'))",
+		scope,
+	);
+	expect(reached).toEqual({
+		kind: "term",
+		term: {
+			kind: "prop",
+			caseType: "Client",
+			property: "village",
+			via: {
+				kind: "ancestor",
+				via: [{ identifier: "host" }, { identifier: "parent" }],
+			},
+			readReached: true,
+		},
+	});
+	expect(() => parseQueryPredicate("exists(reached('parent'))", scope)).toThrow(
+		/reached\(\) names the links one property\(\) reads through/,
+	);
+	expect(() =>
+		parseQueryValue("property('Visit', 'village', reached('parent'))", scope),
+	).toThrow(/starts from Client, not Visit/);
 });
 
 it("keeps literal punctuation and backslashes distinct from executable references", () => {
@@ -686,6 +717,31 @@ it("takes a value as a distance, a unit and a selected choice, and refuses a uni
 });
 
 // --- The chosen case -------------------------------------------------------
+
+it("round-trips a property of the restored row when the surrounding case has the same property", () => {
+	const doc = buildDoc({
+		caseTypes: [
+			{
+				name: "patient",
+				properties: [{ name: "district", label: "District" }],
+			},
+			{
+				name: "household",
+				properties: [{ name: "district", label: "District" }],
+			},
+		],
+		modules: [],
+	});
+	const scope = new AuthoringScope({ doc, currentCaseType: "household" });
+	const expression: Expression = {
+		kind: "project",
+		of: parseQueryValue("cases('patient')", scope),
+		value: { kind: "prop", caseType: "patient", property: "district" },
+	};
+	const printed = queryPrinter(scope).value(expression);
+	expect(printed).toBe("row-value(cases('patient'), #case/district)");
+	expect(parseQueryValue(printed, scope)).toEqual(expression);
+});
 
 const householdType: CaseType = {
 	name: "Household",

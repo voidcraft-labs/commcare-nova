@@ -186,7 +186,7 @@ def authored_project(document, publication, *, configure=None):
 
 
 @contextmanager
-def project(document, configuration="minimum", *, web_apps=True):
+def project(document, configuration="minimum", *, web_apps=True, case_list_map=None):
     """``document`` as Nova's first publish leaves it in a project space that has Web Apps.
 
     With ``web_apps`` false the project space is the document's
@@ -214,6 +214,9 @@ def project(document, configuration="minimum", *, web_apps=True):
         )
     export = document.exports[configuration]
     held = export.configuration.hq()
+    if case_list_map is not None:
+        flags = held.flags | {"CASE_LIST_MAP"} if case_list_map else held.flags - {"CASE_LIST_MAP"}
+        held = replace(held, flags=flags)
     if WEB_APPS_PRIVILEGE not in held.privileges:
         raise AssertionError(
             f"{document.id}'s configuration {configuration} grants no {WEB_APPS_PRIVILEGE}, which the configuration"

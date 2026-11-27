@@ -39,13 +39,15 @@ import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 import java.util.Date;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
 
 /**
  * Opens one form, or one case list, with the session and case data a request
  * gives, and reports what Core computes there: expression values, constraint
- * verdicts, instance contents, and a case list's rows in Core's order. It is how
+ * verdicts, instance contents, and a case list's rows in Core's order. A case
+ * list request can also open the detail of one visible case. It is how
  * an intent check asks Core a question with a fixed expected answer.
  *
  * The form is the one an admitted app installed for an xmlns, or a form given
@@ -369,7 +371,15 @@ final class Evaluate {
         list.put("detail", FormRun.nullable(datum.getShortDetail()));
         list.put("title", FormRun.text(screen::getScreenTitle));
         list.put("autoSelect", screen.shouldBeSkipped());
-        SessionOp.rows(screen, datum, list);
+        List<String> caseIds = SessionOp.rows(screen, datum, list);
+        String detailCaseId = request.optString("detailCaseId", null);
+        if (detailCaseId != null) {
+            TreeReference reference = screen.resolveTreeReference(detailCaseId);
+            if (!caseIds.contains(detailCaseId) || reference == null) {
+                throw new RequestException("The case list does not show the requested detail case " + detailCaseId);
+            }
+            list.put("caseDetail", FormRun.nullable(SessionOp.caseDetail(screen, datum, reference, true)));
+        }
         return list;
     }
 }

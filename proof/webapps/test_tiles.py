@@ -47,6 +47,8 @@ from __future__ import annotations
 
 from dataclasses import replace
 
+import pytest
+
 from proof.editors import pages
 from proof.observe import casedata
 from proof.webapps import hq as webapps_hq
@@ -181,6 +183,93 @@ def test_web_apps_lays_out_a_tiles_placed_cells_alone_and_orders_and_searches_by
 GROUP_FILTER = "targeted-tile-group-filter"
 
 
+@pytest.mark.parametrize("column_format", ("invisible", "address"))
+def test_web_apps_draws_zero_width_values_only_in_a_grouped_tile_body(
+    hq, core_runner, formplayer_runner, editor_driver, webapps_documents, evidence, column_format
+):
+    from proof.hq import operations
+    from proof.matrix.authoring import Authoring
+    from proof.matrix.ops import set_json
+
+    document = webapps_documents[GROUP_FILTER]
+    base = casedata.database_of_restore((document.root / "restore.xml").read_bytes())
+    visits = [case for case in base.cases if case.case_type == "visit"]
+    raw_values = {
+        case.case_id: f"Raw visit value {case.name}" if column_format == "invisible" else f"-1.9 35.{index + 10}"
+        for index, case in enumerate(visits)
+    }
+    database = replace(base, cases=tuple(
+        replace(case, properties=tuple(
+            (name, raw_values[case.case_id] if name == "outcome" else value)
+            for name, value in case.properties
+        )) if case.case_id in raw_values else case
+        for case in base.cases
+    ))
+    observed = {}
+    with webapps_hq.project(document, "maximum") as project:
+        unit = project.unit
+        for stage, grouped, raw_row in (("ordinary", False, 1), ("header", True, 0), ("body", True, 1)):
+            with unit.fork():
+                authoring = Authoring(unit, {}, f"grouped-width-zero-{stage}", operation=unit.operation)
+                held = operations.held_app(unit, project.app_id).modules[0].case_details.short
+                columns = {column.field: column.to_json() for column in held.columns}
+                # The raw field is the only cell in its row of an otherwise unremarkable tile.
+                visible = {**columns["seen_by"], "grid_x": 0, "grid_y": 1 - raw_row, "width": 12}
+                raw = {**columns["outcome"], "format": column_format, "grid_x": 0, "grid_y": raw_row, "width": 12}
+                set_json(authoring, project.app_id, "/modules/0/case_details/short/columns", [visible, raw])
+                if not grouped:
+                    set_json(authoring, project.app_id, "/modules/0/case_details/short/case_tile_group", {
+                        "doc_type": "CaseTileGroupConfig", "index_identifier": None, "header_rows": 2,
+                    })
+                with project.released(formplayer_runner, database=database, label=stage) as release:
+                    run = Session(release, editor_driver).run([
+                        *steps.open_app("Grouped visits"),
+                        *steps.choose("Visits"),
+                        steps.SCREEN,
+                    ])
+                    answered = run.answered("navigate_menu")[-1].json()
+                    shown = run.screens[0]["list"]
+                    observed[stage] = {
+                        "groupHeaderRows": answered["groupHeaderRows"],
+                        "widthHint": answered["styles"][1]["widthHint"],
+                        "displayFormat": answered["styles"][1]["displayFormat"],
+                        "storedColumnFormat": _tile_columns(release)[1]["format"],
+                        "storedGridY": _tile_columns(release)[1]["grid_y"],
+                        "gridY": answered["tiles"][1]["gridY"],
+                        "rawData": {entity["id"]: entity["data"][1] for entity in answered["entities"]},
+                        "rowIds": [row["id"] for row in shown["rows"]],
+                        "rawCells": [
+                            cell for row in shown["rows"] for cell in row["cells"]
+                            if cell["text"] in raw_values.values()
+                        ],
+                        "webAppCss": any("formplayer-webapp" in static.unhashed(path)
+                                         for path, _ in run.statics if path.endswith(".css")),
+                        "pageErrors": run.page_errors,
+                    }
+
+    evidence(f"tile-width-zero-{column_format}", observed)
+    for stage, actual in observed.items():
+        assert actual["pageErrors"] == [] and actual["webAppCss"], actual
+        assert actual["widthHint"] == 0, actual
+        assert actual["storedColumnFormat"] == column_format, actual
+        assert actual["storedGridY"] == actual["gridY"], actual
+        if column_format == "address":
+            assert actual["displayFormat"] == "Address", actual
+        assert actual["rawData"] == raw_values, actual
+        assert actual["groupHeaderRows"] == (-1 if stage == "ordinary" else 1), actual
+        assert actual["gridY"] == (0 if stage == "header" else 1), actual
+    assert len(observed["ordinary"]["rowIds"]) == len(raw_values)
+    assert len(observed["header"]["rowIds"]) == len(observed["body"]["rowIds"]) == 3
+    assert {cell["text"] for cell in observed["ordinary"]["rawCells"]} == set(raw_values.values())
+    assert {cell["text"] for cell in observed["header"]["rawCells"]} == {
+        raw_values[f"targeted-{name}-visit"] for name in ("ada", "ben", "eve")
+    }
+    assert all(cell["hidden"] for cell in observed["ordinary"]["rawCells"] + observed["header"]["rawCells"])
+    assert {cell["text"] for cell in observed["body"]["rawCells"]} == set(raw_values.values())
+    assert all(not cell["hidden"] for cell in observed["body"]["rawCells"])
+
+
+
 def _card(row):
     """A grouped card's id and its cells' texts, the heading's first (``tile_grouped_item.html``)."""
     return row["id"], [cell["text"] for cell in row["cells"] if not cell["hidden"]]
@@ -221,3 +310,106 @@ def test_web_apps_makes_a_grouped_tiles_cards_from_the_rows_a_search_leaves(
     assert [cells[0] for _, cells in searched_cards] == ["Nurse Chiku", "Nurse Baraka"]
     # Cal's card holds Cal's row alone: Ada, who does not match, is no row of it.
     assert searched_cards[1][1] == ["Nurse Baraka", "Cal", "Referred"]
+
+
+def _to_visits(scenario):
+    return steps.path(steps.open_app(f"Tile {scenario}"), steps.choose("Visits"), steps.choose("Record visit"))
+
+
+def _open_visit(case_id):
+    return steps.click(f"#menu-region [id='row-{case_id}']")
+
+
+def test_web_apps_offers_each_selected_cases_tabs_and_opens_their_own_fields(
+    hq, formplayer_runner, editor_driver, webapps_documents, evidence
+):
+    from proof.observe.visit_layout_data import visits
+
+    with webapps_hq.project(webapps_documents["tile-detail-tabs"], "maximum") as project:
+        with project.released(formplayer_runner, database=visits()) as release:
+            session = Session(release, editor_driver)
+            west = session.run([
+                *_to_visits("detail-tabs"), *_open_visit("west"), steps.SCREEN,
+                *steps.click("#case-detail-modal .js-detail-tabs [role='tab']", "Follow-up"), steps.SCREEN,
+            ])
+            east = Session(release, editor_driver).run([*_to_visits("detail-tabs"), *_open_visit("east"), steps.SCREEN])
+    first, second = [screen["detail"] for screen in west.screens]
+    other = east.screens[0]["detail"]
+    evidence("visit-tabs", {"west": [first, second], "east": other})
+    assert first["tabs"] == [{"title": "Visit", "active": True}, {"title": "Follow-up", "active": False}]
+    assert first["rows"] == [{"header": "Name", "value": "Amina"}, {"header": "Village", "value": "West"}]
+    assert second["tabs"][1]["active"] is True
+    assert second["rows"] == [{"header": "Last visit", "value": "Monday"}]
+    assert [tab["title"] for tab in other["tabs"]] == ["Visit"]
+    assert [row["value"] for row in other["rows"]] == ["Baraka", "East"]
+    assert west.page_errors == east.page_errors == []
+
+
+def test_web_apps_lays_out_the_selected_cases_independent_details_grid(
+    hq, formplayer_runner, editor_driver, webapps_documents, evidence
+):
+    from proof.observe.visit_layout_data import visits
+
+    with webapps_hq.project(webapps_documents["tile-detail-layout"], "maximum") as project:
+        with project.released(formplayer_runner, database=visits()) as release:
+            run = Session(release, editor_driver).run([
+                *_to_visits("detail-layout"), *_open_visit("east"),
+                {"call": "webapps/case_layout", "arg": {"surface": "detail"}},
+            ])
+    cells = run.value(-1)["cells"]
+    evidence("detail-grid", cells)
+    assert [cell["value"] for cell in cells] == ["Baraka", "East", "Tuesday"]
+    assert [cell["position"] for cell in cells] == ["1 / 1 / 2 / 13", "2 / 1 / 3 / 13", "3 / 1 / 4 / 13"]
+
+
+def test_web_apps_shows_the_named_slots_in_layout_order(
+    hq, formplayer_runner, editor_driver, webapps_documents, evidence
+):
+    from proof.observe.visit_layout_data import visits
+
+    with webapps_hq.project(webapps_documents["tile-named-layout"], "maximum") as project:
+        with project.released(formplayer_runner, database=visits()) as release:
+            run = Session(release, editor_driver).run([*_to_visits("named-layout"), steps.SCREEN])
+    listed = run.screens[0]["list"]
+    assert listed["tiles"]
+    west = next(row for row in listed["rows"] if row["id"] == "row-west")
+    evidence("named-slots-west", west["cells"])
+    # The list's hidden sort field rides the tile as a zero-width cell Web
+    # Apps hides; the ten named positions are the cells it shows.
+    shown = [cell for cell in west["cells"] if not cell["hidden"]]
+    assert len(shown) == 10
+    assert len(west["cells"]) - len(shown) == 1
+    assert shown[0]["text"] == "Amina"
+    assert shown[1]["text"] == "Village\u2005West"
+    assert shown[-1]["text"] == "Visit part 7\u2005Amina 7"
+
+
+def test_web_apps_keeps_the_selected_case_above_forms_and_expands_the_chosen_detail(
+    hq, formplayer_runner, editor_driver, webapps_documents, evidence
+):
+    from proof.observe.visit_layout_data import visits
+
+    observed = {}
+    for scenario, values, expanded in (
+        ("persistent-line", ["East"], None),
+        ("persistent-inline", ["Baraka", "East", "Tuesday"], ["Baraka", "East", "Tuesday"]),
+        ("persistent-external", ["Tuesday"], ["Tuesday"]),
+    ):
+        with webapps_hq.project(webapps_documents[f"tile-{scenario}"], "maximum") as project:
+            with project.released(formplayer_runner, database=visits()) as release:
+                select = _open_visit("east") if expanded else steps.select_case("east")
+                actions = [*_to_visits(scenario), *select, steps.SCREEN,
+                           {"call": "webapps/case_layout", "arg": {"surface": "form"}}]
+                context_index = len(actions) - 1
+                if expanded:
+                    actions.extend([*steps.click("#persistent-case-tile .persistent-sticky", visible=True), steps.SCREEN])
+                run = Session(release, editor_driver).run(actions)
+                assert run.screens[0]["form"]["title"] == "Record visit"
+                context = run.value(context_index)
+                observed[scenario] = context
+                assert [cell["value"] for cell in context["cells"]] == values
+                assert context["expands"] is bool(expanded)
+                if expanded:
+                    assert [row["value"] for row in run.screens[1]["detail"]["rows"]] == expanded
+                assert run.page_errors == []
+    evidence("selected-case-above-form", observed)
