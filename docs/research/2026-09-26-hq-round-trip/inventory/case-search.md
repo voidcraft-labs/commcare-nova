@@ -129,6 +129,7 @@ Case search as a whole needs SYNC_SEARCH_CASE_CLAIM plus the target's `CaseSearc
 | `validations[1:]` | **REFUSED**: not HQ-editable: the editor edits only `[0]` | — | — |
 | `hidden` together with `required` or `validations` | **REFUSED**: not HQ-editable: the serializer blanks them | — | — |
 | `receiver_expression` | **HELD-NEW**: `searchInputs[].receiveFrom` (geocoder field) | RUNS / IGNORED | `receiver_expression`; privilege `geocoder` + CASE_SEARCH_ADVANCED |
+| An address receiver from one picker with a recognised address part and an unused simple suffix | **HELD**: Web Apps reads the same address part. The first publish removes only the unused suffix. | RUNS / IGNORED | search-address-receiver-suffix-removed |
 | `receiver_expression` on a prompt whose editor appearance is neither plain text nor a lookup or Mobile UCR selection (barcode, checkbox, date, date range, address) | **REFUSED**: not HQ-editable: `views/modules.py::_update_search_properties` keeps it only for appearance `fixture` or none | — | — |
 | `is_group` + `group_key` | **HELD**: Localized headings and ordered Search fields. Android shows the fields in the same order. | RUNS / IGNORED | group rows |
 | Group key that cannot identify the heading for its fields | **REFUSED**: the ordered group cannot be recovered | — | — |

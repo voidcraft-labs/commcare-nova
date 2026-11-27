@@ -5972,21 +5972,38 @@ def unmatched_address_receive_topic(use, manifest):
         for row in config.get("properties") or [] if isinstance(row, dict)
     )
 
-def address_receive_with_extra_hyphen(use, manifest):
-    """An active Search address receiver whose extra hyphen segment Core carries and Web Apps skips."""
+def _address_receiver_suffix(use):
     at, config = _search(use)
     if config is None:
         return None
     prompt = at.nearest("CaseSearchProperty")
     if at.key != "receiver_expression" or prompt is None or _address_receiver_widget(prompt) != "text":
-        return False
+        return None
     value = prompt.get("receiver_expression")
     selector = (
         re.fullmatch(r"([A-Za-z_][A-Za-z0-9_]*)-([A-Za-z_][A-Za-z0-9_]*)-[A-Za-z_][A-Za-z0-9_]*", value)
         if isinstance(value, str) else None
     )
-    return (selector is not None and selector[2] in ADDRESS_MESSAGE_PARTS
-            and _has_address_publisher(config, selector[1]))
+    if selector is not None and _has_address_publisher(config, selector[1]):
+        return selector, at, config
+
+
+def address_receiver_unused_suffix(use, manifest):
+    parts = _address_receiver_suffix(use)
+    if parts is None:
+        return False
+    selector, at, config = parts
+    shortened = f"{selector[1]}-{selector[2]}"
+    return selector[2] in ADDRESS_MESSAGE_PARTS and not any(
+        row is not at.owner and isinstance(row, dict)
+        and isinstance(value := row.get("receiver_expression"), str)
+        and (value == shortened or value.startswith(shortened + "-"))
+        for row in config.get("properties") or []
+    )
+
+
+def address_receive_with_extra_hyphen(use, manifest):
+    return _address_receiver_suffix(use) is not None and not address_receiver_unused_suffix(use, manifest)
 
 
 def address_receive_without_component(use, manifest):

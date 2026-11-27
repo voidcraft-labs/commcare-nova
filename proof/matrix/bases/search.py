@@ -325,6 +325,17 @@ def build(authoring) -> str:
         filters=[repeated_signs, ("commcare_sort", "'+name:exact:obsolete'")],
         auto_launch=True, inline_search=True, step="build:search:unused-order-suffix",
     )
+    # Add this menu last so the original menus and forms keep their identities.
+    follow_up_menu(authoring, app_id, 4, "Find by address", "address_note", "What did you learn?")
+    save_search(
+        authoring, app_id, 4,
+        fields=[
+            field("village", "Village", receiver_expression="home-city-extra"),
+            field("home", "Home address", appearance="address", exclude=True),
+        ],
+        auto_launch=True,
+        step="build:search:address-receiver-saved-suffix",
+    )
     return app_id
 
 
@@ -333,7 +344,7 @@ BASE = Base(
     build=build,
     configuration=Configuration(
         flags=frozenset({"FOLLOWUP_FORMS_AS_CASE_LIST_FORM", "SYNC_SEARCH_CASE_CLAIM", "CASE_SEARCH_ADVANCED", "CASE_SEARCH_RELATED_LOOKUPS"}),
-        privileges=frozenset({"LOOKUP_TABLES"}),
+        privileges=frozenset({"LOOKUP_TABLES", "GEOCODER"}),
         case_search_enabled=True,
     ),
     cases=(OPEN_IN_NORTH,),
@@ -369,5 +380,7 @@ BASE = Base(
         "case-search/case-list-filter-clause-the-search-does-not-restate",
         "case-search/xpath-query-condition-outside-what-nova-types",
         "case-search/several-xpath-query-rows",
+        "case-search/address-picker-on-a-search-screen",
+        "case-search/address-receiver-with-an-unused-suffix",
     ),
 )
