@@ -511,7 +511,8 @@ ITEMSET_NODESETS = frozenset({"xform:select1/itemset@nodeset", "xform:select/ite
 OWN_CASE_BESIDE = "questions/a-savetocase-change-of-the-form-s-own-case-beside-the-form-s-own-change-of-it"
 DATE_TO_TEXT = "questions/a-savetocase-retype-that-keeps-a-date-as-text"
 RETYPE_CONVERTS = "questions/a-savetocase-change-of-a-case-s-type-to-a-type-that-holds-one-of-its-properties-as-another-type"
-RETYPE_ENTRIES = {DATE_TO_TEXT, RETYPE_CONVERTS}
+REQUIRED_DATE_RETYPE = "questions/a-fresh-case-retype-that-overwrites-text-with-a-required-date"
+RETYPE_ENTRIES = {DATE_TO_TEXT, RETYPE_CONVERTS, REQUIRED_DATE_RETYPE}
 REGISTRATION_ENTRIES = {PARENT_FOLLOW_UP, CHILD_REGISTRATION, ADVANCED_REGISTRATION}
 REGISTRATION_KEYS = {"schema:Module.case_list_form", "schema:AdvancedModule.case_list_form"}
 ADVANCED_TAG_KEYS = frozenset({"schema:AdvancedOpenCaseAction.case_tag", "schema:LoadUpdateAction.case_tag"})
@@ -826,8 +827,12 @@ def _forms_variant_uses(found, held, entries):
             block = manifest_usage.Use("mug:SaveToCase", use.artifact, use.where.rsplit("/", 1)[0], at)
             if types == ("date", "string") and DATE_TO_TEXT in wanted:
                 yield Decided(block, manifest_usage.HELD, (by_id[DATE_TO_TEXT],))
-            elif types == ("string", "date") and RETYPE_CONVERTS in wanted:
-                yield Decided(block, manifest_usage.HELD_NEW, (by_id[RETYPE_CONVERTS],))
+            elif types == ("string", "date"):
+                required = save_to_case_retype_property_types(use, required_date=True) is not None
+                if required and REQUIRED_DATE_RETYPE in wanted:
+                    yield Decided(block, manifest_usage.HELD, (by_id[REQUIRED_DATE_RETYPE],))
+                elif not required and RETYPE_CONVERTS in wanted:
+                    yield Decided(block, manifest_usage.HELD_NEW, (by_id[RETYPE_CONVERTS],))
         if (OWN_CASE_BESIDE in wanted and use.key == "vellum-markup:model/instance//*@vellum:role"
                 and save_to_case_before_optional_own_update(use)):
             block = manifest_usage.Use("mug:SaveToCase", use.artifact, use.where.rsplit("/", 1)[0], at)
@@ -1085,7 +1090,8 @@ def _projects(decided: Decided, record: Record, held) -> tuple[bool, bool]:
     if standing == manifest_usage.HELD_NEW:
         return record.standing == "not-yet", record.entry in resting
     exact = PARENT_PROMPT_SHAPES.keys() | SEARCH_DETAIL_PROJECTIONS.keys() | {
-        ADDRESS_SAVED_TEXT, FLAT_CLOSE_MAXIMUM, ORDINARY_LIST_MAXIMUM, UNICODE_PRIMARY_ROOT,
+        ADDRESS_SAVED_TEXT, FLAT_CLOSE_MAXIMUM, ORDINARY_LIST_MAXIMUM,
+        REQUIRED_DATE_RETYPE, UNICODE_PRIMARY_ROOT,
         UNMATCHED_ADDRESS_TOPIC, SEARCH_INDEX_FALLBACK,
     }
     if standing == manifest_usage.HELD and len(resting) == 1 and resting <= exact:

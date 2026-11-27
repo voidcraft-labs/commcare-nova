@@ -10,7 +10,13 @@ import { sharedWorkerRepeat } from "@/lib/__tests__/sharedWorkerRepeat";
 import { CaptureSubmissionRejectedError } from "@/lib/case-store/errors";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import type { CaseOperation } from "@/lib/domain";
-import { eq, formField, literal, term } from "@/lib/domain/expression";
+import {
+	eq,
+	formField,
+	literal,
+	matchAll,
+	term,
+} from "@/lib/domain/expression";
 import { proseText } from "@/lib/domain/prose";
 import {
 	androidDevice,
@@ -50,6 +56,99 @@ const IDENTITY: ResolvedPreviewIdentity = {
 	},
 	usercase: { role: "supervisor" },
 };
+
+it("derives the exact fresh-case date overwrite only from the committed required question", () => {
+	const source = testUuid("retype-projection-text");
+	const date = testUuid("retype-projection-date");
+	const update = testUuid("retype-projection-update");
+	const doc = buildDoc({
+		caseTypes: [
+			{
+				name: "patient",
+				properties: [{ name: "kept", label: "Kept", data_type: "text" }],
+			},
+			{
+				name: "visit",
+				properties: [{ name: "kept", label: "Kept", data_type: "date" }],
+			},
+		],
+		modules: [
+			{
+				name: "Survey",
+				forms: [
+					{
+						name: "Capture date",
+						type: "survey",
+						fields: [
+							f({ uuid: source, id: "written_text", kind: "text" }),
+							f({
+								uuid: date,
+								id: "written_date",
+								kind: "date",
+								required: matchAll(),
+							} as never),
+						],
+					},
+				],
+			},
+		],
+	});
+	const formUuid = doc.formOrder[doc.moduleOrder[0]][0];
+	doc.forms[formUuid] = {
+		...doc.forms[formUuid],
+		caseOperations: [
+			{
+				uuid: OP_ROOT,
+				id: "created",
+				action: "create",
+				caseType: "patient",
+				target: { kind: "new" },
+				name: term(literal("Sample")),
+				writes: [{ property: "kept", value: term(formField(source)) }],
+			},
+			{
+				uuid: update,
+				id: "retyped",
+				action: "update",
+				caseType: "patient",
+				target: { kind: "op", opUuid: OP_ROOT },
+				retype: "visit",
+				writes: [{ property: "kept", value: term(formField(date)) }],
+			},
+		],
+	};
+	const engine = engineFor(doc, formUuid);
+	engine.setValue("/data/written_text", "blue");
+	engine.setValue("/data/written_date", "2025-12-01");
+	const mutation = engine.computeSubmissionMutation({
+		caseIds: [],
+		entryKey: ENTRY_KEY,
+	});
+	const build = (blueprint: typeof doc) =>
+		buildCaseOperationProgramFromDoc({
+			blueprint,
+			identity: IDENTITY,
+			device: webAppsDevice(),
+			mutation,
+			projection: validateCaptureSubmissionProjection(mutation),
+		}).program;
+	expect(
+		build(doc)?.operations.map(
+			({ requiredDateRetypeProperty }) => requiredDateRetypeProperty,
+		),
+	).toEqual([undefined, "kept"]);
+	const field = doc.fields[date];
+	if (field?.kind !== "date") throw new Error("Expected the committed date.");
+	const optional = {
+		...doc,
+		fields: { ...doc.fields, [date]: { ...field, required: undefined } },
+	};
+	expect(
+		build(optional)?.operations.map(
+			({ requiredDateRetypeProperty }) => requiredDateRetypeProperty,
+		),
+	).toEqual([undefined, undefined]);
+});
 
 describe("automatic submission location", () => {
 	it("records the entry fix separately from answers and refuses a fix outside the committed form or platform", async () => {
