@@ -118,8 +118,11 @@ describe("searchIndexedComparison", () => {
 		expect(searchIndexedComparison(true, dob, "date", three, "int")).toBe(
 			"exact-text",
 		);
+		expect(searchIndexedComparison(false, dob, "date", three, "int")).toBe(
+			"number",
+		);
 		expect(
-			searchIndexedComparison(false, dob, "date", three, "int"),
+			searchIndexedComparison(false, dob, "date", answer, "int"),
 		).toBeUndefined();
 		expect(
 			searchIndexedComparison(true, dob, "date", answer, "int"),
