@@ -9,6 +9,7 @@ import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { testUuid } from "@/__tests__/helpers/uuid";
+import { applyMutations } from "@/lib/doc/mutations";
 import {
 	type BlueprintDoc,
 	fieldCaseWriteViews,
@@ -216,12 +217,18 @@ describe("this form's own case on the case change tools", () => {
 		const own = ownCase(seed);
 		const seen = testUuid("case-write-tools-external-id-date-time");
 		const before = produce(seed, (draft) => {
-			draft.fields[seen] = {
-				uuid: seen,
-				kind: "datetime",
-				id: "seen",
-			};
-			draft.fieldOrder[form.uuid].push(seen);
+			applyMutations(draft, [
+				{
+					kind: "addField",
+					parentUuid: form.uuid,
+					field: {
+						uuid: seen,
+						kind: "datetime",
+						id: "seen",
+						label: proseText("Seen"),
+					},
+				},
+			]);
 			const type = draft.caseTypes?.find(({ name }) => name === "household");
 			type?.properties.push({
 				name: "note",
