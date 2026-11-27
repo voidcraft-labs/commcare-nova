@@ -6,6 +6,35 @@ import { evaluate } from "@/lib/preview/xpath/evaluator";
 import { exportedBody, inputFor } from "../../__tests__/novaExport";
 import { readHqApp } from "../../caseManagement/__tests__/heldReading";
 
+function calculationFixture() {
+	const doc = buildDoc({
+		modules: [
+			{
+				name: "Checks",
+				forms: [
+					{
+						name: "Survey",
+						type: "survey",
+						fields: [
+							f({
+								kind: "text",
+								id: "code",
+								label: { parts: [{ kind: "text", text: "Code" }] },
+							}),
+							f({
+								kind: "hidden",
+								id: "result",
+								calculate: term(literal(424242)),
+							}),
+						],
+					},
+				],
+			},
+		],
+	});
+	return doc;
+}
+
 it.each([
 	["m", ["late", "late", "late", "late", "late"]],
 	["20", ["late", "early", "late", "early", "early"]],
@@ -13,31 +42,7 @@ it.each([
 ])(
 	"reads a hidden calculation with exact numeric ordering against %s",
 	async (literalText, expected) => {
-		const doc = buildDoc({
-			modules: [
-				{
-					name: "Checks",
-					forms: [
-						{
-							name: "Survey",
-							type: "survey",
-							fields: [
-								f({
-									kind: "text",
-									id: "code",
-									label: { parts: [{ kind: "text", text: "Code" }] },
-								}),
-								f({
-									kind: "hidden",
-									id: "result",
-									calculate: term(literal(424242)),
-								}),
-							],
-						},
-					],
-				},
-			],
-		});
+		const doc = calculationFixture();
 		const implicit = `if(/data/code < '${literalText}', 'early', 'late')`;
 		const explicit = `if(number(/data/code) < number('${literalText}'), 'early', 'late')`;
 		const body = exportedBody(doc, {
@@ -112,3 +117,26 @@ it.each([
 		}
 	},
 );
+
+it.each([
+	[
+		"if(/data/code < '15:00', 'early', 'late')",
+		"expressions-and-data/or-with-a-time-on-either-side-a-time-answer-property-or-string",
+	],
+	[
+		"if(concat(/data/code, 'x') < 'm', 'early', 'late')",
+		"expressions-and-data/a-form-expression-outside-what-nova-types",
+	],
+])("keeps the existing refusal for %s", async (calculate, entry) => {
+	const body = exportedBody(calculationFixture(), {
+		xml: (xml) =>
+			xml.replace(
+				'calculate="424242"',
+				`calculate="${calculate.replace("<", "&lt;")}"`,
+			),
+	});
+	const read = readHqApp(await inputFor(body), { claims: "full" });
+	if (read.kind !== "account")
+		throw Error("Expected an existing placed refusal");
+	expect(read.findings.map(({ code }) => code)).toEqual([entry]);
+});

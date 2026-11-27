@@ -1,9 +1,15 @@
 """Core's implicit numeric ordering and explicit number() in one hidden calculation."""
 
 from collections import Counter, defaultdict
+import re
 
 from proof.rules import SpellingRule
 from proof.rules._xforms import XFORMS, body, model, tag
+
+
+# Values of a parsed literal in the form reader's existing clock/instant classes.
+_TIME = re.compile(r"[0-9]{1,2}:[0-9]{2}(?::[0-9]{2}(?:\.[0-9]+)?)?")
+_DATETIME = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}(?::[0-9]{2}(?:\.[0-9]+)?)?(?:Z|[+-][0-9]{2}(?::?[0-9]{2})?)?")
 
 
 def _unwrapped(node):
@@ -29,6 +35,8 @@ def _ordered(text):
     left, left_explicit = _unwrapped(condition[1])
     right, right_explicit = _unwrapped(condition[2])
     if left_explicit != right_explicit or left[:3] != ("path", "SLASH", None) or right[0] != "str":
+        return None
+    if not right[1] or _TIME.fullmatch(right[1]) or _DATETIME.fullmatch(right[1]):
         return None
     steps = left[3]
     if len(steps) != 2 or any(step[:2] != ("step", "child") or step[3] for step in steps):

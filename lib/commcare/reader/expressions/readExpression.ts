@@ -24,6 +24,7 @@ import {
 } from "@/lib/domain/expression/context";
 import { formStructure } from "@/lib/domain/expression/formStructure";
 import type { RuleSet } from "@/lib/domain/expression/profiles";
+import { literalShape } from "@/lib/domain/expression/ruleSets";
 import { expressionContextAtPath } from "@/lib/domain/expression/typeChecker";
 import {
 	type Expression,
@@ -2018,9 +2019,13 @@ function explicitTextOrder(
 		doc.fields[left.term.uuid]?.kind !== "text" ||
 		right.kind !== "term" ||
 		right.term.kind !== "literal" ||
-		typeof right.term.value !== "string"
+		typeof right.term.value !== "string" ||
+		right.term.value === ""
 	)
 		return undefined;
+	// Other temporal literals have their own ordering and refusal rules.
+	const shape = literalShape(right.term.value)?.type;
+	if (shape === "time" || shape === "datetime") return undefined;
 	const form = formOfField(doc, ref.uuid);
 	if (
 		form === undefined ||

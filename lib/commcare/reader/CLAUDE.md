@@ -474,8 +474,9 @@ of the form `if(answer < 'text', 'early', 'late')` becomes the same comparison w
 around each operand. Core's ordered comparison and `number()` call the same conversion, and
 Preview shares its conversion between both paths. The parsed reader binds the answer to the
 same field UUID and keeps the literal and both branches. The independent XML comparison
-requires the matching root text input and Hidden Value. Form conditions, other operand shapes,
-and record and Search expressions keep their existing rules.
+requires the matching root text input and Hidden Value. Empty literals, clock-time and
+instant-shaped literals, form conditions, other operand shapes, and record and Search
+expressions keep their existing rules.
 
 **Where a literal spelled as a date or a date and time is typed.** A typed date or date-and-time
 literal prints the text the untyped literal of that text prints, so which one a record slot holds

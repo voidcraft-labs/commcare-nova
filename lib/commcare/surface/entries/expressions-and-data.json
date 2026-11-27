@@ -3453,7 +3453,7 @@
 		"id": "expressions-and-data/a-form-expression-outside-what-nova-types",
 		"area": "expressions-and-data",
 		"section": "XPath functions and structure",
-		"item": "a form expression CommCare runs and Nova's checker refuses for a reason of its own: a comparison CommCare answers by turning one side into a number or a yes or no (a date with a date and time, a yes or no with text, two text answers ordered), a `*` step, a read of a block CommCare HQ's build adds (`meta`, `case`), a default outside a question's choices, a date and time finer than a millisecond",
+		"item": "a form expression CommCare runs and Nova's checker refuses for a reason of its own: a comparison CommCare answers by turning one side into a number or a yes or no (a date with a date and time, a yes or no with text, ordered assembled text), a `*` step, a read of a block CommCare HQ's build adds (`meta`, `case`), a default outside a question's choices, a date and time finer than a millisecond",
 		"surfaceKeys": [],
 		"noSurfaceKey": "the checker's own narrowing of the form rule set, which no surface item states",
 		"disposition": "HELD-NEW",

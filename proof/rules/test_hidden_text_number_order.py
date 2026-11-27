@@ -14,6 +14,7 @@ from proof.observe.build import arrange
 from proof.observe.casedata import document_case_database
 from proof.observe.sessions import AuthoredTables, admitted, hq_restore
 from proof.rules.hidden_text_number_order import RULE
+from proof.rules.vellum_attributes import normalize as without_vellum_attributes
 from proof.webapps.hq import authored_project
 
 
@@ -70,10 +71,15 @@ def test_vellum_and_core_preserve_two_numeric_readings_of_text_order(hq, core_ru
     for form in (left, right):
         RULE.normalize(form)
         assert form.xpath("//*[local-name()='bind' and @nodeset='/data/language']/@calculate") == [results["explicit"]["calculate"]]
-    differences = list(xform_parts.compare(stored["implicit"], stored["explicit"]))
-    assert [(kind, at) for kind, at, _, _, _ in differences] == [
-        ("changed", "/data/language/:bind/@calculate/:respelled"),
-    ]
+    def locations(before, after):
+        return [(kind, at) for kind, at, _, _, _ in xform_parts.compare(before, after)]
+
+    before, after = stored["implicit"], stored["explicit"]
+    runtime = ("changed", "/data/language/:bind/@calculate/:respelled")
+    assert locations(before, after) == [runtime, ("changed", "/data/language/:bind/@vellum:calculate")]
+    # HQ removes this already-known Vellum companion before building the runtime attribute.
+    after_vellum_rule = [etree.tostring(without_vellum_attributes(etree.fromstring(value))) for value in (before, after)]
+    assert locations(*after_vellum_rule) == [runtime]
 
 
 def test_spelling_rule_keeps_other_operands_and_scope_changes_visible():

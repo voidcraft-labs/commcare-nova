@@ -431,9 +431,9 @@ def text_ordered_comparison(authoring, app_id):
     _language(authoring, app_id, "if(/data/code < 'm', 'early', 'late')", "text-ordered-comparison")
 
 
-def text_ordered_against_another_answer(authoring, app_id):
-    """The two operands are separate authored answers, outside the bounded text-literal read."""
-    _language(authoring, app_id, "if(/data/code < /data/code_again, 'early', 'late')", "two-answers-ordered-as-numbers")
+def assembled_text_ordered_against_a_literal(authoring, app_id):
+    """An assembled operand is outside the direct text-answer read."""
+    _language(authoring, app_id, "if(concat(/data/code, 'x') < 'm', 'early', 'late')", "assembled-text-ordered-as-a-number")
 
 
 def choice_name_on_a_lookup_select(authoring, app_id):

@@ -23036,7 +23036,7 @@
 		]
 	},
 	{
-		"id": "hq-expressions/text-ordered-against-another-answer",
+		"id": "hq-expressions/assembled-text-ordered-against-a-literal",
 		"base": "hq-expressions",
 		"entry": "expressions-and-data/a-form-expression-outside-what-nova-types",
 		"standing": "not-yet",
@@ -23050,7 +23050,7 @@
 		},
 		"change": {
 			"op": "named",
-			"name": "text_ordered_against_another_answer"
+			"name": "assembled_text_ordered_against_a_literal"
 		}
 	},
 	{
