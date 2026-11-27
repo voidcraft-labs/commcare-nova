@@ -748,6 +748,7 @@ function collectModuleConfigReferences(
 			case "module_parent":
 			case "case_form_context_menu":
 			case "module_case_parent":
+			case "advanced_case_link_parent":
 			case "listed_forms_source":
 			case "unlisted_source_form":
 			case "listed_form_link":
