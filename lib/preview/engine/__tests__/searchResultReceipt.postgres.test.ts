@@ -573,6 +573,19 @@ it("uses the originating offered Search page when restoring a standalone case De
 			WHERE session_id = ${sessionId}`.execute(h.db())
 		).rows[0].count;
 	const beforeEmpty = await countReceipts();
+	expect(
+		await loadCasesAction({
+			...request,
+			previewRun: answered.opening.previewRun,
+			searchSubmission: crypto.randomUUID(),
+			inputValues: { name: { value: "crafted non-text" } } as unknown as Record<
+				string,
+				string
+			>,
+		}),
+	).toMatchObject({ kind: "invalid-search", repair: "inputs" });
+	expect(await countReceipts()).toBe(beforeEmpty);
+
 	const empty = await loadCasesAction({
 		...request,
 		previewRun: answered.opening.previewRun,

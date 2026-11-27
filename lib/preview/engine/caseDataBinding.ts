@@ -529,6 +529,17 @@ async function prepareRunningCaseRead(
 	const inputValues = args.inputValues
 		? searchInputValuesFromWire(args.inputValues)
 		: undefined;
+	if (
+		args.previewRun !== undefined &&
+		inputValues !== undefined &&
+		[...inputValues.values()].some((answer) => typeof answer !== "string")
+	)
+		return {
+			kind: "invalid-search",
+			message:
+				"A Search answer could not be read as text. You can enter it again.",
+			repair: "inputs",
+		};
 	const context = await resolveAuthorizedPreviewContext({
 		appId: args.appId,
 		personaUuid: args.personaUuid,

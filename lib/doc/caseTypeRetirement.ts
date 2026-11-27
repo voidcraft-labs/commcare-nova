@@ -754,8 +754,8 @@ function collectModuleConfigReferences(
 			case "module_case_list_registration_form":
 			case "case_list_action_created_case":
 			case "case_list_action_chosen_parent":
-				// Entity parentage and the registration form's identity are
-				// unrelated to the case-type catalog.
+			case "case_list_result_detail_input":
+				// Entity identities are unrelated to the case-type catalog.
 				break;
 			case "module_badge":
 				if (
