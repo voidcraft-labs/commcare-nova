@@ -76,13 +76,28 @@ function readDetail(node: FormSyntax): ResultDetailTextWire | undefined {
 		: { text, localText };
 }
 
-function readListPrompt(node: FormSyntax): ResultDetailTextWire | undefined {
+function promptName(node: FormSyntax | undefined): string | undefined {
 	const path = ungroup(node);
 	const test = path?.kind === "filter" ? ungroup(path.where) : undefined;
-	const inputName =
-		test?.kind === "binary" ? literalText(ungroup(test.right)) : undefined;
+	return test?.kind === "binary" ? literalText(ungroup(test.right)) : undefined;
+}
+
+function readListPrompt(node: FormSyntax): ResultDetailTextWire | undefined {
+	const inputName = promptName(node);
 	if (inputName !== undefined)
 		return { inputName, prefix: "", suffix: "", localText: "", onList: true };
+
+	const concat = ungroup(node);
+	if (concat?.kind !== "call" || concat.name !== "concat") return;
+	const answerAt = concat.args.findIndex(
+		(argument) => promptName(argument) !== undefined,
+	);
+	if (answerAt < 0) return;
+	const name = promptName(concat.args[answerAt]);
+	const prefix = literalArgumentsText(concat.args.slice(0, answerAt));
+	const suffix = literalArgumentsText(concat.args.slice(answerAt + 1));
+	if (name !== undefined && prefix !== undefined && suffix !== undefined)
+		return { inputName: name, prefix, suffix, localText: "", onList: true };
 }
 
 function readPrompt(node: FormSyntax | undefined, localText: string) {
@@ -95,10 +110,7 @@ function readPrompt(node: FormSyntax | undefined, localText: string) {
 	if (answerAt < 1 || answerAt >= concat.args.length - 1) return;
 	const inner = call(concat.args[answerAt], "if", 3);
 	const scalar = call(inner?.[1], "string", 1);
-	const path = ungroup(scalar?.[0]);
-	const test = path?.kind === "filter" ? ungroup(path.where) : undefined;
-	const inputName =
-		test?.kind === "binary" ? literalText(ungroup(test.right)) : undefined;
+	const inputName = promptName(scalar?.[0]);
 	const prefix = literalArgumentsText(concat.args.slice(0, answerAt));
 	const suffix = literalArgumentsText(concat.args.slice(answerAt + 1));
 	if (inputName === undefined || prefix === undefined || suffix === undefined)

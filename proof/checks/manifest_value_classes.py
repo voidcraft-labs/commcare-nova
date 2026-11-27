@@ -7415,9 +7415,18 @@ def standalone_result_list_text(use, manifest):
             isinstance(name, str) and SEARCH_INPUT_NAME.fullmatch(name)
             and not prompt.get("hidden") and not prompt.get("appearance")
             and prompt.get("input_") in (None, "", "text")
-            and source == expression_tree(f"instance('search-input:results')/input/field[@name = '{name}']")
         ):
-            return True
+            path = expression_tree(f"instance('search-input:results')/input/field[@name = '{name}']")
+            if source == path:
+                return True
+            for length in (2, 3):
+                args = _call_of(source, "concat", length)
+                if args is not None and args.count(path) == 1 and all(
+                    arg == path or (isinstance(arg, list) and arg[0] == "text" and arg[1])
+                    for arg in args
+                ):
+                    if length == 2 or args[1] == path:
+                        return True
     return False
 
 

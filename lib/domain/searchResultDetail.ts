@@ -63,9 +63,7 @@ export function resolveSearchResultDetailRoute(
 				column.visibleInList === false ||
 				column.visibleInDetail !== false ||
 				module.caseListMenuItem !== undefined ||
-				config.tile !== undefined ||
-				branch.prefix !== "" ||
-				branch.suffix !== ""
+				config.tile !== undefined
 			: column.notOnList !== true || column.visibleInDetail === false) ||
 		column.sort !== undefined ||
 		column.texts !== undefined ||

@@ -801,6 +801,13 @@ def _address_picker_for_lookup(authoring, app_id, choice_type):
     })
     ops.set_json(authoring, app_id, "/modules/0/search_config/properties", prompts)
 
+def search_text_prompt_with_prefix_in_web_apps_results_list(authoring, app_id):
+    """Keep literal text before an offered answer on the Search-first Results screen."""
+    search_text_prompt_in_web_apps_results_list(authoring, app_id)
+    ops.set_json(authoring, app_id, "/modules/0/case_details/short/columns/1/field",
+                 "concat('Answer: ', instance('search-input:results')/input/field[@name = 'village'])")
+
+
 def search_text_prompt_in_web_apps_results_list(authoring, app_id):
     """The ordinary standalone Results list displays its submitted text answer."""
     _set_each(

@@ -24,8 +24,15 @@ export type ResultDetailTextWire =
 	| { readonly text: string; readonly localText: string };
 
 export function resultDetailTextWire(input: ResultDetailTextWire) {
-	if ("onList" in input && input.onList === true)
-		return resultPromptNode(input.inputName);
+	if ("onList" in input && input.onList === true) {
+		const node = resultPromptNode(input.inputName);
+		const args = [
+			...(input.prefix ? [w.str(input.prefix)] : []),
+			node,
+			...(input.suffix ? [w.str(input.suffix)] : []),
+		];
+		return args.length === 1 ? node : w.call("concat", args);
+	}
 	return guardRead(
 		"text" in input ? w.str(input.text) : answeredText(input),
 		w.current([w.parent(), w.parent(), w.step("results")]),

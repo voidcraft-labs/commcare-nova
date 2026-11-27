@@ -273,7 +273,7 @@ export function CalculatedColumnCard({
 									}
 								/>
 							)}
-							{searchPrompt && !onList && (
+							{searchPrompt && (
 								<>
 									<BlurCommitTextInput
 										ariaLabel="Text before the answer"
