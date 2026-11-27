@@ -162,6 +162,7 @@ describe("container artifact declarations", () => {
 		"migration-build",
 		"capture-build",
 		"maintenance-build",
+		"maintenance-step7-build",
 	].flatMap((name) => {
 		const runs = stage(name)
 			.getInstructions()
