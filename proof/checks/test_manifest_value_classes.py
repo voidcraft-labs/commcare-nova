@@ -9272,6 +9272,7 @@ def test_a_reader_places_each_shape_of_its_class(entry_id, manifest):
     ("parent/parent/parent/parent/village", None, None),
     ("parent/parent/parent/village", "date", "case-search/prompt-key-matching-three-parent-links-for-a-date"),
     ("parent/parent/parent/parent/village", "date", "case-search/prompt-key-matching-four-parent-links-for-a-date"),
+    ("parent/parent/parent/parent/parent/village", "date", "case-search/prompt-key-matching-five-parent-links-for-a-date"),
     ("parent/parent/parent/parent/parent/village", "date", None),
     ("host/parent/village", None, None),
     ("parent/location_id", None, None),

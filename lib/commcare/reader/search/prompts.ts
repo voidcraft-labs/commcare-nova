@@ -126,6 +126,10 @@ export const PROMPT_CLAIMS = defineClaims("search.prompts", {
 		`${S}prompt-key-matching-three-parent-links-for-a-date`,
 		"schema:CaseSearchProperty.name",
 	),
+	fifthParentDateName: take(
+		`${S}prompt-key-matching-five-parent-links-for-a-date`,
+		"schema:CaseSearchProperty.name",
+	),
 	fourthParentDateName: take(
 		`${S}prompt-key-matching-four-parent-links-for-a-date`,
 		"schema:CaseSearchProperty.name",
@@ -1093,7 +1097,8 @@ function parentPathPromptBinding(prompt: JsonCursor):
 				| typeof P.parentDateName
 				| typeof P.nestedParentDateName
 				| typeof P.thirdParentDateName
-				| typeof P.fourthParentDateName;
+				| typeof P.fourthParentDateName
+				| typeof P.fifthParentDateName;
 	  }
 	| undefined {
 	const key = prompt.peek("name");
@@ -1108,6 +1113,7 @@ function parentPathPromptBinding(prompt: JsonCursor):
 					P.nestedParentDateName,
 					P.thirdParentDateName,
 					P.fourthParentDateName,
+					P.fifthParentDateName,
 				][parts.length - 1]
 			: !widget
 				? PARENT_PROMPT_CLAIMS[parts.length - 1]

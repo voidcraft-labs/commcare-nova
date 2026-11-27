@@ -156,6 +156,7 @@ def test_hq_editor_and_worker_keep_the_parent_path_search_key(
     pytest.param("nested-date-field-named-by-a-parent-path", 2, id="nested"),
     pytest.param("three-link-date-field-named-by-a-parent-path", 3, id="three-links"),
     pytest.param("four-link-date-field-named-by-a-parent-path", 4, id="four-links"),
+    pytest.param("five-link-date-field-named-by-a-parent-path", 5, id="five-links"),
 ])
 def test_hq_saved_parent_date_matches_the_exact_parent_text_in_web_apps(
     hq, core_runner, editor_driver, formplayer_runner, evidence, platform_name, variant, ancestors,
