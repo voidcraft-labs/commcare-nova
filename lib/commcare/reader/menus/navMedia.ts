@@ -13,7 +13,7 @@ import type { IconRef } from "@/lib/domain/builtinIcons";
 import {
 	navigationMediaOverride,
 	ordinaryNavigationAsset,
-	otherLanguageFormIconPacksMenuFile,
+	otherLanguageFormPacksMenuFile,
 	storedNavigationFile,
 } from "@/lib/domain/navigationMedia";
 import { NO_ENTRIES, recordFromEntries } from "@/lib/domain/records";
@@ -397,12 +397,17 @@ function ordinarySourcePaths(ctx: ReadContext) {
 const localImagePath =
 	/^jr:\/\/file\/commcare\/image\/[A-Za-z0-9_][A-Za-z0-9_.-]*(?:\/[A-Za-z0-9_][A-Za-z0-9_.-]*)*$/;
 
-function mappedMenuIcon(ctx: ReadContext, path: string): boolean {
+function mappedNavigationFile(
+	ctx: ReadContext,
+	path: string,
+	role: "icon" | "audioLabel",
+): boolean {
+	const mediaType = role === "icon" ? "CommCareImage" : "CommCareAudio";
 	return (
 		ctx.input.source.multimediaMap?.some(
 			(item) =>
 				item.path === path &&
-				item.mediaType === "CommCareImage" &&
+				item.mediaType === mediaType &&
 				item.multimediaId !== null,
 		) === true
 	);
@@ -475,7 +480,7 @@ function menuIconOutsideInstallation(
 ): boolean {
 	const source = ctx.input.source;
 	if (
-		!mappedMenuIcon(ctx, path) ||
+		!mappedNavigationFile(ctx, path, "icon") ||
 		!("menu" in place) ||
 		!source.buildProfiles.some(
 			(profile) =>
@@ -537,16 +542,19 @@ function menuIconOutsideInstallation(
 	return foreignCarrier && xmlSourcesExcludeFile(ctx, path);
 }
 
-/** The basic form's ordinary image is included when its language is
- * installed, even if only another language uses the same raw path on a menu. */
-function menuIconPackagedByAnotherLanguage(
+/** HQ packs an ordinary basic form file when its language is installed.
+ * A menu locale may use that file if every relevant profile includes it. */
+function menuMediaPackagedByAnotherLanguage(
 	ctx: ReadContext,
 	path: string,
 	code: string,
+	role: "icon" | "audioLabel",
 ): boolean {
 	const source = ctx.input.source;
 	const modules = source.raw.modules;
-	if (!mappedMenuIcon(ctx, path) || !Array.isArray(modules)) return false;
+	if (!mappedNavigationFile(ctx, path, role) || !Array.isArray(modules))
+		return false;
+	const key = role === "icon" ? "media_image" : "media_audio";
 	const carrierCodes = new Set<string>();
 	for (const menu of modules) {
 		if (
@@ -559,11 +567,12 @@ function menuIconPackagedByAnotherLanguage(
 			if (
 				!isJsonObject(form) ||
 				form.doc_type !== "Form" ||
-				form.use_default_image_for_all === true ||
-				!isJsonObject(form.media_image)
+				form[FOR_ALL[key]] === true
 			)
 				continue;
-			for (const [language, value] of Object.entries(form.media_image))
+			const files = form[key];
+			if (!isJsonObject(files)) continue;
+			for (const [language, value] of Object.entries(files))
 				if (
 					value === path &&
 					language !== code &&
@@ -596,8 +605,13 @@ export function accountNavigationMediaOverride(
 		override.role === "icon" &&
 		localImagePath.test(override.path);
 	const otherLanguageCarrier =
-		localMenuIcon &&
-		menuIconPackagedByAnotherLanguage(ctx, override.path, held.language);
+		override.carrierClass === "Module" &&
+		menuMediaPackagedByAnotherLanguage(
+			ctx,
+			override.path,
+			held.language,
+			override.role,
+		);
 	if (
 		!ordinarySourcePaths(ctx).get(held.language)?.has(override.path) &&
 		!otherLanguageCarrier
@@ -607,7 +621,7 @@ export function accountNavigationMediaOverride(
 			claim = generatedMenuIconWithoutMapping;
 		else if (
 			localMenuIcon &&
-			mappedMenuIcon(ctx, override.path) &&
+			mappedNavigationFile(ctx, override.path, "icon") &&
 			noOrdinaryCarrier(ctx, override.path)
 		)
 			claim = generatedMenuIconOnlyInMediaMap;
@@ -673,9 +687,10 @@ export function accountNavigationMediaOverride(
 			) &&
 				!(
 					otherLanguageCarrier &&
-					otherLanguageFormIconPacksMenuFile(
+					otherLanguageFormPacksMenuFile(
 						doc,
 						effectiveAppLocalization(doc.localization),
+						role,
 						language,
 						assetId,
 					)

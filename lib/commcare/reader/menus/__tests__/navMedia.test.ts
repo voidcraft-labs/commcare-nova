@@ -760,6 +760,56 @@ describe("an override of a generated media key in `translations`", () => {
 	});
 
 	it.each([
+		[["en", "es"], undefined],
+		[["es"], undefined],
+		[["en"], "translations-generated-navigation-file-not-packaged"],
+	] as const)(
+		"keeps the Spanish form carrier for an English menu recording in %j",
+		async (languages, entry) => {
+			const outcome = await readWithMedia(app(), (json) => {
+				const menu = json.modules[0];
+				menu.media_audio = { en: OTHER_AUDIO };
+				(menu.forms[0] as Record<string, unknown>).media_audio = {
+					es: FORM_AUDIO,
+				};
+				json.multimedia_map = {
+					[FORM_AUDIO]: {
+						media_type: "CommCareAudio",
+						multimedia_id: "mapped-audio",
+					},
+				};
+				Object.assign(json, {
+					build_profiles: { field: { name: "Field", langs: languages } },
+				});
+				overriding(json, { "modules.m0.audio": FORM_AUDIO });
+			});
+			expect(findings(outcome)).toEqual(
+				entry ? [`application-and-settings/${entry}`] : [],
+			);
+			if (entry) return;
+			if (outcome.kind !== "read") throw new Error("The menu did not read.");
+			const doc = outcome.draft.doc;
+			const module = doc.modules[doc.moduleOrder[0]];
+			const form = doc.forms[doc.formOrder[module.uuid][0]];
+			const id = testMediaAssetId("form-audio");
+			expect(module.mediaByLanguage?.eng?.audioLabelOverride).toBe(id);
+			expect(storedNavigationFile(form, "audioLabel", "spa")).toBe(id);
+			const assets = new Map(manifestFor(doc));
+			const recording = assets.get(id);
+			if (!recording) throw new Error("The carrier lost its recording.");
+			assets.set(id, {
+				...recording,
+				wirePath: FORM_AUDIO.replace("jr://file/", ""),
+			});
+			const emitted = expandDoc(doc, { assets });
+			expect(emitted.modules[0].forms[0].media_audio).toEqual({
+				es: FORM_AUDIO,
+			});
+			expect(emitted.translations?.en["modules.m0.audio"]).toBe(FORM_AUDIO);
+		},
+	);
+
+	it.each([
 		[undefined, "translations-generated-menu-icon-only-in-media-map"],
 		["es", undefined],
 	])(

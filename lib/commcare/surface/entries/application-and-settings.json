@@ -1970,7 +1970,7 @@
 		"surfaceKeys": ["schema:Application.translations"],
 		"valueClass": "generated-navigation-file",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: the language's Project media asset and the ordinary media map keep their own values. An ordinary form icon in a different language can carry a basic menu’s override when every installation using it includes a carrier language.",
+		"dispositionCell": "**HELD**: the language's Project media asset and the ordinary media map keep their own values. An ordinary form file in a different language can carry a basic menu’s icon or spoken-label override when every installation using it includes a carrier language.",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",

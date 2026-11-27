@@ -84,6 +84,14 @@ def menu_audio_override_with_only_a_second_language_carrier(authoring, app_id):
     })
 
 
+def menu_audio_override_with_a_carrier_excluded_from_one_installation(authoring, app_id):
+    """One installation shows the English menu but excludes its French recording."""
+    menu_audio_override_with_only_a_second_language_carrier(authoring, app_id)
+    ops.set_json(authoring, app_id, "/build_profiles", {
+        "english": {"doc_type": "BuildProfile", "name": "English", "langs": ["en"]},
+    })
+
+
 def translation_overrides_a_detail_tab_title(authoring, app_id):
     """The Case Detail editor changes the tab's ordinary header independently of the generated override."""
     import json

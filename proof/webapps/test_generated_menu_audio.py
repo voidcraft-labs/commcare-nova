@@ -23,20 +23,33 @@ def test_a_menu_audio_override_needs_an_ordinary_carrier(hq, webapps_documents, 
             if carrier is not None:
                 ops.set_json(author, project.app_id, "/langs", ["en", "fr"])
                 ops.set_json(author, project.app_id, "/modules/0/forms/0/media_audio", {carrier: path})
+            profiles = {
+                "both": {"doc_type": "BuildProfile", "name": "Both", "langs": ["en", "fr"]},
+                "english": {"doc_type": "BuildProfile", "name": "English", "langs": ["en"]},
+            }
+            if carrier is not None:
+                ops.set_json(author, project.app_id, "/build_profiles", profiles)
             native = operations.held_app(project.unit, project.app_id)
             locale = parse_app_strings(native.create_app_strings("en"))[key]
             mapped_kind = native.multimedia_map[path].media_type
-            media_suite = etree.fromstring(native.create_media_suite())
-            packaged = any(
-                location.endswith("/data/animal_name.mp3")
-                for location in media_suite.xpath("./media/resource/location/text()")
-            )
+            def packaged(profile=None):
+                media_suite = etree.fromstring(native.create_media_suite(build_profile_id=profile))
+                return any(
+                    location.endswith("/data/animal_name.mp3")
+                    for location in media_suite.xpath("./media/resource/location/text()")
+                )
+
+            included = packaged()
+            named_packages = {profile: packaged(profile) for profile in profiles} if carrier else {}
             observed[str(carrier)] = {
                 "locale": locale,
-                "packaged": packaged,
+                "packaged": included,
                 "mapping": mapped_kind,
+                "namedPackages": named_packages,
             }
             assert mapped_kind == "CommCareAudio"
             assert locale == path
-            assert packaged == (carrier is not None), observed
+            assert included == (carrier is not None), observed
+            if carrier is not None:
+                assert named_packages == {"both": True, "english": carrier == "en"}, observed
     evidence("ordinary-nav-audio-carrier", observed)

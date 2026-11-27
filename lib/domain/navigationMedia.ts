@@ -187,7 +187,7 @@ export function navigationMediaProblem(
 	carrier: NavigationMedia | undefined,
 	app: EffectiveAppLocalization,
 	doc?: BlueprintDoc,
-	allowOtherLanguageFormIcon = false,
+	allowOtherLanguageFormMedia = false,
 ): NavigationMediaProblem | undefined {
 	if (!carrier) return;
 	for (const [language, slots] of Object.entries(
@@ -207,9 +207,8 @@ export function navigationMediaProblem(
 				doc !== undefined &&
 				!ordinaryNavigationAsset(doc, app, role, language, override) &&
 				!(
-					allowOtherLanguageFormIcon &&
-					role === "icon" &&
-					otherLanguageFormIconPacksMenuFile(doc, app, language, override)
+					allowOtherLanguageFormMedia &&
+					otherLanguageFormPacksMenuFile(doc, app, role, language, override)
 				)
 			)
 				return { kind: "override-needs-package", role };
@@ -218,11 +217,12 @@ export function navigationMediaProblem(
 	return undefined;
 }
 
-/** A menu icon may use the exact ordinary form file kept by another
+/** A basic menu may use the exact ordinary form file kept by another
  * installed language. Every profile that shows the override needs a carrier. */
-export function otherLanguageFormIconPacksMenuFile(
+export function otherLanguageFormPacksMenuFile(
 	doc: BlueprintDoc,
 	app: EffectiveAppLocalization,
+	role: "icon" | "audioLabel",
 	overrideLanguage: string,
 	asset: IconRef,
 ): boolean {
@@ -240,7 +240,7 @@ export function otherLanguageFormIconPacksMenuFile(
 						languages.some(
 							(language) =>
 								language !== overrideLanguage &&
-								storedNavigationFile(form, "icon", language) === asset,
+								storedNavigationFile(form, role, language) === asset,
 						)
 					);
 				})

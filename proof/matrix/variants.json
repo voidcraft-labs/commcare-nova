@@ -25768,14 +25768,30 @@
 	{
 		"id": "hq-media/translation-overrides-menu-audio-with-a-second-language-carrier",
 		"base": "hq-media",
-		"entry": "application-and-settings/translations-generated-navigation-file-not-packaged",
-		"standing": "not-yet",
-		"place": {
-			"kind": "app"
-		},
+		"entry": "application-and-settings/translations-generated-navigation-file",
 		"change": {
 			"op": "named",
 			"name": "menu_audio_override_with_only_a_second_language_carrier"
+		},
+		"holds": [
+			{
+				"key": ["module", { "$menu": 0 }],
+				"pointer": "/mediaByLanguage/eng/audioLabelOverride",
+				"value": {
+					"$projectFile": "jr://file/commcare/audio/data/animal_name.mp3"
+				}
+			}
+		]
+	},
+	{
+		"id": "hq-media/translation-overrides-menu-audio-with-carrier-excluded-from-one-installation",
+		"base": "hq-media",
+		"entry": "application-and-settings/translations-generated-navigation-file-not-packaged",
+		"standing": "not-yet",
+		"place": { "kind": "app" },
+		"change": {
+			"op": "named",
+			"name": "menu_audio_override_with_a_carrier_excluded_from_one_installation"
 		}
 	},
 	{
