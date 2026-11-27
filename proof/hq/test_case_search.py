@@ -510,6 +510,7 @@ def test_numeric_search_equality_reads_the_exact_stored_custom_property(hq):
         "padded": "003",
         "decimal": "3.0",
         "at-fraction": "3.50",
+        "exact-fraction": "3.5",
         "over-fraction": "3.6",
         "four": "4",
         "epoch-day": "1970-01-04",
@@ -540,6 +541,7 @@ def test_numeric_search_equality_reads_the_exact_stored_custom_property(hq):
         cases_seen = [match(expression) for expression in (
             "dob = 3", "dob = '3'", "dob = '003'", "dob = '3.0'", "dob = '1970-01-04'", "dob != 3",
             "dob > 3", "dob > 3.5", "dob >= 3.5",
+            "dob = 3.5", "dob = 3.50", "dob = '3.50'", "dob != 3.5",
         )]
         if out := os.environ.get("PROOF_OUT"):
             directory = Path(out, "hq")
@@ -548,9 +550,11 @@ def test_numeric_search_equality_reads_the_exact_stored_custom_property(hq):
         assert [case["matches"] for case in cases_seen] == [
             ["untyped"], ["untyped"], ["padded"], ["decimal"], ["epoch-day"],
             sorted(set(cases) - {"untyped"}),
-            ["at-fraction", "four", "over-fraction"],
+            ["at-fraction", "exact-fraction", "four", "over-fraction"],
             ["four", "over-fraction"],
-            ["at-fraction", "four", "over-fraction"],
+            ["at-fraction", "exact-fraction", "four", "over-fraction"],
+            ["exact-fraction"], ["exact-fraction"], ["at-fraction"],
+            sorted(set(cases) - {"exact-fraction"}),
         ]
 
 

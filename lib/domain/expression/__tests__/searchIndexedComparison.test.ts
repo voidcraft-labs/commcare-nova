@@ -138,6 +138,15 @@ describe("searchIndexedComparison", () => {
 		).toBe("number");
 		expect(
 			searchIndexedComparison(true, dob, "date", term(literal(3.5)), "decimal"),
+		).toBe("exact-text");
+		expect(
+			searchIndexedComparison(
+				true,
+				dob,
+				"date",
+				term(literal(0.00001)),
+				"decimal",
+			),
 		).toBeUndefined();
 		expect(
 			searchIndexedComparison(
