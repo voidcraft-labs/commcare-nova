@@ -376,7 +376,7 @@ it.each([
 		const reading = await readLists(patients([], { search: {} }), {
 			edit: (app) => {
 				const config = app.modules[0].search_config;
-				config.default_properties = [
+				const defaults = [
 					{
 						property: "commcare_sort",
 						defaultValue:
@@ -387,7 +387,7 @@ it.each([
 				];
 				switch (control) {
 					case "later reset":
-						config.default_properties.push({
+						defaults.push({
 							property: "commcare_sort",
 							defaultValue: "'+priority::ignored'",
 						});
@@ -424,6 +424,7 @@ it.each([
 						];
 						break;
 				}
+				config.default_properties = defaults;
 			},
 		});
 		const findings = closedCodes(reading);
