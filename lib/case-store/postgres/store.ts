@@ -1427,6 +1427,61 @@ export class PostgresCaseStore implements CaseStore {
 		return this.withCaseSelect(args, (built) => this.readCasePage(args, built));
 	}
 
+	async queryAutomaticSelection(
+		args: QueryArgs,
+		maximum: number,
+	): Promise<{ rows: readonly CaseRowWithCalculated[]; totalCount: number }> {
+		// This is a row materialization budget, independent of an HQ-authored
+		// limit, the page size and the number of effects a submission can write.
+		const maxAutomaticSelectionRows = 100;
+		if (
+			!Number.isInteger(maximum) ||
+			maximum < 1 ||
+			maximum > maxAutomaticSelectionRows
+		)
+			throw new Error("Automatic case selection exceeds its row budget.");
+		if (args.searchPopulation?.request)
+			throw new Error("A completed Search must keep its own result snapshot.");
+
+		// Probe only the eligible identities. The overflow count and the
+		// accepted row projection see the same data as the probe, using either
+		// the browser's repeatable read or the App Test's locked namespace.
+		return this.dataTransaction(async (tx) => {
+			const read = {
+				...args,
+				datumOrder: true as const,
+				sort: undefined,
+				calculated: undefined,
+				related: undefined,
+				limit: maximum,
+				offset: undefined,
+			};
+			const built = this.buildCaseSelect(read, tx);
+			const ids = await built.qb
+				.clearSelect()
+				.select("c.case_id")
+				.limit(maximum + 1)
+				.execute();
+			if (ids.length > maximum) {
+				const count = await built.qb
+					.clearSelect()
+					.select((eb) => eb.fn.countAll<string>().as("total"))
+					.executeTakeFirstOrThrow();
+				return { rows: [], totalCount: Number(count.total) };
+			}
+			if (!ids.length) return { rows: [], totalCount: 0 };
+			const rows = await this.readCasePage(read, {
+				...built,
+				qb: built.qb.where(
+					"c.case_id",
+					"in",
+					ids.map(({ case_id }) => case_id),
+				),
+			});
+			return { rows, totalCount: ids.length };
+		}, true);
+	}
+
 	private async readCasePage(
 		args: QueryArgs,
 		{

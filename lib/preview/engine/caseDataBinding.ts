@@ -863,7 +863,7 @@ export async function loadCasesAction(
 				...prepared.read,
 				page: undefined,
 				datumOrder: true,
-				cap: selection.maximum + 1,
+				automaticMaximum: selection.maximum,
 			},
 			retain,
 		);

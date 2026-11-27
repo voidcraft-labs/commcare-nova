@@ -850,6 +850,10 @@ membership-gate the app's Project and construct an explicit
 function values off the doc-store state before the wire crosses
 into a Server Action so React's RSC serializer accepts it.
 
+### Automatic case selection
+
+`queryAutomaticSelection` probes the device's eligible case IDs before reading the full rows. Within one snapshot it either returns every selected row in datum order or the exact overflow count with no row payload. Page size, the automatic read's row budget, and submission effects have separate limits. Completed Search keeps its own result snapshot and order.
+
 ### `queryGrouped` — clustering, in SQL, because there is nowhere else
 
 A grouped case list clusters rows by a case connection between the

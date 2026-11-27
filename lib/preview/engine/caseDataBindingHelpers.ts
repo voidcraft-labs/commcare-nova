@@ -542,7 +542,7 @@ async function emptyCaseResult(
  */
 export async function readCases(
 	store: Pick<CaseStore, "query" | "count" | "queryGrouped"> &
-		Partial<Pick<CaseStore, "querySearchResults">>,
+		Partial<Pick<CaseStore, "querySearchResults" | "queryAutomaticSelection">>,
 	args: {
 		appId: string;
 		caseType: string;
@@ -582,10 +582,8 @@ export async function readCases(
 		page?: { offset: number; limit: number };
 		/** Read in the device's datum order and skip screen-only calculations. */
 		datumOrder?: true;
-		/** For an unpaged read, the most rows to return, in the read's order.
-		 * A read that reaches the cap also counts every match, as
-		 * `totalCount`. */
-		cap?: number;
+		/** The authored maximum for an automatic device selection. */
+		automaticMaximum?: number;
 		/**
 		 * Read as this worker's device would. Passed by the RUNNING preview and
 		 * by nothing else — the case workspace and the sample-data surfaces read
@@ -642,7 +640,11 @@ export async function readCases(
 						related: runtimeRelatedReads(args.caseListConfig, args.caseType),
 					}),
 			offset: page?.offset,
-			limit: page?.limit ?? args.cap,
+			limit:
+				page?.limit ??
+				(args.automaticMaximum === undefined
+					? undefined
+					: args.automaticMaximum + 1),
 		};
 		const found = retainSearchResult
 			? await store.querySearchResults(query, grouping?.identifier, true)
@@ -702,14 +704,26 @@ export async function readCases(
 		return readGroupedCases(store, args, composedQuery, page, grouping);
 	}
 	const countArgs = caseReadCore(args, composedQuery.predicate);
-	// The guard for the ROWS exit below; the two empty exits carry the same
-	// rule inside `emptyCaseResult`. Editing this one changes what a
-	// populated list reveals and nothing else.
-	//
-	// The rule either way: the reveal belongs to a BOUNDED running list. The
-	// unpaged caller is the form's auto-selection candidate read, which draws
-	// nothing and would pay for a whole-tenant count to fill a field no one
-	// reads.
+	if (args.automaticMaximum !== undefined) {
+		if (!store.queryAutomaticSelection || page !== undefined)
+			throw new Error(
+				"Automatic selection requires an unpaged device selection read.",
+			);
+		const { rows, totalCount } = await store.queryAutomaticSelection(
+			countArgs,
+			args.automaticMaximum,
+		);
+		if (totalCount === 0)
+			return emptyCaseResult(store, args, composedQuery, undefined, 0);
+		return {
+			kind: "rows",
+			rows,
+			totalCount,
+			constraintSource: composedQuery.constraintSource,
+		};
+	}
+	// The reveal belongs to a bounded running list. The empty exits follow
+	// the same rule through `emptyCaseResult`.
 	const outsideRestoreCount = (restricted: number) =>
 		page === undefined
 			? undefined
@@ -726,10 +740,6 @@ export async function readCases(
 					page.offset,
 					Math.floor((totalCount - 1) / page.limit) * page.limit,
 				);
-	const cap =
-		page === undefined && args.cap !== undefined
-			? Math.max(1, Math.floor(args.cap))
-			: undefined;
 	const queryAtOffset = (offset: number) =>
 		store.query({
 			...caseReadCore(args, composedQuery.predicate),
@@ -743,13 +753,10 @@ export async function readCases(
 						),
 						related: runtimeRelatedReads(args.caseListConfig, args.caseType),
 					}),
-			limit: page?.limit ?? cap,
+			limit: page?.limit,
 			offset: page === undefined ? undefined : offset,
 		});
 	let rows = await queryAtOffset(pageOffset);
-	if (cap !== undefined) {
-		totalCount = rows.length < cap ? rows.length : await store.count(countArgs);
-	}
 
 	// COUNT and SELECT are intentionally separate, so a delete can remove the
 	// last row from the counted page between them. Recount and reclamp exactly
@@ -784,7 +791,6 @@ export async function readCases(
 			pageOffset,
 			pageSize: page.limit,
 		}),
-		...(cap !== undefined && { totalCount: totalCount ?? rows.length }),
 		...(outside !== undefined && { outsideRestoreCount: outside }),
 	};
 }
@@ -3407,6 +3413,8 @@ export function schemaHealingCaseStore(
 		withSchemaHeal(args, run);
 	return {
 		query: (a) => heal(() => store.query(a)),
+		queryAutomaticSelection: (...args) =>
+			heal(() => store.queryAutomaticSelection(...args)),
 		// Un-healed: this raw restore read does not consult a case-type schema,
 		// compile typed properties, or write. It therefore cannot raise the
 		// missing/stale-schema signals the wrapper remedies.

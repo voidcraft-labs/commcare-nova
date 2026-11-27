@@ -104,6 +104,7 @@ export type LoadCasesResult =
 			/** Primary matches before the device filters or groups them. */
 			searchMatchCount?: number;
 			resultReceipt?: string;
+			/** Empty with a nonzero count when automatic selection exceeds its maximum. */
 			rows: ReadonlyArray<CaseRowWithCalculated>;
 			/** Full ROW population matching the authored + worker query, in
 			 * both the ordinary and the grouped shape. Present for bounded
