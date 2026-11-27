@@ -813,6 +813,7 @@ export interface ProposedBlock {
 		readonly answer?: DraftField;
 		/** The question whose answer the name is, read as a path alone. */
 		readonly readsField?: DraftField;
+		readonly keepNameText?: true;
 	};
 	readonly owner?: ProposedOwner;
 	readonly rename?: {
@@ -1875,6 +1876,20 @@ function readBlock(
 			site: site("case/create/case_name", "calculate"),
 			...(trimmed !== undefined && { answer: trimmed }),
 			...(nameField !== undefined && { readsField: nameField }),
+			...(!unwrapped.trimmed &&
+				trimmed === undefined &&
+				block.repeat === null &&
+				nameField?.field.kind === "text" &&
+				namePath?.length === 1 &&
+				nameText === `/${root}/${namePath[0]}` &&
+				form.form.type === "survey" &&
+				ctx.draft.modules[form.menu]?.docType === "Module" &&
+				!ctx.draft.modules[form.menu]?.module.caseType &&
+				typeof declaredType === "string" &&
+				declaredType !== "" &&
+				target.kind === "new" &&
+				target.idFrom === undefined &&
+				target.authoredId === undefined && { keepNameText: true as const }),
 		};
 		const ownerBind = bindAt("case/create/owner_id");
 		if (ownerBind?.attribs.relevant !== undefined) {
@@ -4129,6 +4144,7 @@ function operationOf(
 					}),
 			},
 			name,
+			...(one.name?.keepNameText && { keepNameText: true as const }),
 			...(owner !== undefined && { owner }),
 			...(links.length > 0 && { links }),
 			...(one.condition !== undefined && {

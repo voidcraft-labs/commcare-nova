@@ -1897,6 +1897,15 @@ def save_to_case_bare_name(authoring, app_id):
     )
 
 
+def save_to_case_bare_calculated_name(authoring, app_id):
+    """A calculated name with no explicit trim carries a distinct raw value."""
+    _save_to_case(
+        authoring, app_id, "save-to-case-bare-calculated-name",
+        (STC_NAME_BIND, f'<bind nodeset="{MAKE}/create/case_name" '
+                       'calculate="concat(/data/full_name, &apos; &apos;)"/>', 1),
+    )
+
+
 def save_to_case_type_expression(authoring, app_id):
     """The create's case type calculated ``concat('house', 'hold')``."""
     _save_to_case(

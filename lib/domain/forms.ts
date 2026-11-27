@@ -637,6 +637,7 @@ export const caseOperationSchema = z.discriminatedUnion("action", [
 		closeAfter: z.literal(true).optional(),
 		target: newCaseTargetSchema,
 		name: valueSchema,
+		keepNameText: z.literal(true).optional(),
 		nameOnlyIfChanged: z.never().optional(),
 		owner: valueSchema.optional(),
 		ownerOnlyIfChanged: z.literal(true).optional(),
@@ -800,6 +801,8 @@ export type TargetedCaseOperation = CaseOperationFacets & {
 	caseType: string;
 	typeCalculation?: CaseTypeCalculation;
 	typeChoice?: CaseTypeChoice;
+	/** Keep the root Text answer in this imported create’s submission. */
+	keepNameText?: true;
 	target: CaseTarget;
 	condition?: Expression;
 	ownerCondition?: Expression;

@@ -612,6 +612,7 @@
 		"hq-questions/save-to-case-attachment",
 		"hq-questions/save-to-case-block-relevance",
 		"hq-questions/save-to-case-child-link",
+		"hq-questions/save-to-case-bare-name",
 		"hq-questions/save-to-case-conditional-owner-aliased-create",
 		"hq-questions/save-to-case-create-and-close",
 		"hq-questions/save-to-case-create-with-conditioned-owner-update",
