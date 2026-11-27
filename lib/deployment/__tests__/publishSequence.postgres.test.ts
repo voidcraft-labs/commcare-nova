@@ -4712,6 +4712,8 @@ describe("a table only CommCare HQ's JSON resources can carry", () => {
 		});
 	});
 
+	// Keep the real 200-write wave and the resumed wave within one test. Each
+	// request needs its own authorization and journal transactions in Postgres.
 	it("resumes the ordinary publish of a paged lookup without sending the settled rows again", async () => {
 		const doc = await seed(await typesDocument(201, true));
 		const value = await stageTypesLabel("s".repeat(65_535));
@@ -4751,7 +4753,7 @@ describe("a table only CommCare HQ's JSON resources can carry", () => {
 				false,
 			);
 		});
-	});
+	}, 20_000);
 
 	it("stops before any CommCare HQ writes if its connected account cannot edit lookup data", async () => {
 		const doc = await seed(await typesDocument());
