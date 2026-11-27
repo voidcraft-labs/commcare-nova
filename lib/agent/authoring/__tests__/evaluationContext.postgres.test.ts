@@ -270,6 +270,7 @@ it("uses the authorized worker's records and makes no case or blueprint writes",
 	).rejects.toThrow();
 });
 
+// Each date-range variant runs through a fresh authorized Postgres evaluation.
 it("runs the module's search for a form that reads what it found", async () => {
 	const moduleUuid = testUuid("evaluation-search-module");
 	const formUuid = testUuid("evaluation-search-form");
@@ -472,7 +473,7 @@ it("runs the module's search for a form that reads what it found", async () => {
 		"error",
 		expect.stringContaining("Leave out the scenario"),
 	);
-});
+}, 15_000);
 
 it("runs a check on the platform it names, with that platform's session values and pages", async () => {
 	const source = sectionEntryDoc();

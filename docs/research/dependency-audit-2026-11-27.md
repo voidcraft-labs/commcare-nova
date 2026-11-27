@@ -34,6 +34,13 @@ exports, declarations, executable source and platform requirements. The
 dependency families resolve to the versions in #959. Strict `npm ci` ran the
 repo's postinstall, including the profiler byte verification and MDX generation.
 
+The form-evaluation integration test runs fourteen requests through the real
+Postgres-backed tool. It took 5.3 seconds on the bot's check and timed out with
+the default five-second budget on the replacement. It now has a 15-second
+per-test budget and exercises the same requests and assertions.
+[Bot job](https://github.com/voidcraft-labs/commcare-nova/actions/runs/46057415418/job/140703170214),
+[replacement job](https://github.com/voidcraft-labs/commcare-nova/actions/runs/46081931895/job/140782650318).
+
 ## Residual advisories
 
 Read-only `npm audit` reported 20 affected dependency entries (17 moderate, 3
