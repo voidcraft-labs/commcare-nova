@@ -54,15 +54,43 @@ describe("bare fingerprint query in a Hidden Value", () => {
 		);
 	});
 
-	it("leaves the enclosing guard in the undecided class", async () => {
+	it("keeps only the fallback of the exact guard in a survey without a supplier", async () => {
 		const outcome = await survey(
 			`if(count(${PATH}) = 0, 'No lookup result', string(${PATH}[1]))`,
 		);
-		expect(
-			[...outcome.claims.records()].filter(({ key }) => key === KEY),
-		).toEqual([
-			expect.objectContaining({ entry: REMAINING, standing: "not-yet" }),
-		]);
+		expect(outcome.kind).toBe("read");
+		if (outcome.kind !== "read") throw new Error("The survey did not read.");
+		const held = Object.values(outcome.draft.doc.fields).find(
+			(field) => field.id === "language",
+		);
+		expect(held).toMatchObject({
+			kind: "hidden",
+			calculate: {
+				kind: "term",
+				term: { kind: "literal", value: "No lookup result" },
+			},
+		});
+		expect([...outcome.claims.records()]).toContainEqual(
+			expect.objectContaining({
+				key: KEY,
+				entry:
+					"expressions-and-data/guarded-fingerprint-query-without-a-supplier",
+				standing: "held",
+			}),
+		);
+	});
+
+	it("keeps an indexed read from a different fallback branch in its own finding", async () => {
+		const outcome = await survey(
+			`if(count(${PATH}) = 0, 'No lookup result', string(${PATH}[2]))`,
+		);
+		expect([...outcome.claims.records()]).toContainEqual(
+			expect.objectContaining({
+				key: KEY,
+				entry: REMAINING,
+				standing: "not-yet",
+			}),
+		);
 	});
 
 	it("distinguishes a named datum on a reachable Advanced form", async () => {

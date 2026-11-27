@@ -578,6 +578,8 @@ search runs as the same filters (`case_search/utils.py::_apply_filter` applies e
 filter). A row the search condition's slot does not admit but an excluded field's does is still
 that field's.
 
+A direct Android survey without any producer for a lookup count can keep a root Hidden Value’s guarded literal fallback. The guard must test for zero count and read the first value only in its nonempty branch. With the exact absent source established, the next publish writes the fallback by itself.
+
 A literal Search order keeps each property, comparison and direction in request order.
 HQ strips all leading signs from a term and takes direction from the first sign.
 Nova publishes only that first sign and records the exact source value under
