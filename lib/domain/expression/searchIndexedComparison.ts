@@ -83,6 +83,15 @@ export function searchIndexedComparison(
 			return;
 		return "exact-text";
 	}
+	// A static whole number orders a date property's stored numeric values in
+	// HQ's numeric index. Calendar dates do not participate in that range.
+	if (
+		leftType === "date" &&
+		rightType === "int" &&
+		typeof value === "number" &&
+		canonicalIntegerText(String(value)) !== undefined
+	)
+		return "number";
 	if (leftType !== "text" && leftType !== "time") return;
 	if (rightType === "int" || rightType === "decimal") return "number";
 	if (rightType === "date" || rightType === "datetime") return rightType;
