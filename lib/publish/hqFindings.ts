@@ -85,6 +85,7 @@ export const SUBJECTS = [
 	"case-preloads",
 	"case-property-names",
 	"case-sharing",
+	"case-tile-group-index",
 	"case-tiles",
 	"case-types",
 	"child-cases",

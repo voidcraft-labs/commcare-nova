@@ -186,6 +186,7 @@
 		"hq-case-lists/tile-cell-outside-the-grid",
 		"hq-case-lists/tile-cell-without-a-size",
 		"hq-case-lists/tile-cells-overlapping",
+		"hq-case-lists/tile-grouped-by-a-dotted-index",
 		"hq-case-lists/tile-grouped-by-a-hyphenated-index",
 		"hq-case-lists/tile-grouped-by-a-hyphenated-index-with-a-body",
 		"hq-case-lists/tile-grouped-by-an-invalid-index",

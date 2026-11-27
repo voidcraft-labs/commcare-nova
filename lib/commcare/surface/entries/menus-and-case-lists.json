@@ -3937,11 +3937,32 @@
 		"gates": ["toggle/CASE_LIST_TILE"]
 	},
 	{
+		"id": "menus-and-case-lists/case-tile-group-identifier-starts-with-a-hyphen",
+		"area": "menus-and-case-lists",
+		"section": "Case list and case detail",
+		"subsection": "Detail screens",
+		"item": "A custom tile's group index with a leading hyphen before an otherwise supported connection name",
+		"surfaceKeys": ["schema:CaseTileGroupConfig.index_identifier"],
+		"valueClass": "grouping-connection-name-starts-with-hyphen",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: Core cannot install the suite because the generated grouping XPath starts an index step with a hyphen",
+		"subject": "case-tile-group-index",
+		"reasons": [
+			{
+				"kind": "broken-at-runtime",
+				"named": "Core cannot parse the generated case tile grouping XPath with a leading hyphen in its index step"
+			}
+		],
+		"platforms": { "kind": "none", "cell": "—" },
+		"emission": { "cell": "—", "markers": [] },
+		"gates": []
+	},
+	{
 		"id": "menus-and-case-lists/case-tile-group-identifier-outside-an-xml-element-name",
 		"area": "menus-and-case-lists",
 		"section": "Case list and case detail",
 		"subsection": "Detail screens",
-		"item": "`case_tile_group.index_identifier` outside `[A-Za-z_][A-Za-z0-9_-]*`",
+		"item": "Other `case_tile_group.index_identifier` values outside `[A-Za-z_][A-Za-z0-9_-]*`",
 		"surfaceKeys": [
 			"parser:DetailGroupParser/group",
 			"parser:DetailGroupParser/group@function",
@@ -3954,7 +3975,7 @@
 		],
 		"valueClass": "identifier-outside-grouping-connection-name",
 		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: a grouping index outside the case operation connection grammar",
+		"dispositionCell": "**HELD-NEW**: other grouping index names outside the supported connection grammar",
 		"subject": "case-tiles",
 		"owner": "case-list-and-detail",
 		"platforms": {

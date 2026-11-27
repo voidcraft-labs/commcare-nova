@@ -7766,7 +7766,7 @@ def _held_new():
             accepted("app", width_zero_tile(grouped=False, fmt="address"), "schema:DetailColumn.format", f"{short}/columns/1/format"),
             accepted("app", width_zero_tile(), "schema:DetailColumn.format", f"{short}/columns/1/format"),
         ),
-        "menus-and-case-lists/case-tile-group-identifier-outside-an-xml-element-name": (
+        "menus-and-case-lists/case-tile-group-identifier-starts-with-a-hyphen": (
             refused(
                 "app",
                 tile("-my-group"),
@@ -7783,6 +7783,27 @@ def _held_new():
             accepted(
                 "app",
                 tile("-my-group", template=None),
+                "schema:CaseTileGroupConfig.index_identifier",
+                f"{short}/case_tile_group/index_identifier",
+            ),
+        ),
+        "menus-and-case-lists/case-tile-group-identifier-outside-an-xml-element-name": (
+            refused(
+                "app",
+                tile("my.group"),
+                "schema:CaseTileGroupConfig.index_identifier",
+                f"{short}/case_tile_group/index_identifier",
+            ),
+            accepted(
+                "app",
+                tile("-my-group"),
+                "schema:CaseTileGroupConfig.index_identifier",
+                f"{short}/case_tile_group/index_identifier",
+            ),
+            # A list with no custom tile groups nothing.
+            accepted(
+                "app",
+                tile("my.group", template=None),
                 "schema:CaseTileGroupConfig.index_identifier",
                 f"{short}/case_tile_group/index_identifier",
             ),

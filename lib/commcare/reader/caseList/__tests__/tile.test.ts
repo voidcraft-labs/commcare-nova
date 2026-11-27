@@ -266,33 +266,37 @@ describe("tiles", () => {
 		]);
 	});
 
-	it("refuses an invalid grouping name together with its heading setting", async () => {
-		const name = plainColumn(uuid(1), "case_name", "Name", {
-			tile: tileCell(0, 0, 12, 1),
-		});
-		const notes = plainColumn(uuid(2), "notes", "Notes", {
-			tile: tileCell(0, 1, 12, 1),
-		});
-		const reading = await readLists(
-			patients([name, notes], {
-				list: {
-					tile: { grouping: { identifier: "my-parent", headerRows: 1 } },
+	it.each([
+		["-my-parent", "case-tile-group-identifier-starts-with-a-hyphen"],
+		["my.parent", "case-tile-group-identifier-outside-an-xml-element-name"],
+	])(
+		"refuses tile grouping by %s under its exact finding",
+		async (identifier, entry) => {
+			const name = plainColumn(uuid(1), "case_name", "Name", {
+				tile: tileCell(0, 0, 12, 1),
+			});
+			const notes = plainColumn(uuid(2), "notes", "Notes", {
+				tile: tileCell(0, 1, 12, 1),
+			});
+			const reading = await readLists(
+				patients([name, notes], {
+					list: {
+						tile: { grouping: { identifier: "my-parent", headerRows: 1 } },
+					},
+				}),
+				{
+					edit: (app) => {
+						app.modules[0].case_details.short.case_tile_group = {
+							doc_type: "CaseTileGroupConfig",
+							index_identifier: identifier,
+							header_rows: 1,
+						};
+					},
 				},
-			}),
-			{
-				edit: (app) => {
-					app.modules[0].case_details.short.case_tile_group = {
-						doc_type: "CaseTileGroupConfig",
-						index_identifier: "-my-parent",
-						header_rows: 1,
-					};
-				},
-			},
-		);
-		expect(closedCodes(reading)).toEqual([
-			"menus-and-case-lists/case-tile-group-identifier-outside-an-xml-element-name",
-		]);
-	});
+			);
+			expect(closedCodes(reading)).toEqual([`menus-and-case-lists/${entry}`]);
+		},
+	);
 
 	it("keeps a grouped tile body's geometry when the body has a style refusal", async () => {
 		const name = plainColumn(uuid(1), "case_name", "Name", {

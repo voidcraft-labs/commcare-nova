@@ -77,6 +77,7 @@ export const SUBJECT_LABELS: Readonly<Record<Subject, string>> = {
 	"case-preloads": "Loading case values into questions",
 	"case-property-names": "Case property names",
 	"case-sharing": "Case sharing",
+	"case-tile-group-index": "Case tile grouping index",
 	"case-tiles": "Case tiles",
 	"case-types": "Case types",
 	"child-cases": "Child cases",
@@ -223,6 +224,7 @@ export const FINDING_COPY: Readonly<
 		"not-yet": "A case property name here is one Nova can't hold yet.",
 	},
 	"case-sharing": {},
+	"case-tile-group-index": {},
 	"case-tiles": {
 		never:
 			"A case tile here is missing a field one of its positions needs, or shows the case above a form in a way CommCare can't settle, which Nova doesn't bring in.",
@@ -464,6 +466,10 @@ export const FIX_IN_HQ_SENTENCES: Readonly<
 	"answer-groups": {
 		"hq-refuses":
 			"An answer here is kept under a group CommCare HQ's form designer can't keep it under: at the top level of the form for a question inside a group, which the designer reports as invalid each time it opens the form, or under another group for a whole group, whose answers its next save loses. Keeping the answer with its question in the form designer's Data Parent setting fixes it.",
+	},
+	"case-tile-group-index": {
+		"breaks-when-run":
+			"The case tile’s parent case index name starts with a hyphen. CommCare can’t use it to open the grouped case list. In CommCare HQ’s Case List settings, you can choose an existing index that starts with a letter or underscore, then bring the app in again.",
 	},
 	"case-list-callout": {
 		"breaks-when-run":
