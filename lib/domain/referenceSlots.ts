@@ -2587,6 +2587,7 @@ export const NON_REFERENCE_MODULE_PATHS: Readonly<
 	"caseListConfig.searchInputs[].allowBlank": "config",
 	"caseListConfig.searchInputs[].sendAnswer": "config",
 	"caseListConfig.searchInputs[].excludeFromRequest": "config",
+	"caseListConfig.searchInputs[].savedDefault": "config",
 	"caseListConfig.searchInputs[].hidden": "config",
 	"caseListConfig.searchInputs[].group": "search-input-connection",
 	"caseListConfig.searchInputs[].addressReceiver.kind": "discriminator",

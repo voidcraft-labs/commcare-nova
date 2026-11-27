@@ -48,6 +48,7 @@ export const PLATFORM_FEATURE_ENTRIES = {
 		"expressions-and-data/search-input-read-in-form-expressions-of-an-inline-search-module",
 		"expressions-and-data/search-input-read-in-the-forms-of-a-child-menu-of-an-inline-search-menu",
 		"expressions-and-data/search-input-results-read-in-the-case-list-of-an-inline-search",
+		"menus-and-case-lists/inline-search-result-own-text-property",
 	],
 	"search-on-clear": ["case-search/search-on-clear"],
 	"list-first": [
@@ -395,6 +396,8 @@ export const AMBIENT_PLATFORM_ENTRIES = {
 		"The wire form of list first in an app that declares Android only, which no Web App reads; `list-first` states list first's readings.",
 	"case-search/address-receiver-on-an-unmatched-topic-without-a-component":
 		"Only an HQ import can supply the saved topic. Nova authors receivers by picker identity.",
+	"case-search/address-picker-with-a-saved-text-default":
+		"Only an HQ import can supply the saved address text. The worker's picker opens blank.",
 	"expressions-and-data/commcaresession-jr-instance-session":
 		"The session instance itself; each context field's feature states its difference.",
 	"expressions-and-data/lookup-table-rows-in-the-local-archive-suite":
