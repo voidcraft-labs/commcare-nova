@@ -5,6 +5,23 @@ import { w } from "../../xpath/wire/builders";
 import { sessionContextPath } from "../../xpath/wire/fromExpression";
 import type { WireExpr } from "../../xpath/wire/tree";
 
+export const lookupEvaluateExtrasControl = {
+	key: "force_xpath_parsing",
+	value: "yes",
+} as const;
+
+export function isLookupEvaluateExtrasControl(value: unknown): boolean {
+	return (
+		typeof value === "object" &&
+		value !== null &&
+		Object.keys(value).length === 2 &&
+		"key" in value &&
+		value.key === lookupEvaluateExtrasControl.key &&
+		"value" in value &&
+		value.value === lookupEvaluateExtrasControl.value
+	);
+}
+
 /** Values the companion receives before the worker chooses a case. */
 export function deviceLookupExtraWire(extra: DeviceLookupExtra): WireExpr {
 	if ("value" in extra) return w.str(extra.value);

@@ -148,6 +148,7 @@ import {
 } from "./detailTexts";
 import {
 	deviceLookupExtraWire,
+	lookupEvaluateExtrasControl,
 	lookupConfidenceColumn,
 	lookupConfidenceLocaleId,
 } from "./deviceLookup";
@@ -710,6 +711,9 @@ function buildDetailShell(
 							wire,
 						),
 					),
+					...(deviceLookup.evaluateExtras === true
+						? [el("extra", lookupEvaluateExtrasControl)]
+						: []),
 					...deviceLookup.responses.map((key) => el("response", { key })),
 					...(deviceLookup.resultHeading === undefined
 						? []

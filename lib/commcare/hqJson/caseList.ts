@@ -5,6 +5,7 @@ import {
 import { detailBindings } from "../suite/case-list/detailBindings";
 import {
 	deviceLookupExtraWire,
+	lookupEvaluateExtrasControl,
 	lookupCaseKeyWire,
 } from "../suite/case-list/deviceLookup";
 
@@ -1718,10 +1719,22 @@ export function projectCaseListForHq(
 			);
 		}
 		pair.short.lookup_autolaunch = deviceLookup.automatic === true;
-		pair.short.lookup_extras = deviceLookup.extras.map((extra) => ({
-			key: extra.name,
-			value: hqXPath(deviceLookupExtraWire(extra)),
-		}));
+		pair.short.lookup_extras = [
+			...deviceLookup.extras.map((extra) => ({
+				key: extra.name,
+				value: hqXPath(deviceLookupExtraWire(extra)),
+			})),
+			...(deviceLookup.evaluateExtras === true
+				? [
+						{
+							key: lookupEvaluateExtrasControl.key,
+							value: hqXPath(
+								w.context([w.step(lookupEvaluateExtrasControl.value)]),
+							),
+						},
+					]
+				: []),
+		];
 		pair.short.lookup_responses = deviceLookup.responses.map((key) => ({
 			key,
 		}));

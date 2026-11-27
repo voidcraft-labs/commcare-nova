@@ -9487,6 +9487,29 @@
 		"gates": ["toggle/BIOMETRIC_INTEGRATION", "toggle/CASE_LIST_LOOKUP"]
 	},
 	{
+		"id": "menus-and-case-lists/lookup-extras-explicit-evaluation",
+		"area": "menus-and-case-lists",
+		"section": "Case list and case detail",
+		"subsection": "Case list callout",
+		"item": "An Android lookup explicitly evaluates its supported arguments",
+		"surfaceKeys": ["schema:Detail.lookup_extras"],
+		"valueClass": "lookup-extra-evaluation-flag",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: Android evaluates supported arguments even in a legacy installation. The evaluation control is not sent to the companion.",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "IGNORED (no button) / RUNS",
+			"webApps": { "reading": "ignored", "note": "no button" },
+			"android": { "reading": "runs" }
+		},
+		"emission": {
+			"cell": "Supported arguments followed by the evaluation control",
+			"markers": []
+		},
+		"gates": ["toggle/BIOMETRIC_INTEGRATION", "toggle/CASE_LIST_LOOKUP"]
+	},
+	{
 		"id": "menus-and-case-lists/lookup-extra-relative-without-case-context",
 		"area": "menus-and-case-lists",
 		"section": "Case list and case detail",

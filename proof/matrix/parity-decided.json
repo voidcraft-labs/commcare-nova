@@ -99,6 +99,7 @@
 		"hq-case-lists/callout-name-with-the-callout-off",
 		"hq-case-lists/callout-on-case-detail",
 		"hq-case-lists/callout-with-a-multi-step-field-argument",
+		"hq-case-lists/callout-with-explicit-evaluation",
 		"hq-case-lists/callout-with-worker-name",
 		"hq-case-lists/case-detail-custom-tile",
 		"hq-case-lists/case-detail-template-tile",

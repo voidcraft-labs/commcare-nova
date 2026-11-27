@@ -12782,6 +12782,19 @@
 		]
 	},
 	{
+		"id": "hq-case-lists/callout-with-explicit-evaluation",
+		"base": "hq-case-lists",
+		"entry": "menus-and-case-lists/lookup-extras-explicit-evaluation",
+		"change": { "op": "named", "name": "explicitly_evaluated_callout" },
+		"holds": [
+			{
+				"key": ["module", { "$menu": 0 }],
+				"pointer": "/caseListConfig/deviceLookup/evaluateExtras",
+				"value": true
+			}
+		]
+	},
+	{
 		"id": "hq-case-lists/callout-with-a-multi-step-field-argument",
 		"base": "hq-case-lists",
 		"entry": "menus-and-case-lists/lookup-enabled-lookup-action",

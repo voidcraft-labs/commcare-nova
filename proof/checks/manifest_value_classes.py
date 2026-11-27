@@ -7575,7 +7575,8 @@ def _supported_lookup_value(text):
 def lookup_with_nonliteral_arguments(use, manifest):
     """Read the extra's XPath with HQ's parser independently of Nova's lookup reader."""
     detail = _short_lookup(use)
-    if detail is None or _missing_lookup_arguments(detail) or lookup_with_native_integer_sum(use, manifest):
+    if (detail is None or _missing_lookup_arguments(detail)
+            or lookup_with_native_integer_sum(use, manifest) or lookup_with_forced_extras(use, manifest)):
         return False
     return any(
         isinstance(extra, dict)
@@ -7728,13 +7729,29 @@ def lookup_with_native_integer_sum(use, manifest):
     return any(sums) and all(is_sum or _supported_lookup_value(value) for value, is_sum in zip(values, sums))
 
 
+def lookup_with_forced_extras(use, manifest):
+    """Android treats this exact final control row as mode data and sends only evaluated arguments."""
+    detail = _short_lookup(use)
+    if detail is None or _missing_lookup_arguments(detail):
+        return False
+    extras = detail["lookup_extras"]
+    if len(extras) < 2 or extras[-1] != {"key": "force_xpath_parsing", "value": "yes"}:
+        return False
+    arguments = extras[:-1]
+    return (
+        not _lookup_has_other_unsupported_setting(use, manifest, {**detail, "lookup_extras": arguments})
+        and all(_supported_lookup_value(row["value"]) or _native_lookup_integer_sum(row["value"])
+                for row in arguments)
+    )
+
+
 def lookup_outside_fixed_text(use, manifest):
     """The remaining active short-detail lookup settings beside a fixed-text action."""
     detail = _short_lookup(use)
     if detail is None or _missing_lookup_arguments(detail):
         return False
     if (_bare_relative_lookup_extra(detail) or _empty_case_id_result_header(detail)
-            or lookup_with_native_integer_sum(use, manifest)):
+            or lookup_with_native_integer_sum(use, manifest) or lookup_with_forced_extras(use, manifest)):
         return False
     return _lookup_has_other_unsupported_setting(use, manifest, detail) or lookup_with_nonliteral_arguments(use, manifest)
 
@@ -15365,6 +15382,7 @@ VALUE_CLASSES = {
     "menus-and-case-lists/lookup-on-the-long-detail-tabbed-or-not": lookup_on_long_detail,
     "menus-and-case-lists/lookup-enabled-lookup-action": lookup_outside_fixed_text,
     "menus-and-case-lists/lookup-extra-with-a-fixed-integer-sum": lookup_with_native_integer_sum,
+    "menus-and-case-lists/lookup-extras-explicit-evaluation": lookup_with_forced_extras,
     "menus-and-case-lists/lookup-extra-relative-without-case-context": lookup_extra_relative_without_case_context,
     "menus-and-case-lists/lookup-extras-key-value": lookup_with_nonliteral_arguments,
     "menus-and-case-lists/lookup-case-id-result-without-a-header-map": lookup_missing_case_id_result_header,
@@ -15396,6 +15414,7 @@ VALUE_CLASSES = {
 # It grants HELD only when that observation establishes the supported class.
 POSITIVE_VALUE_CLASSES = {
     "menus-and-case-lists/lookup-extra-with-a-fixed-integer-sum": lookup_with_native_integer_sum,
+    "menus-and-case-lists/lookup-extras-explicit-evaluation": lookup_with_forced_extras,
     "menus-and-case-lists/detail-filter-matching-the-direct-hosts-text": direct_host_text_filter,
     "menus-and-case-lists/detail-max-select-value-for-flat-close": bounded_flat_close_maximum,
     "menus-and-case-lists/detail-max-select-value-for-flat-followup": bounded_flat_followup_maximum,

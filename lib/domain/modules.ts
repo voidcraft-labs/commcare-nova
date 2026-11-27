@@ -3803,6 +3803,7 @@ export const caseListDeviceLookupSchema = z
 		resultHeading: caseListWordingSchema.optional(),
 		resultProperty: caseListLookupResultPropertySchema.optional(),
 		automatic: z.literal(true).optional(),
+		evaluateExtras: z.literal(true).optional(),
 		extras: z.array(deviceLookupExtraSchema).min(1),
 		responses: z.array(deviceLookupName).min(1),
 	})

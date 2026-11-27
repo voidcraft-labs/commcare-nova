@@ -434,6 +434,15 @@ def callout_with_a_multi_step_field_argument(authoring, app_id):
     named_callout(authoring, app_id, value="properties/mode")
 
 
+def explicitly_evaluated_callout(authoring, app_id):
+    """A whole-number sum should also be evaluated by a legacy-mode worker."""
+    calculated_callout(authoring, app_id)
+    ops.set_json(authoring, app_id, "/modules/0/case_details/short/lookup_extras", [
+        {"key": "mode", "value": "1 + 2"},
+        {"key": "force_xpath_parsing", "value": "yes"},
+    ])
+
+
 def fixed_text_callout(authoring, app_id):
     """Patients' list with a named companion, literal text arguments and ordered fallback response names."""
     _set_each(

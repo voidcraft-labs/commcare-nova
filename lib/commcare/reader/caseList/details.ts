@@ -60,7 +60,10 @@ import type { HqPlace } from "@/lib/publish/hqFindings";
 import { sharedSources } from "../../hq/suiteDetailSources";
 import { emptyShortListColumns } from "../../hqJson/caseList";
 import { hqXPath, hqXPathText } from "../../hqJson/xpath";
-import { lookupCaseKeyWire } from "../../suite/case-list/deviceLookup";
+import {
+	isLookupEvaluateExtrasControl,
+	lookupCaseKeyWire,
+} from "../../suite/case-list/deviceLookup";
 import { DERIVED_WIRE_IDENTITY } from "../../wireIdentity";
 import type { FormSyntax } from "../../xpath/formSyntax";
 import { scannedInstances } from "../../xpath/instanceSources";
@@ -483,6 +486,16 @@ const LOOKUP_ON_KEYS = defineClaims("caseList.details.lookupOn", {
 	),
 });
 
+const LOOKUP_EVALUATED_EXTRAS = defineClaims(
+	"caseList.details.evaluatedLookup",
+	{
+		extras: take(
+			`${A}lookup-extras-explicit-evaluation`,
+			"schema:Detail.lookup_extras",
+		),
+	},
+);
+
 const LOOKUP_WITH_INTEGER_SUM = defineClaims(
 	"caseList.details.integerSumLookup",
 	{
@@ -635,8 +648,10 @@ function textDeviceLookup(
 		!Array.isArray(rawResponses)
 	)
 		return undefined;
+	const evaluateExtras = isLookupEvaluateExtrasControl(rawExtras.at(-1));
+	const argumentRows = evaluateExtras ? rawExtras.slice(0, -1) : rawExtras;
 	const extras: DeviceLookupExtra[] = [];
-	for (const entry of rawExtras) {
+	for (const entry of argumentRows) {
 		if (
 			!isJsonObject(entry) ||
 			Object.keys(entry).length !== 2 ||
@@ -730,6 +745,7 @@ function textDeviceLookup(
 		extras,
 		responses,
 		...(automatic === true && { automatic: true }),
+		...(evaluateExtras && { evaluateExtras: true }),
 		...(heading !== undefined && {
 			resultHeading: sourceText(ctx, heading.texts),
 		}),
@@ -1670,17 +1686,20 @@ function readDetailKeys(
 						key === "lookup_field_template")
 						? confidenceKeys[key]
 						: undefined;
+				const extrasClaim =
+					lookup.evaluateExtras === true
+						? LOOKUP_EVALUATED_EXTRAS.extras
+						: lookup.extras.some(
+									(extra) =>
+										"expression" in extra && extra.expression.kind === "arith",
+								)
+							? LOOKUP_WITH_INTEGER_SUM.extras
+							: lookup.extras.some((extra) => "expression" in extra)
+								? LOOKUP_WITH_WORKER_EXTRA.extras
+								: TEXT_LOOKUP_KEYS.lookup_extras;
 				const claim =
 					resultClaim ??
-					(key === "lookup_extras" &&
-					lookup.extras.some((extra) => "expression" in extra)
-						? lookup.extras.some(
-								(extra) =>
-									"expression" in extra && extra.expression.kind === "arith",
-							)
-							? LOOKUP_WITH_INTEGER_SUM.extras
-							: LOOKUP_WITH_WORKER_EXTRA.extras
-						: TEXT_LOOKUP_KEYS[key]);
+					(key === "lookup_extras" ? extrasClaim : TEXT_LOOKUP_KEYS[key]);
 				if (
 					claim !== undefined &&
 					detail.used(key) &&

@@ -50,6 +50,7 @@ function edit(value?: CaseListDeviceLookup) {
 		resultHeading: value?.resultHeading,
 		resultProperty: value?.resultProperty,
 		automatic: value?.automatic,
+		evaluateExtras: value?.evaluateExtras,
 		extras: value?.extras.map((extra) =>
 			"value" in extra
 				? row(extra.name, extra.value)
@@ -156,6 +157,7 @@ export function CaseListDeviceLookupSetting({
 							...(draft.automatic !== undefined && {
 								automatic: draft.automatic,
 							}),
+							...(draft.evaluateExtras === true && { evaluateExtras: true }),
 							extras: draft.extras.map(({ name, value, field, sum }) => {
 								if (sum !== undefined)
 									return {
@@ -234,6 +236,21 @@ export function CaseListDeviceLookupSetting({
 							}
 						/>
 						Open the companion automatically
+					</label>
+					<label className="flex gap-2 text-sm text-nova-text">
+						<input
+							type="checkbox"
+							checked={draft.evaluateExtras === true}
+							onChange={(event) =>
+								setDraft({
+									...draft,
+									evaluateExtras: event.currentTarget.checked
+										? true
+										: undefined,
+								})
+							}
+						/>
+						Evaluate the values before sending them
 					</label>
 					{(allowConfidence || draft.resultHeading !== undefined) && (
 						<>
