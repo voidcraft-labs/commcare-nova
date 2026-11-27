@@ -858,9 +858,10 @@ def open_in_a_repeat(authoring, app_id):
 def conditional_open_with_web_only_index(authoring, app_id):
     """Keep conditional creates separate from the always-run index writers."""
     open_visitor_with_web_only_index(authoring, app_id)
+    _visit_outcome(authoring, app_id)
     ops.set_json(
         authoring, app_id, f"{_VISIT_OPENS}/0/open_condition",
-        _condition("if", "/data/notes", "linked"),
+        _condition("if", "/data/visit_outcome", "new"),
     )
 
 
