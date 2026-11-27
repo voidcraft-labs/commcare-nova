@@ -266,6 +266,57 @@ def test_case_list_lookup_evaluates_extras_before_a_case_is_selected(hq, editor_
         assert (reply["searchText"], reply["after"]) == ("Juniper", ["Juniper"])
 
 
+@pytest.mark.parametrize(("mode", "value", "expected"), [
+    ("ordinary", "1 + 2", "3"),
+    ("ordinary", "'3'", "3"),
+    ("plain", "1 + 2", "1 + 2"),
+    ("plain", "'3'", "'3'"),
+    ("forced", "1 + 2", "3"),
+], ids=["ordinary-calculation", "ordinary-text", "plain-calculation", "plain-text", "plain-forced"])
+def test_case_list_lookup_sends_saved_extra_under_the_worker_mode(hq, editor_driver, mode, value, expected):
+    """The same saved lookup extra is evaluated or sent verbatim depending on the installed worker mode."""
+    database = casedata.CaseDatabase(
+        user_id=casedata.USER_ID,
+        username=casedata.USERNAME,
+        user_data=(),
+        cases=(_case("lookup-cedar", "Cedar"), _case("lookup-juniper", "Juniper")),
+    )
+    extras = [{"key": "mode", "value": value}]
+    if mode == "forced":
+        extras.append({"key": "force_xpath_parsing", "value": "yes"})
+    # Set only the isolated Android preference read by ReportingUtils.getDomain. The signed worker,
+    # install, restore and companion all continue to use the harness's fixture and network peer.
+    preferences = None if mode == "ordinary" else {"cc_user_domain": "icds-cas.commcarehq.org"}
+    with hq_check(CONFIGURATION) as (state, _):
+        app_id, _ = _lookup_case_list(state, editor_driver, extras=extras)
+        with formplayer.serve(state, None, app_id, database=database, label="case-list-lookup-mode") as served:
+            blobs = Blobs()
+            archive = observe.release_archive(served)
+            with ZipFile(BytesIO(archive)) as build:
+                suite = etree.fromstring(build.read("suite.xml"))
+                assert suite.xpath(".//lookup/extra[@key='mode']/@value") == [value]
+            result = observe.app(
+                served, blobs, label="case-list-lookup-mode", archive=archive,
+                preferences=preferences, case_lookup_returns=[{"primary": " Juniper "}],
+            )
+            installed = blobs.get_json(result["answer"])
+
+    assert installed["install"] == "Installed", installed
+    assert installed["signIn"].startswith("Success("), installed
+    assert not any("raised" in walk for walk in installed["walks"].values()), installed
+    (observed,) = [
+        step["list"]["lookupReturns"]
+        for walk in installed["walks"].values()
+        for step in walk.get("steps", [])
+        if "lookupReturns" in (step.get("list") or {})
+    ]
+    (reply,) = observed
+    write_evidence("lookup-extra-sent", reply)
+    assert reply["action"] == ACTION and reply["sent"] == {"mode": expected}, reply
+    assert set(reply["before"]) == {"Cedar", "Juniper"}
+    assert (reply["searchText"], reply["after"]) == ("Juniper", ["Juniper"])
+
+
 @pytest.mark.parametrize("heading", ["ordinary", "generated"])
 def test_nova_archive_and_hq_release_send_extras_and_search_text(hq, android_documents, heading):
     from proof.android.test_form_reads import _served
