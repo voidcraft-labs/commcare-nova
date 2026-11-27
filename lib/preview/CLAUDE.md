@@ -1,6 +1,6 @@
 # Web Preview Engine
 
-Web Apps supplies `OK` for each relevant message when the worker submits. Android supplies it for a passive message when leaving the screen. A visible confirmation box on Android starts with its stored string and gives `OK` when checked or a blank when cleared. Each answer participates in the ordinary relevance and validation cascade.
+Web Apps supplies `OK` for each relevant message when the worker submits. Android supplies it for a passive message when leaving the screen. A floating banner on Android is drawn above the questions while its trigger is hidden, so it keeps its answer. A visible confirmation box on Android starts with its stored string and gives `OK` when checked or a blank when cleared. Each answer participates in the ordinary relevance and validation cascade.
 
 Client-side form preview running entirely from the in-memory blueprint, with no
 XForm parsing. The non-writing authoring evaluator uses this same engine in a

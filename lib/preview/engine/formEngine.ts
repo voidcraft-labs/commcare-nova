@@ -2457,8 +2457,9 @@ export class FormEngine {
 		return this.validateWhere(() => true, true);
 	}
 
-	/** The native screen commit supplies OK for each passive trigger. The web
-	 * client also supplies it for interactive messages at submit. Check
+	/** The native screen commit supplies OK for each passive trigger. A
+	 * floating banner hides its trigger and keeps its existing answer. The web
+	 * client also supplies OK for interactive messages and banners at submit. Check
 	 * relevance after every answer: a dependent prompt can now be visible. */
 	private *messagesToConfirm(
 		include: (path: string) => boolean,
@@ -2471,12 +2472,14 @@ export class FormEngine {
 			const state = this.store.getState()[path];
 			if (state?.visible === false) continue;
 			if (field.kind === "label") {
+				const floating =
+					this.rules.questionBanner && field.banner !== undefined;
 				if (
 					include(path) &&
 					this.instance.get(path) !== "OK" &&
 					this.workerRelevantPaths().has(path) &&
 					(this.rules.messageConfirmation === "automatic" ||
-						!field.askForConfirmation)
+						(!field.askForConfirmation && !floating))
 				)
 					yield path;
 			} else if (field.kind === "repeat") {
