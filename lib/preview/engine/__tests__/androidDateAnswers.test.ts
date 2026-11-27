@@ -77,7 +77,7 @@ it("only saves date widgets that were visible when the Android worker left", () 
 	engine.setValue("/data/visit/show", "no");
 	expect(state("visit/rescheduled").value).toBe("2023-09-12");
 	engine.setValue("/data/visit/rescheduled", "");
-	engine.saveScreenDates();
+	engine.saveScreenAnswers();
 	engine.enterScreen("/data/last");
 	expect(state("visit/arrival").value).toBe(today);
 	expect(state("visit/rescheduled").value).toBe("");

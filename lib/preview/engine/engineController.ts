@@ -1640,8 +1640,8 @@ export class EngineController {
 			if (kind === "incomplete") {
 				// Android saves the displayed widget values before writing the
 				// incomplete instance, without enforcing required answers.
-				if (evaluate) await engine.saveScreenDatesAsync(evaluate);
-				else engine.saveScreenDates();
+				if (evaluate) await engine.saveScreenAnswersAsync(evaluate);
+				else engine.saveScreenAnswers();
 			}
 			const descriptor = await engine.savedFormDescriptor(evaluate);
 			if (this.currentEntryKey !== entryKey || this.engine !== engine) return;
@@ -3453,7 +3453,7 @@ export class EngineController {
 					 * request pass first (Formplayer rebuilds the session before
 					 * it validates a submission). */
 					if (within === undefined) {
-						engine.saveScreenDates();
+						engine.saveScreenAnswers();
 						engine.prepareSubmit();
 					}
 					return complete(
@@ -3481,7 +3481,7 @@ export class EngineController {
 					signal,
 				);
 				if (within === undefined) {
-					await engine.saveScreenDatesAsync(evaluate);
+					await engine.saveScreenAnswersAsync(evaluate);
 					await engine.prepareSubmitAsync(evaluate);
 				}
 				const valid =
@@ -3624,14 +3624,13 @@ export class EngineController {
 			return false;
 		if (
 			action === "leave" &&
-			(engine.currentScreenPath() !== path ||
-				engine.pendingScreenDays().length === 0)
+			(engine.currentScreenPath() !== path || !engine.hasScreenAnswersToSave())
 		)
 			return true;
 		if (this.xpathRuntime === undefined)
 			return this.contain("repeat-change", formUuid, false, () => {
 				if (action === "enter") engine.enterScreen(path);
-				else engine.saveScreenDates();
+				else engine.saveScreenAnswers();
 				this.syncAllPathsSelectively();
 				return true;
 			});
@@ -3649,7 +3648,7 @@ export class EngineController {
 				);
 				if (action === "enter") await engine.enterScreenAsync(path, evaluate);
 				else if (engine.currentScreenPath() === path)
-					await engine.saveScreenDatesAsync(evaluate);
+					await engine.saveScreenAnswersAsync(evaluate);
 				if (engine !== this.engine || entryKey !== this.currentEntryKey)
 					return false;
 				this.syncAllPathsSelectively();

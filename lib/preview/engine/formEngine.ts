@@ -2785,7 +2785,7 @@ export class FormEngine {
 
 	/** Day suggestions are owned by the live screen. Materializing the
 	 * blueprint's date paths excludes removed fields and removed repeat rows. */
-	pendingScreenDays(): { path: string; day: string }[] {
+	private pendingScreenDays(): { path: string; day: string }[] {
 		const screenPath = this.activeScreenPath;
 		if (this.rules.datePicker !== "shows-a-day" || !screenPath) return [];
 		this.fieldPathsByUuid();
@@ -2802,10 +2802,41 @@ export class FormEngine {
 		);
 	}
 
+	/** Leaving a single-question Android screen commits the text widget's
+	 * nonempty answer even when it equals the stored value. That can
+	 * replace a dependent repeat value that was just seeded. */
+	private pendingScreenTextDefault():
+		| { path: string; value: string }
+		| undefined {
+		const path = this.activeScreenPath;
+		if (this.device.platform !== "android" || !path) return undefined;
+		const state = this.store.getState()[path];
+		const field = this.findField(path);
+		if (
+			!state?.value ||
+			state.edited ||
+			!state.valid ||
+			field?.kind !== "text" ||
+			field.androidApp !== undefined ||
+			usesNumberKeypad(field, "android") ||
+			!this.workerRelevantPaths().has(path) ||
+			!this.startingValueSource(field)
+		)
+			return undefined;
+		return { path, value: state.value };
+	}
+
+	hasScreenAnswersToSave(): boolean {
+		return (
+			this.pendingScreenDays().length > 0 ||
+			this.pendingScreenTextDefault() !== undefined
+		);
+	}
+
 	/** Save the displayed answers from this actual visit through the same
 	 * value/cascade boundary as an explicit worker edit. Validation of a
 	 * different screen is only an inspection and never calls this. */
-	saveScreenDates(): string[] {
+	saveScreenAnswers(): string[] {
 		const saved: string[] = [];
 		for (const { path, day } of this.pendingScreenDays()) {
 			if (
@@ -2814,13 +2845,16 @@ export class FormEngine {
 			)
 				saved.push(path);
 		}
+		const textDefault = this.pendingScreenTextDefault();
+		if (textDefault && this.setValue(textDefault.path, textDefault.value))
+			saved.push(textDefault.path);
 		return saved;
 	}
 
-	async saveScreenDatesAsync(
+	async saveScreenAnswersAsync(
 		evaluate: FormEngineAsyncEvaluator,
 	): Promise<void> {
-		const paths = this.saveScreenDates();
+		const paths = this.saveScreenAnswers();
 		if (paths.length) {
 			await this.settleValueChangesAsync(paths, evaluate);
 			await this.reenterActiveScreenAsync(evaluate);
@@ -2879,7 +2913,7 @@ export class FormEngine {
 	): boolean {
 		const access = this.workerRepeatAccess(path, uuid, action);
 		if (typeof access !== "string") return access;
-		this.saveScreenDates();
+		this.saveScreenAnswers();
 		return (
 			this.validateScreen(access) &&
 			this.workerRepeatAccess(path, uuid, action) !== false
@@ -2894,7 +2928,7 @@ export class FormEngine {
 	): Promise<boolean> {
 		const access = this.workerRepeatAccess(path, uuid, action);
 		if (typeof access !== "string") return access;
-		await this.saveScreenDatesAsync(evaluate);
+		await this.saveScreenAnswersAsync(evaluate);
 		return (
 			(await this.validateScreenAsync(access, evaluate)) &&
 			this.workerRepeatAccess(path, uuid, action) !== false

@@ -456,7 +456,7 @@ async function runFormSnapshot(
 			.every((screen) => screen.kind === "form");
 		const leaveFor = async (target: string) => {
 			if (target !== engine.currentScreenPath())
-				await engine.saveScreenDatesAsync(evaluate);
+				await engine.saveScreenAnswersAsync(evaluate);
 		};
 		const moveForwardTo = async (target: string): Promise<boolean> => {
 			await leaveFor(target);
@@ -656,7 +656,7 @@ async function runFormSnapshot(
 		// commits the current entry when the worker chooses Submit on its last page.
 		let valid: boolean;
 		if (submitting) {
-			await engine.saveScreenDatesAsync(evaluate);
+			await engine.saveScreenAnswersAsync(evaluate);
 			await engine.prepareSubmitAsync(evaluate);
 			checkChoiceAnswers();
 			valid = await engine.validateAllAsync(evaluate);
