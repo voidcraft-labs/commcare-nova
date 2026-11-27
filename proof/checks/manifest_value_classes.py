@@ -2619,6 +2619,51 @@ def generated_menu_icon_only_in_media_map(use, manifest):
     return _generated_menu_icon_with_no_package_file(use, mapped=True)
 
 
+def generated_menu_audio_only_in_media_map(use, manifest):
+    """The menu reads the translated recording but no ordinary content packs it."""
+    at = _json(use)
+    if at is None or at.key != "translations" or not isinstance(at.value, dict):
+        return None
+    raw = at.app.doc
+    languages = raw.get("langs")
+    modules = raw.get("modules")
+    media_map = raw.get("multimedia_map")
+    if not isinstance(languages, list) or not isinstance(modules, list) or not isinstance(media_map, dict):
+        return None
+    carriers = json.dumps({key: value for key, value in raw.items()
+                           if key not in ("translations", "multimedia_map", "_attachments")})
+    if any(form.get("doc_type") != "ShadowForm" and form.get("unique_id") not in at.app.forms
+           for module in modules if isinstance(module, dict)
+           for form in module.get("forms", ()) if isinstance(form, dict)):
+        return None
+    source_xml = [
+        etree.tostring(form.root, encoding="unicode")
+        for form in at.app.forms.values()
+    ]
+    for index, module in enumerate(modules):
+        if not isinstance(module, dict) or module.get("doc_type") != "Module":
+            continue
+        ordinary = module.get("media_audio") or {}
+        if not isinstance(ordinary, dict) or not any(ordinary.get(lang) for lang in languages):
+            continue
+        for language in languages:
+            table = at.value.get(language)
+            path = table.get(f"modules.m{index}.audio") if isinstance(table, dict) else None
+            if not isinstance(path, str) or not re.fullmatch(
+                r"jr://file/commcare/audio/[A-Za-z0-9_][A-Za-z0-9_.-]*(?:/[A-Za-z0-9_][A-Za-z0-9_.-]*)*", path,
+            ):
+                continue
+            mapped = media_map.get(path)
+            if (
+                isinstance(mapped, dict) and mapped.get("media_type") == "CommCareAudio"
+                and isinstance(mapped.get("multimedia_id"), str)
+                and re.fullmatch(r"[A-Za-z0-9_-]+", mapped["multimedia_id"])
+                and path not in carriers and not any(path in form for form in source_xml)
+            ):
+                return True
+    return False
+
+
 def generated_menu_icon_outside_installation_languages(use, manifest):
     """A single-language named release uses a translated icon whose only carrier is an excluded basic form tile."""
     return _generated_menu_icon_with_no_package_file(use, mapped=True, profile_only=True)
@@ -14751,6 +14796,7 @@ VALUE_CLASSES = {
     "application-and-settings/a-non-empty-langs-code-outside-that-grammar-or-repeated": invalid_or_repeated_code,
     "application-and-settings/translations-generated-menu-icon-without-mapping": generated_menu_icon_without_mapping,
     "application-and-settings/translations-generated-menu-icon-only-in-media-map": generated_menu_icon_only_in_media_map,
+    "application-and-settings/translations-generated-menu-audio-only-in-media-map": generated_menu_audio_only_in_media_map,
     "application-and-settings/translations-generated-menu-icon-outside-installation-languages": generated_menu_icon_outside_installation_languages,
     "application-and-settings/translations-key-that-is-no-locale-record-under-its-own-name": (
         translation_key_not_its_own

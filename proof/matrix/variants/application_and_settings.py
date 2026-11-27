@@ -75,6 +75,15 @@ def menu_audio_override_with_only_a_map_entry(authoring, app_id):
     assert path not in app.all_media_paths()
 
 
+def menu_audio_override_with_only_a_second_language_carrier(authoring, app_id):
+    """The mapped recording appears on a French form, with an English menu override."""
+    menu_audio_override_with_only_a_map_entry(authoring, app_id)
+    ops.set_json(authoring, app_id, "/langs", ["en", "fr"])
+    ops.set_json(authoring, app_id, "/modules/0/forms/0/media_audio", {
+        "fr": "jr://file/commcare/audio/data/animal_name.mp3",
+    })
+
+
 def translation_overrides_a_detail_tab_title(authoring, app_id):
     """The Case Detail editor changes the tab's ordinary header independently of the generated override."""
     import json

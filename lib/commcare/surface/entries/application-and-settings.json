@@ -2040,6 +2040,32 @@
 		"gates": []
 	},
 	{
+		"id": "application-and-settings/translations-generated-menu-audio-only-in-media-map",
+		"area": "application-and-settings",
+		"section": "Application",
+		"item": "A generated menu audio locale names a mapped recording with no ordinary carrier",
+		"surfaceKeys": ["schema:Application.translations"],
+		"valueClass": "generated-menu-audio-only-in-media-map",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: broken at runtime: HQ keeps the translated file path in the menu locale but omits the recording from its media package when no ordinary field, form or menu requests it",
+		"subject": "translation-overrides",
+		"reasons": [
+			{
+				"kind": "broken-at-runtime",
+				"named": "HQ keeps the translated file path in the menu locale but omits the recording from its media package when no ordinary field, form or menu requests it"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
 		"id": "application-and-settings/translations-generated-menu-icon-only-in-media-map",
 		"area": "application-and-settings",
 		"section": "Application",

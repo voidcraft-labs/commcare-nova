@@ -305,6 +305,10 @@ const generatedMenuIconOnlyInMediaMap = refuse(
 	"application-and-settings/translations-generated-menu-icon-only-in-media-map",
 	"schema:Application.translations",
 );
+const generatedMenuAudioOnlyInMediaMap = refuse(
+	"application-and-settings/translations-generated-menu-audio-only-in-media-map",
+	"schema:Application.translations",
+);
 const generatedMenuIconOutsideInstallation = refuse(
 	"application-and-settings/translations-generated-menu-icon-outside-installation-languages",
 	"schema:Application.translations",
@@ -318,6 +322,7 @@ defineClaims("menus.navMedia", {
 	generatedMediaNotPackaged,
 	generatedMenuIconWithoutMapping,
 	generatedMenuIconOnlyInMediaMap,
+	generatedMenuAudioOnlyInMediaMap,
 	generatedMenuIconOutsideInstallation,
 	generatedMediaNoEffect,
 });
@@ -435,14 +440,27 @@ const fileInventoryKeys = new Set([
 /** HQ prunes a mapped resource only if no ordinary carrier or logo in the
  * full app requests the path. Require a complete source inventory and leave
  * any other mention to its own carrier's reader. */
-function menuIconOnlyInMediaMap(ctx: ReadContext, path: string): boolean {
+function noOrdinaryCarrier(ctx: ReadContext, path: string): boolean {
 	return (
-		mappedMenuIcon(ctx, path) &&
 		!Object.entries(ctx.input.source.raw).some(
 			([key, value]) =>
 				!fileInventoryKeys.has(key) && mentionsPath(value, path),
+		) && xmlSourcesExcludeFile(ctx, path)
+	);
+}
+
+function menuAudioOnlyInMediaMap(ctx: ReadContext, path: string): boolean {
+	return (
+		/^jr:\/\/file\/commcare\/audio\/[A-Za-z0-9_][A-Za-z0-9_.-]*(?:\/[A-Za-z0-9_][A-Za-z0-9_.-]*)*$/.test(
+			path,
 		) &&
-		xmlSourcesExcludeFile(ctx, path)
+		ctx.input.source.multimediaMap?.some(
+			(item) =>
+				item.path === path &&
+				item.mediaType === "CommCareAudio" &&
+				item.multimediaId !== null,
+		) === true &&
+		noOrdinaryCarrier(ctx, path)
 	);
 }
 
@@ -587,8 +605,18 @@ export function accountNavigationMediaOverride(
 		let claim = generatedMediaNotPackaged;
 		if (localMenuIcon && override.pending?.resolution === "no-entry")
 			claim = generatedMenuIconWithoutMapping;
-		else if (localMenuIcon && menuIconOnlyInMediaMap(ctx, override.path))
+		else if (
+			localMenuIcon &&
+			mappedMenuIcon(ctx, override.path) &&
+			noOrdinaryCarrier(ctx, override.path)
+		)
 			claim = generatedMenuIconOnlyInMediaMap;
+		else if (
+			override.carrierClass === "Module" &&
+			override.role === "audioLabel" &&
+			menuAudioOnlyInMediaMap(ctx, override.path)
+		)
+			claim = generatedMenuAudioOnlyInMediaMap;
 		else if (
 			localMenuIcon &&
 			menuIconOutsideInstallation(

@@ -25286,12 +25286,27 @@
 	{
 		"id": "hq-media/translation-overrides-menu-audio-with-only-a-map-entry",
 		"base": "hq-media",
-		"entry": "application-and-settings/translations-generated-navigation-file-not-packaged",
-		"standing": "not-yet",
-		"place": { "kind": "app" },
+		"entry": "application-and-settings/translations-generated-menu-audio-only-in-media-map",
+		"standing": "fix-in-hq",
+		"place": {
+			"kind": "app"
+		},
 		"change": {
 			"op": "named",
 			"name": "menu_audio_override_with_only_a_map_entry"
+		}
+	},
+	{
+		"id": "hq-media/translation-overrides-menu-audio-with-a-second-language-carrier",
+		"base": "hq-media",
+		"entry": "application-and-settings/translations-generated-navigation-file-not-packaged",
+		"standing": "not-yet",
+		"place": {
+			"kind": "app"
+		},
+		"change": {
+			"op": "named",
+			"name": "menu_audio_override_with_only_a_second_language_carrier"
 		}
 	},
 	{
