@@ -565,3 +565,34 @@ it("writes automatic selection on the ordinary list and its collection datum", (
 		"max-select-value": "15",
 	});
 });
+
+it.each([false, true])(
+	"emits a bound of 101 in HQ and Archive for the flat close (automatic %s)",
+	(automatic) => {
+		const doc = fixture("close", [
+			f({ kind: "hidden", id: "ready", calculate: "'yes'" }),
+		]);
+		doc.appSettings.runsOnlyOn = "web-apps";
+		const [module] = doc.moduleOrder;
+		const [form] = doc.formOrder[module];
+		doc.forms[form].postSubmit = "app_home";
+		const config = doc.modules[module].caseListConfig;
+		if (!config) throw new Error("Missing case list");
+		config.selection = {
+			kind: "multiple",
+			maximum: 101,
+			...(automatic && { autoSelect: true }),
+		};
+		const { hq, entry } = artifacts(doc);
+		expect(hq.modules[0]?.case_details.short).toMatchObject({
+			multi_select: true,
+			max_select_value: 101,
+			...(automatic && { auto_select: true }),
+		});
+		const datum = one(
+			findAll((element) => element.name === "instance-datum", entry.children),
+		);
+		expect(datum.attribs["max-select-value"]).toBe("101");
+		expect(datum.attribs.autoselect ?? "false").toBe(String(automatic));
+	},
+);
