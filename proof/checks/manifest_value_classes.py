@@ -7405,7 +7405,7 @@ def _standalone_result_detail_branch(use):
         return None
     search = module.get("search_config")
     if (
-        (at.nearest("Application") or {}).get("cloudcare_enabled") is not True
+        (at.nearest("Application") or {}).get("cloudcare_enabled") is not web_apps
         or not isinstance(search, dict)
         or search.get("auto_launch") is not True
         or search.get("default_search") is True
@@ -7464,7 +7464,7 @@ def standalone_result_detail_text(use, manifest):
     return len(prompts) == 1 and not prompts[0].get("appearance") and prompts[0].get("input_") in (None, "", "text", "date", "daterange")
 
 
-def standalone_result_list_text(use, manifest):
+def _standalone_result_list_text(use, *, web_apps):
     at, detail, kind, module = _detail_of(use)
     if kind != "short" or at.key != "field" or not at.owner.get("useXpathExpression"):
         return False
@@ -7503,6 +7503,14 @@ def standalone_result_list_text(use, manifest):
                     if length == 2 or args[1] == path:
                         return True
     return False
+
+
+def standalone_result_list_text(use, manifest):
+    return _standalone_result_list_text(use, web_apps=True)
+
+
+def standalone_result_list_without_web_apps(use, manifest):
+    return _standalone_result_list_text(use, web_apps=False)
 
 
 def standalone_result_detail_fixed_text(use, manifest):
@@ -15401,6 +15409,7 @@ VALUE_CLASSES = {
     "menus-and-case-lists/lookup-extra-with-a-fixed-integer-sum": lookup_with_native_integer_sum,
     "menus-and-case-lists/lookup-extras-explicit-evaluation": lookup_with_forced_extras,
     "menus-and-case-lists/lookup-extra-relative-without-case-context": lookup_extra_relative_without_case_context,
+    "menus-and-case-lists/standalone-search-result-list-answer-without-web-apps": standalone_result_list_without_web_apps,
     "menus-and-case-lists/lookup-extras-key-value": lookup_with_nonliteral_arguments,
     "menus-and-case-lists/lookup-case-id-result-without-a-header-map": lookup_missing_case_id_result_header,
     "menus-and-case-lists/lookup-display-results-lookup-field-header-lookup-field-template": (

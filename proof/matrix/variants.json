@@ -23942,12 +23942,12 @@
 		]
 	},
 	{
-		"id": "hq-expressions/fingerprint-query-guarded-second-result",
+		"id": "hq-expressions/fingerprint-query-second-result",
 		"base": "hq-expressions",
 		"entry": "expressions-and-data/guarded-fingerprint-query-without-a-supplier",
 		"change": {
 			"op": "named",
-			"name": "fingerprint_query_guarded_second_result"
+			"name": "fingerprint_query_second_result"
 		},
 		"holds": [
 			{
@@ -23961,7 +23961,7 @@
 		]
 	},
 	{
-		"id": "hq-expressions/fingerprint-query-second-result",
+		"id": "hq-expressions/fingerprint-query-singleton-guard-on-second-result",
 		"base": "hq-expressions",
 		"entry": "expressions-and-data/session-data-fingerprintquery",
 		"standing": "not-yet",
@@ -23975,7 +23975,7 @@
 		},
 		"change": {
 			"op": "named",
-			"name": "fingerprint_query_second_result"
+			"name": "fingerprint_query_singleton_guard_on_second_result"
 		}
 	},
 	{
@@ -46736,11 +46736,27 @@
 	{
 		"id": "hq-search/search-input-in-the-results-detail",
 		"base": "hq-search",
-		"entry": "expressions-and-data/search-input-results-read-in-the-search-results-detail",
+		"entry": "menus-and-case-lists/standalone-search-result-list-answer-without-web-apps",
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/0/case_details/short/columns/1/field",
 			"value": "instance('search-input:results')/input/field[@name = 'village']"
+		},
+		"standing": "fix-in-hq",
+		"place": {
+			"kind": "case-list",
+			"menu": 0,
+			"name": "Clients"
+		}
+	},
+	{
+		"id": "hq-search/search-input-wrapped-in-the-results-detail",
+		"base": "hq-search",
+		"entry": "expressions-and-data/search-input-results-read-in-the-search-results-detail",
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/0/case_details/short/columns/1/field",
+			"value": "string(instance('search-input:results')/input/field[@name = 'village'])"
 		},
 		"standing": "not-yet",
 		"place": {

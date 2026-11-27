@@ -132,6 +132,10 @@ export const COLUMN_CLAIMS = defineClaims("caseList.columns", {
 		`${A}standalone-search-result-list-text`,
 		"schema:DetailColumn.field",
 	),
+	searchResultListAndroid: refuse(
+		`${A}standalone-search-result-list-answer-without-web-apps`,
+		"schema:DetailColumn.field",
+	),
 	searchResultDetail: take(
 		`${A}standalone-search-result-detail-text`,
 		"schema:DetailColumn.field",
@@ -1432,6 +1436,7 @@ export interface ColumnOptions {
 	 *  (`helpers/validators.py::ModuleBaseValidator.validate_detail_columns`). */
 	readonly searchInstancesRead: boolean;
 	readonly standaloneResultDetailText?: boolean;
+	readonly standaloneAndroidTextAnswers?: ReadonlySet<string>;
 	readonly inlineResultProperty?: boolean;
 	/** The walk a column's indices name from the menu's case type, each step typed as Nova types
 	 *  it (`parent` by the catalog's parent, any other index by the type the app links it to), and
@@ -1982,18 +1987,31 @@ function readColumn(
 			inlineResultProperty: true,
 		});
 	}
-	const resultDetailText =
+	const parsedResultText =
 		field.xpath &&
 		format === "plain" &&
-		options.standaloneResultDetailText &&
+		(options.standaloneResultDetailText ||
+			options.standaloneAndroidTextAnswers?.size) &&
 		!options.dataRows &&
 		!options.fixtureRow &&
 		loadBehavior === undefined
 			? readResultDetailText(field.text, screen)
 			: undefined;
+	const unavailableAndroidAnswer =
+		parsedResultText &&
+		"inputName" in parsedResultText &&
+		options.standaloneAndroidTextAnswers?.has(parsedResultText.inputName);
+	const resultDetailText =
+		options.standaloneResultDetailText || unavailableAndroidAnswer
+			? parsedResultText
+			: undefined;
 	if (resultDetailText) {
 		column.take("useXpathExpression", C.fieldCalculated, Boolean).value;
 		column.take("format", C.plain, String).value;
+		if (unavailableAndroidAnswer) {
+			column.refuse("field", C.searchResultListAndroid);
+			return undefined;
+		}
 		return proposal(
 			{
 				kind: "calculated",

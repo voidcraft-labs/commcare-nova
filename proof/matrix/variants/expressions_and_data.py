@@ -173,18 +173,18 @@ def fingerprint_query_guarded(authoring, app_id):
               "fingerprint-query-guarded")
 
 
-def fingerprint_query_guarded_second_result(authoring, app_id):
+def fingerprint_query_second_result(authoring, app_id):
     """The absent-count guard takes the fallback before the second position is read."""
     read = f"{SESSION}/data/fingerprintquery"
     _language(authoring, app_id, f"if(count({read}) = 0, 'No lookup result', string({read}[2]))",
-              "fingerprint-query-guarded-second-result")
+              "fingerprint-query-second-result")
 
 
-def fingerprint_query_second_result(authoring, app_id):
+def fingerprint_query_singleton_guard_on_second_result(authoring, app_id):
     """A singleton check does not guard the second-position read when the frame is empty."""
     read = f"{SESSION}/data/fingerprintquery"
     _language(authoring, app_id, f"if(count({read}) = 1, 'No lookup result', string({read}[2]))",
-              "fingerprint-query-second-result")
+              "fingerprint-query-singleton-guard-on-second-result")
 
 def window_width_in_form_logic(authoring, app_id):
     """A read of ``session/context/window_width`` in a calculation."""

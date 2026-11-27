@@ -588,6 +588,8 @@ export const FIX_IN_HQ_ENTRY_SENTENCES: Readonly<Record<string, string>> = {
 		"The form builder marks this Case Property name as an error because it contains a Roman numeral character. In CommCare HQ, you can choose a name with ordinary letters or digits. If existing cases use this property, move its values before switching the mapping.",
 	"forms-and-case-writes/whole-number-starting-answer-from-free-text":
 		"A follow-up saves free text to the property this whole-number question starts from. A word saved there can stop the form from opening. In CommCare HQ, you can store the free text in a different property or change where the number starts.",
+	"menus-and-case-lists/standalone-search-result-list-answer-without-web-apps":
+		"Android keeps the Search results without the answers that produced them. Remove this calculated column in CommCare HQ, or use this feature in a Web Apps-only app.",
 	"forms-and-case-writes/basic-update-key-with-an-accented-latin-name":
 		"The form builder marks this question’s accented Case Property name as an error. You can choose a property with unaccented letters in CommCare HQ. If existing cases use the accented property, move those values before switching the mapping.",
 	"application-and-settings/translations-generated-menu-audio-outside-installation-languages":

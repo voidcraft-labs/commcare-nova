@@ -6299,6 +6299,28 @@
 		}
 	},
 	{
+		"id": "menus-and-case-lists/standalone-search-result-list-answer-without-web-apps",
+		"area": "menus-and-case-lists",
+		"section": "Case list and case detail",
+		"subsection": "Column formats",
+		"item": "A Search-first Results column reads an answer in an Android app",
+		"surfaceKeys": ["schema:DetailColumn.field"],
+		"valueClass": "standalone-search-result-list-answer-without-web-apps",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: Android adds the returned records to the session. The Results column cannot read the submitted Search prompts there.",
+		"subject": "case-list-columns",
+		"reasons": [
+			{
+				"kind": "broken-at-runtime",
+				"named": "Android keeps the returned records but does not retain the submitted Search choices for the Results detail to read."
+			}
+		],
+		"slotChanges": [],
+		"platforms": { "kind": "none", "cell": "—" },
+		"emission": { "cell": "—", "markers": [] },
+		"gates": []
+	},
+	{
 		"id": "menus-and-case-lists/standalone-search-result-detail-text",
 		"area": "menus-and-case-lists",
 		"section": "Case list and case detail",

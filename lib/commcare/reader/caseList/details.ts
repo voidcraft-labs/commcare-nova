@@ -2109,12 +2109,36 @@ export function readCaseDetails(
 		autoLaunch &&
 		search.inline_search === true &&
 		(search.instance_name == null || search.instance_name === "inline");
-	const standaloneResultDetailText =
-		ctx.facts.webAppsOnInHq &&
+	const standalonePromptRoute =
 		isJsonObject(search) &&
 		search.auto_launch === true &&
 		search.inline_search !== true &&
 		search.default_search !== true;
+	const standaloneResultDetailText =
+		ctx.facts.webAppsOnInHq && standalonePromptRoute;
+	const caseList = module.json.peek("case_list");
+	const standaloneAndroidTextAnswers =
+		ctx.input.source.cloudcareEnabled === false &&
+		standalonePromptRoute &&
+		!search.case_search_endpoint_id &&
+		!inTile &&
+		short.peek("multi_select") !== true &&
+		(!isJsonObject(caseList) || caseList.show !== true) &&
+		Array.isArray(search.properties)
+			? new Set(
+					search.properties.flatMap((prompt) =>
+						isJsonObject(prompt) &&
+						typeof prompt.name === "string" &&
+						!prompt.hidden &&
+						!prompt.appearance &&
+						(prompt.input_ == null ||
+							prompt.input_ === "" ||
+							prompt.input_ === "text")
+							? [prompt.name]
+							: [],
+					),
+				)
+			: undefined;
 	const shortOptions: Omit<ColumnOptions, "filterChangesBuild"> = {
 		...shared,
 		inTile,
@@ -2124,6 +2148,7 @@ export function readCaseDetails(
 			autoLaunch || short.peek("instance_name") === "results",
 		inlineResultProperty,
 		standaloneResultDetailText,
+		standaloneAndroidTextAnswers,
 	};
 	const longOptions: ColumnOptions = {
 		...shared,
