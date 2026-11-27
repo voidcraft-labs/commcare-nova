@@ -972,6 +972,7 @@ function readProperties(
 		readonly ownLoad?: {
 			readonly closes: boolean;
 			readonly sourceLoad: Readonly<Record<string, unknown>>;
+			readonly earlierChosenLoad?: Readonly<Record<string, unknown>>;
 			readonly preloadedLabels: ReadonlyMap<
 				DraftField,
 				Readonly<Record<string, unknown>> | null
@@ -1142,7 +1143,8 @@ function readProperties(
 			(preload === undefined ||
 				(passive &&
 					!options.ownLoad?.closes &&
-					preload === options.ownLoad?.sourceLoad)) &&
+					(preload === options.ownLoad?.sourceLoad ||
+						preload === options.ownLoad?.earlierChosenLoad))) &&
 			!source.expressions.some(
 				(expression) => expression.slot === "default_value",
 			)
@@ -2189,7 +2191,18 @@ function readOrdinaryAdvancedActions(
 				...(last &&
 					!automatic &&
 					caseType !== "commcare-user" && {
-						ownLoad: { closes, sourceLoad: load, preloadedLabels },
+						ownLoad: {
+							closes,
+							sourceLoad: load,
+							preloadedLabels,
+							...(i === 1 &&
+								storedLoads.length === 2 &&
+								chosenIndexes.length === 2 &&
+								chosenIndexes[0] === 0 &&
+								isJsonObject(storedLoads[0]) && {
+									earlierChosenLoad: storedLoads[0],
+								}),
+						},
 					}),
 			},
 		);

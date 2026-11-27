@@ -26,7 +26,8 @@ QUESTION = "/data/seen_label"
 
 def _seed():
     return [
-        _case(HOUSEHOLD, _create("household", "Witness household")),
+        _case(HOUSEHOLD, _create("household", "Witness household") +
+              "<update><village>From the selected household</village></update>"),
         _case(MEMBER, _create("member", "Witness member") +
               f'<index><parent case_type="household">{HOUSEHOLD}</parent></index>'
               "<update><seen>before</seen><notes>From the selected member</notes></update>"),
@@ -91,14 +92,18 @@ def _received(state, submission, relevant=True, closes=False, answer="OK"):
     ("load_writes_a_label", False, "OK"),
     ("load_writes_a_label_and_closes", True, "OK"),
     ("load_writes_a_preloaded_label", False, "From the selected member"),
-], ids=["update", "update-and-close", "preloaded"])
+    ("load_writes_a_label_preloaded_from_an_earlier_case", False, "From the selected household"),
+], ids=["update", "update-and-close", "preloaded", "preloaded-from-household"])
 def test_advanced_editor_label_write_keeps_the_submitted_answer_and_case(
     hq, core_runner, editor_driver, tmp_path, variant, closes, answer
 ):
     with hq_check(BASE.configuration) as (unit, _):
         authoring, app_id, form = _authored_label(unit, editor_driver, variant)
+        preloaded = "preloaded" in variant
         if variant == "load_writes_a_preloaded_label":
             assert form.actions.load_update_cases[1].preload[QUESTION] == "notes"
+        if variant == "load_writes_a_label_preloaded_from_an_earlier_case":
+            assert form.actions.load_update_cases[0].preload[QUESTION] == "village"
 
         def read(relevant):
             built = compare.build(unit, app_id, unit.record)
@@ -110,7 +115,7 @@ def test_advanced_editor_label_write_keeps_the_submitted_answer_and_case(
             with admitted(core_runner, arrange(built.files, tmp_path / f"label-{relevant}")) as admission:
                 assert admission["admitted"], admission["problems"]
                 table = load_answer_table()
-                table["novaKinds"]["label-control"] = [] if variant == "load_writes_a_preloaded_label" else ["OK"]
+                table["novaKinds"]["label-control"] = [] if preloaded else ["OK"]
                 table["novaKinds"]["adjacent-text"] = [TEXT]
                 trace = core_runner.session(
                     admission["app"], restore=_restore(), answer_table=table,
@@ -124,7 +129,7 @@ def test_advanced_editor_label_write_keeps_the_submitted_answer_and_case(
             _received(unit, payload, relevant, closes, answer)
 
         read(True)
-        if variant == "load_writes_a_preloaded_label":
+        if preloaded:
             return
 
         def hide(root, _form):
