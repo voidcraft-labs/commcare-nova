@@ -16,6 +16,7 @@ import {
 } from "@/lib/commcare/__tests__/menuFormRoutesFixture";
 import { rebuildFieldParent } from "@/lib/doc/fieldParent";
 import type { BlueprintDoc } from "@/lib/domain";
+import { effectiveAppLocalization } from "@/lib/domain/localization";
 import {
 	WEB_APPS_RULES,
 	webAppsDevice,
@@ -36,6 +37,7 @@ import type { AppTestScreen, AppTestSessionState } from "../types";
 function contextOf(doc: BlueprintDoc): AppTestContext {
 	return {
 		doc,
+		language: effectiveAppLocalization(doc.localization).defaultLanguage,
 		identity: previewAsMe({ id: "worker", name: "Worker" }, doc),
 		device: webAppsDevice(),
 		lookup: previewLookupData({

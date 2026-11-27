@@ -9,6 +9,7 @@ import {
 import { updateTranslationsInputSchema } from "@/lib/agent/tools/localization";
 import { proseText } from "@/lib/domain";
 import { formIconRefSchema } from "@/lib/domain/builtinIcons";
+import { prosePartSchema, proseTemplateSchema } from "@/lib/domain/prose";
 import { AuthoringScope } from "../bindings";
 import { AuthoringInputError } from "../errors";
 import { parseAuthoringIcon, printAuthoringIcon } from "../icons";
@@ -38,10 +39,20 @@ const unavailable: AuthoringValueDecoders = {
 	datum: noDecoder,
 };
 
-it("removes storage expression families from every registered tool while retaining unrelated objects", () => {
+it("removes storage prose templates from every registered tool while retaining unrelated objects", () => {
+	const referenceKinds = prosePartSchema.options
+		.map((option) => option.shape.kind.value)
+		.filter((kind) => kind.endsWith("-ref"));
+	const hasStorageReferences = (schema: unknown) => {
+		const json = JSON.stringify(schema);
+		return referenceKinds.some((kind) => json.includes(`"const":"${kind}"`));
+	};
+	expect(hasStorageReferences(z.toJSONSchema(proseTemplateSchema))).toBe(true);
 	for (const entry of SHARED_TOOL_REGISTRY) {
-		const json = JSON.stringify(authoringJsonSchema(entry.tool.inputSchema));
-		expect(json, entry.saName).not.toContain('"parts":');
+		expect(
+			hasStorageReferences(authoringJsonSchema(entry.tool.inputSchema)),
+			entry.saName,
+		).toBe(false);
 		expect(
 			() => authoringSchema(entry.tool.inputSchema),
 			entry.saName,
@@ -52,6 +63,7 @@ it("removes storage expression families from every registered tool while retaini
 		label: z.object({ text: z.string() }),
 	});
 	const input = { parts: ["ordinary data"], label: { text: "untouched" } };
+	expect(hasStorageReferences(authoringJsonSchema(unrelated))).toBe(false);
 	expect(authoringSchema(unrelated).parse(input)).toEqual(input);
 	expect(decodeAuthoringValues(unrelated, input, unavailable)).toEqual(input);
 });

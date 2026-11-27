@@ -1016,7 +1016,11 @@ export function generateToolSchemas(
 	kinds: readonly FieldKind[] = fieldKinds,
 ): GeneratedToolSchemas {
 	return {
-		addFieldsItemSchema: buildAddFieldsItemSchema(kinds),
+		// An existing case change can own a position brought in with the form.
+		// New case changes are created by the case operation tool.
+		addFieldsItemSchema: buildAddFieldsItemSchema(
+			kinds.filter((kind) => kind !== "case_change"),
+		),
 		editFieldUpdatesSchema: buildEditFieldUpdatesSchema(kinds),
 	};
 }

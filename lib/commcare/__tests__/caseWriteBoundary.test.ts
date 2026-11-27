@@ -688,13 +688,13 @@ it("fails closed on a question id no XML element can carry", () => {
 	expect(verdict.ok).toBe(true);
 	valid(verdict.nextDoc);
 	const corrupted = structuredClone(verdict.nextDoc);
-	corrupted.fields[built.field.uuid].id = "bad.id";
+	corrupted.fields[built.field.uuid].id = "bad id";
 	expect(
 		runValidation(corrupted, LOOKUP_CONTEXT_UNAVAILABLE).map(
 			(finding) => finding.code,
 		),
 	).toEqual(["INVALID_FIELD_ID"]);
 	expect(() => buildFormActions(corrupted, built.formUuid)).toThrow(
-		/invalid element name "bad.id"/,
+		/placement takes a basic slot only for a question of the form/,
 	);
 });

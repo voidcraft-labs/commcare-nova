@@ -200,17 +200,32 @@ describe("the served grammars take the names Nova holds", () => {
 		expect(takes("add_case_operations", "property", "first name")).toBe(false);
 	});
 
-	it("takes a Search field named with a hyphen, on every tool that names one", () => {
-		for (const tool of [
-			"add_search_inputs",
-			"update_search_input",
-			"configure_case_list",
-		]) {
-			const names = patternedAt(tool, "name");
-			for (const schema of names)
-				expect(NO_HYPHEN_PATTERNS.has(schema.pattern as string)).toBe(false);
-			expect(takes(tool, "name", "first-name"), tool).toBe(true);
-			expect(takes(tool, "name", "first name"), tool).toBe(false);
+	it("serves the separate Search question and address publisher name grammars", () => {
+		for (const [tool, container, array] of [
+			["add_search_inputs", "searchInputs", true],
+			["update_search_input", "searchInput", false],
+			["configure_case_list", "searchInputs", true],
+		] as const) {
+			const root = served(tool);
+			const members = root.properties as Json;
+			const body = resolved(root, members[container] as Json);
+			const input = array ? resolved(root, body.items as Json) : body;
+			const arms = (input.anyOf ?? input.oneOf) as Json[];
+			expect(arms.length, tool).toBeGreaterThan(1);
+			let addresses = 0;
+			for (const arm of arms) {
+				const properties = resolved(root, arm).properties as Json;
+				const kind = resolved(root, properties.kind as Json);
+				const name = resolved(root, properties.name as Json);
+				const publishesAddress = kind.const === "address";
+				if (publishesAddress) addresses++;
+				expect(typeof name.pattern, tool).toBe("string");
+				const accepts = validator(name);
+				expect(accepts("first_name"), tool).toBe(true);
+				expect(accepts("first-name"), tool).toBe(!publishesAddress);
+				expect(accepts("first name"), tool).toBe(false);
+			}
+			expect(addresses, tool).toBe(1);
 		}
 	});
 

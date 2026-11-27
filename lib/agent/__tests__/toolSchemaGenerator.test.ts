@@ -60,14 +60,26 @@ function validAddPayload(kind: string): Record<string, unknown> {
 }
 
 describe("toolSchemaGenerator", () => {
-	it("accepts a valid payload for every registry kind on the add tool", () => {
-		for (const kind of fieldKinds) {
+	it("accepts a valid payload for every kind the author can add as a question", () => {
+		for (const kind of fieldKinds.filter((kind) => kind !== "case_change")) {
 			const payload = validAddPayload(kind);
 			expect(
 				generated.addFieldsItemSchema.safeParse(payload).success,
 				`addFields arm for ${kind}`,
 			).toBe(true);
 		}
+	});
+
+	it("keeps a case change's position out of the add question tool", () => {
+		expect(generated.addFieldsItemSchema.shape.kind.options).not.toContain(
+			"case_change",
+		);
+		expect(
+			generated.editFieldUpdatesSchema.safeParse({
+				kind: "case_change",
+				id: "save_visit",
+			}).success,
+		).toBe(true);
 	});
 
 	it("sets and clears the Android photo size on image questions", () => {

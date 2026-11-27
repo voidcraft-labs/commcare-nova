@@ -47,6 +47,11 @@ const fixtures = [
 	{ ...identity, kind: "hidden" },
 	{
 		...identity,
+		kind: "case_change",
+		operationUuid: testUuid("save-visit"),
+	},
+	{
+		...identity,
 		kind: "connect_activity",
 		activity: { kind: "assigned-task", name: "Call", description: "" },
 	},
