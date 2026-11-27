@@ -1038,6 +1038,10 @@ A change that holds one removes its line.
 - **An Advanced follow-up with two manual case choices** can use a direct property of the
   earlier case to fill one passive root label. A write from that label stays with the later
   selected case. Competing starting values on the same label keep the specific finding.
+- **A Save to Case create that can reuse a case ID** keeps an explicit always-true owner
+  condition. A condition that can omit the owner receives the dedicated runtime refusal.
+  HQ preserves an existing owner and Core assigns the submitting worker when the same
+  submission omits the owner field.
 - **A fresh root Save to Case create with a later guarded owner** holds both owner leaves
   in its one case block. The reader keeps the initial owner on creation and reads the
   later owner and its condition separately. The generated scalar guard checks the later

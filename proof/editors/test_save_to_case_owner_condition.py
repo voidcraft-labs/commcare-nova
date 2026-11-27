@@ -27,9 +27,9 @@ PATH = "/data/save_person/case"
 CONDITION = "/data/decision = 'transfer'"
 
 
-def _form_source(xmlns, action, *, owners=None):
+def _form_source(xmlns, action, *, owners=None, condition=CONDITION):
     casedb = ""
-    owner_bind = f"""<bind nodeset="{PATH}/{action}/owner_id" calculate="'new-owner'" relevant="{CONDITION}"/>"""
+    owner_bind = f"""<bind nodeset="{PATH}/{action}/owner_id" calculate="'new-owner'" relevant="{condition}"/>"""
     if action == "create":
         update_owner = "<owner_id/>" if owners is not None else ""
         effects = (
@@ -128,20 +128,24 @@ def _observe(state, core_runner, app, form, decision, action):
     )
 
 
-@pytest.mark.parametrize("action", ["update", "create"])
+@pytest.mark.parametrize(
+    ("action", "condition"),
+    [("update", CONDITION), ("create", CONDITION), ("create", "true()")],
+    ids=["update", "create", "always-owner-on-aliased-create"],
+)
 def test_vellum_keeps_conditional_owner_effects_and_core_and_hq_process_them(
-    hq, core_runner, editor_driver, tmp_path, action
+    hq, core_runner, editor_driver, tmp_path, action, condition,
 ):
     with hq_check(Configuration(privileges={"VELLUM_SAVE_TO_CASE"})) as (state, record):
         app_id = publish_hq_app(state, TWO_LANGUAGE_APP)
         form = operations.held_app(state, app_id).modules[0].forms[0]
-        _patched(state, app_id, form.unique_id, _form_source(form.xmlns, action), "conditional owner")
+        _patched(state, app_id, form.unique_id, _form_source(form.xmlns, action, condition=condition), "conditional owner")
         run = vellum.fresh_open_and_save(editor_driver, state, app_id, form.unique_id)
         assert run.loaded and run.saved, (run.load_error, run.save_refusal)
         saved = etree.fromstring(run.stored_source.encode())
         bind, = [bind for bind in saved.iter(f"{{{XFORMS}}}bind")
                  if bind.get("nodeset") == f"{PATH}/{action}/owner_id"]
-        assert bind.get("relevant") == CONDITION
+        assert bind.get("relevant") == condition
         assert bind.get("calculate") == "'new-owner'"
 
         built = compare.build(state, app_id, record)
@@ -151,7 +155,9 @@ def test_vellum_keeps_conditional_owner_effects_and_core_and_hq_process_them(
             retained = _observe(state, core_runner, admission["app"], form, "keep", action)
             sent = _observe(state, core_runner, admission["app"], form, "transfer", action)
     assert sent == ("new-owner", "new-owner", "new-owner")
-    if action == "update":
+    if condition == "true()":
+        assert retained == sent
+    elif action == "update":
         assert retained == (None, "old-owner", "old-owner")
     else:
         assert retained[0] is None

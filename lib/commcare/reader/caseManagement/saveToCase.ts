@@ -1894,9 +1894,10 @@ function readBlock(
 		const ownerBind = bindAt("case/create/owner_id");
 		if (ownerBind?.attribs.relevant !== undefined) {
 			if (
-				target.kind !== "new" ||
-				target.idFrom !== undefined ||
-				target.authoredId !== undefined
+				!isCall(ownerBind.attribs.relevant, "true") &&
+				(target.kind !== "new" ||
+					target.idFrom !== undefined ||
+					target.authoredId !== undefined)
 			)
 				return {
 					ok: false,

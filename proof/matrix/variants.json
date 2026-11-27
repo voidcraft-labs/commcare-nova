@@ -38127,7 +38127,7 @@
 		"id": "hq-questions/save-to-case-conditional-owner-aliased-create",
 		"base": "hq-questions",
 		"entry": "questions/savetocase-owner-condition-on-an-aliased-create",
-		"standing": "not-yet",
+		"standing": "fix-in-hq",
 		"place": {
 			"kind": "question",
 			"menu": 0,
@@ -38140,6 +38140,27 @@
 			"op": "named",
 			"name": "save_to_case_conditional_owner_aliased_create"
 		}
+	},
+	{
+		"id": "hq-questions/save-to-case-always-owner-aliased-create",
+		"base": "hq-questions",
+		"entry": "questions/savetocase-owner-id-condition",
+		"change": {
+			"op": "named",
+			"name": "save_to_case_always_owner_aliased_create"
+		},
+		"holds": [
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [0, 0]
+					}
+				],
+				"pointer": "/caseOperations/0/ownerCondition/kind",
+				"value": "match-all"
+			}
+		]
 	},
 	{
 		"id": "hq-questions/save-to-case-create-with-conditioned-owner-update",

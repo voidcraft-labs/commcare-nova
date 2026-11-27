@@ -7929,6 +7929,7 @@ def _held_new():
         )
 
     alias = owner_form(True, "create", "'household-01'")
+    always_present = alias.replace(b"/data/q &gt; 5", b"( true() )")
     fresh = owner_form(True, "create", "uuid()")
     update_owner = owner_form(False, "update", "'household-01'")
     create_owner_update = owner_form(True, "update", "uuid()")
@@ -7937,6 +7938,7 @@ def _held_new():
     return {
         "questions/savetocase-owner-condition-on-an-aliased-create": (
             refused("form", alias, owner_key, owner_site),
+            accepted("form", always_present, owner_key, owner_site),
             accepted("form", fresh, owner_key, owner_site),
             accepted("form", update_owner, owner_key, owner_site),
         ),

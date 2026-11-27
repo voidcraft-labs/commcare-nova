@@ -29,6 +29,10 @@ the owner** is available after you choose the new owner. If the condition is
 false, the case keeps its current owner, and the change's other values still
 save.
 
+If a create can reuse a case ID, it must always send its owner. A conditional
+update after opening the existing case can change that owner when the condition
+holds.
+
 An update can change a case’s type when the new type can keep its saved
 values. A date can become text and keeps the original date string, such as
 `2026-04-17`. Other changes that need to convert existing values still

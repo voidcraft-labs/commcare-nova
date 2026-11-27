@@ -881,6 +881,7 @@ function validateOperation(
 	if (operation.ownerCondition !== undefined) {
 		const reason =
 			operation.action === "create" &&
+			operation.ownerCondition.kind !== "match-all" &&
 			(operation.target.kind !== "new" ||
 				operation.target.idFrom !== undefined ||
 				operation.target.expr !== undefined)
