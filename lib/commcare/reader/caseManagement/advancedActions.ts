@@ -31,6 +31,7 @@ import {
 	type Uuid,
 } from "@/lib/domain";
 import {
+	caseWriteLabelSavesEmpty,
 	formCaseSelections,
 	isAdvancedOwnLabelProperty,
 } from "@/lib/domain/advancedEntryDatums";
@@ -1113,9 +1114,13 @@ function readProperties(
 			source?.kind === "label" &&
 			source.parent === null &&
 			source.dataParent === null &&
-			source.field.askForConfirmation !== true &&
-			source.field.banner === undefined &&
-			!options.ownLoad?.closes &&
+			((source.field.askForConfirmation !== true &&
+				source.field.banner === undefined) ||
+				(!options.ownLoad?.closes &&
+					caseWriteLabelSavesEmpty(
+						source.field.askForConfirmation,
+						source.field.banner,
+					))) &&
 			!options.ownLoad?.preloadedLabels.has(source) &&
 			!source.expressions.some(
 				(expression) => expression.slot === "default_value",

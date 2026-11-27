@@ -409,10 +409,12 @@ describe("engine → builder → executor acceptance", () => {
 		}
 	});
 
-	it.each(["Advanced", "held Save to Case"] as const)(
-		"saves only a relevant passive label on %s to the signed selected case",
+	it.each(["Advanced", "held Save to Case", "confirmation", "banner"] as const)(
+		"saves only a relevant root label on %s to the signed selected case",
 		async (source) => {
 			const held = source === "held Save to Case";
+			const submittedText =
+				source === "confirmation" || source === "banner" ? "" : "OK";
 			const {
 				doc: initial,
 				formUuid,
@@ -425,6 +427,8 @@ describe("engine → builder → executor acceptance", () => {
 					if (label.kind !== "label") throw new Error("Expected a label");
 					doc.fields[U("note")] = {
 						...label,
+						...(source === "confirmation" && { askForConfirmation: true }),
+						...(source === "banner" && { banner: "good" }),
 						relevant: eq(read("name"), literal("Show the reminder")),
 					};
 					doc.forms[UNDER_TEST].caseSelections = [
@@ -646,7 +650,7 @@ describe("engine → builder → executor acceptance", () => {
 					(answer) => answer.fieldUuid === U("note"),
 				);
 				expect(label).toMatchObject(
-					visible ? { value: "OK" } : { absent: true },
+					visible ? { value: submittedText } : { absent: true },
 				);
 				const projection = validateCaptureSubmissionProjection(mutation);
 				const built = buildCaseOperationProgramFromDoc({
@@ -696,7 +700,7 @@ describe("engine → builder → executor acceptance", () => {
 				expect(rows.find((row) => row.case_id === SESSION_CASE)).toMatchObject({
 					status: closes && !fails ? "closed" : "open",
 					properties: {
-						seen: visible ? "OK" : "before",
+						seen: visible ? submittedText : "before",
 						notes: fails ? "The reminder is hidden" : note,
 					},
 				});

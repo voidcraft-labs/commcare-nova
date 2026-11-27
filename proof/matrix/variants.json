@@ -1919,53 +1919,121 @@
 	{
 		"id": "hq-advanced/load-writes-an-interactive-label",
 		"base": "hq-advanced",
-		"entry": "forms-and-case-writes/an-advanced-load-s-update-or-preload-or-an-open-action-s-name-or",
-		"standing": "not-yet",
-		"place": {
-			"kind": "form",
-			"menu": 1,
-			"form": 0,
-			"menuName": "Member visits",
-			"name": "Untitled Form"
-		},
+		"entry": "forms-and-case-writes/an-advanced-follow-up-update-from-its-root-passive-label",
 		"change": {
 			"op": "named",
 			"name": "load_writes_an_interactive_label"
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [1, 0]
+					}
+				],
+				"pointer": "/caseOperations/0/placement",
+				"value": {
+					"kind": "advanced",
+					"tag": "load_member1"
+				}
+			},
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [1, 0]
+					}
+				],
+				"pointer": "/caseOperations/0/writes/1/property",
+				"value": "seen"
+			},
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [1, 0]
+					}
+				],
+				"pointer": "/caseOperations/0/writes/1/value/term/kind",
+				"value": "field"
+			}
+		]
 	},
 	{
 		"id": "hq-advanced/load-writes-a-banner",
 		"base": "hq-advanced",
-		"entry": "forms-and-case-writes/an-advanced-load-s-update-or-preload-or-an-open-action-s-name-or",
-		"standing": "not-yet",
-		"place": {
-			"kind": "form",
-			"menu": 1,
-			"form": 0,
-			"menuName": "Member visits",
-			"name": "Untitled Form"
-		},
+		"entry": "forms-and-case-writes/an-advanced-follow-up-update-from-its-root-passive-label",
 		"change": {
 			"op": "named",
 			"name": "load_writes_a_banner"
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [1, 0]
+					}
+				],
+				"pointer": "/caseOperations/0/placement",
+				"value": {
+					"kind": "advanced",
+					"tag": "load_member1"
+				}
+			},
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [1, 0]
+					}
+				],
+				"pointer": "/caseOperations/0/writes/1/property",
+				"value": "seen"
+			},
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [1, 0]
+					}
+				],
+				"pointer": "/caseOperations/0/writes/1/value/term/kind",
+				"value": "field"
+			}
+		]
 	},
 	{
 		"id": "hq-advanced/load-writes-a-label-and-closes",
 		"base": "hq-advanced",
-		"entry": "forms-and-case-writes/an-advanced-load-s-update-or-preload-or-an-open-action-s-name-or",
-		"standing": "not-yet",
-		"place": {
-			"kind": "form",
-			"menu": 1,
-			"form": 0,
-			"menuName": "Member visits",
-			"name": "Untitled Form"
-		},
+		"entry": "forms-and-case-writes/an-advanced-follow-up-update-from-its-root-passive-label",
 		"change": {
 			"op": "named",
 			"name": "load_writes_a_label_and_closes"
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [1, 0]
+					}
+				],
+				"pointer": "/type",
+				"value": "close"
+			},
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [1, 0]
+					}
+				],
+				"pointer": "/caseOperations/0/writes/1/property",
+				"value": "seen"
+			}
+		]
 	},
 	{
 		"id": "hq-advanced/load-writes-a-preloaded-label",
