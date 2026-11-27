@@ -50,13 +50,15 @@ export const STARTUP_PROBE_PATH = "/warmup";
  * or the externally reachable MCP path.
  */
 const isDev = process.env.NODE_ENV === "development";
-const devOrigin = process.env.BETTER_AUTH_URL ?? "http://localhost:3000";
+// Browser bundles also read the public hostname constants. In production
+// they have no need for the development server's environment.
+const devOrigin = isDev
+	? (process.env.BETTER_AUTH_URL ?? "http://localhost:3000")
+	: undefined;
 
-export const AS_ORIGIN = isDev ? devOrigin : `https://${HOSTNAMES.main}`;
+export const AS_ORIGIN = devOrigin ?? `https://${HOSTNAMES.main}`;
 export const AS_ISSUER = `${AS_ORIGIN}/api/auth`;
-export const MCP_RESOURCE_ORIGIN = isDev
-	? devOrigin
-	: `https://${HOSTNAMES.mcp}`;
+export const MCP_RESOURCE_ORIGIN = devOrigin ?? `https://${HOSTNAMES.mcp}`;
 
 /**
  * Path component of the MCP resource URL, extracted as a constant so
