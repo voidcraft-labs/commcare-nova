@@ -26,6 +26,7 @@ import { getLookupDefinitions } from "@/lib/lookup/service";
 import type { PreviewMenuCaseSelection } from "@/lib/session/types";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import { parentCaseConstraint } from "../caseSelectionNavigation";
+import { previewPlatformRules } from "../platform";
 import { workerListDocument } from "../workerModule";
 import { loadCasesAction } from "./caseDataBinding";
 import { readCaseDatabaseSnapshot } from "./caseDataBindingHelpers";
@@ -168,6 +169,7 @@ async function readOpening(
 			loadBlueprint: true,
 		});
 		if (context.kind !== "ready") return context;
+		const platformRules = previewPlatformRules(context.device.platform);
 		if (
 			!context.sessionId ||
 			!context.blueprint ||
@@ -213,7 +215,7 @@ async function readOpening(
 				if (
 					!args.restore ||
 					!prior.complete ||
-					context.device.platform !== "android"
+					!platformRules.resumeDraftAcrossRuns
 				)
 					return reopen;
 				return {
@@ -270,7 +272,7 @@ async function readOpening(
 			)
 				return reopen;
 			const webActivityRestoreStartedAt =
-				context.device.platform === "web-apps" &&
+				platformRules.recentFormActivity &&
 				doc.forms[formContentUuid(doc, args.form)]?.activityKeyText
 					? Date.now()
 					: undefined;

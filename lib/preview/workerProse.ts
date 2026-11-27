@@ -8,6 +8,7 @@ import {
 } from "@/lib/domain";
 import type { Platform } from "@/lib/domain/platforms";
 import { choiceLayoutForPlatform } from "@/lib/domain/questionDisplay";
+import { previewPlatformRules } from "./platform";
 
 /** Core's normal text reader prefers the extended form. Android's help dialog
  * asks for the Markdown form before calling that reader. */
@@ -24,7 +25,8 @@ export function workerFieldProseSlot(
 				: "extended_hint";
 		case "help":
 			return fieldProseTemplate(field, "extended_help") === undefined ||
-				(platform === "android" &&
+				(previewPlatformRules(platform).questionProseForms ===
+					"markdown-first" &&
 					!helpShowsAsTyped(form, "plainHelp" in field ? field : {}))
 				? "help"
 				: "extended_help";
@@ -47,7 +49,7 @@ export function workerChoiceProse(
 ) {
 	const layout = choiceLayoutForPlatform(field, platform)?.kind;
 	const nativeMarkdown =
-		platform === "android" &&
+		previewPlatformRules(platform).questionProseForms === "markdown-first" &&
 		!labelShowsAsTyped(form, option) &&
 		layout !== "dropdown" &&
 		layout !== "search" &&

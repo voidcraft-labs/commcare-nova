@@ -17,6 +17,7 @@ import {
 	type WebFormActivityEntry,
 	webFormActivityWindow,
 } from "@/lib/domain/webFormActivity";
+import { previewPlatformRules } from "../platform";
 import type { EntrySessionData } from "./entrySessionData";
 import { evaluateAuthorizedFormOpeningSnapshot } from "./evaluateFormSnapshot";
 import type { FormOpeningAudience } from "./formOpeningSnapshot";
@@ -53,7 +54,7 @@ export async function evaluateFormOpeningActions(input: {
 	);
 	const form = doc.forms[content];
 	const includeActivity =
-		audience.device.platform === "web-apps" &&
+		previewPlatformRules(audience.device.platform).recentFormActivity &&
 		form?.activityKeyText !== undefined;
 	const exactRoot = form?.caseOperations?.some(
 		(operation) =>

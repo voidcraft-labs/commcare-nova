@@ -3804,7 +3804,7 @@ export function CaseListScreen({
 					</>
 				)}
 			</div>
-			{platform === "android" &&
+			{platformRules.caseListDeviceLookup &&
 				(step === "browse" || step === "results") &&
 				accessPhase === "authorized" &&
 				config?.deviceLookup && (
