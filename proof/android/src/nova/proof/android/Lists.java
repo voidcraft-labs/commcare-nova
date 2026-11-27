@@ -30,7 +30,6 @@ import org.commcare.views.dialogs.DialogChoiceItem;
 import org.commcare.views.dialogs.PaneledChoiceDialog;
 import org.json.JSONArray;
 import org.json.JSONObject;
-import org.robolectric.Robolectric;
 import org.robolectric.Shadows;
 import org.robolectric.android.controller.ActivityController;
 import org.robolectric.shadows.ShadowActivity;
@@ -378,7 +377,7 @@ final class Lists {
                             ? "The case list did not open its lookup companion automatically."
                             : "The case list did not open its lookup companion.");
                 }
-                ActivityController<AndroidAppAnswers.MeterActivity> provider = Robolectric.buildActivity(
+                ActivityController<AndroidAppAnswers.MeterActivity> provider = Opened.build(
                         AndroidAppAnswers.MeterActivity.class, new Intent(opened.intent));
                 try {
                     AndroidAppAnswers.MeterActivity other = provider.setup().get();
@@ -386,7 +385,7 @@ final class Lists {
                     ShadowActivity completed = Shadows.shadowOf((Activity)other);
                     shadow.receiveResult(opened.intent, completed.getResultCode(), completed.getResultIntent());
                 } finally {
-                    provider.close();
+                    Opened.close(provider);
                 }
                 ShadowLooper.idleMainLooper();
                 settle(adapter);

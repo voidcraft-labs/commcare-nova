@@ -21,7 +21,6 @@ import org.commcare.views.widgets.IntentWidget;
 import org.commcare.views.widgets.QuestionWidget;
 import org.json.JSONArray;
 import org.json.JSONObject;
-import org.robolectric.Robolectric;
 import org.robolectric.Shadows;
 import org.robolectric.android.controller.ActivityController;
 import org.robolectric.shadows.ShadowActivity;
@@ -178,7 +177,7 @@ public final class AndroidAppAnswers {
             ShadowLooper.idleMainLooper();
             ShadowActivity.IntentForResult opened = shadow.getNextStartedActivityForResult();
             if (opened == null) throw new IllegalStateException("The app question did not open its activity.");
-            ActivityController<MeterActivity> provider = Robolectric.buildActivity(MeterActivity.class, new Intent(opened.intent));
+            ActivityController<MeterActivity> provider = Opened.build(MeterActivity.class, new Intent(opened.intent));
             try {
                 MeterActivity other = provider.setup().get();
                 other.complete(command, sample);
@@ -192,7 +191,7 @@ public final class AndroidAppAnswers {
                     shadow.receiveResult(opened.intent, completed.getResultCode(), completed.getResultIntent());
                 }
             } finally {
-                provider.close();
+                Opened.close(provider);
             }
             RobolectricUtil.flushBackgroundThread(activity);
             ShadowLooper.idleMainLooper();

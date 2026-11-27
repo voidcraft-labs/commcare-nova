@@ -206,9 +206,9 @@ final class Captures {
             // The deterministic sensor supplies pixels. The released camera activity supplies the guide
             // and crop, writes its own image file and finishes through its ordinary TEMP_FILE result.
             org.robolectric.android.controller.ActivityController<MicroImageActivity> controller =
-                    org.robolectric.Robolectric.buildActivity(MicroImageActivity.class, opened).create();
+                    Opened.build(MicroImageActivity.class, opened);
             try {
-                MicroImageActivity camera = controller.get();
+                MicroImageActivity camera = controller.create().get();
                 Bitmap frame = Bitmap.createBitmap(800, 600, Bitmap.Config.ARGB_8888);
                 frame.eraseColor(android.graphics.Color.BLUE);
                 java.lang.reflect.Field input = MicroImageActivity.class.getDeclaredField("inputImage");
@@ -227,7 +227,7 @@ final class Captures {
                 entry.put("croppedHeight", bounds.outHeight);
                 result = finished.getResultIntent();
             } finally {
-                controller.destroy();
+                Opened.close(controller);
             }
         } else if ("image".equals(kind)) {
             Uri output = opened.getParcelableExtra(android.provider.MediaStore.EXTRA_OUTPUT);
