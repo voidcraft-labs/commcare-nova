@@ -689,8 +689,12 @@ def test_grouped_search_uses_plain_ordered_fields_on_android(android_documents, 
         assert "Case details" not in platform["display"]
 
 
+@pytest.mark.parametrize("variant_name", [
+    "address-picker-with-stored-default",
+    "address-picker-with-a-calculated-default",
+])
 def test_saved_address_default_stays_out_of_an_installed_android_search(
-    android_documents, hq, android_walk_evidence
+    android_documents, hq, android_walk_evidence, variant_name
 ):
     from urllib.parse import parse_qs, urlsplit
 
@@ -707,16 +711,17 @@ def test_saved_address_default_stays_out_of_an_installed_android_search(
     from proof.webapps import hq as webapps_hq
 
     document = android_documents["hq-search"]
-    variant = next(row for row in load_variants() if row.id == "hq-search/address-picker-with-stored-default")
+    variant = next(row for row in load_variants() if row.id == f"hq-search/{variant_name}")
+    expected_default = variant.change["value"]["default_value"]
     command = "search_command.m0"
     with webapps_hq.authored_project(document, "A", configure=enable_address_search) as project:
         save_address_default(project, variant.change)
         with project.released(services.formplayer(), database=address_default_database(document)) as release:
             archive = observe.release_archive(release)
-            built = built_address_default(archive)
+            built = built_address_default(archive, expected_default)
             blobs = Blobs()
             record = observe.app(
-                release, blobs, label="address-default", archive=archive,
+                release, blobs, label=variant_name, archive=archive,
                 commands=[command], views=True, search_answers={built["storage"]: {"client_name": "Amina"}},
             )
             answer = blobs.get_json(record["answer"])
