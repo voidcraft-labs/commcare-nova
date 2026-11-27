@@ -65,7 +65,7 @@ it("preserves reviewed private history while admitting only one authority kind f
 	const result = await new Migrator({
 		db,
 		provider: { getMigrations: async () => caseStoreMigrations },
-	}).migrateToLatest();
+	}).migrateTo(migration);
 	if (result.error) throw result.error;
 	expect(
 		(
