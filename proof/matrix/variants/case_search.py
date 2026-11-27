@@ -321,12 +321,18 @@ def search_button_compares_device_id_below_with_session(authoring, app_id):
     _search_button_orders_worker_with_session(authoring, app_id, "deviceid", operator="<")
 
 
-def _search_button_orders_worker_with_session(authoring, app_id, field, operator=">"):
+def search_button_orders_two_session_values(authoring, app_id):
+    """The declared session is available, but both operands now depend on the worker entry."""
+    _search_button_orders_worker_with_session(authoring, app_id, "deviceid", operator="<",
+                                              right=f"{SESSION}/context/userid")
+
+
+def _search_button_orders_worker_with_session(authoring, app_id, field, operator=">", right="'m'"):
     _set_each(
         authoring,
         app_id,
         ("/modules/0/case_details/short/filter", f"@owner_id = {SESSION}/context/userid"),
-        ("/modules/0/search_config/search_button_display_condition", f"{SESSION}/context/{field} {operator} 'm'"),
+        ("/modules/0/search_config/search_button_display_condition", f"{SESSION}/context/{field} {operator} {right}"),
     )
 
 
@@ -347,12 +353,18 @@ def owner_exclusion_on_an_ordered_device_id(authoring, app_id):
 
 
 def owner_exclusion_on_a_less_than_device_id(authoring, app_id):
-    """The neighboring less-than comparison remains outside the admitted scope."""
+    """The device identifier is ordered below a fixed literal."""
     _owner_exclusion_on_order(authoring, app_id, "deviceid", comparison="<")
 
 
-def _owner_exclusion_on_order(authoring, app_id, field, *, comparison=">"):
-    owners = f"if({SESSION}/context/{field} {comparison} 'm', 'a', 'b')"
+def owner_exclusion_orders_two_session_values(authoring, app_id):
+    """Two dynamic session operands are a separate carrier."""
+    _owner_exclusion_on_order(authoring, app_id, "deviceid", comparison="<",
+                              right=f"{SESSION}/context/userid")
+
+
+def _owner_exclusion_on_order(authoring, app_id, field, *, comparison=">", right="'m'"):
+    owners = f"if({SESSION}/context/{field} {comparison} {right}, 'a', 'b')"
     _set_each(
         authoring,
         app_id,
