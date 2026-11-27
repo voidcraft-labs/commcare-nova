@@ -155,6 +155,7 @@ UNSHOWN_MEDIA = "unshown-form-media-removed"
 LEGACY_RELATED_CASE_TEXT = "legacy-related-case-text-rekeyed"
 LEGACY_SEARCH_GROUP_WORDING = "legacy-search-group-wording-rekeyed"
 SEARCH_GROUP_WORDING_PATH = "/translations/*/search_group_heading"
+SEARCH_GROUP_WORDING_DUPLICATE_PATH = "/translations/*/identical_search_group_heading"
 LEGACY_SEARCH_GROUP_KEY = re.compile(r"[A-Za-z][A-Za-z0-9_-]*")
 POSITIONAL_SEARCH_GROUP_KEY = re.compile(r"group_header_([0-9]+)")
 SEARCH_ORDER_SUFFIX = "search-order-unused-suffix-removed"
@@ -495,6 +496,7 @@ class Sites:
       submitted instance, or question binding on the side that produced it;
     - ``media``: each media resource of a built media suite by the media path it installs (``jr://file/...``);
     - ``search_groups``: one pair of legacy/current locale keys and its witnessed languages by actual source menu/row.
+    - ``search_group_duplicates``: exact wording already stored under both heading keys for a source locale.
     - ``search_order_rows``: each menu's ordered sort occurrence in A by the original literal and the position
       in its real stored default-properties array.
     """
@@ -507,6 +509,7 @@ class Sites:
     media: Mapping = field(default_factory=dict)
     served: Mapping = field(default_factory=dict)
     search_groups: Mapping = field(default_factory=dict)
+    search_group_duplicates: Mapping = field(default_factory=dict)
     search_order_rows: Mapping = field(default_factory=dict)
 
     def as_json(self):
@@ -530,7 +533,7 @@ class Sites:
         return cls(**{name: {read(key): read(held) for key, held in value.get(name) or ()} for name in SITE_MAPS})
 
 
-SITE_MAPS = ("runs", "steps", "choices", "cases", "builds", "media", "served", "search_groups", "search_order_rows")
+SITE_MAPS = ("runs", "steps", "choices", "cases", "builds", "media", "served", "search_groups", "search_group_duplicates", "search_order_rows")
 NO_SITES = Sites()
 
 
@@ -957,7 +960,9 @@ def _legacy_text_is_unchanged(d, owner, siblings) -> bool:
 
 def _search_group_wording_pair(difference, places, siblings) -> bool:
     """Require both exact locale places and the captured owner of the normalized group."""
-    if difference.check != "source" or difference.path != SEARCH_GROUP_WORDING_PATH:
+    if difference.check != "source" or difference.path not in (
+        SEARCH_GROUP_WORDING_PATH, SEARCH_GROUP_WORDING_DUPLICATE_PATH,
+    ):
         return False
 
     def locale(row):
@@ -978,6 +983,38 @@ def _search_group_wording_pair(difference, places, siblings) -> bool:
         return False
     language, menu, _ = found
     owned = {tuple(unescaped(place)) for place in places}
+
+    def same_group_move(removed, old, new):
+        at = POSITIONAL_SEARCH_GROUP_KEY.fullmatch(new)
+        if at is None or POSITIONAL_SEARCH_GROUP_KEY.fullmatch(old):
+            return False
+        index = at[1]
+        if not {
+            ("app", *unescaped(removed.at)),
+            ("app", "translations", language, f"search_property.m{menu}.{new}"),
+            ("menu", menu, "search_config", "properties", index, "group_key"),
+        } <= owned:
+            return False
+        row = f"/modules/{menu}/search_config/properties/{index}"
+        return all(
+            any(other.check == "source" and other.document == difference.document
+                and other.artifact == difference.artifact and other.at == f"{row}/{key}"
+                and other.kind == "changed" and other.before == old and other.after == new
+                for other in siblings)
+            for key in ("name", "group_key")
+        )
+
+    if difference.path == SEARCH_GROUP_WORDING_DUPLICATE_PATH:
+        if (difference.kind != "removed" or not isinstance(difference.before, str)
+                or not difference.before.strip() or difference.after is not None):
+            return False
+        return any(
+            len(place) == 6 and place[:4] == ("menu", menu, "search_config", "properties")
+            and place[4].isdigit() and place[5:] == ("group_key",)
+            and same_group_move(difference, found[2], f"group_header_{place[4]}")
+            for place in owned
+        )
+
     for counterpart in siblings:
         if counterpart.kind == difference.kind:
             continue
@@ -995,26 +1032,10 @@ def _search_group_wording_pair(difference, places, siblings) -> bool:
         ):
             continue
         old, new = locale(removed)[2], locale(added)[2]
-        at = POSITIONAL_SEARCH_GROUP_KEY.fullmatch(new)
-        if at is None or POSITIONAL_SEARCH_GROUP_KEY.fullmatch(old):
-            continue
-        index = at[1]
-        if not {
-            ("app", *unescaped(removed.at)),
-            ("app", *unescaped(added.at)),
-            ("menu", menu, "search_config", "properties", index, "group_key"),
-        } <= owned:
-            continue
-        row = f"/modules/{menu}/search_config/properties/{index}"
-        if all(
-            any(other.check == "source" and other.document == difference.document
-                and other.artifact == difference.artifact and other.at == f"{row}/{key}"
-                and other.kind == "changed" and other.before == old and other.after == new
-                for other in siblings)
-            for key in ("name", "group_key")
-        ):
+        if same_group_move(removed, old, new):
             return True
     return False
+
 
 def _build_location(difference, sites: Sites) -> tuple[str, ...]:
     """A proof 2 difference's location, by the ids of its build's own vocabulary its pointer carries (a menu's,
