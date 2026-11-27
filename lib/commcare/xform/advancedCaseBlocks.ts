@@ -475,7 +475,10 @@ function addOpenBlock(
 	bind(emission, createPath.child("case_name"), {
 		calculate: FormPath.parse(namePath, data.name).toWire(),
 	});
-	if (ownerSet)
+	if (
+		ownerSet &&
+		!action.case_indices.some((link) => link.relationship === "question")
+	)
 		appendDefaultOwner(
 			emission,
 			createPath.child("owner_id").toWire(),
@@ -511,6 +514,9 @@ function addOpenBlock(
 					...(caseIndex.relationship === "extension" && {
 						relationship: "extension",
 					}),
+					...(caseIndex.relationship === "question" && {
+						relationship: "@relationship",
+					}),
 				}),
 			);
 			bind(
@@ -526,6 +532,28 @@ function addOpenBlock(
 									.toWire(),
 				},
 			);
+			if (caseIndex.relationship === "question") {
+				const answer = FormPath.parse(
+					caseIndex.relationship_question,
+					data.name,
+				).toWire();
+				bind(
+					emission,
+					w.append(casePath.toWire(), [
+						w.step("index"),
+						w.step(referenceId),
+						w.attr("relationship"),
+					]),
+					{ calculate: answer },
+				);
+				bind(emission, createPath.child("owner_id"), {
+					calculate: w.call("if", [
+						w.eq(answer, w.str("extension")),
+						w.str(UNOWNED_OWNER_ID),
+						FormPath.root(data.name).child("meta").child("userID").toWire(),
+					]),
+				});
+			}
 		}
 	}
 	addClose(emission, caseEl, casePath, action.close_condition);

@@ -94,6 +94,7 @@ import { pendingPlaceholder } from "../pendingExpressions";
 import { whereText } from "../place";
 import { readProjectionInputs } from "../projectionInputs";
 import { provisionalDocument } from "../provisional";
+import { sameXPathText } from "../syntaxCompare";
 import { holdsWorkerRecordWrite } from "../worldEntities";
 import type { DraftField } from "../xform";
 import { isAllocatedName } from "../xform/generated";
@@ -625,6 +626,14 @@ export const ADVANCED_CLAIMS = defineClaims("caseManagement.advancedActions", {
 		`${F}/advanced-open-relationship-from-unrestricted-text`,
 		"schema:CaseIndex.relationship",
 	),
+	constrainedQuestionToLoad: take(
+		`${F}/advanced-open-relationship-from-constrained-text`,
+		"schema:CaseIndex.relationship",
+	),
+	constrainedQuestionPath: take(
+		`${F}/advanced-open-relationship-from-constrained-text`,
+		"schema:CaseIndex.relationship_question",
+	),
 	questionToLoad: refuse(
 		`${F}/caseindex-relationship-question-relationship-question-the-index-naming-a`,
 		"schema:CaseIndex.relationship",
@@ -674,6 +683,7 @@ interface ProposedLink {
 	readonly identifier: string;
 	readonly targetType: string;
 	readonly relationship: "child" | "extension";
+	readonly relationshipQuestion?: DraftField;
 	readonly target: ProposedCaseRef;
 }
 
@@ -2637,12 +2647,44 @@ function readOrdinaryAdvancedActions(
 					r.ok = false;
 					return;
 				}
+				let relationshipQuestion: DraftField | undefined;
 				if (index.relationship === "question") {
 					const question =
 						typeof index.relationship_question === "string"
 							? index.relationship_question
 							: "";
 					const field = question === "" ? undefined : fieldAt(form, question);
+					const sourceLogic =
+						field === undefined
+							? undefined
+							: form.xform?.binds.get(field.node)?.logic;
+					if (
+						field?.kind === "text" &&
+						field === name?.field &&
+						field.parent === null &&
+						field.dataParent === null &&
+						sourceLogic?.required !== undefined &&
+						sameXPathText(sourceLogic.required, "true()") &&
+						sourceLogic.relevant === undefined &&
+						sourceLogic.constraint !== undefined &&
+						sameXPathText(
+							sourceLogic.constraint,
+							". = 'child' or . = 'extension'",
+						) &&
+						!field.expressions.some((slot) => slot.slot === "default_value") &&
+						!own &&
+						context === "" &&
+						indices.length === 1 &&
+						identifier === "parent" &&
+						loadIndex === 0 &&
+						loadUuids.has(loadIndex) &&
+						conditionType(openStored) === "always" &&
+						!closes &&
+						properties.owner === undefined &&
+						properties.ownerNode === undefined &&
+						!ctx.input.source.raw.case_sharing
+					)
+						relationshipQuestion = field;
 					const freeText =
 						field?.kind === "text" &&
 						field.node.path.length === 1 &&
@@ -2661,7 +2703,7 @@ function readOrdinaryAdvancedActions(
 												? ADVANCED_CLAIMS.questionToLoadFromFreeText
 												: ADVANCED_CLAIMS.questionToLoad
 											: undefined;
-					if (claim !== undefined) {
+					if (claim !== undefined && relationshipQuestion === undefined) {
 						I.refuseWhole(claim);
 						r.ok = false;
 						return;
@@ -2693,6 +2735,7 @@ function readOrdinaryAdvancedActions(
 						identifier,
 						targetType: String(load.case_type),
 						relationship,
+						...(relationshipQuestion !== undefined && { relationshipQuestion }),
 						target: loadUuids.get(loadIndex) as ProposedCaseRef,
 					});
 				} else if (
@@ -2762,7 +2805,17 @@ function readOrdinaryAdvancedActions(
 					consume(
 						I.take(
 							"relationship",
-							ADVANCED_CLAIMS.openIndices,
+							relationshipQuestion === undefined
+								? ADVANCED_CLAIMS.openIndices
+								: ADVANCED_CLAIMS.constrainedQuestionToLoad,
+							(value) => value,
+						),
+					);
+				if (relationshipQuestion !== undefined)
+					consume(
+						I.take(
+							"relationship_question",
+							ADVANCED_CLAIMS.constrainedQuestionPath,
 							(value) => value,
 						),
 					);
@@ -3355,6 +3408,9 @@ export function writeAdvancedOperations(
 					identifier: link.identifier,
 					targetType: link.targetType,
 					relationship: link.relationship,
+					...(link.relationshipQuestion?.uuid !== undefined && {
+						relationshipQuestion: link.relationshipQuestion.uuid,
+					}),
 					target: linkTarget(link.target),
 				}) as CaseOperationLink,
 		);

@@ -587,13 +587,18 @@ export function readCaseCatalog(ctx: ReadContext, app: DraftApp): void {
 						...(boundDateTime(form, write.value.field) && { dateTime: true }),
 						...(write.value.day === true && { day: true }),
 					});
-				for (const link of op.links)
+				for (const link of op.links) {
+					if (link.relationshipQuestion !== undefined) {
+						noteType(caseTypes, link.targetType);
+						continue;
+					}
 					links.push({
 						child: caseType,
 						identifier: link.identifier,
 						parent: link.targetType,
 						relationship: link.relationship,
 					});
+				}
 			}
 			for (const block of saveToCaseReading(form)?.proposals ?? []) {
 				const caseType = block.action === "own" ? menuType : block.caseType;

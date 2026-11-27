@@ -3845,6 +3845,49 @@ def _open_relationship_from_unrestricted_text(at, form, loads, opens, action, in
 open_relationship_from_unrestricted_text = _advanced_reader(_open_relationship_from_unrestricted_text)
 
 
+def _open_relationship_from_constrained_text(at, form, loads, opens, action, index):
+    if _is_load(action, loads) or not loads or _auto_selected(loads[0]) or _from_fixture(loads[0]):
+        return False
+    indices = _indices(action, loads)
+    if len(indices) != 1 or (index is not None and index is not indices[0]):
+        return False
+    link = indices[0]
+    path = link.get("relationship_question") or ""
+    name = action.get("name_update") or {}
+    if (
+        link.get("relationship") != "question"
+        or link.get("reference_id") != "parent"
+        or link.get("tag") != loads[0].get("case_tag")
+        or name.get("question_path") != path
+        or not path.startswith("/data/")
+        or path.count("/") != 2
+        or action.get("repeat_context")
+        or (action.get("open_condition") or {}).get("type") != "always"
+        or (action.get("close_condition") or {}).get("type") != "never"
+        or "owner_id" in (action.get("case_properties") or {})
+        or at.app.doc.get("case_sharing")
+    ):
+        return False
+    xform = at.app.xform(form)
+    if xform is None:
+        return None
+    bind = xform.bind(path)
+    node = xform.node(path)
+    controls = xform.question_controls(path)
+    return (
+        bind is not None
+        and node is not None and not (node.text or "").strip()
+        and not bind.get("relevant")
+        and expression_tree(bind.get("required") or "") == expression_tree("true()")
+        and expression_tree(bind.get("constraint") or "") == expression_tree(". = 'child' or . = 'extension'")
+        and _vellum_type(bind.get("type") or "string") == "string"
+        and len(controls) == 1 and _local(controls[0]) == "input"
+    )
+
+
+open_relationship_from_constrained_text = _advanced_reader(_open_relationship_from_constrained_text)
+
+
 def _question_relationship_to_open_action(at, form, loads, opens, action, index):
     if _is_load(action, loads):
         return False
@@ -15238,6 +15281,9 @@ VALUE_CLASSES = {
     "forms-and-case-writes/shadow-parent-form-id-naming-a-basic-form-or-another-shadowform": basic_or_shadow_parent,
     "forms-and-case-writes/advanced-open-relationship-from-unrestricted-text": (
         open_relationship_from_unrestricted_text
+    ),
+    "forms-and-case-writes/advanced-open-relationship-from-constrained-text": (
+        open_relationship_from_constrained_text
     ),
     "forms-and-case-writes/caseindex-relationship-question-inside-a-repeat": relationship_question_in_repeat,
     "forms-and-case-writes/caseindex-relationship-question-relationship-question-the-index-naming-an": (

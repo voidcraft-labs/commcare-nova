@@ -912,8 +912,14 @@ function advancedPlan(input: AdvancedPlanInput): AdvancedFormCaseWirePlan {
 				doc_type: "CaseIndex",
 				tag: indexTag(link, op),
 				reference_id: link.identifier,
-				relationship: link.relationship,
-				relationship_question: "",
+				relationship:
+					link.relationshipQuestion === undefined
+						? link.relationship
+						: "question",
+				relationship_question:
+					link.relationshipQuestion === undefined
+						? ""
+						: fieldPath(link.relationshipQuestion).toXPath(),
 			}),
 		);
 		const caseType = open.caseType;

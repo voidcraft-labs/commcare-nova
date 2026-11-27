@@ -787,6 +787,13 @@ export const FORM_REFERENCE_SLOTS = [
 	},
 	{
 		entity: "form",
+		slot: "case_operation_link_relationship_question",
+		path: "caseOperations[].links[].relationshipQuestion",
+		kind: "entity-uuid",
+		formTypes: FORM_TYPES,
+	},
+	{
+		entity: "form",
 		slot: "case_operation_link_target_type",
 		path: "caseOperations[].links[].targetType",
 		kind: "case-type-ref",

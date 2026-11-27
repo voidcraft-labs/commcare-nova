@@ -3325,8 +3325,8 @@
 	{
 		"id": "hq-advanced/open-relationship-by-constrained-question",
 		"base": "hq-advanced",
-		"entry": "forms-and-case-writes/caseindex-relationship-question-relationship-question-the-index-naming-a",
-		"standing": "not-yet",
+		"entry": "forms-and-case-writes/advanced-open-relationship-from-constrained-text",
+		"standing": "held",
 		"place": {
 			"kind": "form",
 			"menu": 1,
@@ -3337,7 +3337,14 @@
 		"change": {
 			"op": "named",
 			"name": "open_relationship_from_constrained_text"
-		}
+		},
+		"holds": [
+			{
+				"key": ["form", { "$xmlns": [1, 0] }],
+				"pointer": "/caseOperations/2/links/0/identifier",
+				"value": "parent"
+			}
+		]
 	},
 	{
 		"id": "hq-advanced/open-relationship-question-after-an-open",

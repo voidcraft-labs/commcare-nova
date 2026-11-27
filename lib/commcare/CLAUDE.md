@@ -1581,6 +1581,13 @@ records of its type. Its forms' manual lists retain their configured filter.
 
 ### Authored case-operation emission
 
+An Advanced form can bring in a newly opened case whose parent relationship
+comes from the root Text question that names the case. This requires the
+question to allow exactly `child` or `extension`, uses the first selected case,
+and applies when case sharing is off. The submission gives a child to the
+worker and opens an extension without a separate owner. Preview and the
+exported form use the submitted answer for both decisions.
+
 A create with a calculated type keeps the empty type metadata Vellum writes.
 A fixed concatenation must resolve to the declared operation type. An imported
 conditional can choose between two distinct declared types for a fresh case

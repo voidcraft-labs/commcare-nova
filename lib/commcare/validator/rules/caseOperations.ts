@@ -210,6 +210,7 @@ export type LinkInvalidReason =
 	| "duplicate"
 	| "name"
 	| "target-kind"
+	| "relationship-question"
 	| "self-link";
 
 /** The reasons `CASE_OPERATION_SESSION_UNAVAILABLE` gives in
@@ -1059,6 +1060,51 @@ function validateOperation(
 	validateLinks(ctx, operation, priorCreates, errors);
 }
 
+/** The accepted constraint exhaustively limits a text answer to the
+ * relationship tokens. The root question is also the required case name. */
+function guardedRelationshipAnswer(
+	expression: Expression | undefined,
+	field: Uuid,
+): boolean {
+	const source = (term: Term) =>
+		term.kind === "field" &&
+		term.uuid === field &&
+		term.filters === undefined &&
+		term.role === undefined;
+	if (
+		expression?.kind === "in" &&
+		expression.left.kind === "term" &&
+		source(expression.left.term)
+	) {
+		const tokens = expression.values.flatMap((value) =>
+			value.kind === "literal" ? [value.value] : [],
+		);
+		return (
+			expression.values.length === 2 &&
+			tokens.includes("child") &&
+			tokens.includes("extension")
+		);
+	}
+	if (expression?.kind !== "or" || expression.clauses.length !== 2)
+		return false;
+	const values = new Set<string>();
+	for (const one of expression.clauses) {
+		if (
+			one.kind !== "eq" ||
+			one.left.kind !== "term" ||
+			one.right.kind !== "term"
+		)
+			return false;
+		const left = one.left.term;
+		const right = one.right.term;
+		const literal = source(left) ? right : source(right) ? left : undefined;
+		if (literal?.kind !== "literal" || typeof literal.value !== "string")
+			return false;
+		values.add(literal.value);
+	}
+	return values.has("child") && values.has("extension");
+}
+
 function validateLinks(
 	ctx: OperationRuleContext,
 	operation: CaseOperation,
@@ -1074,6 +1120,47 @@ function validateLinks(
 		(plan ??= planPlacements(ctx.doc, ctx.formUuid));
 	let advancedOpen: boolean | undefined;
 	for (const link of links) {
+		if (link.relationshipQuestion !== undefined) {
+			const field = ctx.doc.fields[link.relationshipQuestion];
+			const allowed =
+				links.length === 1 &&
+				link.identifier === "parent" &&
+				link.relationship === "child" &&
+				operation.action === "create" &&
+				operation.target.kind === "new" &&
+				operation.target.idFrom === undefined &&
+				operation.target.expr === undefined &&
+				operation.owner === undefined &&
+				operation.ownerAfterCreate === undefined &&
+				operation.condition === undefined &&
+				operation.forEach === undefined &&
+				!operation.closeAfter &&
+				!ctx.doc.appSettings.caseSharing &&
+				placementsOfForm().advanced?.opens.some(
+					(open) => open.operationUuid === operation.uuid,
+				) &&
+				chainLoadOfTarget(ctx.doc, ctx.formUuid, link.target) === 0 &&
+				field?.kind === "text" &&
+				field.relevant === undefined &&
+				field.default_value === undefined &&
+				ctx.doc.fieldParent[field.uuid] === ctx.formUuid &&
+				field.submissionPlacement === undefined &&
+				caseWriteValueField(operation.name)?.field === field.uuid &&
+				guardedRelationshipAnswer(field.validate, field.uuid);
+			if (!allowed)
+				errors.push(
+					opError(
+						ctx,
+						operation,
+						"CASE_OPERATION_LINK_INVALID",
+						"This case change needs its Advanced form and the required Text question that allows only child or extension.",
+						{
+							reason: "relationship-question" satisfies LinkInvalidReason,
+							linkIdentifier: link.identifier,
+						},
+					),
+				);
+		}
 		const standardName = isCaseOperationLinkIdentifier(link.identifier);
 		const advancedName =
 			!standardName && isAdvancedCaseIndexIdentifier(link.identifier);

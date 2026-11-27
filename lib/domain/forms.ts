@@ -536,6 +536,8 @@ export const caseOperationLinkSchema = z.strictObject({
 	targetType: z.string(),
 	target: caseTargetSchema.nullable(),
 	relationship: z.enum(["child", "extension"]),
+	/** A required answer chooses the relationship of a held Advanced create. */
+	relationshipQuestion: uuidSchema.optional(),
 });
 export type CaseOperationLink = z.infer<typeof caseOperationLinkSchema>;
 

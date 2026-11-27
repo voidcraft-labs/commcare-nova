@@ -2547,6 +2547,9 @@ function operationFormFieldRefs(
 		if (operation.target?.kind === "new" && operation.target.idFrom) {
 			refs.add(operation.target.idFrom);
 		}
+		for (const link of operation.links ?? [])
+			if (link.relationshipQuestion !== undefined)
+				refs.add(link.relationshipQuestion);
 		for (const expression of [
 			operation.name,
 			operation.owner,

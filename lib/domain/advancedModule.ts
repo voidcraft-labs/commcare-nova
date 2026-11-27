@@ -95,7 +95,11 @@ function childLinkIdentifiersOf(
 				const childType = operationCaseType(doc, formUuid, operation);
 				if (childType === undefined) continue;
 				for (const link of links) {
-					if (link.relationship !== "child") continue;
+					if (
+						link.relationship !== "child" ||
+						link.relationshipQuestion !== undefined
+					)
+						continue;
 					const key = pairKey(childType, link.targetType);
 					const identifiers = byPair.get(key);
 					if (identifiers === undefined) byPair.set(key, [link.identifier]);
@@ -234,7 +238,10 @@ function linkFactsOf(doc: BlueprintDoc): LinkFacts {
 						continue;
 					}
 					const order = creating ? pair.created : pair.relationships;
-					if (!order.has(link.identifier))
+					if (
+						link.relationshipQuestion === undefined &&
+						!order.has(link.identifier)
+					)
 						order.set(link.identifier, link.relationship);
 					const identifiers = byTarget.get(link.targetType);
 					if (identifiers === undefined)

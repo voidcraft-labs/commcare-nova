@@ -7185,10 +7185,40 @@
 		]
 	},
 	{
+		"id": "forms-and-case-writes/advanced-open-relationship-from-constrained-text",
+		"area": "forms-and-case-writes",
+		"section": "Advanced form actions",
+		"item": "A fresh Advanced case's parent link takes its relationship from the required root Text that names the case and allows only child or extension",
+		"surfaceKeys": [
+			"schema:AdvancedOpenCaseAction.case_indices",
+			"schema:CaseIndex.relationship",
+			"schema:CaseIndex.relationship_question"
+		],
+		"valueClass": "open-relationship-from-constrained-text",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the required case name allows only child or extension, the link names the first selected case, and the app uses worker ownership",
+		"subject": "advanced-forms",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "`question`",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
 		"id": "forms-and-case-writes/caseindex-relationship-question-relationship-question-the-index-naming-a",
 		"area": "forms-and-case-writes",
 		"section": "Advanced form actions",
-		"item": "`CaseIndex.relationship: question` + `relationship_question`, the index naming a load whose datum keeps its `case_id_<tag>` id, where no index before it on that open action names an open action, the question outside any repeat and is not an unrestricted root Text answer",
+		"item": "`CaseIndex.relationship: question` + `relationship_question`, the index naming a load whose datum keeps its `case_id_<tag>` id, where no index before it on that open action names an open action, the question outside any repeat, beyond the held required case name constrained to child or extension and the refused unrestricted root Text answer",
 		"surfaceKeys": [
 			"schema:AdvancedOpenCaseAction.case_indices",
 			"schema:CaseIndex.relationship",

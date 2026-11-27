@@ -2475,11 +2475,28 @@ async function resolveOperationProgram(
 		}
 
 		const links: ResolvedLink[] = [];
+		let ownerFromRelationship: string | undefined;
 		for (const [linkIndex, link] of (operation.links ?? []).entries()) {
+			let relationship = link.relationship;
+			if (link.relationshipQuestion !== undefined) {
+				const answer = instance.formFields.get(link.relationshipQuestion);
+				if (answer !== "child" && answer !== "extension")
+					throw new SubmissionRejectedError({
+						kind: "expression",
+						reason: "invalid-value",
+						operationUuid: operation.uuid,
+						operationId: operation.id,
+						slot: "linked case relationship",
+						fieldUuids: [link.relationshipQuestion],
+					});
+				relationship = answer;
+				ownerFromRelationship =
+					answer === "extension" ? UNOWNED_OWNER_ID : host.actingUserId;
+			}
 			if (link.target === null) {
 				links.push({
 					identifier: link.identifier,
-					relationship: link.relationship,
+					relationship,
 					targetType: link.targetType,
 					targetCaseId: null,
 				});
@@ -2569,7 +2586,7 @@ async function resolveOperationProgram(
 			const resolvedLink = resolveLinkTarget();
 			links.push({
 				identifier: link.identifier,
-				relationship: link.relationship,
+				relationship,
 				targetType: link.targetType,
 				targetCaseId: resolvedLink.caseId,
 				...(resolvedLink.snapshotCaseType === undefined
@@ -2630,9 +2647,10 @@ async function resolveOperationProgram(
 			// submitting user for a fresh case. The group's default is an
 			// HQ case-action feature; it does not own this Save to Case leaf.
 			const ownerValue =
-				skippedOwners.has(index) || operation.owner === undefined
+				ownerFromRelationship ??
+				(skippedOwners.has(index) || operation.owner === undefined
 					? (groupOwner ?? host.actingUserId)
-					: (groupOwner ?? evaluatedText(bag?.owner));
+					: (groupOwner ?? evaluatedText(bag?.owner)));
 			preparedOwner =
 				ownerKept && operation.ownerCondition === undefined
 					? UNOWNED_OWNER_ID
