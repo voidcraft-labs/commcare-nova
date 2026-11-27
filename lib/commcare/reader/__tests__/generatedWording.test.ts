@@ -465,7 +465,7 @@ it("rekeys only a unique live legacy Search heading and records both source posi
 	expect(
 		expandDoc(separateInstallation.draft.doc).translations?.es?.[currentKey],
 	).toBeUndefined();
-	delete body.build_profiles;
+	body.build_profiles = {};
 	body.translations = { en: { [oldKey]: "Find a client" } };
 
 	menus[0].search_config.properties[0].label.es = "Datos personales";
