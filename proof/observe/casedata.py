@@ -661,42 +661,43 @@ def lookup_fixtures(state, captured, user_id=USER_ID):
     return served_fixtures(state, user_id, workbook=captured.body_path.name)
 
 
-def served_fixtures(state, user_id=USER_ID, *, workbook=None):
-    """HQ's item-list fixtures for each lookup table HQ holds, by tag, each served as ``ItemListsProvider`` serves
-    a global table (``lookup_fixtures``' second half, which uploads nothing).
+def served_fixtures(state, user_id=USER_ID, *, username=None, workbook=None):
+    """HQ's item-list fixtures, including assigned rows served to the chosen worker.
 
-    A state of an app made in CommCare HQ that no publish pushed a workbook
-    to is served this alone: its tables are the ones its A was made with
-    (``proof/hq/operations.py::save_authored_tables``). ``workbook`` names
-    the lookup workbook uploaded before, for a refusal's reason, where one
-    was. A table HQ holds per owner is refused (``LookupTablesNotServed``):
-    the restore here serves only global tables.
+    Only an authored restore with an explicit worker name can request assigned rows. A workbook restore
+    still requires a global table until its owner bindings are supplied independently.
     """
+    from casexml.apps.phone.models import OTARestoreCommCareUser
     from casexml.apps.phone.utils import GLOBAL_USER_ID, write_fixture_items_to_io
     from corehq.apps.fixtures.fixturegenerators import ItemListsProvider
     from corehq.apps.fixtures.models import LookupTable
+    from corehq.apps.users.models import CommCareUser
+
+    from proof.hq.operations import seed_mobile_worker
 
     provider = ItemListsProvider()
     fixtures = []
+    principal = None
     for table in sorted(LookupTable.objects.by_domain(state.domain), key=lambda table: table.tag):
-        if not table.is_global:
-            if workbook is None:
-                raise LookupTablesNotServed(
-                    {
-                        "why": "HQ holds a lookup table per owner, and the restore here serves only global tables.",
-                        "table": table.tag,
-                    }
-                )
-            raise LookupTablesNotServed(
-                {
-                    "why": "HQ holds a lookup table per owner after Nova's upload, and Nova's push uploads every"
-                    " table as global; the restore here serves only global tables.",
-                    "workbook": workbook,
-                    "table": table.tag,
-                }
-            )
-        with write_fixture_items_to_io(provider._get_global_items(table, state.domain)) as written:
-            fixtures.append(written.getvalue().replace(GLOBAL_USER_ID.encode(), user_id.encode()))
+        if table.is_global:
+            items = provider._get_global_items(table, state.domain)
+            with write_fixture_items_to_io(items) as written:
+                fixtures.append(written.getvalue().replace(GLOBAL_USER_ID.encode(), user_id.encode()))
+            continue
+        if username is None or workbook is not None:
+            raise LookupTablesNotServed({
+                "why": "An assigned lookup table requires an authored worker restore with verified owner bindings.",
+                "table": table.tag,
+                **({"workbook": workbook} if workbook is not None else {}),
+            })
+        if principal is None:
+            worker = CommCareUser.get_by_user_id(user_id, domain=state.domain)
+            if worker is None:
+                worker = CommCareUser.wrap(seed_mobile_worker(state, username, user_id))
+            principal = OTARestoreCommCareUser(state.domain, worker)
+        items, _count = provider.get_user_items_and_count({table.id: table}, principal)
+        with write_fixture_items_to_io(items) as written:
+            fixtures.append(written.getvalue())
     return fixtures
 
 

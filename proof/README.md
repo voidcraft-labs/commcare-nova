@@ -2738,6 +2738,7 @@ block builders other bases import. Each base module’s docstring describes the 
 | `hq-media` | media in every place and shape the first publish reads, videos among them |
 | `hq-large-media` | a picture and a sound each past Nova's upload cap for its kind, which HQ stores at any size; the picture at a path the first publish moves, so HQ's bulk upload takes it again |
 | `hq-lookups` | a form that reads the lookup tables its project space holds |
+| `hq-assigned-lookups` | a survey that filters public districts and villages assigned to the signed-in worker |
 | `hq-shared-table-journey` | a multilingual visit that keeps its shared lookup through two publishes and the manual installation of the edited app in a second project space |
 | `hq-lookup-data` | a table whose field holds a property and two values a row, whose rows hold an attribute, and whose third field one row holds, one holds no value of, one does not hold and one holds empty, read by two selects |
 | `hq-lookup-types` | a table tagged `types`, the sheet name CommCare HQ's workbook keeps for itself, read by a select and a hidden value beside an ordinary table |
