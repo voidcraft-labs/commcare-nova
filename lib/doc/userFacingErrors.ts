@@ -1383,8 +1383,13 @@ const USER_MESSAGE_BY_CODE: Record<
 		) ??
 		`The display condition for ${q(String(e.details?.tabTitle ?? "this tab"))} can't be used here. You can edit it in Details.`,
 	CASE_LIST_FILTER_TYPE_ERROR: (e) =>
-		recordFindingCopy(e, `The Cases available setting in ${q(modName(e))}`) ??
-		`The Cases available setting in ${q(modName(e))} compares values that don't go together. Open the condition and adjust the comparison.`,
+		det(e, "checkReason", "") === "host-text-filter"
+			? `The Cases available setting in ${q(modName(e))} compares a host record's property. You can use one host text comparison on a top-level device list, or change the condition to read the listed record.`
+			: (recordFindingCopy(
+					e,
+					`The Cases available setting in ${q(modName(e))}`,
+				) ??
+				`The Cases available setting in ${q(modName(e))} compares values that don't go together. Open the condition and adjust the comparison.`),
 	CASE_LIST_MAPPING_CONDITION: (e) =>
 		recordFindingCopy(e, `A display rule in ${q(modName(e))}`) ??
 		`Open the display rule in ${q(modName(e))} and choose a condition that applies to this case.`,

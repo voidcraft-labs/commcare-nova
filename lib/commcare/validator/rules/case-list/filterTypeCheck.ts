@@ -1,6 +1,12 @@
 /** Project semantic findings from this saved slot, preserving its owning validation code. */
 import type { BlueprintDoc, Module, Uuid } from "@/lib/domain";
+import { reachedPropertyType } from "@/lib/domain/columnRelation";
 import { checkExpression, slotContext } from "@/lib/domain/expression";
+import {
+	directHostTextEquality,
+	ordinaryHostFilterList,
+} from "@/lib/domain/expression/directHostTextEquality";
+import { walkPropertyRefs } from "@/lib/domain/expression/walk";
 import { type ValidationError, validationError } from "../../errors";
 import {
 	checkErrorDetails,
@@ -39,7 +45,38 @@ export function filterTypeCheck(
 		);
 		if (ctx === undefined) return [];
 		const errors = semanticCheckErrors(checkExpression(filter, ctx));
-		if (errors.length === 0) return [];
+		if (errors.length === 0 && slot === "case_list_filter") {
+			let readsReached = false;
+			walkPropertyRefs(filter, (property) => {
+				readsReached ||= property.readReached === true;
+			});
+			if (readsReached) {
+				const host = directHostTextEquality(filter);
+				if (
+					!ordinaryHostFilterList(doc, moduleUuid) ||
+					host?.via?.kind !== "ancestor" ||
+					mod.caseType === undefined ||
+					reachedPropertyType(
+						{ field: host.property, via: host.via.via },
+						mod.caseType,
+						doc.caseTypes ?? [],
+					) !== "text"
+				)
+					return [
+						validationError(
+							"CASE_LIST_FILTER_TYPE_ERROR",
+							"module",
+							"Use one condition that compares the host record's property with text on a top-level device list.",
+							{ moduleUuid, moduleName: mod.name },
+							{
+								slot: path,
+								registrySlot: slot,
+								checkReason: "host-text-filter",
+							},
+						),
+					];
+			}
+		}
 
 		return errors.map((err) => {
 			const at = formatPath(err.path);

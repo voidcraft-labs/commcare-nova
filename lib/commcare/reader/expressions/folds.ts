@@ -7,6 +7,7 @@
  * proposer never looks at a name to decide.
  */
 import type { BlueprintDoc } from "@/lib/domain/blueprint";
+import { reachedPropertyType } from "@/lib/domain/columnRelation";
 import {
 	activeRowScope,
 	type ExpressionContext,
@@ -44,7 +45,10 @@ import {
 	type Term,
 } from "@/lib/domain/expression/types";
 import { organizationLevelsOf } from "@/lib/domain/organization";
-import { isCalendarCaseProperty } from "@/lib/domain/standardCaseProperties";
+import {
+	isCalendarCaseProperty,
+	isStandardCaseListProperty,
+} from "@/lib/domain/standardCaseProperties";
 import type { Uuid } from "@/lib/domain/uuid";
 import { caseTypeHopMap } from "../../caseTypeDepths";
 import {
@@ -117,11 +121,9 @@ export interface FoldEnv {
 	readonly place?: OperationPlaceReads;
 	/** The slot's whole source, where the binding knows it. */
 	readonly root?: FormSyntax;
-	/** The slot reads a walk of the row's indices as Core does, to whatever case each reaches
-	 *  (`reached-property`): a case list column's calculation, whose value Postgres and the device
-	 *  both compute over the reached row. Another record slot's untyped walk stands under its
-	 *  own row (a list filter's `#host`, `detail-filter-value-outside-predicate`). */
-	readonly readsReached?: true;
+	/** A list column can read an untyped index walk. An ordinary worker list can
+	 *  compare the case reached by its direct host index with one text value. */
+	readonly readsReached?: "column" | "host-filter";
 	/** Fold sites withdrawn so far, as `foldId:from:to` of this slot's source. */
 	readonly withdrawn: ReadonlySet<string>;
 	/** Claims a site of its own for this fold over `span` (a fold that folds
@@ -2782,7 +2784,7 @@ const reachedProperty: Fold = {
 	id: "reached-property",
 	ruleSets: ["record"],
 	propose(node, context, api, env) {
-		if (env.readsReached !== true) return undefined;
+		if (env.readsReached === undefined) return undefined;
 		const read = casedbRow(node);
 		if (read === undefined) return undefined;
 		const [step, ...more] = read.rest;
@@ -2797,6 +2799,26 @@ const reachedProperty: Fold = {
 			return undefined;
 		const row = activeRowScope(context);
 		if (row?.kind !== "case" || row.caseType === undefined) return undefined;
+		if (env.readsReached === "host-filter") {
+			const equality = binary(env.root, "=");
+			const literal = stringValue(equality?.right);
+			if (
+				first.identifier !== "host" ||
+				rest.length !== 0 ||
+				property === "name" ||
+				isStandardCaseListProperty(property) ||
+				equality === undefined ||
+				!same(equality.left, node) ||
+				literal === undefined ||
+				literal.trim() === "" ||
+				reachedPropertyType(
+					{ field: property, via: [first] },
+					row.caseType,
+					env.doc.caseTypes ?? [],
+				) !== "text"
+			)
+				return undefined;
+		}
 		return api.term(
 			{
 				kind: "prop",
