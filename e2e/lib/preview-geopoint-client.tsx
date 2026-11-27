@@ -154,13 +154,13 @@ const root = createRoot(element);
 root.render(
 	<TooltipProvider>
 		<BlueprintDocContext value={docStore}>
-			<BuilderLocalizationProvider>
-				<BuilderSessionContext value={session}>
-					<ReconcilerContext value={context}>
+			<BuilderSessionContext value={session}>
+				<ReconcilerContext value={context}>
+					<BuilderLocalizationProvider>
 						<AuditSurface />
-					</ReconcilerContext>
-				</BuilderSessionContext>
-			</BuilderLocalizationProvider>
+					</BuilderLocalizationProvider>
+				</ReconcilerContext>
+			</BuilderSessionContext>
 		</BlueprintDocContext>
 	</TooltipProvider>,
 );
