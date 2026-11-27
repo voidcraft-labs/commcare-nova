@@ -2770,11 +2770,19 @@ async function resolveOperationProgram(
 				}
 				value = prepared.value;
 			} else {
+				const dataType = writeDataType(program, instance.envelope, writeIndex);
 				value = storageValueFromEvaluation(
 					bag?.writes.get(writeIndex),
-					writeDataType(program, instance.envelope, writeIndex),
+					dataType,
 					program.viewerTimeZone ?? "UTC",
 				);
+				if (
+					value === undefined &&
+					dataType === "text" &&
+					instance.envelope.emptyTextWrites?.has(writeIndex)
+				) {
+					value = "";
+				}
 				// CommCare HQ copies a saved `hq_user_id` into the case's
 				// external id, a 255-character column, so the text it copies
 				// holds to that column's bound as an external id does.

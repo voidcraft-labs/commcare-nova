@@ -66,13 +66,14 @@ def _authored_label(unit, driver):
     return authoring, app_id, form
 
 
-def _received(state, submission, relevant=True):
+def _received(state, submission, relevant=True, closes=False):
     root = etree.fromstring(submission)
     label = root.find("{*}seen_label")
     assert (label.text if label is not None else None) == ("OK" if relevant else None)
     assert root.findtext("{*}notes") == TEXT
     member = root.find(f".//{{{CASE}}}case[@case_id='{MEMBER}']")
     assert member is not None
+    assert (member.find(f"{{{CASE}}}close") is not None) is closes
     update = member.find(f"{{{CASE}}}update")
     assert update.findtext(f"{{{CASE}}}notes") == TEXT
     assert update.findtext(f"{{{CASE}}}seen") == ("OK" if relevant else None)
@@ -80,14 +81,19 @@ def _received(state, submission, relevant=True):
     assert raw.refusal is None
     applied = operations.process_case_blocks(state, submission, cases=[case.case for case in raw.touched.values()])
     assert applied.refusal is None
+    assert applied.touched[MEMBER].case.closed is closes
     assert applied.touched[MEMBER].case.case_json["seen"] == ("OK" if relevant else "before")
     assert applied.touched[MEMBER].case.case_json["notes"] == TEXT
     assert OTHER not in applied.touched
 
 
-def test_advanced_editor_label_write_keeps_the_submitted_answer_and_case(hq, core_runner, editor_driver, tmp_path):
+@pytest.mark.parametrize("closes", [False, True], ids=["update", "update-and-close"])
+def test_advanced_editor_label_write_keeps_the_submitted_answer_and_case(
+    hq, core_runner, editor_driver, tmp_path, closes
+):
     with hq_check(BASE.configuration) as (unit, _):
-        authoring, app_id, form = _authored_label(unit, editor_driver)
+        variant = "load_writes_a_label_and_closes" if closes else "load_writes_a_label"
+        authoring, app_id, form = _authored_label(unit, editor_driver, variant)
 
         def read(relevant):
             built = compare.build(unit, app_id, unit.record)
@@ -110,7 +116,7 @@ def test_advanced_editor_label_write_keeps_the_submitted_answer_and_case(hq, cor
             )
             assert run["end"] == "submitted", run.get("refusal")
             payload, _ = unmarked_submission(run)
-            _received(unit, payload, relevant)
+            _received(unit, payload, relevant, closes)
 
         read(True)
 

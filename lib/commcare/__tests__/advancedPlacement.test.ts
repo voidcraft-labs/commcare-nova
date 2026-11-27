@@ -516,7 +516,7 @@ describe("advanced action clauses", () => {
 });
 
 describe("the advanced procedure", () => {
-	it("keeps only a root passive label on the selected case's Advanced follow-up load", () => {
+	it("keeps the verified root label modes on the selected case's Advanced follow-up load", () => {
 		const { doc, formUuid } = advancedFixture({
 			menu: "members",
 			formType: "followup",
@@ -548,8 +548,12 @@ describe("the advanced procedure", () => {
 		);
 		for (const variant of [
 			{ ...label, askForConfirmation: true as const },
-			{ ...label, default_value: term(literal("later")) },
 			{ ...label, banner: "good" as const },
+		]) {
+			expect(placed(withLabel(variant))).toEqual(placed(doc));
+		}
+		for (const variant of [
+			{ ...label, default_value: term(literal("later")) },
 			{ ...label, banner: "hidden" as const },
 		]) {
 			expect(placed(withLabel(variant))?.kind).toBe("save-to-case");
@@ -573,6 +577,31 @@ describe("the advanced procedure", () => {
 		});
 		expect(placed(openingValue(U("name")))).toEqual(placed(doc));
 		expect(placed(openingValue(label.uuid))?.kind).toBe("save-to-case");
+	});
+
+	it("saves a passive label and closes the same selected case in one load", () => {
+		const { doc, formUuid } = advancedFixture({
+			menu: "members",
+			formType: "close",
+			operations: () => [
+				own({ writes: [{ property: "seen", value: read("note") }] }),
+			],
+		});
+		expect(
+			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).map(({ code }) => code),
+		).toEqual([]);
+		expect(
+			planPlacements(doc, formUuid).placements.get(OWN)?.placement,
+		).toEqual({
+			kind: "advanced",
+			tag: "load_member1",
+		});
+		const form = expandDoc(doc).modules[1].forms[0];
+		if (form.doc_type !== "AdvancedForm")
+			throw new Error("Expected the Advanced form");
+		const member = form.actions.load_update_cases[1];
+		expect(member.close_condition.type).toBe("always");
+		expect(member.case_properties.seen?.question_path).toBe("/data/note");
 	});
 
 	it("keeps the same-record close outside the Advanced load that writes a passive label", () => {
