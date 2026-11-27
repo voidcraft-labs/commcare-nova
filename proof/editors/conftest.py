@@ -78,6 +78,7 @@ DOCUMENTS = (
     "targeted-repeat-invitations",
     "targeted-face-photo",
     "targeted-label-sort",
+    "targeted-search-workflow",
     "prompt-checkboxes",
     "targeted-named-answer-root",
     "targeted-android-app-answers",
