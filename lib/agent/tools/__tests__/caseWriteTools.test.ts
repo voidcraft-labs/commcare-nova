@@ -9,9 +9,17 @@ import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { testUuid } from "@/__tests__/helpers/uuid";
+import { planCaseOperationUpdate } from "@/lib/doc/caseOperationMutations";
+import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
+import {
+	hydratePersistedBlueprint,
+	toPersistableDoc,
+} from "@/lib/doc/fieldParent";
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { applyMutations } from "@/lib/doc/mutations";
 import {
 	type BlueprintDoc,
+	blueprintDocSchema,
 	fieldCaseWriteViews,
 	type OwnCaseOperation,
 	type Uuid,
@@ -252,6 +260,34 @@ describe("this form's own case on the case change tools", () => {
 		).toMatchObject({ ok: true });
 		const kept = h.currentDoc();
 		expect(ownCase(kept).writes?.[0]).toEqual(ownCase(before).writes?.[0]);
+		const reloaded = hydratePersistedBlueprint(
+			blueprintDocSchema.parse(
+				JSON.parse(JSON.stringify(toPersistableDoc(kept))),
+			),
+		);
+		expect(ownCase(reloaded)).toEqual(ownCase(kept));
+		expectAdmittedDoc(reloaded);
+		const remove = planCaseOperationUpdate(reloaded, form.uuid, {
+			...ownCase(reloaded),
+			writes: ownCase(reloaded).writes?.filter(
+				(entry) => entry.property !== key,
+			),
+		});
+		if (!remove.ok) throw new Error(remove.reason);
+		const moveToBoth = mutationCommitVerdict(
+			reloaded,
+			[
+				...remove.mutations,
+				{ kind: "removeCaseProperty", ...address },
+				{ kind: "setAppSettings", settings: { runsOnlyOn: null } },
+			],
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
+		if (!moveToBoth.ok) throw new Error(JSON.stringify(moveToBoth.findings));
+		expect(
+			ownCase(moveToBoth.nextDoc).writes?.map((entry) => entry.property),
+		).toEqual(["portable_note"]);
+		expect(moveToBoth.nextDoc.appSettings.runsOnlyOn).toBeUndefined();
 		expect(await edit([{ ...write, property: "estado_è" }])).toHaveProperty(
 			"error",
 		);
