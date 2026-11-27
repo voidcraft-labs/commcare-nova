@@ -40456,7 +40456,7 @@
 		}
 	},
 	{
-		"id": "hq-search/choices-read-from-open-cases-with-an-empty-editor-source",
+		"id": "hq-search/choices-read-from-open-cases-with-a-different-editor-source",
 		"base": "hq-search",
 		"entry": "case-search/itemset-nodeset-other-than-a-table-s-item-list",
 		"standing": "not-yet",
@@ -40481,7 +40481,7 @@
 					"sort": "case_name",
 					"label": "case_name",
 					"doc_type": "Itemset",
-					"instance_id": ""
+					"instance_id": "item-list:districts"
 				},
 				"hidden": false,
 				"allow_blank_value": false,
