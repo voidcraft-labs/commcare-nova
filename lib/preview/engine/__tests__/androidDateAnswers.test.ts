@@ -1,4 +1,4 @@
-import { expect, it } from "vitest";
+import { expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { createBlueprintDocStore } from "@/lib/doc/store";
 import { isoOfCalendarDay, localToday } from "../../workerCalendar";
@@ -88,6 +88,71 @@ it("only saves date widgets that were visible when the Android worker left", () 
 		value: "",
 		androidPickerDay: today,
 	});
+});
+
+it("saves the live Android datetime picker without answering unvisited or irrelevant questions", () => {
+	const input = engineFixtureInput(
+		[
+			{ kind: "datetime", id: "visited", label: "Visited" },
+			{
+				kind: "datetime",
+				id: "irrelevant",
+				label: "Hidden",
+				relevant: "false()",
+			},
+			{ kind: "datetime", id: "unvisited", label: "Unvisited" },
+		],
+		{ formUuid, formType: "survey" },
+	);
+	const open = (device: ReturnType<typeof androidDevice>) =>
+		new FormEngine(
+			input,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			{ device },
+		);
+	const shownAt = "2025-04-06T06:24:00Z";
+	const resetAt = "2025-04-06T06:26:00Z";
+	vi.useFakeTimers({ toFake: ["Date"] });
+	try {
+		vi.setSystemTime(new Date("2025-04-06T06:24:47.125Z"));
+		const engine = open(androidDevice());
+		const visited = "/data/visited";
+		const otherPaths = ["/data/irrelevant", "/data/unvisited"];
+		const assertUnansweredOthers = () => {
+			for (const path of otherPaths) {
+				expect(engine.getState(path).value).toBe("");
+				expect(engine.getState(path).androidPickerDatetime).toBeUndefined();
+			}
+		};
+		expect(engine.getState(visited).value).toBe("");
+		expect(
+			Date.parse(engine.getState(visited).androidPickerDatetime ?? ""),
+		).toBe(Date.parse(shownAt));
+		assertUnansweredOthers();
+		vi.setSystemTime(new Date("2025-04-06T06:26:47.125Z"));
+		expect(engine.saveScreenAnswers()).toEqual([visited]);
+		expect(Date.parse(engine.getState(visited).value)).toBe(
+			Date.parse(shownAt),
+		);
+		assertUnansweredOthers();
+		engine.setValue(visited, "");
+		expect(engine.saveScreenAnswers()).toEqual([visited]);
+		expect(Date.parse(engine.getState(visited).value)).toBe(
+			Date.parse(resetAt),
+		);
+		assertUnansweredOthers();
+
+		const web = open(webAppsDevice());
+		expect(web.saveScreenAnswers()).toEqual([]);
+		expect(web.getState(visited).value).toBe("");
+		expect(web.getState(visited).androidPickerDatetime).toBeUndefined();
+	} finally {
+		vi.useRealTimers();
+	}
 });
 
 it.each([false, true])(

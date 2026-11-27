@@ -36,10 +36,11 @@ require compatible property types.
 
 An app brought in from CommCare HQ can keep a date and time question that
 saves the calendar day as the selected case’s external ID. This direct save
-runs on Android. A blank answer clears the external ID, and a question that
-was skipped leaves it as it was. With **Save only if changed**, the form
-compares the day with the external ID from when the form opened. To ask the
-date and time separately, you can first remove the save to the external ID.
+runs on Android. The picker starts at the device’s current date and time when
+it has no answer. A question that was skipped leaves the external ID as it
+was. With **Save only if changed**, the form compares the day with the external
+ID from when the form opened. To ask the date and time separately, you can
+first remove the save to the external ID.
 
 A hidden value set to the current date and time can save the local date to a
 Date property on the case a basic follow-up opens. The form keeps the date

@@ -1,4 +1,5 @@
 import type { DateField } from "@/lib/domain";
+import { instantDatetimeValue } from "@/lib/domain/temporalValues";
 import { NEPALI_FIRST_YEAR, NEPALI_MONTH_LENGTHS } from "./nepaliMonthLengths";
 
 export type WorkerCalendar = "ethiopian" | "nepali" | "gregorian";
@@ -10,6 +11,11 @@ export function androidCalendarCanBeEmpty(
 ): boolean {
 	return calendar === "gregorian" || calendar === "gregorian-with-clear";
 }
+/** The Android DateTimeWidget always holds a day and time at minute precision. */
+export function androidDatetimePickerNow(zone: string): string {
+	return instantDatetimeValue(Math.floor(Date.now() / 60_000) * 60_000, zone);
+}
+
 export interface CalendarDay {
 	year: number;
 	month: number;

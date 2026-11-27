@@ -17,7 +17,10 @@ import {
 import { viewerTimeZone } from "@/lib/preview/engine/caseDataBindingClient";
 import type { FieldState } from "@/lib/preview/engine/types";
 import { runtimeMessage } from "@/lib/preview/runtimeMessages";
-import { androidCalendarCanBeEmpty } from "@/lib/preview/workerCalendar";
+import {
+	androidCalendarCanBeEmpty,
+	androidDatetimePickerNow,
+} from "@/lib/preview/workerCalendar";
 import { usePreviewPlatformRules } from "@/lib/session/hooks";
 import { formatClockTime, parseClockTime } from "@/lib/ui/clockTime";
 import { ValidationError } from "./ValidationError";
@@ -204,9 +207,10 @@ export function DateField({
 	// construction in the stored TIME shape, so the same reader the
 	// standalone time question uses projects it, and it keeps doing so
 	// while the other half is missing or half-typed.
-	const separator = stored.indexOf("T");
-	const datePart = separator === -1 ? stored : stored.slice(0, separator);
-	const timePart = separator === -1 ? "" : stored.slice(separator + 1);
+	const displayed = stored || state.androidPickerDatetime || "";
+	const separator = displayed.indexOf("T");
+	const datePart = separator === -1 ? displayed : displayed.slice(0, separator);
+	const timePart = separator === -1 ? "" : displayed.slice(separator + 1);
 
 	/**
 	 * Commit the two halves as one answer. Each arm produces a value the
@@ -223,6 +227,10 @@ export function DateField({
 	 */
 	const commit = (date: string, time: string): void => {
 		const clock = parseClockTime(time) ?? time.trim();
+		if (!clearable && (date === "" || clock === "")) {
+			onChange(androidDatetimePickerNow(viewerTimeZone()));
+			return;
+		}
 		if (date === "" && clock === "") {
 			onChange("");
 			return;
@@ -253,6 +261,7 @@ export function DateField({
 				className="flex min-w-0 flex-wrap gap-2"
 			>
 				<WorkerDatePicker
+					clearable={clearable}
 					value={datePart}
 					onValueChange={(next) => {
 						commit(next, timePart);
@@ -274,7 +283,10 @@ export function DateField({
 						)
 					}
 					onBlur={(text) => {
-						commit(datePart, text);
+						// Merely focusing and leaving the displayed clock keeps the
+						// suggested answer local until the worker leaves this screen.
+						if (stored || text !== formatClockTime(timePart))
+							commit(datePart, text);
 						onBlur();
 					}}
 					aria-label={runtimeMessage(language, "timeLabel")}
