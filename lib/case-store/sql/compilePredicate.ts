@@ -76,6 +76,7 @@ import {
 	normalizeRelationEvaluationScopes,
 } from "@/lib/domain/expression/normalizeRelationEvaluationScopes";
 import { formatNumeric } from "@/lib/domain/expression/numberLiteral";
+import { openJdk17DoubleToString } from "@/lib/domain/expression/openJdk17DoubleString";
 import {
 	canonicalIntegerText,
 	coercedEquality,
@@ -1000,6 +1001,22 @@ function compileOrderedComparison(
 			});
 		if (mode) {
 			const raw = compileStoredText(left.term, ctx);
+			if (
+				mode === "exact-text" &&
+				leftType === "date" &&
+				right.kind === "term" &&
+				right.term.kind === "literal" &&
+				typeof right.term.value === "number" &&
+				!Number.isInteger(right.term.value)
+			) {
+				// HQ sends a numeric term. Elasticsearch parses it as a double
+				// and matches its JVM string against the keyword field.
+				return eb(
+					raw,
+					operator,
+					eb.val(openJdk17DoubleToString(right.term.value)),
+				);
+			}
 			const bound = compileExpression(right, expressionContextFor(ctx));
 			if (mode === "exact-text")
 				return eb(raw, operator, sql`(${bound})::text`);

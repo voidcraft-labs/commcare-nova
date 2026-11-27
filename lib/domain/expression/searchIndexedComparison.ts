@@ -61,17 +61,17 @@ export function searchIndexedComparison(
 			: undefined;
 	if (equality) {
 		// HQ sends numeric literals to the exact text index of a custom date.
-		// Only admit decimals for which HQ, the wire printer and Postgres use
-		// a plain decimal spelling. Calendar dates stay on their own index.
+		// The wire emits a plain decimal. Preview compares its Elasticsearch
+		// keyword spelling, which can use an exponent. Calendar dates stay on
+		// their own index.
 		if (
 			leftType === "date" &&
 			typeof value === "number" &&
 			((rightType === "int" &&
 				canonicalIntegerText(String(value)) !== undefined) ||
 				(rightType === "decimal" &&
-					Math.abs(value) >= 0.0001 &&
-					Math.abs(value) < 1e16 &&
-					String(value).includes(".")))
+					Number.isFinite(value) &&
+					!Number.isInteger(value)))
 		)
 			return "exact-text";
 		if (rightType !== "text") return;

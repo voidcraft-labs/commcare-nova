@@ -41819,6 +41819,32 @@
 	{
 		"id": "hq-search/date-tested-for-equality-with-an-extreme-fraction",
 		"base": "hq-search",
+		"entry": "case-search/xpath-query-condition-outside-what-nova-types",
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/1/search_config/default_properties/-",
+			"value": {
+				"property": "_xpath_query",
+				"doc_type": "DefaultCaseSearchProperty",
+				"defaultValue": "\"dob = 0.00001\""
+			}
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 1
+					}
+				],
+				"pointer": "/caseListConfig/searchCondition/clauses/2/right/term/value",
+				"value": 1e-5
+			}
+		]
+	},
+	{
+		"id": "hq-search/date-tested-for-equality-with-an-integer-outside-the-native-authoring-bound",
+		"base": "hq-search",
 		"entry": "case-search/xpath-query-condition-nova-s-checker-refuses",
 		"standing": "not-yet",
 		"place": {
@@ -41832,7 +41858,7 @@
 			"value": {
 				"property": "_xpath_query",
 				"doc_type": "DefaultCaseSearchProperty",
-				"defaultValue": "\"dob = 0.00001\""
+				"defaultValue": "\"dob = 2147483648\""
 			}
 		}
 	},

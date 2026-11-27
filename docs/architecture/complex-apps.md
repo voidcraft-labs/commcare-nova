@@ -1574,6 +1574,8 @@ absolute tolerance. Unknown numeric/text conversions keep both branches
 reachable. This prevents admission from discarding the actual runtime branch
 when checking whether a fixed result can be quoted in the server query.
 
+For equality between a custom date property and a fractional number, HQ uses the exact text index. Preview compares the same JVM double spelling Elasticsearch queries. For example, `0.00001` matches stored `1.0E-5`. Calendar dates use their own comparison rules.
+
 A search reads `today()` as the worker's day: Nova sends Core's `today()` in a
 runtime segment, so the device's list, HQ's search and Preview read one day.
 CommCare HQ's own `today()` in a search is the project space's day. An app
