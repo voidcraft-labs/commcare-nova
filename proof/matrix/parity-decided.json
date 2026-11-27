@@ -329,6 +329,7 @@
 	"hq-lookups": [
 		"hq-lookups/declared-report-fixture",
 		"hq-lookups/itemset-copy",
+		"hq-lookups/itemset-filter-fractional-row-index",
 		"hq-lookups/itemset-filter-numeric-row-index",
 		"hq-lookups/itemset-filter-position-of-scalar",
 		"hq-lookups/itemset-filters-available-cases-by-survey-readiness",
