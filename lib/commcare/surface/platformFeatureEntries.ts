@@ -65,6 +65,7 @@ export const PLATFORM_FEATURE_ENTRIES = {
 		"menus-and-case-lists/detail-auto-select-multi-select",
 		"menus-and-case-lists/detail-max-select-value-on-a-multi-select-basic-list",
 		"menus-and-case-lists/detail-max-select-value-for-flat-close",
+		"menus-and-case-lists/detail-max-select-value-for-flat-followup",
 		"expressions-and-data/selected-cases-search-selected-cases-parent-selected-cases-jr",
 	],
 	"search-field-single-date": [
@@ -402,8 +403,12 @@ export const AMBIENT_PLATFORM_ENTRIES = {
 		"The wire form of list first in an app that declares Android only, which no Web App reads; `list-first` states list first's readings.",
 	"case-search/address-receiver-on-an-unmatched-topic-without-a-component":
 		"Only an HQ import can supply the saved topic. Nova authors receivers by picker identity.",
+	"case-search/address-receiver-with-an-unused-suffix":
+		"Only an HQ import can supply the extra segment. Nova keeps the picker and the component.",
 	"case-search/address-picker-with-a-saved-text-default":
 		"Only an HQ import can supply the saved address text. The worker's picker opens blank.",
+	"expressions-and-data/guarded-fingerprint-query-without-a-supplier":
+		"Only an imported standalone Android survey can supply this guarded source. Nova keeps the resulting text.",
 	"expressions-and-data/commcaresession-jr-instance-session":
 		"The session instance itself; each context field's feature states its difference.",
 	"expressions-and-data/lookup-table-rows-in-the-local-archive-suite":

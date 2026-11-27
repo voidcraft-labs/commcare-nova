@@ -205,6 +205,8 @@ export const PLATFORM_CELLS: Readonly<
 		structural("several-cases"),
 	"menus-and-case-lists/detail-max-select-value-for-flat-close@android":
 		structural("several-cases"),
+	"menus-and-case-lists/detail-max-select-value-for-flat-followup@android":
+		structural("several-cases"),
 	"expressions-and-data/selected-cases-search-selected-cases-parent-selected-cases-jr@android":
 		structural("several-cases"),
 	"menus-and-case-lists/detail-auto-select-multi-select@android":
@@ -389,6 +391,13 @@ export const PLATFORM_CELLS: Readonly<
 	"case-search/address-picker-receiver-on-a-search-screen@android": model(
 		"search-address-picker-android",
 	),
+	"case-search/address-receiver-with-an-unused-suffix@android": model(
+		"search-address-picker-android",
+	),
+	"expressions-and-data/guarded-fingerprint-query-without-a-supplier@web-apps":
+		outside(
+			"This import scope is an Android-only survey. Its saved calculation is already plain text.",
+		),
 	"case-search/address-receiver-on-an-unmatched-topic-without-a-component@web-apps":
 		model("search-unmatched-address-topic"),
 	"case-search/address-receiver-on-an-unmatched-topic-without-a-component@android":
