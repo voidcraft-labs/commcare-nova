@@ -851,17 +851,24 @@ def _advanced_own_label_write(use):
         if source is form_source.node(path)
     ]
     if preloads:
-        (initial_load, initial_property) = preloads[0]
+        initial_load, _ = preloads[0]
         from_earlier_choice = (
             len(loads) == len(choices) == 2
             and choices[0] is initial_load
             and choices[1] is load
             and initial_load.get("case_type") not in (None, "", "commcare-user")
         )
-        if (len(preloads) != 1 or (initial_load is not load and not from_earlier_choice)
-                or not isinstance(initial_property, str) or not re.fullmatch(r"[a-zA-Z_][a-zA-Z0-9_]*", initial_property)
-                or initial_property in HQ_CASE_RESERVED_WORDS
-                or initial_property in {"name", "owner_id", "case_name", "external_id", "location_id", "hq_user_id"}
+        selected_sources = (
+            len(preloads) == 1 and (initial_load is load or from_earlier_choice)
+            or len(preloads) == 2 and from_earlier_choice and preloads[1][0] is load
+        )
+        ordinary_properties = all(
+            isinstance(prop, str) and re.fullmatch(r"[a-zA-Z_][a-zA-Z0-9_]*", prop)
+            and prop not in HQ_CASE_RESERVED_WORDS
+            and prop not in {"name", "owner_id", "case_name", "external_id", "location_id", "hq_user_id"}
+            for _, prop in preloads
+        )
+        if (not selected_sources or not ordinary_properties
                 or control.get("appearance") not in {"minimal", "selectable"}
                 or (load.get("close_condition") or {}).get("type") in {"if", "always"}):
             return OTHER_ADVANCED_LABEL

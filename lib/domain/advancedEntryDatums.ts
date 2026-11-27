@@ -558,24 +558,29 @@ function readsOwnRootLabel(
 		f.form.openingAssignments?.filter(
 			({ field: target }) => target === source.field,
 		) ?? [];
-	const first = starting[0];
-	const loadedFromSelectedRecord =
+	const [first, last] = starting;
+	const loadedFromEarlier =
+		first?.source.kind === "selection" &&
+		earlierManualLabelSource(f, first.source.selection);
+	const loadedFromSelectedRecords =
 		passive &&
 		f.form.type === "followup" &&
-		starting.length === 1 &&
-		first !== undefined &&
-		first.via === undefined &&
-		isAdvancedOwnLabelProperty(first.property) &&
-		(first.source.kind === "own" ||
-			(first.source.kind === "selection" &&
-				earlierManualLabelSource(f, first.source.selection)));
+		starting.every(
+			(row) =>
+				row.via === undefined && isAdvancedOwnLabelProperty(row.property),
+		) &&
+		(starting.length === 1
+			? first?.source.kind === "own" || loadedFromEarlier
+			: starting.length === 2 &&
+				loadedFromEarlier &&
+				last?.source.kind === "own");
 	return (
 		field?.kind === "label" &&
 		(passive ||
 			(f.form.type !== "close" &&
 				caseWriteLabelSavesEmpty(field.askForConfirmation, field.banner))) &&
 		field.default_value === undefined &&
-		(starting.length === 0 || loadedFromSelectedRecord) &&
+		(starting.length === 0 || loadedFromSelectedRecords) &&
 		f.doc.fieldOrder[f.formUuid]?.includes(source.field) === true &&
 		f.submittedChildren.get(f.formUuid)?.includes(source.field) === true
 	);

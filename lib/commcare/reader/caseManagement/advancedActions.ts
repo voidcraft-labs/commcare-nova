@@ -984,7 +984,7 @@ function readProperties(
 			readonly earlierChosenLoad?: Readonly<Record<string, unknown>>;
 			readonly preloadedLabels: ReadonlyMap<
 				DraftField,
-				Readonly<Record<string, unknown>> | null
+				readonly (Readonly<Record<string, unknown>> | null)[]
 			>;
 		};
 	} = {},
@@ -1155,7 +1155,14 @@ function readProperties(
 			source?.kind === "label" &&
 			source.field.askForConfirmation !== true &&
 			source.field.banner === undefined;
-		const preload = source && options.ownLoad?.preloadedLabels.get(source);
+		const preloads = source && options.ownLoad?.preloadedLabels.get(source);
+		const onlyOrdinaryLoads =
+			preloads?.length === 1
+				? preloads[0] === options.ownLoad?.sourceLoad ||
+					preloads[0] === options.ownLoad?.earlierChosenLoad
+				: preloads?.length === 2 &&
+					preloads[0] === options.ownLoad?.earlierChosenLoad &&
+					preloads[1] === options.ownLoad?.sourceLoad;
 		const label =
 			source?.kind === "label" &&
 			source.parent === null &&
@@ -1166,11 +1173,8 @@ function readProperties(
 						source.field.askForConfirmation,
 						source.field.banner,
 					))) &&
-			(preload === undefined ||
-				(passive &&
-					!options.ownLoad?.closes &&
-					(preload === options.ownLoad?.sourceLoad ||
-						preload === options.ownLoad?.earlierChosenLoad))) &&
+			(preloads === undefined ||
+				(passive && !options.ownLoad?.closes && onlyOrdinaryLoads)) &&
 			!source.expressions.some(
 				(expression) => expression.slot === "default_value",
 			)
@@ -1874,7 +1878,7 @@ function readOrdinaryAdvancedActions(
 		: [];
 	const preloadedLabels = new Map<
 		DraftField,
-		Readonly<Record<string, unknown>> | null
+		(Readonly<Record<string, unknown>> | null)[]
 	>();
 	for (const load of storedLoads) {
 		if (!isJsonObject(load) || !isJsonObject(load.preload)) continue;
@@ -1885,10 +1889,9 @@ function readOrdinaryAdvancedActions(
 				typeof property === "string" &&
 				isAdvancedOwnLabelProperty(property) &&
 				holdsAsOpeningAssignment([], property);
-			preloadedLabels.set(
-				field,
-				direct && !preloadedLabels.has(field) ? load : null,
-			);
+			const sourceLoads = preloadedLabels.get(field) ?? [];
+			sourceLoads.push(direct ? load : null);
+			preloadedLabels.set(field, sourceLoads);
 		}
 	}
 	const storedOpens = Array.isArray(actions.open_cases)

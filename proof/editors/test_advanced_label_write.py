@@ -93,16 +93,17 @@ def _received(state, submission, relevant=True, closes=False, answer="OK"):
     ("load_writes_a_label_and_closes", True, "OK"),
     ("load_writes_a_preloaded_label", False, "From the selected member"),
     ("load_writes_a_label_preloaded_from_an_earlier_case", False, "From the selected household"),
-], ids=["update", "update-and-close", "preloaded", "preloaded-from-household"])
+    ("load_writes_a_label_preloaded_from_two_cases", False, "From the selected member"),
+], ids=["update", "update-and-close", "preloaded", "preloaded-from-household", "preloaded-from-both"])
 def test_advanced_editor_label_write_keeps_the_submitted_answer_and_case(
     hq, core_runner, editor_driver, tmp_path, variant, closes, answer
 ):
     with hq_check(BASE.configuration) as (unit, _):
         authoring, app_id, form = _authored_label(unit, editor_driver, variant)
         preloaded = "preloaded" in variant
-        if variant == "load_writes_a_preloaded_label":
+        if variant in {"load_writes_a_preloaded_label", "load_writes_a_label_preloaded_from_two_cases"}:
             assert form.actions.load_update_cases[1].preload[QUESTION] == "notes"
-        if variant == "load_writes_a_label_preloaded_from_an_earlier_case":
+        if variant in {"load_writes_a_label_preloaded_from_an_earlier_case", "load_writes_a_label_preloaded_from_two_cases"}:
             assert form.actions.load_update_cases[0].preload[QUESTION] == "village"
 
         def read(relevant):
