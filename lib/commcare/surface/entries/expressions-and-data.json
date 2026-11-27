@@ -5425,7 +5425,6 @@
 		],
 		"disposition": "HELD",
 		"dispositionCell": "**HELD**: Nova uses the worker, group membership and the primary location’s path to select assigned Project rows. A transfer from CommCare HQ requires a current selected-table workbook with exact row identities, verified recipient bindings and matching fresh worker restores. A direct workbook publish writes owners only for confirmed destination recipients. A named installation can reference a verified live HQ table so the signed-in worker receives their private rows from HQ. Generic downloads carry no private rows. Native HQ and Core tests cover disjoint workers, direct and overlapping grants, primary-location ancestors, owner-only changes with unchanged administrative content, and the distinction between a missing fixture, an empty assigned fixture and a valid filter with no matches. The HQ-authored assigned table passes proofs 1 to 6, including a Nova wording edit, and signed Web Apps and installed Android independently receive only the worker’s assigned choices after an owner change.",
-		"subject": "lookup-tables",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
