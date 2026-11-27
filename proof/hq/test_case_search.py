@@ -492,15 +492,18 @@ def test_destination_day_and_native_range_read_the_index_at_a_dst_boundary(hq):
         assert matches("visit", "__range__2024-03-10__2024-03-10") == {"before", "start"}
 
 
-def test_numeric_search_equality_reads_the_exact_stored_custom_property(hq, evidence):
+def test_numeric_search_equality_reads_the_exact_stored_custom_property(hq):
     """Distinguish a literal number from a numeric range or a calendar day."""
     import hashlib
+    import os
+    from pathlib import Path
 
     from casexml.apps.case.mock import CaseBlock
     from corehq.apps.app_manager.models import DefaultCaseSearchProperty
     from corehq.apps.hqcase.utils import submit_case_blocks
 
     from proof.hq import redis as hq_redis
+    from proof.native.hq_support import write_evidence
 
     cases = {
         "untyped": "3",
@@ -532,11 +535,15 @@ def test_numeric_search_equality_reads_the_exact_stored_custom_property(hq, evid
             return {"expression": expression, "matches": sorted(hit["_id"] for hit in query.run().raw_hits)}
 
         cases_seen = [match(expression) for expression in (
-            "dob = 3", "dob = '3'", "dob = '003'", "dob = '3.0'", "dob = '1970-01-04'",
+            "dob = 3", "dob = '3'", "dob = '003'", "dob = '3.0'", "dob = '1970-01-04'", "dob != 3",
         )]
-        evidence("numeric-custom-date-equality", cases_seen)
+        if out := os.environ.get("PROOF_OUT"):
+            directory = Path(out, "hq")
+            directory.mkdir(parents=True, exist_ok=True)
+            write_evidence(directory, "numeric-custom-date-equality", {"results": cases_seen})
         assert [case["matches"] for case in cases_seen] == [
             ["untyped"], ["untyped"], ["padded"], ["decimal"], ["epoch-day"],
+            sorted(set(cases) - {"untyped"}),
         ]
 
 
