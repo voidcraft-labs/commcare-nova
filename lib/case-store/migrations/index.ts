@@ -56,8 +56,8 @@ import * as caseIndexHistory from "./20261208020000_case_index_history";
 import * as previewSearchSettings from "./20261208050000_preview_search_settings";
 import * as projectSearchBindings from "./20261208060000_project_search_bindings";
 import * as previewWebActivity from "./20261208100000_preview_web_activity";
+import * as allowClearedCaseName from "./20261208200000_allow_cleared_case_name";
 import * as hqRoundTripComplete from "./20261209000000_hq_round_trip_complete";
-import * as allowClearedCaseName from "./20261209010000_allow_cleared_case_name";
 // Case-store migration set + provider.
 //
 // Static (import-based) `MigrationProvider` rather than Kysely's
@@ -295,8 +295,8 @@ export const caseStoreMigrations: Record<string, Migration> = {
 	"20261208050000_preview_search_settings": previewSearchSettings,
 	"20261208060000_project_search_bindings": projectSearchBindings,
 	"20261208100000_preview_web_activity": previewWebActivity,
+	"20261208200000_allow_cleared_case_name": allowClearedCaseName,
 	"20261209000000_hq_round_trip_complete": hqRoundTripComplete,
-	"20261209010000_allow_cleared_case_name": allowClearedCaseName,
 };
 
 export const caseStoreMigrationProvider: MigrationProvider = {

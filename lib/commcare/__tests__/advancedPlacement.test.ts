@@ -581,7 +581,7 @@ describe("the advanced procedure", () => {
 			},
 		});
 		expect(placed(openingValue(U("name")))).toEqual(placed(doc));
-		expect(placed(openingValue(label.uuid))?.kind).toBe("save-to-case");
+		expect(placed(openingValue(label.uuid))).toEqual(placed(doc));
 	});
 
 	it("saves a passive label and closes the same selected case in one load", () => {
