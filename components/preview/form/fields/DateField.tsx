@@ -269,6 +269,7 @@ export function DateField({
 					clearable={clearable}
 					value={datePart}
 					onValueChange={(next) => {
+						if (!next && !clearable) return;
 						commit(next, timePart);
 						onBlur();
 					}}

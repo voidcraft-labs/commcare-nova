@@ -368,10 +368,22 @@ async function checkDatetimePicker(
 				: "2025-11-01T23:26:48.000-07:00",
 		);
 	if (platform === "android") {
-		await page.getByRole("button", { name: "Date", exact: true }).click();
-		const nextDay = page
-			.locator('[data-slot="calendar"]')
-			.getByRole("button", { name: /November 2(?:nd)?,? 2025/ });
+		const calendarTrigger = page.getByRole("button", {
+			name: "Date",
+			exact: true,
+		});
+		const calendar = page.locator('[data-slot="calendar"]');
+		await calendarTrigger.click();
+		await calendar
+			.getByRole("button", { name: /November 1(?:st)?,? 2025/ })
+			.click({ timeout: 10_000 });
+		await expect
+			.poll(() => answer(page, PLATFORM_IDS.datetime))
+			.toBe("2025-11-01T23:26:00.000-07:00");
+		await calendarTrigger.click();
+		const nextDay = calendar.getByRole("button", {
+			name: /November 2(?:nd)?,? 2025/,
+		});
 		await expect(nextDay).toBeVisible();
 		await nextDay.click();
 		await expect
