@@ -3488,6 +3488,7 @@
 		"valueClass": "101-on-a-web-apps-flat-close",
 		"disposition": "HELD",
 		"dispositionCell": "**HELD**: `selection.maximum` of 101 for the bounded Web Apps close",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / UNAVAILABLE",

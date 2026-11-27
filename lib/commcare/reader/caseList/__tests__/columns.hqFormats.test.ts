@@ -22,6 +22,7 @@ import {
 import { proseText } from "@/lib/domain/prose";
 import { DERIVED_WIRE_IDENTITY } from "../../../wireIdentity";
 import { namingFromHqPages } from "../../__tests__/hqPageNames";
+import { assembleDocument } from "../../assemble";
 import { matchingResolver } from "../../identity";
 import { externalIdentityMap } from "../../identityMap";
 import { readProjectionInputs } from "../../projectionInputs";
@@ -650,6 +651,7 @@ describe("CommCare HQ's column formats", () => {
 			const read = await readDetails((short) => {
 				Object.assign(short, { multi_select: true, max_select_value: maximum });
 			}, false);
+			assembleDocument(read.ctx);
 			expect(closedCodes(read)).toContain(`${M}${entry}`);
 		},
 	);
@@ -693,6 +695,7 @@ describe("CommCare HQ's column formats", () => {
 					source: { ...input.source, cloudcareEnabled: true },
 				}),
 			});
+			assembleDocument(reading.ctx);
 			expect(closedCodes(reading)).toEqual([]);
 			expect(reading.app.modules[0]?.case_details.short.max_select_value).toBe(
 				101,

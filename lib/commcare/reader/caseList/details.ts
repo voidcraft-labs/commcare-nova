@@ -1714,7 +1714,7 @@ export function settleFlatCloseSelectionLimits(
 				doc.formOrder[module.uuid]?.[0],
 			)
 		)
-			short.take("max_select_value", D.maxSelectFlatClose, Number);
+			short.take("max_select_value", D.maxSelectFlatClose, Number).value;
 		else short.refuse("max_select_value", D.maxSelect101Elsewhere);
 	}
 	deferredFlatCloseLimits.delete(ctx);
