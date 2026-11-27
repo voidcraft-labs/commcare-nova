@@ -690,15 +690,37 @@ function refusalOf(
 	};
 }
 
-/** A use whose entry the manifest refuses outranks a slot answer that is no
- *  refusal: a read of a search's answers in a form the parser refuses for a
- *  reason of Nova's own (`unknown-search-input`, the slot's default) is the
- *  read the instance's own class refuses, so the expression is that one line
- *  of the account and not two. */
+/** An instance's refusal owns its read when the slot only names the same
+ *  cause under its generic finding. */
 function withRefusingInstanceUse(
 	resolution: Extract<Resolution, { kind: "entry" }>,
 	uses: readonly { readonly key: string; readonly entryId: string }[],
+	candidate: Expression | undefined,
 ): Extract<Resolution, { kind: "entry" }> {
+	if (
+		resolution.entryId ===
+			EXPRESSION_CLAIMS[
+				"usexpathexpression-field-xpath-outside-valueexpression"
+			].entry &&
+		resolution.reason === "call:string" &&
+		candidate?.kind === "call" &&
+		candidate.fn === "string" &&
+		candidate.args.length === 1 &&
+		candidate.args[0]?.kind === "term" &&
+		candidate.args[0].term.kind === "input"
+	) {
+		// A standalone Search result value wrapped only for scalar coercion
+		// still reads the same unsupported instance in this column.
+		const use = uses.find(
+			(one) =>
+				one.entryId ===
+				EXPRESSION_CLAIMS[
+					"search-input-results-read-in-the-search-results-detail"
+				].entry,
+		);
+		if (use !== undefined)
+			return { ...resolution, entryId: use.entryId, key: use.key };
+	}
 	if (resolution.reason !== "parse:unknown-search-input") return resolution;
 	const index = inventoryIndex();
 	const refusing = (entryId: string) =>
@@ -1465,7 +1487,12 @@ export function* readExpressionsSteps(
 				ownerless.push(index);
 				return;
 			}
-			const resolution = withRefusingInstanceUse(outcome.resolution, uses);
+			const candidate = bindings.get(index)?.candidate;
+			const resolution = withRefusingInstanceUse(
+				outcome.resolution,
+				uses,
+				candidate,
+			);
 			// The slot's own claim is under the registration's key, which the
 			// frame finds it by; where the entry is registered under the key of
 			// a use the text makes (an operator, a function, an instance
@@ -1498,7 +1525,7 @@ export function* readExpressionsSteps(
 							checked,
 							registration,
 							resolution.entryId,
-							bindings.get(index)?.candidate,
+							candidate,
 							context?.profile.expectation.kind === "condition"
 								? "condition"
 								: "value",

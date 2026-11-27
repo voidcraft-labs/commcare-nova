@@ -205,6 +205,30 @@ describe("a list column that reads a search's results", () => {
 		expect(outcome.claims.counts[SEARCH_DETAIL]).toBeGreaterThan(0);
 	});
 
+	it("reports a wrapped standalone Search answer under its instance's finding alone", async () => {
+		const outcome = await read(
+			withColumn(
+				app(false),
+				"string(instance('search-input:results')/input/field[@name = 'village'])",
+			),
+		);
+		expect(
+			outcome.findings.map(({ code, place }) => ({ code, place })),
+		).toEqual([
+			{
+				code: "expressions-and-data/search-input-results-read-in-the-search-results-detail",
+				place: { kind: "case-list", menu: 0, name: "Clients" },
+			},
+		]);
+	});
+
+	it("keeps the calculated-column refusal when the same call wraps ordinary text", async () => {
+		const outcome = await read(withColumn(app(false), "string(village)"));
+		expect(
+			outcome.findings.map(({ code, detail }) => [code, detail?.reason]),
+		).toEqual([[COLUMN, "call:string"]]);
+	});
+
 	it("keeps a Long expression held because an ordinary Details route can open without Search", async () => {
 		const outcome = await read(
 			withColumn(app(true), INLINE_OWN_PROPERTY, "long"),
