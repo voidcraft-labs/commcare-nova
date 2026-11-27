@@ -60,6 +60,11 @@ export interface ReaderInput {
 	readonly source: HqAppSource;
 	/** The aligned menus, each form's real id and HQ's own question summary. */
 	readonly modules: readonly HqAlignedModule[];
+	/**
+	 * Nova's fixed-point emission prints listed-form references under the source
+	 * read's IDs. Real HQ source holds the application resource's actual IDs.
+	 */
+	readonly listedFormsUseReadIds?: true;
 	/** Source project facts observed by this reading, independent of the publish target. */
 	readonly sourceProjectFactories?: Pick<
 		InstanceFactories,
@@ -101,6 +106,17 @@ export interface ReaderInput {
 	 *  each property, which every property the reading holds takes unless a question that writes
 	 *  it gives values that type cannot hold. Absent for an app Nova has never held. */
 	readonly knownCaseTypes?: ReaderKnownCaseTypes;
+	/** The opening assignments Nova already holds and the baseline's raw loads
+	 *  they came from, so a load an earlier read folded into a field default
+	 *  keeps that representation while its source and stages are unchanged
+	 *  (`openingAssignments.ts::knownFormOpenings`). */
+	readonly knownOpenings?: import("./caseManagement/openingAssignments").KnownFormOpenings;
+	/** Names chosen in Nova, which HQ holds only as record tags. The presence
+	 * of a form here also retains an intentionally empty set of choices. */
+	readonly knownFormEntryChoices?: ReadonlyMap<
+		Uuid,
+		ReadonlyMap<string, string>
+	>;
 	/** What Nova already holds about this app's languages that no export carries: the language
 	 *  each CommCare HQ code it published names, from the held document's `localization.wireCodes`
 	 *  (`languages.ts::knownLanguageCodesOf`). A code it holds is read as that language whatever
@@ -245,6 +261,8 @@ export interface ReadMenuAndFormIdentities {
 		readonly uuid: Uuid;
 		readonly xmlns: string;
 		readonly moduleUniqueId: string;
+		/** One-read key into the aligned source. Never an adoption or document identity. */
+		readonly readUniqueId: string;
 	}[];
 	/** Every create the document holds whose id is keyed by an answer, read from a Save to Case
 	 *  block, with the prefix its id stands under in the source. The reading mints its own app,

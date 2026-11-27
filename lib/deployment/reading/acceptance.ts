@@ -26,6 +26,7 @@
  * `unrecognized`. Each difference's `detail` holds the app's words for a
  * developer and a test; its signature holds none.
  */
+import { knownFormEntryChoicesOf } from "@/lib/domain/formEntryCases";
 import "server-only";
 
 import { Immer } from "immer";
@@ -822,7 +823,7 @@ function* fixedPointCheck(
 		emission: ReturnType<typeof readingEmission>,
 		resolver: ReaderInput["resolver"],
 	) => {
-		const read = readerSourceOfEmission(emission, source);
+		const read = readerSourceOfEmission(emission, source, input.modules);
 		return callingSteps(
 			"readHqApp",
 			readHqAppSteps(
@@ -831,6 +832,7 @@ function* fixedPointCheck(
 					target: input.reader.target,
 					source: read.source,
 					modules: read.modules,
+					listedFormsUseReadIds: true,
 					resolver,
 					lookup: input.reader.lookup,
 					organization: input.reader.organization,
@@ -845,6 +847,7 @@ function* fixedPointCheck(
 						caseListActionsApplied: input.reader.caseListActionsApplied,
 					}),
 					knownCaseTypes: knownCaseTypesOf(doc),
+					knownFormEntryChoices: knownFormEntryChoicesOf(doc),
 					knownLanguageCodes: knownLanguageCodesOf(doc),
 				},
 				input.heldExpansions === undefined

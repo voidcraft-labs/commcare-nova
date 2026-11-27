@@ -238,6 +238,8 @@ async function appTestFormContext(
 				appId: scope.appId,
 				menuSelections:
 					screen.caseListRegistrationLaunch?.selections ?? state.selections,
+				entryChoices: screen.entryChoices,
+				heldEntryValues: screen.heldEntryValues,
 			},
 			...(searchResults === undefined ? {} : { searchResults }),
 		},
@@ -851,6 +853,41 @@ async function postAppTestClaims(
 /** Only actions available on the observed screen can advance this worker. A
  *  screen a phone stops on, because a menu reads data the device lacks, is the
  *  worker's refusal, in the words Preview shows it in. */
+/** Follow only automatic choices after a fresh navigation step. Back returns
+ * the saved user-input boundary without selecting its single row again. */
+async function advanceAutomaticChoices(
+	context: AppTestContext,
+	scope: AppTestScope,
+	state: AppTestSessionState,
+): Promise<AppTestSessionState> {
+	let cursor = state;
+	while (
+		cursor.screen.kind === "records" &&
+		cursor.screen.formEntry?.next.autoSelectSingle
+	) {
+		const read = await appTestRecords(context, scope, cursor);
+		if (
+			read.result?.kind !== "rows" ||
+			read.result.totalCount !== 1 ||
+			read.result.rows.length !== 1
+		)
+			return read.state;
+		const [row] = read.result.rows;
+		if (cursor.screen.formEntry.next.confirms)
+			return {
+				...read.state,
+				screen: {
+					kind: "details",
+					moduleUuid: cursor.screen.moduleUuid,
+					caseId: row.case_id,
+					source: read.state.screen,
+				},
+			};
+		cursor = selectAppTestRecords(context, read.state, [row]);
+	}
+	return cursor;
+}
+
 export async function advanceAppTest(
 	context: AppTestContext,
 	scope: Scope,
@@ -1313,7 +1350,8 @@ async function advanceAppTestOnScreen(
 			});
 			const recordsScreen = read.state.screen;
 			const mod = context.doc.modules[recordsScreen.moduleUuid];
-			const multiple = caseSelectionCardinality(mod) !== "single";
+			const multiple =
+				!recordsScreen.formEntry && caseSelectionCardinality(mod) !== "single";
 			const rowAction = caseSelectionRowAction({
 				hasDetails: appTestRecordsHaveDetails(
 					context,
@@ -1565,6 +1603,9 @@ async function advanceAppTestOnScreen(
 			);
 	}
 	try {
+		if (action.kind !== "back" && next.screen !== state.screen) {
+			next = await advanceAutomaticChoices(context, scope, next);
+		}
 		const observed = await observeAppTestWithEvaluation(
 			context,
 			scope,

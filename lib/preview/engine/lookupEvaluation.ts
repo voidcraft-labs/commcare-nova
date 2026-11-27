@@ -38,6 +38,7 @@ import {
 	mapExpressionAst,
 } from "@/lib/domain/expression/mapAst";
 import type { Expression } from "@/lib/domain/expression/types";
+import { entrySelectionSettings } from "@/lib/domain/formEntryCases";
 import type { LookupRead } from "@/lib/domain/lookupRead";
 import type {
 	LookupFixtureRow,
@@ -197,6 +198,32 @@ export function expressionLookupsCovered(
 	return collector.covered;
 }
 
+/** The lookup-bearing expression slots executed by this entry, including
+ * the common questions and writes but only this entry's route. */
+export function formLogicLookupExpressions(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+): readonly Expression[] {
+	const content = doc.forms[formUuid]?.shadowOf?.form;
+	return [
+		...formExpressionSlotValues(doc, formUuid),
+		...(content
+			? formExpressionSlotValues(doc, content).filter(
+					({ ref, path }) =>
+						ref.entity === "field" ||
+						[
+							"openCondition",
+							"closeCondition",
+							"caseOperations",
+							"connect",
+						].includes(String(path[0])),
+				)
+			: []),
+	]
+		.filter(({ ref }) => ref.slot !== "lookup_options_source")
+		.map(({ expression }) => expression);
+}
+
 /**
  * Whether a snapshot covers every table a form's logic, Connect block and
  * links read. Printing such a read needs the table's naming, so an entry
@@ -209,10 +236,15 @@ export function formLogicLookupsCovered(
 	formUuid: Uuid,
 	data: PreviewLookupData | undefined,
 ): boolean {
-	return formExpressionSlotValues(doc, formUuid).every(
-		({ ref, expression }) =>
-			ref.slot === "lookup_options_source" ||
+	const collector = identityCollector(data);
+	for (const { source } of entrySelectionSettings(doc.forms[formUuid]) ?? []) {
+		if (source.kind === "table") collector.check(source.table, source.column);
+	}
+	return (
+		collector.covered &&
+		formLogicLookupExpressions(doc, formUuid).every((expression) =>
 			expressionLookupsCovered(expression, data),
+		)
 	);
 }
 

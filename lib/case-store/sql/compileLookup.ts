@@ -76,6 +76,54 @@ export function workerLookupSchemas(
 	);
 }
 
+function workerLookupRows(
+	rows: readonly LookupFixtureRow[],
+): RawBuilder<unknown> {
+	// WITH ORDINALITY preserves restore order, including equal rows and
+	// remote rows without a Nova identity. Values remain a bound parameter.
+	const encoded = JSON.stringify(
+		rows.map((row) => ({
+			id: row.id,
+			values: row.values,
+			content: { attributes: row.attributes, occurrences: row.occurrences },
+		})),
+	);
+	return sql`SELECT item->>'id' AS id,item->'values' AS values,item->'content' AS content,position AS order_key
+		FROM jsonb_array_elements(${encoded}::jsonb) WITH ORDINALITY AS source(item,position)`;
+}
+
+export type WorkerLookupRowsSource = (
+	tableId: string,
+	rows: readonly LookupFixtureRow[],
+) => RawBuilder<unknown>;
+
+/** Share each referenced table's captured rows across one SQL statement. */
+export function collectWorkerLookupCtes() {
+	const tables = new Map<
+		string,
+		{ name: string; rows: readonly LookupFixtureRow[] }
+	>();
+	const source: WorkerLookupRowsSource = (tableId, rows) => {
+		let table = tables.get(tableId);
+		if (!table) {
+			table = { name: `worker_lookup_${tables.size}`, rows };
+			tables.set(tableId, table);
+		}
+		return sql.id(table.name);
+	};
+	return {
+		source,
+		appendCtes: () =>
+			sql.join(
+				[...tables.values()].map(
+					({ name, rows }) =>
+						sql`, ${sql.id(name)} AS MATERIALIZED (${workerLookupRows(rows)})`,
+				),
+				sql``,
+			),
+	};
+}
+
 /** The enclosing `table-lookup`'s row scope during `where` compilation. */
 export interface LookupRowScope {
 	readonly tableId: string;
@@ -125,20 +173,12 @@ export function compileTableLookup(
 		const rows = projection.rows.get(expr.tableId);
 		if (!rows)
 			throw new Error("This worker’s current lookup rows are unavailable.");
-		// WITH ORDINALITY preserves restore order including equal rows and
-		// remote rows without a Nova identity. Values never enter SQL text.
-		const encoded = JSON.stringify(
-			rows.map((row) => ({
-				id: row.id,
-				values: row.values,
-				content: { attributes: row.attributes, occurrences: row.occurrences },
-			})),
-		);
 		const source =
-			sql`(SELECT item->>'id' AS id,item->'values' AS values,item->'content' AS content,position AS order_key FROM jsonb_array_elements(${encoded}::jsonb) WITH ORDINALITY AS source(item,position))`.as(
-				rowAlias,
-			);
-		query = ctx.db.selectFrom(source) as unknown as DynamicLookupRowsQuery;
+			ctx.workerLookupRowsSource?.(expr.tableId, rows) ??
+			sql`(${workerLookupRows(rows)})`;
+		query = ctx.db.selectFrom(
+			source.as(rowAlias),
+		) as unknown as DynamicLookupRowsQuery;
 	} else {
 		// Legacy store callers get only fully inline global tables. Every normal
 		// worker path supplies its authorized, hydrated projection above.

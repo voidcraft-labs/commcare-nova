@@ -31,8 +31,19 @@ import {
 import "server-only";
 
 import { workerDistanceValueId } from "@/lib/domain";
+import {
+	entryOperationCaseType,
+	formEntryRecord,
+	sharedWorkerTarget,
+} from "@/lib/domain/advancedEntryDatums";
 import { caseContextLine } from "@/lib/domain/caseFormContext";
 import { columnReadsDetailTabRow } from "@/lib/domain/detailTabs";
+import { formContentUuid } from "@/lib/domain/formEntryCases";
+import type { FormOpeningProjection } from "./formOpeningSnapshot";
+import {
+	restoreOpeningCases,
+	restoreOpeningLookup,
+} from "./formOpeningSnapshot";
 import {
 	caseOperationProgramLookupTableIds,
 	collectConfigLookupTableIds,
@@ -112,7 +123,6 @@ import {
 	type FormType,
 	isCaptureFieldKind,
 	type Module,
-	operationCaseType,
 	orderedCaseOperations,
 	organizationLevelsOf,
 	type PersistableDoc,
@@ -1976,7 +1986,8 @@ export function buildSubmissionReceiptIdentity(args: {
  *
  * When that exact program carries lookup references, this I/O half also
  * projects their table ids through the canonical production occurrence
- * registry and attaches one Project-authorized, rows-free definitions map.
+ * registry and attaches the Project-authorized, worker-visible rows and types.
+ * An opened form uses those captured in its signed opening.
  * A carrier-free program takes the loader's empty-id fast path and performs no
  * lookup read.
  */
@@ -1984,6 +1995,7 @@ export async function buildSubmissionOperationProgram(args: {
 	readonly appId: string;
 	readonly committedApp: Pick<AppDoc, "blueprint" | "mutation_seq">;
 	readonly blueprintDigest: string;
+	readonly opening?: FormOpeningProjection;
 	readonly identity: ResolvedPreviewIdentity;
 	/** The device the form ran on, whose session context values a case
 	 *  operation writing one writes. */
@@ -2023,11 +2035,13 @@ export async function buildSubmissionOperationProgram(args: {
 	 * `locations` fixture holds, so the program carries exactly those: the
 	 * ones the form opened with, or, for an entry that carried none, the
 	 * worker's places now. */
+	const content = formContentUuid(app.blueprint, args.projection.formUuid);
 	const movesOwnerToPlace = (
-		app.blueprint.forms[args.projection.formUuid]?.caseOperations ?? []
+		app.blueprint.forms[content]?.caseOperations ?? []
 	).some(operationOwnerMovesToPlace);
 	const workerScope =
-		app.blueprint.appSettings.caseSharing && !args.testWorkerGroups
+		(app.blueprint.appSettings.caseSharing && !args.testWorkerGroups) ||
+		args.opening !== undefined
 			? await resolveRestoreScope({
 					appId: args.appId,
 					projectId: args.lookupScope.projectId,
@@ -2043,6 +2057,8 @@ export async function buildSubmissionOperationProgram(args: {
 		projection: args.projection,
 		identity: args.identity,
 		device: args.device,
+		opening: args.opening,
+		...(args.opening && { currentOwnerIds: workerScope?.ownerIds }),
 		...(movesOwnerToPlace && {
 			workerPlaceIds:
 				args.workerPlaceIds ??
@@ -2065,7 +2081,7 @@ export async function buildSubmissionOperationProgram(args: {
 			"The group that receives new cases changed. You can reopen the form with the worker's current groups.",
 		);
 
-	/* Attach the program's rows-free lookup-definition snapshot BEFORE the
+	/* Attach the program's worker lookup projection before the
 	 * capture intent, so both augmentations ride one returned value. A
 	 * program-free submission has nothing to look up but must still reach
 	 * the receipt below — that receipt is what makes such a form's
@@ -2074,12 +2090,19 @@ export async function buildSubmissionOperationProgram(args: {
 		built,
 		app.blueprint,
 		args.lookupScope,
-		args.lookupTableSchemas,
+		args.opening
+			? workerLookupSchemas(
+					args.lookupScope.projectId,
+					restoreOpeningLookup(args.opening.lookup),
+				)
+			: args.lookupTableSchemas,
 	);
 
 	const capture = capturesDeviceLocation(
 		app.blueprint,
-		app.blueprint.forms[args.projection.formUuid],
+		app.blueprint.forms[
+			formContentUuid(app.blueprint, args.projection.formUuid)
+		],
 	);
 	const fix = args.mutation.locationFix;
 	if (
@@ -2097,7 +2120,7 @@ export async function buildSubmissionOperationProgram(args: {
 		(field) => {
 			if (!isCaptureFieldKind(field.kind)) return [];
 			const path = committedCapturePath(app.blueprint, field.uuid);
-			if (path === undefined || path.formUuid !== validated.formUuid) return [];
+			if (path === undefined || path.formUuid !== content) return [];
 			return [
 				{
 					fieldUuid: field.uuid,
@@ -2153,8 +2176,8 @@ export async function buildSubmissionOperationProgram(args: {
 }
 
 /**
- * Attach the Project-authorized, rows-free lookup-definition snapshot the
- * program's own operations reference. Returning the program untouched when
+ * Attach the Project-authorized lookup projection the program's own
+ * operations reference. Returning the program untouched when
  * it carries no references is the loader's empty-id fast path, so a
  * carrier-free submission performs no lookup read at all.
  */
@@ -2320,7 +2343,9 @@ function committedProgramForm(
  * directly against the storage executor.
  */
 export function buildCaseOperationProgramFromDoc(args: {
+	readonly currentOwnerIds?: readonly string[];
 	readonly blueprint: PersistableDoc;
+	readonly opening?: FormOpeningProjection;
 	readonly mutation: SubmissionMutation;
 	readonly projection: CaptureSubmissionProjection;
 	readonly identity: ResolvedPreviewIdentity;
@@ -2334,8 +2359,9 @@ export function buildCaseOperationProgramFromDoc(args: {
 	readonly viewerTimeZone?: string;
 }): BuiltSubmissionOperations {
 	const { mutation } = args;
-	const formUuid = args.projection.formUuid;
+	const entryUuid = args.projection.formUuid;
 	const blueprint = args.blueprint;
+	const formUuid = formContentUuid(blueprint, entryUuid);
 	// The form facts the program carries (each answer's type and what CommCare
 	// holds it as) read the form's structure, so the doc keeps its field
 	// parents, which a persisted blueprint leaves out.
@@ -2359,17 +2385,31 @@ export function buildCaseOperationProgramFromDoc(args: {
 		);
 	}
 	const caseTypeSchemas = buildCaseTypeMap(blueprint);
-	const owningModule = owningModuleForForm(doc, formUuid);
-	const ordinaryAction = committedSelection(form, owningModule, mutation);
+	const record = formEntryRecord(doc, entryUuid);
+	const ordinaryAction = committedSelection(form, record, mutation);
 	const ordinaryStructure = {
 		ordinaryAction,
 		ordinaryFormType: form.type,
 	};
 	const committed = committedProgramForm(doc, formUuid);
-	const operations = committed.operations;
+	// An unused own load may be omitted from a shared entry. Its empty
+	// follow-up arm has no case to touch. The other operations still run.
+	const operations =
+		doc.forms[entryUuid]?.shadowOf &&
+		!record.requiresCase &&
+		form.type === "followup"
+			? committed.operations.filter(
+					(op) =>
+						op.action !== "own" ||
+						op.name ||
+						op.owner ||
+						op.writes?.length ||
+						op.links?.length,
+				)
+			: committed.operations;
 	if (operations.length === 0 && mutation.entrySupplies === undefined)
 		return ordinaryStructure;
-	const entryCaseKeys = entryNamedCreates(doc, formUuid);
+	const entryCaseKeys = entryNamedCreates(doc, entryUuid);
 	const suppliedCaseIds = new Map<Uuid, string>();
 	if (mutation.entrySupplies !== undefined) {
 		const parsed = creationLaunchSchema.safeParse(mutation.entrySupplies);
@@ -2415,7 +2455,7 @@ export function buildCaseOperationProgramFromDoc(args: {
 	);
 	const operationsByUuid = new Map(operations.map((op) => [op.uuid, op]));
 	const own = operations.find((operation) => operation.action === "own");
-	const ownCaseType = owningModule?.caseType;
+	const ownCaseType = record.caseType;
 	const ownCase =
 		own === undefined || ownCaseType === undefined || form.type === "survey"
 			? undefined
@@ -2477,7 +2517,40 @@ export function buildCaseOperationProgramFromDoc(args: {
 			: { ...operation, writes };
 	};
 	const envelopeOperations = operations.map((committedOperation) => {
-		const operation = withoutAbsentAnswerWrites(committedOperation);
+		const actualType = entryOperationCaseType(
+			doc,
+			entryUuid,
+			committedOperation,
+		);
+		const workerSelection = sharedWorkerTarget(
+			doc,
+			entryUuid,
+			committedOperation,
+		);
+		const boundOperation: CaseOperation =
+			actualType !== undefined &&
+			workerSelection !== undefined &&
+			committedOperation.action === "update"
+				? {
+						...committedOperation,
+						caseType: actualType,
+						target: {
+							kind: "expression",
+							expr: {
+								kind: "term",
+								term: {
+									kind: "session-datum",
+									datum: { kind: "form-selection", selection: workerSelection },
+								},
+							},
+						},
+					}
+				: actualType !== undefined &&
+						committedOperation.action !== "own" &&
+						committedOperation.caseType !== actualType
+					? { ...committedOperation, caseType: actualType }
+					: committedOperation;
+		const operation = withoutAbsentAnswerWrites(boundOperation);
 		const guardConditions = [...(guards.get(operation.uuid) ?? [])]
 			.map((uuid) => operationsByUuid.get(uuid)?.condition)
 			.filter((condition): condition is Expression => condition !== undefined);
@@ -2492,7 +2565,7 @@ export function buildCaseOperationProgramFromDoc(args: {
 		const snapshot = snapshotTypes.get(operation.uuid);
 		const viaCaseTypes = viaDestinationTypes(
 			operation,
-			operationCaseType(doc, formUuid, operation),
+			actualType,
 			blueprint.caseTypes ?? [],
 		);
 		return {
@@ -2633,6 +2706,17 @@ export function buildCaseOperationProgramFromDoc(args: {
 							: [],
 				),
 			),
+			...(args.opening && {
+				entryDatums: new Map(Object.entries(args.opening.datums)),
+				openingReads: {
+					currentOwnerIds: args.currentOwnerIds ?? [args.identity.ownerId],
+					...(args.opening.submittedCaseIds?.length && {
+						submittedCaseIds: args.opening.submittedCaseIds,
+					}),
+					cases: restoreOpeningCases(args.opening.cases),
+					locations: args.opening.cases.locations ?? [],
+				},
+			}),
 			sessionUser: new Map(Object.entries(session.user)),
 			sessionUserAbsent: { readsBlank: PREVIEW_UNKNOWN_WORKER_KEYS },
 			userPropertySlugs: new Map(Object.entries(session.userPropertySlugs)),
@@ -2652,15 +2736,20 @@ export function buildCaseOperationProgramFromDoc(args: {
  */
 function committedSelection(
 	form: Form,
-	owningModule: Module | undefined,
+	record: ReturnType<typeof formEntryRecord>,
 	mutation: SubmissionMutation,
 ): OrdinarySubmissionAction {
 	if (form.type === "survey") return { kind: "none" };
 	if (form.type === "registration") return { kind: "registration" };
-	const caseType = owningModule?.caseType;
+	const { caseType, menu } = record;
+	if (
+		!record.requiresCase &&
+		(mutation.kind === "followup" || mutation.kind === "close") &&
+		mutation.caseIds.length === 0
+	)
+		return { kind: "none" };
 	if (
 		(mutation.kind !== "followup" && mutation.kind !== "close") ||
-		owningModule === undefined ||
 		caseType === undefined
 	) {
 		throw new CaptureSubmissionRejectedError(
@@ -2672,10 +2761,10 @@ function committedSelection(
 		caseIds: mutation.caseIds,
 		caseType,
 		selection:
-			caseSelectionCardinality(owningModule) === "multiple"
+			caseSelectionCardinality(menu ?? {}) === "multiple"
 				? {
 						kind: "multiple",
-						maximum: caseSelectionMaximum(owningModule),
+						maximum: caseSelectionMaximum(menu ?? {}),
 					}
 				: { kind: "single", maximum: 1 },
 	};
@@ -3067,11 +3156,14 @@ export function schemaHealingCaseStore(
 		// Un-healed: this raw restore read does not consult a case-type schema,
 		// compile typed properties, or write. It therefore cannot raise the
 		// missing/stale-schema signals the wrapper remedies.
+		holdsDeviceCases: (a) => store.holdsDeviceCases(a),
 		readDeviceCaseDatabase: (a) => store.readDeviceCaseDatabase(a),
 		readCaseDatabasePatch: (a) => store.readCaseDatabasePatch(a),
 		readSearchResultInstance: (a) =>
 			heal(() => store.readSearchResultInstance(a)),
 		querySearchResults: (a, g) => heal(() => store.querySearchResults(a, g)),
+		readSubmittedCaseDatabasePatch: (a) =>
+			store.readSubmittedCaseDatabasePatch(a),
 		queryGrouped: (a) => heal(() => store.queryGrouped(a)),
 		count: (a) => heal(() => store.count(a)),
 		insert: (a) => heal(() => store.insert(a)),

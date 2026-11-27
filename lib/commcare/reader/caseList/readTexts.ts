@@ -103,8 +103,11 @@ function writeReadTexts(
 			// A generated unit's own wording, read from the override HQ holds for its key, is an
 			// entry even where it equals the text its base gives: the app holds the two apart.
 			const read =
-				current.generated && own.has(language)
-					? ownWordingEntryFor(current.valueKind, fallback, value, source)
+				(current.generated && own.has(language)) ||
+				current.role === "form-submit-label"
+					? ownWordingEntryFor(current.valueKind, fallback, value, source, {
+							keepBlank: current.role === "form-submit-label",
+						})
 					: translationEntryFor(current.valueKind, fallback, value, source);
 			const entry = read && {
 				...read,

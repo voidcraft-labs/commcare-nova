@@ -22,6 +22,8 @@ export type AuthorableIdentityFamily =
 	| "location"
 	| "case-operation"
 	| "form-link"
+	| "form-entry-supply"
+	| "form-opening-assignment"
 	| "entry-point"
 	| "automation"
 	| "automation-criterion"
@@ -136,6 +138,31 @@ export function classifyIdentity(
 	}
 	if (tool === "start_app_test" && pointer === "/places/*/uuid")
 		return "location";
+	if (
+		(property === "selection" &&
+			(tool === "edit_form_entry" ||
+				discriminators.includes("form-selection"))) ||
+		(property === "datum" && discriminators.includes("entry-value"))
+	)
+		return "form-entry-supply";
+	if (
+		(tool === "create_form" && property === "shared_form_uuid") ||
+		(tool === "edit_form_entry" && property === "parentFormUuid")
+	)
+		return "form";
+	if (pointer.endsWith("/source/under/relationship/question")) return "field";
+	if (tool === "edit_form_entry") {
+		if (
+			(property === "uuid" || property === "after") &&
+			discriminators.some((tag) => tag.endsWith("-assignment"))
+		)
+			return "form-opening-assignment";
+		if (property === "field") return "field";
+		if (property === "uuid" || property === "after") return "form-entry-supply";
+		if (property === "module") return "module";
+		if (property === "table") return "lookup-table";
+		if (property === "column") return "lookup-column";
+	}
 	if (property === "tableId") return "lookup-table";
 	if (tool.includes("lookup")) {
 		if (
@@ -451,7 +478,10 @@ export function collectIdentitySchemaPointers(
 
 		let nestedDiscriminators = discriminators;
 		const properties = schema.properties as JsonNode | undefined;
-		const kind = properties?.kind as JsonNode | undefined;
+		const kind = (properties?.kind ??
+			(tool === "edit_form_entry" ? properties?.operation : undefined)) as
+			| JsonNode
+			| undefined;
 		if (kind !== undefined) {
 			const values: string[] = [];
 			if (typeof kind.const === "string") values.push(kind.const);

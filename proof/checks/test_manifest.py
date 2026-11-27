@@ -133,6 +133,62 @@ def test_a_schema_field_is_used_exactly_where_hqs_own_model_writes_another_value
     assert "schema:Form.surprise" not in manifest.items
 
 
+def test_hq_close_reads_its_operator_and_the_update_reads_its_map(hq, manifest):
+    from corehq.apps.app_manager.models import ConditionalCaseUpdate, FormActionCondition
+    from lxml import etree
+
+    from proof.editors.test_hq_own_registration_alert import LABEL, _case_menu
+    from proof.hq import operations
+    from proof.hq.check import hq_check
+    from proof.hq.configuration import Configuration
+    from proof.native.hq_support import regenerate_form
+
+    with hq_check(Configuration()) as (state, _):
+        app_id, form_id = _case_menu(state)
+        app = operations.held_app(state, app_id)
+        form = app.get_form(form_id)
+        module = form.get_module()
+        actions = f"/modules/{module.id}/forms/{form.id}/actions"
+        form.actions.update_case.update = {
+            "visit_note": ConditionalCaseUpdate(question_path=LABEL, update_mode="always"),
+        }
+
+        def build(kind, operator):
+            def condition():
+                return FormActionCondition(
+                    type=kind,
+                    operator=operator,
+                    question=LABEL if kind == "if" else None,
+                    answer="yes" if kind == "if" else None,
+                )
+
+            form.actions.update_case.condition = condition()
+            form.actions.close_case.condition = condition()
+            found = manifest_usage.Uses()
+            manifest_usage.app_json_uses(app.to_json(), manifest, "app.json", found)
+            observed = {
+                use.where for use in found.uses if use.key == "schema:FormActionCondition.operator"
+            }
+            tree = etree.fromstring(regenerate_form(form, state.domain))
+            (note,) = tree.xpath("//*[local-name()='bind'][@nodeset='/data/case/update/visit_note']")
+            assert len(tree.xpath("//*[local-name()='case']/*[local-name()='close']")) == 1
+            relevant = tree.xpath("//*[local-name()='bind'][@nodeset='/data/case/close']/@relevant")
+            return observed, dict(note.attrib), relevant
+
+        plain, always_note, always_close = build("always", None)
+        close_operator = f"{actions}/close_case/condition/operator"
+        update_operator = f"{actions}/update_case/condition/operator"
+        assert plain == {close_operator}
+        assert always_note["calculate"] == LABEL
+        assert always_close == []
+
+        for operator, relevance in (("boolean_true", LABEL), ("selected", f"selected({LABEL}, 'yes')")):
+            observed, note, close = build("if", operator)
+            assert observed == {close_operator, update_operator}
+            assert note == always_note
+            assert close == [relevance]
+
+
 def test_values_the_schemas_slots_name_are_used_by_value(hq, manifest):
     from corehq.apps.app_manager.models import (
         Application,

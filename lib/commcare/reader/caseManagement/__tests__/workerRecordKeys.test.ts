@@ -46,7 +46,6 @@ import { readHqApp } from "./heldReading";
 
 const WORKER =
 	"forms-and-case-writes/a-write-of-the-worker-s-record-to-a-key-no-worker-property-takes";
-const LOCATION = "forms-and-case-writes/update-keys-location-id-hq-user-id";
 const FACET =
 	"questions/a-savetocase-update-of-commcare-user-under-a-condition-or-inside-a-repeat";
 /** The worker property each export writes, renamed in the source to each key. */
@@ -224,6 +223,9 @@ const REFUSED_EVERYWHERE = [
 	"Status",
 	"first_name",
 	"username",
+	// HQ's user-case sync keeps it in step with the worker, and HQ's user data
+	// refuses it as a field (`USER_DATA_SYSTEM_FIELDS`).
+	"hq_user_id",
 	`w${"x".repeat(127)}`,
 ];
 
@@ -262,14 +264,32 @@ describe("a write of the worker's record to a key no worker property takes", () 
 			expect(verdict.ok ? [] : verdict.findings).toEqual([]);
 		});
 
-		it(`refuses \`location_id\` in ${path} under the row of the keys HQ stores apart`, async () => {
-			const outcome = await readWith(app(), "location_id");
+		it(`reads \`location_id\` in ${path} as a worker detail the record keeps as its location`, async () => {
+			// The location is a fixed text column whose write carries the text
+			// guard Nova prints for it, so the source is one Nova printed writing
+			// `location_id`, not a respelled key.
+			const doc = JSON.parse(
+				JSON.stringify(app()).replaceAll(WRITTEN, "location_id"),
+			) as BlueprintDoc;
+			const outcome = await readWith(doc, "location_id");
 			expect(outcome.defects).toEqual([]);
-			expect(
-				outcome.kind === "account"
-					? outcome.findings.map((one) => one.code)
-					: [],
-			).toEqual([LOCATION]);
+			expect(outcome.kind === "account" ? outcome.findings : []).toEqual([]);
+			if (outcome.kind !== "read") throw new Error("The write did not read.");
+			const read = outcome.draft.doc;
+			const worker = Object.values(read.forms)
+				.flatMap((form) => form.caseOperations ?? [])
+				.find(
+					(one) => one.action !== "own" && one.target.kind === "worker-record",
+				);
+			expect(worker?.writes?.map((one) => one.property)).toEqual([
+				"location_id",
+			]);
+			const verdict = mutationCommitVerdict(
+				read,
+				[],
+				LOOKUP_CONTEXT_UNAVAILABLE,
+			);
+			expect(verdict.ok ? [] : verdict.findings).toEqual([]);
 		});
 	}
 
@@ -524,9 +544,7 @@ describe("a Save to Case update of the worker's record beside another update of 
 			expect(outcome.findings.map((one) => one.code)).toEqual([TWICE]);
 		});
 
-	// Two loads of the worker's record hold no block: the second load is
-	// refused where it is read, and this entry's finding is not given.
-	it("leaves a second load of the worker's record to the load's own refusal", async () => {
+	it("keeps distinct worker-record selection identities and the writes on each", async () => {
 		const doc = advancedApp();
 		const body = exportedBody(doc, {
 			modules: (modules) =>
@@ -565,12 +583,73 @@ describe("a Save to Case update of the worker's record beside another update of 
 			}),
 		);
 		expect(outcome.defects).toEqual([]);
-		if (outcome.kind !== "account")
-			throw new Error("A second load of the worker's record was read.");
-		const codes = outcome.findings.map((one) => one.code);
-		expect(codes).toContain(
-			"forms-and-case-writes/advanced-form-loads-other-than-its-menu-s-one-chain",
+		if (outcome.kind !== "read")
+			throw new Error("The app must retain both worker record choices.");
+		const selections = Object.values(outcome.draft.doc.forms)
+			.flatMap((form) => form.caseSelections ?? [])
+			.filter((row) => row.source.kind === "worker-record");
+		expect(selections).toHaveLength(2);
+		expect(new Set(selections.map((row) => row.uuid)).size).toBe(2);
+		const targets = Object.values(outcome.draft.doc.forms)
+			.flatMap((form) => form.caseOperations ?? [])
+			.flatMap((op) =>
+				op.action === "update" &&
+				op.target.kind === "expression" &&
+				op.target.expr.kind === "term" &&
+				op.target.expr.term.kind === "session-datum" &&
+				op.target.expr.term.datum.kind === "form-selection"
+					? [op.target.expr.term.datum.selection]
+					: [],
+			);
+		expect(targets).toEqual(
+			expect.arrayContaining(selections.map((row) => row.uuid)),
 		);
-		expect(codes).not.toContain(TWICE);
+	});
+});
+
+/**
+ * A date-and-time question named straight by the worker's record's key: HQ's
+ * build binds the leaf untyped, so a device keeps the day there, while Nova's
+ * worker properties carry no type and Nova saves a date and time there as its
+ * moment. The reading refuses it under the entry that keeps a day in no
+ * shape Nova keeps, rather than reading a write Nova would export as the
+ * moment.
+ */
+describe("a date and time saved straight to the worker's record", () => {
+	it("is refused in the load auto-selected by usercase", async () => {
+		const doc = advancedApp();
+		let retyped = 0;
+		const body = exportedBody(doc, {
+			xml: (xml) => {
+				const bind = /<bind [^>]*nodeset="\/data\/name"[^>]*\/>/.exec(xml)?.[0];
+				if (bind === undefined) return xml;
+				retyped += 1;
+				return xml.replace(
+					bind,
+					bind.replace(/type="[^"]*"/, 'type="xsd:dateTime"'),
+				);
+			},
+		});
+		expect(retyped).toBe(1);
+		const outcome = await readHqApp(
+			await inputFor(body, {
+				resolver: matchingResolver(
+					doc.appId,
+					externalIdentityMap(doc, DERIVED_WIRE_IDENTITY),
+				),
+				knownCaseTypes: knownCaseTypesOf(doc),
+			}),
+		);
+		expect(outcome.defects).toEqual([]);
+		expect(
+			outcome.kind === "account"
+				? outcome.findings.map((one) => [one.code, one.detail.name])
+				: [],
+		).toEqual([
+			[
+				"forms-and-case-writes/a-date-and-time-saved-straight-in-no-shape-nova-keeps",
+				WRITTEN,
+			],
+		]);
 	});
 });
