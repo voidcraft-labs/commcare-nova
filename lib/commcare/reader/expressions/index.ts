@@ -168,6 +168,7 @@ export interface ExpressionReadEnv {
 	/** Per advanced form: the ids its computed datums give
 	 *  (`arbitrary_datums`), which a session read may name. */
 	readonly computedDatums: ReadonlyMap<Uuid, ReadonlySet<string>>;
+	readonly directFormWithoutSessionSupplier?: Uuid;
 	/** `ReaderInput.knownCaseTypes`: the type the document Nova holds declares for each
 	 *  property step 1 declares (`noteProperty`). */
 	readonly knownCaseTypes?: ReaderKnownCaseTypes;
@@ -615,6 +616,8 @@ function declarationsOf(
 	const form = slotForm(doc, pending.ref);
 	return {
 		instanceSources: instanceSourcesOf(doc, pending, env) ?? new Map(),
+		directEntryWithoutSupplier:
+			form !== undefined && form === env.directFormWithoutSessionSupplier,
 		computedDatums:
 			(form === undefined ? undefined : env.computedDatums.get(form)) ??
 			new Set(),
@@ -2051,6 +2054,11 @@ function surfaceUseFactsOf(
 	const mod = moduleUuid === undefined ? undefined : doc.modules[moduleUuid];
 	return {
 		unsupplied: m1 && unsupplied.size === 0 ? "all" : unsupplied,
+		bareLookupCountWithoutSupplier:
+			outcome.kind === "refused" &&
+			outcome.resolution.kind === "entry" &&
+			outcome.resolution.entryId ===
+				EXPRESSION_CLAIMS["bare-fingerprint-query-without-a-supplier"].entry,
 		computedDatums:
 			(form === undefined ? undefined : env.computedDatums.get(form)) ??
 			new Set(),

@@ -8676,8 +8676,34 @@ def _lookup_count_shapes():
             f'<session>{"".join(selections)}</session></entry></suite>'
         ).encode()
 
+    def survey(source, *, advanced=False):
+        form = {
+            **_form_json("none"),
+            "form_type": "module_form",
+            "post_form_workflow": "default",
+            **({
+                "doc_type": "AdvancedForm",
+                "arbitrary_datums": [{"datum_id": "fingerprintquery", "datum_function": "'Declared result'",
+                                      "doc_type": "ArbitraryDatum"}],
+            } if advanced else {}),
+        }
+        menu = _module([form], doc_type="AdvancedModule" if advanced else "Module",
+                       module_type="advanced" if advanced else "basic", case_type="")
+        return _app(
+            [menu], cloudcare_enabled=False, use_custom_suite=False,
+            _attachments={"f.xml": source.decode()},
+        )
+
+    guarded_source = _form(data="<count/>", model=(
+        f'<bind nodeset="/data/count" calculate="if(count({path}) = 0, &apos;No result&apos;, string({path}[1]))"/>'
+    ))
     site = "bind[1]/@calculate"
     return {
+        "expressions-and-data/bare-fingerprint-query-without-a-supplier": (
+            refused("app", survey(raw), key, site, readings=True, authored=True),
+            accepted("app", survey(guarded_source), key, site, readings=True, uses=2, authored=True),
+            accepted("app", survey(raw, advanced=True), key, site, readings=True, authored=True),
+        ),
         "expressions-and-data/companion-lookup-count": (
             accepted("form", raw, key, site, readings=True),
             accepted("form", wrong_guard, key, site, readings=True, uses=2),

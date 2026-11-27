@@ -22522,6 +22522,24 @@
 	{
 		"id": "hq-expressions/fingerprint-query",
 		"base": "hq-expressions",
+		"entry": "expressions-and-data/bare-fingerprint-query-without-a-supplier",
+		"standing": "fix-in-hq",
+		"place": {
+			"kind": "question",
+			"menu": 0,
+			"form": 0,
+			"menuName": "Checks",
+			"formName": "Survey",
+			"path": "language"
+		},
+		"change": {
+			"op": "named",
+			"name": "fingerprint_query"
+		}
+	},
+	{
+		"id": "hq-expressions/fingerprint-query-guarded",
+		"base": "hq-expressions",
 		"entry": "expressions-and-data/session-data-fingerprintquery",
 		"standing": "not-yet",
 		"place": {
@@ -22534,7 +22552,7 @@
 		},
 		"change": {
 			"op": "named",
-			"name": "fingerprint_query"
+			"name": "fingerprint_query_guarded"
 		}
 	},
 	{

@@ -10009,6 +10009,42 @@ def _contains_unguarded_lookup_count(tree):
     return any(_contains_unguarded_lookup_count(child) for child in tree)
 
 
+def bare_fingerprint_query_without_supplier(use, manifest):
+    """Core cannot open a standalone Android survey whose Hidden Value directly reads the absent count."""
+    at = use.at
+    if not isinstance(at, XmlAt) or at.attribute != "calculate" or _local(at.element) != "bind":
+        return False
+    document, text = _expression_at(use)
+    if text is None or not isinstance(document, Form) or document.app_form is None:
+        return False
+    tree = expression_tree(text)
+    if tree is None or _session_data_read(tree) != "fingerprintquery":
+        return False
+    if document.node(at.element.get("nodeset")) is None or _bind_controls(document, at.element):
+        return False
+    declarations = [src for name, src in document.declared_instances if name == "commcaresession"]
+    if declarations not in ([], ["jr://instance/session"]):
+        return False
+    app, source = document.app_form
+    menu = app.module_of(source)
+    if (
+        app.doc.get("cloudcare_enabled") is not False or app.doc.get("use_custom_suite") is not False
+        or menu is None or app.doc.get("modules") != [menu] or menu.get("forms") != [source]
+        or menu.get("doc_type") != "Module" or menu.get("module_type", "basic") != "basic"
+        or menu.get("case_type", "") != "" or menu.get("root_module_id")
+        or source.get("doc_type") != "Form" or source.get("form_type", "module_form") != "module_form"
+        or source.get("requires", "none") != "none" or source.get("post_form_workflow", "default") != "default"
+    ):
+        return False
+    for key in ("fixture_select", "parent_select"):
+        value = menu.get(key)
+        if value is not None and (not isinstance(value, dict) or value.get("active", False) is not False):
+            return False
+    return all(source.get(key) in (None, []) for key in (
+        "form_links", "arbitrary_datums", "function_datum_endpoints",
+    ))
+
+
 def guarded_lookup_count_in_one_frame(use, manifest):
     """Positive evidence for a guarded count and its one built lookup frame."""
     document, text = _expression_at(use)
@@ -13702,6 +13738,7 @@ def navigation_condition_untyped(use, manifest):
     return None if at.app.authored and not at.app.read else False
 
 VALUE_CLASSES = {
+    "expressions-and-data/bare-fingerprint-query-without-a-supplier": bare_fingerprint_query_without_supplier,
     "application-and-settings/menu-layout-outside-editor-choices": menu_layout_outside_choices,
     "menus-and-case-lists/module-layout-outside-editor-choices": menu_layout_outside_choices,
     # Questions

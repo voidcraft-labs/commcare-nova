@@ -203,6 +203,7 @@ function instancePath(
 /** What decides the class of a use beyond its syntax and its slot, from the
  *  slot's reading and its owner. */
 export interface SurfaceUseFacts {
+	readonly bareLookupCountWithoutSupplier?: boolean;
 	/** The session datum ids the expression reads that its entry does not
 	 *  supply, from the parse issue or the checker's refusal; `"all"` where
 	 *  the refusal says the entry does not supply a datum the expression reads
@@ -259,7 +260,9 @@ function sessionUse(
 				key: "session-path:session/data/fingerprintquery",
 				valueClass: holdsLookupCount
 					? "guarded-numeric-lookup-count-from-one-supplier"
-					: "count-outside-a-guarded-single-supplier",
+					: facts.bareLookupCountWithoutSupplier
+						? "bare-fingerprint-query-without-a-supplier"
+						: "count-outside-a-guarded-single-supplier",
 			};
 		return {
 			key: "session-path:session/data/*",
