@@ -32,7 +32,7 @@ MENU_NAME = "Members"
 FORM_NAME = "Visit"
 
 
-def _author_basic_mapping(state, *, web_apps=False):
+def _author_basic_mapping(state, *, key=ACCENTED, web_apps=False):
     from corehq.apps.app_manager.form_action_diff import make_multi
     from corehq.apps.app_manager.models import ConditionalCaseUpdate, DetailColumn
 
@@ -59,11 +59,11 @@ def _author_basic_mapping(state, *, web_apps=False):
         ("requires", "case"),
         ("actions", json.dumps(make_multi(form.actions.to_json()))),
         ("case_mapping_diff", json.dumps({"update_case": {"add": {
-            ACCENTED: [{"question_path": "/data/note", "update_mode": "always"}],
+            key: [{"question_path": "/data/note", "update_mode": "always"}],
         }}})),
     ])
     kept = operations.held_app(state, app_id).get_form(form.unique_id).actions.update_case.update
-    assert {key: write.question_path for key, write in kept.items()} == {ACCENTED: "/data/note"}
+    assert {name: write.question_path for name, write in kept.items()} == {key: "/data/note"}
     if web_apps:
         from proof.observe.hqside import app_attributes
 
@@ -71,12 +71,13 @@ def _author_basic_mapping(state, *, web_apps=False):
     return app_id, form.xmlns
 
 
-def _assert_wire(submission):
+def _assert_wire(submission, key=ACCENTED):
     data = etree.fromstring(submission)
     case, = data.iter(f"{{{CASE}}}case")
     assert case.get("case_id") == SELECTED
-    assert case.findtext(f"{{{CASE}}}update/{{{CASE}}}{ACCENTED}") == ANSWER
-    assert case.find(f"{{{CASE}}}update/{{{CASE}}}{ASCII_NEIGHBOR}") is None
+    update = case.find(f"{{{CASE}}}update")
+    assert update is not None
+    assert [(etree.QName(leaf).localname, leaf.text) for leaf in update] == [(key, ANSWER)]
 
 
 def test_basic_case_management_saves_the_accented_key_without_changing_its_spelling(hq, core_runner, tmp_path):
@@ -158,7 +159,8 @@ def test_installed_android_submits_the_accented_case_property_to_hq(hq, monkeypa
 
 
 @pytest.mark.reader("webapps")
-def test_signed_web_apps_submits_the_accented_case_property_to_hq(hq, formplayer_runner, editor_driver):
+@pytest.mark.parametrize(("key", "opens"), [(ACCENTED, False), (ASCII_NEIGHBOR, True)], ids=["accented", "ascii"])
+def test_signed_web_apps_distinguishes_case_property_element_names(hq, formplayer_runner, editor_driver, key, opens):
     from corehq.form_processor.models import CommCareCase
 
     from proof.formplayer import hq as forms_hq
@@ -169,7 +171,7 @@ def test_signed_web_apps_submits_the_accented_case_property_to_hq(hq, formplayer
 
     config = replace(CONFIGURATION, privileges=CONFIGURATION.privileges | {WEB_APPS_PRIVILEGE})
     with hq_check(config) as (state, _):
-        app_id, _ = _author_basic_mapping(state, web_apps=True)
+        app_id, _ = _author_basic_mapping(state, key=key, web_apps=True)
         database = casedata.database_of_restore(person_cases(TEMPLATE_RESTORE.read_bytes(), [SELECTED]))
         with forms_hq.serve(state, None, app_id, runner=formplayer_runner, database=database) as release:
             session = Session(release, editor_driver)
@@ -178,11 +180,20 @@ def test_signed_web_apps_submits_the_accented_case_property_to_hq(hq, formplayer
                 run = session._run([
                     *steps.open_app(APP_NAME), *steps.choose(MENU_NAME), *steps.select_case(SELECTED),
                     *steps.click(steps.MENU_ROW, FORM_NAME, visible=True, within=steps.WITHIN_MS),
-                    *steps.arrive(form=True), steps.SCREEN, *steps.answer("1", ANSWER),
-                    *steps.submit_and_land(),
+                    *steps.arrive(any_screen=True), steps.SCREEN,
+                    *([*steps.answer("1", ANSWER), *steps.submit_and_land()] if opens else []),
                 ], release.acting, deadline=90)
                 assert run.page_errors == [] and run.dialogs == []
-                assert run.screens[0]["form"]["title"] == FORM_NAME
-                submission, = session.hq.submissions
-                _assert_wire(submission.instance)
-                assert CommCareCase.objects.get_case(SELECTED, state.domain).case_json == {ACCENTED: ANSWER}
+                screen, = run.screens
+                case = CommCareCase.objects.get_case(SELECTED, state.domain)
+                if opens:
+                    assert screen["form"]["title"] == FORM_NAME
+                    submission, = session.hq.submissions
+                    _assert_wire(submission.instance, key)
+                    assert case.case_json == {key: ANSWER}
+                else:
+                    assert "form" not in screen
+                    assert len(screen["alerts"]) == 1
+                    assert "SAXParseException" in screen["alerts"][0] and 'Element type "n0:estado_"' in screen["alerts"][0]
+                    assert not session.hq.submissions
+                    assert case.case_json == {}
