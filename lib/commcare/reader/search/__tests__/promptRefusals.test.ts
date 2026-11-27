@@ -261,6 +261,10 @@ it.each([
 		wire: "concat('Old ', instance('commcaresession')/session/context/username)",
 		saved: { prefix: "Old ", worker: "username" },
 	},
+	{
+		wire: "concat('Old ', instance('commcaresession')/session/context/userid)",
+		saved: { prefix: "Old ", worker: "userid" },
+	},
 ])(
 	"keeps the saved address $wire through a label edit, both exports and normal HQ readback",
 	async ({ wire, saved }) => {
@@ -328,7 +332,11 @@ it.each([
 	},
 );
 
-it.each(["concat('Older ', 'street ', 'address')", "concat('Old ','address')"])(
+it.each([
+	"concat('Older ', 'street ', 'address')",
+	"concat('Old ','address')",
+	"concat('Old ', instance('commcaresession')/session/context/deviceid)",
+])(
 	"keeps the refusal for an unverified saved address calculation %s",
 	async (wire) => {
 		expect(
@@ -461,7 +469,7 @@ it.each(["exclude", "linked", "computed", "blank", "skip", "inline", "clear"])(
 				first(body).receiver_expression = "village-city";
 			if (different === "computed")
 				picker.default_value =
-					"concat('Old ', instance('commcaresession')/session/context/userid)";
+					"concat('Old ', instance('commcaresession')/session/context/deviceid)";
 			if (different === "blank") picker.default_value = "''";
 			if (different === "skip") config.default_search = true;
 			if (different === "inline") config.inline_search = true;

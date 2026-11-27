@@ -23,6 +23,7 @@ import {
 	DEFAULT_SEARCH_MODE_KIND,
 	isParentPathSearchProperty,
 	MAX_PARENT_PATH_SEARCH_LINKS,
+	SAVED_ADDRESS_WORKER_FIELDS,
 	type SavedSearchAddressDefault,
 	SEARCH_ADDRESS_PARTS,
 	SEARCH_INPUT_NAME_PATTERN,
@@ -940,31 +941,37 @@ function readStoredAddressDefaults(
 		const parsed = readFormSyntax(stored);
 		if (!parsed.ok || !parsed.node) continue;
 		const node = parsed.node;
-		const candidate =
+		const candidates =
 			node.kind === "string"
-				? node.value
+				? [node.value]
 				: node.kind === "call" && node.name === "concat"
 					? storedAddressConcat(node.args)
-					: undefined;
-		const saved = savedSearchAddressDefaultSchema.safeParse(candidate);
-		if (
-			saved.success &&
-			serializeWire(savedAddressDefaultWire(saved.data), { target: "suite" })
-				.text === stored
-		)
-			defaults.set(prompt, saved.data);
+					: [];
+		for (const candidate of candidates) {
+			const saved = savedSearchAddressDefaultSchema.safeParse(candidate);
+			if (
+				saved.success &&
+				serializeWire(savedAddressDefaultWire(saved.data), { target: "suite" })
+					.text === stored
+			) {
+				defaults.set(prompt, saved.data);
+				break;
+			}
+		}
 	}
 	return defaults;
 }
 
 function storedAddressConcat(parts: readonly FormSyntax[]) {
-	if (parts.length !== 2) return;
+	if (parts.length !== 2) return [];
 	const [first, second] = parts;
-	if (first.kind !== "string") return;
-	if (second.kind === "string") return [first.value, second.value];
-	// The caller compares the complete canonical expression, including this
-	// worker source. It admits no other expression in the second argument.
-	return { prefix: first.value, worker: "username" } as const;
+	if (first.kind !== "string") return [];
+	if (second.kind === "string") return [[first.value, second.value]];
+	// The exact source comparison still requires a plain worker reference.
+	return SAVED_ADDRESS_WORKER_FIELDS.map((worker) => ({
+		prefix: first.value,
+		worker,
+	}));
 }
 
 function canReadAddressPrompt(
