@@ -274,44 +274,49 @@ function linkExpressionDoc(options: {
 }
 
 describe("multi-select absolute validation", () => {
-	it("allows 101 only while the Web Apps form just closes the chosen cases", () => {
-		const doc = buildDoc({
-			appSettings: { ...NEW_APP_SETTINGS, runsOnlyOn: "web-apps" },
-			caseTypes: [{ name: "patient", properties: [] }],
-			modules: [
-				{
-					name: "Patients",
-					caseType: "patient",
-					caseListConfig: multipleConfig(101),
-					forms: [
-						{
-							name: "Close selected cases",
-							type: "close",
-							postSubmit: "app_home",
-							fields: [f({ kind: "hidden", id: "ready", calculate: "'yes'" })],
-						},
-					],
-				},
-			],
-		});
-		expectAdmittedDoc(doc);
-		const [module] = doc.moduleOrder;
-		const [form] = doc.formOrder[module];
-		const changed = produce(doc, (draft) => {
-			draft.forms[form].postSubmit = "module";
-		});
-		expect(codes(changed)).toContain(
-			"MULTI_SELECT_LARGE_BATCH_REQUIRES_FLAT_CLOSE",
-		);
-		const ordinary = produce(changed, (draft) => {
-			const selection = draft.modules[module].caseListConfig?.selection;
-			if (!selection) throw new Error("Expected several-case selection.");
-			selection.maximum = 100;
-		});
-		expect(codes(ordinary)).not.toContain(
-			"MULTI_SELECT_LARGE_BATCH_REQUIRES_FLAT_CLOSE",
-		);
-	});
+	it.each(["close", "followup"] as const)(
+		"allows 101 for a bounded %s form",
+		(type) => {
+			const doc = buildDoc({
+				appSettings: { ...NEW_APP_SETTINGS, runsOnlyOn: "web-apps" },
+				caseTypes: [{ name: "patient", properties: [] }],
+				modules: [
+					{
+						name: "Patients",
+						caseType: "patient",
+						caseListConfig: multipleConfig(101),
+						forms: [
+							{
+								name: "Close selected cases",
+								type,
+								postSubmit: "app_home",
+								fields: [
+									f({ kind: "hidden", id: "ready", calculate: "'yes'" }),
+								],
+							},
+						],
+					},
+				],
+			});
+			expectAdmittedDoc(doc);
+			const [module] = doc.moduleOrder;
+			const [form] = doc.formOrder[module];
+			const changed = produce(doc, (draft) => {
+				draft.forms[form].postSubmit = "module";
+			});
+			expect(codes(changed)).toContain(
+				"MULTI_SELECT_LARGE_BATCH_REQUIRES_FLAT_CLOSE",
+			);
+			const ordinary = produce(changed, (draft) => {
+				const selection = draft.modules[module].caseListConfig?.selection;
+				if (!selection) throw new Error("Expected several-case selection.");
+				selection.maximum = 100;
+			});
+			expect(codes(ordinary)).not.toContain(
+				"MULTI_SELECT_LARGE_BATCH_REQUIRES_FLAT_CLOSE",
+			);
+		},
+	);
 
 	it("requires a batch consumer and refuses a persistent form tile", () => {
 		const doc = buildDoc({

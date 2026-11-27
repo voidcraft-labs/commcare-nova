@@ -901,6 +901,30 @@ describe("bounded flat close", () => {
 			],
 			propertyTypes: { patient: { notes: "text" } },
 		});
+		if (args.ordinary.kind !== "close" || !args.operations)
+			throw new Error("Expected the bounded signed fixture.");
+		const followup: TestSubmissionArgs = {
+			...args,
+			ordinary: { ...args.ordinary, kind: "followup" },
+			operations: {
+				...ownProgram("followup", [ownOp()]),
+				sessionCaseIds: ordered,
+				openingReads: args.operations.openingReads,
+			},
+		};
+		const observedBefore = await store.readFlatCloseSelection(request(ordered));
+		const followupClaim = {
+			...followup,
+			submissionReceipt: receiptFor(followup),
+		};
+		const finished = await submit(store, followupClaim);
+		expect(finished.primaryCaseIds).toEqual(ordered);
+		expect(finished.operations).toEqual([]);
+		expect(await store.readFlatCloseSelection(request(ordered))).toEqual(
+			observedBefore,
+		);
+		expect(await submit(store, followupClaim)).toEqual(finished);
+
 		const claimed = { ...args, submissionReceipt: receiptFor(args) };
 		const observed = observeSchemaTransfers();
 		const closed = await submit(observed.store, claimed);

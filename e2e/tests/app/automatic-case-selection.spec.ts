@@ -61,21 +61,25 @@ test("automatically selects the whole case datum and submits one atomic close", 
 	}
 });
 
-test("closes 101 records from manual pages and automatic selection in the signed running app", {
+test("submits a bounded 101-record selection from manual pages and automatic selection", {
 	tag: "@seed:bounded-flat-close",
 }, async ({ page, scenario }) => {
 	const { boundedFlatCloseApps } = seedFor(scenario, "bounded-flat-close");
 	const db = new Client({ connectionString: process.env.NOVA_DB_LOCAL_URL });
 	await db.connect();
 	try {
-		for (const { appId, caseIds, autoSelect } of boundedFlatCloseApps) {
+		for (const {
+			appId,
+			caseIds,
+			autoSelect,
+			formName,
+			closes,
+		} of boundedFlatCloseApps) {
 			await openBuilder(page, `/build/${appId}`);
 			await page.getByRole("button", { name: "Preview", exact: true }).click();
 			const preview = page.locator("main[data-preview-scroll-container]");
 			await preview.getByRole("button", { name: /^Member records/ }).click();
-			const close = preview.getByRole("button", {
-				name: "Close these records",
-			});
+			const form = preview.getByRole("button", { name: formName, exact: true });
 			if (!autoSelect) {
 				const chooseShown = preview.getByRole("button", {
 					name: "Choose all cases shown",
@@ -95,13 +99,28 @@ test("closes 101 records from manual pages and automatic selection in the signed
 			await expect(
 				preview.getByRole("heading", { name: "101 cases selected" }),
 			).toBeVisible();
-			await close.click();
+			await form.click();
 			const submit = preview.getByRole("button", {
 				name: "Submit",
 				exact: true,
 			});
 			await expect(submit).toBeEnabled();
+			const queryState = async () => {
+				const { rows } = await db.query(
+					"SELECT case_id, status, modified_on FROM cases WHERE app_id = $1 ORDER BY case_id",
+					[appId],
+				);
+				return rows;
+			};
+			const before = closes ? undefined : await queryState();
 			await submit.click();
+			if (!closes) {
+				await expect(
+					preview.getByRole("button", { name: /^Member records/ }),
+				).toBeVisible();
+				expect(await queryState()).toEqual(before);
+				continue;
+			}
 			await expect
 				.poll(async () => {
 					const { rows } = await db.query<{ case_id: string }>(

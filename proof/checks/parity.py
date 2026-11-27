@@ -70,6 +70,7 @@ from proof.checks.manifest_value_classes import (
     _basic_multi_select_maximum,
     _guarded_lookup_count,
     bounded_flat_close_maximum,
+    bounded_flat_followup_maximum,
     bare_fingerprint_query_without_supplier,
     guarded_fingerprint_query_without_supplier,
     HQ_CASE_RESERVED_WORDS,
@@ -966,6 +967,7 @@ def _forms_variant_uses(found, held, entries):
 
 DIRECT_HOST_TEXT_FILTER = "menus-and-case-lists/detail-filter-matching-the-direct-hosts-text"
 FLAT_CLOSE_MAXIMUM = "menus-and-case-lists/detail-max-select-value-for-flat-close"
+FLAT_FOLLOWUP_MAXIMUM = "menus-and-case-lists/detail-max-select-value-for-flat-followup"
 OTHER_101_MAXIMUM = "menus-and-case-lists/detail-max-select-value-101-outside-flat-close"
 ORDINARY_LIST_MAXIMUM = "menus-and-case-lists/detail-max-select-value-on-a-multi-select-basic-list"
 SEARCH_INDEX_FALLBACK = "case-search/default-filter-resets-order-with-index-fallback"
@@ -1031,15 +1033,18 @@ def added_uses(base_source: dict, variant_source: dict, *, entries=()) -> list[D
                 if use.key == "schema:Detail.filter" and direct_host_text_filter(use, held)
             )
 
-        if FLAT_CLOSE_MAXIMUM in entries or OTHER_101_MAXIMUM in entries:
+        if {FLAT_CLOSE_MAXIMUM, FLAT_FOLLOWUP_MAXIMUM, OTHER_101_MAXIMUM}.intersection(entries):
             by_id = _entries_by_id(held)
             for use in found.uses:
                 if use.key != "schema:Detail.max_select_value" or _basic_multi_select_maximum(use) != 101:
                     continue
-                bounded = bounded_flat_close_maximum(use, held)
-                if bounded is True and FLAT_CLOSE_MAXIMUM in entries:
+                close = bounded_flat_close_maximum(use, held)
+                followup = bounded_flat_followup_maximum(use, held)
+                if close is True and FLAT_CLOSE_MAXIMUM in entries:
                     decided.append(Decided(use, manifest_usage.HELD, (by_id[FLAT_CLOSE_MAXIMUM],)))
-                if bounded is False and OTHER_101_MAXIMUM in entries:
+                if followup is True and FLAT_FOLLOWUP_MAXIMUM in entries:
+                    decided.append(Decided(use, manifest_usage.HELD, (by_id[FLAT_FOLLOWUP_MAXIMUM],)))
+                if close is False and followup is False and OTHER_101_MAXIMUM in entries:
                     decided.append(Decided(use, manifest_usage.HELD_NEW, (by_id[OTHER_101_MAXIMUM],)))
 
         for entry_id in PARENT_PROMPT_SHAPES.keys() & set(entries):
@@ -1203,7 +1208,7 @@ def _projects(decided: Decided, record: Record, held) -> tuple[bool, bool]:
     if standing == manifest_usage.HELD_NEW:
         return record.standing == "not-yet", record.entry in resting
     exact = PARENT_PROMPT_SHAPES.keys() | SEARCH_DETAIL_PROJECTIONS.keys() | {
-        ADDRESS_SAVED_TEXT, FLAT_CLOSE_MAXIMUM, ORDINARY_LIST_MAXIMUM,
+        ADDRESS_SAVED_TEXT, FLAT_CLOSE_MAXIMUM, FLAT_FOLLOWUP_MAXIMUM, ORDINARY_LIST_MAXIMUM,
         REQUIRED_DATE_RETYPE, UNICODE_PRIMARY_ROOT,
         UNMATCHED_ADDRESS_TOPIC, ADDRESS_UNUSED_SUFFIX, SEARCH_INDEX_FALLBACK,
     }

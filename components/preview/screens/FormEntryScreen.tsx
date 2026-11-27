@@ -6,7 +6,7 @@ import { Button } from "@/components/shadcn/button";
 import { useReconcilerContext } from "@/lib/collab/context";
 import { useBlueprintDocApi } from "@/lib/doc/hooks/useBlueprintDoc";
 import { CASE_LOADING_FORM_TYPES } from "@/lib/domain";
-import { authoredBoundedFlatClose } from "@/lib/domain/boundedFlatClose";
+import { authoredBoundedFlatSelection } from "@/lib/domain/boundedFlatClose";
 import type { ActivityFact } from "@/lib/domain/connectSubmissionFacts";
 import { entrySelectionSettings } from "@/lib/domain/formEntryCases";
 import { parentCaseConstraint } from "@/lib/preview/caseSelectionNavigation";
@@ -129,7 +129,7 @@ export function FormEntryScreen({
 		mode !== "preview" ||
 		!(
 			walks ||
-			authoredBoundedFlatClose(doc, screen.moduleUuid, screen.formUuid) ||
+			authoredBoundedFlatSelection(doc, screen.moduleUuid, screen.formUuid) ||
 			formNeedsOpeningEvidence(doc, screen.formUuid)
 		)
 	)
@@ -194,7 +194,7 @@ function ConfiguredFormEntry({
 		[menuSource, screen.moduleUuid, selections],
 	);
 	const form = doc.forms[screen.formUuid];
-	const boundedFlatClose = authoredBoundedFlatClose(
+	const boundedFlatClose = authoredBoundedFlatSelection(
 		doc,
 		screen.moduleUuid,
 		screen.formUuid,

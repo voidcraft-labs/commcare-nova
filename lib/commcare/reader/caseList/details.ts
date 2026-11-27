@@ -1,4 +1,4 @@
-import { authoredBoundedFlatClose } from "@/lib/domain/boundedFlatClose";
+import { authoredBoundedFlatSelection } from "@/lib/domain/boundedFlatClose";
 import { BOUNDED_FLAT_CLOSE_MAXIMUM } from "@/lib/domain/caseSelectionLimits";
 import { bindCalculationText } from "./calculationText";
 import { mappingIdentityAt } from "./mappingIdentity";
@@ -181,6 +181,10 @@ export const DETAIL_CLAIMS = defineClaims("caseList.details", {
 	),
 	maxSelectFlatClose: take(
 		`${A}detail-max-select-value-for-flat-close`,
+		"schema:Detail.max_select_value",
+	),
+	maxSelectFlatFollowup: take(
+		`${A}detail-max-select-value-for-flat-followup`,
 		"schema:Detail.max_select_value",
 	),
 	maxSelect101Elsewhere: refuse(
@@ -1763,16 +1767,18 @@ export function settleFlatCloseSelectionLimits(
 			...doc,
 			appSettings: { ...doc.appSettings, runsOnlyOn: "web-apps" as const },
 		};
+		const formUuid = doc.formOrder[module.uuid]?.[0];
 		if (
+			formUuid &&
 			webAppsOnly &&
-			authoredBoundedFlatClose(
-				candidate,
-				module.uuid,
-				doc.formOrder[module.uuid]?.[0],
-			)
-		)
-			short.take("max_select_value", D.maxSelectFlatClose, Number).value;
-		else short.refuse("max_select_value", D.maxSelect101Elsewhere);
+			authoredBoundedFlatSelection(candidate, module.uuid, formUuid)
+		) {
+			const claim =
+				doc.forms[formUuid].type === "close"
+					? D.maxSelectFlatClose
+					: D.maxSelectFlatFollowup;
+			short.take("max_select_value", claim, Number).value;
+		} else short.refuse("max_select_value", D.maxSelect101Elsewhere);
 	}
 	deferredFlatCloseLimits.delete(ctx);
 }

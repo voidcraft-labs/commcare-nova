@@ -1,7 +1,7 @@
 import { workerLookupSchemas } from "@/lib/case-store/sql/compileLookup";
 import type { AppTestScope } from "@/lib/db/appTests";
 import { formContentUuid, type Uuid } from "@/lib/domain";
-import { authoredBoundedFlatClose } from "@/lib/domain/boundedFlatClose";
+import { authoredBoundedFlatSelection } from "@/lib/domain/boundedFlatClose";
 import { isParentUserWritePath } from "@/lib/domain/caseWriteViews";
 import { entryDatumCaseId } from "@/lib/domain/entryCaseIdentity";
 import { workerUpdateUsesOpeningCase } from "@/lib/domain/forms";
@@ -105,7 +105,7 @@ export async function submitAppTest(
 	const form = context.doc.forms[formContentUuid(context.doc, screen.formUuid)];
 	// These effects choose their physical target at entry, so the
 	// submission reads the journey server's held opening, not its live data.
-	const boundedFlatClose = !!authoredBoundedFlatClose(
+	const boundedFlatClose = !!authoredBoundedFlatSelection(
 		context.doc,
 		screen.moduleUuid,
 		screen.formUuid,

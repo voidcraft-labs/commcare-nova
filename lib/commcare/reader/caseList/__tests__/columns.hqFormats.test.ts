@@ -656,9 +656,14 @@ describe("CommCare HQ's column formats", () => {
 		},
 	);
 
-	it.each([false, true])(
-		"keeps the bounded flat close maximum with auto-select %s",
-		async (autoSelect) => {
+	it.each([
+		["close", false],
+		["close", true],
+		["followup", false],
+		["followup", true],
+	] as const)(
+		"keeps the bounded %s maximum with auto-select %s",
+		async (type, autoSelect) => {
 			const name = plainColumn(uuid(1), "case_name", "Name");
 			const doc = buildDoc({
 				appSettings: { ...NEW_APP_SETTINGS, runsOnlyOn: "web-apps" },
@@ -681,7 +686,7 @@ describe("CommCare HQ's column formats", () => {
 						forms: [
 							{
 								name: "Close selected cases",
-								type: "close",
+								type,
 								postSubmit: "app_home",
 								fields: [f({ kind: "hidden", id: "done", calculate: "'yes'" })],
 							},
