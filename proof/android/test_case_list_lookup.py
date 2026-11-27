@@ -274,7 +274,7 @@ def test_retained_two_step_lookup_extra_depends_on_worker_mode(hq, editor_driver
     from proof.editors import pages
     from proof.hq import operations
     from proof.matrix.authoring import Authoring
-    from proof.matrix.bases import case_lists
+    from proof.matrix.registry import base
     from proof.matrix.variants import menus_and_case_lists
 
     database = casedata.CaseDatabase(
@@ -317,7 +317,7 @@ def test_retained_two_step_lookup_extra_depends_on_worker_mode(hq, editor_driver
 
     with hq_check(CONFIGURATION) as (state, _):
         authoring = Authoring(state, {}, "retained-case-list-lookup", editor_driver, operation=state.operation)
-        app_id = case_lists.build(authoring)
+        app_id = base("hq-case-lists").build(authoring)
         menus_and_case_lists.callout_with_a_multi_step_field_argument(authoring, app_id)
         observations = save_and_observe(
             state, app_id, "properties/mode", (("ordinary", False), ("legacy", True)),
