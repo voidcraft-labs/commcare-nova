@@ -343,7 +343,7 @@ it.each([
 it.each([
 	"concat('Older ', 'street ', 'address')",
 	"concat('Old ','address')",
-	"concat('Old ', instance('commcaresession')/session/context/appversion)",
+	"concat('Old ', instance('commcaresession')/session/context/applanguage)",
 ])(
 	"keeps the refusal for an unverified saved address calculation %s",
 	async (wire) => {
@@ -1690,50 +1690,72 @@ describe("a Search field Nova cannot hold", () => {
 			},
 		);
 
-		// A filter row's value a device reads from a table, as from the cases on the device, is the
-		// one entry for values that query device data, at the search.
-		it.each([
-			["a told table", "instance('item-list:t')/t_list/t[1]/code"],
-			[
-				"the cases on the device",
+		async function readDeviceFilterValue(read: string) {
+			const body = exportedBody(PROMPTS);
+			const config = (body.modules as JsonObject[])[0]
+				?.search_config as JsonObject;
+			(config.default_properties as JsonObject[]).push({
+				property: "_xpath_query",
+				doc_type: "DefaultCaseSearchProperty",
+				defaultValue: `concat("case_name = '", ${read}, "'")`,
+			});
+			const told = withTable(await inputFor(body));
+			const outcome = readHqApp({
+				...told,
+				lookup: {
+					...told.lookup,
+					definitions: new Map([[TABLE_T.id, TABLE_T]]),
+				},
+			});
+			expect(outcome.defects).toEqual([]);
+			return outcome;
+		}
+
+		it("keeps the first lookup cell in a Search filter and emits its guards", async () => {
+			const outcome = await readDeviceFilterValue(
+				"instance('item-list:t')/t_list/t[1]/code",
+			);
+			if (outcome.kind !== "read")
+				throw new Error(
+					`Expected the filter to read: ${JSON.stringify(outcome.findings)}`,
+				);
+			const doc = outcome.draft.doc;
+			const menu = doc.modules[doc.moduleOrder[0]];
+			const filter = menu.caseListConfig?.searchCondition;
+			expect(filter).toMatchObject({
+				kind: "eq",
+				right: {
+					kind: "table-lookup",
+					tableId: TABLE_T.id,
+					resultColumnId: TABLE_T.columns[0].id,
+				},
+			});
+			expect(outcome.draft.facts.rewrites).toEqual(
+				expect.arrayContaining([
+					expect.objectContaining({ id: "search-value-guards" }),
+				]),
+			);
+		});
+
+		it("reports a case query without a declared type as one finding", async () => {
+			const outcome = await readDeviceFilterValue(
 				"instance('casedb')/casedb/case[1]/case_name",
-			],
-		])(
-			"a filter row's value read from %s is that one finding",
-			async (_title, read) => {
-				const body = exportedBody(PROMPTS);
-				const config = (body.modules as JsonObject[])[0]
-					?.search_config as JsonObject;
-				(config.default_properties as JsonObject[]).push({
-					property: "_xpath_query",
-					doc_type: "DefaultCaseSearchProperty",
-					defaultValue: `concat("case_name = '", ${read}, "'")`,
-				});
-				const told = withTable(await inputFor(body));
-				const outcome = readHqApp({
-					...told,
-					lookup: {
-						...told.lookup,
-						definitions: new Map([[TABLE_T.id, TABLE_T]]),
-					},
-				});
-				expect(outcome.defects).toEqual([]);
-				if (outcome.kind !== "account") throw new Error("read with no finding");
-				expect(
-					outcome.findings.map((one) => [
-						one.code,
-						one.place.kind,
-						one.detail.name,
-					]),
-				).toEqual([
-					[
-						`${S}a-search-value-that-queries-cases-a-table-or-places`,
-						"search",
-						"_xpath_query",
-					],
-				]);
-			},
-		);
+			);
+			if (outcome.kind !== "account") throw new Error("read with no finding");
+			expect(
+				outcome.findings.map((one) => [
+					one.code,
+					one.place.kind,
+					one.detail.name,
+				]),
+			).toEqual([
+				[
+					`${S}a-search-value-that-queries-cases-a-table-or-places`,
+					"search",
+					"_xpath_query",
+				],
+			]);
+		});
 
 		// Neither runtime reads `instance_id`: HQ's build writes the nodeset alone and declares each
 		// instance it reads, so the field is the table its nodeset reads, whatever the instance

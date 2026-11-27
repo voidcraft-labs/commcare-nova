@@ -2582,6 +2582,7 @@ function comparedRowTypes(
  *  with only Nova's guards around them. Undefined where it writes neither. */
 export function searchRowLevel(
 	source: FormSyntax,
+	sourceText: string,
 	predicate: Expression,
 	context: ExpressionContext,
 	env: SearchRowEnv,
@@ -2592,11 +2593,26 @@ export function searchRowLevel(
 		const withheld = withDeviceRewritesWithheld(emission, new Set());
 		if (exact(source, predicate, withheld)) return "guards";
 		const tree = emitCsqlTree(predicate, withheld);
-		return rowSkeletons(source).some(
-			(row) =>
-				guards(row, tree, markerPrefix(constantTexts(row.parts))) !== undefined,
+		if (
+			rowSkeletons(source).some(
+				(row) =>
+					guards(row, tree, markerPrefix(constantTexts(row.parts))) !==
+					undefined,
+			)
 		)
-			? "guards"
+			return "guards";
+		const classes = searchRowRuntimeClasses(predicate);
+		if (
+			!classes.includes("first-lookup-cell") &&
+			!classes.includes("first-restored-case-property")
+		)
+			return undefined;
+		// Row placement must use the same narrow import allowance as binding.
+		// Rebind the source and compare identities so a different table, column
+		// or selected property cannot match solely because both need guards.
+		const rebound = readSearchFilterRow(sourceText, context, env);
+		return rebound.ok && sameJson(rebound.predicate, predicate)
+			? rebound.level
 			: undefined;
 	} catch (error) {
 		rethrowWorkStop(error);
