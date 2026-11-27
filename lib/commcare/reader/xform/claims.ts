@@ -565,10 +565,20 @@ export const X = {
 			appearance: "appearance:android/intent:",
 		},
 	),
-	androidAppHead: one(
+	androidAppHead: under(
 		"take",
 		Q("android-app-callout-input-appearance-intent-id-bind-type-intent"),
-		"jr-extension:IntentExtensionParser",
+		{
+			head: "jr-extension:IntentExtensionParser",
+			id: "xform:intent@id",
+			action: "xform:intent@class",
+			extra: "xform:intent/extra",
+			extraKey: "xform:intent/extra@key",
+			extraRef: "xform:intent/extra@ref",
+			response: "xform:intent/response",
+			responseKey: "xform:intent/response@key",
+			responseRef: "xform:intent/response@ref",
+		},
 	),
 	androidAppAnswer: one(
 		"take",
