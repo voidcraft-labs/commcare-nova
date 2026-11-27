@@ -524,7 +524,14 @@ describe("Search fields over a table and over dates", () => {
 						valueColumnId: CODE,
 						labelColumnId: NAME,
 						sortColumnId: RANK,
-						filter: eq(term(tableColumn(TABLE, REGION)), literal("north")),
+						filter:
+							type === "select"
+								? {
+										kind: "gt",
+										left: term(tableColumn(TABLE, NAME)),
+										right: term(literal("m")),
+									}
+								: eq(term(tableColumn(TABLE, REGION)), literal("north")),
 					},
 				},
 			];

@@ -4285,6 +4285,23 @@ function checkComparison(
 			searchWorkerTextOrder(kind, left, right)
 		)
 			return;
+		// A Search choice filter orders its text column by the device's
+		// numeric coercion. The comparison stays on that fixture row.
+		if (
+			"profile" in ctx &&
+			ctx.slot.slot === "search_input_options" &&
+			kind === "gt" &&
+			leftType === "text" &&
+			left.kind === "term" &&
+			left.term.kind === "table-column" &&
+			right.kind === "term" &&
+			right.term.kind === "literal" &&
+			typeof right.term.value === "string" &&
+			right.term.value.trim() !== "" &&
+			right.term.data_type === undefined &&
+			literalShape(right.term.value) === undefined
+		)
+			return;
 		const leftOrdered = leftType === ANY_TYPE || ORDERED_TYPES.has(leftType);
 		const rightOrdered = rightType === ANY_TYPE || ORDERED_TYPES.has(rightType);
 		if (!leftOrdered || !rightOrdered) {
