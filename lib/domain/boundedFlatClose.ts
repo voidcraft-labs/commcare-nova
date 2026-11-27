@@ -67,7 +67,6 @@ export function boundedFlatSelectionForm(
 		own.links?.length
 	)
 		return undefined;
-	let answers = 0;
 	for (const uuid of doc.fieldOrder[form] ?? []) {
 		const field = doc.fields[uuid];
 		const slots = expressionSlotValues(doc, { entity: "field", uuid });
@@ -82,7 +81,6 @@ export function boundedFlatSelectionForm(
 		if (
 			owner.type !== "followup" ||
 			field?.kind !== "text" ||
-			answers !== 0 ||
 			slots.length !== 0 ||
 			field.addressLookup ||
 			field.androidApp ||
@@ -91,7 +89,6 @@ export function boundedFlatSelectionForm(
 			field.keypad
 		)
 			return undefined;
-		answers++;
 	}
 
 	return { caseType: menu.caseType, selection };

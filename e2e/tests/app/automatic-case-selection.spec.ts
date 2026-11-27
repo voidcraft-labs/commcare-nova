@@ -107,6 +107,11 @@ test("submits a bounded 101-record selection from manual pages and automatic sel
 				});
 				await outcome.fill("Reviewed");
 				await expect(outcome).toHaveValue("Reviewed");
+				const recommendation = preview.getByRole("textbox", {
+					name: /\bRecommendation$/,
+				});
+				await recommendation.fill("Call again");
+				await expect(recommendation).toHaveValue("Call again");
 			}
 
 			const submit = preview.getByRole("button", {

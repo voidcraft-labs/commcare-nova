@@ -13990,10 +13990,7 @@ def _bounded_flat_form(use, *, followup):
         if xform.body is None or xform.model_repeats or xform.save_to_case:
             return False
         controls = [element for element in _children(xform.body) if hasattr(element, "tag")]
-        if len(controls) > 1:
-            return False
-        if controls:
-            (control,) = controls
+        for control in controls:
             ref = control.get("ref")
             if (_local(control) != "input" or not isinstance(ref, str)
                     or not re.fullmatch(r"/[A-Za-z_][A-Za-z0-9_.-]*/[A-Za-z_][A-Za-z0-9_.-]*", ref)):
