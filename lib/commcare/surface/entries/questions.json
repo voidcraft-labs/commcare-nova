@@ -4200,11 +4200,11 @@
 		"id": "questions/savetocase-owner-id-condition",
 		"area": "questions",
 		"section": "Question types",
-		"item": "SaveToCase Owner ID Condition on a create with a fresh case ID",
+		"item": "SaveToCase Owner ID Condition on a fresh create or an always-true owner condition on a create that can reuse a case ID",
 		"surfaceKeys": ["mug:SaveToCase", "xform:model/bind@relevant"],
 		"valueClass": "owner-id-condition",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: `ownerCondition` on the create's owner leaf. When the condition is false, the submitting worker owns the new case.",
+		"dispositionCell": "**HELD**: `ownerCondition` on the create's owner leaf. On a fresh create, the submitting worker owns the new case when the condition is false. A create that can reuse a case ID always sends the owner.",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
@@ -4226,28 +4226,27 @@
 		"id": "questions/savetocase-owner-condition-on-an-aliased-create",
 		"area": "questions",
 		"section": "Question types",
-		"item": "SaveToCase Owner ID Condition on a create that can reuse an existing case ID",
+		"item": "SaveToCase owner condition other than always true on a create that can reuse an existing case ID",
 		"surfaceKeys": ["xform:model/bind@relevant"],
 		"valueClass": "aliased-create-owner-id-condition",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: If the owner leaf is absent, HQ preserves an existing owner and CommCare Core assigns the submitting worker.",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: When the owner field is absent, HQ preserves the existing owner and Core assigns the submitting worker to the same case.",
 		"subject": "save-to-case",
-		"owner": "xform",
 		"platforms": {
-			"kind": "each",
-			"cell": "RUNS / RUNS",
-			"webApps": {
-				"reading": "runs"
-			},
-			"android": {
-				"reading": "runs"
-			}
+			"kind": "none",
+			"cell": "—"
 		},
 		"emission": {
-			"cell": "`relevant` on the `create/owner_id` bind",
+			"cell": "—",
 			"markers": []
 		},
-		"gates": []
+		"gates": [],
+		"reasons": [
+			{
+				"kind": "broken-at-runtime",
+				"named": "The same submitted case block keeps the owner in CommCare HQ and replaces the owner in the device's case store."
+			}
+		]
 	},
 	{
 		"id": "questions/savetocase-update-owner-condition",

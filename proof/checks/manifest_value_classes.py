@@ -12478,6 +12478,13 @@ def conditioned_aliased_create_owner(use, manifest):
     holder = case.getparent() if case is not None else None
     if holder is None or holder.get(f"{{{VELLUM}}}role") != "SaveToCase":
         return False
+    tokens = xpath_tokens(bind.get("relevant")) or ()
+    while len(tokens) > 3 and tokens[0].kind == "LPAREN" and tokens[-1].kind == "RPAREN":
+        tokens = tokens[1:-1]
+    if [(token.kind, token.text) for token in tokens] == [
+        ("QNAME", "true"), ("LPAREN", "("), ("RPAREN", ")"),
+    ]:
+        return False
     id_path = f"{form.paths[holder]}/case/@case_id"
     id_bind = form.bind(id_path)
     if id_bind is not None:

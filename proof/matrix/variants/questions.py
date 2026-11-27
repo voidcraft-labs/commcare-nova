@@ -2128,6 +2128,25 @@ def save_to_case_conditional_owner_aliased_create(authoring, app_id):
     )
 
 
+def save_to_case_always_owner_aliased_create(authoring, app_id):
+    """An always-relevant owner remains present even for an existing case ID."""
+    _save_to_case(
+        authoring,
+        app_id,
+        "save-to-case-always-owner-aliased-create",
+        (STC_ID_SETVALUE, STC_ID_SETVALUE.replace('uuid()', "'household-01'"), 1),
+        (STC_OWNER_BIND, STC_OWNER_BIND[:-2] + ' relevant="true()"/>', 1),
+        (
+            f"string-length({GUARD_NAME}) &gt; 0 and string-length({GUARD_NAME}) &lt;= 255 and"
+            f" string-length({GUARD_OWNER}) &gt; 0 and string-length({GUARD_OWNER}) &lt;= 255",
+            f"(not(true()) or string-length({GUARD_OWNER}) &gt; 0 and"
+            f" string-length({GUARD_OWNER}) &lt;= 255) and string-length({GUARD_NAME}) &gt; 0 and"
+            f" string-length({GUARD_NAME}) &lt;= 255",
+            1,
+        ),
+    )
+
+
 def save_to_case_update_owner_condition(authoring, app_id):
     """The same conditional facet on a targeted update has its own standing."""
     owner_path = GUARD_OWNER.replace("/create/", "/update/")
