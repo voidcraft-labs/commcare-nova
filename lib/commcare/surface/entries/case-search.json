@@ -4096,6 +4096,29 @@
 		"gates": []
 	},
 	{
+		"id": "case-search/address-receiver-clears-text",
+		"area": "case-search",
+		"section": "Case search",
+		"subsection": "Search prompts",
+		"item": "A linked address receiver clears a text answer when the publisher has no such component",
+		"surfaceKeys": ["schema:CaseSearchProperty.receiver_expression"],
+		"valueClass": "address-receiver-clears-text",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: picking or clearing the linked address clears the text field. The original selector keeps the same recipient across saves.",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / IGNORED",
+			"webApps": { "reading": "runs" },
+			"android": { "reading": "ignored" }
+		},
+		"emission": {
+			"cell": "Stored component and suffix with the linked publisher’s current key",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
 		"id": "case-search/receiver-expression",
 		"area": "case-search",
 		"section": "Case search",
@@ -4107,7 +4130,7 @@
 		],
 		"valueClass": "receiver-with-a-topic-or-part-nova-cannot-hold",
 		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: other receiver spellings outside the address topic and component grammar, including an active receiver whose first component is outside the address vocabulary",
+		"dispositionCell": "**HELD-NEW**: other receiver spellings outside the address topic and component grammar, including active non-text recipients and unsupported selector spellings",
 		"subject": "search-fields",
 		"owner": "case-search",
 		"platforms": {

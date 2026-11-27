@@ -2616,6 +2616,8 @@ export const NON_REFERENCE_MODULE_PATHS: Readonly<
 	"caseListConfig.searchInputs[].addressReceiver.topic": "wire-token",
 	"caseListConfig.searchInputs[].addressReceiver.parts[]": "wire-token",
 	"caseListConfig.searchInputs[].addressReceiver.fields": "wire-token",
+	"caseListConfig.searchInputs[].addressReceiver.component": "wire-token",
+	"caseListConfig.searchInputs[].addressReceiver.suffix": "wire-token",
 	"caseListConfig.searchInputGroups[].uuid": "identity",
 	"caseListConfig.searchInputGroups[].label": "display-text",
 	"caseListConfig.searchFilters[].uuid": "identity",

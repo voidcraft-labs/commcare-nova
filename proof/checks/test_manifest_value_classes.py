@@ -4435,7 +4435,7 @@ def _search_and_menus():
                 f"{prompts}/receiver_expression",
             )
             for make, receiver, appearance in (
-                (refused, "home-unknown-extra", "address"),
+                (refused, "home-constructor-extra", "address"),
                 (accepted, "home-city-extra", None),
                 (accepted, "home-wide-extra", "address"),
                 (accepted, "home-region", "address"),

@@ -178,7 +178,8 @@ export function searchInputRemovalDependencies(
 		if (
 			target.kind === "address" &&
 			isVisibleSearchInput(input) &&
-			input.addressReceiver?.kind === "address" &&
+			(input.addressReceiver?.kind === "address" ||
+				input.addressReceiver?.kind === "address-clear") &&
 			input.addressReceiver.source === target.uuid
 		) {
 			dependencies.push({

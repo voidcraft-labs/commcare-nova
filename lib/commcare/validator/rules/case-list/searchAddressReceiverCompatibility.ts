@@ -29,7 +29,8 @@ export function searchAddressReceiverCompatibility(
 				inputs.some(
 					(receiver) =>
 						isVisibleSearchInput(receiver) &&
-						receiver.addressReceiver?.kind === "address" &&
+						(receiver.addressReceiver?.kind === "address" ||
+							receiver.addressReceiver?.kind === "address-clear") &&
 						receiver.addressReceiver.source === input.uuid,
 				));
 		const reason =

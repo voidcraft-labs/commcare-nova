@@ -117,7 +117,7 @@ it.each([
 	},
 	{
 		webAppsOn: true,
-		receive: "home-unknown-extra",
+		receive: "home-constructor-extra",
 		entry: "receiver-expression",
 		standing: "not-yet",
 	},

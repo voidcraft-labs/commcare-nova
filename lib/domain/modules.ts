@@ -1793,11 +1793,28 @@ export const SEARCH_ADDRESS_PARTS = [
 export const UNMATCHED_ADDRESS_TOPIC_PATTERN =
 	/^[A-Za-z_][A-Za-z0-9_]*\|\|[A-Za-z_][A-Za-z0-9_]*$/;
 
+const ADDRESS_SELECTOR_SEGMENT = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+/** A plain text receiver clears when its active publisher supplies no such component. */
+export function isSearchAddressClearComponent(component: string): boolean {
+	return (
+		ADDRESS_SELECTOR_SEGMENT.test(component) &&
+		!(SEARCH_ADDRESS_PARTS as readonly string[]).includes(component) &&
+		!(component in Object.prototype)
+	);
+}
+
 export const searchAddressReceiverSchema = z.discriminatedUnion("kind", [
 	z.strictObject({
 		kind: z.literal("address"),
 		source: uuidSchema,
 		parts: z.array(z.enum(SEARCH_ADDRESS_PARTS)).min(1),
+	}),
+	z.strictObject({
+		kind: z.literal("address-clear"),
+		source: uuidSchema,
+		component: z.string().refine(isSearchAddressClearComponent),
+		suffix: z.string().regex(ADDRESS_SELECTOR_SEGMENT).optional(),
 	}),
 	z.strictObject({
 		kind: z.literal("unsubscribed"),
@@ -3832,6 +3849,14 @@ export function searchAddressReceiverProblem(
 ): keyof typeof SEARCH_ADDRESS_RECEIVER_MESSAGES | undefined {
 	const receiver = input.addressReceiver;
 	if (receiver === undefined) return undefined;
+	if (receiver.kind === "address-clear") {
+		if (input.hidden === true || input.type !== "text") return "receiver-type";
+		return inputs.some(
+			(source) => source.kind === "address" && source.uuid === receiver.source,
+		)
+			? undefined
+			: "source-link";
+	}
 	if (receiver.kind === "unsubscribed-topic")
 		return input.hidden !== true && input.type === "text"
 			? undefined

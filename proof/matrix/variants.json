@@ -47894,6 +47894,27 @@
 	{
 		"id": "hq-search/address-receiver-with-an-unknown-component",
 		"base": "hq-search",
+		"entry": "case-search/address-receiver-clears-text",
+		"change": {
+			"op": "named",
+			"name": "address_picker_receiver_with_unknown_component"
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/searchInputs/2/addressReceiver/component",
+				"value": "unknown"
+			}
+		]
+	},
+	{
+		"id": "hq-search/address-receiver-with-a-prototype-component",
+		"base": "hq-search",
 		"entry": "case-search/receiver-expression",
 		"standing": "not-yet",
 		"place": {
@@ -47903,7 +47924,7 @@
 		},
 		"change": {
 			"op": "named",
-			"name": "address_picker_receiver_with_unknown_component"
+			"name": "address_picker_receiver_with_a_prototype_component"
 		}
 	},
 	{

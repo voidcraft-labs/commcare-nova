@@ -22,6 +22,7 @@ import { sameLookupRead } from "@/lib/domain/lookupRead";
 import {
 	DEFAULT_SEARCH_MODE_KIND,
 	isParentPathSearchProperty,
+	isSearchAddressClearComponent,
 	SAVED_ADDRESS_WORKER_FIELDS,
 	type SavedSearchAddressDefault,
 	SEARCH_ADDRESS_PARTS,
@@ -363,6 +364,10 @@ export const PROMPT_CLAIMS = defineClaims("search.prompts", {
 	allowBlankOwner: refuse(
 		`${S}allow-blank-value-on-a-prompt-named-owner-id`,
 		"schema:CaseSearchProperty.allow_blank_value",
+	),
+	addressReceiverClearsText: take(
+		`${S}address-receiver-clears-text`,
+		"schema:CaseSearchProperty.receiver_expression",
 	),
 	addressReceiverSuffix: take(
 		`${S}address-receiver-with-an-unused-suffix`,
@@ -1319,11 +1324,15 @@ function readPrompt(
 	);
 	const inputType = editorAppearance(prompt);
 	const sourceReceiver = prompt.peek("receiver_expression");
-	let addressReceiver:
-		| Exclude<SearchAddressReceiver, { kind: "address" }>
-		| undefined;
+	let addressReceiver: SearchAddressReceiver | undefined;
 	if (holds("receiver_expression")) {
 		const wire = receiverSelector(canonicalReceiver ?? sourceReceiver);
+		const clearingSelector =
+			typeof sourceReceiver === "string"
+				? /^([A-Za-z_][A-Za-z0-9_]*)-([A-Za-z_][A-Za-z0-9_]*)(?:-([A-Za-z_][A-Za-z0-9_]*))?$/.exec(
+						sourceReceiver,
+					)
+				: null;
 		const parts = wire?.[2].split("||") ?? [];
 		const validSource = wire !== null && addressSources.has(wire[1]);
 		// A bare publisher name subscribes successfully in Web Apps, then
@@ -1338,7 +1347,26 @@ function readPrompt(
 			prompt.peek("hidden") === true
 		)
 			refuseWith("receiver_expression", P.receiverOther);
-		else if (bareTopic)
+		else if (
+			clearingSelector !== null &&
+			addressSources.has(clearingSelector[1]) &&
+			isSearchAddressClearComponent(clearingSelector[2]) &&
+			inputType === "" &&
+			!prompt.peek("input_")
+		) {
+			prompt.take("receiver_expression", P.addressReceiverClearsText, String)
+				.value;
+			addressReceiver = {
+				kind: "address-clear",
+				source: ctx.input.resolver.uuidOf(
+					externalKey.searchInput(module.uniqueId, clearingSelector[1]),
+				),
+				component: clearingSelector[2],
+				...(clearingSelector[3] !== undefined && {
+					suffix: clearingSelector[3],
+				}),
+			};
+		} else if (bareTopic)
 			refuseWith("receiver_expression", P.addressReceiverNoComponent);
 		else if (validSource && prompt.peek("input_") === "select1")
 			refuseWith("receiver_expression", P.receiverSingleChoice);

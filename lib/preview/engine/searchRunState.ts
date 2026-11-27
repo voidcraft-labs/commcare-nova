@@ -66,6 +66,10 @@ export function applySearchAddressMessage(
 	for (const input of inputs) {
 		if (input.kind === "hidden" || input.kind === "address") continue;
 		const receiver = input.addressReceiver;
+		if (receiver?.kind === "address-clear" && receiver.source === source) {
+			next.delete(input.name);
+			continue;
+		}
 		if (receiver?.kind !== "address" || receiver.source !== source) continue;
 		const part = receiver.parts.find((key) => message?.[key] !== undefined);
 		const received = part === undefined ? undefined : message?.[part];

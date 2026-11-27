@@ -99,6 +99,7 @@ from proof.checks.manifest_value_classes import (
     three_parent_links_text_prompt_key,
     two_parent_links_text_prompt_key,
     unaddressable_answer_root,
+    address_receiver_clears_text,
     address_receiver_unused_suffix,
     unmatched_address_receive_topic,
     manual_address_with_saved_text,
@@ -138,6 +139,7 @@ ADDRESS_SAVED_TEXT = "case-search/address-picker-with-a-saved-text-default"
 SEARCH_REQUIRED_CASE_COUNT = "case-search/required-condition-counts-restored-cases"
 ORDERED_SEARCH_DEFAULT = "case-search/default-value-ordering-the-worker-name"
 ORDERED_OWNER_EXCLUSION = "case-search/blacklisted-owner-ids-expression-lifting-into-valueexpression"
+ADDRESS_CLEARS_TEXT = "case-search/address-receiver-clears-text"
 ADDRESS_UNUSED_SUFFIX = "case-search/address-receiver-with-an-unused-suffix"
 UNMATCHED_ADDRESS_TOPIC = "case-search/address-receiver-on-an-unmatched-topic-without-a-component"
 UNCLAIMED, ENTRY, STANDING, UNSEEN = "unclaimed", "entry", "standing", "unseen"
@@ -1089,6 +1091,14 @@ def added_uses(base_source: dict, variant_source: dict, *, entries=()) -> list[D
                 if use.key == "schema:DetailColumn.field" and classifier(use, held)
             )
 
+        if ADDRESS_CLEARS_TEXT in entries:
+            entry = _entries_by_id(held)[ADDRESS_CLEARS_TEXT]
+            decided.extend(
+                Decided(use, manifest_usage.HELD, (entry,))
+                for use in found.uses
+                if use.key == "schema:CaseSearchProperty.receiver_expression"
+                and address_receiver_clears_text(use, held)
+            )
         if ADDRESS_UNUSED_SUFFIX in entries:
             entry = _entries_by_id(held)[ADDRESS_UNUSED_SUFFIX]
             decided.extend(
@@ -1223,7 +1233,7 @@ def _projects(decided: Decided, record: Record, held) -> tuple[bool, bool]:
     exact = PARENT_PROMPT_SHAPES.keys() | SEARCH_DETAIL_PROJECTIONS.keys() | {
         ADDRESS_SAVED_TEXT, FLAT_CLOSE_MAXIMUM, FLAT_FOLLOWUP_MAXIMUM, ORDINARY_LIST_MAXIMUM,
         REQUIRED_DATE_RETYPE, UNICODE_PRIMARY_ROOT,
-        UNMATCHED_ADDRESS_TOPIC, ADDRESS_UNUSED_SUFFIX, SEARCH_INDEX_FALLBACK,
+        UNMATCHED_ADDRESS_TOPIC, ADDRESS_UNUSED_SUFFIX, ADDRESS_CLEARS_TEXT, SEARCH_INDEX_FALLBACK,
     }
     if standing == manifest_usage.HELD and len(resting) == 1 and resting <= exact:
         return record.standing == "held", record.entry in resting

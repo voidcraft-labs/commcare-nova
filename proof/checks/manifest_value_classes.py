@@ -6227,8 +6227,36 @@ def address_receiver_unused_suffix(use, manifest):
     )
 
 
+def address_receiver_clears_text(use, manifest):
+    at, config = _search(use)
+    if config is None:
+        return False
+    prompt = at.nearest("CaseSearchProperty")
+    if at.key != "receiver_expression" or prompt is None or _address_receiver_widget(prompt) != "text":
+        return False
+    value = prompt.get("receiver_expression")
+    if not isinstance(value, str):
+        return False
+    selector = re.fullmatch(
+        r"([A-Za-z_][A-Za-z0-9_]*)-([A-Za-z_][A-Za-z0-9_]*)(?:-[A-Za-z_][A-Za-z0-9_]*)?", value,
+    )
+    return (
+        selector is not None and _has_address_publisher(config, selector[1])
+        and selector[2] not in ADDRESS_MESSAGE_PARTS
+        and selector[2] not in {
+            "__defineGetter__", "__defineSetter__", "__lookupGetter__", "__lookupSetter__", "__proto__",
+            "constructor", "hasOwnProperty", "isPrototypeOf", "propertyIsEnumerable", "toLocaleString",
+            "toString", "valueOf",
+        }
+    )
+
+
 def address_receive_with_extra_hyphen(use, manifest):
-    return _address_receiver_suffix(use) is not None and not address_receiver_unused_suffix(use, manifest)
+    return (
+        _address_receiver_suffix(use) is not None
+        and not address_receiver_unused_suffix(use, manifest)
+        and not address_receiver_clears_text(use, manifest)
+    )
 
 
 def address_receive_without_component(use, manifest):

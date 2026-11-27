@@ -403,16 +403,24 @@ function AddressFillSetting({
 	if (addresses.length === 0 && receiver === undefined && review === undefined)
 		return null;
 	const linked = receiver?.kind === "address" ? receiver : undefined;
-	const source = addresses.find((input) => input.uuid === linked?.source);
+	const clearing = receiver?.kind === "address-clear" ? receiver : undefined;
+	const source = addresses.find(
+		(input) => input.uuid === (linked?.source ?? clearing?.source),
+	);
 	const label = source?.label || source?.name;
-	const savedTopic = receiver?.kind !== "address" ? receiver?.topic : undefined;
+	const savedTopic =
+		receiver?.kind === "unsubscribed" || receiver?.kind === "unsubscribed-topic"
+			? receiver.topic
+			: undefined;
 	return (
 		<FieldRow
 			label="Fill from an address"
 			hint={
-				savedTopic === undefined
-					? "Workers can still edit the answer in Web Apps."
-					: "This saved topic has no address field to fill the answer. You can choose a field below."
+				clearing
+					? "Picking or clearing this address clears the answer in Web Apps."
+					: savedTopic === undefined
+						? "Workers can still edit the answer in Web Apps."
+						: "This saved topic has no address field to fill the answer. You can choose a field below."
 			}
 		>
 			{review && (
@@ -436,11 +444,13 @@ function AddressFillSetting({
 							onChange(
 								selected === undefined
 									? undefined
-									: {
-											kind: "address",
-											source: selected.uuid,
-											parts: linked?.parts ?? ["city"],
-										},
+									: clearing
+										? { ...clearing, source: selected.uuid }
+										: {
+												kind: "address",
+												source: selected.uuid,
+												parts: linked?.parts ?? ["city"],
+											},
 							);
 						}}
 					>

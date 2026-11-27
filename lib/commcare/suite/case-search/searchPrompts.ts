@@ -276,7 +276,13 @@ export function searchPromptWire(
 			receiver.source,
 			receiver.parts,
 		);
-	else if (receiver?.kind === "unsubscribed")
+	else if (receiver?.kind === "address-clear") {
+		const selector =
+			receiver.suffix === undefined
+				? receiver.component
+				: `${receiver.component}-${receiver.suffix}`;
+		receive = addressReceiveExpression(allInputs, receiver.source, [selector]);
+	} else if (receiver?.kind === "unsubscribed")
 		receive = `${receiver.topic}-${receiver.fields}`;
 	else if (receiver?.kind === "unsubscribed-topic") receive = receiver.topic;
 	// When `input.label` is empty the locale registers `input.name`
