@@ -1176,6 +1176,14 @@ def tile_grouped_by_a_dotted_index(authoring, app_id):
     _tile_grouped_by_index(authoring, app_id, "my.parent", with_body=True)
 
 
+def tile_grouped_by_a_spaced_index(authoring, app_id):
+    _tile_grouped_by_index(authoring, app_id, "my parent", with_body=True)
+
+
+def tile_grouped_by_an_index_path(authoring, app_id):
+    _tile_grouped_by_index(authoring, app_id, "my/parent", with_body=True)
+
+
 def _tile_grouped_by_index(authoring, app_id, identifier, *, with_body):
     header = {
         "model": "case",

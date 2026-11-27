@@ -14572,12 +14572,39 @@
 	{
 		"id": "hq-case-lists/tile-grouped-by-a-dotted-index",
 		"base": "hq-case-lists",
+		"entry": "menus-and-case-lists/detail-case-tile-group-index-identifier-header-rows",
+		"change": {
+			"op": "named",
+			"name": "tile_grouped_by_a_dotted_index"
+		},
+		"holds": [
+			{
+				"key": ["module", { "$menu": 1 }],
+				"pointer": "/caseListConfig/tile/grouping",
+				"value": { "identifier": "my.parent", "headerRows": 1 }
+			}
+		]
+	},
+	{
+		"id": "hq-case-lists/tile-grouped-by-a-spaced-index",
+		"base": "hq-case-lists",
+		"entry": "menus-and-case-lists/case-tile-group-identifier-with-interior-space",
+		"standing": "fix-in-hq",
+		"place": { "kind": "case-list", "menu": 1, "name": "Follow-ups" },
+		"change": {
+			"op": "named",
+			"name": "tile_grouped_by_a_spaced_index"
+		}
+	},
+	{
+		"id": "hq-case-lists/tile-grouped-by-an-index-path",
+		"base": "hq-case-lists",
 		"entry": "menus-and-case-lists/case-tile-group-identifier-outside-an-xml-element-name",
 		"standing": "not-yet",
 		"place": { "kind": "case-list", "menu": 1, "name": "Follow-ups" },
 		"change": {
 			"op": "named",
-			"name": "tile_grouped_by_a_dotted_index"
+			"name": "tile_grouped_by_an_index_path"
 		}
 	},
 	{

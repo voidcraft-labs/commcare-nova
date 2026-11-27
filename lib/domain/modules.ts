@@ -36,7 +36,6 @@ import { z } from "zod";
 import { formIconRefSchema, moduleIconRefSchema } from "./builtinIcons";
 import { caseFormContextSchema } from "./caseFormContext";
 import { uniqueCaseMappingRows } from "./caseMappingRows";
-import { CASE_OPERATION_LINK_IDENTIFIER_REGEX } from "./caseOperationIdentifiers";
 import {
 	authoredCasePropertyNameSchema,
 	readCasePropertyNameSchema,
@@ -3203,12 +3202,12 @@ export function multiSelectSearchInputRefusal(
 export const caseTileGroupingIdentifierSchema = z
 	.string()
 	.regex(
-		CASE_OPERATION_LINK_IDENTIFIER_REGEX,
-		"Start with a letter or underscore. Use only letters, numbers, underscores, or hyphens.",
+		/^[A-Za-z_][A-Za-z0-9_.-]*$/,
+		"Start with a letter or underscore. Use letters, numbers, underscores, hyphens, or periods.",
 	);
 
 export const caseTileGroupingSchema = z.strictObject({
-	/** The index whose target is the group key, such as parent or my-parent. */
+	/** The index whose target is the group key, such as parent or site.parent. */
 	identifier: caseTileGroupingIdentifierSchema,
 	/**
 	 * Rows of the tile that form the group header, counted from the

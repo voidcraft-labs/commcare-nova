@@ -3917,7 +3917,7 @@
 		],
 		"valueClass": "grouping-connection-name",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: `tile.grouping {identifier, headerRows}`",
+		"dispositionCell": "**HELD**: `tile.grouping {identifier, headerRows}` keeps a period or hyphen after the first character of the connection name",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
@@ -3958,11 +3958,32 @@
 		"gates": []
 	},
 	{
+		"id": "menus-and-case-lists/case-tile-group-identifier-with-interior-space",
+		"area": "menus-and-case-lists",
+		"section": "Case list and case detail",
+		"subsection": "Detail screens",
+		"item": "A custom tile's group index is two connection names separated by one space",
+		"surfaceKeys": ["schema:CaseTileGroupConfig.index_identifier"],
+		"valueClass": "grouping-connection-name-with-interior-space",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: Core cannot install the suite because the generated grouping XPath has two adjacent name tokens",
+		"subject": "case-tile-group-index",
+		"reasons": [
+			{
+				"kind": "broken-at-runtime",
+				"named": "Core refuses the generated index step despite HQ's Case List editor saving the name with its internal space"
+			}
+		],
+		"platforms": { "kind": "none", "cell": "—" },
+		"emission": { "cell": "—", "markers": [] },
+		"gates": []
+	},
+	{
 		"id": "menus-and-case-lists/case-tile-group-identifier-outside-an-xml-element-name",
 		"area": "menus-and-case-lists",
 		"section": "Case list and case detail",
 		"subsection": "Detail screens",
-		"item": "Other `case_tile_group.index_identifier` values outside `[A-Za-z_][A-Za-z0-9_-]*`",
+		"item": "Other `case_tile_group.index_identifier` values outside `[A-Za-z_][A-Za-z0-9_.-]*`",
 		"surfaceKeys": [
 			"parser:DetailGroupParser/group",
 			"parser:DetailGroupParser/group@function",
