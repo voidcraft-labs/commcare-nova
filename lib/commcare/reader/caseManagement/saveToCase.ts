@@ -1829,12 +1829,11 @@ function readBlock(
 		// The worker's record is read only where an update of `commcare-user` names it.
 		if ((target.kind === "worker-record") !== (caseType === "commcare-user"))
 			return { ok: false };
-		// One ordinary repeat can update the same worker's record in row order.
+		// One top-level repeat can update the same worker's record in row order.
 		if (
 			target.kind === "worker-record" &&
 			block.repeat !== null &&
-			(block.repeat.field.repeat_mode === "query_bound" ||
-				enclosingRepeat(xform, block.repeat) !== null)
+			enclosingRepeat(xform, block.repeat) !== null
 		)
 			return fail(SAVE_TO_CASE_CLAIMS.workerFacet);
 	}

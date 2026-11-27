@@ -3004,6 +3004,26 @@ def save_to_case_worker_in_query_repeat(authoring, app_id):
     _edit(authoring, app_id, "save-to-case-worker-in-query-repeat", transform)
 
 
+def save_to_case_worker_in_nested_query_repeat(authoring, app_id):
+    """A query-driven repeat inside another repeat submits more than one worker scope."""
+    save_to_case_worker_in_query_repeat(authoring, app_id)
+    note_end = ROUNDS_CLOSE.split("</repeat>", 1)[0].rstrip()
+    group = '<group ref="/data/rounds/item/nova_operations"/>'
+    with_block = note_end + "\n" + group + ROUNDS_CLOSE[len(note_end):]
+
+    def moved(text):
+        text = _moved(text, ROUNDS_DATA_OPEN, "</rounds>", "<member_name />")
+        text = _moved(text, ROUNDS_OPEN, with_block, MEMBER_NAME_CLOSE)
+        return _replaced(text, [
+            ('<setvalue event="xforms-ready" ref="/data/rounds/',
+             '<setvalue event="jr-insert" ref="/data/rounds/', 2),
+            ("/data/rounds", "/data/members/rounds", None),
+            ("#form/rounds", "#form/members/rounds", None),
+        ])
+
+    _edit(authoring, app_id, "save-to-case-worker-in-nested-query-repeat", moved)
+
+
 # hq-new-app's follow-up form, which a menu of case type ``case`` opens with its case chosen.
 FOLLOWUP_DATA = "<default_label />"
 FOLLOWUP_BIND = '<bind vellum:nodeset="#form/default_label" nodeset="/data/default_label" />'

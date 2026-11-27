@@ -1363,7 +1363,7 @@ with no case type of its own. Separate direct updates can write different
 properties when each runs at most once. A basic managed worker update can
 accompany a namespaced repeated create because the worker has an independent
 UUID. A single direct Save to Case update can also run once for each entry of
-one ordinary repeat. The destination must be
+one top-level repeat, including a query-driven repeat. The destination must be
 a declared worker property (the slug is emitted as an XML element name), never
 a built-in worker field, and never `case_name`: HQ permits writing the name and
 its byte oracle asserts exactly that, but materialization owns the worker's

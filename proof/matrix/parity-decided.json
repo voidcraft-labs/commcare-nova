@@ -658,6 +658,7 @@
 		"hq-questions/save-to-case-update-owner-condition",
 		"hq-questions/save-to-case-user-type",
 		"hq-questions/save-to-case-without-role",
+		"hq-questions/save-to-case-worker-in-nested-query-repeat",
 		"hq-questions/save-to-case-worker-in-query-repeat",
 		"hq-questions/save-to-case-worker-in-repeat",
 		"hq-questions/save-to-case-worker-under-condition",

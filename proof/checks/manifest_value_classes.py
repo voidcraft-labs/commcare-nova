@@ -12382,10 +12382,7 @@ def worker_record_save_to_case_shape(use):
     if form.in_repeat(path):
         scopes = [repeat for repeat in form.repeat_paths if path.startswith(f"{repeat}/")]
         parent = block.getparent()
-        if (
-            len(scopes) != 1
-            or any(form.paths[node] in scopes for node in form.model_repeats)
-        ):
+        if len(scopes) != 1:
             return "repeat-held"
         if _local(parent).startswith("nova_condition_"):
             guard = form.bind(form.paths[parent])

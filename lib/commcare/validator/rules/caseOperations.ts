@@ -2102,7 +2102,6 @@ function workerRecordFindings(
 				const field = ctx.doc.fields[repeat];
 				if (
 					field?.kind === "repeat" &&
-					field.repeat_mode !== "query_bound" &&
 					ctx.fields.get(repeat)?.repeatPath.length === 1
 				) {
 					const guards = caseOperationConditionalGuardUuids(

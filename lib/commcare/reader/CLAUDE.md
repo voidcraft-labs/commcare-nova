@@ -1048,8 +1048,8 @@ A change that holds one removes its line.
   value only when the condition holds. Aliased creates, worker transfers, and shapes
   whose guard or scope does not print back keep their dedicated refusal.
 - **A Save to Case update of the worker's record** can run under a root condition or once for
-  each entry of a single ordinary repeat, with an optional condition evaluated for each entry.
-  Each live entry updates the same worker in row order. A nested or query-driven repeat has one
+  each entry of a top-level repeat, including a query-driven repeat, with an optional condition
+  evaluated for each entry. Each live entry updates the same worker in row order. A nested repeat has one
   finding at the block under
   `questions/a-savetocase-update-of-commcare-user-under-a-condition-or-inside-a-repeat`
   (`caseManagement/saveToCase.ts::readBlock`).

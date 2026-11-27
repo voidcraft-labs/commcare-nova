@@ -3581,11 +3581,11 @@
 		"id": "questions/a-savetocase-update-of-commcare-user-under-a-condition-or-inside-a-repeat",
 		"area": "questions",
 		"section": "Question types",
-		"item": "a SaveToCase worker record update in a nested or query-driven repeat",
+		"item": "a SaveToCase worker record update in a nested repeat",
 		"surfaceKeys": ["mug:SaveToCase"],
 		"valueClass": "worker-record-update-on-a-condition-or-per-row",
 		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: A nested or query-driven scope needs its own case-effect ordering evidence.",
+		"dispositionCell": "**HELD-NEW**: A nested scope needs its own case-effect ordering evidence.",
 		"subject": "worker-record",
 		"owner": "forms-and-case-management",
 		"platforms": {
@@ -4447,7 +4447,7 @@
 		],
 		"valueClass": "inside-a-repeat",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: `forEach`. Includes one direct worker record update per live row of a single ordinary repeat.",
+		"dispositionCell": "**HELD**: `forEach`. Includes one direct worker record update per live row of a top-level repeat, including a query-driven repeat.",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
