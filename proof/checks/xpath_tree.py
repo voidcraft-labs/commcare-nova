@@ -273,9 +273,7 @@ def fixture_itemset_number(text, instances):
     source, (_, number) = shape
     tokens = _xpath.tokens(text)
     if 0 <= number < 2_147_483_648 and [one.kind for one in tokens[-3:]] == ["LBRACK", "NUM", "RBRACK"]:
-        ordinal = int(number)
-        if tokens[-2].text.isdigit() or ("." in tokens[-2].text and ordinal != number):
-            return source, number, ordinal
+        return source, number, int(number)
     return source, number, None
 
 

@@ -343,6 +343,7 @@
 		"hq-lookups/itemset-filter-fractional-row-index",
 		"hq-lookups/itemset-filter-integral-decimal-row-index",
 		"hq-lookups/itemset-filter-numeric-row-index",
+		"hq-lookups/itemset-filter-overflow-row-index",
 		"hq-lookups/itemset-filter-position-of-scalar",
 		"hq-lookups/itemset-filter-zero-row-index",
 		"hq-lookups/itemset-filters-available-cases-by-survey-readiness",

@@ -2408,8 +2408,13 @@ def itemset_filter_zero_row_index(authoring, app_id):
 
 
 def itemset_filter_integral_decimal_row_index(authoring, app_id):
-    """An integer spelled as a decimal remains separate from the known predicate forms."""
+    """A whole number spelled as a decimal chooses the same numeric position."""
     _itemset_filter_numeric_row(authoring, app_id, "2.0", "itemset-filter-integral-decimal-row-index")
+
+
+def itemset_filter_overflow_row_index(authoring, app_id):
+    """A bare numeric filter greater than the native integer range."""
+    _itemset_filter_numeric_row(authoring, app_id, "2147483648", "itemset-filter-overflow-row-index")
 
 
 def itemset_over_cases(authoring, app_id):

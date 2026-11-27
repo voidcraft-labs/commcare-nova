@@ -161,6 +161,7 @@ def test_fractional_fixture_row_index_truncates_after_vellum_reopens(
     samples = (
         ("fractional", "2.5", second),
         ("integer", "2", second),
+        ("decimal-spelling", "2.0", second),
         ("explicit-position", "position() = 2", second),
         ("empty-fractional-position", "position() = 2.5", {"choices": []}),
         ("zero", "0", {"choices": []}),

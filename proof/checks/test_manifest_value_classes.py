@@ -9329,7 +9329,7 @@ def test_literal_itemset_row_position_is_scoped_to_retained_parity(manifest):
             <label ref="name"/><value ref="id"/></itemset></select1>
           <select1 ref="/data/choice"><itemset nodeset="instance('items')/items_list/items[0]">
             <label ref="name"/><value ref="id"/></itemset></select1>
-          <select1 ref="/data/choice"><itemset nodeset="instance('items')/items_list/items[2.0]">
+          <select1 ref="/data/choice"><itemset nodeset="instance('items')/items_list/items[2147483648]">
             <label ref="name"/><value ref="id"/></itemset></select1>
           <select1 ref="/data/choice"><itemset nodeset="instance('items')/items_list/items[last() - 1]">
             <label ref="name"/><value ref="id"/></itemset></select1>

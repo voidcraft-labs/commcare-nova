@@ -246,8 +246,8 @@ function positionOfNumber(predicate: FormSyntax): boolean {
 }
 
 /** Core truncates a numeric predicate before comparing it with the one-based
- * row counter. Keep this to one bare nonnegative integer or nonintegral decimal
- * with an in-range ordinal on a declared lookup fixture. */
+ * row counter. Keep this to one bare nonnegative number with an in-range
+ * ordinal on a declared lookup fixture. */
 function lookupPredicateText(
 	nodeset: string,
 	predicate: FormSyntax,
@@ -256,9 +256,7 @@ function lookupPredicateText(
 	const text = nodeset.slice(predicate.from, predicate.to);
 	if (!declared || predicate.kind !== "number") return text;
 	const ordinal = Math.trunc(predicate.value);
-	return ordinal >= 0 &&
-		ordinal <= 2_147_483_647 &&
-		(!text.includes(".") || ordinal !== predicate.value)
+	return ordinal >= 0 && ordinal <= 2_147_483_647
 		? `position() = ${ordinal}`
 		: text;
 }
