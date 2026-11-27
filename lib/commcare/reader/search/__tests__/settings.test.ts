@@ -406,7 +406,7 @@ describe("a search's settings", () => {
 		// hold: the search's refusal is the one cause, and the clause Nova's print would write for
 		// a held exclusion is no difference of the list's.
 		const outside =
-			"if(instance('commcaresession')/session/context/deviceid < 'm', 'a', 'b')";
+			"if(instance('commcaresession')/session/context/deviceid < instance('commcaresession')/session/context/userid, 'a', 'b')";
 		const reading = await readLists(
 			doc({ excludedOwnerIds: term(literal("abc")) }),
 			{
