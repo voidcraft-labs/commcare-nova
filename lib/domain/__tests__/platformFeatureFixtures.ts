@@ -1474,6 +1474,56 @@ export const PLATFORM_FEATURE_FIXTURES = {
 		without: () => caseApp(),
 		use: slotUse("details-tile", MODULE_OWNER, "caseListConfig.detailTile"),
 	},
+	"search-result-detail-text": {
+		with: () => {
+			const input = simpleSearchInputDef(
+				testUuid("result-text"),
+				"result_text",
+				"Search text",
+				"text",
+				"case_name",
+			);
+			return caseApp({
+				columns: [
+					{
+						...calculatedColumn(
+							testUuid("platform-result-detail"),
+							"Submitted answer",
+							term(literal("")),
+							{ notOnList: true, visibleInList: false },
+						),
+						searchResultDetail: {
+							inputUuid: input.uuid,
+							prefix: "",
+							suffix: "",
+						},
+					},
+				],
+				searchInputs: [input],
+			});
+		},
+		without: () =>
+			caseApp({
+				searchInputs: [
+					simpleSearchInputDef(
+						testUuid("result-text"),
+						"result_text",
+						"Search text",
+						"text",
+						"case_name",
+					),
+				],
+			}),
+		use: slotUse(
+			"search-result-detail-text",
+			{
+				kind: "column",
+				moduleUuid: FIXTURE_MODULE,
+				columnUuid: testUuid("platform-result-detail"),
+			},
+			"caseListConfig.columns[1].searchResultDetail",
+		),
+	},
 	"raw-custom-tile-field": {
 		with: () => caseApp({ list: tiled({ androidOnly: true }) }),
 		without: () => caseApp({ list: tiled({}) }),

@@ -382,7 +382,7 @@ const linkColumnInputArm = linkColumnArm.omit(columnToolOwnedSlots).extend({
 	),
 });
 const calculatedColumnInputArm = calculatedColumnArm
-	.omit({ ...columnToolOwnedSlots, searchResultDetail: true })
+	.omit(columnToolOwnedSlots)
 	.extend({
 		...columnInputSlots,
 		sort: columnSortInput(
@@ -390,6 +390,10 @@ const calculatedColumnInputArm = calculatedColumnArm
 		),
 		texts: calculatedColumnArm.shape.texts.describe(
 			"Reusable wording in the calculated field. Give each piece its own UUID and source-language label, then read it using case-text('UUID') in the calculation. Keep each UUID when editing its wording. Translated calculations display and sort in the worker’s language.",
+		),
+
+		searchResultDetail: calculatedColumnArm.shape.searchResultDetail.describe(
+			"Show one submitted text prompt on a standalone Search result's Details. Available for Web Apps when Search opens before Results. Set notOnList to true and use a literal text expression for the ordinary case. Use that menu's offered text input UUID. Prefix and suffix may be empty; an unanswered prompt contributes empty text.",
 		),
 		expression: valueExpressionInputSchema,
 	});

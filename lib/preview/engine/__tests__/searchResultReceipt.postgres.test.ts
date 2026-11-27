@@ -372,6 +372,7 @@ it("uses the originating offered Search page when restoring a standalone case De
 		),
 		searchResultDetail: { inputUuid, prefix: "entered=[", suffix: "]" },
 	};
+	const ordinaryList = caseListConfig([{ field: "case_name", header: "Name" }]);
 	const fixture = buildDoc({
 		appId,
 		caseTypes: [{ name: "patient", properties: [] }],
@@ -382,9 +383,9 @@ it("uses the originating offered Search page when restoring a standalone case De
 				caseListMenuItem: {},
 				caseSearchConfig: {},
 				caseListConfig: {
-					columns: [column],
-					listColumnOrder: [columnUuid],
-					detailColumnOrder: [columnUuid],
+					columns: [...ordinaryList.columns, column],
+					listColumnOrder: [...ordinaryList.listColumnOrder, columnUuid],
+					detailColumnOrder: [columnUuid, ...ordinaryList.detailColumnOrder],
 					searchInputs: [
 						simpleSearchInputDef(
 							inputUuid,

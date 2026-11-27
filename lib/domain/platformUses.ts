@@ -796,6 +796,18 @@ function moduleUses(
 		const target = columnOwner(column.uuid);
 		const uses: PlatformFeatureUse[] = [...byOwner(target)];
 		const slot = (path: string) => `caseListConfig.columns[${index}].${path}`;
+		if (
+			column.kind === "calculated" &&
+			column.searchResultDetail &&
+			wanted("search-result-detail-text")
+		)
+			uses.push(
+				slotUse(
+					"search-result-detail-text",
+					target,
+					slot("searchResultDetail"),
+				),
+			);
 		if (column.kind === "worker-distance" && wanted("worker-distance"))
 			uses.push(slotUse("worker-distance", target, slot("kind")));
 		if (column.sort?.comparator === "distance" && wanted("sort-by-distance")) {
