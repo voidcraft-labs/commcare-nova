@@ -81,7 +81,7 @@
 	},
 	"expressions-and-data/is-global-false-row-owners-user-group-location": {
 		"reason": "not-in-app-source",
-		"note": "Ownership lives in HQ's fixture tables. proof/hq/test_lookup_upload.py uses HQ’s workbook importer over direct user, group and primary-location-ancestor assignments. proof/hq/test_assigned_lookup_runtime.py checks worker choices after an owner-only edit and distinguishes a missing fixture, an empty assigned fixture and a filter with no matches."
+		"note": "Ownership lives in HQ's fixture tables. proof/hq/test_lookup_upload.py uses HQ’s workbook importer over direct user, group and primary-location-ancestor assignments. proof/hq/test_assigned_lookup_runtime.py checks worker choices after an owner-only edit and distinguishes a missing fixture, an empty assigned fixture and a filter with no matches. The retained hq-assigned-lookups base includes a Nova wording edit and exact worker choices for proofs 1 to 6. proof/webapps/test_assigned_lookup.py checks signed workers after reassignment on both installed platforms."
 	},
 	"expressions-and-data/is-synced-last-modified": {
 		"reason": "not-in-app-source",
