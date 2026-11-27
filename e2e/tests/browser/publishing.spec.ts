@@ -149,7 +149,16 @@ function report(
 			: "This project space supports everything this app uses.",
 	};
 }
-async function open(page: Page, query = "", review = true) {
+async function open(
+	page: Page,
+	query = "",
+	review = true,
+	downloadTargets: DownloadTargetsView = {
+		targets: [{ server: "india", domain: "alpha", unavailable: null }],
+		heldFromHq: [],
+		webAppsOnly: false,
+	},
+) {
 	await page.route("**/api/apps/native-publishing/stream?*", (route) =>
 		route.fulfill({
 			status: 200,
@@ -175,11 +184,7 @@ async function open(page: Page, query = "", review = true) {
 		route.fulfill({
 			json: {
 				success: true,
-				data: {
-					targets: [{ server: "india", domain: "alpha", unavailable: null }],
-					heldFromHq: [],
-					webAppsOnly: false,
-				},
+				data: downloadTargets,
 			},
 		}),
 	);
@@ -3604,29 +3609,44 @@ test("offers named Android downloads only for eligible apps and targets, keeping
 	page,
 }) => {
 	const picker = page.getByRole("combobox", { name: "Installation profile" });
-	await open(page, "installations=true&webOnly=true", false);
-	await expect(picker).toHaveCount(0);
+	await open(page, "installations=true&webOnly=true", false, {
+		targets: [],
+		heldFromHq: [],
+		webAppsOnly: true,
+	});
 	await choose(page, "Publish option", "CommCare mobile app file", false);
+	await expect(page.getByText(WEB_APPS_ONLY_HAS_NO_CCZ)).toBeVisible();
 	await expect(picker).toHaveCount(0);
-	await open(page, "installations=true", false);
-	await page.route("**/publishing/download-targets", (route) =>
-		route.fulfill({
-			json: {
-				success: true,
-				data: { targets: [], heldFromHq: [], webAppsOnly: false },
-			},
-		}),
-	);
-	await page.keyboard.press("Escape");
-	await page.getByRole("button", { name: "Open publish", exact: true }).click();
+	await open(page, "installations=true", false, {
+		targets: [],
+		heldFromHq: [],
+		webAppsOnly: false,
+	});
 	await choose(page, "Publish option", "CommCare mobile app file", false);
 	await expect(
 		page.getByText(/Once the app is published, you can download the CCZ/),
 	).toBeVisible();
 	await expect(picker).toHaveCount(0);
-	await open(page, "installations=true", false);
+	await open(page, "installations=true", false, {
+		targets: [
+			{ server: "production", domain: "alpha", unavailable: null },
+			{ server: "india", domain: "alpha", unavailable: null },
+		],
+		heldFromHq: [],
+		webAppsOnly: false,
+	});
 	await expect(picker).toHaveCount(0);
 	await choose(page, "Publish option", "CommCare mobile app file", false);
+	const india = page.getByRole("radio", {
+		name: "alpha on India",
+		exact: true,
+	});
+	await expect(india).not.toBeChecked();
+	await expect(
+		page.getByRole("button", { name: "Continue", exact: true }),
+	).toBeDisabled();
+	await expect(picker).toHaveCount(0);
+	await india.click();
 	await expect(picker).toBeVisible();
 	await picker.click();
 	await expect(
@@ -3649,12 +3669,10 @@ test("offers named Android downloads only for eligible apps and targets, keeping
 			{ exact: true },
 		),
 	).toBeVisible();
-	const reached = Promise.withResolvers<string>(),
+	const reached = Promise.withResolvers<URLSearchParams>(),
 		finish = Promise.withResolvers<void>();
 	await page.route("**/publishing/download/ccz?*", async (route) => {
-		reached.resolve(
-			new URL(route.request().url()).searchParams.get("profile") ?? "",
-		);
+		reached.resolve(new URL(route.request().url()).searchParams);
 		await finish.promise;
 		await route.fulfill({ json: { ok: true } });
 	});
@@ -3662,7 +3680,11 @@ test("offers named Android downloads only for eligible apps and targets, keeping
 		await page
 			.getByRole("button", { name: "Download CCZ", exact: true })
 			.click();
-		expect(await reached.promise).toBe("0199a000-0000-7000-8000-00000000a000");
+		expect(Object.fromEntries(await reached.promise)).toEqual({
+			server: "india",
+			domain: "alpha",
+			profile: "0199a000-0000-7000-8000-00000000a000",
+		});
 		await expect(picker).toHaveCount(0);
 		await expect(
 			page.getByRole("button", { name: "Back", exact: true }),

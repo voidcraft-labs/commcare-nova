@@ -51,7 +51,10 @@ const LEVEL: OrganizationLevel = {
 	},
 	addressBook: { reach: "own-branch" },
 };
-const fixture = endpointWireFixture("multiple");
+const withInstallations = params.has("installations");
+// Several-case entry is Web Apps only. Use single-case entry for downloads
+// that also exercise an Android-capable app.
+const fixture = endpointWireFixture(withInstallations ? "single" : "multiple");
 const baseDoc =
 	params.get("persona") === "true"
 		? {
@@ -69,7 +72,7 @@ const doc = {
 	appSettings: {
 		...baseDoc.appSettings,
 		...(params.has("webOnly") && { runsOnlyOn: "web-apps" as const }),
-		...(params.has("installations") && {
+		...(withInstallations && {
 			installationProfiles: Object.fromEntries(
 				["", "Team", "Team"].map((name, i) => {
 					const uuid = asUuid(`0199a000-0000-7000-8000-00000000a00${i}`);
