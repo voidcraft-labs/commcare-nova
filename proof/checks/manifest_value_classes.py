@@ -33,7 +33,7 @@ import html
 import re
 import posixpath
 import unicodedata
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from functools import cache, cached_property
 from pathlib import Path
 
@@ -1460,6 +1460,40 @@ def unreproducible_android_question(use, manifest):
                 if any(target.startswith(row + "/") and not here.startswith(row + "/") for row in form.repeat_paths):
                     return True
     return False
+
+
+def held_android_app_payload(use, manifest):
+    """The emitted intent definition and bind of a real, reachable callout question."""
+    if use.key != "jr-type:intent" and not use.key.startswith("xform:intent"):
+        return True  # The previously inventoried control, editor feature and parser keys.
+    form, element = _form_element(use)
+    if form is None:
+        return None
+    if use.key == "jr-type:intent":
+        controls = [control for control in form.question_controls(element.get("nodeset"))
+                    if control.tag == f"{{{XFORMS}}}input" and form.control_bind(control) is element]
+        if len(controls) != 1:
+            return False
+        control, = controls
+        appearance = control.get("appearance") or ""
+        intent = form.intents.get(appearance.removeprefix("intent:")) if appearance.startswith("intent:") else None
+    else:
+        intent = element if element.tag == f"{{{OPENDATAKIT}}}intent" else element.getparent()
+        if intent is None or intent.tag != f"{{{OPENDATAKIT}}}intent":
+            return False
+        control = None
+    if intent is None or intent.getparent() is not form.head or form.intents.get(intent.get("id")) is not intent:
+        return False
+    if set(intent.attrib) != {"id", "class"} or intent.get("class") == PRINT_ACTION:
+        return False
+    appearance = f"intent:{intent.get('id')}"
+    invoking = [candidate for controls in form.controls.values() for candidate in controls
+                if candidate.tag == f"{{{XFORMS}}}input" and candidate.get("appearance") == appearance]
+    owners = [candidate for candidate in invoking if (bind := form.control_bind(candidate)) is not None
+              and _vellum_type(bind.get("type") or "") == "intent"]
+    return (len(owners) == 1 and (control is None or owners[0] is control)
+            and all(not unreproducible_android_question(replace(use, at=XmlAt(form, candidate)), manifest)
+                    for candidate in invoking))
 
 
 def print_callout(use, manifest):
@@ -13952,4 +13986,5 @@ VALUE_CLASSES = {
 # It grants HELD only when that observation establishes the supported class.
 POSITIVE_VALUE_CLASSES = {
     "expressions-and-data/companion-lookup-count": guarded_lookup_count_in_one_frame,
+    "questions/android-app-callout-input-appearance-intent-id-bind-type-intent": held_android_app_payload,
 }
