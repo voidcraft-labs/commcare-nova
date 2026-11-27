@@ -526,6 +526,59 @@ describe("readCases", () => {
 		expect(ids).toEqual([ALICE_CASE_ID, BOB_CASE_ID].sort());
 	});
 
+	it("returns only the exact overflow count for an automatic datum in the worker's restore", async () => {
+		const store = makeStore(PROJECT_A, OWNER_A);
+		const otherWorker = makeStore(PROJECT_A, OWNER_A, OWNER_B);
+		const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
+		await seedSchema(store, blueprint, "patient");
+		const insert = async (worker: CaseStore, id: string, day: number) => {
+			await worker.insert({
+				appId: APP_ID,
+				row: {
+					case_id: id,
+					case_type: "patient",
+					case_name: id,
+					opened_on: new Date(Date.UTC(2026, 0, day)),
+					status: "open",
+					properties: {},
+				},
+			});
+		};
+		await insert(store, ALICE_CASE_ID, 2);
+		await insert(store, BOB_CASE_ID, 1);
+		await insert(otherWorker, "outside-worker-restore", 3);
+
+		const read = {
+			tileGrouping: "flat" as const,
+			reading: CASEDB_READING,
+			appId: APP_ID,
+			caseType: "patient",
+			restoreScope: { ownerIds: [OWNER_A] },
+			datumOrder: true as const,
+		};
+		expect(await readCases(store, { ...read, automaticMaximum: 1 })).toEqual({
+			kind: "rows",
+			constraintSource: "unconstrained",
+			rows: [],
+			totalCount: 2,
+		});
+
+		const selected = await readCases(store, { ...read, automaticMaximum: 2 });
+		if (selected.kind !== "rows") throw new Error("Expected selected rows.");
+		expect(selected.totalCount).toBe(2);
+		expect(selected.rows.map(({ case_id }) => case_id)).toEqual([
+			BOB_CASE_ID,
+			ALICE_CASE_ID,
+		]);
+		expect(
+			await readCases(store, {
+				...read,
+				restoreScope: { ownerIds: ["worker-with-no-cases"] },
+				automaticMaximum: 2,
+			}),
+		).toMatchObject({ kind: "empty" });
+	});
+
 	it("constrains a child case list to the complete selected-parent set", async () => {
 		const store = makeStore(PROJECT_A, OWNER_A);
 		const relationship = "child" as const;
@@ -2417,6 +2470,8 @@ describe("readCaseData", () => {
 			readSubmittedCaseDatabasePatch: (a) =>
 				store.readSubmittedCaseDatabasePatch(a),
 			queryGrouped: (a) => store.queryGrouped(a),
+			queryAutomaticSelection: (...args) =>
+				store.queryAutomaticSelection(...args),
 			count: (a) => store.count(a),
 			insert: (a) => store.insert(a),
 			applySubmission: (a) => store.applySubmission(a),

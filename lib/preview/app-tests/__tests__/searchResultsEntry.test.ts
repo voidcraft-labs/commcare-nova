@@ -60,6 +60,9 @@ function journey() {
 			return population.map((row) => ({ ...row }));
 		},
 		count: async () => population.length,
+		queryAutomaticSelection: async () => {
+			throw new Error("Unexpected automatic selection.");
+		},
 		queryGrouped: async () => {
 			throw new Error("The search read is not grouped.");
 		},

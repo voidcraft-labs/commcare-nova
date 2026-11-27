@@ -1230,6 +1230,13 @@ export interface CaseStore extends SchemaCaseStore {
 	 */
 	query(args: QueryArgs): Promise<CaseRowWithCalculated[]>;
 
+	/** An automatic device selection returns its complete set in datum order,
+	 * or only its exact population count when that set exceeds the maximum. */
+	queryAutomaticSelection(
+		args: QueryArgs,
+		maximum: number,
+	): Promise<{ rows: readonly CaseRowWithCalculated[]; totalCount: number }>;
+
 	/**
 	 * DomainExpression- or owner-driven `COUNT(*)`, always scoped to the bound
 	 * Project. The case-type arm returns the row population the

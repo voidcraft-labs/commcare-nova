@@ -138,7 +138,7 @@ export async function appTestRecords(
 							...read,
 							...(automaticMaximum === undefined
 								? { page: { offset: screen.offset ?? 0, limit: 50 } }
-								: { datumOrder: true, cap: automaticMaximum + 1 }),
+								: { datumOrder: true, automaticMaximum }),
 						}),
 					);
 	const candidateUuid = afterEmptySearchRegistrationFormOf(
