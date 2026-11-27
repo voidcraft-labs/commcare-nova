@@ -1,5 +1,8 @@
 """HQ build validation of result-prompt expressions shared with a device case list."""
 
+import os
+from pathlib import Path
+
 from lxml import etree
 
 from proof.native.hq_support import write_evidence
@@ -66,4 +69,7 @@ def test_native_build_rejects_results_input_in_the_shared_non_inline_detail(hq, 
                     "resultsRoster": results.get_instance_name(module),
                     "localErrors": local_errors, "resultsErrors": result_errors, "buildErrors": build_errors,
                 }
-    write_evidence("search-result-detail-shared-column-build", evidence)
+    if out := os.environ.get("PROOF_OUT"):
+        directory = Path(out, "hq")
+        directory.mkdir(parents=True, exist_ok=True)
+        write_evidence(directory, "search-result-detail-shared-column-build", evidence)
