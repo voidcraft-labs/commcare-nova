@@ -95,6 +95,7 @@ import {
 import { readPreviewDeploymentRecordsIn } from "./previewRecords";
 import type { ProjectSearchDestinationEdit } from "./projectSearchDestinationInput";
 import { type FirstPublishState, publishedRemoteApp } from "./resources";
+import { DeploymentSessionEndedError } from "./sessionManagementGrant";
 import {
 	applyAttemptOutcome,
 	applyObservation,
@@ -6799,11 +6800,22 @@ export async function recordProvisionedWorkers(
 			writeKinds: ["worker"],
 		},
 		async (tx, row, access) => {
+			let currentAccess = access;
+			// Admissions still authorize recording what already went to HQ. A
+			// closed session cannot reconcile or receive the deployment view.
+			try {
+				if (access.read) await scope.requireOperation?.(tx);
+			} catch (error) {
+				if (!(error instanceof DeploymentSessionEndedError)) throw error;
+				if (input.writeIds.length === 0) throw error;
+				currentAccess = { read: false, edit: false };
+			}
+
 			const now = new Date();
 			for (const landed of input.landed) {
 				await writeResourceMapping(tx, row.id, landed, now);
 			}
-			if (access.edit)
+			if (currentAccess.edit)
 				await tx
 					.updateTable("app_deployment_resources")
 					.set({ superseded_at: now })
@@ -6817,7 +6829,12 @@ export async function recordProvisionedWorkers(
 					)
 					.execute();
 			await notifyAppDeployments(tx, scope.appId);
-			return answerRecord(tx, row.id, access, input.landed.map(landedResource));
+			return answerRecord(
+				tx,
+				row.id,
+				currentAccess,
+				input.landed.map(landedResource),
+			);
 		},
 	);
 }
