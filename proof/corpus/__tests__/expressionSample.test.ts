@@ -70,6 +70,21 @@ it("lands every typed expression shape in the admitted fixed-seed sample", () =>
 	).toEqual([]);
 });
 
+it("keeps a generated date companion out of its own dependency chain", () => {
+	const docs = fc.sample(expressionDocArbitrary, {
+		seed: 929817662,
+		numRuns: 3,
+	});
+	const doc = docs[2];
+	const parsed = blueprintDocSchema.parse(toPersistableDoc(doc));
+	expect(
+		runValidation(
+			hydratePersistedBlueprint(parsed),
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		),
+	).toEqual([]);
+});
+
 /** Every wire node of a tree, depth first. */
 function wireNodes(wire: WireExpr): WireExpr[] {
 	const found: WireExpr[] = [];

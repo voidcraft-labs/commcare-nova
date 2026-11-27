@@ -35,7 +35,10 @@ import {
 	walkExpressionNodes,
 	walkExpressionTerms,
 } from "@/lib/domain/expression/walk";
-import { expressionSlotValue } from "@/lib/domain/referenceSlots";
+import {
+	expressionSlotValue,
+	expressionSlotValues,
+} from "@/lib/domain/referenceSlots";
 import { suiteDocArbitrary } from "./suiteDocArbitrary";
 import { mappedAsTheCutoverMaps } from "./xformDocArbitrary";
 
@@ -142,10 +145,10 @@ function compare(plan: Plan, left: Expression, right: Expression): Expression {
 			: gt(left, right);
 }
 
-/** Choose a compatible existing slot after every field the value reads.
- * Every generated dependency therefore points backward in the field tree;
- * a later plan cannot close a cycle or make a container depend on its child.
- * Conditions accumulate plans; values keep the destination's scalar type.
+/** Choose a compatible slot after the value's direct and transitive inputs.
+ * Preseeded logic can read a field inserted later, such as a generated date
+ * companion. Follow those dependencies too before adding another edge.
+ * Conditions accumulate plans and values keep the destination's scalar type.
  */
 function attachForm(
 	doc: BlueprintDoc,
@@ -159,14 +162,28 @@ function attachForm(
 	const ordered = Object.values(doc.fields).filter(
 		(field) => formOf(doc, field.uuid) === form,
 	);
-	let lastRead = -1;
-	walkExpressionTerms(value, (leaf) => {
-		if (leaf.kind === "field")
-			lastRead = Math.max(
-				lastRead,
-				ordered.findIndex((field) => field.uuid === leaf.uuid),
-			);
-	});
+	const inputs = new Set<Uuid>();
+	const collectInputs = (expression: Expression) => {
+		walkExpressionTerms(expression, (leaf) => {
+			if (leaf.kind === "field") inputs.add(leaf.uuid);
+		});
+	};
+	collectInputs(value);
+	for (const uuid of inputs)
+		for (const { ref, expression } of expressionSlotValues(doc, {
+			entity: "field",
+			uuid,
+		}))
+			if (
+				ref.entity === "field" &&
+				(ref.slot === "calculate" ||
+					ref.slot === "relevant" ||
+					ref.slot === "default_value" ||
+					ref.slot === "repeat_count" ||
+					ref.slot === "ids_query")
+			)
+				collectInputs(expression);
+	const lastRead = ordered.findLastIndex((field) => inputs.has(field.uuid));
 	const fields = ordered.filter(
 		(field, index) =>
 			index > lastRead &&
