@@ -409,6 +409,7 @@
 			"case-search/prompt-key-matching-a-direct-parent-date",
 			"case-search/address-picker-on-a-search-screen",
 			"case-search/appearance-address-geocoder-broadcast-emitted-input-address",
+			"case-search/address-picker-with-a-saved-text-default",
 			"case-search/input-checkbox-itemset",
 			"case-search/input-date",
 			"case-search/default-value-lifting-into-valueexpression",
