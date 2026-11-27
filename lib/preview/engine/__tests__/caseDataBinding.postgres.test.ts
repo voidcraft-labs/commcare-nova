@@ -573,7 +573,7 @@ describe("readCases", () => {
 		expect(
 			await readCases(store, {
 				...read,
-				restoreScope: { ownerIds: [] },
+				restoreScope: { ownerIds: ["worker-with-no-cases"] },
 				automaticMaximum: 2,
 			}),
 		).toMatchObject({ kind: "empty" });
