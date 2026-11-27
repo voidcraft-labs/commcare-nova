@@ -189,12 +189,16 @@ test("distinguishes legacy refinements from unknown stored formats in the read-o
 	await seed(db, {
 		one: { type: "string", enum: ["open", "closed"] },
 		many: { type: "array", items: { type: "string", enum: ["a", "b"] } },
+		prior_date: { type: "string", format: "date" },
 		foreign: { type: "string", format: "email" },
+		foreign_union: { type: "string", anyOf: [{ const: "unknown" }] },
 	});
 	const current = caseType({
 		one: "single_select",
 		many: "multi_select",
+		prior_date: "date",
 		foreign: "text",
+		foreign_union: "date",
 	});
 	const drift = await computeSchemaDrift(
 		db,
@@ -220,11 +224,20 @@ test("distinguishes legacy refinements from unknown stored formats in the read-o
 						'{"items":{"enum":["a","b"],"type":"string"},"type":"array"}',
 					toSpec: '{"items":{"type":"string"},"type":"array"}',
 				},
+				{
+					property: "prior_date",
+					fromSpec: '{"format":"date","type":"string"}',
+					toSpec: '{"anyOf":[{"format":"date"},{"const":""}],"type":"string"}',
+				},
 			],
 			unresolvable: [
 				{
 					property: "foreign",
 					storedSpec: '{"format":"email","type":"string"}',
+				},
+				{
+					property: "foreign_union",
+					storedSpec: '{"anyOf":[{"const":"unknown"}],"type":"string"}',
 				},
 			],
 		},
