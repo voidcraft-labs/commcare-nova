@@ -287,11 +287,11 @@ export function readsSearchRequiredCaseQuery(expression: Expression): boolean {
 	return reads;
 }
 
-/** Every candidate in an ordinary list witnesses its own type being present. */
-export function sameTypeRestoredPresence(
+/** The two bounded whole-list checks use only the restored candidates’ type. */
+export function sameTypeRestoredThreshold(
 	expression: Expression,
 	caseType: string | undefined,
-): boolean {
+): 0 | 1 | undefined {
 	if (
 		caseType === undefined ||
 		expression.kind !== "gt" ||
@@ -299,15 +299,14 @@ export function sameTypeRestoredPresence(
 		expression.left.where !== undefined ||
 		isRelationPath(expression.left.via) ||
 		expression.right.kind !== "term" ||
-		expression.right.term.kind !== "literal"
+		expression.right.term.kind !== "literal" ||
+		expression.right.term.data_type !== undefined ||
+		!isRestoredCaseTypeQuery(expression.left.via) ||
+		restoredCaseType(expression.left.via) !== caseType
 	)
-		return false;
-	return (
-		expression.right.term.value === 0 &&
-		expression.right.term.data_type === undefined &&
-		isRestoredCaseTypeQuery(expression.left.via) &&
-		restoredCaseType(expression.left.via) === caseType
-	);
+		return undefined;
+	const threshold = expression.right.term.value;
+	return threshold === 0 || threshold === 1 ? threshold : undefined;
 }
 
 export function readsRestoredCaseTypeQuery(expression: Expression): boolean {

@@ -44,7 +44,7 @@ function candidate(filter: Expression) {
 	return doc;
 }
 describe("case-list filter type admission", () => {
-	it("admits only the current type's presence as a whole ordinary list filter", () => {
+	it("admits bounded current type counts as a whole ordinary list filter", () => {
 		const restoredRows: Extract<Expression, { kind: "cases" }> = {
 			kind: "cases",
 			source: "casedb",
@@ -64,7 +64,8 @@ describe("case-list filter type admission", () => {
 				eq(prop("patient", "nickname"), literal("Alice")),
 			],
 		});
-		expect(findings(candidate(gt(restored, literal(1))))).toMatchObject([
+		expect(findings(candidate(gt(restored, literal(1))))).toEqual([]);
+		expect(findings(candidate(gt(restored, literal(2))))).toMatchObject([
 			{
 				code: "CASE_LIST_FILTER_TYPE_ERROR",
 				details: { checkReason: "device-list-restored-type-presence" },
