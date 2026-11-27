@@ -516,6 +516,18 @@ export function caseWriteLabelSavesEmpty(
 		: banner === "good" || banner === "caution" || banner === "bad";
 }
 
+/** The earlier record in a two-choice entry can supply one passive label. */
+function earlierManualLabelSource(f: CaseSlotFacts, selection: Uuid): boolean {
+	const choices = formCaseSelections(f.doc, f.formUuid);
+	return (
+		choices.length === 2 &&
+		ownFormSelectionIndex(f.doc, f.formUuid) === 1 &&
+		choices[0].uuid === selection &&
+		choices[0].source.kind === "choose" &&
+		choices[1].source.kind === "choose"
+	);
+}
+
 function readsOwnRootLabel(
 	f: CaseSlotFacts,
 	write: CaseOperationWrite,
@@ -538,7 +550,6 @@ function readsOwnRootLabel(
 			({ field: target }) => target === source.field,
 		) ?? [];
 	const first = starting[0];
-	const choices = formCaseSelections(f.doc, f.formUuid);
 	const loadedFromSelectedRecord =
 		passive &&
 		f.form.type === "followup" &&
@@ -548,11 +559,7 @@ function readsOwnRootLabel(
 		isAdvancedOwnLabelProperty(first.property) &&
 		(first.source.kind === "own" ||
 			(first.source.kind === "selection" &&
-				choices.length === 2 &&
-				ownFormSelectionIndex(f.doc, f.formUuid) === 1 &&
-				choices[0].uuid === first.source.selection &&
-				choices[0].source.kind === "choose" &&
-				choices[1].source.kind === "choose"));
+				earlierManualLabelSource(f, first.source.selection)));
 	return (
 		field?.kind === "label" &&
 		(passive ||
