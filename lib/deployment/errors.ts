@@ -54,6 +54,13 @@ export class DeploymentError extends Error {
 	}
 }
 
+/** The request's credential no longer authorizes any new deployment work. */
+export class DeploymentCredentialInactiveError extends DeploymentError {
+	constructor(message: string, options?: { cause?: unknown }) {
+		super("not_permitted", message, options);
+	}
+}
+
 /**
  * A store write found the deployment ended since its publish first read it.
  * Never shown to a person: `publishAppToHq` and `service.ts::refreshKeptValues`

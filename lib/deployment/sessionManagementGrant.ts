@@ -2,14 +2,11 @@ import "server-only";
 import type { Transaction } from "kysely";
 import { lockCurrentProjectGrant } from "@/lib/auth/dataGrant";
 import { type AppDatabase, withAppTx } from "@/lib/db/pg";
-import { DeploymentError } from "./errors";
+import { DeploymentCredentialInactiveError } from "./errors";
 
-export class DeploymentSessionEndedError extends DeploymentError {
+export class DeploymentSessionEndedError extends DeploymentCredentialInactiveError {
 	constructor() {
-		super(
-			"not_permitted",
-			"Your sign-in has ended. Sign in again to continue.",
-		);
+		super("Your sign-in has ended. Sign in again to continue.");
 	}
 }
 
