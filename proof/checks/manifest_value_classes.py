@@ -14025,6 +14025,23 @@ def _flat_close_has_only_its_selected_case_block(xform):
     return not any(bind.get("relevant") for nodes in xform.binds.values() for bind in nodes)
 
 
+def _required_by_plain_answer(required, nodeset, plain_answers):
+    if nodeset not in plain_answers:
+        return False
+    if required == "true()":
+        return True
+    tree = expression_tree(required)
+    if not tree or tree[:2] != ["binary", "="]:
+        return False
+    _, _, left, right = tree
+    return (
+        left[:2] == ["path", "absolute"]
+        and left[2] in plain_answers - {nodeset}
+        and left == expression_tree(left[2])
+        and right[:1] == ["text"]
+    )
+
+
 def _bounded_flat_form(use, *, followup):
     """One ordinary unconditional own-case close supplies a manually or automatically chosen 101-case datum."""
     value = _basic_multi_select_maximum(use)
@@ -14073,8 +14090,7 @@ def _bounded_flat_form(use, *, followup):
                 return False
             bind = xform.bind(ref)
             if (bind is None or bind.get("type") not in ("xsd:string", "string")
-                    or any(bind.get(name) for name in ("calculate", "relevant", "constraint"))
-                    or bind.get("required") not in (None, "", "true()")):
+                    or any(bind.get(name) for name in ("calculate", "relevant", "constraint"))):
                 return False
             plain_answers.add(ref)
         generated = None
@@ -14089,7 +14105,7 @@ def _bounded_flat_form(use, *, followup):
             if bind.get("relevant") or bind.get("constraint"):
                 return False
             required = bind.get("required")
-            if required and (nodeset not in plain_answers or required != "true()"):
+            if required and not _required_by_plain_answer(required, nodeset, plain_answers):
                 return False
             calculate = bind.get("calculate")
             if calculate and _literal(app, calculate) is not True:

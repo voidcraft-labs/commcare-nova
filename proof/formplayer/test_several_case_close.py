@@ -288,7 +288,7 @@ def test_basic_automatic_multi_selection_uses_the_whole_datum_and_refuses_overfl
 
 
 
-@pytest.mark.parametrize("kind", ["close", "followup", "answer", "answers", "required"])
+@pytest.mark.parametrize("kind", ["close", "followup", "answer", "answers", "required", "required-match"])
 def test_the_authored_bounded_case_list_selects_101_and_refuses_the_102nd(
     hq, formplayer_runner, formplayer_documents, evidence, kind,
 ):
@@ -304,6 +304,7 @@ def test_the_authored_bounded_case_list_selects_101_and_refuses_the_102nd(
     from proof.observe import casedata, publish
 
     followup = kind != "close"
+    conditional = kind == "required-match"
     witness = json.loads((Path(__file__).parent / "fixtures" / "bounded-flat-close-case-list.json").read_text())
     doc = formplayer_documents["hq-bounded-flat-close"]
     database = casedata.document_case_database(doc)
@@ -322,9 +323,13 @@ def test_the_authored_bounded_case_list_selects_101_and_refuses_the_102nd(
                     "answer": "limit_101_with_visible_question",
                     "answers": "limit_101_with_two_visible_questions",
                     "required": "limit_101_with_required_text",
+                    "required-match": "limit_101_with_conditionally_required_text",
                 }[kind]
                 registry.named_change(change)(author, app_id)
-        for batch, count in (("at-maximum", witness["selectedCount"]), ("overflow", witness["overflowCount"])):
+        batches = [("at-maximum", witness["selectedCount"]), ("overflow", witness["overflowCount"])]
+        if conditional:
+            batches.insert(1, ("guard-false", witness["selectedCount"]))
+        for batch, count in batches:
             overflow = batch == "overflow"
             supplied = replace(database, cases=cases[:count])
             with serve(unit, doc, app_id, runner=formplayer_runner, database=supplied, label=batch) as served:
@@ -349,11 +354,17 @@ def test_the_authored_bounded_case_list_selects_101_and_refuses_the_102nd(
                             ids = {case.case_id for case in supplied.cases}
                             before = _held(served.domain, sorted(ids)) if followup else None
                             answers = {}
-                            if kind in ("answer", "answers", "required"):
+                            outcome = "Reviewed"
+                            recommendation_answer = "Call again"
+                            if conditional:
+                                outcome = "complete" if batch == "guard-false" else "followup"
+                                if batch == "guard-false":
+                                    recommendation_answer = ""
+                            if kind in ("answer", "answers", "required") or conditional:
                                 questions = [node for node in page["tree"] if node.get("type") == "question"]
-                                expected = ["Reviewed", "Call again"] if kind != "answer" else ["Reviewed"]
+                                expected = [outcome] if kind == "answer" else [outcome, recommendation_answer]
                                 answers = {question["ix"]: value for question, value in zip(questions, expected, strict=True)}
-                                if kind == "required":
+                                if kind == "required" or (conditional and batch != "guard-false"):
                                     recommendation = questions[1]["ix"]
                                     refused = web.submit(page["session_id"], {**answers, recommendation: ""})
                                     assert refused["status"] == "validation-error", refused
@@ -364,9 +375,9 @@ def test_the_authored_bounded_case_list_selects_101_and_refuses_the_102nd(
                             if followup:
                                 payload = etree.fromstring(submission.instance, PARSER)
                                 assert not list(payload.iter(CASE))
-                                assert payload.findtext("{*}outcome") == ("Reviewed" if answers else "done")
-                                if kind in ("answers", "required"):
-                                    assert payload.findtext("{*}recommendation") == "Call again"
+                                assert payload.findtext("{*}outcome") == (outcome if answers else "done")
+                                if kind in ("answers", "required") or conditional:
+                                    assert (payload.findtext("{*}recommendation") or "") == recommendation_answer
                                 assert _held(served.domain, sorted(ids)) == before
                                 observations[batch] = {"caseTransactions": 0, "offered": count}
                             else:

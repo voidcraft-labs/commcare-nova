@@ -1172,7 +1172,9 @@ export async function createSmokeBuilders(
 														f({
 															kind: "text",
 															id: "recommendation",
-															required: "true()",
+															required: autoSelect
+																? "true()"
+																: "#form/outcome = 'Reviewed'",
 															label: "Recommendation",
 														}),
 													],
