@@ -16,6 +16,7 @@ import {
 	formCaseSelections,
 	ownFormSelectionIndex,
 } from "@/lib/domain/advancedEntryDatums";
+import { boundedFlatCloseForm } from "@/lib/domain/boundedFlatClose";
 import { formStructure } from "@/lib/domain/expression/formStructure";
 import {
 	entrySelectionSettings,
@@ -29,7 +30,6 @@ import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import { parentCaseConstraint } from "../caseSelectionNavigation";
 import { previewPlatformRules } from "../platform";
 import { workerListDocument } from "../workerModule";
-import { boundedFlatCloseForm } from "./boundedFlatClose";
 import { loadCasesAction } from "./caseDataBinding";
 import { readCaseDatabaseSnapshot } from "./caseDataBindingHelpers";
 import type { ParentCaseSelection } from "./caseDataBindingTypes";

@@ -27,6 +27,10 @@ import {
 	resolveFormLinkTarget,
 	type Uuid,
 } from "@/lib/domain";
+import {
+	authoredBoundedFlatClose,
+	STANDARD_CASE_SELECTION_MAXIMUM,
+} from "@/lib/domain/boundedFlatClose";
 import { activeRowScope, slotContext } from "@/lib/domain/expression/context";
 import { expressionContextAtPath } from "@/lib/domain/expression/typeChecker";
 import {
@@ -90,6 +94,20 @@ export function multiSelectTopology(
 		);
 	}
 	if (!isMultiple(module)) return errors;
+	if (
+		caseSelectionMaximum(module) > STANDARD_CASE_SELECTION_MAXIMUM &&
+		!authoredBoundedFlatClose(doc, moduleUuid, doc.formOrder[moduleUuid]?.[0])
+	) {
+		errors.push(
+			validationError(
+				"MULTI_SELECT_LARGE_BATCH_REQUIRES_FLAT_CLOSE",
+				"module",
+				"Choosing more than 100 cases is available for a single Web Apps list that only closes the selected records. Use a limit of 100 for this list.",
+				{ moduleUuid, moduleName: module.name },
+			),
+		);
+	}
+
 	if (module.caseListConfig?.tile?.persistOnForms === true) {
 		errors.push(
 			validationError(

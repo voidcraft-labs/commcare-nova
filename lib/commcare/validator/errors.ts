@@ -146,6 +146,7 @@ export type ValidationErrorCode =
 	| "CASE_LIST_CLOSED_ON_NOT_ON_DEVICE"
 	| "MULTI_SELECT_PERSISTENT_TILE"
 	| "MULTI_SELECT_NO_BATCH_CONSUMER"
+	| "MULTI_SELECT_LARGE_BATCH_REQUIRES_FLAT_CLOSE"
 	| "MULTI_SELECT_SEARCH_ON_CLEAR"
 	// Case-tile layout rules. Geometry rules run on every stored cell,
 	// tile layout on or off, so switching the layout back on can never

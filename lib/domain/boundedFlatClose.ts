@@ -1,8 +1,12 @@
-import { menuEmittedAdvanced } from "@/lib/domain/advancedEntryDatums";
-import type { BlueprintDoc } from "@/lib/domain/blueprint";
-import { effectivePostSubmit } from "@/lib/domain/postSubmit";
-import { expressionSlotValues } from "@/lib/domain/referenceSlots";
-import type { Uuid } from "@/lib/domain/uuid";
+import { menuEmittedAdvanced } from "./advancedEntryDatums";
+import type { BlueprintDoc } from "./blueprint";
+import { effectivePostSubmit } from "./postSubmit";
+import { expressionSlotValues } from "./referenceSlots";
+import type { Uuid } from "./uuid";
+
+/** The authoring allowance is separate from the case store's runtime budgets. */
+export const STANDARD_CASE_SELECTION_MAXIMUM = 100;
+export const BOUNDED_FLAT_CLOSE_MAXIMUM = 101;
 
 /** The bounded opening cannot serve an expression or operation that needs
  * records beyond the selection. Keep the initial profile intentionally flat. */
@@ -70,4 +74,16 @@ export function boundedFlatCloseForm(
 	)
 		return undefined;
 	return { caseType: menu.caseType, selection };
+}
+
+/** Only the higher authored limit routes through the bounded worker path. */
+export function authoredBoundedFlatClose(
+	doc: BlueprintDoc,
+	module: Uuid,
+	form: Uuid | undefined,
+) {
+	const profile = form && boundedFlatCloseForm(doc, module, form);
+	return profile?.selection.maximum === BOUNDED_FLAT_CLOSE_MAXIMUM
+		? profile
+		: undefined;
 }

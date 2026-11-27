@@ -77,6 +77,7 @@ import {
 	userPropertySlugsByUuid,
 } from "@/lib/domain";
 import { blueprintDocSchema } from "@/lib/domain/blueprint";
+import { boundedFlatCloseForm } from "@/lib/domain/boundedFlatClose";
 import { resolveCaseFormContext } from "@/lib/domain/caseFormContext";
 import { isAdvancedCaseIndexIdentifier } from "@/lib/domain/caseOperationIdentifiers";
 import type { Expression } from "@/lib/domain/expression";
@@ -95,7 +96,6 @@ import {
 	caseListSortChoiceSchema,
 } from "../caseListSortMenu";
 import { previewPlatformRules } from "../platform";
-import { boundedFlatCloseForm } from "./boundedFlatClose";
 import { validateCaptureSubmissionProjection } from "./captureSubmissionValidation";
 import {
 	mapFilterPreviewError,
