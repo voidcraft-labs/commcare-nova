@@ -184,7 +184,9 @@ it("authors one index fallback as an order filter and refuses a second without a
 	expect(
 		(await call(testUuid("second-search-fallback-filter"))).result,
 	).toMatchObject({
-		error: expect.stringContaining("Keep one index fallback"),
+		error: expect.stringContaining(
+			"Keep index fallbacks together in one order",
+		),
 	});
 	expect(h.currentDoc().modules[MOD_A].caseListConfig?.searchFilters).toEqual([
 		{ uuid, kind: "order", order: [reset] },

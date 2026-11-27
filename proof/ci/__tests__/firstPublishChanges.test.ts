@@ -124,6 +124,12 @@ describe("proof/first-publish-changes.json", () => {
 						path: "/translations/*/replaced_dormant_search_group_heading",
 						kind,
 					})),
+					{
+						check: "source",
+						artifact: "app.json",
+						path: "/translations/*/removed_dormant_search_group_heading",
+						kind: "removed",
+					},
 				]);
 				continue;
 			}
