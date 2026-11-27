@@ -250,8 +250,8 @@ function ConnectionNameField({
 			</FieldDescription>
 			{!valid && (
 				<p id={errorId} role="alert" className="text-sm text-nova-rose">
-					Start with a letter or underscore. Use only letters, numbers,
-					underscores, or hyphens.
+					Start with a letter or underscore. Use letters, numbers, underscores,
+					hyphens, or periods.
 				</p>
 			)}
 		</Field>

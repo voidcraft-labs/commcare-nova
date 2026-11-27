@@ -345,7 +345,7 @@ def _edit_tile_group_identifier(project, editor_driver, identifier):
     return dict(parse_qsl(saved.body.decode("utf-8"), keep_blank_values=True))
 
 
-def test_current_editor_saves_a_leading_hyphen_that_core_rejects_in_a_tile_group(
+def test_current_editor_saves_a_tile_group_whose_path_core_may_reject(
     hq, core_runner, editor_driver, webapps_documents, evidence, tmp_path,
 ):
     import json
@@ -360,7 +360,7 @@ def test_current_editor_saves_a_leading_hyphen_that_core_rejects_in_a_tile_group
     observed = {}
     with webapps_hq.project(document, "maximum") as project:
         unit = project.unit
-        for identifier in ("my-parent", "-my-parent"):
+        for identifier in ("my-parent", "my.parent", "-my-parent", "my parent"):
             posted = _edit_tile_group_identifier(project, editor_driver, identifier)
             assert json.loads(posted["case_tile_group"])["index_identifier"] == identifier
             reopened = pages.fresh_section_save(
@@ -379,7 +379,7 @@ def test_current_editor_saves_a_leading_hyphen_that_core_rejects_in_a_tile_group
             assert companions and all(f"]/index/{identifier}))" in fn for fn in companions)
             parsed = core_runner.request("xpathParse", deadline=30, expressions=[function, *companions])["results"]
             admission = admit(core_runner, arrange(built.files, tmp_path / identifier))
-            if identifier == "my-parent":
+            if identifier in {"my-parent", "my.parent"}:
                 assert all("error" not in result for result in parsed), parsed
                 assert admission["admitted"], admission["problems"]
             else:
@@ -390,11 +390,12 @@ def test_current_editor_saves_a_leading_hyphen_that_core_rejects_in_a_tile_group
                 "function": function, "companions": companions, "headerRows": group.header_rows,
                 "parser": parsed, "admitted": admission["admitted"], "problems": admission["problems"],
             }
-    evidence("tile-grouping-leading-hyphen", observed)
+    evidence("tile-grouping-locator-syntax", observed)
 
 
-def test_hyphenated_tile_connection_survives_editor_grouping_and_selection(
-    hq, core_runner, formplayer_runner, editor_driver, webapps_documents, evidence
+@pytest.mark.parametrize("identifier", ["my-parent", "my.parent"])
+def test_tile_connection_survives_editor_grouping_and_selection(
+    hq, core_runner, formplayer_runner, editor_driver, webapps_documents, evidence, identifier
 ):
     from lxml import etree
 
@@ -415,7 +416,7 @@ def test_hyphenated_tile_connection_survives_editor_grouping_and_selection(
     database = replace(database, cases=tuple(
         replace(case, indices=(
             ("parent", "household", kijiji, "child"),
-            *((("my-parent", "household", targets[case.name], "child"),) if case.name in targets else ()),
+            *(((identifier, "household", targets[case.name], "child"),) if case.name in targets else ()),
         )) if case.case_type == "visit" else case
         for case in database.cases
     ))
@@ -431,11 +432,11 @@ def test_hyphenated_tile_connection_survives_editor_grouping_and_selection(
 
     with webapps_hq.project(document, "maximum") as project:
         unit = project.unit
-        _edit_tile_group_identifier(project, editor_driver, "my-parent")
+        _edit_tile_group_identifier(project, editor_driver, identifier)
         group = operations.held_app(unit, project.app_id).modules[0].case_details.short.case_tile_group
-        assert (group.index_identifier, group.header_rows) == ("my-parent", 1)
+        assert (group.index_identifier, group.header_rows) == (identifier, 1)
 
-        authoring = Authoring(unit, {}, "hyphenated-tile-session", operation=unit.operation)
+        authoring = Authoring(unit, {}, "tile-grouping-session", operation=unit.operation)
         set_form_source(authoring, project.app_id, 0, 0, show_companion)
         with project.released(formplayer_runner, database=database) as release:
             run = Session(release, editor_driver).run([
@@ -449,7 +450,7 @@ def test_hyphenated_tile_connection_survives_editor_grouping_and_selection(
                 steps.SCREEN,
             ])
     listed, selected, opened = run.screens
-    evidence("hyphenated-tile-grouping", {"listed": listed, "selected": selected, "opened": opened})
+    evidence(f"tile-grouping-{identifier}", {"listed": listed, "selected": selected, "opened": opened})
     assert run.page_errors == []
     assert listed["list"]["tiles"] is True
     assert [_card(row) for row in listed["list"]["rows"]] == [

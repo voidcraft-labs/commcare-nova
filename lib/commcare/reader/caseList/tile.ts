@@ -120,6 +120,10 @@ export const TILE_CLAIMS = defineClaims("caseList.tile", {
 		`${A}case-tile-group-identifier-starts-with-a-hyphen`,
 		"schema:CaseTileGroupConfig.index_identifier",
 	),
+	groupIdentifierHasInteriorSpace: refuse(
+		`${A}case-tile-group-identifier-with-interior-space`,
+		"schema:CaseTileGroupConfig.index_identifier",
+	),
 	groupIdentifierOutside: refuse(
 		`${A}case-tile-group-identifier-outside-an-xml-element-name`,
 		"schema:CaseTileGroupConfig.index_identifier",
@@ -666,7 +670,12 @@ export function readTile(
 					caseTileGroupingIdentifierSchema.safeParse(identifier.slice(1))
 						.success
 						? T.groupIdentifierStartsWithHyphen
-						: T.groupIdentifierOutside;
+						: !named &&
+								/^[A-Za-z_][A-Za-z0-9_.-]* [A-Za-z_][A-Za-z0-9_.-]*$/.test(
+									identifier,
+								)
+							? T.groupIdentifierHasInteriorSpace
+							: T.groupIdentifierOutside;
 				cursor.refuse("index_identifier", claim, { name: identifier });
 				claimRestUnderFinding(
 					ctx,

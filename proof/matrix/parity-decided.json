@@ -190,6 +190,8 @@
 		"hq-case-lists/tile-grouped-by-a-dotted-index",
 		"hq-case-lists/tile-grouped-by-a-hyphenated-index",
 		"hq-case-lists/tile-grouped-by-a-hyphenated-index-with-a-body",
+		"hq-case-lists/tile-grouped-by-a-spaced-index",
+		"hq-case-lists/tile-grouped-by-an-index-path",
 		"hq-case-lists/tile-grouped-by-an-invalid-index",
 		"hq-case-lists/tile-taller-than-twelve-rows",
 		"hq-case-lists/time-since-in-fortnights",

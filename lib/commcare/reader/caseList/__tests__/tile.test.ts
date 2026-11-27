@@ -210,29 +210,32 @@ describe("tiles", () => {
 		).toEqual([undefined, "records"]);
 	});
 
-	it("reads a hyphenated grouping with a separate header and body", async () => {
-		const name = plainColumn(uuid(1), "case_name", "Name", {
-			tile: tileCell(0, 0, 12, 1),
-		});
-		const notes = plainColumn(uuid(2), "notes", "Notes", {
-			tile: tileCell(0, 1, 12, 1),
-		});
-		const doc = patients([name, notes], {
-			list: { tile: { grouping: { identifier: "my-parent", headerRows: 1 } } },
-		});
-		const reading = await readLists(doc, { firstPassOnly: false });
-		expect(closedCodes(reading)).toEqual([]);
-		expect(
-			reading.app.modules[0]?.case_details.short.case_tile_group,
-		).toMatchObject({
-			index_identifier: "my-parent",
-			header_rows: 1,
-		});
-		expect(listOf(reading).tile?.grouping).toEqual({
-			identifier: "my-parent",
-			headerRows: 1,
-		});
-	});
+	it.each(["my-parent", "my.parent"])(
+		"reads grouping by %s with a separate header and body",
+		async (identifier) => {
+			const name = plainColumn(uuid(1), "case_name", "Name", {
+				tile: tileCell(0, 0, 12, 1),
+			});
+			const notes = plainColumn(uuid(2), "notes", "Notes", {
+				tile: tileCell(0, 1, 12, 1),
+			});
+			const doc = patients([name, notes], {
+				list: { tile: { grouping: { identifier, headerRows: 1 } } },
+			});
+			const reading = await readLists(doc, { firstPassOnly: false });
+			expect(closedCodes(reading)).toEqual([]);
+			expect(
+				reading.app.modules[0]?.case_details.short.case_tile_group,
+			).toMatchObject({
+				index_identifier: identifier,
+				header_rows: 1,
+			});
+			expect(listOf(reading).tile?.grouping).toEqual({
+				identifier,
+				headerRows: 1,
+			});
+		},
+	);
 
 	it("points to the heading when there is no body under a valid connection", async () => {
 		const name = plainColumn(uuid(1), "case_name", "Name", {
@@ -268,7 +271,8 @@ describe("tiles", () => {
 
 	it.each([
 		["-my-parent", "case-tile-group-identifier-starts-with-a-hyphen"],
-		["my.parent", "case-tile-group-identifier-outside-an-xml-element-name"],
+		["my parent", "case-tile-group-identifier-with-interior-space"],
+		["my/parent", "case-tile-group-identifier-outside-an-xml-element-name"],
 	])(
 		"refuses tile grouping by %s under its exact finding",
 		async (identifier, entry) => {

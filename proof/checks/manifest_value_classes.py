@@ -13267,9 +13267,13 @@ def _custom_short_tile_group(use):
     return at, (group, detail)
 
 
+TILE_GROUP_CONNECTION = re.compile(r"[A-Za-z_][A-Za-z0-9_.-]*")
+TILE_GROUP_CONNECTION_WITH_INTERIOR_SPACE = re.compile(r"[A-Za-z_][A-Za-z0-9_.-]* [A-Za-z_][A-Za-z0-9_.-]*")
+
+
 def _tile_group_index_starts_with_hyphen(identifier):
     return (identifier.startswith("-")
-            and CASE_OPERATION_LINK_IDENTIFIER.fullmatch(identifier[1:]) is not None)
+            and TILE_GROUP_CONNECTION.fullmatch(identifier[1:]) is not None)
 
 
 def tile_group_index_starts_with_hyphen(use, manifest):
@@ -13283,6 +13287,17 @@ def tile_group_index_starts_with_hyphen(use, manifest):
     return isinstance(identifier, str) and _tile_group_index_starts_with_hyphen(identifier)
 
 
+def tile_group_index_has_interior_space(use, manifest):
+    """Core refuses two consecutive names where a single step must end."""
+    at, tile = _custom_short_tile_group(use)
+    if at is None:
+        return None
+    if tile is None:
+        return False
+    identifier = tile[0].get("index_identifier")
+    return isinstance(identifier, str) and TILE_GROUP_CONNECTION_WITH_INTERIOR_SPACE.fullmatch(identifier) is not None
+
+
 def tile_group_identifier_outside_supported_connections(use, manifest):
     """Residual unsupported names. An empty name disables grouping."""
     at, tile = _custom_short_tile_group(use)
@@ -13292,7 +13307,8 @@ def tile_group_identifier_outside_supported_connections(use, manifest):
         return False
     identifier = tile[0].get("index_identifier")
     return (isinstance(identifier, str) and identifier != ""
-            and CASE_OPERATION_LINK_IDENTIFIER.fullmatch(identifier) is None
+            and TILE_GROUP_CONNECTION.fullmatch(identifier) is None
+            and TILE_GROUP_CONNECTION_WITH_INTERIOR_SPACE.fullmatch(identifier) is None
             and not _tile_group_index_starts_with_hyphen(identifier))
 
 
@@ -13308,7 +13324,7 @@ def tile_group_header_covers_all_cells(use, manifest):
     header_rows = group.get("header_rows")
     if header_rows is None:
         header_rows = 2
-    if not isinstance(name, str) or CASE_OPERATION_LINK_IDENTIFIER.fullmatch(name) is None or type(header_rows) is not int:
+    if not isinstance(name, str) or TILE_GROUP_CONNECTION.fullmatch(name) is None or type(header_rows) is not int:
         return False
     boxes = [
         box for column in _columns(detail)
@@ -14217,6 +14233,7 @@ VALUE_CLASSES = {
     "menus-and-case-lists/detail-max-select-value-above-100": max_select_value_above_100,
     "menus-and-case-lists/detail-max-select-value-above-2147483647": multi_select_maximum_exceeds_java_int,
     "menus-and-case-lists/case-tile-group-identifier-starts-with-a-hyphen": tile_group_index_starts_with_hyphen,
+    "menus-and-case-lists/case-tile-group-identifier-with-interior-space": tile_group_index_has_interior_space,
     "menus-and-case-lists/case-tile-group-identifier-outside-an-xml-element-name": (
         tile_group_identifier_outside_supported_connections
     ),

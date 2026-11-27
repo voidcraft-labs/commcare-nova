@@ -7962,8 +7962,35 @@ def _held_new():
                 f"{short}/case_tile_group/index_identifier",
             ),
         ),
+        "menus-and-case-lists/case-tile-group-identifier-with-interior-space": (
+            refused(
+                "app",
+                tile("my group"),
+                "schema:CaseTileGroupConfig.index_identifier",
+                f"{short}/case_tile_group/index_identifier",
+            ),
+            accepted(
+                "app",
+                tile("my.group"),
+                "schema:CaseTileGroupConfig.index_identifier",
+                f"{short}/case_tile_group/index_identifier",
+            ),
+            # A list with no custom tile groups nothing.
+            accepted(
+                "app",
+                tile("my group", template=None),
+                "schema:CaseTileGroupConfig.index_identifier",
+                f"{short}/case_tile_group/index_identifier",
+            ),
+        ),
         "menus-and-case-lists/case-tile-group-identifier-outside-an-xml-element-name": (
             refused(
+                "app",
+                tile("my/group"),
+                "schema:CaseTileGroupConfig.index_identifier",
+                f"{short}/case_tile_group/index_identifier",
+            ),
+            accepted(
                 "app",
                 tile("my.group"),
                 "schema:CaseTileGroupConfig.index_identifier",
@@ -7971,14 +7998,13 @@ def _held_new():
             ),
             accepted(
                 "app",
-                tile("-my-group"),
+                tile("my group"),
                 "schema:CaseTileGroupConfig.index_identifier",
                 f"{short}/case_tile_group/index_identifier",
             ),
-            # A list with no custom tile groups nothing.
             accepted(
                 "app",
-                tile("my.group", template=None),
+                tile("my/group", template=None),
                 "schema:CaseTileGroupConfig.index_identifier",
                 f"{short}/case_tile_group/index_identifier",
             ),
