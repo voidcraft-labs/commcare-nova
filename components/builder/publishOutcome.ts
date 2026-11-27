@@ -465,6 +465,11 @@ export function publishOutcome(
 		};
 	}
 	if (responseOk && body.refusal !== undefined && body.refusal !== null) {
+		const {
+			installationProfileChoices,
+			installationProfileConfirmation,
+			installationProfileReviewUrl,
+		} = body.refusal.failure;
 		return {
 			kind: "refused",
 			deployment,
@@ -486,12 +491,15 @@ export function publishOutcome(
 			confirmationsNeeded: body.refusal.confirmationsNeeded ?? [],
 			webAppsChange: webAppsChangeOf(body.refusal.webAppsChange ?? null),
 			placementMoves: body.refusal.placementMoves ?? null,
-			installationProfileChoices:
-				body.refusal.failure.installationProfileChoices,
-			installationProfileConfirmation:
-				body.refusal.failure.installationProfileConfirmation,
-			installationProfileReviewUrl:
-				body.refusal.failure.installationProfileReviewUrl,
+			...(installationProfileChoices !== undefined && {
+				installationProfileChoices,
+			}),
+			...(installationProfileConfirmation !== undefined && {
+				installationProfileConfirmation,
+			}),
+			...(installationProfileReviewUrl !== undefined && {
+				installationProfileReviewUrl,
+			}),
 			placements: body.placements ?? NO_PLACEMENTS,
 			warnings: body.warnings ?? [],
 			preview: previewAnswerOf(body),

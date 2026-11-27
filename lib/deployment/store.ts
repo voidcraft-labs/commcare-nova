@@ -929,7 +929,8 @@ async function installationReviewMatches(
 		.select("mutation_seq")
 		.where("id", "=", scope.appId)
 		.executeTakeFirst();
-	if (!app || Number(app.mutation_seq) !== sequence) return false;
+	if (!app || safePersistedSequence(app.mutation_seq) !== sequence)
+		return false;
 	const held = await tx
 		.selectFrom("app_deployment_installation_reviews")
 		.select("checkpoint")
@@ -3633,7 +3634,8 @@ export async function admitAppWrite(
 			live.review_generation !== (input.comparedReview ?? null) ||
 			(input.writeKind === "import" &&
 				live.reviewed_nova_revision !== null &&
-				Number(live.reviewed_nova_revision) > input.compiledAtSeq)
+				safePersistedSequence(live.reviewed_nova_revision) >
+					input.compiledAtSeq)
 		) {
 			return { kind: "mapping-moved" };
 		}
@@ -4528,7 +4530,8 @@ export async function recordRefreshedAppBaseline(
 			if (
 				input.reviewedVersion !== undefined &&
 				liveMapping.reviewed_remote_revision !== null &&
-				input.reviewedVersion < Number(liveMapping.reviewed_remote_revision)
+				input.reviewedVersion <
+					safePersistedSequence(liveMapping.reviewed_remote_revision)
 			)
 				return superseded();
 			if (input.comparedHead !== undefined) {
@@ -4565,7 +4568,8 @@ export async function recordRefreshedAppBaseline(
 					.where("id", "=", scope.appId)
 					.executeTakeFirstOrThrow();
 				if (
-					Number(app.mutation_seq) !== input.installationReview.headSeq ||
+					safePersistedSequence(app.mutation_seq) !==
+						input.installationReview.headSeq ||
 					stored.source_digest !== input.comparedDigest ||
 					liveMapping.push_token !== input.installationReview.mapping
 				)
@@ -5245,7 +5249,8 @@ async function recordHqChangesInTransaction(
 			.where("id", "=", scope.appId)
 			.executeTakeFirstOrThrow();
 		if (
-			Number(head.mutation_seq) !== input.installationReview.headSeq ||
+			safePersistedSequence(head.mutation_seq) !==
+				input.installationReview.headSeq ||
 			liveMapping?.push_token !== input.installationReview.mapping
 		)
 			throw new HqChangesBaselineMovedError(
@@ -5264,7 +5269,8 @@ async function recordHqChangesInTransaction(
 	}
 	if (
 		liveMapping.reviewed_remote_revision !== null &&
-		input.reviewedVersion < Number(liveMapping.reviewed_remote_revision)
+		input.reviewedVersion <
+			safePersistedSequence(liveMapping.reviewed_remote_revision)
 	)
 		throw new HqChangesBaselineMovedError(
 			"remote-version",

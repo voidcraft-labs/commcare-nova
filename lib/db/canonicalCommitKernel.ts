@@ -429,8 +429,11 @@ async function readStableApp(
 	appId: string,
 	consistency: "shared-lock" | "repeatable-read",
 ): Promise<AppDoc | null> {
-	const query = tx
-		.selectFrom("apps")
+	const source =
+		consistency === "shared-lock"
+			? tx.selectFrom("apps").forShare("apps")
+			: tx.selectFrom("apps");
+	const row = (await source
 		.select(PERSISTED_BLUEPRINT_APP_COLUMNS)
 		.select(
 			sql<string | null>`${sql.ref("apps.case_types")}::text`.as(
@@ -447,11 +450,8 @@ async function readStableApp(
 				"app_settings_text",
 			),
 		)
-		.where("id", "=", appId);
-	const row = (await (consistency === "shared-lock"
-		? query.forShare()
-		: query
-	).executeTakeFirst()) as PersistedBlueprintAppRow | undefined;
+		.where("id", "=", appId)
+		.executeTakeFirst()) as PersistedBlueprintAppRow | undefined;
 	if (!row) return null;
 	return (await loadStrictAppSnapshotFromRowInTransaction(tx, row)).app;
 }
