@@ -1992,7 +1992,7 @@
 		"surfaceKeys": ["schema:Application.translations"],
 		"valueClass": "generated-navigation-file-not-packaged",
 		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: the locale can choose this file only while a native package includes it. HQ's locale files alone do not package media.",
+		"dispositionCell": "**HELD-NEW**: the locale can choose this file only while a native package includes it. An ordinary source in another language can put the file in a full release and leave it out of a language-specific package.",
 		"subject": "translation-overrides",
 		"owner": "settings-nova-comes-to-own",
 		"platforms": { "kind": "not-applicable", "cell": "n/a" },
@@ -2013,6 +2013,26 @@
 			{
 				"kind": "broken-at-runtime",
 				"named": "HQ emits the overriding icon URL in app strings. Without a multimedia map entry, Android cannot install a file at that address, and Web Apps cannot resolve the address. Neither reader falls back to the ordinary custom icon."
+			}
+		],
+		"platforms": { "kind": "none", "cell": "—" },
+		"emission": { "cell": "—", "markers": [] },
+		"gates": []
+	},
+	{
+		"id": "application-and-settings/translations-generated-menu-icon-only-in-media-map",
+		"area": "application-and-settings",
+		"section": "Application",
+		"item": "A generated menu icon points to a mapped local image that no part of the app carries",
+		"surfaceKeys": ["schema:Application.translations"],
+		"valueClass": "generated-menu-icon-only-in-media-map",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: a saved multimedia map entry alone does not put this image in the release.",
+		"subject": "translation-overrides",
+		"reasons": [
+			{
+				"kind": "broken-at-runtime",
+				"named": "HQ emits the generated override in app strings and removes the unused image map entry from the release. Android selects the override without an installed file, and Web Apps offers no image for that menu. A mapped image carried by another language can still be included in a full release."
 			}
 		],
 		"platforms": { "kind": "none", "cell": "—" },

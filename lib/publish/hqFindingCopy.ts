@@ -580,6 +580,8 @@ export const FIX_IN_HQ_SENTENCES: Readonly<
  * get past it. `findingLine` adds the name itself ("In CommCare HQ: …").
  */
 export const FIX_IN_HQ_ENTRY_SENTENCES: Readonly<Record<string, string>> = {
+	"application-and-settings/translations-generated-menu-icon-only-in-media-map":
+		"A translation points to a menu icon that CommCare HQ leaves out of the release. You can attach the intended icon in that language, or clear the translation to use the menu’s usual icon.",
 	"application-and-settings/translations-generated-menu-icon-without-mapping":
 		"A translation points to a missing menu icon file. You can attach the intended icon in that language, or clear the translation to use the menu’s usual icon.",
 	"questions/video-inline-as-the-only-content-of-a-help-text":

@@ -3,6 +3,7 @@
  * determine the shared value. Sparse entries keep the worker-visible fallback
  * of both the full app and installations limited to selected languages.
  */
+import { existsOne, textContent } from "domutils";
 import {
 	type BlueprintDoc,
 	effectiveAppLocalization,
@@ -299,6 +300,10 @@ const generatedMenuIconWithoutMapping = refuse(
 	"application-and-settings/translations-generated-menu-icon-without-mapping",
 	"schema:Application.translations",
 );
+const generatedMenuIconOnlyInMediaMap = refuse(
+	"application-and-settings/translations-generated-menu-icon-only-in-media-map",
+	"schema:Application.translations",
+);
 const generatedMediaNoEffect = account(
 	"application-and-settings/translations-generated-key-with-no-effect",
 	"schema:Application.translations",
@@ -307,6 +312,7 @@ defineClaims("menus.navMedia", {
 	generatedMediaClaim,
 	generatedMediaNotPackaged,
 	generatedMenuIconWithoutMapping,
+	generatedMenuIconOnlyInMediaMap,
 	generatedMediaNoEffect,
 });
 const acceptedOverrides = new WeakMap<
@@ -377,6 +383,50 @@ function ordinarySourcePaths(ctx: ReadContext) {
 	return paths;
 }
 
+const localImagePath =
+	/^jr:\/\/file\/commcare\/image\/[A-Za-z0-9_][A-Za-z0-9_.-]*(?:\/[A-Za-z0-9_][A-Za-z0-9_.-]*)*$/;
+
+/** HQ prunes a mapped resource only if no ordinary carrier or logo in the
+ * full app requests the path. Require a complete source inventory and leave
+ * any other mention to its own carrier's reader. */
+function menuIconOnlyInMediaMap(ctx: ReadContext, path: string): boolean {
+	if (
+		!ctx.input.source.multimediaMap?.some(
+			(item) =>
+				item.path === path &&
+				item.mediaType === "CommCareImage" &&
+				item.multimediaId !== null,
+		)
+	)
+		return false;
+	for (const [key, value] of Object.entries(ctx.input.source.raw))
+		if (
+			key !== "translations" &&
+			key !== "multimedia_map" &&
+			key !== "_attachments" &&
+			JSON.stringify(value)?.includes(path)
+		)
+			return false;
+	return ctx.input.source.modules.every((source, index) => {
+		const menu = ctx.draft.modules.find((one) => one.index === index);
+		return source.forms.every((form, formIndex) => {
+			if (form.docType === "ShadowForm" && form.attachment === null)
+				return true;
+			const html = menu?.forms.find((one) => one.index === formIndex)?.xform
+				?.parsed.html;
+			return (
+				html !== undefined &&
+				!textContent(html).includes(path) &&
+				!existsOne(
+					(node) =>
+						Object.values(node.attribs).some((value) => value.includes(path)),
+					[html],
+				)
+			);
+		});
+	});
+}
+
 export function accountNavigationMediaOverride(
 	ctx: ReadContext,
 	doc: BlueprintDoc,
@@ -387,23 +437,16 @@ export function accountNavigationMediaOverride(
 	// HQ decides what to pack from ordinary carriers, even when the asset
 	// index cannot resolve the path. Check that source fact before handoff.
 	if (!ordinarySourcePaths(ctx).get(held.language)?.has(override.path)) {
-		// A local icon with no map entry cannot be recovered from the full
-		// release or from Web Apps' resource map. A mapped entry might still
-		// work in another installation or from a carrier we do not retain.
-		const missingMenuIcon =
+		const localMenuIcon =
 			override.carrierClass === "Module" &&
 			override.role === "icon" &&
-			override.pending?.resolution === "no-entry" &&
-			/^jr:\/\/file\/commcare\/image\/[A-Za-z0-9_][A-Za-z0-9_.-]*(?:\/[A-Za-z0-9_][A-Za-z0-9_.-]*)*$/.test(
-				override.path,
-			);
-		held.json.refuse(
-			held.key,
-			missingMenuIcon
-				? generatedMenuIconWithoutMapping
-				: generatedMediaNotPackaged,
-			{ name: held.key },
-		);
+			localImagePath.test(override.path);
+		let claim = generatedMediaNotPackaged;
+		if (localMenuIcon && override.pending?.resolution === "no-entry")
+			claim = generatedMenuIconWithoutMapping;
+		else if (localMenuIcon && menuIconOnlyInMediaMap(ctx, override.path))
+			claim = generatedMenuIconOnlyInMediaMap;
+		held.json.refuse(held.key, claim, { name: held.key });
 		return true;
 	}
 	if (override.pending !== undefined) {

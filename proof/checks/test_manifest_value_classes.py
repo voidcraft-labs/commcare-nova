@@ -1913,6 +1913,22 @@ def _settings_and_forms():
                      translations={"en": {"modules.m0.icon": "jr://file/commcare/image/mapped.png"}}),
                      translations, "/translations"),
         ),
+        "application-and-settings/translations-generated-menu-icon-only-in-media-map": (
+            refused("app", _app([_module(media_image={"en": "jr://file/commcare/image/menu.png"})],
+                    multimedia_map={"jr://file/commcare/image/mapped.png": {
+                        "media_type": "CommCareImage", "multimedia_id": "mapped-image"
+                    }}, translations={"en": {"modules.m0.icon": "jr://file/commcare/image/mapped.png"}}),
+                    translations, "/translations"),
+            accepted("app", _app([_module(media_image={"en": "jr://file/commcare/image/menu.png"})],
+                     translations={"en": {"modules.m0.icon": "jr://file/commcare/image/mapped.png"}}),
+                     translations, "/translations"),
+            unsettled("app", _app([_module(media_image={"en": "jr://file/commcare/image/menu.png",
+                                                        "fr": "jr://file/commcare/image/mapped.png"})],
+                     langs=["en", "fr"], multimedia_map={"jr://file/commcare/image/mapped.png": {
+                         "media_type": "CommCareImage", "multimedia_id": "mapped-image"
+                     }}, translations={"en": {"modules.m0.icon": "jr://file/commcare/image/mapped.png"}}),
+                     translations, "/translations"),
+        ),
         "application-and-settings/translations-key-that-is-no-locale-record-under-its-own-name": (
             refused("app", app(translations={"en": {" home.start": "Begin"}}), translations, "/translations"),
             refused(

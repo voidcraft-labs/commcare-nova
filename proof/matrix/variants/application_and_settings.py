@@ -10,8 +10,19 @@ from proof.matrix import ops
 WEB_APPS_LOGO = "hq_logo_web_apps"
 
 
-def menu_icon_override_without_a_resource(authoring, app_id):
-    """Keep the mapped icon and locale value, but remove its ordinary form carrier."""
+def menu_icon_override_with_only_a_map_entry(authoring, app_id):
+    _menu_icon_override_with_form_carrier(authoring, app_id, None)
+
+
+def menu_icon_override_with_carrier_in_another_language(authoring, app_id):
+    _menu_icon_override_with_form_carrier(authoring, app_id, "fr")
+
+
+def _menu_icon_override_with_form_carrier(authoring, app_id, carrier_language):
+    """Same mapped icon and English locale value, with or without a French form carrier."""
+    from proof.checks.compare.app_strings import parse_app_strings
+    from proof.hq import operations
+
     path = "jr://file/commcare/image/data/animal_name.png"
 
     def remove_picture(root, _form):
@@ -23,7 +34,18 @@ def menu_icon_override_without_a_resource(authoring, app_id):
         media[0].getparent().remove(media[0])
 
     ops.set_form_source(authoring, app_id, 0, 0, remove_picture, what="remove the ordinary picture carrier")
-    ops.set_json(authoring, app_id, "/translations", {"en": {"modules.m0.icon": path}})
+    if carrier_language is not None:
+        ops.set_json(authoring, app_id, "/langs", ["en", carrier_language])
+        ops.set_json(authoring, app_id, "/modules/0/forms/0/media_image", {carrier_language: path})
+    key = "modules.m0.icon"
+    ops.set_json(authoring, app_id, "/translations", {"en": {key: path}})
+    with authoring.step("variant:mapped-menu-icon-source"):
+        app = operations.held_app(authoring.state, app_id)
+        assert app.multimedia_map[path].media_type == "CommCareImage"
+        assert app.modules[0].uses_image()
+        assert parse_app_strings(app.create_app_strings("en"))[key] == path
+        assert path not in app.all_media_paths(lang="en")
+        assert (path in app.all_media_paths()) == (carrier_language is not None)
 
 
 def translation_overrides_a_detail_tab_title(authoring, app_id):

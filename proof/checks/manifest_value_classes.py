@@ -2574,6 +2574,15 @@ def translation_key_not_its_own(use, manifest):
 
 def generated_menu_icon_without_mapping(use, manifest):
     """A real module icon locale whose local file is not mapped in the app."""
+    return _generated_menu_icon_with_no_package_file(use, mapped=False)
+
+
+def generated_menu_icon_only_in_media_map(use, manifest):
+    """The full release prunes this real mapped icon because no app or form requests its path."""
+    return _generated_menu_icon_with_no_package_file(use, mapped=True)
+
+
+def _generated_menu_icon_with_no_package_file(use, *, mapped):
     at = _json(use)
     if at is None or at.key != "translations" or not isinstance(at.value, dict):
         return None
@@ -2581,7 +2590,9 @@ def generated_menu_icon_without_mapping(use, manifest):
     codes = app.get("langs") or []
     if not isinstance(codes, list) or not codes:
         return None
-    mapped = app.get("multimedia_map") or {}
+    media_map = app.get("multimedia_map") or {}
+    if not isinstance(media_map, dict):
+        return None
     modules = app.get("modules") or []
     possible_carriers = None
     uncertain = False
@@ -2602,16 +2613,33 @@ def generated_menu_icon_without_mapping(use, manifest):
                 continue
             path = table.get(f"modules.m{index}.icon")
             if (
-                not isinstance(path, str) or path in mapped or path == icons.get(codes[0] if same_for_all else code)
+                not isinstance(path, str) or path == icons.get(codes[0] if same_for_all else code)
                 or not re.fullmatch(r"jr://file/commcare/image/[A-Za-z0-9_][A-Za-z0-9_.-]*(?:/[A-Za-z0-9_][A-Za-z0-9_.-]*)*", path)
             ):
                 continue
-            # Leave a source with another possible carrier to its media checks.
+            if mapped:
+                item = media_map.get(path)
+                if (
+                    not isinstance(item, dict) or item.get("media_type") != "CommCareImage"
+                    or not isinstance(item.get("multimedia_id"), str)
+                    or not re.fullmatch(r"[A-Za-z0-9_-]+", item["multimedia_id"])
+                ):
+                    continue
+                if any(form.get("doc_type") != "ShadowForm" and form.get("unique_id") not in at.app.forms
+                       for module in modules if isinstance(module, dict)
+                       for form in module.get("forms", ()) if isinstance(form, dict)):
+                    return None
+            elif path in media_map:
+                continue
+            # Leave a source with another possible carrier to its own check.
             if possible_carriers is None:
-                possible_carriers = json.dumps(modules) + "".join(
-                    etree.tostring(form.root, encoding="unicode") for form in at.app.forms.values()
-                )
-            if path in possible_carriers:
+                raw = {key: value for key, value in app.items()
+                       if key not in ("translations", "multimedia_map", "_attachments")}
+                possible_carriers = [json.dumps(raw if mapped else modules)]
+                for form in at.app.forms.values():
+                    possible_carriers.append("".join(form.root.itertext()))
+                    possible_carriers.extend(value for node in form.root.iter() for value in node.attrib.values())
+            if any(path in carrier for carrier in possible_carriers):
                 uncertain = True
                 continue
             return True
@@ -13606,6 +13634,7 @@ VALUE_CLASSES = {
     "application-and-settings/50pp-hq-location-fixture-restore-only-hierarchical-fixture": only_hierarchical_fixture,
     "application-and-settings/a-non-empty-langs-code-outside-that-grammar-or-repeated": invalid_or_repeated_code,
     "application-and-settings/translations-generated-menu-icon-without-mapping": generated_menu_icon_without_mapping,
+    "application-and-settings/translations-generated-menu-icon-only-in-media-map": generated_menu_icon_only_in_media_map,
     "application-and-settings/translations-key-that-is-no-locale-record-under-its-own-name": (
         translation_key_not_its_own
     ),

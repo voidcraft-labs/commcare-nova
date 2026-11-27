@@ -754,6 +754,31 @@ describe("an override of a generated media key in `translations`", () => {
 		);
 	});
 
+	it.each([
+		[undefined, "translations-generated-menu-icon-only-in-media-map"],
+		["es", "translations-generated-navigation-file-not-packaged"],
+	])(
+		"distinguishes a mapped icon from another language's carrier (%s)",
+		async (carrier, entry) => {
+			const outcome = await readWithMedia(app(), (json) => {
+				const menu = json.modules[0];
+				menu.media_image = { en: MENU_ICON };
+				json.multimedia_map = {
+					[OTHER_ICON]: {
+						media_type: "CommCareImage",
+						multimedia_id: "mapped-icon",
+					},
+				};
+				if (carrier)
+					(menu.forms[0] as Record<string, unknown>).media_image = {
+						[carrier]: OTHER_ICON,
+					};
+				overriding(json, { "modules.m0.icon": OTHER_ICON });
+			});
+			expect(findings(outcome)).toEqual([`application-and-settings/${entry}`]);
+		},
+	);
+
 	it("refuses an override whose file HQ leaves out of the installation", async () => {
 		const outcome = await readWithMedia(app(), (json) => {
 			json.modules[0].media_image = { en: MENU_ICON };

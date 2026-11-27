@@ -24400,16 +24400,25 @@
 		}
 	},
 	{
-		"id": "hq-media/translation-overrides-a-menu-icon-without-a-resource",
+		"id": "hq-media/translation-overrides-a-menu-icon-with-only-a-map-entry",
+		"base": "hq-media",
+		"entry": "application-and-settings/translations-generated-menu-icon-only-in-media-map",
+		"standing": "fix-in-hq",
+		"place": { "kind": "app" },
+		"change": {
+			"op": "named",
+			"name": "menu_icon_override_with_only_a_map_entry"
+		}
+	},
+	{
+		"id": "hq-media/translation-overrides-a-menu-icon-with-carrier-in-another-language",
 		"base": "hq-media",
 		"entry": "application-and-settings/translations-generated-navigation-file-not-packaged",
 		"standing": "not-yet",
-		"place": {
-			"kind": "app"
-		},
+		"place": { "kind": "app" },
 		"change": {
 			"op": "named",
-			"name": "menu_icon_override_without_a_resource"
+			"name": "menu_icon_override_with_carrier_in_another_language"
 		}
 	},
 	{
