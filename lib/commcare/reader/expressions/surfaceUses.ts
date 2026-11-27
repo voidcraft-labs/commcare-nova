@@ -204,6 +204,7 @@ function instancePath(
  *  slot's reading and its owner. */
 export interface SurfaceUseFacts {
 	readonly bareLookupCountWithoutSupplier?: boolean;
+	readonly guardedLookupCountWithoutSupplier?: boolean;
 	/** The session datum ids the expression reads that its entry does not
 	 *  supply, from the parse issue or the checker's refusal; `"all"` where
 	 *  the refusal says the entry does not supply a datum the expression reads
@@ -262,7 +263,9 @@ function sessionUse(
 					? "guarded-numeric-lookup-count-from-one-supplier"
 					: facts.bareLookupCountWithoutSupplier
 						? "bare-fingerprint-query-without-a-supplier"
-						: "count-outside-a-guarded-single-supplier",
+						: facts.guardedLookupCountWithoutSupplier
+							? "guarded-fingerprint-query-without-a-supplier"
+							: "count-outside-a-guarded-single-supplier",
 			};
 		return {
 			key: "session-path:session/data/*",

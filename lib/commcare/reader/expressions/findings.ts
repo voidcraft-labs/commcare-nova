@@ -577,6 +577,10 @@ export const EXPRESSION_CLAIMS = defineClaims("expressions", {
 		"expressions-and-data/bare-fingerprint-query-without-a-supplier",
 		"session-path:session/data/fingerprintquery",
 	),
+	"guarded-fingerprint-query-without-a-supplier": take(
+		"expressions-and-data/guarded-fingerprint-query-without-a-supplier",
+		"session-path:session/data/fingerprintquery",
+	),
 	"session-data-fingerprintquery": refuse(
 		"expressions-and-data/session-data-fingerprintquery",
 		"session-path:session/data/fingerprintquery",

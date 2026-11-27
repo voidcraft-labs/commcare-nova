@@ -22906,20 +22906,21 @@
 	{
 		"id": "hq-expressions/fingerprint-query-guarded",
 		"base": "hq-expressions",
-		"entry": "expressions-and-data/session-data-fingerprintquery",
-		"standing": "not-yet",
-		"place": {
-			"kind": "question",
-			"menu": 0,
-			"form": 0,
-			"menuName": "Checks",
-			"formName": "Survey",
-			"path": "language"
-		},
+		"entry": "expressions-and-data/guarded-fingerprint-query-without-a-supplier",
 		"change": {
 			"op": "named",
 			"name": "fingerprint_query_guarded"
-		}
+		},
+		"holds": [
+			{
+				"key": ["field", { "$xmlns": [0, 0] }, ["language"]],
+				"pointer": "/calculate",
+				"value": {
+					"kind": "term",
+					"term": { "kind": "literal", "value": "No lookup result" }
+				}
+			}
+		]
 	},
 	{
 		"id": "hq-expressions/here-in-a-form",

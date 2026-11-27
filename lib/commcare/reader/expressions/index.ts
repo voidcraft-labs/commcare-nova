@@ -121,6 +121,7 @@ import {
 	instanceSourcesOf,
 	judgeSlot,
 	lookupTypes,
+	missingFingerprintFallback,
 	printSlot,
 	type SlotJudgment,
 	type SlotRefusal,
@@ -2052,7 +2053,11 @@ function surfaceUseFactsOf(
 				? undefined
 				: moduleUuidOfForm(doc, form);
 	const mod = moduleUuid === undefined ? undefined : doc.modules[moduleUuid];
+	const source = outcome.kind === "held" && textSyntax(registration.text);
 	return {
+		guardedLookupCountWithoutSupplier:
+			!!source &&
+			missingFingerprintFallback(doc, registration, env, source) !== undefined,
 		unsupplied: m1 && unsupplied.size === 0 ? "all" : unsupplied,
 		bareLookupCountWithoutSupplier:
 			outcome.kind === "refused" &&
