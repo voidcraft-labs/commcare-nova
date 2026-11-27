@@ -2504,7 +2504,7 @@ def itemset_filter_grouped_arithmetic_row_index(authoring, app_id):
 
 def itemset_filter_function_row_index(authoring, app_id):
     """A function-valued predicate stays outside constant fixture arithmetic."""
-    _itemset_filter_numeric_row(authoring, app_id, "number(&apos;2&apos;)", "itemset-filter-function-row-index")
+    _itemset_filter_numeric_row(authoring, app_id, "number('2')", "itemset-filter-function-row-index")
 
 
 def itemset_over_cases(authoring, app_id):
