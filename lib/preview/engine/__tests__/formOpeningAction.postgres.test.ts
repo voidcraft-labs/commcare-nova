@@ -3,7 +3,8 @@
 import { v7 } from "uuid";
 import { afterEach, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { buildDoc } from "@/lib/__tests__/docHelpers";
+import { buildDoc, caseListConfig } from "@/lib/__tests__/docHelpers";
+import { PostgresCaseStore } from "@/lib/case-store/postgres/store";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
 import { reclaimExpiredFormOpeningData } from "@/lib/db/formOpeningData";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
@@ -329,6 +330,83 @@ async function openPracticeForm(
 		throw new Error(`Could not open first choice: ${first.kind}`);
 	return { app, pool, device, doc, module, request, first, next: first.next };
 }
+
+it("rejects an over-limit bound selection before reading the signed worker restore", async () => {
+	vi.stubEnv("BETTER_AUTH_SECRET", "synthetic signed selection secret");
+	const app = "signed-bound-selection";
+	const doc = buildDoc({
+		appId: app,
+		caseTypes: [{ name: "person", properties: [] }],
+		modules: [
+			{
+				name: "Visits",
+				caseType: "person",
+				caseListConfig: caseListConfig([
+					{ field: "case_name", header: "Name" },
+				]),
+				forms: [
+					{
+						name: "Follow up",
+						type: "followup",
+						fields: [{ kind: "text", id: "note", label: "Note" }],
+					},
+				],
+			},
+		],
+	});
+	await h.seedAppWithBlueprint(doc, {
+		id: app,
+		owner: member.id,
+		projectId: project,
+	});
+	await h.seedProjectMember(member.id, project, "viewer");
+	const pool = h.pool();
+	await pool.query(
+		`INSERT INTO auth_session (id,"userId",token,"createdAt","updatedAt","expiresAt")
+		VALUES ($1,$2,$1,now(),now(),now()+interval '1 day')`,
+		[member.session, member.id],
+	);
+	await pool.query(
+		`INSERT INTO cases (app_id,project_id,case_id,case_type,case_name,status,owner_id,properties)
+		VALUES ($1,$2,'training-1','person','First record','open',$3,'{}'),
+		       ($1,$2,'training-2','person','Second record','open',$3,'{}')`,
+		[app, project, member.id],
+	);
+	const module = doc.moduleOrder[0];
+	const opening = {
+		app,
+		module,
+		form: doc.formOrder[module][0],
+		entry: testUuid("review-with-a-bound-selection"),
+		run: testUuid("bound-selection-run"),
+		blueprintDigest: await blueprintRevisionDigest(doc),
+	};
+	const device = webAppsDevice();
+	const readRestore = vi.spyOn(
+		PostgresCaseStore.prototype,
+		"readDeviceCaseDatabase",
+	);
+	try {
+		expect(
+			await readFormOpeningAction(
+				{ ...opening, bound: ["training-1", "training-2"] },
+				device,
+			),
+		).toEqual({ kind: "record-unavailable" });
+		expect(readRestore).not.toHaveBeenCalled();
+		const allowed = await readFormOpeningAction(
+			{ ...opening, bound: ["training-2"] },
+			device,
+		);
+		expect(allowed.kind).toBe("opening");
+		if (allowed.kind !== "opening")
+			throw new Error("Expected a signed opening.");
+		expect(allowed.projection.primaryCaseIds).toEqual(["training-2"]);
+		expect(readRestore).toHaveBeenCalledTimes(1);
+	} finally {
+		readRestore.mockRestore();
+	}
+});
 
 it("restores a signed projection above one MiB only for the original entry, run and device", async () => {
 	const { pool, device, request, first, app } = await openPracticeForm(1850);

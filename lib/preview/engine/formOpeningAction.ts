@@ -96,6 +96,10 @@ const requestSchema = z.strictObject({
 	afterSubmission: z.array(z.string().min(1)).max(32).optional(),
 });
 
+function validSelectionIds(ids: readonly string[], maximum: number): boolean {
+	return ids.length <= maximum && new Set(ids).size === ids.length;
+}
+
 function tablesForOpening(doc: BlueprintDoc, form: Uuid) {
 	const contentUuid = formContentUuid(doc, form);
 	const content = doc.forms[contentUuid];
@@ -258,6 +262,26 @@ async function readOpening(
 			}
 		} else {
 			if (args.choice || args.restore || args.resumeInto) return reopen;
+			// Reject an oversized or duplicate selection before reading tables or
+			// building the worker's full device snapshot. The ordinary availability
+			// checks below still prove scope, list membership, and linked parents.
+			const owner = doc.forms[args.form];
+			const isCaseForm = owner.type === "followup" || owner.type === "close";
+			if (
+				owner.caseSelections === undefined &&
+				isCaseForm &&
+				args.bound &&
+				!validSelectionIds(
+					args.bound,
+					caseSelectionMaximum(doc.modules[args.module]),
+				)
+			)
+				return unavailable;
+			for (const [menu, ids] of Object.entries(args.parentChoices ?? {})) {
+				const list = doc.modules[menu as Uuid];
+				if (!list || !validSelectionIds(ids, caseSelectionMaximum(list)))
+					return reopen;
+			}
 			const tableIds = tablesForOpening(doc, args.form);
 			const lookup = await loadLookupFixtureDataAction(
 				args.app,
@@ -334,16 +358,14 @@ async function readOpening(
 			boundAfterSubmit = false,
 		) {
 			if (ids.length === 0) return true;
-			if (new Set(ids).size !== ids.length || ids.some((id) => !rows.has(id)))
-				return false;
 			const listed = explicit
 				? workerListDocument(doc, module, "form-selection")
 				: doc;
 			const list = listed.modules[module];
 			if (
 				!list?.caseType ||
-				ids.some((id) => rows.get(id)?.case_type !== list.caseType) ||
-				ids.length > (explicit ? 1 : caseSelectionMaximum(list))
+				!validSelectionIds(ids, explicit ? 1 : caseSelectionMaximum(list)) ||
+				ids.some((id) => rows.get(id)?.case_type !== list.caseType)
 			)
 				return false;
 			const carried = boundAfterSubmit
