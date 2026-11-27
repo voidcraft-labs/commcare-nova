@@ -627,6 +627,10 @@ export const FIX_IN_HQ_ENTRY_SENTENCES: Readonly<Record<string, string>> = {
 };
 
 const NOT_YET_ENTRY_SENTENCES: Readonly<Record<string, string>> = {
+	"forms-and-case-writes/index-path-through-a-case-type-the-app-does-not-fix":
+		"This change follows a case link. Nova needs the app to identify one case type for each step in the link before it can carry the change.",
+	"forms-and-case-writes/loadupdateaction-case-properties-key-with-on-a-load-with-no-case":
+		"This change saves through a link from a loaded record. Nova can carry it when the form starts by choosing the record and the app declares which case type the supported link reaches.",
 	"menus-and-case-lists/lookup-extra-with-a-fixed-integer-sum":
 		"This case list sends a saved calculation to its Android companion. Depending on how Android is set up, the companion receives the calculation as written or its result. Nova can't hold both behaviors yet.",
 };
