@@ -44897,11 +44897,26 @@
 	{
 		"id": "hq-search/search-input-in-the-results-detail",
 		"base": "hq-search",
-		"entry": "menus-and-case-lists/standalone-search-result-list-text",
+		"entry": "expressions-and-data/search-input-results-read-in-the-search-results-detail",
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/0/case_details/short/columns/1/field",
 			"value": "instance('search-input:results')/input/field[@name = 'village']"
+		},
+		"standing": "not-yet",
+		"place": {
+			"kind": "case-list",
+			"menu": 0,
+			"name": "Clients"
+		}
+	},
+	{
+		"id": "hq-search/search-input-in-the-web-apps-results-list",
+		"base": "hq-search",
+		"entry": "menus-and-case-lists/standalone-search-result-list-text",
+		"change": {
+			"op": "named",
+			"name": "search_text_prompt_in_web_apps_results_list"
 		},
 		"holds": [
 			{
