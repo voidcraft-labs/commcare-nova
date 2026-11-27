@@ -316,6 +316,7 @@
 	"hq-languages": [],
 	"hq-large-media": [],
 	"hq-legacy-related-case-text": [],
+	"hq-legacy-search-group-wording": [],
 	"hq-lookup-aliases": [],
 	"hq-lookup-data": [],
 	"hq-lookup-name-lists": [
@@ -563,8 +564,8 @@
 		"hq-questions/long-form-on-repeat-action-caption",
 		"hq-questions/model-iteration-container-condition",
 		"hq-questions/model-iteration-hidden-first-row",
-		"hq-questions/model-iteration-relocated-answers",
 		"hq-questions/model-iteration-nested",
+		"hq-questions/model-iteration-relocated-answers",
 		"hq-questions/no-add-remove-without-count",
 		"hq-questions/number-appearance-read-by-no-runtime",
 		"hq-questions/ordinary-stock-answer",
