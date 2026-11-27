@@ -1274,18 +1274,23 @@ def test_a_lookup_table_hq_cannot_serve_is_a_refused_comparison(hq, core_runner)
     assert differences[0].after["table"] in {table["tag"] for table in document.document["lookup"]["definitions"]}
 
 
-def _authored_with_tables():
-    """The first document made in CommCare HQ whose A holds lookup tables and whose republish was sent with no
-    workbook, with that configuration's name."""
+def _authored_with_global_tables(excluding):
+    """An HQ-authored base whose global tables and a planted workbook can share a restore."""
     from proof.observe.publish import AUTHORED
 
     for document in cases.load_corpus().emitted:
-        if not document.hq_authored or not (document.root / AUTHORED / "tables.json").is_file():
+        tables_path = document.root / AUTHORED / "tables.json"
+        if not document.hq_authored or not tables_path.is_file():
+            continue
+        tables = json.loads(tables_path.read_text(encoding="utf-8"))
+        # A workbook restore has no independent owner bindings for assigned rows.
+        tags = {table["tag"] for table in tables}
+        if not tags or tags & excluding or not all(table["is_global"] for table in tables):
             continue
         for name in sorted(document.exports):
             republish = document.exports[name].republish
             if republish is not None and republish.lookups is None:
-                return document, name
+                return document, name, tags
     return None
 
 
@@ -1321,12 +1326,14 @@ def test_b_s_sessions_on_an_app_made_in_hq_read_the_tables_the_unit_holds_after_
     republish pushes none, records no lookup outcome of B, which reads A's tables. The plausible failure: B's
     restore chosen by who made A, so a republish that writes over a table CommCare HQ manages leaves B's sessions
     reading A's rows and proof 3 sees nothing."""
-    found, nova = _authored_with_tables(), _lookup_document()
-    assert found, "No corpus document made in HQ holds lookup tables and republishes with no workbook."
+    nova = _lookup_document()
     assert nova, "No corpus document's publish sends lookup tables, so no workbook can be planted."
-    document, name = found
     workbook = nova[1].content.lookups
     planted_tags = {table["tag"] for table in nova[0].document["lookup"]["definitions"]}
+    assert planted_tags
+    found = _authored_with_global_tables(excluding=planted_tags)
+    assert found, "No HQ-authored document republishes without a workbook and holds disjoint global tables."
+    document, name, authored_tags = found
     planted = _with_republish_workbook(document, name, workbook, tmp_path / document.id)
     assert planted.exports[name].republish.lookups is not None
 
@@ -1344,9 +1351,8 @@ def test_b_s_sessions_on_an_app_made_in_hq_read_the_tables_the_unit_holds_after_
         records = _observed_without_hooks(planted, core_runner, [name])
     recorded_sessions = observations.sessions_record(records, name)
     assert recorded_sessions is not None and recorded_sessions.get("lookupsB") == {"served": True}, recorded_sessions
-    assert served["restore-b"] & planted_tags, served
-    assert not served["restore-a"] & planted_tags, served
-    assert served["restore-a"] <= served["restore-b"], served
+    assert served["restore-a"] == authored_tags, served
+    assert served["restore-b"] == authored_tags | planted_tags, served
 
     unplanted = observations.sessions_record(_observed_without_hooks(document, core_runner, [name]), name)
     assert unplanted is not None and "lookupsB" not in unplanted, unplanted
