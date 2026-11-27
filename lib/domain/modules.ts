@@ -1098,6 +1098,8 @@ const calculatedColumnSchema = columnBase.extend({
 		),
 	expression: valueSchema,
 	searchResultDetail: searchResultDetailTextSchema.optional(),
+	/** Keep the native spelling of a property read from its own inline result. */
+	inlineResultProperty: z.literal(true).optional(),
 	loadBehavior: columnLoadBehaviorSchema.optional(),
 });
 

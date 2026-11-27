@@ -295,10 +295,12 @@ export const SEARCH_RESULTS_SEED = {
 	formName: "Check in",
 	caseType: "patient",
 	columnUuid: testUuid("search-results-name-column"),
+	resultColumnUuid: testUuid("search-results-note-column"),
 	searchInputUuid: testUuid("search-results-name-input"),
 	prompt: { name: "patient_name", label: "Patient name" },
 	noteLabel: "Note",
-	match: { caseName: "Kofi Mensah" },
+	match: { caseName: "Kofi Mensah", note: "North village" },
+	missing: { caseName: "Mina Okafor" },
 } as const;
 
 export function buildSearchResultsBlueprint(appId: string): BlueprintDoc {
@@ -320,7 +322,18 @@ export function buildSearchResultsBlueprint(appId: string): BlueprintDoc {
 				name: seed.moduleName,
 				caseType: seed.caseType,
 				caseListConfig: {
-					columns: [plainColumn(seed.columnUuid, "case_name", "Patient")],
+					columns: [
+						plainColumn(seed.columnUuid, "case_name", "Patient"),
+						{
+							...calculatedColumn(
+								seed.resultColumnUuid,
+								"Found in",
+								term(prop(seed.caseType, "note")),
+							),
+							inlineResultProperty: true,
+							visibleInDetail: false,
+						},
+					],
 					searchInputs: [
 						simpleSearchInputDef(
 							seed.searchInputUuid,

@@ -604,19 +604,21 @@ export function deriveCaseSelectionDatum(args: {
 		}),
 		...(args.autoSelect === true && { autoselect: true }),
 	};
-	/* Whether the datum names a details screen is entry metadata too: it is
-	 * whether a runtime confirms a case chosen for it
-	 * (`lib/preview/engine/parentCaseSelection.ts`). */
+	const details = {
+		detailSelect: `m${args.moduleIndex}_case_short`,
+		...(args.inlineDetailId && { detailInline: args.inlineDetailId }),
+		...(args.detailConfirm === true &&
+			!args.inlineDetailId && {
+				detailConfirm: `m${args.moduleIndex}_case_long`,
+			}),
+		...(args.persistentDetailId !== undefined && {
+			detailPersistent: args.persistentDetailId,
+		}),
+	};
+	// Placement checks need the same detail references as the emitted datum.
+	// Metadata carries those identities without lowering its selector XPath.
 	if (args.entryMetadataOnly)
-		return {
-			...selection,
-			...(args.inlineDetailId && { detailInline: args.inlineDetailId }),
-			...(args.detailConfirm === true &&
-				!args.inlineDetailId && {
-					detailConfirm: `m${args.moduleIndex}_case_long`,
-				}),
-			projectionOnlySelection: true,
-		};
+		return { ...selection, ...details, projectionOnlySelection: true };
 	const inline =
 		args.caseSource !== undefined && args.caseSource !== "casedb"
 			? args.caseSource
@@ -718,15 +720,7 @@ export function deriveCaseSelectionDatum(args: {
 		nodeset: renderNodeset(args.parentSelection),
 		renderNodeset,
 		value: w.context([w.self(), w.attr("case_id")]),
-		detailSelect: `m${args.moduleIndex}_case_short`,
-		...(args.inlineDetailId && { detailInline: args.inlineDetailId }),
-		...(args.detailConfirm === true &&
-			!args.inlineDetailId && {
-				detailConfirm: `m${args.moduleIndex}_case_long`,
-			}),
-		...(args.persistentDetailId !== undefined && {
-			detailPersistent: args.persistentDetailId,
-		}),
+		...details,
 	};
 }
 

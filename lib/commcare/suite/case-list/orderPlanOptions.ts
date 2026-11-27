@@ -52,6 +52,10 @@ import {
 	plainSelectDisplayXpath,
 } from "./columns";
 import { detailBindings } from "./detailBindings";
+import {
+	inlineResultPropertyWire,
+	ownInlineResultProperty,
+} from "./inlineResultProperty";
 import { resultDetailTextWire } from "./resultDetailText";
 
 /**
@@ -139,6 +143,9 @@ export function hqExpressionField(
 	rewrites?: RewriteControl,
 ): WireExpr {
 	if (column.kind === "calculated") {
+		const inlineProperty = ownInlineResultProperty(column, mod.caseType);
+		if (inlineProperty !== undefined)
+			return inlineResultPropertyWire(inlineProperty);
 		if (screen === "details" && column.searchResultDetail) {
 			const branch = resolveSearchResultDetailRoute(
 				mod,

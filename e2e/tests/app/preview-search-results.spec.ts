@@ -17,7 +17,7 @@ test("a form reading search results opens after a search and asks for one after 
 	tag: "@seed:search-results",
 }, async ({ scenario, page }) => {
 	const { searchResults } = seedFor(scenario, "search-results");
-	const { match, prompt, moduleName, formName, noteLabel } =
+	const { match, missing, prompt, moduleName, formName, noteLabel } =
 		SEARCH_RESULTS_SEED;
 	test.setTimeout(90_000);
 	const main = page.locator("main");
@@ -53,6 +53,7 @@ test("a form reading search results opens after a search and asks for one after 
 			.getByRole("button", { name: new RegExp(`^${moduleName}\\b`) })
 			.click();
 		await expect(searchScreen).toBeVisible({ timeout: 20_000 });
+		await expect(main.getByText(match.note, { exact: true })).toHaveCount(0);
 		await searchScreen
 			.getByRole("textbox", { name: prompt.label })
 			.fill(match.caseName);
@@ -60,6 +61,7 @@ test("a form reading search results opens after a search and asks for one after 
 			.getByRole("button", { name: "Search All Cases", exact: true })
 			.click();
 		await expect(rows).toHaveCount(1, { timeout: 20_000 });
+		await expect(rows.getByText(match.note, { exact: true })).toBeVisible();
 		await main
 			.getByRole("button", {
 				name: new RegExp(`^View details for ${match.caseName}`),
@@ -78,6 +80,7 @@ test("a form reading search results opens after a search and asks for one after 
 
 	await test.step("the reloaded record link keeps no search, so the form offers Search", async () => {
 		await openBuilder(page, recordUrl);
+		await expect(main.getByText(match.note, { exact: true })).toHaveCount(0);
 		await continueToForm(refusal);
 		await expect(refusal).toContainText("This form opens after a search");
 		await expect(note).toHaveCount(0);
@@ -85,5 +88,30 @@ test("a form reading search results opens after a search and asks for one after 
 			.getByRole("button", { name: "Go to Search", exact: true })
 			.click();
 		await expect(searchScreen).toBeVisible({ timeout: 20_000 });
+	});
+
+	await test.step("an absent property stays empty and an unmatched search offers no case", async () => {
+		const searchFor = async (name: string) => {
+			await searchScreen
+				.getByRole("textbox", { name: prompt.label })
+				.fill(name);
+			await searchScreen
+				.getByRole("button", { name: "Search All Cases", exact: true })
+				.click();
+		};
+		await searchFor(missing.caseName);
+		await expect(
+			rows.getByText(missing.caseName, { exact: true }),
+		).toBeVisible();
+		await expect(rows).toHaveCount(1);
+		await expect(rows.getByText(match.note, { exact: true })).toHaveCount(0);
+		await main
+			.getByRole("button", { name: "Search again", exact: true })
+			.click();
+		await searchFor("no-matching-worker-record");
+		await expect(
+			main.getByRole("button", { name: "Search again", exact: true }),
+		).toBeVisible();
+		await expect(rows).toHaveCount(0);
 	});
 });

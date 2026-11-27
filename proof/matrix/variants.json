@@ -44561,17 +44561,24 @@
 	{
 		"id": "hq-search/visits-list-reads-the-inline-results",
 		"base": "hq-search",
-		"entry": "menus-and-case-lists/usexpathexpression-field-xpath-outside-valueexpression",
-		"standing": "not-yet",
-		"place": {
-			"kind": "case-list",
-			"menu": 2,
-			"name": "Visits"
-		},
+		"entry": "menus-and-case-lists/inline-search-result-own-text-property",
+		"declaration": { "runsOnlyOn": "web-apps", "splitDatetime": false },
 		"change": {
 			"op": "named",
 			"name": "visits_list_reads_the_inline_results"
-		}
+		},
+		"holds": [
+			{
+				"key": ["module", { "$menu": 2 }],
+				"pointer": "/caseListConfig/columns/1/inlineResultProperty",
+				"value": true
+			},
+			{
+				"key": ["module", { "$menu": 2 }],
+				"pointer": "/caseListConfig/columns/1/expression/term",
+				"value": { "kind": "prop", "caseType": "client", "property": "village" }
+			}
+		]
 	},
 	{
 		"id": "hq-search/visits-list-shows-a-search-field",

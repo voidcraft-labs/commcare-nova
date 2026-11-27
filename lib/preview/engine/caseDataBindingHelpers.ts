@@ -266,11 +266,13 @@ function caseCalculation(
 function runtimeCalculatedColumns(
 	config: CaseListConfig | undefined,
 	locale?: CaseListOrderLocale,
+	scope: "record" | "completed-search" = "record",
 ) {
 	if (!config) return undefined;
 	const columns = config.columns.filter(
 		(column): column is Extract<Column, { kind: "calculated" }> =>
 			column.kind === "calculated" &&
+			(!column.inlineResultProperty || scope === "completed-search") &&
 			caseListColumnRuns(column, config) &&
 			!columnReadsDetailTabRow(config, column),
 	);
@@ -644,7 +646,11 @@ export async function readCases(
 				? { datumOrder: true as const }
 				: {
 						sort: buildCaseStoreSortKeys(args.order, args.caseType),
-						calculated: runtimeCalculatedColumns(args.caseListConfig),
+						calculated: runtimeCalculatedColumns(
+							args.caseListConfig,
+							undefined,
+							"completed-search",
+						),
 						related: runtimeRelatedReads(args.caseListConfig, args.caseType),
 					}),
 			offset: page?.offset,

@@ -1989,6 +1989,10 @@ export function readCaseDetails(
 	// whose search launches by itself (`helpers/validators.py::validate_detail_columns`).
 	const search = module.json.peek("search_config");
 	const autoLaunch = isJsonObject(search) && search.auto_launch === true;
+	const inlineResultProperty =
+		autoLaunch &&
+		search.inline_search === true &&
+		(search.instance_name == null || search.instance_name === "inline");
 	const shortOptions: Omit<ColumnOptions, "filterChangesBuild"> = {
 		...shared,
 		inTile,
@@ -1996,6 +2000,7 @@ export function readCaseDetails(
 		formats: formatCounts(short),
 		searchInstancesRead:
 			autoLaunch || short.peek("instance_name") === "results",
+		inlineResultProperty,
 	};
 	const longOptions: ColumnOptions = {
 		...shared,

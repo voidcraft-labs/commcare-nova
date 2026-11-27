@@ -40,6 +40,10 @@ import {
 import { HqXPath, hqXPathText } from "../../hqJson/xpath";
 import { hqOfferedChildCaseTypes } from "../../hqOfferedChildTypes";
 import { listIconActionIssue } from "../../listIconAction";
+import {
+	inlineResultPropertyColumnSupported,
+	inlineResultPropertyPlacementsSupported,
+} from "../../suite/case-list/inlineResultPropertyPlacements";
 import { hqMappingKeyIsExpression } from "../../suite/case-list/keyVariable";
 import { rethrowWorkStop } from "../../workMeter";
 import { withCandidate } from "../candidate";
@@ -1248,6 +1252,7 @@ export function settleCaseLists(ctx: ReadContext, app: DraftApp): void {
 		);
 		ctx.doc = withoutImplicitRule(ctx, ctx.doc, reading);
 		ctx.doc = settleSearchResultDetailColumns(ctx.doc, module.uuid, reading);
+		settleInlineResultPropertyColumns(ctx.doc, module.uuid, reading);
 		const doc = ctx.doc;
 		const mod = doc.modules[module.uuid];
 		if (mod === undefined) continue;
@@ -1296,6 +1301,43 @@ export function settleCaseLists(ctx: ReadContext, app: DraftApp): void {
 			!ctx.accounting.hasFindingAt(caseListPlace(module, "case-detail"))
 		)
 			ctx.accounting.circumstance("unrecognized", place, { name: difference });
+	}
+}
+
+/** Short includes this native calculation only where the bound case
+ * catalog and all entries agree on the exact text row that supplies it. */
+function settleInlineResultPropertyColumns(
+	doc: BlueprintDoc,
+	moduleUuid: Uuid,
+	reading: CaseListReading,
+): void {
+	const module = doc.modules[moduleUuid];
+	if (!module) return;
+	let placements: boolean | undefined;
+	for (const [index, joined] of reading.joined.columns.entries()) {
+		const proposed = joined.proposal.column;
+		if (proposed.kind !== "calculated" || !proposed.inlineResultProperty)
+			continue;
+		const column = module.caseListConfig?.columns.find(
+			(candidate) => candidate.uuid === reading.uuids[index],
+		);
+		placements ??= inlineResultPropertyPlacementsSupported(doc, module);
+		if (
+			placements &&
+			column?.kind === "calculated" &&
+			inlineResultPropertyColumnSupported(doc, module, column)
+		)
+			joined.proposal.json.take(
+				"field",
+				COLUMN_CLAIMS.inlineResultOwnProperty,
+				String,
+			).value;
+		else
+			joined.proposal.json.refuse(
+				"field",
+				COLUMN_CLAIMS.inlineResultOwnPropertyUnavailable,
+				{ reason: "inline-result-text-placement" },
+			);
 	}
 }
 

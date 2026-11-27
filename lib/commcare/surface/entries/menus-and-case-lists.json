@@ -4738,6 +4738,26 @@
 		"gates": []
 	},
 	{
+		"id": "menus-and-case-lists/inline-search-result-own-text-property",
+		"area": "menus-and-case-lists",
+		"section": "Case list and case detail",
+		"subsection": "Detail columns",
+		"item": "A Short calculation reads a text property from its own primary inline Search result",
+		"surfaceKeys": ["schema:DetailColumn.field"],
+		"valueClass": "inline-search-result-own-text-property",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: plain, visible, unsorted Short column reading one declared text property of the current primary result in the actual inline Search route.",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / UNAVAILABLE",
+			"webApps": { "reading": "runs" },
+			"android": { "reading": "unavailable" }
+		},
+		"emission": { "cell": "same native calculation", "markers": [] },
+		"gates": [],
+		"slotChanges": []
+	},
+	{
 		"id": "menus-and-case-lists/usexpathexpression-field-xpath-outside-valueexpression",
 		"area": "menus-and-case-lists",
 		"section": "Case list and case detail",

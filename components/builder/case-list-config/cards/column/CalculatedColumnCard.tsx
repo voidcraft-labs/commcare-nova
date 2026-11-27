@@ -96,9 +96,10 @@ export function CalculatedColumnCard({
 			: undefined;
 	const usesDefaultHeader = value.header.trim() === "";
 	const setHeader = (header: string) => onChange({ ...value, header });
+	const { inlineResultProperty: _inlineResultProperty, ...ordinary } = value;
 	const setExpression = (expression: Expression) =>
-		onChange({ ...value, expression });
-	const { showAs, texts, ...plain } = value;
+		onChange({ ...ordinary, expression });
+	const { showAs, texts, ...plain } = ordinary;
 	const used = new Set<string>();
 	walkExpressionNodes(value.expression, (node) => {
 		if (node.kind === "case-text") used.add(node.textUuid);
@@ -120,7 +121,7 @@ export function CalculatedColumnCard({
 						if (mode === "translated") onChange({ ...plain, texts: [] });
 						else if (mode === "formatted-text")
 							onChange({ ...plain, showAs: mode });
-						else onChange(plain);
+						else onChange(value.inlineResultProperty ? value : plain);
 					}}
 				/>
 			)}
