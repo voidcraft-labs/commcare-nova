@@ -29,6 +29,7 @@ import {
 	materializableCaseTypes,
 } from "@/lib/domain/effectiveCaseTypes";
 import { slotContext } from "@/lib/domain/expression/context";
+import { formStructure } from "@/lib/domain/expression/formStructure";
 import { hiddenWriterVerdicts } from "@/lib/domain/expression/inference";
 import { resolveRelationDestination } from "@/lib/domain/expression/relationDestination";
 import { agreedStorageType } from "@/lib/domain/expression/ruleSets";
@@ -39,6 +40,7 @@ import {
 	type RelationPath,
 } from "@/lib/domain/expression/types";
 import { walkExpressionNodes } from "@/lib/domain/expression/walk";
+import { menuWithInheritedCaseSettings } from "@/lib/domain/listedForms";
 import { type ProseTemplate, proseText } from "@/lib/domain/prose";
 import {
 	type ExpressionCarrierRef,
@@ -629,6 +631,21 @@ export function readCaseCatalog(ctx: ReadContext, app: DraftApp): void {
 			const xform = form.xform;
 			if (xform !== null)
 				for (const field of fieldsOf(xform.childrenOf, null)) {
+					// A case choices nodeset names the type it lists even when no menu owns it.
+					const choices = xform.caseChoices.get(field);
+					if (choices?.caseType !== undefined) {
+						noteType(caseTypes, choices.caseType);
+						for (const property of [
+							choices.labelProperty,
+							choices.sortProperty,
+						])
+							if (property !== undefined)
+								writes.push({
+									caseType: choices.caseType,
+									property,
+									read: true,
+								});
+					}
 					const read = field.field.default_value as
 						| {
 								kind?: string;
@@ -1067,6 +1084,7 @@ export function catalogAsRead(
 		kind: string;
 	}[] = [];
 	const selections: { child: string; parent: string }[] = [];
+	const reads: { caseType: string; property: string }[] = [];
 	for (const uuid of doc.moduleOrder)
 		noteType(caseTypes, doc.modules[uuid]?.caseType);
 	for (const moduleUuid of doc.moduleOrder) {
@@ -1121,10 +1139,20 @@ export function catalogAsRead(
 					});
 				}
 			}
+			for (const fieldUuid of formStructure(doc, formUuid)?.fields.keys() ??
+				[]) {
+				const field = doc.fields[fieldUuid];
+				const choices =
+					"optionsSource" in field ? field.optionsSource : undefined;
+				if (choices?.kind !== "cases") continue;
+				noteType(caseTypes, choices.caseType);
+				for (const property of [choices.labelProperty, choices.sortProperty])
+					if (property !== undefined)
+						reads.push({ caseType: choices.caseType, property });
+			}
 		}
 	}
 	noteParents(caseTypes, links, selections, knownCaseTypesOf(doc));
-	const reads: { caseType: string; property: string }[] = [];
 	const effectiveTypes = effectiveCaseTypes(doc);
 	const subcases = subcaseLinks(doc, effectiveTypes);
 	expressionReads(doc.fields, reads, effectiveTypes);
@@ -1142,6 +1170,15 @@ export function catalogAsRead(
 		}
 		for (const uuid of doc.moduleOrder) {
 			const module = doc.modules[uuid];
+			const lookup = module?.caseListConfig?.deviceLookup?.resultProperty;
+			if (lookup !== undefined) {
+				const owner = menuWithInheritedCaseSettings(
+					doc,
+					uuid,
+					module,
+				)?.caseType;
+				if (owner !== undefined) noteProperty(draft, owner, lookup);
+			}
 			if (module?.caseType === undefined) continue;
 			for (const one of listProperties(
 				module as unknown as Readonly<Record<string, unknown>>,

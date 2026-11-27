@@ -45,6 +45,7 @@ export interface CaseChoicesProposal {
 	readonly label: Element;
 	readonly value: Element;
 	readonly sort?: Element;
+	readonly sortProperty?: string;
 	readonly select: "select1" | "select";
 	readonly caseType?: string;
 	readonly status?: AvailableCasesOptionsSource["status"];
@@ -571,6 +572,7 @@ function readItemset(
 			caseType,
 			labelProperty,
 			...(sort === undefined ? {} : { sort }),
+			...(sortProperty === undefined ? {} : { sortProperty }),
 			filtered: filter !== undefined,
 		};
 	}

@@ -22,6 +22,10 @@ import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import {
+	ROUTE,
+	twoMenus,
+} from "@/lib/commcare/__tests__/menuFormRoutesFixture";
 import { datetimeSplitOriginal } from "@/lib/doc/__tests__/datetimeSplitFixture";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { planDatetimeSplits } from "@/lib/doc/datetimeSplit";
@@ -194,6 +198,105 @@ function plain(catalog: NonNullable<BlueprintDoc["caseTypes"]> | null) {
 }
 
 describe("the case catalog of a reading", () => {
+	it("keeps the property read by a shared menu's lookup on its inherited case type", async () => {
+		const changed = mutationCommitVerdict(
+			twoMenus(),
+			[
+				{
+					kind: "addCaseProperty",
+					caseType: "patient",
+					property: {
+						name: "scan_id",
+						label: proseText("Scan ID"),
+						data_type: "text",
+					},
+				},
+				{
+					kind: "setCaseListMeta",
+					uuid: ROUTE,
+					patch: {
+						deviceLookup: {
+							action: "org.example.LOOKUP",
+							label: "Find patient",
+							resultHeading: "Confidence",
+							resultProperty: "scan_id",
+							extras: [{ name: "mode", value: "scan" }],
+							responses: ["match"],
+						},
+					},
+				},
+			],
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
+		if (!changed.ok) throw new Error(JSON.stringify(changed.findings));
+		const doc = changed.nextDoc;
+		expect(doc.modules[ROUTE].caseType).toBeUndefined();
+		const canonical = catalogAsRead(doc);
+		expect(
+			canonical.find((type) => type.name === "patient")?.properties,
+		).toContainEqual({
+			name: "scan_id",
+			label: proseText("scan_id"),
+			data_type: "text",
+		});
+		const actual = readHqApp(
+			await inputFor(exportedBody(doc), {
+				knownCaseTypes: knownCaseTypesOf(doc),
+			}),
+		);
+		if (actual.kind !== "read")
+			throw new Error(JSON.stringify(actual.findings));
+		expect(plain(actual.draft.doc.caseTypes)).toEqual(plain(canonical));
+	});
+
+	it("reads a case type named only in a survey's case choices", async () => {
+		const doc = buildDoc({
+			caseTypes: [
+				{
+					name: "clinic",
+					properties: ["display", "rank", "region"].map((name) => ({
+						name,
+						label: proseText(name),
+					})),
+				},
+			],
+			modules: [
+				{
+					name: "Directory",
+					forms: [
+						{
+							name: "Choose a clinic",
+							type: "survey",
+							fields: [
+								f({
+									kind: "single_select",
+									id: "clinic",
+									label: "Clinic",
+									optionsSource: {
+										kind: "cases",
+										caseType: "clinic",
+										labelProperty: "display",
+										sortProperty: "rank",
+										filter: eq(prop("clinic", "region"), literal("north")),
+									},
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
+		const actual = readHqApp(await inputFor(exportedBody(doc)));
+		if (actual.kind !== "read")
+			throw new Error(JSON.stringify(actual.findings));
+		expect(
+			catalogAsRead(doc)[0]?.properties.map((property) => property.name),
+		).toEqual(["display", "rank", "region"]);
+		expect(plain(actual.draft.doc.caseTypes)).toEqual(
+			plain(catalogAsRead(doc)),
+		);
+	});
+
 	it("is the catalog catalogAsRead states of the Nova-born document it was emitted from", async () => {
 		const doc = patients();
 		const reading = await readCases(doc);
