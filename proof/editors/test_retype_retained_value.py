@@ -87,7 +87,7 @@ def test_vellum_and_signed_worker_retype_a_fresh_case_with_an_explicit_overwrite
 ):
     document = corpus_document("hq-questions")
     configuration = document.exports["minimum"].configuration.hq()
-    configuration = replace(configuration, flags=configuration.flags | {"VELLUM_SAVE_TO_CASE"})
+    configuration = replace(configuration, privileges=configuration.privileges | {"VELLUM_SAVE_TO_CASE"})
     with hq_check(configuration) as (unit, _):
         with unit.operation("retype:authored-base", direction.encode()):
             app_id, refusal, _ = publish.create_authored(unit, document)
