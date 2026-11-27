@@ -16,7 +16,7 @@ import {
 	formCaseSelections,
 	ownFormSelectionIndex,
 } from "@/lib/domain/advancedEntryDatums";
-import { boundedFlatCloseForm } from "@/lib/domain/boundedFlatClose";
+import { authoredBoundedFlatClose } from "@/lib/domain/boundedFlatClose";
 import { formStructure } from "@/lib/domain/expression/formStructure";
 import {
 	entrySelectionSettings,
@@ -209,7 +209,7 @@ async function readOpening(
 			args.previous &&
 			(await verifyFormOpening(secret, audience, args.previous));
 		if (args.boundedFlatClose || previous?.boundedFlatClose) {
-			const profile = boundedFlatCloseForm(doc, args.module, args.form);
+			const profile = authoredBoundedFlatClose(doc, args.module, args.form);
 			if (
 				!profile ||
 				context.device.platform !== "web-apps" ||
@@ -249,9 +249,10 @@ async function readOpening(
 				caseIds,
 				caseType: profile.caseType,
 				restoreScope: context.restoreScope,
-				...(profile.selection.autoSelect && {
-					automaticMaximum: profile.selection.maximum,
-				}),
+				...(!previous &&
+					profile.selection.autoSelect && {
+						automaticMaximum: profile.selection.maximum,
+					}),
 			});
 			if (!cases) return unavailable;
 			const projection: FormOpeningProjection = previous ?? {

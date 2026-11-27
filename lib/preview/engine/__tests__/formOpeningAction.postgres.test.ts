@@ -408,122 +408,148 @@ it("rejects an over-limit bound selection before reading the signed worker resto
 	}
 });
 
-it("signs and atomically closes an ordered flat selection without restoring unrelated records", async () => {
-	vi.stubEnv("BETTER_AUTH_SECRET", "synthetic flat close secret");
-	const app = "bounded-flat-close-app";
-	const doc = buildDoc({
-		appId: app,
-		appSettings: { ...NEW_APP_SETTINGS, runsOnlyOn: "web-apps" },
-		caseTypes: [{ name: "person", properties: [] }],
-		modules: [
-			{
-				name: "Visits",
-				caseType: "person",
-				caseListConfig: {
-					...caseListConfig([{ field: "case_name", header: "Name" }]),
-					selection: { kind: "multiple", maximum: 100 },
-				},
-				forms: [
-					{
-						name: "Close these visits",
-						type: "close",
-						postSubmit: "app_home",
-						fields: [{ kind: "hidden", id: "done", calculate: "'yes'" }],
+it.each([false, true])(
+	"signs and atomically closes an ordered flat selection without restoring unrelated records (automatic %s)",
+	async (automatic) => {
+		vi.stubEnv("BETTER_AUTH_SECRET", "synthetic flat close secret");
+		const app = "bounded-flat-close-app";
+		const doc = buildDoc({
+			appId: app,
+			appSettings: { ...NEW_APP_SETTINGS, runsOnlyOn: "web-apps" },
+			caseTypes: [{ name: "person", properties: [] }],
+			modules: [
+				{
+					name: "Visits",
+					caseType: "person",
+					caseListConfig: {
+						...caseListConfig([{ field: "case_name", header: "Name" }]),
+						selection: {
+							kind: "multiple",
+							maximum: 101,
+							...(automatic && { autoSelect: true }),
+						},
 					},
-				],
-			},
-		],
-	});
-	await h.seedAppWithBlueprint(doc, {
-		id: app,
-		owner: member.id,
-		projectId: project,
-	});
-	await h.seedProjectMember(member.id, project, "editor");
-	const pool = h.pool();
-	await pool.query(
-		`INSERT INTO auth_session (id,"userId",token,"createdAt","updatedAt","expiresAt")
+					forms: [
+						{
+							name: "Close these visits",
+							type: "close",
+							postSubmit: "app_home",
+							fields: [{ kind: "hidden", id: "done", calculate: "'yes'" }],
+						},
+					],
+				},
+			],
+		});
+		await h.seedAppWithBlueprint(doc, {
+			id: app,
+			owner: member.id,
+			projectId: project,
+		});
+		await h.seedProjectMember(member.id, project, "editor");
+		const pool = h.pool();
+		await pool.query(
+			`INSERT INTO auth_session (id,"userId",token,"createdAt","updatedAt","expiresAt")
 		VALUES ($1,$2,$1,now(),now(),now()+interval '1 day')`,
-		[member.session, member.id],
-	);
-	await pool.query(
-		`INSERT INTO cases (app_id,project_id,case_id,case_type,case_name,status,owner_id,properties)
+			[member.session, member.id],
+		);
+		await pool.query(
+			`INSERT INTO cases (app_id,project_id,case_id,case_type,case_name,status,owner_id,properties)
 		VALUES ($1,$2,'training-1','person','First record','open',$3,'{}'),
 		       ($1,$2,'training-2','person','Second record','open',$3,'{}'),
-		       ($1,$2,'unrelated','person','Large unrelated record','open',$3,jsonb_build_object('payload',repeat('Ω',200000)))`,
-		[app, project, member.id],
-	);
-	const module = doc.moduleOrder[0];
-	const request = {
-		app,
-		module,
-		form: doc.formOrder[module][0],
-		entry: testUuid("bounded-flat-close-entry"),
-		run: testUuid("bounded-flat-close-run"),
-		blueprintDigest: await blueprintRevisionDigest(doc),
-	};
-	const selected = ["training-2", "training-1"];
-	const device = webAppsDevice();
-	const readRestore = vi.spyOn(
-		PostgresCaseStore.prototype,
-		"readDeviceCaseDatabase",
-	);
-	try {
-		const opened = await readFormOpeningAction(
-			{ ...request, bound: selected, boundedFlatClose: true },
-			device,
+		       ($1,$2,'unrelated','person','Large unrelated record','open',$4,jsonb_build_object('payload',repeat('Ω',200000)))`,
+			[app, project, member.id, automatic ? "another-worker" : member.id],
 		);
-		if (opened.kind !== "opening")
-			throw new Error(`Expected a bounded opening, got ${opened.kind}.`);
-		expect(opened.projection.boundedFlatClose).toBeDefined();
-		expect(opened.projection.primaryCaseIds).toEqual(selected);
-		expect(
-			opened.projection.cases.rows.map((row) => row.case_id).toSorted(),
-		).toEqual(selected.toSorted());
-		expect(
-			(
-				await readFormOpeningAction(
-					{ ...request, previous: opened.evidence, restore: true },
-					device,
-				)
-			).kind,
-		).toBe("opening");
-		const submit = (caseIds: string[]) =>
-			submitFormAction(
-				{
-					kind: "close",
-					caseIds,
-					formUuid: request.form,
-					entryKey: request.entry,
-					attachmentRefs: [],
-					formOpening: { module, run: request.run, evidence: opened.evidence },
-					operationAnswers: { root: [], repeats: [] },
-				},
-				app,
-				request.blueprintDigest,
-				undefined,
-				undefined,
-				undefined,
+		const module = doc.moduleOrder[0];
+		const request = {
+			app,
+			module,
+			form: doc.formOrder[module][0],
+			entry: testUuid("bounded-flat-close-entry"),
+			run: testUuid("bounded-flat-close-run"),
+			blueprintDigest: await blueprintRevisionDigest(doc),
+		};
+		const selected = automatic
+			? ["training-1", "training-2"]
+			: ["training-2", "training-1"];
+		const device = webAppsDevice();
+		const readRestore = vi.spyOn(
+			PostgresCaseStore.prototype,
+			"readDeviceCaseDatabase",
+		);
+		try {
+			const opened = await readFormOpeningAction(
+				{ ...request, bound: selected, boundedFlatClose: true },
 				device,
 			);
-		expect((await submit(selected.toReversed())).kind).not.toBe("close");
-		const closed = await submit(selected);
-		expect(closed).toMatchObject({ kind: "close", caseIds: selected });
-		expect(await submit(selected)).toEqual(closed);
-		const stored = await pool.query<{ case_id: string; status: string }>(
-			"SELECT case_id,status FROM cases WHERE app_id=$1 AND case_id=ANY($2) ORDER BY case_id",
-			[app, [...selected, "unrelated"]],
-		);
-		expect(stored.rows).toEqual([
-			{ case_id: "training-1", status: "closed" },
-			{ case_id: "training-2", status: "closed" },
-			{ case_id: "unrelated", status: "open" },
-		]);
-		expect(readRestore).not.toHaveBeenCalled();
-	} finally {
-		readRestore.mockRestore();
-	}
-});
+			if (opened.kind !== "opening")
+				throw new Error(`Expected a bounded opening, got ${opened.kind}.`);
+			expect(opened.projection.boundedFlatClose).toBeDefined();
+			expect(opened.projection.primaryCaseIds).toEqual(selected);
+			expect(
+				opened.projection.cases.rows.map((row) => row.case_id).toSorted(),
+			).toEqual(selected.toSorted());
+			if (automatic) {
+				await pool.query(
+					`INSERT INTO cases (app_id,project_id,case_id,case_type,case_name,status,owner_id,properties)
+				VALUES ($1,$2,'later','person','Newly available','open',$3,'{}')`,
+					[app, project, member.id],
+				);
+				expect(
+					await readFormOpeningAction(
+						{ ...request, bound: selected, boundedFlatClose: true },
+						device,
+					),
+				).toMatchObject({ kind: "record-unavailable" });
+			}
+			expect(
+				(
+					await readFormOpeningAction(
+						{ ...request, previous: opened.evidence, restore: true },
+						device,
+					)
+				).kind,
+			).toBe("opening");
+			const submit = (caseIds: string[]) =>
+				submitFormAction(
+					{
+						kind: "close",
+						caseIds,
+						formUuid: request.form,
+						entryKey: request.entry,
+						attachmentRefs: [],
+						formOpening: {
+							module,
+							run: request.run,
+							evidence: opened.evidence,
+						},
+						operationAnswers: { root: [], repeats: [] },
+					},
+					app,
+					request.blueprintDigest,
+					undefined,
+					undefined,
+					undefined,
+					device,
+				);
+			expect((await submit(selected.toReversed())).kind).not.toBe("close");
+			const closed = await submit(selected);
+			expect(closed).toMatchObject({ kind: "close", caseIds: selected });
+			expect(await submit(selected)).toEqual(closed);
+			const stored = await pool.query<{ case_id: string; status: string }>(
+				"SELECT case_id,status FROM cases WHERE app_id=$1 AND case_id=ANY($2) ORDER BY case_id",
+				[app, [...selected, "unrelated"]],
+			);
+			expect(stored.rows).toEqual([
+				{ case_id: "training-1", status: "closed" },
+				{ case_id: "training-2", status: "closed" },
+				{ case_id: "unrelated", status: "open" },
+			]);
+			expect(readRestore).not.toHaveBeenCalled();
+		} finally {
+			readRestore.mockRestore();
+		}
+	},
+);
 
 it("restores a signed projection above one MiB only for the original entry, run and device", async () => {
 	const { pool, device, request, first, app } = await openPracticeForm(1850);

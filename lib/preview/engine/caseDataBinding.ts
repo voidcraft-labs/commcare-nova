@@ -77,10 +77,7 @@ import {
 	userPropertySlugsByUuid,
 } from "@/lib/domain";
 import { blueprintDocSchema } from "@/lib/domain/blueprint";
-import {
-	authoredBoundedFlatClose,
-	boundedFlatCloseForm,
-} from "@/lib/domain/boundedFlatClose";
+import { authoredBoundedFlatClose } from "@/lib/domain/boundedFlatClose";
 import { resolveCaseFormContext } from "@/lib/domain/caseFormContext";
 import { isAdvancedCaseIndexIdentifier } from "@/lib/domain/caseOperationIdentifiers";
 import { STANDARD_CASE_SELECTION_MAXIMUM } from "@/lib/domain/caseSelectionLimits";
@@ -2479,7 +2476,11 @@ export async function submitFormAction(
 		if (
 			opening?.boundedFlatClose &&
 			(!binding ||
-				!boundedFlatCloseForm(committed, binding.module, projection.formUuid) ||
+				!authoredBoundedFlatClose(
+					committed,
+					binding.module,
+					projection.formUuid,
+				) ||
 				admitted.device.platform !== "web-apps" ||
 				opening.boundedFlatClose.expiresAt <= Date.now())
 		)
