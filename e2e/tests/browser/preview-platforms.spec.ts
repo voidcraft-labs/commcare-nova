@@ -460,7 +460,7 @@ const PREVIEW_PLATFORM_CHECKS: Readonly<
 		await expect(address).toHaveAttribute("readonly", "");
 		await expect(address).toHaveValue("");
 		await expect(question("address")).toContainText(
-			"no map provider is set up",
+			"Preview can search for addresses once a map provider is set up.",
 		);
 		await expect(question("address")).toContainText("Geocoder plan feature");
 		/* Web Apps ignores a compact group: the hint shows under its label. */
