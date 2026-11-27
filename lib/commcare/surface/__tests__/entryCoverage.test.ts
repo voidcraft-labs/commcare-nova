@@ -47,6 +47,7 @@ import {
 	FIRST_PUBLISH_CHANGE_IDS,
 	FIRST_PUBLISH_PLATFORM,
 	type FirstPublishChangeId,
+	retiredSearchFilterNotices,
 } from "@/lib/publish/firstPublishChangeIds";
 import { KEPT_AT_HQ, type KeptRow } from "../keptAtHq";
 import { schemaPropertyDefault } from "../schemaDefaults";
@@ -548,7 +549,10 @@ describe("the repository's coverage", () => {
 		inputs = {
 			...repositoryInputs(manifest.inventory),
 			kept: KEPT_AT_HQ,
-			firstPublishIds: FIRST_PUBLISH_CHANGE_IDS,
+			// A retired notice stays renderable for a stored review, and no reading makes it.
+			firstPublishIds: FIRST_PUBLISH_CHANGE_IDS.filter(
+				(id) => !retiredSearchFilterNotices.has(id),
+			),
 			registerIds: REGISTER_IDS,
 			refusingClaims: [...claimRegistry()]
 				.filter(([, claim]) => claim.use === "refuse")

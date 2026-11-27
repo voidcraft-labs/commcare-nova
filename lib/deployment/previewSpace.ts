@@ -2,6 +2,16 @@ import "server-only";
 
 import { targetAndroidAppLabels } from "@/lib/commcare/androidAppDependencies";
 import { log } from "@/lib/logger";
+import type { PreviewSearchCatalog } from "@/lib/preview/searchSettings";
+import {
+	type PreviewSearchTarget,
+	previewSearchTargetKey,
+	resolvePreviewSearchFacts,
+} from "@/lib/preview/searchSettings";
+import {
+	previewSearchCatalogIn,
+	readAuthorizedPreviewSearchCatalog,
+} from "./previewSearchSettings";
 import {
 	previewProjectSpace,
 	resolvePreviewDeploymentTarget,
@@ -32,8 +42,20 @@ import type { PreviewDeploymentAnswer } from "./types";
  */
 export async function previewProjectSpaceFor(
 	scope: DeploymentScope,
+	selection?: { readonly target?: PreviewSearchTarget },
 ): Promise<string | null> {
 	try {
+		if (selection !== undefined) {
+			const catalog = await readAuthorizedPreviewSearchCatalog(
+				scope.appId,
+				scope.projectId,
+				scope.actorUserId,
+			);
+			return (
+				resolvePreviewSearchFacts(catalog, selection.target).projectSpace ??
+				null
+			);
+		}
 		const deployments = await readDeploymentPreviewRecords(scope);
 		return previewProjectSpace(resolvePreviewDeploymentTarget(deployments));
 	} catch (error) {
@@ -43,6 +65,34 @@ export async function previewProjectSpaceFor(
 		});
 		return null;
 	}
+}
+
+/** A new submission must use the same destination context as the form entry. */
+export async function previewProjectSpaceForSubmission(
+	scope: DeploymentScope,
+	selection?: {
+		readonly target?: PreviewSearchTarget;
+		readonly revision: string;
+	},
+): Promise<string | null | undefined> {
+	if (selection === undefined) return previewProjectSpaceFor(scope);
+	const catalog = await readAuthorizedPreviewSearchCatalog(
+		scope.appId,
+		scope.projectId,
+		scope.actorUserId,
+	);
+	if (selection.target !== undefined) {
+		const key = previewSearchTargetKey(selection.target);
+		if (
+			!catalog.profiles.some(
+				(profile) => previewSearchTargetKey(profile.target) === key,
+			)
+		)
+			return undefined;
+	}
+	const facts = resolvePreviewSearchFacts(catalog, selection.target);
+	if (facts.revision !== selection.revision) return undefined;
+	return facts.projectSpace ?? null;
 }
 
 /**
@@ -56,15 +106,25 @@ export async function previewProjectSpaceFor(
  */
 export async function readPreviewDeploymentAnswer(
 	scope: DeploymentScope,
-): Promise<PreviewDeploymentAnswer> {
+	includeSearchCatalog = false,
+): Promise<PreviewDeploymentAnswer & { searchCatalog?: PreviewSearchCatalog }> {
 	/* The records and the facts of one moment, for a caller allowed to see
 	 * them then; the facts' bytes are read in the snapshot and projected once
 	 * it has given its connection back. */
-	const { projectSpace, target, held, geocoder } =
+	const { projectSpace, target, held, geocoder, search } =
 		await withDeploymentReadSnapshot(scope, "view", async (snapshot) => {
 			const deployments = await readDeploymentPreviewRecords(snapshot);
 			const target = resolvePreviewFactsTarget(deployments);
 			return {
+				search: includeSearchCatalog
+					? {
+							searchCatalog: await previewSearchCatalogIn(
+								snapshot.db,
+								scope,
+								deployments,
+							),
+						}
+					: {},
 				projectSpace: previewProjectSpace(
 					resolvePreviewDeploymentTarget(deployments),
 				),
@@ -78,12 +138,13 @@ export async function readPreviewDeploymentAnswer(
 			};
 		});
 	if (target === null || held === null)
-		return { projectSpace, targetFacts: null };
+		return { projectSpace, targetFacts: null, ...search };
 	const facts = targetFactsOf(held);
 	const androidAppLabels =
 		facts === null ? undefined : targetAndroidAppLabels(facts.uiText);
 	return {
 		projectSpace,
+		...search,
 		targetFacts:
 			facts === null
 				? null

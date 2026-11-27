@@ -60,7 +60,7 @@ export const evaluateFormInputSchema = formAddressSchema
 			.max(100)
 			.optional()
 			.describe(
-				"Values from the preceding Search. Date ranges use name:from and name:to.",
+				"Values from the preceding Search, by visible Search field name. Date ranges use name:from and name:to. On Web Apps, a field the worker also searched for blank adds name:blank, set to true; Android's Search screen has no such box. Hidden values are worked out by the search, so leave them out.",
 			),
 		language: languageTagSchema.optional(),
 		platform: z

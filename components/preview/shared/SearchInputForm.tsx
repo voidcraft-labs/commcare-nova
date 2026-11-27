@@ -41,17 +41,23 @@ import tablerAlertCircle from "@iconify-icons/tabler/alert-circle";
 import tablerSearch from "@iconify-icons/tabler/search";
 import {
 	type ReactNode,
+	type Ref,
 	useCallback,
 	useEffect,
 	useId,
+	useImperativeHandle,
 	useMemo,
 	useRef,
 	useState,
 } from "react";
 import { useBuilderLanguage } from "@/components/builder/localization/BuilderLocalizationProvider";
-import { choiceKeysForAnswer } from "@/components/preview/shared/multiSelectChoiceKeys";
+import {
+	choiceKeysForAnswer,
+	webSearchChoices,
+} from "@/components/preview/shared/multiSelectChoiceKeys";
 import { WorkerDatePicker } from "@/components/preview/shared/WorkerDatePicker";
 import { Button } from "@/components/shadcn/button";
+import { Checkbox } from "@/components/shadcn/checkbox";
 import {
 	Field,
 	FieldDescription,
@@ -70,6 +76,7 @@ import {
 	type CaseType,
 	joinMultiSelectSearchAnswer,
 	type SearchInputDef,
+	splitMultiSelectSearchAnswer,
 	type VisibleSearchInputDef,
 } from "@/lib/domain";
 import type { Expression } from "@/lib/domain/expression/types";
@@ -85,7 +92,10 @@ import {
 	type PreviewSearchSessionValues,
 } from "@/lib/preview/engine/identity";
 import type { LookupChoice } from "@/lib/preview/engine/lookupEvaluation";
-import type { SearchInputValues } from "@/lib/preview/engine/runtimeBindings";
+import {
+	type SearchInputValues,
+	searchForBlankKey,
+} from "@/lib/preview/engine/runtimeBindings";
 import {
 	type HeldCheckRefusal,
 	heldCheckRefusal,
@@ -100,6 +110,11 @@ import {
 	searchInputRequiredMarks,
 	searchInputRequiredMarksOnDevice,
 } from "@/lib/preview/engine/searchInputConstraints";
+import {
+	androidSelectedRangeDay,
+	androidStartingRangeLabel,
+	webSearchRangeDraft,
+} from "@/lib/preview/engine/searchRangeAnswer";
 import {
 	effectivePreviewPlatform,
 	type PreviewPlatformRules,
@@ -135,7 +150,12 @@ function loadSearchInputValidation(): Promise<SearchInputValidationModule> {
 
 // ── Public surface ──────────────────────────────────────────────────
 
+export interface SearchFormClear {
+	clear(alsoSearch: boolean): void;
+}
+
 interface SearchInputFormProps {
+	readonly clearRef?: Ref<SearchFormClear>;
 	/** Accessible name for the search landmark. The running case list passes
 	 * the same authored title its visible heading shows. */
 	readonly landmarkLabel?: string;
@@ -183,7 +203,14 @@ interface SearchInputFormProps {
 	 *  Defaults to the platform an app that runs on both plays. */
 	readonly platformRules?: Pick<
 		PreviewPlatformRules,
-		"searchFieldChecks" | "searchScreenText" | "barcodeSearchField"
+		| "searchFieldChecks"
+		| "searchScreenText"
+		| "barcodeSearchField"
+		| "searchChoiceOrder"
+		| "searchForBlank"
+		| "searchRangeStartingValue"
+		| "searchRangeChosenDay"
+		| "hiddenSearchField"
 	>;
 	/** What the screen shows in place of its fields where a required
 	 *  condition or a check reads data the worker's device lacks (a place key
@@ -205,6 +232,7 @@ const DEBOUNCE_MS = 300;
  * query.
  */
 export function SearchInputForm({
+	clearRef,
 	landmarkLabel = "Search",
 	scopeKey = "",
 	searchInputs,
@@ -270,9 +298,17 @@ export function SearchInputForm({
 	// `draft` is the form's local-typing buffer. Per-input change
 	// handlers update it synchronously so the rendered inputs stay
 	// responsive; one debounced effect emits upward.
-	const [draft, setDraft] = useState<SearchInputValues>(value);
+	const [sourceDraft, setDraft] = useState<SearchInputValues>(value);
+	const displayed = useMemo<ReturnType<typeof webSearchRangeDraft>>(
+		() =>
+			platformRules.searchRangeStartingValue === "date-picker"
+				? webSearchRangeDraft(searchInputs, sourceDraft)
+				: { draft: sourceDraft },
+		[platformRules.searchRangeStartingValue, searchInputs, sourceDraft],
+	);
+	const draft = displayed.draft;
 	const validateSubmission = useCallback(
-		async (candidate: SearchInputValues) => {
+		async (candidate: SearchInputValues, quiet = false) => {
 			const request = ++validationRequestRef.current;
 			const superseded = () => request !== validationRequestRef.current;
 			const caseListConfig = {
@@ -319,11 +355,15 @@ export function SearchInputForm({
 			lastValidatedDraftRef.current = candidate;
 			setValidationFailure(undefined);
 			setCheckRefusal(undefined);
-			setValidationState({
-				scopeKey,
-				attempted: errors.size > 0,
-				errors,
-			});
+			/* A quiet judgment (the search Web Apps runs after Clear) paints
+			 * nothing: Web Apps' `query.js::updateSearchResults` skips the
+			 * request while a required field is blank and shows no error, and
+			 * Clear has already removed every earlier one. */
+			setValidationState(
+				quiet
+					? { scopeKey, attempted: false, errors: new Map() }
+					: { scopeKey, attempted: errors.size > 0, errors },
+			);
 			return errors;
 		},
 		[
@@ -354,9 +394,9 @@ export function SearchInputForm({
 	 * the Search runtime being unavailable. Reported once per attempt and
 	 * cleared by the next judged pass. */
 	const judgeSubmission = useCallback(
-		async (candidate: SearchInputValues) => {
+		async (candidate: SearchInputValues, quiet = false) => {
 			try {
-				return await validateSubmission(candidate);
+				return await validateSubmission(candidate, quiet);
 			} catch (error) {
 				lastValidatedDraftRef.current = candidate;
 				const refused = previewDataRefusalOf(error);
@@ -527,22 +567,30 @@ export function SearchInputForm({
 		// Skip when `draft` is the same reference as the last upward
 		// emission OR the most recent external value. Either way, no
 		// real user change occurred: emitting again would loop.
-		if (draft === lastEmittedRef.current) return;
+		if (sourceDraft === lastEmittedRef.current) return;
 		const handle = setTimeout(() => {
-			lastEmittedRef.current = draft;
-			onChangeRef.current(draft);
+			lastEmittedRef.current = sourceDraft;
+			onChangeRef.current(sourceDraft);
 		}, DEBOUNCE_MS);
 		return () => clearTimeout(handle);
-	}, [draft]);
+	}, [sourceDraft]);
 
 	// One mutator routed through every per-input change handler.
 	// Empty values delete the key: the runtime-bindings layer
 	// short-circuits absent and empty alike, so dropping the key
 	// keeps the emitted map tight + avoids spurious entries that
 	// would only ever evaluate to "no clause" downstream.
-	const setKey = (key: string, next: string) => {
+	const setKey = (key: string, next: string, discard?: string) => {
 		setDraft((prev) => {
-			const updated = new Map(prev);
+			const updated = new Map(
+				platformRules.searchRangeStartingValue === "date-picker"
+					? webSearchRangeDraft(searchInputs, prev).draft
+					: prev,
+			);
+			if (discard !== undefined) {
+				updated.delete(discard);
+				updated.delete(discard.slice(0, discard.lastIndexOf(":")) + ":opening");
+			}
 			if (next === "") {
 				updated.delete(key);
 			} else {
@@ -551,12 +599,44 @@ export function SearchInputForm({
 			return updated;
 		});
 	};
+	const submit = async (candidate: SearchInputValues, quiet = false) => {
+		if (onSubmit === undefined || awaitingWorker) return;
+		setValidating(true);
+		// Only the newest validation can retire the busy state.
+		const judged = judgeSubmission(candidate, quiet);
+		const request = validationRequestRef.current;
+		try {
+			const errors = await judged;
+			if (request === validationRequestRef.current && errors?.size === 0)
+				onSubmit(candidate);
+		} finally {
+			if (request === validationRequestRef.current) setValidating(false);
+		}
+	};
+	useImperativeHandle(clearRef, () => ({
+		clear(alsoSearch) {
+			validationRequestRef.current += 1;
+			const cleared: SearchInputValues = new Map();
+			lastEmittedRef.current = cleared;
+			setDraft(cleared);
+			lastValidatedDraftRef.current = undefined;
+			setValidationState({ scopeKey, attempted: false, errors: new Map() });
+			setCheckRefusal(undefined);
+			setValidationFailure(undefined);
+			setValidating(false);
+			if (alsoSearch) void submit(cleared, true);
+		},
+	}));
 	const submitAvailable = onSubmit !== undefined;
 
 	// Hidden inputs are system-generated values the worker never sees;
-	// the run-state hook resolves them at submit.
+	// the run-state hook resolves them at submit. A field marked hidden is
+	// one Web Apps does not draw, its starting value searched as it stands,
+	// and one Android draws like any other (`hiddenSearchField`).
 	const visibleInputs = searchInputs.filter(
-		(input): input is VisibleSearchInputDef => input.kind !== "hidden",
+		(input): input is VisibleSearchInputDef =>
+			input.kind !== "hidden" &&
+			(input.hidden !== true || platformRules.hiddenSearchField === "editable"),
 	);
 
 	// Zero-input modules render nothing: the caller is the
@@ -567,8 +647,9 @@ export function SearchInputForm({
 	// labelled-but-empty `<search>` landmark to assistive tech.
 	if (visibleInputs.length === 0) return null;
 
-	const refusalReason =
-		requiredRead.kind === "refused"
+	const refusalReason = displayed.unavailable
+		? { kind: "unreadable-starting-range" as const, ...displayed.unavailable }
+		: requiredRead.kind === "refused"
 			? requiredRead.refusal.reason
 			: choicesRead.kind === "refused"
 				? choicesRead.refusal.reason
@@ -585,13 +666,7 @@ export function SearchInputForm({
 				onSubmit={async (event) => {
 					event.preventDefault();
 					if (!submitAvailable || validating || awaitingWorker) return;
-					setValidating(true);
-					try {
-						const errors = await judgeSubmission(draft);
-						if (errors?.size === 0) onSubmit?.(draft);
-					} finally {
-						setValidating(false);
-					}
+					await submit(draft);
 				}}
 			>
 				<div
@@ -604,8 +679,14 @@ export function SearchInputForm({
 								key={input.uuid}
 								input={input}
 								draft={draft}
+								startingLabel={displayed.labels?.get(input.name)}
 								setKey={setKey}
+								utcMidnightDays={
+									platformRules.searchRangeChosenDay === "utc-midnight"
+								}
 								showHint={platformRules.searchScreenText}
+								choiceOrder={platformRules.searchChoiceOrder}
+								offerBlank={platformRules.searchForBlank}
 								scanBarcode={
 									platformRules.barcodeSearchField === "scan-or-text"
 								}
@@ -619,8 +700,15 @@ export function SearchInputForm({
 									validationAttempted
 										? (() => {
 												const source = submissionErrors.get(input.name);
-												return source === undefined
-													? undefined
+												/* A requirement with no message marks the
+												 * field invalid with no words under it: HQ's
+												 * build writes its text as a no-break space,
+												 * which Core keeps, so Web Apps reads a
+												 * message (`query.js::getError`), draws the
+												 * field invalid (`item.html`) and sends no
+												 * search (`inputsHaveErrors`). */
+												return source === undefined || source === ""
+													? source
 													: localizeValidationMessage(source);
 											})()
 										: undefined
@@ -676,18 +764,60 @@ function searchCheckFailureMessage(error: unknown): string {
 }
 
 interface SearchInputRowProps {
+	readonly choiceOrder: PreviewPlatformRules["searchChoiceOrder"];
 	readonly input: VisibleSearchInputDef;
 	readonly draft: SearchInputValues;
-	readonly setKey: (key: string, next: string) => void;
+	readonly startingLabel?: string;
+	readonly setKey: (key: string, next: string, discard?: string) => void;
 	/** Android shows no Search field hints (`searchScreenText`). */
 	readonly showHint: boolean;
+	/** Android's range picker gives each chosen day as UTC midnight
+	 *  (`searchRangeChosenDay`). */
+	readonly utcMidnightDays: boolean;
 	/** Android scans a barcode Search field; Web Apps draws a text box. */
 	readonly scanBarcode: boolean;
+	/** Web Apps offers to search for blank under a field that allows it;
+	 *  Android shows the field alone (`searchForBlank`). */
+	readonly offerBlank: boolean;
 	/** Required right now; the label carries the mark. */
 	readonly required: boolean;
 	/** A choice prompt's live rows; `undefined` while they load. */
 	readonly choices: readonly LookupChoice[] | undefined;
 	readonly error: string | undefined;
+}
+
+/**
+ * One Search field: its widget, and under it, where the field allows it and
+ * the platform draws it, Web Apps' "Include results where … is blank" box
+ * (`query/item.html`). The box is its own answer (`searchForBlankKey`), so a
+ * worker can tick it with the field empty, as Web Apps sends a blank alone.
+ */
+function SearchInputRow(props: SearchInputRowProps) {
+	const { input, draft, setKey, offerBlank } = props;
+	const { language } = useBuilderLanguage();
+	const blankId = useId();
+	const widget = <SearchInputWidget {...props} />;
+	if (!offerBlank || input.allowBlank !== true) return widget;
+	const blankKey = searchForBlankKey(input.name);
+	return (
+		<div className="flex flex-col gap-2">
+			{widget}
+			<label
+				htmlFor={blankId}
+				className="flex cursor-pointer items-center gap-2 text-sm text-nova-text"
+			>
+				<Checkbox
+					id={blankId}
+					data-search-for-blank={input.name}
+					checked={draft.get(blankKey) === "true"}
+					onCheckedChange={(next) => setKey(blankKey, next ? "true" : "")}
+				/>
+				{runtimeMessage(language, "searchForBlank", {
+					label: input.label || input.name,
+				})}
+			</label>
+		</div>
+	);
 }
 
 /**
@@ -697,16 +827,23 @@ interface SearchInputRowProps {
  * the value flows into the predicate, which the runtime-bindings
  * layer owns.
  */
-function SearchInputRow({
+function SearchInputWidget({
 	input,
 	draft,
+	startingLabel,
 	setKey,
 	showHint,
+	utcMidnightDays,
 	scanBarcode,
 	required,
-	choices,
+	choiceOrder,
+	choices: rows,
 	error,
 }: SearchInputRowProps) {
+	const choices = useMemo(
+		() => (rows && choiceOrder === "values" ? webSearchChoices(rows) : rows),
+		[choiceOrder, rows],
+	);
 	const chrome = {
 		label: input.label,
 		hint: showHint ? input.hint : undefined,
@@ -756,8 +893,26 @@ function SearchInputRow({
 					{...chrome}
 					fromValue={draft.get(`${input.name}:from`) ?? ""}
 					toValue={draft.get(`${input.name}:to`) ?? ""}
-					onChangeFrom={(next) => setKey(`${input.name}:from`, next)}
-					onChangeTo={(next) => setKey(`${input.name}:to`, next)}
+					startingText={
+						startingLabel ??
+						(!draft.has(`${input.name}:from`)
+							? androidStartingRangeLabel(draft.get(`${input.name}:starting`))
+							: undefined)
+					}
+					onChangeFrom={(next) =>
+						setKey(
+							`${input.name}:from`,
+							utcMidnightDays ? androidSelectedRangeDay(next) : next,
+							`${input.name}:starting`,
+						)
+					}
+					onChangeTo={(next) =>
+						setKey(
+							`${input.name}:to`,
+							utcMidnightDays ? androidSelectedRangeDay(next) : next,
+							`${input.name}:starting`,
+						)
+					}
 					error={error}
 				/>
 			);
@@ -773,6 +928,17 @@ function SearchInputRow({
 				/>
 			);
 		case "multi-select":
+			return (
+				<MultipleChoiceList
+					{...chrome}
+					name={input.name}
+					value={draft.get(input.name) ?? ""}
+					choices={choices}
+					onChange={(next) => setKey(input.name, next)}
+					error={error}
+				/>
+			);
+		case "checkboxes":
 			return (
 				<MultiSelectRow
 					{...chrome}
@@ -839,7 +1005,7 @@ function describedBy(
 ): string | undefined {
 	const ids = [
 		...(hint === undefined ? [] : [hintId]),
-		...(error === undefined ? [] : [errorId]),
+		...(error === undefined || error === "" ? [] : [errorId]),
 	];
 	return ids.length === 0 ? undefined : ids.join(" ");
 }
@@ -1035,21 +1201,65 @@ function SelectRow({
 	);
 }
 
-/**
- * Several-choice row: one checkbox per lookup row, the shape Web Apps
- * renders for a `select` prompt. The value is CommCare's own encoding, the
- * chosen values joined by the delimiter in choice order, so the runtime
- * bindings split it exactly as `RemoteQuerySessionManager` does.
- *
- * Selection is tracked by ROW, not by value: lookup rows guarantee neither
- * unique nor non-blank values (row-level validity is the export boundary's
- * verdict), and Web Apps keeps each checkbox's own state, so two rows that
- * share a value tick and untick independently and the answer carries one
- * token per ticked row. The answer string alone cannot say which of two
- * same-value rows was ticked, which is why the row set is local state,
- * re-derived only when the answer changes from outside (a clear, a default)
- * or the rows arrive.
- */
+/** The Web Apps multiple-selection list sends the selected options in list order. */
+function MultipleChoiceList({
+	name,
+	label,
+	hint,
+	required,
+	value,
+	choices,
+	onChange,
+	error,
+}: ChoiceRowProps) {
+	const id = useId();
+	const errorId = `${id}-error`;
+	const hintId = `${id}-hint`;
+	return (
+		<Field data-invalid={error !== undefined}>
+			<FieldLabel htmlFor={id}>
+				<PromptLabelText label={label} required={required} />
+			</FieldLabel>
+			<PromptHint id={hintId} hint={hint} />
+			{choices === undefined ? (
+				<LookupChoicesLoading />
+			) : choices.length === 0 ? (
+				<LookupChoicesEmpty />
+			) : (
+				<select
+					multiple
+					id={id}
+					name={name}
+					aria-required={required}
+					aria-invalid={error !== undefined}
+					aria-describedby={describedBy(hintId, hint, errorId, error)}
+					className="rounded-lg border border-pv-input-border bg-pv-input-bg p-2 text-sm text-nova-text focus-visible:outline-pv-input-focus"
+					value={splitMultiSelectSearchAnswer(value)}
+					onChange={(event) =>
+						onChange(
+							joinMultiSelectSearchAnswer(
+								Array.from(
+									event.currentTarget.selectedOptions,
+									(option) => option.value,
+								),
+							),
+						)
+					}
+				>
+					{choices.map((choice) => (
+						<option key={choice.key} value={choice.value}>
+							{choice.label}
+						</option>
+					))}
+				</select>
+			)}
+			<FieldError id={errorId}>{error}</FieldError>
+		</Field>
+	);
+}
+
+/** Checkbox state belongs to the displayed row. When the form restores a saved
+ * answer, Android marks every offered row with a selected value. */
 function MultiSelectRow({
 	name,
 	label,
@@ -1223,6 +1433,7 @@ function DatePopoverField({
 }
 
 interface DateRangeRowProps extends PromptChrome {
+	readonly startingText?: string;
 	readonly fromValue: string;
 	readonly toValue: string;
 	readonly onChangeFrom: (next: string) => void;
@@ -1247,6 +1458,7 @@ interface DateRangeRowProps extends PromptChrome {
  * shape rather than a runtime invariant.
  */
 function DateRangeRow({
+	startingText,
 	label,
 	hint,
 	required,
@@ -1276,6 +1488,9 @@ function DateRangeRow({
 				<PromptLabelText label={label} required={required} />
 			</legend>
 			<PromptHint id={hintId} hint={hint} />
+			{startingText !== undefined && (
+				<p className="text-sm text-muted-foreground">{startingText}</p>
+			)}
 			<div
 				data-date-range-fields
 				className="grid min-w-0 grid-cols-1 gap-2 @sm/date-range:grid-cols-2"

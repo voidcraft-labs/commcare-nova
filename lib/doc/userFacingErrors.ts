@@ -448,13 +448,6 @@ function postSubmitNotOfferedSentence(e: ValidationError): string {
 /** The sentence of a target or an entry point whose frame would open
  *  through the first menu with the case every form listed there from a menu
  *  above opens. The offering sites show it beside the disabled choice. */
-/** Why a menu that shows its forms in the menu above takes no Search, in the
- *  builder's words: the `search` arm of `FORMS_IN_MENU_ABOVE_WITH_SEARCH`,
- *  which the Search panel's controls show while they are disabled. */
-export function menuAboveSearchSentence(moduleName: string): string {
-	return `${q(moduleName)} shows its forms in the menu above, and CommCare offers no Search on the case list of such a menu, so a worker could never open its search. You can remove the search from ${q(moduleName)}, or give it its own screen again.`;
-}
-
 /** Why the form an `always` case list registration names is no registration
  *  form the host's list can offer, by the finding's reason. */
 function alwaysNotRegistrationSentence(e: ValidationError): string {
@@ -727,7 +720,7 @@ const PLATFORM_BUILDER_COPY = {
 	"search-field-multiple-choice": {
 		lead: (subject) =>
 			`${subject} takes several choices, which Android doesn't show.`,
-		alternative: "let workers pick one choice",
+		alternative: "show the choices as checkboxes or let workers pick one",
 	},
 	"connect-app": {
 		sentence:
@@ -1230,9 +1223,7 @@ const USER_MESSAGE_BY_CODE: Record<
 		}
 	},
 	FORMS_IN_MENU_ABOVE_WITH_SEARCH: (e) =>
-		e.details?.reason === "forms-read-search"
-			? `${q(modName(e))} shows its forms in the menu above and has its forms read the search, and CommCare HQ can't build a menu that does both. You can turn off Forms read the search, or give ${q(modName(e))} its own screen again.`
-			: menuAboveSearchSentence(modName(e)),
+		`${q(modName(e))} shows its forms in the menu above and has its forms read the search, and CommCare HQ can't build a menu that does both. You can turn off Forms read the search, or give ${q(modName(e))} its own screen again.`,
 	HIDDEN_MENU_NOT_A_DESTINATION: (e) => {
 		const arm = e.details?.arm;
 		const module =
@@ -1379,6 +1370,14 @@ const USER_MESSAGE_BY_CODE: Record<
 		`An image display in ${q(modName(e))} uses ${q(det(e, "value", "the same value"))} twice, so only the first image appears. Change or remove one of the rules.`,
 	CASE_LIST_MULTI_SELECT_INPUT_NEEDS_DIRECT_MATCH: (e) =>
 		`The search field ${q(det(e, "inputName", "in this module"))} lets people choose several values, so it needs to be named after the case information it searches on this case type. Rename it to match, or switch it to a single-choice field.`,
+	CASE_LIST_HIDDEN_SEARCH_FIELD_REFUSED: (e) =>
+		`The search field ${q(det(e, "inputName", "in this module"))} is hidden in Web Apps. ${det(e, "reason", "A field Web Apps hides can't carry anything a worker there would need to see.")}`,
+	CASE_LIST_SEARCH_CHECK_MESSAGE_REFUSED: (e) =>
+		`The search field ${q(det(e, "inputName", "in this module"))} needs a different message. ${det(e, "reason", "Give its check a message.")}`,
+	CASE_LIST_SEARCH_TITLE_BLANK_BESIDE_FIRST: (e) =>
+		`The search screen has no title in ${det(e, "languages", "some languages")}, which would show the first language's title there instead. ${det(e, "reason", "Give the title text there, or leave it blank in the first language too.")}`,
+	CASE_LIST_SEARCH_FOR_BLANK_NEEDS_OWN_PROPERTY: (e) =>
+		`The search field ${q(det(e, "inputName", "in this module"))} can't search for blank. ${det(e, "reason", "Searching for blank needs a field that searches its own property directly.")} Turn off searching for blank, or change how the field searches.`,
 	CASE_LIST_SEARCH_INPUT_PREDICATE_TYPE_ERROR: (e) =>
 		recordFindingCopy(
 			e,
@@ -1390,7 +1389,9 @@ const USER_MESSAGE_BY_CODE: Record<
 	CASE_LIST_SEARCH_INPUT_MODE_PROPERTY_TYPE_MISMATCH: (e) =>
 		`The search field ${q(det(e, "inputName", "in this module"))} uses a matching option that doesn't fit the information it searches. Choose another matching option or different information.`,
 	CASE_LIST_SEARCH_INPUT_TYPE_PROPERTY_TYPE_MISMATCH: (e) =>
-		`The search field ${q(det(e, "inputName", "in this module"))} doesn't match the information it searches. For example, a date picker can't search text. Change the field type or choose different information.`,
+		det(e, "projectSpaceCanMatch", "") === "true"
+			? `The search field ${q(det(e, "inputName", "in this module"))} doesn't match the information it searches. For example, a date picker can't search text. Use project space matching so the project space matches the answer its own way, or change the field type or the information it searches.`
+			: `The search field ${q(det(e, "inputName", "in this module"))} doesn't match the information it searches. For example, a date picker can't search text. Change the field type or choose different information.`,
 	CASE_LIST_SEARCH_INPUT_DEFAULT_TYPE_ERROR: (e) =>
 		det(e, "reason", "") === "date-range-default-unsupported"
 			? `The search field ${q(det(e, "inputName", "in this module"))} has an old one-date starting value, but a date range needs both dates. Remove the starting value.`
@@ -1603,6 +1604,32 @@ const USER_MESSAGE_BY_CODE: Record<
 	},
 
 	// ── Case-search config ───────────────────────────────────────────
+	CASE_SEARCH_FILTER_INVALID: (e) => {
+		const menu = q(modName(e));
+		const position = e.details?.index;
+		const filter =
+			position === undefined || Number.isNaN(Number(position))
+				? `A search filter on ${menu}`
+				: `Search filter ${Number(position) + 1} on ${menu}`;
+		switch (e.details?.reason) {
+			case "key-taken":
+				return `${filter} sends ${q(det(e, "key", "its information"))}, which a search field there already sends. You can choose different information for the filter, or rename the field.`;
+			case "target":
+				return `${filter} names record information CommCare can't send under that name. You can choose the information again.`;
+			case "value":
+				return (
+					recordFindingCopy(
+						e,
+						`The value of ${filter.charAt(0).toLowerCase()}${filter.slice(1)}`,
+					) ??
+					`${filter} has a value the search screen can't work out before a record is chosen. You can use a worker, search answer, table or fixed value instead.`
+				);
+			case "project-space-matching":
+				return `${q(det(e, "field", "A search field"))} on ${menu} uses the project space's matching, which works only on the field's own information with no matching rule of its own. You can remove its rule, or turn off project space matching for it.`;
+			default:
+				return `${filter} can't be sent as it stands. You can check its information and value.`;
+		}
+	},
 	CASE_SEARCH_CONFIG_REQUIRES_CASE_TYPE: (e) =>
 		`${q(modName(e))} has a search set up but no case type, so there's nothing for it to look through. Pick the kind of case it should find, like "patient" or "household".`,
 	CASE_SEARCH_EXCLUDED_OWNER_IDS_CASE_DATA_UNAVAILABLE: (e) =>
@@ -1617,7 +1644,9 @@ const USER_MESSAGE_BY_CODE: Record<
 		) ??
 		`The condition that controls whether ${q(modName(e))}'s Search button appears has an error. Fix it or clear the condition to always show the button.`,
 	CASE_SEARCH_BUTTON_DISPLAY_CONDITION_CASE_DATA_UNAVAILABLE: (e) =>
-		`The condition that controls whether ${q(modName(e))}'s Search button appears tries to read a case before one has been selected. Use fixed values or current-user information, or clear the condition to always show the button.`,
+		`The condition that controls whether ${q(modName(e))}'s Search button appears tries to read a case before one has been selected. You can base it on fixed values or on information the case list already reads, or clear the condition to always show the button.`,
+	CASE_SEARCH_BUTTON_DISPLAY_CONDITION_NOT_ON_THE_LIST: (e) =>
+		`The condition that controls whether ${q(modName(e))}'s Search button appears reads information its case list doesn't load, so the list wouldn't open once the app is on CommCare HQ. You can base the condition on what the list itself reads, such as its filter, have each form that shows the list return to it after submit, or clear the condition to always show the button.`,
 	FORMS_READ_SEARCH_REQUIRES_CASE_FIRST_MODULE: (e) =>
 		`${q(modName(e))} has its forms read the search, so its first screen needs to choose a case. You can move its registration or survey forms to another menu, or turn off Forms read the search.`,
 	FORMS_READ_SEARCH_NO_BUTTON_DISPLAY_CONDITION: (e) =>

@@ -57,6 +57,21 @@ describe("addSearchInputs", () => {
 		}
 	});
 
+	// A hidden field with no value is HQ's hidden, excluded prompt with no starting value: Web
+	// Apps keeps it blank and Android shows it empty.
+	it("adds a hidden field with no value", async () => {
+		const h = makeCaseListFixture(withCaseList(makeCaseListDoc()));
+		await h.runTool(addSearchInputsTool, {
+			moduleUuid: MOD_A,
+			searchInputs: [{ kind: "hidden", name: "region", label: "Region" }],
+		});
+		const inputs =
+			h.currentDoc().modules[MOD_A]?.caseListConfig?.searchInputs ?? [];
+		expect(inputs).toHaveLength(1);
+		expect(inputs[0]).toMatchObject({ kind: "hidden", name: "region" });
+		expect(inputs[0] && "value" in inputs[0]).toBe(false);
+	});
+
 	it("adds multiple inputs in one call, in order, in one host batch", async () => {
 		const h = makeCaseListFixture(withCaseList(makeCaseListDoc()));
 		const result = await h.runTool(addSearchInputsTool, {

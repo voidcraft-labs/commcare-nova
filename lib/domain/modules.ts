@@ -1678,26 +1678,39 @@ export const SEARCH_INPUT_TYPES = [
 	"barcode",
 	"select",
 	"multi-select",
+	"checkboxes",
 ] as const;
 export type SearchInputType = (typeof SEARCH_INPUT_TYPES)[number];
 export const SCALAR_SEARCH_INPUT_TYPES = ["text", "date", "barcode"] as const;
 export type ScalarSearchInputType = (typeof SCALAR_SEARCH_INPUT_TYPES)[number];
 /**
- * Choice widgets. Both are lookup-backed: the CommCare query prompt reads
+ * Choice widgets. All are lookup-backed: the CommCare query prompt reads
  * its choices only from an `<itemset>` over a fixture
  * (`commcare-core/.../org/commcare/xml/QueryPromptParser.java` reads no inline
  * items), so a choice input always names a Project lookup table.
  *
  *   - `select` — one choice; wire `input="select1"`.
- *   - `multi-select` — several choices; wire `input="select"`. The runtime
+ *   - `multi-select` — several choices in a Web Apps list; wire `input="select"`.
+ *   - `checkboxes` — several choices on either platform; wire `input="checkbox"`. The runtime
  *     splits the `#,#`-joined answer into repeated query parameters
  *     (`RemoteQuerySessionManager.getRawQueryParams` →
  *     `extractMultipleChoices`), and HQ's exact match over a list is any-of
  *     (`corehq/apps/es/case_search.py::exact_case_property_text_query`), so a
  *     simple multi-select input means "the property equals any chosen value".
  */
-export const SELECT_SEARCH_INPUT_TYPES = ["select", "multi-select"] as const;
+export const SELECT_SEARCH_INPUT_TYPES = [
+	"select",
+	"multi-select",
+	"checkboxes",
+] as const;
 export type SelectSearchInputType = (typeof SELECT_SEARCH_INPUT_TYPES)[number];
+
+/** Several choices in item order, sent as repeated values of the same parameter. */
+export function takesMultipleSearchChoices(
+	type: string,
+): type is "multi-select" | "checkboxes" {
+	return type === "multi-select" || type === "checkboxes";
+}
 
 /** Whether a widget type reads its answers from a lookup-backed choice list. */
 export function isSelectSearchInputType(
@@ -1766,8 +1779,21 @@ const searchInputBase = z.strictObject({
 /**
  * Whether a worker must answer a prompt before Search runs. `{}` is
  * "always required"; `when` makes it conditional on the Search screen's
- * own state (other answers, session values, literals). `message` replaces
- * the runtime's stock "Sorry, this response is required!".
+ * own state (other answers, session values, literals). `message` is the
+ * author's sentence; without one the worker reads Nova's
+ * (`SEARCH_INPUT_REQUIRED_DEFAULT_MESSAGE`).
+ *
+ * `noMessage` is a requirement with no message at all, as CommCare HQ
+ * builds one whose text is blank in every language: its build writes the
+ * requirement's text blank (`remote_requests.py::build_query_prompts`,
+ * `app_strings.py`: `clean_trans` of an empty map), so Core reports a blank
+ * message for it (`QueryPrompt.getRequiredMessage`). The blank is a no-break
+ * space in the language table (`localeFile.ts::hqLocaleFileValue`, HQ's
+ * `commcare_translations.dumps`), which Core's line trim keeps, so Web Apps
+ * reads a message (`query.js::getError`): it draws the field invalid with no
+ * words under it, names it among the fields to check, and sends no search
+ * (`inputsHaveErrors`), so the search waits for the answer. It never stands beside a `message`
+ * (`searchCheckMessageRefusal`).
  *
  * Evaluated on the Search screen where the worker's answers ARE loaded
  * (`RemoteQuerySessionManager.validateUserAnswers` runs `<required test>`
@@ -1778,6 +1804,7 @@ const searchInputBase = z.strictObject({
 export const searchInputRequiredSchema = z.strictObject({
 	when: conditionSchema.optional(),
 	message: z.string().min(1).optional(),
+	noMessage: z.literal(true).optional(),
 });
 export type SearchInputRequired = z.infer<typeof searchInputRequiredSchema>;
 
@@ -1787,11 +1814,15 @@ export type SearchInputRequired = z.infer<typeof searchInputRequiredSchema>;
  * (`QueryPromptParser.parse` assigns a single `validation` slot), so a list
  * here would silently drop every rule but one. `rule` evaluates in the same
  * Search-screen scope as `required.when`; `message` is what the worker reads
- * when the rule is false.
+ * when the rule is false. A check with no message of its own shows
+ * CommCare's sentence (`COMMCARE_SEARCH_INVALID_MESSAGE`): CommCare HQ
+ * builds no text for a validation whose text is blank in every language
+ * (`remote_requests.py`, `validation.has_text`), and Core then reports its
+ * own (`QueryPrompt.getValidationMessage`).
  */
 export const searchInputValidationSchema = z.strictObject({
 	rule: conditionSchema,
-	message: z.string().min(1),
+	message: z.string().min(1).optional(),
 });
 export type SearchInputValidation = z.infer<typeof searchInputValidationSchema>;
 
@@ -1805,6 +1836,30 @@ const visibleSearchInputBase = searchInputBase
 		hint: z.string().min(1).optional(),
 		required: searchInputRequiredSchema.optional(),
 		validation: searchInputValidationSchema.optional(),
+		/**
+		 * The worker may also ask for cases whose property is blank. Web Apps
+		 * draws a checkbox under the field and, where it is ticked, sends a
+		 * blank value before the answer (`query.js::encodeValue` joins them with
+		 * `#,#`), so the Search screen's own value of the field holds both.
+		 * CommCare HQ's match of the field's own key reads that blank as "the
+		 * property is blank, or matches" (`case_search/utils.py`,
+		 * `_get_case_property_query`); a condition reading the field reads the
+		 * value as it stands. Android shows the field alone. A simple field
+		 * carries it only where CommCare HQ matches it by its own key
+		 * (`searchForBlankRefusal`). Absent is no.
+		 */
+		allowBlank: z.literal(true).optional(),
+		/**
+		 * Web Apps does not draw the field, and searches with its starting value
+		 * as it stands (`query.js` hides a hidden prompt's row whole with
+		 * `d-none`). Neither Core nor Android reads the attribute, so Android
+		 * draws the field like any other, where the worker can change it, and
+		 * draws none of a widget its Search screen does not show. A hidden field
+		 * carries no hint, requirement, check or search for blank, since nobody
+		 * in Web Apps can see them (`hiddenSearchFieldRefusal`). Absent is
+		 * shown. A value the search never matches is the `hidden` arm.
+		 */
+		hidden: z.literal(true).optional(),
 	})
 	.strict();
 
@@ -1819,6 +1874,8 @@ const visibleSearchInputBase = searchInputBase
  */
 const simpleSearchInputSlots = {
 	kind: z.literal("simple"),
+	/** The key of this field chooses the project space's native matcher. */
+	matching: z.literal("project-space").optional(),
 	// `property` is constrained to CommCare's case-property identifier
 	// vocabulary — same character class the predicate AST's
 	// `propertyRefSchema.property` enforces. The wire emitter
@@ -1842,10 +1899,20 @@ export const simpleScalarSearchInputSchema = visibleSearchInputBase
 	})
 	.strict();
 
+/** Fixed inclusive dates chosen together by a person in any editor. */
+export const searchStartingDatesSchema = z
+	.object({ from: z.iso.date(), to: z.iso.date() })
+	.strict()
+	.refine(
+		(dates) => dates.from <= dates.to,
+		"The end date comes before the start date.",
+	);
+
 export const simpleDateRangeSearchInputSchema = visibleSearchInputBase
 	.extend({
 		...simpleSearchInputSlots,
 		type: z.literal("date-range"),
+		default: valueSchema.optional(),
 		mode: rangeSearchInputModeSchema,
 	})
 	.strict();
@@ -1937,6 +2004,7 @@ export const advancedDateRangeSearchInputSchema = visibleSearchInputBase
 	.extend({
 		kind: z.literal("advanced"),
 		type: z.literal("date-range"),
+		default: valueSchema.optional(),
 		predicate: conditionSchema,
 	})
 	.strict();
@@ -1963,11 +2031,18 @@ export const advancedSelectSearchInputSchema = visibleSearchInputBase
  * with a `<display>` label HQ still requires. The `default` attribute needs
  * HQ's advanced case search on the target project space, the same
  * requirement a visible prompt with a starting value already carries.
+ *
+ * Absent `value` is a hidden field with no starting value: Web Apps holds it
+ * blank and sends nothing for it, and Android, which shows every hidden
+ * field, shows it empty for the worker to fill in
+ * (`RemoteQuerySessionManager.initUserAnswers` seeds an answer only from a
+ * starting value). It is still never a filter: what the worker types there
+ * reaches only a condition that reads it.
  */
 export const hiddenSearchInputSchema = searchInputBase
 	.extend({
 		kind: z.literal("hidden"),
-		value: valueSchema,
+		value: valueSchema.optional(),
 	})
 	.strict();
 
@@ -1979,7 +2054,7 @@ export const hiddenSearchInputSchema = searchInputBase
  *
  * This cannot be a Zod `discriminatedUnion("kind", ...)`: simple and advanced
  * each appear in three arms. Keeping the widget split structural is what makes
- * a range default, a scalar range mode, a choice input without a table, or a
+ * a scalar range mode, a choice input without a table, or a
  * required hidden value unrepresentable.
  */
 export const searchInputDefSchema = z.union([
@@ -2053,7 +2128,7 @@ export function visibleSearchInputs(
 	return inputs.filter(isVisibleSearchInput);
 }
 
-/** Scalar prompt seed, absent by construction on the date-range and hidden arms. */
+/** The device expression that supplies a visible prompt’s starting value. */
 export function searchInputDefault(
 	input: SearchInputDef,
 ): Expression | undefined {
@@ -2084,14 +2159,55 @@ export const SEARCH_INPUT_REQUIRED_DEFAULT_MESSAGE =
 
 /**
  * The message shown when this input is required and left blank: the author's
- * own sentence, else Nova's default. `undefined` when the input is never
- * required.
+ * own sentence, `""` for a requirement with no message (`noMessage`), else
+ * Nova's default. `undefined` when the input is never required.
  */
 export function searchInputRequiredMessage(
 	input: SearchInputDef,
 ): string | undefined {
 	if (input.kind === "hidden" || input.required === undefined) return undefined;
+	if (input.required.noMessage === true) return "";
 	return input.required.message ?? SEARCH_INPUT_REQUIRED_DEFAULT_MESSAGE;
+}
+
+/**
+ * The sentence Core reports for a Search field check with no message of its
+ * own (`QueryPrompt.DEFAULT_VALIDATION_ERROR`). Core asks the app strings for
+ * `case.search.answer.invalid` first, which no CommCare app string table
+ * defines, so a worker reads these words in every language.
+ */
+export const COMMCARE_SEARCH_INVALID_MESSAGE =
+	"Sorry, this response is invalid!";
+
+/**
+ * The message shown when this input's answer fails its check: the author's
+ * own sentence, else CommCare's (`COMMCARE_SEARCH_INVALID_MESSAGE`).
+ * `undefined` when the input has no check.
+ */
+export function searchInputValidationMessage(
+	input: SearchInputDef,
+): string | undefined {
+	if (input.kind === "hidden" || input.validation === undefined)
+		return undefined;
+	return input.validation.message ?? COMMCARE_SEARCH_INVALID_MESSAGE;
+}
+
+/**
+ * Why a Search field's requirement can't carry the message settings it has,
+ * or `undefined` where it can: a requirement either has no message at all or
+ * may have one of its own, never both. Shared by the commit gate and the
+ * builder.
+ */
+export function searchCheckMessageRefusal(
+	input: SearchInputDef,
+): string | undefined {
+	if (
+		input.kind !== "hidden" &&
+		input.required?.noMessage === true &&
+		input.required.message !== undefined
+	)
+		return "A requirement with no message can't have a message of its own too. Remove the message, or let it show one.";
+	return undefined;
 }
 
 /** The lookup options source of a choice input; absent on every other arm. */
@@ -2146,7 +2262,8 @@ export function searchInputScreenExpressions(
 export function searchInputExpressions(
 	input: SearchInputDef,
 ): readonly Expression[] {
-	if (input.kind === "hidden") return [input.value];
+	if (input.kind === "hidden")
+		return input.value === undefined ? [] : [input.value];
 	const seed = searchInputDefault(input);
 	return seed === undefined ? [] : [seed];
 }
@@ -2220,14 +2337,17 @@ interface SearchInputVisibleSlots {
 	readonly hint?: string;
 	readonly required?: SearchInputRequired;
 	readonly validation?: SearchInputValidation;
+	readonly allowBlank?: true;
+	readonly hidden?: true;
 }
 
-/** Scalar-widget slot that seeds the input's initial state. */
+/** The slot that seeds a visible input's initial state. */
 interface SearchInputCommonSlots extends SearchInputVisibleSlots {
 	readonly default?: Expression;
 }
 
 interface SimpleScalarSearchInputSlots extends SearchInputCommonSlots {
+	readonly matching?: "project-space";
 	/** Optional relation walk to a destination case type. `selfPath()`
 	 *  is structurally equivalent to absent and the builder omits the
 	 *  key in that case. */
@@ -2236,13 +2356,15 @@ interface SimpleScalarSearchInputSlots extends SearchInputCommonSlots {
 	readonly mode?: ScalarSearchInputMode;
 }
 
-interface SimpleDateRangeSearchInputSlots extends SearchInputVisibleSlots {
+interface SimpleDateRangeSearchInputSlots extends SearchInputCommonSlots {
+	readonly matching?: "project-space";
 	readonly via?: RelationPath;
 	/** The builder writes the sole valid stored mode when omitted. */
 	readonly mode?: Extract<SearchInputMode, { kind: "range" }>;
 }
 
 interface SimpleSelectSearchInputSlots extends SearchInputCommonSlots {
+	readonly matching?: "project-space";
 	readonly via?: RelationPath;
 	/** The lookup table and columns the prompt's choices come from. */
 	readonly options: SearchInputLookupOptions;
@@ -2265,11 +2387,15 @@ function withSearchInputCommonSlots<T extends Record<string, unknown>>(
 		hint?: string;
 		required?: SearchInputRequired;
 		validation?: SearchInputValidation;
+		allowBlank?: true;
+		hidden?: true;
 	} = { ...base };
 	if (slots.default !== undefined) out.default = slots.default;
 	if (slots.hint !== undefined) out.hint = slots.hint;
 	if (slots.required !== undefined) out.required = slots.required;
 	if (slots.validation !== undefined) out.validation = slots.validation;
+	if (slots.allowBlank === true) out.allowBlank = true;
+	if (slots.hidden === true) out.hidden = true;
 	return out;
 }
 
@@ -2340,11 +2466,14 @@ export function simpleSearchInputDef(
 		property,
 	};
 	const candidate: Record<string, unknown> = { ...out };
+	if (slots.matching) candidate.matching = slots.matching;
 	if ("default" in slots && slots.default !== undefined)
 		candidate.default = slots.default;
 	if (slots.hint !== undefined) candidate.hint = slots.hint;
 	if (slots.required !== undefined) candidate.required = slots.required;
 	if (slots.validation !== undefined) candidate.validation = slots.validation;
+	if (slots.allowBlank === true) candidate.allowBlank = true;
+	if (slots.hidden === true) candidate.hidden = true;
 	if ("options" in slots) candidate.options = slots.options;
 	if (slots.via !== undefined && slots.via.kind !== "self")
 		candidate.via = slots.via;
@@ -2376,7 +2505,7 @@ export function advancedSearchInputDef(
 	label: string,
 	type: "date-range",
 	predicate: Expression,
-	slots?: SearchInputVisibleSlots,
+	slots?: SearchInputCommonSlots,
 ): AdvancedDateRangeSearchInputDef;
 export function advancedSearchInputDef(
 	uuid: Uuid,
@@ -2420,21 +2549,21 @@ export function advancedSearchInputDef(
 
 /**
  * Constructs a hidden search input. `value` is the global-scope expression
- * Nova evaluates when the Search screen opens; the input never shows and
- * never filters.
+ * Nova evaluates when the Search screen opens, or absent for a hidden field
+ * with no starting value; the input never filters.
  */
 export function hiddenSearchInputDef(
 	uuid: Uuid,
 	name: string,
 	label: string,
-	value: Expression,
+	value: Expression | undefined,
 ): HiddenSearchInputDef {
 	return hiddenSearchInputSchema.parse({
 		uuid,
 		kind: "hidden",
 		name,
 		label,
-		value,
+		...(value !== undefined && { value }),
 	});
 }
 
@@ -2465,6 +2594,7 @@ export const APPLICABLE_SEARCH_MODES: Readonly<
 	barcode: ["exact"],
 	select: ["exact"],
 	"multi-select": ["exact"],
+	checkboxes: ["exact"],
 };
 
 /**
@@ -2549,6 +2679,7 @@ export const SEARCH_INPUT_TYPE_PROPERTY_TYPES: Readonly<
 	// multi-select containment is not part of the stored Search union.
 	select: ["text", "single_select"],
 	"multi-select": ["text", "single_select"],
+	checkboxes: ["text", "single_select"],
 };
 
 /**
@@ -2573,13 +2704,15 @@ export const SEARCH_INPUT_TYPE_PROPERTY_TYPES: Readonly<
  * read from this table.
  */
 export const SEARCH_INPUT_TYPE_DEFAULT_EXPECTED_TYPES: Readonly<
-	Record<Exclude<SearchInputType, "date-range">, CasePropertyDataType>
+	Record<SearchInputType, CasePropertyDataType>
 > = {
 	text: "text",
 	date: "date",
+	"date-range": "text",
 	barcode: "text",
 	select: "text",
 	"multi-select": "text",
+	checkboxes: "text",
 };
 
 /**
@@ -2612,6 +2745,7 @@ export const SEARCH_INPUT_RUNTIME_VALUE_TYPES: Readonly<
 	// A choice binds its value token; several choices bind the `#,#`-joined tokens.
 	select: "text",
 	"multi-select": "text",
+	checkboxes: "text",
 };
 
 /**
@@ -2641,6 +2775,7 @@ export const DEFAULT_SEARCH_MODE_KIND: Readonly<
 	barcode: "exact",
 	select: "exact",
 	"multi-select": "exact",
+	checkboxes: "exact",
 };
 
 /** The effective mode for a simple input after applying its widget default. */
@@ -2661,6 +2796,122 @@ export function simpleSearchInputHasCoherentRangeWidget(
 	return (
 		(effectiveSimpleSearchModeKind(input) === "range") ===
 		(input.type === "date-range")
+	);
+}
+
+/**
+ * Whether a simple field can take the project space's own matching
+ * (`matching: "project-space"`): its prompt rides the bare key CommCare HQ
+ * matches by its own rule, so it searches this case's own property under the
+ * property's name (`name` is the case's name), with exact matching or a date
+ * range. HQ then matches the answer whatever the property's type, so a field
+ * whose widget doesn't fit the property's type can still search it there.
+ * Shared by the commit gate and the builder so the builder offers the
+ * matching, and the widgets it admits, exactly where the gate does.
+ */
+export function projectSpaceMatchingFits(
+	input: Pick<
+		SimpleSearchInputDef,
+		"name" | "property" | "via" | "type" | "mode"
+	>,
+): boolean {
+	return (
+		(input.via === undefined || input.via.kind === "self") &&
+		(input.name === "name" ? "case_name" : input.name) === input.property &&
+		(input.mode === undefined ||
+			input.mode.kind === "exact" ||
+			(input.type === "date-range" && input.mode.kind === "range"))
+	);
+}
+
+/**
+ * Whether a simple field can let the worker search for blank. The blank rides
+ * beside the answer as one more value of the prompt's own request key
+ * (`query.js::encodeValue` joins `#,#` before the answer), and only CommCare
+ * HQ's match of that key against the property it names reads a blank value
+ * as "the property is blank" (`case_search/utils.py::_get_case_property_query`).
+ * So the field rides the bare prompt: it searches this case's own property,
+ * under the property's own name, with exact matching or a date range, or with
+ * the project space's matching. A field Nova matches through a condition reads
+ * the blank as part of its answer and finds nothing.
+ *
+ * A field with the project space's matching already rides the bare prompt key
+ * on its own property (`nativeSearchFilters.ts` holds it to that), including
+ * the keys HQ matches by its own rule: `name` is the case's name, `case_id` its
+ * id and `status` a property of that name (`case_search/utils.py::_apply_filter`).
+ * The owner is the exception: HQ refuses any second value beside it
+ * (`SearchCriteria._validate_multiple_terms`), so a blank sent with an owner
+ * stops the search.
+ *
+ * Returns the reason a shape is refused, or `undefined` when it can. Shared
+ * by the commit gate and the builder so the builder never offers a choice the
+ * gate refuses.
+ */
+export function searchForBlankRefusal(
+	input: Pick<
+		SimpleSearchInputDef,
+		"name" | "property" | "via" | "type" | "mode" | "matching"
+	>,
+): string | undefined {
+	if (input.via !== undefined && input.via.kind !== "self")
+		return "Searching for blank works on this case's own properties, not a linked case's.";
+	if (input.matching === "project-space")
+		return input.name === "owner_id"
+			? "CommCare HQ stops a search that sends a blank beside the case owner, so searching for blank doesn't work on the owner."
+			: undefined;
+	if (input.name !== input.property)
+		return "Searching for blank needs the field's name to be the property it searches.";
+	if (CASE_NODE_ATTRIBUTE_PROPERTIES.has(input.property))
+		return "Searching for blank works on ordinary properties, not on case information the device stores differently.";
+	const mode = input.mode?.kind ?? DEFAULT_SEARCH_MODE_KIND[input.type];
+	if (mode === "exact" && input.type === "date")
+		return "A single date searches a whole day, so searching for blank needs the project space's own date matching.";
+	if (mode !== "exact" && mode !== "range")
+		return "Searching for blank works with exact matching or a date range.";
+	return undefined;
+}
+
+/**
+ * Why a Search field Web Apps does not draw (`hidden: true`) cannot be one,
+ * or `undefined` where it can. Shared by the commit gate and the builder so
+ * the builder never offers a choice the gate refuses.
+ *
+ * Web Apps hides the prompt's row whole, so nobody there reads a hint,
+ * answers a requirement, fixes a failed check or ticks the box to search for
+ * blank, and CommCare HQ's Case List page blanks a hidden prompt's
+ * requirement and checks on a save.
+ *
+ * A hidden prompt with no widget that leaves its key out of the request
+ * (`exclude`) is a value the search never matches by its name, the `hidden`
+ * arm. So a hidden text field rides the bare prompt CommCare HQ matches by
+ * its own key: a simple field over its own case's property of its name,
+ * matched exactly, or by the project space's own rule. Any other match runs
+ * through `_xpath_query`, which writes `exclude` on the prompt
+ * (`suite/case-search/simpleArmDerivation.ts::simpleArmNeedsXPathQueryEmission`).
+ */
+export function hiddenSearchFieldRefusal(
+	input: VisibleSearchInputDef,
+): string | undefined {
+	if (input.hint !== undefined)
+		return "A field Web Apps hides can't show a hint. Remove the hint, or leave the field shown.";
+	if (input.required !== undefined || input.validation !== undefined)
+		return "Nobody in Web Apps can answer a field it hides, so a hidden field can't be required or checked. Remove the requirement and the check, or leave the field shown.";
+	if (input.allowBlank === true)
+		return "Nobody in Web Apps can tick the box to also find blank on a field it hides. Turn off Also find blank, or leave the field shown.";
+	if (input.type === "text" && !textRidesItsOwnName(input))
+		return "A hidden text field can only search the property of its own name exactly. Change how it matches, or use a hidden value that a condition reads.";
+	return undefined;
+}
+
+/** Whether a text field rides the bare prompt CommCare HQ matches by its own key. */
+function textRidesItsOwnName(input: VisibleSearchInputDef): boolean {
+	if (input.kind !== "simple") return false;
+	if (input.matching === "project-space") return true;
+	return (
+		(input.via === undefined || input.via.kind === "self") &&
+		input.name === input.property &&
+		effectiveSimpleSearchModeKind(input) === "exact" &&
+		!CASE_NODE_ATTRIBUTE_PROPERTIES.has(input.property)
 	);
 }
 
@@ -3038,6 +3289,108 @@ export const calculatedSortSchema = z
 	});
 export type CalculatedSort = z.infer<typeof calculatedSortSchema>;
 
+/** A request evaluated on the Search screen before any record is chosen. */
+export const searchFilterTargetSchema = z.discriminatedUnion("kind", [
+	z.strictObject({
+		kind: z.literal("property"),
+		property: authoredCasePropertyNameSchema,
+		ancestors: z.tuple([relationStepSchema], relationStepSchema).optional(),
+	}),
+	z.strictObject({ kind: z.literal("record-id") }),
+	z.strictObject({
+		kind: z.literal("record-name"),
+		ancestors: z.tuple([relationStepSchema], relationStepSchema).optional(),
+	}),
+	z.strictObject({
+		kind: z.literal("attribute"),
+		attribute: z.enum(["id", "type", "owner", "status"]),
+		ancestors: z.tuple([relationStepSchema], relationStepSchema).optional(),
+	}),
+	z.strictObject({ kind: z.literal("owner") }),
+	/**
+	 * Owners whose records the online search leaves out, named by the space
+	 * separated value (HQ's `commcare_blacklisted_owner_ids` request key,
+	 * `case_search/utils.py::CaseSearchQueryBuilder._apply_filter`). It applies
+	 * to the server search alone, never to the device list. `search-setting`
+	 * is the dedicated Case Search setting HQ's editor saves as
+	 * `blacklisted_owner_ids_expression`; without it the rule is one of the
+	 * default filters, in their order. Both send the same request key, so a
+	 * search holds one.
+	 */
+	z.strictObject({
+		kind: z.literal("excluded-owners"),
+		placement: z.literal("search-setting").optional(),
+	}),
+	z.strictObject({ kind: z.literal("project-space") }),
+	z.strictObject({
+		kind: z.literal("link"),
+		identifier: z.string().regex(XML_ELEMENT_NAME_PATTERN),
+	}),
+]);
+export type SearchFilterTarget = z.infer<typeof searchFilterTargetSchema>;
+
+/**
+ * The order the server chooses its matches in before it caps them: each term
+ * a property, how its indexed value compares (text, number or date) and a
+ * direction, the later terms breaking ties of the earlier
+ * (`case_search/utils.py::CaseSearchQueryBuilder._apply_sort`). The device
+ * list may still show the returned records in its own order.
+ */
+export const searchRequestOrderSchema = z
+	.array(
+		z
+			.strictObject({
+				property: authoredCasePropertyNameSchema,
+				/** The record name read by HQ's `name` key rather than `case_name`. */
+				recordName: z.literal(true).optional(),
+				comparison: z.enum(["text", "number", "date"]),
+				direction: z.enum(["ascending", "descending"]),
+				/** A default filter brought in from HQ that left these to HQ's
+				 *  defaults (text, ascending) keeps leaving them. */
+				implicitComparison: z.literal(true).optional(),
+				implicitDirection: z.literal(true).optional(),
+			})
+			.refine((term) => !term.recordName || term.property === "case_name", {
+				error: "Choose the record name.",
+			})
+			.refine(
+				(term) => !term.implicitComparison || term.comparison === "text",
+				{
+					error: "Choose a comparison for this property.",
+				},
+			)
+			.refine(
+				(term) => !term.implicitDirection || term.direction === "ascending",
+				{ error: "Choose a direction for this property." },
+			),
+	)
+	.min(1);
+export type SearchRequestOrder = z.infer<typeof searchRequestOrderSchema>;
+
+export const searchValueFilterSchema = z.strictObject({
+	uuid: uuidSchema,
+	target: searchFilterTargetSchema,
+	value: valueSchema,
+});
+/** An order among the default filters: HQ's `commcare_sort` request key, sent
+ *  in the filters' order and before the dedicated `requestOrder`. */
+export const searchOrderFilterSchema = z.strictObject({
+	uuid: uuidSchema,
+	kind: z.literal("order"),
+	order: searchRequestOrderSchema,
+});
+export const searchFilterSchema = z.union([
+	searchValueFilterSchema,
+	searchOrderFilterSchema,
+]);
+export type SearchFilter = z.infer<typeof searchFilterSchema>;
+export type SearchValueFilter = z.infer<typeof searchValueFilterSchema>;
+export function searchFilterUsesValue(
+	filter: SearchFilter,
+): filter is SearchValueFilter {
+	return "target" in filter;
+}
+
 export const caseListConfigSchema = z
 	.strictObject({
 		/**
@@ -3062,6 +3415,8 @@ export const caseListConfigSchema = z
 		detailTile: detailTileSchema.optional(),
 		contextAboveForm: caseFormContextSchema.optional(),
 		filter: conditionSchema.optional(),
+		searchCondition: conditionSchema.optional(),
+		searchFilters: z.array(searchFilterSchema).min(1).optional(),
 		searchInputs: z.array(searchInputDefSchema),
 		/**
 		 * How many cases a worker can carry forward from Results. Absence is the
@@ -3477,6 +3832,7 @@ export const ordinaryCaseSearchConfigSchema = z
 		// authoring vocabulary is `excludedOwnerIds`. The translation
 		// lives at `lib/commcare/suite/case-search/searchSession.ts`.
 		excludedOwnerIds: valueSchema.optional(),
+		requestOrder: searchRequestOrderSchema.optional(),
 
 		// Display labels for the search screen. The runtime renders the
 		// subtitle through a markdown formatter; the title is plain text.
@@ -3505,9 +3861,13 @@ export const ordinaryCaseSearchConfigSchema = z
 		 * the case list. `skipToResults` runs the search as the menu opens and
 		 * shows its matches; `listFirst` shows the worker's case list with a
 		 * Search action, admitted only where Web Apps is not declared
-		 * (`platforms.ts`, `list-first`). `searchWorkflow` is the one reader.
+		 * (`platforms.ts`, `list-first`). `listFirstWithDefaultResults` also
+		 * requests default results for the Search action. Android opens its
+		 * prompts and waits for submission with either list-first setting.
 		 */
-		workflow: z.enum(["listFirst", "skipToResults"]).optional(),
+		workflow: z
+			.enum(["listFirst", "listFirstWithDefaultResults", "skipToResults"])
+			.optional(),
 		/**
 		 * The search runs as each case form of the menu opens, so the forms read
 		 * what the worker searched for (`#search/`) and what it found
@@ -3516,10 +3876,12 @@ export const ordinaryCaseSearchConfigSchema = z
 		 * (`forms-read-search`). `moduleFormsReadSearch` is the one reader.
 		 */
 		formsReadSearch: z.literal(true).optional(),
+		/** Clearing the search on a wide Web Apps screen requests its cleared answers. */
+		searchOnClear: z.literal(true).optional(),
 	})
 	.refine(
 		(config) =>
-			!(config.workflow === "listFirst" && config.formsReadSearch === true),
+			!(searchOpensOnList(config.workflow) && config.formsReadSearch === true),
 		{
 			path: ["formsReadSearch"],
 			error:
@@ -3559,11 +3921,13 @@ export function caseSearchConfigHasAuthoredSettings(
 	if (isOwnerOnlyCaseSearchConfig(config)) return true;
 	return (
 		config.excludedOwnerIds !== undefined ||
+		config.requestOrder !== undefined ||
 		config.searchScreenTitle !== undefined ||
 		config.searchScreenSubtitle !== undefined ||
 		config.searchButtonDisplayCondition !== undefined ||
 		config.workflow !== undefined ||
-		config.formsReadSearch !== undefined
+		config.formsReadSearch !== undefined ||
+		config.searchOnClear !== undefined
 	);
 }
 
@@ -3587,6 +3951,29 @@ export function isOrdinaryCaseSearchConfig(
 	return config !== undefined && !isOwnerOnlyCaseSearchConfig(config);
 }
 
+/**
+ * The search's own owner exclusion, which replaces `excludedOwnerIds` for the
+ * online search alone: the assigned list keeps that rule. A search sends one
+ * `commcare_blacklisted_owner_ids` value, so one rule wins.
+ */
+export function searchOwnerOverride(
+	config: Pick<CaseListConfig, "searchFilters"> | undefined,
+): SearchValueFilter | undefined {
+	return config?.searchFilters?.find(
+		(row): row is SearchValueFilter =>
+			searchFilterUsesValue(row) && row.target.kind === "excluded-owners",
+	);
+}
+
+/** The owner exclusion HQ's editor holds as `blacklisted_owner_ids_expression`. */
+export function isDedicatedOwnerFilter(filter: SearchFilter): boolean {
+	return (
+		searchFilterUsesValue(filter) &&
+		filter.target.kind === "excluded-owners" &&
+		filter.target.placement === "search-setting"
+	);
+}
+
 /** The title a worker reads: the authored text, "Search" where none is
  *  authored, or null for a search with no title. The one reader. */
 export function searchScreenTitleText(
@@ -3604,13 +3991,14 @@ export function searchScreenTitleText(
  *
  * Title and subtitle belong to the input screen and therefore disappear with
  * that screen. Action settings remain valid on a zero-input manual action, and
- * an effective Cases available rule retains the action for automatic Results.
- * Assigned-case availability alone remains independent and carries the
- * internal no-action marker instead of manufacturing Search.
+ * search content that remains (`searchConditions.ts::searchContentWithoutInputs`:
+ * an effective search condition or a search filter) retains the action for
+ * automatic Results. Assigned-case availability alone remains independent and
+ * carries the internal no-action marker instead of manufacturing Search.
  */
 export function caseSearchConfigAfterFinalInputRemoval(
 	config: CaseSearchConfig | undefined,
-	hasCasesAvailableCondition: boolean,
+	searchContentRemains: boolean,
 ): CaseSearchConfig | undefined {
 	if (config === undefined) return undefined;
 	if (isOwnerOnlyCaseSearchConfig(config)) return config;
@@ -3622,10 +4010,12 @@ export function caseSearchConfigAfterFinalInputRemoval(
 	// The workflow and Forms read the search survive the last input: the
 	// menu keeps opening as the author chose.
 	const hasSearchActionSetting =
+		action.requestOrder !== undefined ||
 		action.searchButtonDisplayCondition !== undefined ||
 		action.workflow !== undefined ||
-		action.formsReadSearch !== undefined;
-	if (hasCasesAvailableCondition || hasSearchActionSetting) return action;
+		action.formsReadSearch !== undefined ||
+		action.searchOnClear !== undefined;
+	if (searchContentRemains || hasSearchActionSetting) return action;
 	if (action.excludedOwnerIds !== undefined) {
 		return { ...action, searchActionEnabled: false };
 	}
@@ -3824,7 +4214,10 @@ export type Module = z.infer<typeof moduleSchema>;
 export function effectiveCaseSearchConfig(
 	module: Pick<Module, "caseListConfig" | "caseSearchConfig">,
 ): OrdinaryCaseSearchConfig | undefined {
-	const hasInputs = (module.caseListConfig?.searchInputs.length ?? 0) > 0;
+	const hasInputs = Boolean(
+		module.caseListConfig?.searchInputs.length ||
+			module.caseListConfig?.searchFilters?.length,
+	);
 	const stored = module.caseSearchConfig;
 	if (stored === undefined) return hasInputs ? {} : undefined;
 	if (!isOwnerOnlyCaseSearchConfig(stored)) return stored;
@@ -3836,12 +4229,21 @@ export function effectiveCaseSearchConfig(
 
 export const SEARCH_WORKFLOWS = [
 	"listFirst",
+	"listFirstWithDefaultResults",
 	"searchFirst",
 	"skipToResults",
 ] as const;
 export type SearchWorkflow = (typeof SEARCH_WORKFLOWS)[number];
 
-/** What a worker sees first when this search runs; absent is search first. */
+/** The two workflows that open on the worker's own case list. They differ
+ * in the saved default-results preference for the separate Search action. */
+export function searchOpensOnList(
+	workflow: SearchWorkflow | undefined,
+): workflow is "listFirst" | "listFirstWithDefaultResults" {
+	return workflow === "listFirst" || workflow === "listFirstWithDefaultResults";
+}
+
+/** The authored workflow of this search; absent is search first. */
 export function searchWorkflow(
 	config: OrdinaryCaseSearchConfig,
 ): SearchWorkflow {

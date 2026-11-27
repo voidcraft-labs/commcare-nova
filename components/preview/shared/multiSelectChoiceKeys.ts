@@ -1,26 +1,32 @@
-// components/preview/shared/multiSelectChoiceKeys.ts
-//
-// Which lookup rows a stored multiple-choice search answer ticks. Lookup
-// rows guarantee neither unique nor non-blank values, so the answer string
-// (one token per ticked row, in row order) is mapped back to rows greedily:
-// each token claims the first row of that value not already claimed. An
-// answer naming a value once therefore ticks one row even when several rows
-// share the value, and naming it twice ticks two.
-
 import { splitMultiSelectSearchAnswer } from "@/lib/domain";
 import type { LookupChoice } from "@/lib/preview/engine/types";
 
+/** Web Apps iterates its value-to-label dictionary (query.js::_setItemset).
+ * Duplicate values keep their final label at the first position, integer
+ * keys come first and the inherited __proto__ setter stores no string. */
+export function webSearchChoices(
+	choices: readonly LookupChoice[],
+): LookupChoice[] {
+	return Object.values(
+		Object.fromEntries(
+			choices
+				.filter((choice) => choice.value !== "__proto__")
+				.map((choice) => [choice.value, choice]),
+		),
+	);
+}
+
+/** Android checks every row whose value occurs in the saved answer
+ * (QueryRequestUiController.calculateItemChoices). On Web Apps each
+ * projected value already has a single row. */
 export function choiceKeysForAnswer(
 	answer: string,
 	choices: readonly LookupChoice[] | undefined,
 ): ReadonlySet<string> {
-	const keys = new Set<string>();
-	if (choices === undefined) return keys;
-	for (const token of splitMultiSelectSearchAnswer(answer)) {
-		const row = choices.find(
-			(choice) => choice.value === token && !keys.has(choice.key),
-		);
-		if (row !== undefined) keys.add(row.key);
-	}
-	return keys;
+	const tokens = new Set(splitMultiSelectSearchAnswer(answer));
+	return new Set(
+		choices
+			?.filter((choice) => tokens.has(choice.value))
+			.map((choice) => choice.key),
+	);
 }

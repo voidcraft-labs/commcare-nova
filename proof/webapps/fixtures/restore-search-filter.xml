@@ -1,0 +1,57 @@
+<OpenRosaResponse xmlns:ns0="http://commcarehq.org/sync" xmlns:ns1="http://openrosa.org/user/registration" xmlns:ns2="http://commcarehq.org/case/transaction/v2">
+  <message nature="ota_restore_success">Successfully restored account test!</message>
+  <ns0:Sync>
+    <ns0:restore_id>sync_token</ns0:restore_id>
+  </ns0:Sync>
+  <ns1:Registration>
+    <ns1:username>test</ns1:username>
+    <ns1:password>sha1$60441$53cf77c2ac3608a944db96af177a6dfe1579e4ba</ns1:password>
+    <ns1:uuid>test_uuid</ns1:uuid>
+    <ns1:date>2012-04-30</ns1:date>
+  </ns1:Registration>
+  <ns2:case case_id="client-both" date_modified="2026-01-01T00:00:00.000000Z" user_id="test_uuid">
+    <ns2:create>
+      <ns2:case_type>client</ns2:case_type>
+      <ns2:case_name>Matching client</ns2:case_name>
+      <ns2:owner_id>test_uuid</ns2:owner_id>
+    </ns2:create>
+    <ns2:update>
+      <ns2:village>north</ns2:village>
+      <ns2:standing>open</ns2:standing>
+      <ns2:client_code>C-201</ns2:client_code>
+      <ns2:district>d1</ns2:district>
+      <ns2:dob>1990-06-15</ns2:dob>
+      <ns2:last_visit>2026-01-10</ns2:last_visit>
+    </ns2:update>
+  </ns2:case>
+  <ns2:case case_id="client-search-only" date_modified="2026-01-01T00:00:00.000000Z" user_id="test_uuid">
+    <ns2:create>
+      <ns2:case_type>client</ns2:case_type>
+      <ns2:case_name>Search-only client</ns2:case_name>
+      <ns2:owner_id>test_uuid</ns2:owner_id>
+    </ns2:create>
+    <ns2:update>
+      <ns2:village>north</ns2:village>
+      <ns2:standing>active</ns2:standing>
+      <ns2:client_code>C-202</ns2:client_code>
+      <ns2:district>d1</ns2:district>
+      <ns2:dob>1990-06-15</ns2:dob>
+      <ns2:last_visit>2026-01-10</ns2:last_visit>
+    </ns2:update>
+  </ns2:case>
+  <ns2:case case_id="client-list-only" date_modified="2026-01-01T00:00:00.000000Z" user_id="test_uuid">
+    <ns2:create>
+      <ns2:case_type>client</ns2:case_type>
+      <ns2:case_name>List-only client</ns2:case_name>
+      <ns2:owner_id>test_uuid</ns2:owner_id>
+    </ns2:create>
+    <ns2:update>
+      <ns2:village>south</ns2:village>
+      <ns2:standing>open</ns2:standing>
+      <ns2:client_code>C-203</ns2:client_code>
+      <ns2:district>d1</ns2:district>
+      <ns2:dob>1990-06-15</ns2:dob>
+      <ns2:last_visit>2026-01-10</ns2:last_visit>
+    </ns2:update>
+  </ns2:case>
+</OpenRosaResponse>

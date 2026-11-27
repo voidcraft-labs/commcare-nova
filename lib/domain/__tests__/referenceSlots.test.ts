@@ -168,6 +168,12 @@ const SUBTREE_LEAF_SCHEMAS = new Set<z.ZodType>([
 
 // ── Introspection helpers ─────────────────────────────────────────
 
+/** A tuple's element schemas: its fixed items, then its rest. */
+function tupleElements(schema: z.ZodTuple): z.ZodType[] {
+	const { items, rest } = schema.def;
+	return [...(items as z.ZodType[]), ...(rest ? [rest as z.ZodType] : [])];
+}
+
 function unwrap(schema: z.ZodType): z.ZodType {
 	let current = schema;
 	while (current instanceof z.ZodOptional || current instanceof z.ZodNullable) {
@@ -257,6 +263,12 @@ function collectLeaves(
 		collectLeaves(s.element as z.ZodType, `${path}[]`, stopPaths, out);
 		return;
 	}
+	// A non-empty sequence (`z.tuple([step], step)`) holds its elements as an array does.
+	if (s instanceof z.ZodTuple) {
+		for (const element of tupleElements(s))
+			collectLeaves(element, `${path}[]`, stopPaths, out);
+		return;
+	}
 	if (s instanceof z.ZodUnion) {
 		for (const option of s.options as z.ZodType[]) {
 			collectLeaves(option, path, stopPaths, out);
@@ -285,6 +297,8 @@ function resolvePath(root: z.ZodType, path: string): z.ZodType[] {
 				const u = unwrap(child);
 				if (u instanceof z.ZodArray)
 					next.push(...fanOut(u.element as z.ZodType));
+				else if (u instanceof z.ZodTuple)
+					next.push(...new Set(tupleElements(u).flatMap(fanOut)));
 			} else {
 				next.push(...fanOut(child));
 			}

@@ -8,6 +8,7 @@ import { isOrdered } from "@/lib/domain";
 import {
 	type ComparisonKind,
 	compatibleTypesFor,
+	dateLiteral,
 	type Expression,
 	eq,
 	gt,
@@ -19,6 +20,7 @@ import {
 	prop,
 	sessionContext,
 	tableColumn,
+	today,
 } from "@/lib/domain/expression";
 import {
 	caseDataInScope,
@@ -47,6 +49,31 @@ export const KIND_BUILDERS: Record<
 };
 
 const ORDERED_KINDS = new Set<ComparisonKind>(["lt", "lte", "gt", "gte"]);
+
+/** Whether the slot's placeholder must read nothing a device instance
+ *  holds. The Search button's condition reads the worker or the session
+ *  only where the case list already loads it (HQ's build never loads what
+ *  the condition alone reads, `suite/case-search/buttonCondition.ts`), so a
+ *  worker placeholder there is refused on most lists, and today's date,
+ *  which reads nothing, is the subject every list admits. */
+export function placeholderReadsNothing(ctx: PredicateEditContext): boolean {
+	return ctx.expressionContext.slot.slot === "search_button_display_condition";
+}
+
+/** A date every running app's today is past. */
+const PLACEHOLDER_DATE = "2000-01-01";
+
+/** A global slot's seed subject and a value of its type: the worker's
+ *  username against blank text, or, where the slot reads nothing a device
+ *  instance holds, today's date against a fixed day. */
+export function globalSeedSubject(ctx: PredicateEditContext): {
+	readonly subject: Parameters<typeof eq>[0];
+	readonly value: ReturnType<typeof literal>;
+} {
+	return placeholderReadsNothing(ctx)
+		? { subject: today(), value: dateLiteral(PLACEHOLDER_DATE) }
+		: { subject: sessionContext("username"), value: literal("") };
+}
 
 /** Build a type-valid comparison against the first applicable case property.
  *  A global slot has no case to read, so its seed compares the current
@@ -85,7 +112,8 @@ export function comparisonDefault<K extends ComparisonKind>(
 		);
 	}
 	if (!caseDataInScope(ctx)) {
-		return builder(sessionContext("username"), literal(""));
+		const { subject, value } = globalSeedSubject(ctx);
+		return builder(subject, value);
 	}
 	const ct = ctx.caseTypes.find((c) => c.name === ctx.currentCaseType);
 	const property = ct?.properties.find((candidate) =>
@@ -101,10 +129,22 @@ export function comparisonDefault<K extends ComparisonKind>(
 /** An unchosen global placeholder with a chosen truth value. The subject
  *  is the current user's username: a real, always-present text value:
  *  so the verb fully determines the truth: "username is not blank"
- *  always holds, "username is blank" never does. */
+ *  always holds, "username is blank" never does. Where the slot reads
+ *  nothing a device instance holds (`placeholderReadsNothing`), the
+ *  subject is today's date, past a fixed day: "today is on or after it"
+ *  always holds, "today is before it" never does. */
 export function globalPlaceholder(
 	holds: boolean,
-): ComparisonArm<"eq"> | ComparisonArm<"neq"> {
+	ctx?: PredicateEditContext,
+):
+	| ComparisonArm<"eq">
+	| ComparisonArm<"neq">
+	| ComparisonArm<"gte">
+	| ComparisonArm<"lt"> {
+	if (ctx !== undefined && placeholderReadsNothing(ctx))
+		return holds
+			? gte(today(), dateLiteral(PLACEHOLDER_DATE))
+			: lt(today(), dateLiteral(PLACEHOLDER_DATE));
 	return holds
 		? neq(sessionContext("username"), literal(""))
 		: eq(sessionContext("username"), literal(""));
@@ -121,7 +161,7 @@ export function wrapSiblingDefault(
 	ctx: PredicateEditContext,
 ): Expression {
 	if (!caseDataInScope(ctx) && !tableRowInScope(ctx)) {
-		return globalPlaceholder(combinator === "and");
+		return globalPlaceholder(combinator === "and", ctx);
 	}
 	return comparisonDefault("eq", ctx);
 }
@@ -135,8 +175,8 @@ export function wrapSiblingDefault(
  *  friendly "is" seed. */
 export function firstComparisonDefault(
 	ctx: PredicateEditContext,
-): ComparisonArm<"eq"> | ComparisonArm<"neq"> {
+): ReturnType<typeof globalPlaceholder> {
 	return caseDataInScope(ctx) || tableRowInScope(ctx)
 		? comparisonDefault("eq", ctx)
-		: globalPlaceholder(globalPlaceholderTruth(ctx));
+		: globalPlaceholder(globalPlaceholderTruth(ctx), ctx);
 }

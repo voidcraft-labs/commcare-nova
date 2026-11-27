@@ -85,6 +85,33 @@ describe("setCaseSearchAdvanced", () => {
 		]);
 	});
 
+	it("sets the order of online matches and preserves it across a separate availability edit", async () => {
+		const h = makeCaseSearchFixture();
+		const order = [
+			{ property: "case_name", comparison: "text", direction: "descending" },
+		] as const;
+		const next = await h.runTool(setCaseSearchAdvancedTool, {
+			moduleUuid: MOD_A,
+			excludedOwnerIds: null,
+			searchWorkflow: "searchFirst",
+			formsReadSearch: null,
+			requestOrder: [...order],
+		});
+		expect(next.result).toMatchObject({
+			ok: true,
+			advancedSlotsSet: expect.arrayContaining(["requestOrder"]),
+		});
+		await h.runTool(setCaseSearchAdvancedTool, {
+			moduleUuid: MOD_A,
+			excludedOwnerIds: term({ kind: "literal", value: "u1" }),
+			searchWorkflow: "searchFirst",
+			formsReadSearch: null,
+		});
+		expect(h.currentDoc().modules[MOD_A].caseSearchConfig).toMatchObject({
+			requestOrder: order,
+		});
+	});
+
 	it("clears the excluded owner ids slot when null is passed", async () => {
 		// Seed a config with the slot populated, then null-clear it.
 		// The persisted shape must omit the cleared key rather than carry
@@ -282,6 +309,7 @@ describe("setCaseSearchAdvanced", () => {
 		const cases = [
 			["skipToResults", "web-apps", "skipToResults"],
 			["listFirst", "android", "listFirst"],
+			["listFirstWithDefaultResults", "android", "listFirstWithDefaultResults"],
 			["searchFirst", "web-apps", undefined],
 		] as const;
 		for (const [searchWorkflow, runsOnlyOn, stored] of cases) {
@@ -313,6 +341,34 @@ describe("setCaseSearchAdvanced", () => {
 			expect("workflow" in after).toBe(stored !== undefined);
 			expect(after.excludedOwnerIds).toEqual(owner);
 		}
+	});
+
+	it("changes Search after clearing and preserves it through an older tool call", async () => {
+		const h = makeCaseSearchFixture(makeCaseSearchDoc());
+		const settings = {
+			moduleUuid: MOD_A,
+			searchWorkflow: "searchFirst" as const,
+			excludedOwnerIds: null,
+			formsReadSearch: null,
+		};
+		await h.runTool(setCaseSearchAdvancedTool, {
+			...settings,
+			searchOnClear: true,
+		});
+		expect(h.currentDoc().modules[MOD_A]?.caseSearchConfig).toMatchObject({
+			searchOnClear: true,
+		});
+		await h.runTool(setCaseSearchAdvancedTool, settings);
+		expect(h.currentDoc().modules[MOD_A]?.caseSearchConfig).toMatchObject({
+			searchOnClear: true,
+		});
+		await h.runTool(setCaseSearchAdvancedTool, {
+			...settings,
+			searchOnClear: null,
+		});
+		expect(
+			h.currentDoc().modules[MOD_A]?.caseSearchConfig ?? {},
+		).not.toHaveProperty("searchOnClear");
 	});
 
 	it("turns Forms read the search on and off, keeping the workflow", async () => {

@@ -5,10 +5,13 @@ import { testUuid } from "@/__tests__/helpers/uuid";
 import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
 import {
 	type BlueprintDoc,
+	type CaseSearchConfig,
+	effectiveCaseSearchConfig,
 	emptyCaseListConfig,
 	plainColumn,
 	simpleSearchInputDef,
 } from "@/lib/domain";
+import { literal, term } from "@/lib/domain/expression";
 import { removeSearchInputTool } from "../removeSearchInput";
 import { MOD_A, makeCaseListDoc, makeCaseListFixture } from "./fixtures";
 
@@ -157,6 +160,66 @@ describe("removeSearchInput", () => {
 		).toHaveLength(0);
 		if ("error" in result.result) throw new Error(result.result.error);
 		expect(result.result.remaining).toBe(0);
+	});
+
+	describe("when a search filter keeps Search on", () => {
+		/** The final field beside one search filter, under `caseSearchConfig`. */
+		function withFilter(caseSearchConfig: CaseSearchConfig): BlueprintDoc {
+			const doc = fixtureWithInputs();
+			const onlyInput = doc.modules[MOD_A].caseListConfig?.searchInputs[0];
+			if (onlyInput === undefined) throw new Error("fixture input missing");
+			return {
+				...doc,
+				modules: {
+					...doc.modules,
+					[MOD_A]: {
+						...doc.modules[MOD_A],
+						caseSearchConfig,
+						caseListConfig: {
+							...(doc.modules[MOD_A].caseListConfig ?? emptyCaseListConfig()),
+							searchInputs: [onlyInput],
+							searchFilters: [
+								{
+									uuid: testUuid("remove-search-input-filter"),
+									target: { kind: "property", property: "phone" },
+									value: term(literal("555")),
+								},
+							],
+						},
+					},
+				},
+			} satisfies BlueprintDoc;
+		}
+
+		it("keeps the Search action the filter still sends", async () => {
+			const h = makeCaseListFixture(withFilter({}));
+			const result = await h.runTool(removeSearchInputTool, {
+				moduleUuid: MOD_A,
+				searchInputUuid: TARGET_UUID,
+			});
+			if ("error" in result.result) throw new Error(result.result.error);
+			const mod = h.currentDoc().modules[MOD_A];
+			// The filter stays, and the menu now opens on what it finds.
+			expect(mod.caseListConfig?.searchFilters).toHaveLength(1);
+			expect(mod.caseSearchConfig).toEqual({ workflow: "skipToResults" });
+			expect(effectiveCaseSearchConfig(mod)).toEqual({
+				workflow: "skipToResults",
+			});
+		});
+
+		it("keeps an Assigned cases rule as a Search setting, never the no-search marker", async () => {
+			const excludedOwnerIds = term(literal("owner-a"));
+			const h = makeCaseListFixture(withFilter({ excludedOwnerIds }));
+			const result = await h.runTool(removeSearchInputTool, {
+				moduleUuid: MOD_A,
+				searchInputUuid: TARGET_UUID,
+			});
+			if ("error" in result.result) throw new Error(result.result.error);
+			expect(h.currentDoc().modules[MOD_A].caseSearchConfig).toEqual({
+				excludedOwnerIds,
+				workflow: "skipToResults",
+			});
+		});
 	});
 
 	it("returns the canonical UUID-address error for an unknown module", async () => {

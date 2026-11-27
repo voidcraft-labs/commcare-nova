@@ -27,7 +27,8 @@ each failing by base with what is missing:
 4. every HELD entry the base exhibits whose claim sits in the app's JSON under
    a case list or a case detail has a ``caseList`` expectation naming it, run
    on the local archive alone, and the base is read under a declaration that
-   includes Android;
+   includes Android. The unrestated Visits list filter in the Web Apps-only
+   Search base instead has a hand-written Web Apps worker expectation;
 5. every first-publish id of the base whose entry holds a ``proof3`` row in
    ``proof/first-publish-changes.json`` has a ``<id>:before`` expectation run
    on A alone and an ``<id>:after`` one run on B and the archive, whose values
@@ -48,7 +49,7 @@ expectation that gives no id for the case it creates, which Core raises on at
 A; a hand restore writing a
 property the app does not hold; a held entry with no value fixed by hand, in a
 form or on a case list; a declared change with no before and after; a base of
-several languages, or one with a case list expectation, read as Web Apps only.
+several languages, or one with an Android case list expectation, read as Web Apps only.
 """
 
 from __future__ import annotations
@@ -64,6 +65,8 @@ from proof.matrix.registry import BASES, HAND, HQ_APPS
 PROOF = Path(__file__).resolve().parents[1]
 ENTRIES = PROOF.parent / "lib" / "commcare" / "surface" / "entries"
 FIRST_PUBLISH_CHANGES = PROOF / "first-publish-changes.json"
+WEB_APPS_SEARCH_FILTER = PROOF / "webapps" / "fixtures" / "web-apps-search-filter.json"
+UNRESTATED_SEARCH_FILTER = "case-search/case-list-filter-clause-the-search-does-not-restate"
 CASE_XMLNS = "http://commcarehq.org/case/transaction/v2"
 XFORMS = "http://www.w3.org/2002/xforms"
 EXPORTS = ("A", "B", "local")
@@ -331,6 +334,49 @@ def _pair_problems(expectations, changes):
     return problems
 
 
+def _web_apps_search_filter_problems(app, listed):
+    """Hold the Web Apps witness to the same stored list and Search clauses.
+
+    The Web Apps suite opens this exact authored menu and the republish with
+    the fixture, comparing the real HQ request and the rendered list.
+    """
+    from proof.observe.casedata import database_of_restore
+
+    fixtures = WEB_APPS_SEARCH_FILTER.parent
+    try:
+        witness = json.loads(WEB_APPS_SEARCH_FILTER.read_text(encoding="utf-8"))
+        (claim,) = [record for record in listed if record.get("where") == witness["source"]]
+        menu = app["modules"][int(claim["where"].split("/")[2])]
+        if witness["source"] != "/modules/2/case_details/short/filter":
+            raise ValueError("the witness must open the Visits list")
+        if witness["entry"] != UNRESTATED_SEARCH_FILTER or witness["menu"] != menu["name"]["en"]:
+            raise ValueError("the witness must name the held Visits list filter")
+        if witness["listFilter"] != menu["case_details"]["short"]["filter"]:
+            raise ValueError("the witness must name the stored list filter")
+        rows = [
+            value["defaultValue"] for value in menu["search_config"]["default_properties"]
+            if value["property"] == "_xpath_query"
+        ]
+        if rows != [json.dumps(witness["query"])]:
+            raise ValueError("the witness must expect the distinct stored Search request")
+        if witness["restore"] != "restore-search-filter.xml":
+            raise ValueError("the witness must name its own restore")
+        cases = database_of_restore((fixtures / witness["restore"]).read_bytes()).cases
+        values = {
+            case.case_id: (case.case_type, dict(case.properties).get("village"), dict(case.properties).get("standing"))
+            for case in cases
+        }
+        if values != {
+            "client-both": ("client", "north", "open"),
+            "client-search-only": ("client", "north", "active"),
+            "client-list-only": ("client", "south", "open"),
+        } or witness["rows"] != ["client-both"]:
+            raise ValueError("the witness must distinguish the rows each filter keeps")
+    except (IndexError, KeyError, OSError, TypeError, ValueError) as error:
+        return [f"the Web Apps Visits list witness is invalid ({error})"]
+    return []
+
+
 def _problems(base, claim_log, held, proof3):
     directory = HQ_APPS / base.id
     hand = HAND / base.id
@@ -463,6 +509,9 @@ def _problems(base, claim_log, held, proof3):
             and any(part in (record.get("where") or "") for part in ("/case_details/", "/case_list"))
         ]
         if listed:
+            if base.id == "hq-search" and entry == UNRESTATED_SEARCH_FILTER and runs_only_on == "web-apps":
+                problems.extend(_web_apps_search_filter_problems(app, listed))
+                continue
             case_lists = [
                 expectation
                 for expectation in expectations

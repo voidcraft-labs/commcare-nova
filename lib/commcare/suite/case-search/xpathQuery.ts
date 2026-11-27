@@ -49,6 +49,7 @@
 // string at evaluation time AND silently filter case data on the
 // server, so the inline shape is the only wire-correct option for
 // computed values.
+
 import {
 	inertLookupWireNaming,
 	type LookupWireNaming,
@@ -65,6 +66,12 @@ import {
 import type { ExpressionContext } from "@/lib/domain/expression/context";
 import { compilerBugMessage } from "@/lib/domain/expression/errors";
 import type { DatumRef, Expression } from "@/lib/domain/expression/types";
+import { isDedicatedOwnerFilter } from "@/lib/domain/modules";
+import {
+	readsSearchField,
+	searchConditionOf,
+	searchConditionSlot,
+} from "@/lib/domain/searchConditions";
 import {
 	type SearchRuntimeValidationKind,
 	searchRuntimeValidationMessage,
@@ -129,7 +136,11 @@ export function xpathQueryRequestValues(
 	emission: ComposedXPathQuery | undefined,
 ): readonly WireExpr[] {
 	const clauses = emission?.clauseWrappers ?? [];
-	if (clauses.length > 0 || caseListConfig.searchInputs.length > 0) {
+	if (
+		clauses.length > 0 ||
+		caseListConfig.searchInputs.length > 0 ||
+		caseListConfig.searchFilters?.some((row) => !isDedicatedOwnerFilter(row))
+	) {
 		return clauses;
 	}
 	return [ZERO_INPUT_SEARCH_SENTINEL];
@@ -275,7 +286,8 @@ export function composeXPathQueryEmission(
 	// means the validator was bypassed (an AST built at runtime, an
 	// `as any` cast, or a partial discriminated-union widening).
 	for (const clause of clauses) {
-		assertNoBareSearchInputRefs(clause.expression);
+		if (clause.context.slot.slot !== "case_search_filter")
+			assertNoBareSearchInputRefs(clause.expression);
 		assertCsqlRepresentable(clause.expression, clause.context);
 	}
 
@@ -287,8 +299,30 @@ export function composeXPathQueryEmission(
 	const emissions = clauses.map((clause) =>
 		emitCsql(clause.expression, { types: clause.context, bindings }),
 	);
+	// A field Web Apps hides shows no check, so a guard names no hidden
+	// field: a value only hidden fields contribute is a value no worker can
+	// repair there, which the wrapper answers with `match-none()` as it does
+	// a session or computed one.
+	const hiddenNames = new Set(
+		caseListConfig.searchInputs
+			.filter((input) => input.kind !== "hidden" && input.hidden === true)
+			.map((input) => input.name),
+	);
 	const runtimeRejections = dedupeRuntimeRejections(
-		emissions.flatMap((emission) => emission.runtimeRejections ?? []),
+		emissions.flatMap((emission) =>
+			(emission.runtimeRejections ?? []).map((rejection) => {
+				if (
+					hiddenNames.size === 0 ||
+					rejection.inputNames?.some((name) => hiddenNames.has(name)) !== true
+				)
+					return rejection;
+				const { inputNames, ...rest } = rejection;
+				const shown = inputNames?.filter((name) => !hiddenNames.has(name));
+				return shown === undefined || shown.length === 0
+					? rest
+					: { ...rest, inputNames: shown };
+			}),
+		),
 	);
 	return {
 		clauseWrappers: emissions.map((emission) => emission.wrapper),
@@ -335,12 +369,13 @@ export function composeXPathQueryClauses(
 	contexts: XPathQueryContexts,
 ): readonly XPathQueryClause[] | undefined {
 	const filterContext = xpathQueryContextFor(contexts, {
-		slot: "case_list_filter",
+		slot: searchConditionSlot(caseListConfig),
 	});
 	const sources: XPathQueryClause[] = [];
-	if (caseListConfig.filter !== undefined)
+	const searchCondition = searchConditionOf(caseListConfig);
+	if (searchCondition !== undefined)
 		sources.push({
-			expression: caseListConfig.filter,
+			expression: searchCondition,
 			context: filterContext,
 			source: "filter",
 		});
@@ -369,7 +404,18 @@ export function composeXPathQueryClauses(
 				source: "derived",
 			});
 		}
-	const clauses: XPathQueryClause[] = [];
+	// The search condition's clauses come first, then every field's conjunct
+	// that reads no Search field, in the fields' order: such a conjunct is a
+	// condition on the whole search (`searchConditions.ts::readsSearchField`),
+	// so a field's condition holding it and the search condition holding it
+	// print one request, and a reading of the request returns the search
+	// condition's. Then the conjuncts that read fields, then the derived
+	// matches. HQ applies every row as its own filter of one search
+	// (`case_search/utils.py::_apply_filter`), so the order finds the same
+	// cases.
+	const leading: XPathQueryClause[] = [];
+	const hoisted: XPathQueryClause[] = [];
+	const trailing: XPathQueryClause[] = [];
 	for (const source of sources) {
 		// `effectiveFilterForEmission` drops boolean identities at every
 		// depth and folds an all-true source to `undefined`. Without it a
@@ -387,13 +433,19 @@ export function composeXPathQueryClauses(
 			];
 		for (const clause of effective.kind === "and"
 			? effective.clauses
-			: [effective])
-			clauses.push({
+			: [effective]) {
+			const placed = {
 				expression: clause,
 				context: source.context,
 				source: source.source,
-			});
+			};
+			if (source.source === "filter") leading.push(placed);
+			else if (source.source === "field" && !readsSearchField(clause))
+				hoisted.push(placed);
+			else trailing.push(placed);
+		}
 	}
+	const clauses = [...leading, ...hoisted, ...trailing];
 	return clauses.length === 0 ? undefined : clauses;
 }
 
