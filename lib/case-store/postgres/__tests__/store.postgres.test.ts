@@ -28,7 +28,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { withTransientRetry } from "@/lib/db/schemaSyncRetry";
 import type { BlueprintDoc, CaseType } from "@/lib/domain";
-import { eq, literal, prop } from "@/lib/domain/expression/builders";
+import {
+	eq,
+	formField,
+	literal,
+	prop,
+	term,
+} from "@/lib/domain/expression/builders";
 import { caseTypeToJsonSchema } from "@/lib/domain/expression/jsonSchema";
 import { SEARCH_READING } from "@/lib/domain/expression/temporalType";
 import { proseText } from "@/lib/domain/prose";
@@ -263,10 +269,46 @@ describe("PostgresCaseStore.readDeviceCaseDatabase", () => {
 				},
 			});
 		}
-		await store.update({
+		const formUuid = testUuid("accented-basic-followup");
+		const answer = testUuid("accented-basic-answer");
+		await store.applySubmission({
 			appId: APP_ID,
-			caseId: "selected",
-			patch: { properties: { estado_é: "after" } },
+			submissionReceipt: {
+				entryKey: "accented-basic-entry",
+				formUuid,
+				expectedAppMutationSeq: 0,
+				blueprintDigest: "0".repeat(64),
+				requestDigest: "accented-basic-case-update",
+			},
+			ordinary: {
+				kind: "followup",
+				caseType: "patient",
+				caseIds: ["selected"],
+				selection: { kind: "single", maximum: 1 },
+			},
+			operations: {
+				formUuid,
+				operations: [
+					{
+						operation: {
+							uuid: testUuid("accented-basic-own-operation"),
+							id: "patient",
+							action: "own",
+							writes: [
+								{ property: "estado_é", value: term(formField(answer)) },
+							],
+						},
+						guardConditions: [],
+						expressionSnapshotTypes: { links: new Map() },
+					},
+				],
+				ownCase: { caseType: "patient", formType: "followup" },
+				sessionCaseIds: ["selected"],
+				scopes: [
+					{ iterations: [{ formFields: new Map([[answer, "after"]]) }] },
+				],
+				caseTypeSchemas,
+			},
 		});
 		await expect(
 			store.update({
