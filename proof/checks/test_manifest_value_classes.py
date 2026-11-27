@@ -9266,7 +9266,7 @@ def test_a_reader_places_each_shape_of_its_class(entry_id, manifest):
     ("host/parent/village", None, None),
     ("parent/location_id", None, None),
     ("parent/village", "date", "case-search/prompt-key-matching-a-direct-parent-date"),
-    ("parent/parent/village", "date", None),
+    ("parent/parent/village", "date", "case-search/prompt-key-matching-two-parent-links-for-a-date"),
 ])
 def test_retained_search_matches_only_proven_parent_prompt_paths(manifest, name, widget, held_entry):
     from proof.checks import parity

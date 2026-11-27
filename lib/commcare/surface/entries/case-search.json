@@ -2263,6 +2263,32 @@
 		]
 	},
 	{
+		"id": "case-search/prompt-key-matching-two-parent-links-for-a-date",
+		"area": "case-search",
+		"section": "Case search",
+		"subsection": "Search prompts",
+		"item": "A labeled single-date prompt matched by its own grandparent property key",
+		"surfaceKeys": ["schema:CaseSearchProperty.name"],
+		"valueClass": "two-parent-links-date-prompt-key",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: Web Apps sends the chosen date as exact saved text on the grandparent property.",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / UNAVAILABLE",
+			"webApps": { "reading": "runs" },
+			"android": { "reading": "unavailable" }
+		},
+		"emission": {
+			"cell": "`name` derived from the two parent links and the property, with `input_: date`",
+			"markers": []
+		},
+		"gates": [
+			"toggle/CASE_SEARCH_ADVANCED",
+			"toggle/CASE_SEARCH_RELATED_LOOKUPS"
+		]
+	},
+	{
 		"id": "case-search/prompt-key-matching-two-parent-links",
 		"area": "case-search",
 		"section": "Case search",

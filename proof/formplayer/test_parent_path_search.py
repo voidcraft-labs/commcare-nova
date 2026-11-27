@@ -151,8 +151,12 @@ def test_hq_editor_and_worker_keep_the_parent_path_search_key(
     pytest.param("web-apps", marks=pytest.mark.reader("webapps")),
     pytest.param("android", marks=pytest.mark.reader("android")),
 ])
+@pytest.mark.parametrize(("variant", "ancestors"), [
+    pytest.param("date-field-named-by-a-parent-path", 1, id="direct"),
+    pytest.param("nested-date-field-named-by-a-parent-path", 2, id="nested"),
+])
 def test_hq_saved_parent_date_matches_the_exact_parent_text_in_web_apps(
-    hq, core_runner, editor_driver, formplayer_runner, evidence, platform_name,
+    hq, core_runner, editor_driver, formplayer_runner, evidence, platform_name, variant, ancestors,
 ):
     """A scalar picker sends a day through HQ's ordinary ancestor matcher. Android omits that widget."""
     from proof.android import observe
@@ -161,13 +165,12 @@ def test_hq_saved_parent_date_matches_the_exact_parent_text_in_web_apps(
     from proof.webapps import steps
     from proof.webapps.session import Session
 
-    variant = "hq-search/date-field-named-by-a-parent-path"
-    row = next(candidate for candidate in load_variants() if candidate.id == variant)
+    row = next(candidate for candidate in load_variants() if candidate.id == f"hq-search/{variant}")
     source = json.loads((HQ_APPS / row.base / "app.json").read_bytes())
     assert row.change["pointer"] == "/modules/0/search_config/properties/1"
     held_prompt = row.change["value"]
     key = held_prompt["name"]
-    assert key == "parent/village" and held_prompt["input_"] == "date"
+    assert key == "/".join(["parent"] * ancestors + ["village"]) and held_prompt["input_"] == "date"
     source["modules"][0]["search_config"]["properties"][1] = held_prompt
     source["cloudcare_enabled"] = True
     day, earlier, later = "2024-03-10", "2024-03-09", "2024-03-11"
@@ -180,17 +183,34 @@ def test_hq_saved_parent_date_matches_the_exact_parent_text_in_web_apps(
             (("parent", "household", parent, "child"),) if parent else (),
         )
 
+    target_rows = (
+        ("exact-parent", day),
+        ("same-era-earlier", earlier),
+        ("same-era-later", later),
+        ("same-day-timestamp", f"{day}T12:30:00Z"),
+    )
+    households = [record(case_id, "household", value) for case_id, value in target_rows]
+    if ancestors == 2:
+        # The first-hop value is deliberately opposite. A direct-parent
+        # comparison would omit the genuine match and include three decoys.
+        households.extend(
+            record(f"middle-{case_id}", "household", earlier if value == day else day, case_id)
+            for case_id, value in target_rows
+        )
+        households.append(record("middle-missing-parent", "household", day, "missing-parent"))
+
+    def reached(target):
+        return f"middle-{target}" if ancestors == 2 else target
+
     database = casedata.CaseDatabase(casedata.USER_ID, casedata.USERNAME, (), (
-        record("exact-parent", "household", day),
-        record("same-era-earlier", "household", earlier),
-        record("same-era-later", "household", later),
-        record("same-day-timestamp", "household", f"{day}T12:30:00Z"),
-        record("exact-parent-result", "client", earlier, "exact-parent"),
-        record("earlier-parent-result", "client", day, "same-era-earlier"),
-        record("later-parent-result", "client", day, "same-era-later"),
-        record("timestamp-parent-result", "client", day, "same-day-timestamp"),
-        record("dangling-parent-result", "client", day, "missing-parent"),
+        *households,
+        record("exact-parent-result", "client", earlier, reached("exact-parent")),
+        record("earlier-parent-result", "client", day, reached("same-era-earlier")),
+        record("later-parent-result", "client", day, reached("same-era-later")),
+        record("timestamp-parent-result", "client", day, reached("same-day-timestamp")),
+        record("dangling-parent-result", "client", day, reached("missing-parent")),
         record("unlinked-result", "client", day),
+        *((record("direct-only-result", "client", day, "exact-parent"),) if ancestors == 2 else ()),
     ))
     configuration = Configuration(
         flags={"CASE_SEARCH_ADVANCED", "CASE_SEARCH_RELATED_LOOKUPS", "FOLLOWUP_FORMS_AS_CASE_LIST_FORM",

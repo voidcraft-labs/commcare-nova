@@ -418,6 +418,30 @@ test("direct parent Search keeps its match when a field is renamed or relabeled"
 	await expect(matching).toHaveCount(0);
 });
 
+test("a grandparent date Search keeps both links when its field name changes", async ({
+	page,
+}) => {
+	await page.goto(`${peer.origin}?scenario=search-nested-parent-date`);
+	await selectSearchInput(page);
+	const before = (await savedModule(page)).caseListConfig.searchInputs[0];
+	const matching = page.getByRole("switch", {
+		name: /^Use project space matching/,
+	});
+	await expect(matching).toBeChecked();
+
+	await page.getByRole("button", { name: "More settings" }).click();
+	const name = page.getByRole("textbox", {
+		name: "Search field 1 name",
+		exact: true,
+	});
+	await name.fill("date_of_district_visit");
+	await name.press("Tab");
+	await expect
+		.poll(async () => (await savedModule(page)).caseListConfig.searchInputs[0])
+		.toEqual({ ...before, name: "date_of_district_visit" });
+	await expect(matching).toBeChecked();
+});
+
 test("native Search keyboard reordering and removal preserve field identity and move focus", async ({
 	page,
 }) => {

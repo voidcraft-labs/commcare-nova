@@ -69,6 +69,7 @@ export const PLATFORM_FEATURE_ENTRIES = {
 	"search-field-single-date": [
 		"case-search/input-date",
 		"case-search/prompt-key-matching-a-direct-parent-date",
+		"case-search/prompt-key-matching-two-parent-links-for-a-date",
 	],
 	"search-field-multiple-choice": [
 		"case-search/input-select-multi-lookup-itemset",

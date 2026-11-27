@@ -619,88 +619,122 @@ describe("a completed search's snapshot", () => {
 		});
 	});
 
-	it("matches a scalar Search date against only the exact related property in Preview", async () => {
-		const day = "2024-03-10";
-		const earlier = "2024-03-09";
-		const later = "2024-03-11";
-		const store = storeAs(WORKER, async () => ({
-			revision: "parent-date",
-			maximum: 500,
-			timeZone: "America/Los_Angeles",
-			projectSpace: "clinic",
-			matcherFor: (key) =>
-				key === "parent/village" ? { fuzzy: false, ignoreLiterals: [] } : null,
-		}));
-		const prompt: SearchInputDef = {
-			uuid: testUuid("parent-village-date"),
-			name: "parent_village",
-			label: "Visit day",
-			kind: "simple",
-			type: "date",
-			property: "village",
-			matching: "project-space",
-			via: { kind: "ancestor", via: [{ identifier: "parent" }] },
-		};
-		for (const [caseId, value] of [
-			["exact-parent", day],
-			["earlier-parent", earlier],
-			["later-parent", later],
-			["timestamp-parent", `${day}T12:30:00Z`],
-		] as const)
-			await storeAs(OTHER_WORKER).insert({
-				appId: APP_ID,
-				row: {
-					case_id: caseId,
-					case_type: "household",
-					case_name: caseId,
-					status: "open",
-					properties: { village: value },
+	it.each([1, 2])(
+		"matches a scalar Search date over exactly %i parent links in Preview",
+		async (hops) => {
+			const requestKey = `${"parent/".repeat(hops)}village`;
+			const day = "2024-03-10";
+			const earlier = "2024-03-09";
+			const later = "2024-03-11";
+			const store = storeAs(WORKER, async () => ({
+				revision: "parent-date",
+				maximum: 500,
+				timeZone: "America/Los_Angeles",
+				projectSpace: "clinic",
+				matcherFor: (key) =>
+					key === requestKey ? { fuzzy: false, ignoreLiterals: [] } : null,
+			}));
+			const prompt: SearchInputDef = {
+				uuid: testUuid("parent-village-date"),
+				name: requestKey.replaceAll("/", "_"),
+				label: "Visit day",
+				kind: "simple",
+				type: "date",
+				property: "village",
+				matching: "project-space",
+				via: {
+					kind: "ancestor",
+					via: [
+						{ identifier: "parent" },
+						...(hops === 2 ? [{ identifier: "parent" }] : []),
+					],
 				},
-			});
-		for (const [caseId, parent, village] of [
-			["exact", "exact-parent", earlier],
-			["earlier", "earlier-parent", day],
-			["later", "later-parent", day],
-			["timestamp", "timestamp-parent", day],
-			["unlinked", undefined, day],
-		] as const) {
-			const row = patient(caseId, "open", parent);
-			await store.insert({
-				...row,
-				row: { ...row.row, properties: { village } },
-			});
-		}
-		const config = caseListConfig([{ field: "case_name", header: "Name" }]);
-		config.searchInputs = [prompt];
-		const read = (answer: string) =>
-			readSearchResultsSnapshot(store, {
-				...SEARCH,
-				searchPopulation: {
-					...SEARCH.searchPopulation,
-					request: completedSearchRequest(
-						{ caseListConfig: config },
-						new Map([[prompt.name, answer]]),
-						undefined,
-						{ revision: "parent-date" },
-					),
-				},
-			});
-		expect((await read(day)).rows.map((row) => row.case_id)).toEqual(["exact"]);
-		expect((await read(earlier)).rows.map((row) => row.case_id)).toEqual([
-			"earlier",
-		]);
-		expect((await read(later)).rows.map((row) => row.case_id)).toEqual([
-			"later",
-		]);
-		await store.insert(patient("unsynced"));
-		await sql`insert into case_indices(case_id, ancestor_id, identifier, depth, relationship, target_case_type)
+			};
+			const insertHousehold = (
+				caseId: string,
+				village: string,
+				parentCaseId?: string,
+			) =>
+				storeAs(OTHER_WORKER).insert({
+					appId: APP_ID,
+					row: {
+						case_id: caseId,
+						case_type: "household",
+						case_name: caseId,
+						status: "open",
+						properties: { village },
+						...(parentCaseId === undefined
+							? {}
+							: { parent_case_id: parentCaseId }),
+					},
+				});
+			for (const [caseId, value] of [
+				["exact-parent", day],
+				["earlier-parent", earlier],
+				["later-parent", later],
+				["timestamp-parent", `${day}T12:30:00Z`],
+			] as const) {
+				await insertHousehold(caseId, value);
+				if (hops === 2)
+					await insertHousehold(
+						`middle-${caseId}`,
+						value === day ? earlier : day,
+						caseId,
+					);
+			}
+			for (const [caseId, parent, village] of [
+				["exact", "exact-parent", earlier],
+				["earlier", "earlier-parent", day],
+				["later", "later-parent", day],
+				["timestamp", "timestamp-parent", day],
+				["unlinked", undefined, day],
+			] as const) {
+				const row = patient(
+					caseId,
+					"open",
+					parent && hops === 2 ? `middle-${parent}` : parent,
+				);
+				await store.insert({
+					...row,
+					row: { ...row.row, properties: { village } },
+				});
+			}
+			if (hops === 2)
+				await store.insert(patient("direct-only", "open", "exact-parent"));
+			const config = caseListConfig([{ field: "case_name", header: "Name" }]);
+			config.searchInputs = [prompt];
+			const read = (answer: string) =>
+				readSearchResultsSnapshot(store, {
+					...SEARCH,
+					searchPopulation: {
+						...SEARCH.searchPopulation,
+						request: completedSearchRequest(
+							{ caseListConfig: config },
+							new Map([[prompt.name, answer]]),
+							undefined,
+							{ revision: "parent-date" },
+						),
+					},
+				});
+			expect((await read(day)).rows.map((row) => row.case_id)).toEqual([
+				"exact",
+			]);
+			expect((await read(earlier)).rows.map((row) => row.case_id)).toEqual([
+				"earlier",
+			]);
+			expect((await read(later)).rows.map((row) => row.case_id)).toEqual([
+				"later",
+			]);
+			await store.insert(patient("unsynced"));
+			await sql`insert into case_indices(case_id, ancestor_id, identifier, depth, relationship, target_case_type)
 			values ('unsynced', 'missing-parent', 'parent', 1, 'child', 'household')`.execute(
-			dbHandle.db,
-		);
-		await expect(read(day)).rejects.toMatchObject({
-			reason: { kind: "parent-value-unavailable", field: "Visit day" },
-		});
-	});
+				dbHandle.db,
+			);
+			await expect(read(day)).rejects.toMatchObject({
+				reason: { kind: "parent-value-unavailable", field: "Visit day" },
+			});
+		},
+	);
 
 	it.each([2, 3])("reads %i parent links in Preview", async (hops) => {
 		const prefix = "parent/".repeat(hops);
