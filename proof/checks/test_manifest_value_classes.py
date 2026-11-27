@@ -4397,6 +4397,24 @@ def _search_and_menus():
                 "app", search(_search_module(default_properties=[_default("commcare_sort", "'++priority:unknown'")])),
                 "schema:DefaultCaseSearchProperty.property", f"{config}/default_properties/0/property",
             ),
+            refused(
+                "app", search(_search_module(default_properties=[_default("commcare_sort", "'++priority:unknown'")],
+                                             properties=[_prompt("priority")])),
+                "schema:DefaultCaseSearchProperty.property", f"{config}/default_properties/0/property",
+            ),
+            refused(
+                "app", search(_search_module(default_properties=[_default("commcare_sort", "'++priority:unknown'")],
+                                             properties=[_prompt("commcare_sort", is_group=True, group_key="order")])),
+                "schema:DefaultCaseSearchProperty.property", f"{config}/default_properties/0/property",
+            ),
+            *(
+                refused(
+                    "app", search(_search_module(default_properties=[_default("commcare_sort", "'++priority:unknown'")],
+                                                 properties=[_prompt(name)])),
+                    "schema:DefaultCaseSearchProperty.property", f"{config}/default_properties/0/property",
+                )
+                for name in ("endpoint_id", "data_registry", "x_commcare_endpoint_id_extra", '"x_commcare_data_registry"')
+            ),
             *(
                 accepted(
                     "app", search(_search_module(**setting)),
@@ -4404,6 +4422,11 @@ def _search_and_menus():
                 )
                 for setting in (
                     {"default_properties": [_default("commcare_sort", "'++priority:exact'")]},
+                    *(
+                        {"default_properties": [_default("commcare_sort", "'++priority:unknown'")],
+                         "properties": [_prompt(name)]}
+                        for name in ("commcare_sort", "x_commcare_endpoint_id", "x_commcare_data_registry")
+                    ),
                     {"default_properties": [_default("commcare_sort", "'++priority:phonetic'")]},
                     {"default_properties": [_default("commcare_sort", "'++priority:unknown'"),
                                             _default("commcare_sort", "'+priority::ignored'")]},

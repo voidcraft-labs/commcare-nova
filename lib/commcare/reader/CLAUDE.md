@@ -574,7 +574,10 @@ resets the preceding sort and remains held. A single literal default order
 over a custom property with no competing order or request control on the
 built-in Search path gets an exact refusal for an unmapped comparison
 (`case_search/models.py::_parse_commcare_sort_properties`,
-`es/mappings/case_search_mapping.py::CASE_SEARCH_MAPPING`).
+`es/mappings/case_search_mapping.py::CASE_SEARCH_MAPPING`). Core appends an
+answered `commcare_sort` prompt after the default. Prompts under
+`x_commcare_endpoint_id` or `x_commcare_data_registry` can change the receiving
+endpoint or index. These sources keep the existing unsupported-order finding.
 
 `matchingResolver` answers a key the map holds with its UUID and gives any other key a UUID the
 map holds under no key (`identity.ts::freeEntityUuid`): a map holds a renamed entity's UUID, minted

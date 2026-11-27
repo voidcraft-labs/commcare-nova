@@ -5110,6 +5110,13 @@ def default_order_unmapped_comparison(use, manifest):
         return False
     if config.get("custom_sort_properties", []) != []:
         return False
+    prompts = config.get("properties", [])
+    if not isinstance(prompts, list) or any(
+        isinstance(prompt, dict) and prompt.get("is_group") is not True
+        and prompt.get("name") in ("commcare_sort", "x_commcare_endpoint_id", "x_commcare_data_registry")
+        for prompt in prompts
+    ):
+        return False
     defaults = config.get("default_properties")
     if not isinstance(defaults, list) or any(
         not isinstance(row, dict) or row.get("property") not in ("commcare_sort", "_xpath_query") for row in defaults

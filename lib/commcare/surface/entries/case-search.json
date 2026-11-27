@@ -252,7 +252,7 @@
 		"area": "case-search",
 		"section": "Case search",
 		"subsection": "Search configuration",
-		"item": "one literal `commcare_sort` term on a custom case property with an unmapped comparison, in a basic menu's built-in Search with no other sort or request control",
+		"item": "one literal `commcare_sort` term on a custom case property with an unmapped comparison, in a basic menu's built-in Search with no competing sort or routing prompt and no other sort or request control",
 		"surfaceKeys": [
 			"schema:DefaultCaseSearchProperty.property",
 			"schema:DefaultCaseSearchProperty.defaultValue"

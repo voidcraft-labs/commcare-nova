@@ -83,6 +83,7 @@ DOCUMENTS = (
     "targeted-android-app-answers",
     "targeted-case-choice-reopen",
     "targeted-sorted-case-choices",
+    "targeted-searched-shared-visit",
     "prompt-widgets",
     "prompt-periods",
     "case-capture-query",

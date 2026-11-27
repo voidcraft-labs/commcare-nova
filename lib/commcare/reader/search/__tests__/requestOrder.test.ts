@@ -366,6 +366,9 @@ it.each([
 	"later reset",
 	"dedicated order",
 	"external endpoint",
+	"commcare_sort",
+	"x_commcare_endpoint_id",
+	"x_commcare_data_registry",
 	"phonetic",
 ] as const)(
 	"keeps the existing finding for an unsupported order with %s",
@@ -399,6 +402,17 @@ it.each([
 							},
 						];
 						break;
+					case "commcare_sort":
+					case "x_commcare_endpoint_id":
+					case "x_commcare_data_registry":
+						config.properties = [
+							{
+								doc_type: "CaseSearchProperty",
+								name: control,
+								label: { en: "Order" },
+							},
+						];
+						break;
 					case "external endpoint":
 						config.case_search_endpoint_id = 9;
 						config.properties = [
@@ -423,6 +437,29 @@ it.each([
 		);
 	},
 );
+
+it.each([
+	"priority",
+	"endpoint_id",
+	"data_registry",
+	"x_commcare_endpoint_id_extra",
+	'"x_commcare_data_registry"',
+])("still identifies the invalid lone order beside prompt %s", async (name) => {
+	const reading = await readLists(patients([], { search: {} }), {
+		edit: (app) => {
+			const config = app.modules[0].search_config;
+			config.default_properties = [
+				{ property: "commcare_sort", defaultValue: "'++priority:unknown'" },
+			];
+			config.properties = [
+				{ doc_type: "CaseSearchProperty", name, label: { en: "Priority" } },
+			];
+		},
+	});
+	expect(closedCodes(reading)).toContain(
+		"case-search/default-order-with-an-unmapped-comparison",
+	);
+});
 
 // HQ reads `@case_type` as the record's own type (`requestOrder.ts`'s
 // attribute keys), so an order on it names no property the catalog gains.

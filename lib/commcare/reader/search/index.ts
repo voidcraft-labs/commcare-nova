@@ -360,6 +360,12 @@ function keyFinding(
 	return undefined;
 }
 
+const BUILT_IN_ORDER_REQUEST_OVERRIDES: ReadonlySet<string> = new Set([
+	"commcare_sort",
+	"x_commcare_endpoint_id",
+	"x_commcare_data_registry",
+]);
+
 /** The default filters: each `_xpath_query` row kept, the markers read, every other key refused. */
 function readDefaultFilters(
 	ctx: ReadContext,
@@ -384,10 +390,20 @@ function readDefaultFilters(
 	const stored = cursor.peek("default_properties");
 	const entries = objectMembers(stored) ?? [];
 	const dedicatedOrder = cursor.peek("custom_sort_properties");
+	const prompts = cursor.peek("properties");
 	const singleBuiltInOrder =
 		module.json.peek("doc_type") === "Module" &&
 		!cursor.peek("case_search_endpoint_id") &&
 		!cursor.peek("data_registry") &&
+		// Answers can replace the sort or send it to a different HQ receiver.
+		(prompts === undefined ||
+			(Array.isArray(prompts) &&
+				!(objectMembers(prompts) ?? []).some(
+					(prompt) =>
+						prompt.is_group !== true &&
+						typeof prompt.name === "string" &&
+						BUILT_IN_ORDER_REQUEST_OVERRIDES.has(prompt.name),
+				))) &&
 		(dedicatedOrder === undefined ||
 			(Array.isArray(dedicatedOrder) && dedicatedOrder.length === 0)) &&
 		entries.filter((entry) => entry.property === "commcare_sort").length ===
