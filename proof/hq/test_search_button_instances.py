@@ -189,3 +189,58 @@ def test_the_hq_search_button_counts_restored_cases_without_loading_new_instance
         error["class"].endswith(".XPathMissingInstanceException") and "commcaresession" in error["message"]
         for error in refused
     ), blocked
+
+
+def test_the_hq_search_button_orders_worker_text_only_with_a_declared_session(hq, core_runner, tmp_path):
+    from corehq.apps.app_manager.tests.util import patch_get_xform_resource_overrides
+    from proof.core.artifacts import SESSION_RESTORE
+    from proof.core.test_session import CASE_XMLNS, person_cases
+    from proof.observe.build import arrange
+
+    worker = "instance('commcaresession')/session/context/username"
+    ordered = f"{worker} > 'm'"
+    numeric = f"number({worker}) > number('m')"
+    # The case-type arm keeps the same restored list even if the test worker
+    # does not own a fixture case. The other arm declares the session.
+    filtered = f"{SESSION_FILTER} or @case_type = 'client'"
+    case_ns = f"{{{CASE_XMLNS}}}"
+    restored = etree.fromstring(person_cases(SESSION_RESTORE.read_bytes(), ["one"]))
+    restored.find(f".//{case_ns}create/{case_ns}case_type").text = "client"
+    restore = etree.tostring(restored)
+
+    with hq_check(Configuration()) as (state, _):
+        for label, condition, list_filter, expected in (
+            ("without-session", ordered, None, "missing"),
+            ("with-session", ordered, filtered, "hidden"),
+            ("numeric-control", numeric, filtered, "hidden"),
+            ("shown-control", "true()", filtered, "shown"),
+        ):
+            app = _search_app(state.domain, list_filter, condition=condition)
+            app._id = f"search-worker-order-{label}"
+            app.version = 1
+            with patch_get_xform_resource_overrides():
+                suite = etree.fromstring(app.create_suite())
+                files = app.create_all_files()
+            action, entry = _action_and_entry(suite)
+            assert action.get("relevant") == condition
+            instance_ids = {instance.get("id") for instance in entry.iter("instance")}
+            assert ("commcaresession" in instance_ids) == (list_filter is not None), instance_ids
+            assert _verdict(suite, action) is (expected == "missing")
+            report = core_runner.admit(arrange(files, tmp_path / label))
+            assert report["admitted"], report
+            try:
+                observed = core_runner.session(report["app"], restore=restore)
+            finally:
+                core_runner.release(report["app"])
+
+            trace = [step for run in observed["runs"] for step in run["trace"]]
+            if expected == "missing":
+                assert any(
+                    step.get("error", {}).get("class", "").endswith(".XPathMissingInstanceException")
+                    and "commcaresession" in step["error"]["message"]
+                    for step in trace
+                ), observed
+            else:
+                lists = [step for step in trace if step.get("screen") == "case-list"]
+                assert lists and {row["caseId"] for step in lists for row in step["rows"]} == {"case_one"}, observed
+                assert all(bool(step.get("actions")) == (expected == "shown") for step in lists), observed
