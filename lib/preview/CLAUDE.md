@@ -355,9 +355,10 @@ labels, placeholder and Clear across live forms and Search. The generic
 `DatePicker` keeps English authoring defaults. Its display formatter receives the
 canonical worker tag, retaining regional suffixes; DayPicker uses generic
 English/Spanish labels and week layout. In Android Preview, the visible
-DateTime picker shows the device’s current day and minute when its instance
-has no answer. The form saves what the picker shows when the worker leaves
-that screen or saves the form. A skipped question adds no clock value.
+DateTime picker shows an existing answer in the device’s time zone, to the
+minute, or the current day and minute when the instance has no answer. The
+form saves what the picker shows when the worker leaves the screen or saves
+its form. A skipped question adds no clock value.
 A language rerender adds no answer or draft reset. Restored entries refresh existing invalid-state messages in the
 new presentation language without touching previously clean questions. Capture
 invalid paths before constraint settlement so an already-shown required warning

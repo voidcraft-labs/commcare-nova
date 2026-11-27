@@ -1,7 +1,11 @@
 import { expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { createBlueprintDocStore } from "@/lib/doc/store";
-import { isoOfCalendarDay, localToday } from "../../workerCalendar";
+import {
+	androidDatetimePickerValue,
+	isoOfCalendarDay,
+	localToday,
+} from "../../workerCalendar";
 import { createInProcessXPathWorkerFactory } from "../../xpath/inProcessWorkerClient";
 import { XPathRuntime } from "../../xpath/workerClient";
 import { EngineController } from "../engineController";
@@ -155,6 +159,42 @@ it("saves the live Android datetime picker without answering unvisited or irrele
 	}
 });
 
+it("projects a stored instant to Android's local date and drops seconds only on screen exit", () => {
+	const recorded = "2025-04-06T06:24:47.125Z";
+	expect(androidDatetimePickerValue(recorded, "America/Los_Angeles")).toBe(
+		"2025-04-05T23:24:00.000-07:00",
+	);
+	expect(
+		androidDatetimePickerValue(
+			"2025-04-05T23:24:47.125",
+			"America/Los_Angeles",
+		),
+	).toBe("2025-04-05T23:24:00.000-07:00");
+	const path = "/data/observed";
+	const input = engineFixtureInput(
+		[{ kind: "datetime", id: "observed", label: "Observed" }],
+		{ formUuid, formType: "survey" },
+	);
+	for (const device of [androidDevice(), webAppsDevice()]) {
+		const engine = new FormEngine(
+			input,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			{ device },
+		);
+		engine.setValue(path, recorded);
+		const android = device.platform === "android";
+		expect(engine.getState(path).value).toBe(recorded);
+		expect(engine.saveScreenAnswers()).toEqual(android ? [path] : []);
+		expect(Date.parse(engine.getState(path).value)).toBe(
+			Date.parse(android ? "2025-04-06T06:24:00Z" : recorded),
+		);
+	}
+});
+
 it.each([false, true])(
 	"keeps the displayed date when saving an incomplete form (worker=%s)",
 	async (worker) => {
@@ -217,7 +257,7 @@ it("keeps an inspected App Test date empty, skips intervening widgets and saves 
 		evaluateFormSnapshot(
 			doc,
 			{ formUuid, answers: [], ...input },
-			{ ...context, ...options },
+			Object.assign({}, context, options),
 		);
 	const arrived = await run({});
 	const open = arrived.fields.find((field) => field.path === "visit/arrival");

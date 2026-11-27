@@ -324,9 +324,60 @@ async function photoSize(page: Page, android: boolean) {
 	await expect.poll(() => answer(page, PLATFORM_IDS.image)).toBe("large.png");
 }
 
+async function checkDatetimePicker(
+	page: Page,
+	platform: "android" | "web-apps",
+) {
+	await openScenario(page, `datetime-picker-${platform}`);
+	const clock = page.getByRole("textbox", { name: "Time", exact: true });
+	await expect(clock).toBeVisible();
+	const applied = await page.evaluate(
+		(uuid) =>
+			window.previewPlatforms.setAnswer(uuid, "2025-11-02T06:24:47.125Z"),
+		PLATFORM_IDS.datetime,
+	);
+	expect(applied).toBe(true);
+	await expect(
+		page.getByRole("button", { name: "Date", exact: true }),
+	).toContainText(
+		platform === "android" ? "November 1, 2025" : "November 2, 2025",
+	);
+	if (platform === "android") {
+		await expect(clock).toHaveValue("11:24 PM");
+		await page.getByRole("button", { name: "Next", exact: true }).click();
+		await expect(
+			page.getByRole("textbox", { name: /Review visit/ }),
+		).toBeVisible();
+		await expect
+			.poll(() => answer(page, PLATFORM_IDS.datetime))
+			.toBe("2025-11-01T23:24:00.000-07:00");
+		await page.getByRole("button", { name: "Back", exact: true }).click();
+	} else {
+		await expect(clock).toHaveValue(/06:24:47\.125/);
+	}
+	await clock.fill("11:26:48 PM");
+	await clock.press("Tab");
+	await expect
+		.poll(() => answer(page, PLATFORM_IDS.datetime))
+		.toBe(
+			platform === "android"
+				? "2025-11-01T23:26:00.000-07:00"
+				: "2025-11-02T23:26:48.000-08:00",
+		);
+	if (platform === "android") {
+		await page.getByRole("button", { name: "Date", exact: true }).click();
+		await page.locator('button[data-day="11/2/2025"]').click();
+		await expect
+			.poll(() => answer(page, PLATFORM_IDS.datetime))
+			.toBe("2025-11-02T23:26:00.000-08:00");
+	}
+}
+
 const PREVIEW_PLATFORM_CHECKS: Readonly<
 	Record<PreviewPlatformScenarioId, (page: Page) => Promise<void>>
 > = {
+	"datetime-picker-android": (page) => checkDatetimePicker(page, "android"),
+	"datetime-picker-web-apps": (page) => checkDatetimePicker(page, "web-apps"),
 	async "face-photo-android"(page) {
 		await page.addInitScript(() => {
 			const streams: MediaStream[] = [];
@@ -1375,17 +1426,27 @@ for (const [id, scenario] of Object.entries(PREVIEW_PLATFORM_SCENARIOS) as [
 	PreviewPlatformScenarioId,
 	(typeof PREVIEW_PLATFORM_SCENARIOS)[PreviewPlatformScenarioId],
 ][]) {
-	test(`${id}: ${scenario.describe}`, async ({ page }) => {
-		try {
-			await PREVIEW_PLATFORM_CHECKS[id](page);
-		} finally {
-			if (!page.isClosed())
-				await page.evaluate(async () => {
-					await window.previewPlatforms?.dispose();
-					window.previewSearchAudit?.dispose();
-				});
-		}
-	});
+	const addCheck = () => {
+		test(`${id}: ${scenario.describe}`, async ({ page }) => {
+			try {
+				await PREVIEW_PLATFORM_CHECKS[id](page);
+			} finally {
+				if (!page.isClosed())
+					await page.evaluate(async () => {
+						await window.previewPlatforms?.dispose();
+						window.previewSearchAudit?.dispose();
+					});
+			}
+		});
+	};
+	if (scenario.fixture === "datetime-picker") {
+		test.describe("worker date and time", () => {
+			test.use({ timezoneId: "America/Los_Angeles" });
+			addCheck();
+		});
+	} else {
+		addCheck();
+	}
 }
 
 test("Web Apps address search commits only the current choice and updates the form receiver", async ({

@@ -13,13 +13,14 @@ import {
 	paddedTimeOfDay,
 	storageDatetimeValue,
 	storageTimeValue,
+	storedWallClock,
 } from "@/lib/domain/temporalValues";
 import { viewerTimeZone } from "@/lib/preview/engine/caseDataBindingClient";
 import type { FieldState } from "@/lib/preview/engine/types";
 import { runtimeMessage } from "@/lib/preview/runtimeMessages";
 import {
 	androidCalendarCanBeEmpty,
-	androidDatetimePickerNow,
+	androidDatetimePickerValue,
 } from "@/lib/preview/workerCalendar";
 import { usePreviewPlatformRules } from "@/lib/session/hooks";
 import { formatClockTime, parseClockTime } from "@/lib/ui/clockTime";
@@ -207,7 +208,13 @@ export function DateField({
 	// construction in the stored TIME shape, so the same reader the
 	// standalone time question uses projects it, and it keeps doing so
 	// while the other half is missing or half-typed.
-	const displayed = stored || state.androidPickerDatetime || "";
+	const editingClock =
+		state.edited &&
+		stored.includes("T") &&
+		storedWallClock(stored.slice(stored.indexOf("T") + 1)) === null;
+	const displayed = editingClock
+		? stored
+		: (state.androidPickerDatetime ?? stored);
 	const separator = displayed.indexOf("T");
 	const datePart = separator === -1 ? displayed : displayed.slice(0, separator);
 	const timePart = separator === -1 ? "" : displayed.slice(separator + 1);
@@ -226,10 +233,19 @@ export function DateField({
 	 * cannot clear: clearing it would just put it straight back.
 	 */
 	const commit = (date: string, time: string): void => {
-		const clock = parseClockTime(time) ?? time.trim();
-		if (!clearable && (date === "" || clock === "")) {
-			onChange(androidDatetimePickerNow(viewerTimeZone()));
-			return;
+		const parsedClock = parseClockTime(time);
+		const clock = parsedClock ?? time.trim();
+		if (!clearable) {
+			const minute = storedWallClock(time) ?? parsedClock;
+			const zone = viewerTimeZone();
+			if (date === "" || clock === "") {
+				onChange(androidDatetimePickerValue("", zone) ?? "");
+				return;
+			}
+			if (minute !== null) {
+				onChange(storageDatetimeValue(`${date}T${minute.slice(0, 5)}`, zone));
+				return;
+			}
 		}
 		if (date === "" && clock === "") {
 			onChange("");
@@ -285,7 +301,11 @@ export function DateField({
 					onBlur={(text) => {
 						// Merely focusing and leaving the displayed clock keeps the
 						// suggested answer local until the worker leaves this screen.
-						if (stored || text !== formatClockTime(timePart))
+						if (
+							editingClock ||
+							state.androidPickerDatetime === undefined ||
+							text !== (formatClockTime(timePart) ?? timePart)
+						)
 							commit(datePart, text);
 						onBlur();
 					}}

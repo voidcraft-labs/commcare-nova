@@ -69,6 +69,16 @@ function inSection(label: string, children: FieldSpec[]): FieldSpec {
 
 function fieldsOf(fixture: PreviewPlatformFixture): FieldSpec[] {
 	switch (fixture) {
+		case "datetime-picker":
+			return [
+				{
+					kind: "datetime",
+					id: "arrival_stamp",
+					uuid: IDS.datetime,
+					label: "Arrival stamp",
+				},
+				{ kind: "text", id: "review", label: "Review visit" },
+			];
 		case "face-photo":
 			return [
 				inSection("Visit", [
@@ -680,6 +690,9 @@ toastRoot.render(<ToastContainer />);
 
 window.previewPlatforms = {
 	answer: (uuid) => controller?.store.getState()[uuid]?.value,
+	async setAnswer(uuid, value) {
+		return (await controller?.onValueChangeAsync(uuid, value)) === true;
+	},
 	setPlatform(next) {
 		session.getState().setPreviewPlatform(next);
 	},
@@ -698,6 +711,7 @@ declare global {
 	interface Window {
 		previewPlatforms: {
 			answer(uuid: string): string | undefined;
+			setAnswer(uuid: string, value: string): Promise<boolean>;
 			/** Plays `next` as the builder's platform switch does. */
 			setPlatform(next: Platform): void;
 			settled(): Promise<void>;

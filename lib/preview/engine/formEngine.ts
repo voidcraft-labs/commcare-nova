@@ -124,7 +124,7 @@ import { type PreviewPlatformRules, previewPlatformRules } from "../platform";
 import { runtimeMessage } from "../runtimeMessages";
 import {
 	androidCalendarCanBeEmpty,
-	androidDatetimePickerNow,
+	androidDatetimePickerValue,
 	isoOfCalendarDay,
 	localToday,
 } from "../workerCalendar";
@@ -1556,7 +1556,10 @@ export class FormEngine {
 							: isoOfCalendarDay(localToday()),
 					}),
 					...(cleared?.kind === "datetime" && {
-						androidPickerDatetime: androidDatetimePickerNow(this.castZone),
+						androidPickerDatetime: androidDatetimePickerValue(
+							"",
+							this.castZone,
+						),
 					}),
 					...(isCapture && { captureFileName: value }),
 				},
@@ -2772,31 +2775,35 @@ export class FormEngine {
 			for (const path of this.materializePaths(template.path)) {
 				const state = states[path];
 				if (!state) continue;
+				let shown: string | undefined;
 				if (
 					screenPath &&
 					this.containsControl(screenPath, path) &&
-					visible.has(path) &&
-					!state.value
+					visible.has(path)
 				) {
-					if (state[picker] === undefined) {
-						if (template.kind === "date") {
-							today ??= isoOfCalendarDay(localToday());
-							updates[path] = { ...state, androidPickerDay: today };
+					if (template.kind === "date" && !state.value) {
+						today ??= isoOfCalendarDay(localToday());
+						shown = state.androidPickerDay ?? today;
+					} else if (template.kind === "datetime") {
+						if (state.value) {
+							shown = androidDatetimePickerValue(state.value, this.castZone);
 						} else {
-							now ??= androidDatetimePickerNow(this.castZone);
-							updates[path] = { ...state, androidPickerDatetime: now };
+							now ??= androidDatetimePickerValue("", this.castZone);
+							shown = state.androidPickerDatetime ?? now;
 						}
 					}
-				} else if (state[picker] !== undefined) {
-					const { [picker]: _shown, ...answer } = state;
-					updates[path] = answer;
+				}
+				if (shown !== state[picker]) {
+					const { [picker]: _previous, ...answer } = state;
+					updates[path] =
+						shown === undefined ? answer : { ...answer, [picker]: shown };
 				}
 			}
 		}
 		if (Object.keys(updates).length > 0) this.store.setState(updates);
 	}
 
-	/** Only a rendered, unanswered picker can offer an implicit answer. */
+	/** Only a rendered picker can commit its displayed answer. */
 	private pendingCalendarAnswers(): { path: string; value: string }[] {
 		const screenPath = this.activeScreenPath;
 		if (this.rules.datePicker !== "shows-a-day" || !screenPath) return [];
@@ -2805,7 +2812,9 @@ export class FormEngine {
 			this.materializePaths(template.path).flatMap((path) => {
 				const state = this.store.getState()[path];
 				const value = state?.androidPickerDay ?? state?.androidPickerDatetime;
-				return value && !state?.value && this.containsControl(screenPath, path)
+				return value &&
+					state?.value !== value &&
+					this.containsControl(screenPath, path)
 					? [{ path, value }]
 					: [];
 			}),
@@ -2852,6 +2861,7 @@ export class FormEngine {
 			const state = this.getState(path);
 			if (
 				(state.androidPickerDay ?? state.androidPickerDatetime) === value &&
+				state.value !== value &&
 				this.setValue(path, value)
 			)
 				saved.push(path);
