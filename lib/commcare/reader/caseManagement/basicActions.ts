@@ -18,6 +18,7 @@ import {
 	captureFieldKinds,
 	type Expression,
 	type FormType,
+	isBasicAndroidCasePropertyName,
 	isCaseScalarTextProperty,
 	MAX_AUTHORED_CASE_PROPERTY_NAME_LENGTH,
 	ownCaseOperationId,
@@ -282,6 +283,10 @@ export const BASIC_CLAIMS = defineClaims("caseManagement.basicActions", {
 	),
 	uncasedUpdateKey: refuse(
 		`${F}/basic-update-key-with-an-unaddressable-uncased-letter`,
+		"schema:UpdateCaseAction.update",
+	),
+	accentedKey: take(
+		`${F}/basic-update-key-with-an-accented-latin-name`,
 		"schema:UpdateCaseAction.update",
 	),
 	nonAsciiKey: refuse(
@@ -1561,6 +1566,31 @@ function valueInScope(
 	return own === undefined || own === repeat;
 }
 
+/** The only accented key kept by the Basic reader is an always-write of a
+ * root text question to the one case already selected for this follow-up. */
+function readsBasicAccentedUpdate(r: FormReading, cursor: JsonCursor): boolean {
+	const question = cursor.peek("question_path");
+	if (
+		r.type !== "followup" ||
+		cursor.peek("update_mode") !== "always" ||
+		typeof question !== "string" ||
+		r.form.xform === null
+	)
+		return false;
+	const path = conditionQuestionPath(r.form, question);
+	const node = path === undefined ? undefined : r.form.xform.nodes.get(path);
+	const field =
+		node === undefined ? undefined : fieldOfNode(r.form.xform, node);
+	return (
+		field?.kind === "text" &&
+		field.dataParent === null &&
+		!isMultiSelectMenu({
+			case_details: r.module.json.peek("case_details"),
+			search_config: r.module.json.peek("search_config"),
+		})
+	);
+}
+
 /** The own case's `update_case.update` and the usercase's, read key by key. */
 function readUpdateMap(
 	r: FormReading,
@@ -1711,7 +1741,13 @@ function readUpdateMap(
 		const viaFacet =
 			via !== undefined && (property === "name" || property === "owner_id");
 		const categoryOrState = property === "category" || property === "state";
-		if (!facet && !viaFacet && !categoryOrState) {
+		const accented =
+			slot === "own" &&
+			indices.length === 0 &&
+			isBasicAndroidCasePropertyName(property) &&
+			conditionType(parent.peek("condition")) === "always" &&
+			readsBasicAccentedUpdate(r, cursor);
+		if (!facet && !viaFacet && !categoryOrState && !accented) {
 			const named = propertyNameFinding(property, false);
 			if (named === "unrecognized") {
 				unrecognizedEntry(r, cursor, "schema:UpdateCaseAction.update");
@@ -1754,8 +1790,9 @@ function readUpdateMap(
 				: BASIC_CLAIMS.editElsewhere;
 		// The rows the own case's `update` names by its key: a key through the
 		// cases above the loaded one is its own row's.
-		const keyClaim =
-			typedUserPath && via !== undefined
+		const keyClaim = accented
+			? BASIC_CLAIMS.accentedKey
+			: typedUserPath && via !== undefined
 				? BASIC_CLAIMS.viaUserHeld
 				: viaFacet
 					? BASIC_CLAIMS.viaFacet

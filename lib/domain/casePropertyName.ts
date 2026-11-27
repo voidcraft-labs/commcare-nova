@@ -23,7 +23,7 @@ const BASIC_ANDROID_PROPERTY_PATTERN =
 export function isBasicAndroidCasePropertyName(name: string): boolean {
 	return (
 		name.length <= MAX_AUTHORED_CASE_PROPERTY_NAME_LENGTH &&
-		/[^\x00-\x7f]/u.test(name) &&
+		/[À-ÖØ-öø-ÿ]/u.test(name) &&
 		BASIC_ANDROID_PROPERTY_PATTERN.test(name) &&
 		isPortableName(name, ["android"])
 	);
@@ -52,3 +52,21 @@ export const authoredCasePropertyNameSchema = readCasePropertyNameSchema.max(
 export type AuthoredCasePropertyName = z.infer<
 	typeof authoredCasePropertyNameSchema
 >;
+
+const basicAndroidCasePropertyNameSchema = z
+	.string()
+	.max(MAX_AUTHORED_CASE_PROPERTY_NAME_LENGTH)
+	.regex(BASIC_ANDROID_PROPERTY_PATTERN)
+	.refine(isBasicAndroidCasePropertyName);
+
+/** The storage identity of an existing property, including an Android Basic
+ * write. Expression, Search, and Case List readers use the portable leaf. */
+export const storedCasePropertyNameSchema = z.union([
+	readCasePropertyNameSchema,
+	basicAndroidCasePropertyNameSchema,
+]);
+
+export const caseWritePropertyNameSchema = z.union([
+	authoredCasePropertyNameSchema,
+	basicAndroidCasePropertyNameSchema,
+]);

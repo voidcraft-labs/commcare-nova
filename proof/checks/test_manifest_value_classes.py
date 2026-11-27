@@ -7714,8 +7714,10 @@ def _held_new():
     short = "/modules/0/case_details/short"
     prompts = "/modules/0/search_config/properties/0"
 
-    def own_update(key, condition=ALWAYS):
-        update = {"doc_type": "UpdateCaseAction", "condition": condition, "update": {key: _update("/data/q")}}
+    def own_update(key, condition=ALWAYS, *, mode="always", question="/data/q"):
+        row = _update(question)
+        row["update_mode"] = mode
+        update = {"doc_type": "UpdateCaseAction", "condition": condition, "update": {key: row}}
         return _with_forms(_app([_module([_form_json("case", update_case=update)])]), f=QUESTIONS)
 
     def child_update(key):
@@ -7809,10 +7811,14 @@ def _held_new():
             accepted("app", child_update("n名字"), "schema:Form.actions", "/modules/0/forms/0/actions"),
         ),
         "forms-and-case-writes/update-key-holding-a-non-ascii-core-name-character": (
-            refused("app", own_update("größe"), update_map, updates),
+            accepted("app", own_update("größe"), update_map, updates),
             refused("app", child_update("größe"), child_map, children),
             accepted("app", own_update("size"), update_map, updates),
-            refused("app", own_update("estado_é"), update_map, updates),
+            accepted("app", own_update("estado_é"), update_map, updates),
+            refused("app", own_update("estado_é", mode="edit"), update_map, updates),
+            refused("app", own_update("estado_é", question="/data/s"), update_map, updates),
+            refused("app", own_update("estado_é", question="/data/rep/name"), update_map, updates),
+            refused("app", own_update("parent/estado_é"), update_map, updates),
             refused("app", own_update("aⅣ"), update_map, updates),
             accepted("app", own_update("n名字"), update_map, updates),
             # The case update's XML name is outside the held value class.

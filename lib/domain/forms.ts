@@ -2,7 +2,10 @@
 
 import { z } from "zod";
 import { formIconRefSchema } from "./builtinIcons";
-import { authoredCasePropertyNameSchema } from "./casePropertyName";
+import {
+	authoredCasePropertyNameSchema,
+	caseWritePropertyNameSchema,
+} from "./casePropertyName";
 import { formEntryPointSchema } from "./entryPoints";
 import {
 	conditionSchema,
@@ -473,7 +476,7 @@ export const formOpeningAssignmentSchema = z.strictObject({
 export type FormOpeningAssignment = z.infer<typeof formOpeningAssignmentSchema>;
 
 export const caseOperationWriteSchema = z.strictObject({
-	property: authoredCasePropertyNameSchema,
+	property: caseWritePropertyNameSchema,
 	value: valueSchema,
 	condition: conditionSchema.optional(),
 	/** Saves to the case these indices reach rather than the operation's own. */
@@ -495,7 +498,7 @@ export type CaseOperationWrite = {
  * validator refuses.
  */
 export const caseWriteKeySchema = z.strictObject({
-	property: authoredCasePropertyNameSchema,
+	property: caseWritePropertyNameSchema,
 	via: caseWriteViaSchema.optional(),
 });
 export type CaseWriteKey = {

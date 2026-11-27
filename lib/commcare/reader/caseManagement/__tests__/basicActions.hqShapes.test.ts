@@ -700,7 +700,7 @@ describe("CommCare HQ's spellings of a basic form's case actions", () => {
 					string,
 					unknown
 				>;
-				update.größe = { question_path: "/data/other" };
+				update.aⅣ = { question_path: "/data/other" };
 			},
 		});
 		expect(codes(reading)).toContain(NON_ASCII);
@@ -724,7 +724,7 @@ describe("CommCare HQ's spellings of a basic form's case actions", () => {
 			at("actions/update_case", "schema:FormActions.update_case"),
 			{
 				...at("actions/update_case/update", "schema:UpdateCaseAction.update"),
-				at: "/modules/0/forms/0/actions/update_case/update/größe",
+				at: "/modules/0/forms/0/actions/update_case/update/aⅣ",
 			},
 		]);
 	});
@@ -1444,9 +1444,7 @@ describe("one cause, one finding, at a basic form's case actions", () => {
 
 	it.each([
 		["n名字", `${F}/basic-update-key-with-an-unaddressable-uncased-letter`],
-		["estado_é", `${F}/update-key-holding-a-non-ascii-core-name-character`],
 		["aⅣ", `${F}/update-key-holding-a-non-ascii-core-name-character`],
-		["größe", `${F}/update-key-holding-a-non-ascii-core-name-character`],
 		[
 			"note½",
 			`${F}/update-key-holding-a-character-validate-property-accepts-that-is`,
@@ -1464,6 +1462,50 @@ describe("one cause, one finding, at a basic form's case actions", () => {
 			expect(atActions(reading)).toEqual([entry]);
 		},
 	);
+
+	it.each(["estado_é", "Visità_État"])(
+		"keeps the Basic write to %s with an Android-only declaration",
+		async (key) => {
+			const reading = await readMenusOf(app([visit]), (json) => {
+				const update = actionsOf(json as AppJson).update_case.update as Record<
+					string,
+					unknown
+				>;
+				update[key] = { question_path: "/data/other", update_mode: "always" };
+			});
+			expect(atActions(reading)).toEqual([]);
+			if (reading.outcome.kind !== "read")
+				throw new Error("Expected a retained Basic write");
+			const declaration = reading.outcome.draft.declaration;
+			if (declaration.kind !== "choices")
+				throw new Error("Expected Android to be available");
+			expect(declaration.choices.map((choice) => choice.runsOnlyOn)).toEqual([
+				"android",
+			]);
+			const form = Object.values(reading.doc?.forms ?? {})[0];
+			expect(
+				form?.caseOperations?.[0]?.writes?.map((write) => write.property),
+			).toContain(key);
+			expect(
+				reading.doc?.caseTypes?.[0]?.properties.map(
+					(property) => property.name,
+				),
+			).toContain(key);
+		},
+	);
+
+	it("keeps edit-only accented writes outside the direct Basic class", async () => {
+		const reading = await readMenusOf(app([visit]), (json) => {
+			const update = actionsOf(json as AppJson).update_case.update as Record<
+				string,
+				unknown
+			>;
+			update.estado_é = { question_path: "/data/other", update_mode: "edit" };
+		});
+		expect(atActions(reading)).toEqual([
+			`${F}/update-key-holding-a-non-ascii-core-name-character`,
+		]);
+	});
 
 	it("refuses a key with one trailing newline once, which HQ's grammar takes and its build cannot write", async () => {
 		// `validate_property`'s `re.match` with a closing `$` takes the newline, and HQ's build

@@ -237,6 +237,7 @@
 		"hq-case-management/location-id-write",
 		"hq-case-management/members-chosen-from-their-household",
 		"hq-case-management/non-ascii-update-key",
+		"hq-case-management/non-ascii-update-key-edited-only",
 		"hq-case-management/open-case-on-a-follow-up",
 		"hq-case-management/parent-property-column",
 		"hq-case-management/parent-selection-naming-no-menu",

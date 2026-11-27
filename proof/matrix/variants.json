@@ -18125,6 +18125,27 @@
 	{
 		"id": "hq-case-management/non-ascii-update-key",
 		"base": "hq-case-management",
+		"entry": "forms-and-case-writes/basic-update-key-with-an-accented-latin-name",
+		"place": {
+			"kind": "form",
+			"menu": 1,
+			"form": 0,
+			"menuName": "Members",
+			"name": "Followup Form"
+		},
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/1/forms/0/actions/update_case/update/estado_é",
+			"value": {
+				"question_path": "/data/status_note",
+				"update_mode": "always",
+				"doc_type": "ConditionalCaseUpdate"
+			}
+		}
+	},
+	{
+		"id": "hq-case-management/non-ascii-update-key-edited-only",
+		"base": "hq-case-management",
 		"entry": "forms-and-case-writes/update-key-holding-a-non-ascii-core-name-character",
 		"standing": "not-yet",
 		"place": {
@@ -18139,7 +18160,7 @@
 			"pointer": "/modules/1/forms/0/actions/update_case/update/estado_é",
 			"value": {
 				"question_path": "/data/status_note",
-				"update_mode": "always",
+				"update_mode": "edit",
 				"doc_type": "ConditionalCaseUpdate"
 			}
 		}

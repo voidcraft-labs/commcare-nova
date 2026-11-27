@@ -2119,6 +2119,9 @@ const USER_MESSAGE_BY_CODE: Record<
 	CASE_OPERATION_RESERVED_PROPERTY: () =>
 		"A case operation writes to a reserved name. Use the operation's matching setting or another property.",
 	CASE_OPERATION_EXPRESSION_TYPE: (e) => {
+		if (e.details?.reason === "basic-accented-write-placement") {
+			return "This accented case property needs a direct text answer on a form that saves to its selected case. You can remove the save before changing where it goes.";
+		}
 		if (e.details?.reason === "datetime-base") {
 			return "A date calculation in this case operation starts from a date and time, but the time would be lost here. Use a whole date or choose another calculation.";
 		}

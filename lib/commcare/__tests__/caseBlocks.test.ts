@@ -468,6 +468,42 @@ function bothExports(
 	};
 }
 
+it("compiles an Android Basic accented property without opening it to Web Apps or relocating the write", () => {
+	const doc = patientApp("followup", [
+		f({
+			kind: "text",
+			id: "note",
+			caseWrite: { caseType: "patient", property: "estado_é" },
+		}),
+	]);
+	doc.appSettings.runsOnlyOn = "android";
+	const exported = bothExports(doc);
+	expect(exported.actions.update_case.update.estado_é).toMatchObject({
+		question_path: "/data/note",
+		update_mode: "always",
+	});
+	expect(names(exported.source.data)).not.toContain("case");
+	expect(exported.local.bind("/data/case/update/estado_é").calculate).toBe(
+		"/data/note",
+	);
+	const both = structuredClone(doc);
+	delete both.appSettings.runsOnlyOn;
+	expect(
+		runValidation(both, LOOKUP_CONTEXT_UNAVAILABLE).map(
+			(finding) => finding.details?.feature,
+		),
+	).toContain("basic-write-name-requires-android");
+	const form = doc.forms[doc.formOrder[doc.moduleOrder[0]][0]];
+	const write = form.caseOperations?.[0]?.writes?.[0];
+	if (write === undefined) throw new Error("Expected the Basic write");
+	write.onlyIfChanged = true;
+	expect(
+		runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).map(
+			(finding) => finding.details?.reason,
+		),
+	).toContain("basic-accented-write-placement");
+});
+
 function patientApp(
 	type: "registration" | "followup" | "close",
 	fields: FieldSpec[],

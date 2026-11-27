@@ -12988,12 +12988,55 @@ def basic_update_key_with_unaddressable_letter(use, manifest):
     return None if written is None else any(_basic_update_has_unaddressable_letter(*entry) for entry in written)
 
 
+def _basic_accented_update(at, slot, key, name):
+    """A stock Basic follow-up, whose selected case receives this exact root text answer on each submit."""
+    if slot != "own" or key != name or not 1 <= len(name) <= 255 or name.isascii():
+        return False
+    # Each Latin-1 letter here is accepted by HQ's property regex and XML builder.
+    if re.fullmatch(r"[A-Za-z][A-Za-z0-9_À-ÖØ-öø-ÿ-]*", name) is None:
+        return False
+    android = _worker_name_ranges()[1]
+    ranges = tuple(
+        (low, high)
+        for pairs in (android["initial"], android["continuationOnly"])
+        for low, high in zip(pairs[::2], pairs[1::2])
+    )
+    if not all(any(low <= ord(character) <= high for low, high in ranges) for character in name):
+        return False
+    form = at.nearest("Form")
+    if form is None or _requires(form) != "case":
+        return False
+    module = at.app.module_of(form)
+    if module is None or _multi_select(module):
+        return False
+    actions = _actions(form)
+    update = actions.get("update_case") or {}
+    if _condition(update) != "always" or _active(actions.get("close_case")):
+        return False
+    mapping = _held(_held(update, "update"), key)
+    if not isinstance(mapping, dict) or mapping.get("update_mode", "always") != "always":
+        return False
+    xform = at.app.xform(form)
+    if xform is None:
+        return False
+    path = _absolute(xform, _held(mapping, "question_path"))
+    node = xform.node(path) if path else None
+    if node is None or isinstance(node, tuple) or node.getparent() is not xform.data_root:
+        return False
+    controls = xform.question_controls(path)
+    bind = xform.bind(path)
+    bind_type = bind.get("type", "string").split(":")[-1] if bind is not None else "string"
+    return len(controls) == 1 and _local(controls[0]) == "input" and bind_type == "string"
+
+
 def non_ascii_core_name_key(use, manifest):
     """Non-ASCII XML names outside the witnessed basic runtime refusal."""
     at = _json(use)
     written = _written_properties(at) if at is not None else None
     return None if written is None else any(
-        _non_ascii_core_name(property_name) and not _basic_update_has_unaddressable_letter(slot, key, property_name)
+        _non_ascii_core_name(property_name)
+        and not _basic_update_has_unaddressable_letter(slot, key, property_name)
+        and not _basic_accented_update(at, slot, key, property_name)
         for slot, key, property_name in written
     )
 
