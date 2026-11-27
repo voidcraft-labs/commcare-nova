@@ -154,7 +154,7 @@
 		"id": "menus-and-case-lists/advanced-module-nova-would-write-as-a-basic-one",
 		"area": "menus-and-case-lists",
 		"section": "Module types",
-		"item": "`AdvancedModule` whose forms read the search or whose implicit parent chain no one index name follows",
+		"item": "`AdvancedModule` whose forms read the search or whose implicit parent chain has no supported selection",
 		"surfaceKeys": [
 			"parser:MenuParser/command",
 			"parser:MenuParser/command@id",
@@ -181,6 +181,25 @@
 			"cell": "omit",
 			"markers": ["omit"]
 		},
+		"gates": []
+	},
+	{
+		"id": "menus-and-case-lists/advanced-manual-load-with-an-exact-parent-link",
+		"area": "menus-and-case-lists",
+		"section": "Module types",
+		"item": "An Advanced menu's manual case loads all follow one exact link among several names",
+		"surfaceKeys": ["schema:AdvancedModule.case_type"],
+		"valueClass": "advanced-manual-load-with-a-pinned-parent-link",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the two-step root Advanced entry keeps the exact link every form uses between its two manual choices. Another form can create the same record type under a different link name.",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": { "reading": "runs" },
+			"android": { "reading": "runs" }
+		},
+		"emission": { "cell": "The second Advanced load keeps its exact reference_id.", "markers": [] },
 		"gates": []
 	},
 	{

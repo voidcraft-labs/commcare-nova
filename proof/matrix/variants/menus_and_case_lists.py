@@ -2015,3 +2015,11 @@ def calculation_loading_faster(authoring, app_id):
         ("/modules/0/show_case_list_optimization_options", True),
         ("/modules/0/case_details/short/columns/4/optimization", "cache_and_lazy_load"),
     )
+
+
+def advanced_inline_search_with_automatic_start(authoring, app_id):
+    """An automatic inline Search differs from a direct prompted Advanced entry."""
+    from proof.matrix.registry import load_variants
+
+    original = next(row for row in load_variants() if row.id == "hq-advanced/advanced-menu-whose-forms-read-the-search")
+    ops.set_json(authoring, app_id, original.change["pointer"], {**original.change["value"], "default_search": True})

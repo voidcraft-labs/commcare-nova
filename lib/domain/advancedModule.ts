@@ -130,6 +130,25 @@ export function advancedChainIndex(
 	return { kind: "several", identifiers: [...identifiers] };
 }
 
+/** An imported Advanced entry can select one exact index even when other
+ * writes use another index between the same record types. */
+export function advancedMenuChainIndex(
+	doc: BlueprintDoc,
+	moduleUuid: Uuid,
+	childType: string,
+	parentType: string,
+): ChainIndex {
+	const module = doc.modules[moduleUuid];
+	const held = module?.parentCaseLink;
+	if (
+		module?.heldKind === "advanced" &&
+		held !== undefined &&
+		module.parentCaseModuleUuid === held.parentUuid
+	)
+		return { kind: "one", identifier: held.identifier };
+	return advancedChainIndex(doc, childType, parentType);
+}
+
 /** One case operation's links between one pair of case types: the
  *  identifiers it writes to a case with a target, whatever their
  *  relationship, and whether the operation creates the case it links. */
@@ -470,7 +489,7 @@ export function advancedKindBlockers(
 			)?.caseType;
 			const childType = menuWithInheritedCaseSettings(doc, chain[i])?.caseType;
 			if (parentType === undefined || childType === undefined) continue;
-			const index = advancedChainIndex(doc, childType, parentType);
+			const index = advancedMenuChainIndex(doc, chain[i], childType, parentType);
 			if (index.kind === "several") {
 				blockers.push({
 					kind: "chain-index",

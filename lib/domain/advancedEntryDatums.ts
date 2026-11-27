@@ -33,7 +33,7 @@
 // Pure, and memoized per document object (documents are replaced, never
 // changed in place).
 
-import { advancedChainIndex, advancedKindBlockers } from "./advancedModule";
+import { advancedKindBlockers, advancedMenuChainIndex } from "./advancedModule";
 import { allocateAdvancedTags } from "./advancedTags";
 import {
 	basicCaseSlots,
@@ -150,7 +150,12 @@ function computeChain(doc: BlueprintDoc, formUuid: Uuid): readonly ChainLoad[] {
 	return typed.map((load, index) => {
 		const parent = typed[index - 1];
 		if (parent === undefined) return load;
-		const chainIndex = advancedChainIndex(doc, load.caseType, parent.caseType);
+		const chainIndex = advancedMenuChainIndex(
+			doc,
+			load.moduleUuid,
+			load.caseType,
+			parent.caseType,
+		);
 		return {
 			...load,
 			identifier:

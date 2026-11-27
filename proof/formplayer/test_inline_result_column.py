@@ -210,7 +210,7 @@ def test_retained_advanced_inline_search_uses_a_manual_entry_instead_of_a_query(
     from proof.matrix.registry import base
 
     variant = next(row for row in load_variants() if row.id == "hq-advanced/advanced-menu-whose-forms-read-the-search")
-    with hq_check(Configuration("advanced-inline-search", flags={"CASE_SEARCH_ADVANCED"})) as (state, _):
+    with hq_check(Configuration(flags={"CASE_SEARCH_ADVANCED"}, case_search_enabled=True)) as (state, _):
         authoring = Authoring(state, {}, variant.base, operation=state.operation)
         app_id = base(variant.base).build(authoring)
         ops.set_json(authoring, app_id, variant.change["pointer"], variant.change["value"])
@@ -224,3 +224,23 @@ def test_retained_advanced_inline_search_uses_a_manual_entry_instead_of_a_query(
         assert entry.xpath("./session/datum[@nodeset]")
         assert not entry.xpath("./session/query")
         assert entry.xpath("./post")
+
+
+def test_retained_advanced_manual_loads_keep_their_selected_link_beside_a_second_writer(hq):
+    from lxml import etree
+
+    from proof.matrix.registry import base
+
+    with hq_check(Configuration()) as (state, _):
+        authoring = Authoring(state, {}, "hq-advanced", operation=state.operation)
+        app_id = base("hq-advanced").build(authoring)
+        named_change("open_member_with_hyphenated_parent_index")(authoring, app_id)
+        app = operations.held_app(state, app_id)
+        assert app.modules[1].forms[0].actions.open_cases[0].case_indices[0].reference_id == "my-parent"
+        suite = etree.fromstring(app.create_suite())
+        for module in app.modules[1:3]:
+            form = module.forms[0]
+            assert form.actions.load_update_cases[1].case_index.reference_id == "parent"
+            entry, = suite.xpath("./entry[form=$xmlns]", xmlns=form.xmlns)
+            nodeset, = entry.xpath("./session/datum[@id='case_id_load_member1']/@nodeset")
+            assert "[index/parent=" in nodeset and "my-parent" not in nodeset

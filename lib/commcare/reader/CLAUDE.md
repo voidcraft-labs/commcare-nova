@@ -750,6 +750,12 @@ a Search. Android places no required rule on the worker's input. Preview loads
 the worker's authorized restore before opening the Web Apps prompt, and verifies
 the same scope server-side before using its response.
 
+
+A root Advanced menu whose two manual loads agree on the same stored child
+link keeps that link even when another case writer uses a different name
+between the same types. The stored name is tied to the parent menu that
+supplies the first choice. Preview and suite emission use that same link.
+
 A Search group heading uses the route’s group UUID and the exact `search_property.m#.group_header_#` emitted for its current row. Its ordinary label stays in the Case List editor. Web Apps draws the heading; Android draws the ordered fields. A unique legacy heading with complete, stable ordinary labels may move its exact wording to the canonical key of the same group. The first-publish notice records both source paths. In a single-language app, the same nonblank wording saved at both keys may also be combined when both belong to the same group. For an English and Spanish app whose ordinary build includes both languages, a live English heading can replace dormant canonical English and Spanish values when the ordinary Spanish label is absent. The first publish lists the removed Spanish value at its original path. A different build or a key with another possible role stays held. A key absent from the saved group rows never acquires wording ownership through respelling. A displayed heading that shares its locale with an ordinary field is refused before either role can supply wording for the other.
 A source or target override is held as the word the device reads for that language, including
 escaped line breaks and number signs. The app's `name` is also the profile's `name`, which Android's list of the apps on a

@@ -36,7 +36,10 @@ import {
 	formCaseSelections,
 	isAdvancedOwnLabelProperty,
 } from "@/lib/domain/advancedEntryDatums";
-import { advancedKindBlockers } from "@/lib/domain/advancedModule";
+import {
+	advancedChainIndex,
+	advancedKindBlockers,
+} from "@/lib/domain/advancedModule";
 import type { BlueprintDoc } from "@/lib/domain/blueprint";
 import {
 	actingUser,
@@ -164,6 +167,10 @@ export const ADVANCED_CLAIMS = defineClaims("caseManagement.advancedActions", {
 	advancedInlineSearchNoQuery: refuse(
 		`${M}/advanced-inline-search-without-entry-query`,
 		"schema:AdvancedModule",
+	),
+	heldParentCaseLink: take(
+		`${M}/advanced-manual-load-with-an-exact-parent-link`,
+		"schema:AdvancedModule.case_type",
 	),
 	kindBlocked: refuse(
 		`${M}/advanced-module-nova-would-write-as-a-basic-one`,
@@ -3502,6 +3509,7 @@ export function listFormRulesPlace(
  *  form whose chain differs from the menu's one chain (its finding). */
 export function writeAdvancedChains(ctx: ReadContext): void {
 	const outsideTheChain = new Set<DraftForm>();
+	const sourceLinks = new Map<DraftModule, { parentUuid: Uuid; identifier: string }>();
 	for (const module of ctx.draft.modules) {
 		if (module.docType !== "AdvancedModule") continue;
 		const forms = module.forms.filter((form) => READINGS.has(form));
@@ -3521,6 +3529,42 @@ export function writeAdvancedChains(ctx: ReadContext): void {
 		ctx.writeDraft(() => {
 			module.module.parentCaseModuleUuid = parent;
 		});
+		if (chain.length !== 2 || disagreeing.length > 0 || module.json.peek("root_module_id"))
+			continue;
+		const chosen = forms
+			.map((form) => READINGS.get(form))
+			.filter((reading) => reading !== undefined && reading.chosen.length > 0);
+		const identifier = chosen[0]?.chosen[1]?.index?.identifier;
+		if (
+			identifier !== undefined &&
+			isCaseOperationLinkIdentifier(identifier) &&
+			chosen.every(
+				(reading) =>
+					reading.refused !== true &&
+					reading.chosen.length === 2 &&
+					reading.chosen[1].index?.tag === reading.chosen[0].tag &&
+					reading.chosen[1].index?.identifier === identifier,
+			)
+		)
+			sourceLinks.set(module, { parentUuid: parent, identifier });
+	}
+	const doc = provisionalDocument(ctx);
+	for (const [module, link] of sourceLinks) {
+		const childType = doc.modules[module.uuid]?.caseType;
+		const parentType = doc.modules[link.parentUuid]?.caseType;
+		if (childType === undefined || parentType === undefined) continue;
+		const available = advancedChainIndex(doc, childType, parentType);
+		if (available.kind !== "several" || !available.identifiers.includes(link.identifier))
+			continue;
+		ctx.writeDraft(() => {
+			module.module.parentCaseLink = link;
+		});
+		ctx.accounting.claimEntryClass(
+			{ json: module.json, key: "case_type" },
+			ADVANCED_CLAIMS.heldParentCaseLink.entry,
+			"schema:AdvancedModule.case_type",
+			module.place,
+		);
 	}
 	for (const module of ctx.draft.modules)
 		for (const form of module.forms)

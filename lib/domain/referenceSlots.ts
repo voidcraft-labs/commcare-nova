@@ -2440,6 +2440,10 @@ export const NON_REFERENCE_MODULE_PATHS: Readonly<
 	menuLayout: "config",
 	// The kind a publish recorded: one literal, written only by holds.
 	heldKind: "config",
+	// A source parent pin qualifies the active selection. The actual
+	// parent reference is parentCaseModuleUuid; a stale pin is dormant.
+	"parentCaseLink.parentUuid": "config",
+	"parentCaseLink.identifier": "wire-token",
 	// A list that goes on by itself when it holds one row: a flag.
 	autoSelectSingle: "config",
 	searchResultsName: "declaration",

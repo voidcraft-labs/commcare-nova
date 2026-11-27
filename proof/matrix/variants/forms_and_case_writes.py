@@ -142,11 +142,19 @@ def _open(tag, case_type, name_path, indices, repeat_context=""):
     }
 
 
-def open_member_with_parent_index(authoring, app_id):
+def _open_member_with_parent_index(authoring, app_id):
     """Open another member under the existing household connection."""
     ops.set_json(authoring, app_id, "/modules/1/forms/0/actions/open_cases", [
         _open("open_member_0", "member", "/data/notes", [_index("load_household0")]),
     ])
+
+
+def open_member_with_hyphenated_parent_index(authoring, app_id):
+    """Keep the original manual loads on parent while a writer adds another child link."""
+    _open_member_with_parent_index(authoring, app_id)
+    ops.set_json(
+        authoring, app_id, "/modules/1/forms/0/actions/open_cases/0/case_indices/0/reference_id", "my-parent",
+    )
 
 
 def _open_visitor_with_index(authoring, app_id, reference):

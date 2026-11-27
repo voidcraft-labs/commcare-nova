@@ -35,6 +35,7 @@
 import { z } from "zod";
 import { formIconRefSchema, moduleIconRefSchema } from "./builtinIcons";
 import { caseFormContextSchema } from "./caseFormContext";
+import { isAdvancedCaseIndexIdentifier } from "./caseOperationIdentifiers";
 import { uniqueCaseMappingRows } from "./caseMappingRows";
 import {
 	authoredCasePropertyNameSchema,
@@ -4802,6 +4803,12 @@ export const moduleSchema = z.strictObject({
 	parentModuleUuid: uuidSchema.optional(),
 	/** Select a parent record from this module before selecting this module's records. */
 	parentCaseModuleUuid: uuidSchema.optional(),
+	/** The exact child link chosen by an imported Advanced entry's manual load.
+	 * Its source parent binds it to this selection when writers use several links. */
+	parentCaseLink: z.strictObject({
+		parentUuid: uuidSchema,
+		identifier: z.string().refine(isAdvancedCaseIndexIdentifier),
+	}).optional(),
 	caseType: z.string().optional(),
 	/**
 	 * The module's case list as its own menu entry, after its forms (HQ's
