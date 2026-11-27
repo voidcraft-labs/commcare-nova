@@ -1467,6 +1467,8 @@ const USER_MESSAGE_BY_CODE: Record<
 		`${q(modName(e))} lets people choose several cases, so its Results tile can't stay above a form. Turn off “Keep tile visible in forms.”`,
 	MULTI_SELECT_SEARCH_ON_CLEAR: (e) =>
 		`${q(modName(e))} can choose matching cases automatically once Search on clear is off.`,
+	MULTI_SELECT_LARGE_BATCH_REQUIRES_FLAT_CLOSE: () =>
+		"A list can choose 101 cases when its only Web Apps form closes those cases and returns to the app home. A limit of 100 works for this list.",
 	MULTI_SELECT_NO_BATCH_CONSUMER: (e) =>
 		`${q(modName(e))} is set to Several cases, but it has no follow-up or close form that can use the complete selection and no compatible child workflow can receive it. Add one of those forms, carry the same case selection into a child that has one, or switch Selection to One case.`,
 	CASE_LIST_IMAGE_MAP_DUPLICATE_VALUE: (e) =>

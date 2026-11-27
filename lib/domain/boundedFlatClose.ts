@@ -34,7 +34,7 @@ export function boundedFlatCloseForm(
 		menu.caseListRegistrationForm ||
 		menu.entryPoint ||
 		menu.caseListEntryPoint ||
-		menu.entryPoints?.length ||
+		menu.formsFromMenu ||
 		!config ||
 		!selection ||
 		config.filter ||

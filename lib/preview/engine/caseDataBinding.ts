@@ -867,21 +867,22 @@ export async function loadCasesAction(
 		if (boundedFlatClose) {
 			const blueprint = prepared.context.blueprint;
 			const doc = blueprint && hydratePersistedBlueprint(blueprint);
+			const savedModule =
+				doc && moduleUuid ? doc.modules[moduleUuid] : undefined;
 			const profile =
-				doc &&
-				moduleUuid &&
-				authoredBoundedFlatClose(
-					doc,
-					moduleUuid,
-					doc.formOrder[moduleUuid]?.[0],
-				);
+				doc && savedModule
+					? authoredBoundedFlatClose(
+							doc,
+							savedModule.uuid,
+							doc.formOrder[savedModule.uuid]?.[0],
+						)
+					: undefined;
 			if (
-				!doc ||
-				!moduleUuid ||
+				!savedModule ||
 				!profile?.selection.autoSelect ||
 				profile.caseType !== caseType ||
 				prepared.context.device.platform !== "web-apps" ||
-				canonicalJsonDigest(doc.modules[moduleUuid].caseListConfig) !==
+				canonicalJsonDigest(savedModule.caseListConfig) !==
 					canonicalJsonDigest(prepared.read.caseListConfig)
 			)
 				return {

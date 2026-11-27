@@ -182,6 +182,10 @@ export const DETAIL_CLAIMS = defineClaims("caseList.details", {
 		`${A}detail-max-select-value-for-flat-close`,
 		"schema:Detail.max_select_value",
 	),
+	maxSelect101Elsewhere: refuse(
+		`${A}detail-max-select-value-101-outside-flat-close`,
+		"schema:Detail.max_select_value",
+	),
 	maxSelectAbove: refuse(
 		`${A}detail-max-select-value-above-100`,
 		"schema:Detail.max_select_value",
@@ -1711,7 +1715,7 @@ export function settleFlatCloseSelectionLimits(
 			)
 		)
 			short.take("max_select_value", D.maxSelectFlatClose, Number);
-		else short.refuse("max_select_value", D.maxSelectAbove);
+		else short.refuse("max_select_value", D.maxSelect101Elsewhere);
 	}
 	deferredFlatCloseLimits.delete(ctx);
 }
@@ -1781,6 +1785,10 @@ function readSelection(
 			ok: true,
 			selection: { kind: "multiple", maximum: max, ...automatic },
 		};
+	}
+	if (max === BOUNDED_FLAT_CLOSE_MAXIMUM) {
+		short.refuse("max_select_value", D.maxSelect101Elsewhere);
+		return { ok: false };
 	}
 	if (max > 100) {
 		short.refuse("max_select_value", D.maxSelectAbove);

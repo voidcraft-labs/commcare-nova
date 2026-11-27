@@ -641,7 +641,7 @@ describe("CommCare HQ's column formats", () => {
 	});
 
 	it.each([
-		[101, "detail-max-select-value-above-100"],
+		[101, "detail-max-select-value-101-outside-flat-close"],
 		[2_147_483_647, "detail-max-select-value-above-100"],
 		[2_147_483_648, "detail-max-select-value-above-2147483647"],
 	] as const)(

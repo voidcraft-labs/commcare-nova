@@ -79,6 +79,40 @@ def test_each_positive_reader_has_a_held_value_class(manifest):
         assert entry.disposition == "HELD" and entry.value_class
 
 
+def test_the_positive_flat_close_class_uses_the_actual_close_form(manifest):
+    source = b"""<h:html xmlns:h="http://www.w3.org/1999/xhtml" xmlns="http://www.w3.org/2002/xforms">
+    <h:head><model><instance><data xmlns="urn:test"><done/></data></instance>
+    <bind nodeset="/data/done" calculate="'yes'"/></model></h:head><h:body/></h:html>"""
+    def holds(maximum=101, *, mode="always", form_source=source, web_apps=True):
+        app = _with_forms({
+            "doc_type": "Application",
+            "cloudcare_enabled": web_apps,
+            "modules": [{
+                "doc_type": "Module",
+                "case_type": "patient",
+                "case_details": {"doc_type": "DetailPair", "short": {
+                    "doc_type": "Detail",
+                    "multi_select": True,
+                    "max_select_value": maximum,
+                }},
+                "forms": [{
+                    "doc_type": "Form", "unique_id": "close", "requires": "case",
+                    "actions": {"close_case": {"condition": {"type": mode}}},
+                }],
+            }],
+        }, close=form_source)
+        found = manifest_usage.Uses()
+        manifest_usage.app_json_uses(app, manifest, "app.json", found)
+        use, = [use for use in found.uses if use.key == "schema:Detail.max_select_value"]
+        return classes.bounded_flat_close_maximum(use, manifest)
+
+    assert holds() is True
+    assert holds(102) is False
+    assert holds(mode="if") is False
+    assert holds(web_apps=False) is False
+    assert holds(form_source=source.replace(b"'yes'", b"../record")) is False
+
+
 def test_a_configured_project_search_uses_an_endpoint_datum_and_owns_its_parameter_row(manifest):
     def source(endpoint, name):
         return {

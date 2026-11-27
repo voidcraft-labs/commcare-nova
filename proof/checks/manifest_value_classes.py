@@ -13054,12 +13054,7 @@ def bounded_flat_close_maximum(use, manifest):
 
 def max_select_value_above_100(use, manifest):
     value = _basic_multi_select_maximum(use)
-    if value is None or not 100 < value <= 2_147_483_647:
-        return value if value is None else False
-    if value != 101:
-        return True
-    supported = bounded_flat_close_maximum(use, manifest)
-    return None if supported is None else not supported
+    return value if value is None else 101 < value <= 2_147_483_647
 
 
 def multi_select_maximum_exceeds_java_int(use, manifest):
@@ -14124,7 +14119,6 @@ VALUE_CLASSES = {
     "menus-and-case-lists/lookup-display-results-lookup-field-header-lookup-field-template": (
         lookup_with_result_column
     ),
-    "menus-and-case-lists/detail-max-select-value-for-flat-close": bounded_flat_close_maximum,
     "menus-and-case-lists/detail-max-select-value-above-100": max_select_value_above_100,
     "menus-and-case-lists/detail-max-select-value-above-2147483647": multi_select_maximum_exceeds_java_int,
     "menus-and-case-lists/case-tile-group-identifier-starts-with-a-hyphen": tile_group_index_starts_with_hyphen,
@@ -14146,6 +14140,7 @@ VALUE_CLASSES = {
 # A positive class may need an observation beyond the use at its own source.
 # It grants HELD only when that observation establishes the supported class.
 POSITIVE_VALUE_CLASSES = {
+    "menus-and-case-lists/detail-max-select-value-for-flat-close": bounded_flat_close_maximum,
     "case-search/address-picker-on-a-search-screen": ordinary_address_search_marker,
     "case-search/case-search-endpoint-id": configured_search_endpoint,
     "case-search/default-filter-orders-the-records-the-search-sends": named_search_order,

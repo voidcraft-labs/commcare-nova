@@ -3505,18 +3505,49 @@
 		"gates": []
 	},
 	{
+		"id": "menus-and-case-lists/detail-max-select-value-101-outside-flat-close",
+		"area": "menus-and-case-lists",
+		"section": "Case list and case detail",
+		"subsection": "Detail screens",
+		"item": "`Detail.max_select_value` of 101 outside the bounded Web Apps close",
+		"surfaceKeys": [
+			"parser:SessionDatumParser/instance-datum@max-select-value",
+			"schema:Detail.max_select_value"
+		],
+		"valueClass": "101-outside-web-apps-flat-close",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: `selection.maximum` of 101 outside the bounded Web Apps close",
+		"subject": "case-list-setup",
+		"owner": "case-list-and-detail",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / UNAVAILABLE",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "unavailable"
+			}
+		},
+		"emission": {
+			"cell": "`max_select_value`",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
 		"id": "menus-and-case-lists/detail-max-select-value-above-100",
 		"area": "menus-and-case-lists",
 		"section": "Case list and case detail",
 		"subsection": "Detail screens",
-		"item": "`Detail.max_select_value` from 101 through 2,147,483,647 outside the bounded Web Apps close",
+		"item": "`Detail.max_select_value` from 102 through 2,147,483,647",
 		"surfaceKeys": [
 			"parser:SessionDatumParser/instance-datum@max-select-value",
 			"schema:Detail.max_select_value"
 		],
 		"valueClass": "above-100",
 		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `selection.maximum` from 101 through 2,147,483,647 outside the bounded Web Apps close",
+		"dispositionCell": "**HELD-NEW**: `selection.maximum` from 102 through 2,147,483,647",
 		"subject": "case-list-setup",
 		"owner": "case-list-and-detail",
 		"platforms": {

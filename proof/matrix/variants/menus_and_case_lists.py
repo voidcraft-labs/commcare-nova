@@ -286,6 +286,16 @@ def form_condition_reading_the_case_on_the_first_menu(authoring, app_id):
     )
 
 
+def limit_101_outside_flat_close(authoring, app_id):
+    """A several-case setting on a list with a regular editable follow-up."""
+    _set_each(
+        authoring,
+        app_id,
+        ("/modules/0/case_details/short/multi_select", True),
+        ("/modules/0/case_details/short/max_select_value", 101),
+    )
+
+
 def multi_select_above_a_hundred(authoring, app_id):
     """Patients' list choosing up to 500 patients."""
     _set_each(
