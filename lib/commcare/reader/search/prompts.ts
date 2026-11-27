@@ -122,6 +122,10 @@ export const PROMPT_CLAIMS = defineClaims("search.prompts", {
 		`${S}prompt-key-matching-two-parent-links-for-a-date`,
 		"schema:CaseSearchProperty.name",
 	),
+	thirdParentDateName: take(
+		`${S}prompt-key-matching-three-parent-links-for-a-date`,
+		"schema:CaseSearchProperty.name",
+	),
 	nestedParentName: take(
 		`${S}prompt-key-matching-two-parent-links`,
 		"schema:CaseSearchProperty.name",
@@ -995,7 +999,8 @@ function parentPathPromptBinding(prompt: JsonCursor):
 			readonly nameClaim:
 				| (typeof PARENT_PROMPT_CLAIMS)[number]
 				| typeof P.parentDateName
-				| typeof P.nestedParentDateName;
+				| typeof P.nestedParentDateName
+				| typeof P.thirdParentDateName;
 	  }
 	| undefined {
 	const key = prompt.peek("name");
@@ -1005,7 +1010,9 @@ function parentPathPromptBinding(prompt: JsonCursor):
 	const widget = prompt.peek("input_");
 	const nameClaim =
 		widget === "date"
-			? [P.parentDateName, P.nestedParentDateName][parts.length - 1]
+			? [P.parentDateName, P.nestedParentDateName, P.thirdParentDateName][
+					parts.length - 1
+				]
 			: !widget
 				? PARENT_PROMPT_CLAIMS[parts.length - 1]
 				: undefined;

@@ -8013,7 +8013,7 @@ def _held_new():
         ),
         "case-search/prompt-key-outside-nova-s-name-grammar": (
             refused("app", search(name="parent/dob"), "schema:CaseSearchProperty.name", f"{prompts}/name"),
-            refused("app", search(name="parent/parent/parent/village", label={"en": "Village"}, input_="date"),
+            refused("app", search(name="parent/parent/parent/parent/village", label={"en": "Village"}, input_="date"),
                     "schema:CaseSearchProperty.name", f"{prompts}/name"),
             refused("app", search(name="_x"), "schema:CaseSearchProperty.name", f"{prompts}/name"),
             accepted("app", search(name="parent/village", label={"en": "Village"}, input_="date"),
@@ -9266,7 +9266,8 @@ def test_a_reader_places_each_shape_of_its_class(entry_id, manifest):
     ("parent/parent/village", None, "case-search/prompt-key-matching-two-parent-links"),
     ("parent/parent/parent/village", None, "case-search/prompt-key-matching-three-parent-links"),
     ("parent/parent/parent/parent/village", None, None),
-    ("parent/parent/parent/village", "date", None),
+    ("parent/parent/parent/village", "date", "case-search/prompt-key-matching-three-parent-links-for-a-date"),
+    ("parent/parent/parent/parent/village", "date", None),
     ("host/parent/village", None, None),
     ("parent/location_id", None, None),
     ("parent/village", "date", "case-search/prompt-key-matching-a-direct-parent-date"),

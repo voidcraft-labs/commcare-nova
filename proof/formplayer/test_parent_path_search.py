@@ -154,6 +154,7 @@ def test_hq_editor_and_worker_keep_the_parent_path_search_key(
 @pytest.mark.parametrize(("variant", "ancestors"), [
     pytest.param("date-field-named-by-a-parent-path", 1, id="direct"),
     pytest.param("nested-date-field-named-by-a-parent-path", 2, id="nested"),
+    pytest.param("three-link-date-field-named-by-a-parent-path", 3, id="three-links"),
 ])
 def test_hq_saved_parent_date_matches_the_exact_parent_text_in_web_apps(
     hq, core_runner, editor_driver, formplayer_runner, evidence, platform_name, variant, ancestors,
@@ -190,17 +191,21 @@ def test_hq_saved_parent_date_matches_the_exact_parent_text_in_web_apps(
         ("same-day-timestamp", f"{day}T12:30:00Z"),
     )
     households = [record(case_id, "household", value) for case_id, value in target_rows]
-    if ancestors == 2:
-        # The first-hop value is deliberately opposite. A direct-parent
-        # comparison would omit the genuine match and include three decoys.
+
+    def reached_at(target, hop):
+        return f"hop-{hop}-{target}" if hop else target
+
+    # Give each earlier hop the opposite date so an incomplete traversal
+    # cannot pass by matching the same value sooner in the chain.
+    for hop in range(1, ancestors):
         households.extend(
-            record(f"middle-{case_id}", "household", earlier if value == day else day, case_id)
-            for case_id, value in target_rows
+            record(f"hop-{hop}-{case_id}", "household", earlier if value == day else day,
+                   reached_at(case_id, hop - 1))
+            for case_id, value in (*target_rows, ("missing-parent", ""))
         )
-        households.append(record("middle-missing-parent", "household", day, "missing-parent"))
 
     def reached(target):
-        return f"middle-{target}" if ancestors == 2 else target
+        return reached_at(target, ancestors - 1)
 
     database = casedata.CaseDatabase(casedata.USER_ID, casedata.USERNAME, (), (
         *households,
@@ -210,7 +215,7 @@ def test_hq_saved_parent_date_matches_the_exact_parent_text_in_web_apps(
         record("timestamp-parent-result", "client", day, reached("same-day-timestamp")),
         record("dangling-parent-result", "client", day, reached("missing-parent")),
         record("unlinked-result", "client", day),
-        *((record("direct-only-result", "client", day, "exact-parent"),) if ancestors == 2 else ()),
+        *((record("direct-only-result", "client", day, "exact-parent"),) if ancestors > 1 else ()),
     ))
     configuration = Configuration(
         flags={"CASE_SEARCH_ADVANCED", "CASE_SEARCH_RELATED_LOOKUPS", "FOLLOWUP_FORMS_AS_CASE_LIST_FORM",
