@@ -7699,6 +7699,12 @@ def lookup_with_case_property_result(use, manifest):
         return False
     template = detail.get("lookup_field_template")
     parsed = expression_tree(template) if isinstance(template, str) else None
+    string = _call_of(parsed, "string", 1)
+    concat = _call_of(parsed, "concat", 2)
+    if string is not None:
+        parsed = string[0]
+    elif concat is not None and concat[1] == ["text", ""]:
+        parsed = concat[0]
     if not parsed or parsed[:2] != ["path", "relative"] or parsed[3] != [] or len(parsed[4]) != 1:
         return False
     axis, name, predicates = parsed[4][0]

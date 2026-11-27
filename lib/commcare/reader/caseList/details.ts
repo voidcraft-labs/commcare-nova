@@ -733,6 +733,17 @@ function textDeviceLookup(
 			const parsed = sharedFormSyntax(template);
 			let node = parsed.ok ? parsed.node : undefined;
 			while (node?.kind === "group") node = node.value;
+			// Core's detail Text already converts the key to text. These two
+			// wrappers keep the same key, even when its property is absent.
+			if (
+				node?.kind === "call" &&
+				((node.name === "string" && node.args.length === 1) ||
+					(node.name === "concat" &&
+						node.args.length === 2 &&
+						literalText(node.args[1]) === ""))
+			)
+				node = node.args[0];
+			while (node?.kind === "group") node = node.value;
 			if (node?.kind === "axis" && node.axis === "child") node = node.value;
 			const property = caseListLookupResultPropertySchema.safeParse(
 				node?.kind === "name" && !node.wildcard ? node.name : undefined,
@@ -1673,6 +1684,22 @@ function readDetailKeys(
 				lookup.resultProperty === undefined
 					? LOOKUP_CONFIDENCE_KEYS
 					: LOOKUP_PROPERTY_CONFIDENCE_KEYS;
+			const storedResultKey = detail.peek("lookup_field_template");
+			if (
+				heading !== undefined &&
+				lookup.resultProperty !== undefined &&
+				typeof storedResultKey === "string" &&
+				!sameXPathText(
+					storedResultKey,
+					hqXPathText(hqXPath(lookupCaseKeyWire(lookup.resultProperty))),
+				)
+			)
+				sameState(
+					ctx,
+					confidenceKeys.lookup_field_template.entry,
+					`${detail.pointer}/lookup_field_template`,
+					"list-settings-respelled",
+				);
 			noteRespelled(
 				ctx,
 				confidenceKeys.lookup_field_header.entry,

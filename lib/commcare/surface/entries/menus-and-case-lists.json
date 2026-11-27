@@ -9897,7 +9897,7 @@
 		],
 		"valueClass": "named-result-column-keyed-by-a-case-text-property-on-a-plain-list",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: Android shows the returned confidence on each eligible row with the matching case property value.",
+		"dispositionCell": "**HELD**: Android shows the returned confidence on each eligible row with the matching case property value. A string conversion or empty suffix leaves the same key.",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",

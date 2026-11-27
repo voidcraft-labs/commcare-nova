@@ -12642,6 +12642,22 @@
 		]
 	},
 	{
+		"id": "hq-case-lists/fixed-text-callout-wrapped-property-confidence",
+		"base": "hq-case-lists",
+		"entry": "menus-and-case-lists/lookup-case-property-confidence",
+		"change": {
+			"op": "named",
+			"name": "fixed_text_callout_with_wrapped_property_confidence"
+		},
+		"holds": [
+			{
+				"key": ["module", { "$menu": 0 }],
+				"pointer": "/caseListConfig/deviceLookup/resultProperty",
+				"value": "scan_id"
+			}
+		]
+	},
+	{
 		"id": "hq-case-lists/named-callout",
 		"base": "hq-case-lists",
 		"entry": "menus-and-case-lists/lookup-extra-relative-without-case-context",
