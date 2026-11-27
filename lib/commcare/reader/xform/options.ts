@@ -245,7 +245,7 @@ function positionOfNumber(predicate: FormSyntax): boolean {
 	);
 }
 
-/** Core truncates a bare numeric predicate and saturates to a Java int
+/** Core truncates a numeric literal predicate and saturates to a Java int
  * before comparing it with the one-based row counter of a declared fixture. */
 function lookupPredicateText(
 	nodeset: string,
@@ -253,14 +253,16 @@ function lookupPredicateText(
 	declared: boolean,
 ): string {
 	const text = nodeset.slice(predicate.from, predicate.to);
+	let value = predicate;
+	while (value.kind === "group") value = value.value;
 	if (
 		!declared ||
-		predicate.kind !== "number" ||
-		!Number.isFinite(predicate.value) ||
-		predicate.value < 0
+		value.kind !== "number" ||
+		!Number.isFinite(value.value) ||
+		value.value < 0
 	)
 		return text;
-	return `position() = ${Math.min(Math.trunc(predicate.value), 2_147_483_647)}`;
+	return `position() = ${Math.min(Math.trunc(value.value), 2_147_483_647)}`;
 }
 
 /** A ref that is one name step: the column's or the property's name. */

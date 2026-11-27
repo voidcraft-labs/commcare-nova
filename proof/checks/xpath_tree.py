@@ -273,7 +273,11 @@ def fixture_itemset_number(text, instances):
         return None
     source, (_, number) = shape
     tokens = _xpath.tokens(text)
-    if isfinite(number) and number >= 0 and [one.kind for one in tokens[-3:]] == ["LBRACK", "NUM", "RBRACK"]:
+    start = max((i for i, token in enumerate(tokens) if token.kind == "LBRACK"), default=-1)
+    kinds = [token.kind for token in tokens[start + 1:-1]]
+    pivot = len(kinds) // 2
+    literal = kinds == ["LPAREN"] * pivot + ["NUM"] + ["RPAREN"] * pivot
+    if isfinite(number) and number >= 0 and start >= 0 and tokens[-1].kind == "RBRACK" and literal:
         return source, number, min(int(number), 2_147_483_647)
     return source, number, None
 
