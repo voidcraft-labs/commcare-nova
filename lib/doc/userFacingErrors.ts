@@ -713,6 +713,11 @@ const PLATFORM_BUILDER_COPY = {
 			`${subject} opens another app to answer the question. This needs Android.`,
 		alternative: "let the worker enter the answer directly",
 	},
+	"basic-write-name-requires-android": {
+		lead: (subject) =>
+			`${subject} keeps an accented case property. Web Apps can't open the form that saves it.`,
+		alternative: "remove the accented save and property definition",
+	},
 	"advanced-index-name-requires-android": {
 		lead: (subject) =>
 			`${subject} writes a connection name with non-ASCII characters. Web Apps can't open this form.`,

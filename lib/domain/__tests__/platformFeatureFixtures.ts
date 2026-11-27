@@ -1102,6 +1102,33 @@ export const PLATFORM_FEATURE_FIXTURES = {
 			"dataRootName",
 		),
 	},
+	"basic-write-name-requires-android": {
+		with: () =>
+			caseApp({
+				fields: [
+					f({
+						kind: "text",
+						id: "note",
+						caseWrite: { caseType: "patient", property: "estado_é" },
+					}),
+				],
+			}),
+		without: () =>
+			caseApp({
+				fields: [
+					f({
+						kind: "text",
+						id: "note",
+						caseWrite: { caseType: "patient", property: "estado_e" },
+					}),
+				],
+			}),
+		use: slotUse(
+			"basic-write-name-requires-android",
+			{ kind: "app" },
+			"caseTypes",
+		),
+	},
 	"advanced-index-name-requires-android": {
 		with: () => advancedConnectionProducer("Ωprobe"),
 		without: () => advancedConnectionProducer("my.parent"),

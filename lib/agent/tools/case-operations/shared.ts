@@ -17,6 +17,8 @@ import {
 	type CaseOperation,
 	type CaseWriteVia,
 	caseOperationSchema,
+	caseWritePropertyNameSchema,
+	isBasicAndroidCasePropertyName,
 	isReservedCaseOperationWrite,
 	type OwnCaseOperation,
 	orderedCaseOperations,
@@ -265,6 +267,20 @@ const writeInputSchema = z
 const ownWriteInputSchema = z
 	.strictObject({
 		...writeInputShape,
+		property: caseWritePropertyNameSchema
+			.superRefine((value, ctx) => {
+				if (isBasicAndroidCasePropertyName(value)) return;
+				const verdict = caseOperationWritePropertyVerdict(
+					value,
+					new Set(),
+					true,
+				);
+				if (!verdict.ok)
+					ctx.addIssue({ code: "custom", message: verdict.userMessage });
+			})
+			.describe(
+				"The property's exact name. Keep an existing accented name only on the Android follow-up that already saves to it.",
+			),
 		via: caseWriteViaInputSchema
 			.optional()
 			.describe(

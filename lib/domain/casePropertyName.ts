@@ -17,14 +17,13 @@ export const MAX_AUTHORED_CASE_PROPERTY_NAME_LENGTH = 255;
 /** The first supported class for a direct Basic write on Android. HQ's
  * property validator and XML builder accept these exact Latin-1 letters.
  * The pinned Android parser must also accept every unit of the name. */
-const BASIC_ANDROID_PROPERTY_PATTERN =
-	/^[A-Za-z][A-Za-z0-9_À-ÖØ-öø-ÿ-]*(?![\s\S])/u;
+const BASIC_ANDROID_PROPERTY_PATTERN = /^[A-Za-z][A-Za-z0-9_À-ÖØ-öø-ÿ-]*$/u;
 
 export function isBasicAndroidCasePropertyName(name: string): boolean {
 	return (
 		name.length <= MAX_AUTHORED_CASE_PROPERTY_NAME_LENGTH &&
 		/[À-ÖØ-öø-ÿ]/u.test(name) &&
-		BASIC_ANDROID_PROPERTY_PATTERN.test(name) &&
+		BASIC_ANDROID_PROPERTY_PATTERN.exec(name)?.[0] === name &&
 		isPortableName(name, ["android"])
 	);
 }
@@ -53,20 +52,20 @@ export type AuthoredCasePropertyName = z.infer<
 	typeof authoredCasePropertyNameSchema
 >;
 
-const basicAndroidCasePropertyNameSchema = z
-	.string()
-	.max(MAX_AUTHORED_CASE_PROPERTY_NAME_LENGTH)
-	.regex(BASIC_ANDROID_PROPERTY_PATTERN)
-	.refine(isBasicAndroidCasePropertyName);
-
 /** The storage identity of an existing property, including an Android Basic
  * write. Expression, Search, and Case List readers use the portable leaf. */
-export const storedCasePropertyNameSchema = z.union([
-	readCasePropertyNameSchema,
-	basicAndroidCasePropertyNameSchema,
-]);
+export const storedCasePropertyNameSchema = z
+	.string()
+	.min(1)
+	.regex(BASIC_ANDROID_PROPERTY_PATTERN)
+	.refine(
+		(name) =>
+			readCasePropertyNameSchema.safeParse(name).success ||
+			isBasicAndroidCasePropertyName(name),
+		"Use a portable case property name or keep an existing accented Android case property name.",
+	);
 
-export const caseWritePropertyNameSchema = z.union([
-	authoredCasePropertyNameSchema,
-	basicAndroidCasePropertyNameSchema,
-]);
+export const caseWritePropertyNameSchema = storedCasePropertyNameSchema.max(
+	MAX_AUTHORED_CASE_PROPERTY_NAME_LENGTH,
+	`Case property name must be ${MAX_AUTHORED_CASE_PROPERTY_NAME_LENGTH} characters or fewer.`,
+);

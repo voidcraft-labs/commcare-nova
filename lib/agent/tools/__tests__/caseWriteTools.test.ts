@@ -202,6 +202,75 @@ describe("this form's own case on the case change tools", () => {
 		expectAdmittedDoc(h.currentDoc());
 	});
 
+	it("keeps or detaches an existing accented Basic key through the shared tools", async () => {
+		const key = "estado_é";
+		const seed = namedFormFixture(
+			[
+				{
+					name: "Households",
+					caseType: "household",
+					forms: [{ name: "Visit", type: "followup" }],
+				},
+			],
+			{ runsOnlyOn: "android" },
+		);
+		const form = visitForm(seed);
+		const own = ownCase(seed);
+		const note = fieldNamed(seed, "fixture_placeholder");
+		const before = produce(seed, (draft) => {
+			const type = draft.caseTypes?.find(({ name }) => name === "household");
+			type?.properties.push({
+				name: key,
+				label: proseText("Visit state"),
+				data_type: "text",
+			});
+			draft.forms[form.uuid].caseOperations = [
+				{
+					...own,
+					placement: { kind: "basic", slot: "own" },
+					writes: [{ property: key, value: term(formField(note)) }],
+				},
+			];
+		});
+		const h = makeAuthoringHarness({}, before);
+		const address = { caseType: "household", property: key };
+		const write = { property: key, value: "#form/fixture_placeholder" };
+		const edit = (writes: (typeof write)[]) =>
+			h.call("updateCaseOperation", {
+				formUuid: form.uuid,
+				operationUuid: own.uuid,
+				operation: { action: "own", writes },
+			});
+		const removeProperty = () =>
+			h.call("removeCaseProperties", { properties: [address] });
+		const web = () => h.call("updateApp", { runs_only_on: null });
+		expect(await h.call("getCaseProperty", address)).toMatchObject({
+			property: { name: key },
+		});
+		expect(
+			await edit([write, { ...write, property: "portable_note" }]),
+		).toMatchObject({ ok: true });
+		const kept = h.currentDoc();
+		expect(ownCase(kept).writes?.[0]).toEqual(ownCase(before).writes?.[0]);
+		expect(await edit([{ ...write, property: "estado_è" }])).toHaveProperty(
+			"error",
+		);
+		expect(await edit([{ ...write, value: "'fixed text'" }])).toHaveProperty(
+			"error",
+		);
+		expect(await removeProperty()).toHaveProperty("error");
+		expect(await web()).toHaveProperty("error");
+		expect(h.currentDoc()).toEqual(kept);
+		expect(await edit([{ ...write, property: "portable_note" }])).toMatchObject(
+			{ ok: true },
+		);
+		expect(await web()).toHaveProperty("error");
+		expect(await removeProperty()).toMatchObject({ ok: true });
+		expect(await web()).toMatchObject({ ok: true });
+		expect(h.currentDoc().appSettings.runsOnlyOn).toBeUndefined();
+		expectAdmittedDoc(h.currentDoc());
+	});
+
 	it("keeps a retained datetime external ID through the shared editor", async () => {
 		const seed = namedFormFixture(
 			[
