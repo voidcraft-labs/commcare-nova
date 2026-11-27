@@ -2104,6 +2104,52 @@ function explicitTextOrder(
 	};
 }
 
+const fingerprintPath =
+	"instance('commcaresession')/session/data/fingerprintquery";
+const emptyFingerprintGuard = readFormSyntax(
+	`if(count(${fingerprintPath}) = 0, '', string(${fingerprintPath}[1]))`,
+);
+const emptyFingerprintGuardKey =
+	emptyFingerprintGuard.ok && emptyFingerprintGuard.node !== undefined
+		? formSyntaxKey(emptyFingerprintGuard.node)
+		: undefined;
+
+/** The direct Android survey has no producer for this session datum.
+ * Compare the entire guarded shape before reducing it to its fallback. */
+export function missingFingerprintFallback(
+	doc: BlueprintDoc,
+	pending: PendingExpression,
+	env: ExpressionReadEnv,
+	syntax: FormSyntax,
+): Extract<FormSyntax, { kind: "string" }> | undefined {
+	const { ref } = pending;
+	const form = slotForm(doc, ref);
+	if (
+		form === undefined ||
+		form !== env.directFormWithoutSessionSupplier ||
+		ref.entity !== "field" ||
+		ref.slot !== "calculate" ||
+		pending.mode.target !== "xform" ||
+		doc.fields[ref.uuid]?.kind !== "hidden" ||
+		doc.fieldParent[ref.uuid] !== form ||
+		instanceSourcesOf(doc, pending, env)?.get("commcaresession") !==
+			"jr://instance/session"
+	)
+		return undefined;
+	const node = core(syntax);
+	if (node.kind !== "call" || node.name !== "if" || node.args.length !== 3)
+		return undefined;
+	const [test, fallback, present] = node.args;
+	if (fallback.kind !== "string" || fallback.value === "") return undefined;
+	const normalized = {
+		...node,
+		args: [test, { ...fallback, value: "" }, present],
+	};
+	return formSyntaxKey(normalized) === emptyFingerprintGuardKey
+		? fallback
+		: undefined;
+}
+
 /** Bind `pending.text` against `doc` with every fold on but the `withdrawn`
  *  sites. */
 export function bindSlot(
@@ -2174,6 +2220,26 @@ export function bindSlot(
 	}
 	const prepared = preparedSource(doc, pending);
 	if (!prepared.ok) return { kind: "refused", cause: prepared.cause };
+	const fallback = missingFingerprintFallback(
+		doc,
+		pending,
+		env,
+		prepared.syntax,
+	);
+	if (fallback !== undefined)
+		return {
+			kind: "bound",
+			bound: {
+				candidate: {
+					kind: "term",
+					term: { kind: "literal", value: fallback.value },
+				},
+				source: prepared.syntax,
+				comparisonSource: fallback,
+				foldSites: [],
+				spans: new Map(),
+			},
+		};
 	const sites: FoldSites = {
 		used: new Set(),
 		spans: new Map(),

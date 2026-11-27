@@ -10533,8 +10533,8 @@ def _contains_unguarded_lookup_count(tree):
     return any(_contains_unguarded_lookup_count(child) for child in tree)
 
 
-def bare_fingerprint_query_without_supplier(use, manifest):
-    """Core cannot open a standalone Android survey whose Hidden Value directly reads the absent count."""
+def _direct_fingerprint_survey(use, *, guarded):
+    """Source facts for an ordinary Android survey that supplies no companion count."""
     at = use.at
     if not isinstance(at, XmlAt) or at.attribute != "calculate" or _local(at.element) != "bind":
         return False
@@ -10542,7 +10542,20 @@ def bare_fingerprint_query_without_supplier(use, manifest):
     if text is None or not isinstance(document, Form) or document.app_form is None:
         return False
     tree = expression_tree(text)
-    if tree is None or _session_data_read(tree) != "fingerprintquery":
+    if guarded:
+        if not isinstance(tree, list) or tree[:2] != ["call", "if"] or len(tree[2]) != 3:
+            return False
+        test, fallback, present = tree[2]
+        if not isinstance(fallback, list) or fallback[:1] != ["text"] or not fallback[1]:
+            return False
+        path = "instance('commcaresession')/session/data/fingerprintquery"
+        if ["call", "if", [test, ["text", ""], present]] != expression_tree(
+            f"if(count({path}) = 0, '', string({path}[1]))"
+        ):
+            return False
+        if len((at.element.get("nodeset") or "").split("/")) != 3:
+            return False
+    elif tree is None or _session_data_read(tree) != "fingerprintquery":
         return False
     if document.node(at.element.get("nodeset")) is None or _bind_controls(document, at.element):
         return False
@@ -10568,6 +10581,16 @@ def bare_fingerprint_query_without_supplier(use, manifest):
         "form_links", "arbitrary_datums", "function_datum_endpoints",
     ))
 
+
+
+def bare_fingerprint_query_without_supplier(use, manifest):
+    """A direct read prevents the form from opening when the datum is absent."""
+    return _direct_fingerprint_survey(use, guarded=False)
+
+
+def guarded_fingerprint_query_without_supplier(use, manifest):
+    """A guarded read in the same topology always yields its literal fallback."""
+    return _direct_fingerprint_survey(use, guarded=True)
 
 def guarded_lookup_count_in_one_frame(use, manifest):
     """Positive evidence for a guarded count and its one built lookup frame."""
@@ -14991,5 +15014,6 @@ POSITIVE_VALUE_CLASSES = {
     "case-search/default-filter-orders-the-records-the-search-sends": named_search_order,
     "case-search/default-filter-resets-order-with-index-fallback": default_filter_index_fallback,
     "expressions-and-data/companion-lookup-count": guarded_lookup_count_in_one_frame,
+    "expressions-and-data/guarded-fingerprint-query-without-a-supplier": guarded_fingerprint_query_without_supplier,
     "questions/android-app-callout-input-appearance-intent-id-bind-type-intent": held_android_app_payload,
 }

@@ -253,6 +253,25 @@
 		"gates": []
 	},
 	{
+		"id": "expressions-and-data/guarded-fingerprint-query-without-a-supplier",
+		"area": "expressions-and-data",
+		"section": "Secondary instances",
+		"item": "A root Hidden Value in a direct Android survey keeps its text fallback when the absent lookup count is checked before reading its first value",
+		"surfaceKeys": ["session-path:session/data/fingerprintquery"],
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the survey always supplies the same fallback text. Nova saves that text as the calculation.",
+		"valueClass": "guarded-fingerprint-query-without-a-supplier",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "UNAVAILABLE / RUNS",
+			"webApps": { "reading": "unavailable" },
+			"android": { "reading": "runs" }
+		},
+		"emission": { "cell": "the fallback literal only", "markers": [] },
+		"gates": []
+	},
+	{
 		"id": "expressions-and-data/session-data-fingerprintquery",
 		"area": "expressions-and-data",
 		"section": "Secondary instances",
