@@ -35,6 +35,7 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/components/shadcn/select";
+import { deepEqual } from "@/lib/doc/deepEqual";
 import { useAppSettings } from "@/lib/doc/hooks/useAppSettings";
 import { useModule } from "@/lib/doc/hooks/useEntity";
 import type { Column } from "@/lib/domain";
@@ -98,7 +99,10 @@ export function CalculatedColumnCard({
 	const setHeader = (header: string) => onChange({ ...value, header });
 	const { inlineResultProperty: _inlineResultProperty, ...ordinary } = value;
 	const setExpression = (expression: Expression) =>
-		onChange({ ...ordinary, expression });
+		onChange({
+			...(deepEqual(expression, value.expression) ? value : ordinary),
+			expression,
+		});
 	const { showAs, texts, ...plain } = ordinary;
 	const used = new Set<string>();
 	walkExpressionNodes(value.expression, (node) => {
