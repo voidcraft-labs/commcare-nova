@@ -14713,6 +14713,7 @@ VALUE_CLASSES = {
     "menus-and-case-lists/lookup-display-results-lookup-field-header-lookup-field-template": (
         lookup_with_result_column
     ),
+    "menus-and-case-lists/detail-auto-select-true-on-a-single-select-basic-list": auto_select_on_a_single_basic_list,
     "menus-and-case-lists/detail-max-select-value-above-100": max_select_value_above_100,
     "menus-and-case-lists/detail-max-select-value-above-2147483647": multi_select_maximum_exceeds_java_int,
     "menus-and-case-lists/case-tile-group-identifier-starts-with-a-hyphen": tile_group_index_starts_with_hyphen,
@@ -14736,7 +14737,6 @@ VALUE_CLASSES = {
 # A positive class may need an observation beyond the use at its own source.
 # It grants HELD only when that observation establishes the supported class.
 POSITIVE_VALUE_CLASSES = {
-    "menus-and-case-lists/detail-auto-select-true-on-a-single-select-basic-list": auto_select_on_a_single_basic_list,
     "menus-and-case-lists/detail-max-select-value-for-flat-close": bounded_flat_close_maximum,
     "case-search/address-picker-on-a-search-screen": ordinary_address_search_marker,
     "case-search/case-search-endpoint-id": configured_search_endpoint,
