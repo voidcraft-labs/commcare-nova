@@ -1,9 +1,36 @@
 import { menuEmittedAdvanced } from "./advancedEntryDatums";
 import type { BlueprintDoc } from "./blueprint";
 import { BOUNDED_FLAT_CLOSE_MAXIMUM } from "./caseSelectionLimits";
+import type { Expression } from "./expression/types";
 import { effectivePostSubmit } from "./postSubmit";
 import { expressionSlotValues } from "./referenceSlots";
 import type { Uuid } from "./uuid";
+
+/** One plain Text answer can make another answer required without reading a selected record. */
+function localRequiredCondition(
+	doc: BlueprintDoc,
+	form: Uuid,
+	field: Uuid,
+	expression: Expression,
+): boolean {
+	if (expression.kind === "match-all") return true;
+	if (expression.kind === "term")
+		return expression.term.kind === "literal" && expression.term.value === true;
+	if (expression.kind !== "eq") return false;
+	const { left, right } = expression;
+	return (
+		left.kind === "term" &&
+		left.term.kind === "field" &&
+		left.term.uuid !== field &&
+		left.term.filters === undefined &&
+		left.term.role === undefined &&
+		doc.fieldParent[left.term.uuid] === form &&
+		doc.fields[left.term.uuid]?.kind === "text" &&
+		right.kind === "term" &&
+		right.term.kind === "literal" &&
+		typeof right.term.value === "string"
+	);
+}
 
 /** The bounded opening cannot serve an expression or operation that needs
  * records beyond the selection. Keep the initial profile intentionally flat. */
@@ -84,12 +111,7 @@ export function boundedFlatSelectionForm(
 			slots.some(
 				({ ref, expression }) =>
 					ref.slot !== "required" ||
-					!(
-						expression.kind === "match-all" ||
-						(expression.kind === "term" &&
-							expression.term.kind === "literal" &&
-							expression.term.value === true)
-					),
+					!localRequiredCondition(doc, form, uuid, expression),
 			) ||
 			field.addressLookup ||
 			field.androidApp ||

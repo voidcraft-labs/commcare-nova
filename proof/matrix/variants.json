@@ -12100,6 +12100,28 @@
 	{
 		"id": "hq-bounded-flat-close/large-selection-with-conditionally-required-text",
 		"base": "hq-bounded-flat-close",
+		"entry": "menus-and-case-lists/detail-max-select-value-for-flat-followup",
+		"change": {
+			"op": "named",
+			"name": "limit_101_with_conditionally_required_text"
+		},
+		"holds": [
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["recommendation"]
+				],
+				"pointer": "/required/kind",
+				"value": "eq"
+			}
+		]
+	},
+	{
+		"id": "hq-bounded-flat-close/large-selection-with-conditional-visibility",
+		"base": "hq-bounded-flat-close",
 		"entry": "menus-and-case-lists/detail-max-select-value-101-outside-flat-close",
 		"standing": "not-yet",
 		"place": {
@@ -12109,7 +12131,7 @@
 		},
 		"change": {
 			"op": "named",
-			"name": "limit_101_with_conditionally_required_text"
+			"name": "limit_101_with_conditional_visibility"
 		}
 	},
 	{

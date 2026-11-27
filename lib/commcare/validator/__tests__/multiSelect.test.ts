@@ -290,9 +290,17 @@ describe("multi-select absolute validation", () => {
 								name: "Close selected cases",
 								type,
 								postSubmit: "app_home",
-								fields: [
-									f({ kind: "hidden", id: "ready", calculate: "'yes'" }),
-								],
+								fields:
+									type === "close"
+										? [f({ kind: "hidden", id: "ready", calculate: "'yes'" })]
+										: [
+												f({ kind: "text", id: "outcome" }),
+												f({
+													kind: "text",
+													id: "note",
+													required: "#form/outcome = 'followup'",
+												}),
+											],
 							},
 						],
 					},
