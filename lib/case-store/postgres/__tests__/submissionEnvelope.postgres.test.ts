@@ -791,6 +791,23 @@ describe("bounded flat close", () => {
 		caseType: "patient",
 		restoreScope: { ownerIds: [ACTOR] },
 	});
+	function observeSchemaTransfers() {
+		const transfers: ("bounded" | "unguarded")[] = [];
+		const db = (dbHandle.db as Kysely<Database>).withPlugin({
+			transformQuery: ({ node }) => node,
+			async transformResult({ result }) {
+				for (const row of result.rows) {
+					if (row.schema !== undefined && row.schema !== null)
+						transfers.push(
+							row._nova_within_budget === true ? "bounded" : "unguarded",
+						);
+				}
+				return result;
+			},
+		});
+		return { store: makeStore(PROJECT_A, ACTOR, ACTOR, db), transfers };
+	}
+
 	async function signedProgram(
 		store: PostgresCaseStore,
 		caseIds = selected,
@@ -885,7 +902,8 @@ describe("bounded flat close", () => {
 			propertyTypes: { patient: { notes: "text" } },
 		});
 		const claimed = { ...args, submissionReceipt: receiptFor(args) };
-		const closed = await submit(store, claimed);
+		const observed = observeSchemaTransfers();
+		const closed = await submit(observed.store, claimed);
 		expect(closed.primaryCaseIds).toEqual(ordered);
 		expect(closed.operations.map(({ caseId }) => caseId)).toEqual(ordered);
 		expect(closed.caseDatabasePatch?.rows).toHaveLength(101);
@@ -895,68 +913,87 @@ describe("bounded flat close", () => {
 		expect(closed.caseDatabasePatch?.indices).toEqual(
 			args.operations?.openingReads?.cases.indices,
 		);
-		expect(await submit(store, claimed)).toEqual(closed);
+		expect(await submit(observed.store, claimed)).toEqual(closed);
+		// The preflight, locked check, and final patch each read the schema
+		// within a bounded transfer. Neither the 101 writes nor replay reload it.
+		expect(observed.transfers).toEqual(["bounded", "bounded", "bounded"]);
 		expect((await patientRow(store, parent))?.status).toBe("open");
 	});
 
-	it("rechecks the exact selected payload after waiting for the case write locks", async () => {
-		const store = makeStore();
-		await seedPatient(store, SESSION_CASE_ID, "Alice");
-		const args = await signedProgram(store, [SESSION_CASE_ID]);
-		const blocker = new Client({ connectionString: dbHandle.uri });
-		let pending: Promise<PromiseSettledResult<unknown>[]> | undefined;
-		const lockScope = `nova:case-relationships:${PROJECT_A}:${APP_ID}`;
-		try {
-			await blocker.connect();
-			await blocker.query("SELECT pg_advisory_lock(hashtextextended($1, 0))", [
-				lockScope,
-			]);
-			pending = Promise.allSettled([submit(store, args)]);
-			await vi.waitFor(async () => {
-				const waiters = await blocker.query<{ count: number }>(`
+	it.each(["case data", "schema metadata"] as const)(
+		"rechecks growing %s after waiting for the case write locks",
+		async (grown) => {
+			const store = makeStore();
+			await seedPatient(store, SESSION_CASE_ID, "Alice");
+			const args = await signedProgram(store, [SESSION_CASE_ID]);
+			const observed = observeSchemaTransfers();
+			const blocker = new Client({ connectionString: dbHandle.uri });
+			let pending: Promise<PromiseSettledResult<unknown>[]> | undefined;
+			const lockScope = `nova:case-relationships:${PROJECT_A}:${APP_ID}`;
+			try {
+				await blocker.connect();
+				await blocker.query(
+					"SELECT pg_advisory_lock(hashtextextended($1, 0))",
+					[lockScope],
+				);
+				pending = Promise.allSettled([submit(observed.store, args)]);
+				await vi.waitFor(async () => {
+					const waiters = await blocker.query<{ count: number }>(`
 					SELECT count(*)::int AS count FROM pg_stat_activity
 					WHERE datname = current_database() AND pg_backend_pid() = ANY(pg_blocking_pids(pid))
 				`);
-				expect(waiters.rows[0]?.count).toBe(1);
-			});
-			await blocker.query(
-				`UPDATE cases SET properties=jsonb_build_object('notes',repeat('Ω',140000))
-				WHERE app_id=$1 AND project_id=$2 AND case_id=$3`,
-				[APP_ID, PROJECT_A, SESSION_CASE_ID],
-			);
-			await blocker.query(
-				"SELECT pg_advisory_unlock(hashtextextended($1, 0))",
-				[lockScope],
-			);
-			expect(await pending).toEqual([
-				{
-					status: "rejected",
-					reason: expect.objectContaining({
-						message: "These records hold too much data to close together.",
-					}),
-				},
-			]);
-		} finally {
-			await blocker.end();
-			await pending;
-		}
-		expect((await patientRow(store, SESSION_CASE_ID))?.status).toBe("open");
-		const receipts =
-			await sql`SELECT 1 FROM form_submission_intents WHERE app_id = ${APP_ID}`.execute(
-				dbHandle.db,
-			);
-		expect(receipts.rows).toEqual([]);
-		await expect(
-			store.readFlatCloseSelection(request([SESSION_CASE_ID])),
-		).rejects.toThrow("too much data");
-		await sql`UPDATE cases SET properties = jsonb_build_object('notes', repeat('Ω', 300000))
-			WHERE app_id = ${APP_ID} AND project_id = ${PROJECT_A} AND case_id = ${SESSION_CASE_ID}`.execute(
-			dbHandle.db,
-		);
-		await expect(
-			store.readFlatCloseSelection(request([SESSION_CASE_ID])),
-		).rejects.toThrow("too much data");
-	});
+					expect(waiters.rows[0]?.count).toBe(1);
+				});
+				if (grown === "case data")
+					await blocker.query(
+						`UPDATE cases SET properties=jsonb_build_object('notes',repeat('Ω',140000))
+					WHERE app_id=$1 AND project_id=$2 AND case_id=$3`,
+						[APP_ID, PROJECT_A, SESSION_CASE_ID],
+					);
+				else
+					await blocker.query(
+						`UPDATE case_type_schemas SET schema = schema || jsonb_build_object('description',repeat('Ω',300000))
+					WHERE app_id=$1 AND case_type='patient'`,
+						[APP_ID],
+					);
+				await blocker.query(
+					"SELECT pg_advisory_unlock(hashtextextended($1, 0))",
+					[lockScope],
+				);
+				expect(await pending).toEqual([
+					{
+						status: "rejected",
+						reason: expect.objectContaining({
+							message: "These records hold too much data to close together.",
+						}),
+					},
+				]);
+			} finally {
+				await blocker.end();
+				await pending;
+			}
+			expect((await patientRow(store, SESSION_CASE_ID))?.status).toBe("open");
+			const receipts =
+				await sql`SELECT 1 FROM form_submission_intents WHERE app_id = ${APP_ID}`.execute(
+					dbHandle.db,
+				);
+			expect(receipts.rows).toEqual([]);
+			if (grown === "schema metadata")
+				expect(observed.transfers).toEqual(["bounded"]);
+			await expect(
+				store.readFlatCloseSelection(request([SESSION_CASE_ID])),
+			).rejects.toThrow("too much data");
+			if (grown === "case data") {
+				await sql`UPDATE cases SET properties = jsonb_build_object('notes', repeat('Ω', 300000))
+				WHERE app_id = ${APP_ID} AND project_id = ${PROJECT_A} AND case_id = ${SESSION_CASE_ID}`.execute(
+					dbHandle.db,
+				);
+				await expect(
+					store.readFlatCloseSelection(request([SESSION_CASE_ID])),
+				).rejects.toThrow("too much data");
+			}
+		},
+	);
 });
 
 describe("ordered selected-case batches", () => {

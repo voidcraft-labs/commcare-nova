@@ -714,6 +714,25 @@ export class PostgresCaseStore implements CaseStore {
 		return validators;
 	}
 
+	/** A flat close does not change case properties. Hold the same active
+	 * schema row as the validator, without transferring its data before the
+	 * locked flat-close budget checks it. */
+	private async lockFlatCloseCaseType(
+		trx: Transaction<Database>,
+		appId: string,
+		caseType: string,
+	): Promise<void> {
+		const locked = await trx
+			.selectFrom("case_type_schemas")
+			.select("case_type")
+			.where("app_id", "=", appId)
+			.where("case_type", "=", caseType)
+			.where("is_active", "=", true)
+			.forShare()
+			.executeTakeFirst();
+		if (locked === undefined) throw new SchemaNotSyncedError(appId, caseType);
+	}
+
 	/**
 	 * The bound Project id for a tenant-scoped read/write. Throws if
 	 * reached on a schema-only store (`withSchemaContext`, `projectId =
@@ -2818,11 +2837,14 @@ export class PostgresCaseStore implements CaseStore {
 			if (prepared.flatClose)
 				await this.checkFlatCloseSelection(trx, prepared.flatClose);
 			await this.lockRelationshipWrites(trx, args.appId);
-			await this.lockValidators(trx, args.appId, submissionCaseTypes(args));
+			const flatCloseCaseType = prepared.flatClose?.caseType;
+			if (flatCloseCaseType === undefined)
+				await this.lockValidators(trx, args.appId, submissionCaseTypes(args));
+			else await this.lockFlatCloseCaseType(trx, args.appId, flatCloseCaseType);
 			const { deviceExternalIds, reachedWriteCaseIds, ...effects } =
 				await executeSubmissionEnvelope(
 					trx,
-					this.submissionEnvelopeHost(),
+					this.submissionEnvelopeHost(flatCloseCaseType),
 					args,
 					prepared,
 				);
@@ -2882,7 +2904,9 @@ export class PostgresCaseStore implements CaseStore {
 
 	/** The narrow store internals the envelope executor borrows — see
 	 * `SubmissionEnvelopeHost`. */
-	private submissionEnvelopeHost(): SubmissionEnvelopeHost {
+	private submissionEnvelopeHost(
+		lockedFlatCloseCaseType?: string,
+	): SubmissionEnvelopeHost {
 		return {
 			projectId: this.requireProjectId(),
 			// The WORKER, not the member: a submission's `acting-user` and its
@@ -2923,7 +2947,8 @@ export class PostgresCaseStore implements CaseStore {
 				}),
 			updateCase: (trx, a) => this.updateInTransaction(trx, a),
 			checkFlatCloseSelection: (trx, a) => this.checkFlatCloseSelection(trx, a),
-			closeCase: (trx, a) => this.closeCaseInTransaction(trx, a),
+			closeCase: (trx, a) =>
+				this.closeCaseInTransaction(trx, a, lockedFlatCloseCaseType),
 		};
 	}
 
@@ -3309,17 +3334,20 @@ export class PostgresCaseStore implements CaseStore {
 	private async closeCaseInTransaction(
 		trx: Transaction<Database>,
 		args: { appId: string; caseId: string },
+		lockedFlatCloseCaseType?: string,
 	): Promise<void> {
-		const discovered = await trx
-			.selectFrom("cases as c")
-			.select("c.case_type")
-			.where("c.app_id", "=", args.appId)
-			.where("c.case_id", "=", args.caseId)
-			.where("c.project_id", "=", this.requireProjectId())
-			.executeTakeFirst();
-		if (discovered === undefined) return;
-		await this.getValidator(args.appId, discovered.case_type, trx);
-		await trx
+		if (lockedFlatCloseCaseType === undefined) {
+			const discovered = await trx
+				.selectFrom("cases as c")
+				.select("c.case_type")
+				.where("c.app_id", "=", args.appId)
+				.where("c.case_id", "=", args.caseId)
+				.where("c.project_id", "=", this.requireProjectId())
+				.executeTakeFirst();
+			if (discovered === undefined) return;
+			await this.getValidator(args.appId, discovered.case_type, trx);
+		}
+		const close = trx
 			.updateTable("cases as c")
 			.set({
 				closed_on: sql<Date>`coalesce(c.closed_on, now())`,
@@ -3334,8 +3362,11 @@ export class PostgresCaseStore implements CaseStore {
 					eb("c.closed_on", "is", null),
 					eb("c.status", "is distinct from", "closed"),
 				]),
-			)
-			.execute();
+			);
+		await (lockedFlatCloseCaseType === undefined
+			? close
+			: close.where("c.case_type", "=", lockedFlatCloseCaseType)
+		).execute();
 	}
 
 	async claimCases(args: {
