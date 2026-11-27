@@ -1748,6 +1748,10 @@ def test_legacy_search_group_wording_requires_the_exact_source_pair_and_owning_r
 
     paired = compare(a, b)
     assert held(paired) == [f"/translations/en/{old}", f"/translations/en/{new}"]
+    duplicate = compare(app("g", old, extra={new: wording}), b)
+    assert held(duplicate) == [f"/translations/en/{old}"]
+    assert not held(duplicate, {change: places[::2]})
+    assert not held([row for row in duplicate if not row.at.endswith("/group_key")])
     sibling_old = "search_property.m0.unrelated"
     sibling_new = "search_property.m0.group_header_42"
     with_siblings = compare(

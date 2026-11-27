@@ -13,6 +13,7 @@ class Move:
     row: str
     old: str
     new: str
+    duplicate: tuple[str, str] | None = None
 
     def locale(self, key):
         return f"search_property.m{self.menu}.{key}"
@@ -47,14 +48,17 @@ def source_sites(document, records, configuration):
         observations.answer_json(read["source"]) if read and read["source"].get("status") == 200 else None
         for read in (before, after)
     ]
+    duplicates = {}
     if all(isinstance(app, dict) for app in apps):
         pairs = {}
-        for menu, row, language, old, new in source.preserved_search_group_wording(*apps):
+        for menu, row, language, old, new, duplicate in source.preserved_search_group_wording(*apps):
             if (menu, row) in owners:
                 pairs.setdefault((menu, row, old, new), set()).add(language)
+                if duplicate is not None:
+                    duplicates[menu, row] = (language, duplicate)
         for (menu, row, old, new), languages in pairs.items():
             owners[menu, row] = (old, new, *sorted(languages))
-    return changes.Sites(search_groups=owners)
+    return changes.Sites(search_groups=owners, search_group_duplicates=duplicates)
 
 
 def _moves(places, sites):
@@ -71,7 +75,8 @@ def _moves(places, sites):
             continue
         prefix = f"search_property.m{menu}."
         if old.startswith(prefix) and new == f"{prefix}group_header_{row}":
-            yield Move(menu, row, old[len(prefix):], new[len(prefix):])
+            yield Move(menu, row, old[len(prefix):], new[len(prefix):],
+                       sites.search_group_duplicates.get((menu, row)))
 
 
 def _changed(row, before, after):
@@ -147,10 +152,19 @@ def _build(difference, rows, sites, move):
         return False
     locale_rows = [row for row in rows if row.artifact == difference.artifact]
     old, new = f"/{move.locale(move.old)}", f"/{move.locale(move.new)}"
-    if not _same_text(locale_rows, old, new):
-        return False
+    paired = _same_text(locale_rows, old, new)
     if difference.at in (old, new):
-        return difference.kind == ("removed" if difference.at == old else "added")
+        if paired:
+            return difference.kind == ("removed" if difference.at == old else "added")
+        language = artifact.split(":", 1)[1]
+        return (
+            move.duplicate is not None and language in (move.duplicate[0], "default")
+            and difference.at == old and difference.kind == "removed"
+            and difference.before == move.duplicate[1] and difference.after is None
+            and not any(row.at == new for row in locale_rows)
+        )
+    if not paired and move.duplicate is None:
+        return False
     old, new = f"{old}.hint", f"{new}.hint"
     return (
         difference.at in (old, new)

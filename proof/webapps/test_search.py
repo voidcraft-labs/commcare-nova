@@ -1059,7 +1059,10 @@ def test_web_apps_shows_the_uploaded_search_group_heading_after_hq_save(
         assert run.page_errors == []
 
 
-@pytest.mark.parametrize("dormant_heading", [None, "Previously saved words"], ids=["fallback", "dormant-override"])
+@pytest.mark.parametrize(
+    "dormant_heading", [None, "Previously saved words", "Find a client"],
+    ids=["fallback", "dormant-override", "same-override"],
+)
 def test_canonical_search_group_save_leaves_the_legacy_override_behind(
     hq, formplayer_runner, editor_driver, webapps_documents, evidence, dormant_heading,
 ):
@@ -1068,6 +1071,7 @@ def test_canonical_search_group_save_leaves_the_legacy_override_behind(
     from django.urls import resolve
 
     from proof.checks import changes, source
+    from proof.checks.compare.app_strings import parse_app_strings
     from proof.hq import operations, requests
     from proof.matrix import ops
     from proof.matrix.authoring import Authoring
@@ -1130,6 +1134,9 @@ def test_canonical_search_group_save_leaves_the_legacy_override_behind(
         before = dict(before_app.translations["en"])
         source_before = before_app.to_json()
         assert before[old_key] == old_heading and before.get(current_key) == dormant_heading
+        before_strings = parse_app_strings(before_app.create_app_strings("en"))
+        assert before_strings[old_key] == old_heading
+        assert before_strings.get(current_key) == dormant_heading
         original = worker_search(project, "legacy-search-heading")
 
         # Use the actual saved Case List request as the starting point.
@@ -1161,8 +1168,8 @@ def test_canonical_search_group_save_leaves_the_legacy_override_behind(
         saved_heading = worker_search(project, "canonical-search-heading")
         migrated_heading = None
         rekey_differences = []
-        if dormant_heading is None:
-            # The paired source rewrite Nova emits for a unique heading.
+        if dormant_heading is None or dormant_heading == old_heading:
+            # Keep the live heading's words and remove the old address.
             translations = dict(saved.translations)
             canonical_words = dict(translations["en"])
             canonical_words[current_key] = canonical_words.pop(old_key)
@@ -1171,6 +1178,9 @@ def test_canonical_search_group_save_leaves_the_legacy_override_behind(
             rekeyed = operations.held_app(state, app_id)
             assert dict(rekeyed.translations["en"]) == canonical_words
             assert old_key not in rekeyed.translations["en"]
+            after_strings = parse_app_strings(rekeyed.create_app_strings("en"))
+            assert old_key not in after_strings
+            assert after_strings[current_key] == old_heading
             migrated_heading = worker_search(project, "rekeyed-search-heading")
             register = changes.load()
             capture = {changes.LEGACY_SEARCH_GROUP_WORDING: (
@@ -1182,7 +1192,10 @@ def test_canonical_search_group_save_leaves_the_legacy_override_behind(
             rekey_differences = [
                 row.at for row in source_changes if changes.holders(row, register, capture, siblings=source_changes)
             ]
-            assert rekey_differences == [f"/translations/en/{old_key}", f"/translations/en/{current_key}"]
+            if dormant_heading is None:
+                assert rekey_differences == [f"/translations/en/{old_key}", f"/translations/en/{current_key}"]
+            else:
+                assert rekey_differences == [f"/translations/en/{old_key}"]
 
     evidence("canonical-search-heading", {
         "before": original, "afterStockSave": saved_heading, "afterRekey": migrated_heading, "oldKey": old_key,
@@ -1196,7 +1209,7 @@ def test_canonical_search_group_save_leaves_the_legacy_override_behind(
     assert saved_heading == {
         **expected_query, "headings": [dormant_heading or "Personal details", "Case details"],
     }
-    if dormant_heading is None:
+    if dormant_heading is None or dormant_heading == old_heading:
         assert migrated_heading == original
     else:
         assert migrated_heading is None

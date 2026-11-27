@@ -1314,6 +1314,12 @@
 				"kind": "added"
 			},
 			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/translations/*/identical_search_group_heading",
+				"kind": "removed"
+			},
+			{
 				"check": "proof2",
 				"artifact": "app_strings:*",
 				"path": "/search_property.m*.*",
