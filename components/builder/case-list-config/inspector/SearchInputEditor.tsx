@@ -1338,7 +1338,7 @@ function VisibleSearchInputEditor({
 							disabledReason={
 								parentCandidate !== undefined &&
 								!parentPathSearchSettingsFit(value)
-									? "Use a labeled text field with no starting value, checks or address filling."
+									? "Use a label with no starting value, checks or address filling."
 									: undefined
 							}
 							onChange={(enabled) =>

@@ -25,6 +25,7 @@ import {
 	isVisibleSearchInput,
 	searchAddressReceiverSchema,
 } from "@/lib/domain/modules";
+import { unavailableUses } from "@/lib/domain/platformUses";
 import { searchAddressReceiverCompatibility } from "../../../validator/rules/case-list/searchAddressReceiverCompatibility";
 import { runValidation } from "../../../validator/runner";
 import { DERIVED_WIRE_IDENTITY } from "../../../wireIdentity";
@@ -937,8 +938,38 @@ describe("a plain native parent Search field", () => {
 		);
 	});
 
+	it("keeps a direct parent date as an ordinary exact date prompt when exported", async () => {
+		const { doc } = await documentOf((body) => {
+			promptsOf(body).push({ ...village, input_: "date" });
+		});
+		const mod = doc.modules[doc.moduleOrder[0]];
+		expect(mod.caseListConfig?.searchInputs.at(-1)).toMatchObject({
+			name: "parent_village",
+			kind: "simple",
+			type: "date",
+			matching: "project-space",
+			property: "village",
+			via: { kind: "ancestor", via: [{ identifier: "parent" }] },
+		});
+		const printed = exportedBody({
+			...doc,
+			appSettings: { ...doc.appSettings, runsOnlyOn: "web-apps" },
+		});
+		expect(promptsOf(printed).at(-1)).toMatchObject({
+			name: "parent/village",
+			input_: "date",
+		});
+		expect(promptsOf(printed).at(-1)).not.toHaveProperty("exclude");
+		expect(unavailableUses(doc, ["android"])).toContainEqual(
+			expect.objectContaining({ feature: "search-field-single-date" }),
+		);
+		expect(unavailableUses(doc, ["web-apps"])).not.toContainEqual(
+			expect.objectContaining({ feature: "search-field-single-date" }),
+		);
+	});
+
 	it.each([
-		["parent/village", "date"],
+		["parent/village", "daterange"],
 		["parent/parent/village", "date"],
 		["host/parent/village", undefined],
 		["parent/parent/parent/village", "date"],

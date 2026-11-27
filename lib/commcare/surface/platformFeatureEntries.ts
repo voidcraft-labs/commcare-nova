@@ -65,7 +65,10 @@ export const PLATFORM_FEATURE_ENTRIES = {
 		"menus-and-case-lists/detail-max-select-value-for-flat-close",
 		"expressions-and-data/selected-cases-search-selected-cases-parent-selected-cases-jr",
 	],
-	"search-field-single-date": ["case-search/input-date"],
+	"search-field-single-date": [
+		"case-search/input-date",
+		"case-search/prompt-key-matching-a-direct-parent-date",
+	],
 	"search-field-multiple-choice": [
 		"case-search/input-select-multi-lookup-itemset",
 	],

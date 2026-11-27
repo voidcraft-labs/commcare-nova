@@ -13267,8 +13267,8 @@ def _prompt_slot(use, key):
     return at.owner
 
 
-def _parent_path_text_prompt_key(use, prefix):
-    """A native parent path on a labeled plain text prompt."""
+def _parent_path_prompt_key(use, prefix, widget=None):
+    """An unmodified native prompt on an ordinary related property."""
     prompt = _prompt_slot(use, "name")
     if prompt is None:
         return None
@@ -13295,23 +13295,28 @@ def _parent_path_text_prompt_key(use, prefix):
         isinstance(label, dict) and any(isinstance(text, str) and text.strip() for text in label.values())
         and isinstance(itemset, dict) and not (itemset.keys() - {"doc_type"})
         and isinstance(required, dict) and not required.get("test")
+        and (prompt.get("input_") or None) == widget
         and not any(prompt.get(key) for key in (
-            "hidden", "exclude", "allow_blank_value", "group_key", "input_", "appearance",
+            "hidden", "exclude", "allow_blank_value", "group_key", "appearance",
             "receiver_expression", "default_value", "validations",
         ))
     )
 
 
 def direct_parent_text_prompt_key(use, manifest):
-    return _parent_path_text_prompt_key(use, "parent/")
+    return _parent_path_prompt_key(use, "parent/")
+
+
+def direct_parent_date_prompt_key(use, manifest):
+    return _parent_path_prompt_key(use, "parent/", "date")
 
 
 def two_parent_links_text_prompt_key(use, manifest):
-    return _parent_path_text_prompt_key(use, "parent/parent/")
+    return _parent_path_prompt_key(use, "parent/parent/")
 
 
 def three_parent_links_text_prompt_key(use, manifest):
-    return _parent_path_text_prompt_key(use, "parent/parent/parent/")
+    return _parent_path_prompt_key(use, "parent/parent/parent/")
 
 
 def prompt_key_outside_nova_s_name_grammar(use, manifest):
@@ -13327,6 +13332,7 @@ def prompt_key_outside_nova_s_name_grammar(use, manifest):
     if not isinstance(name, str):
         return None
     if (name in PROMPT_REQUEST_KEYS or direct_parent_text_prompt_key(use, manifest)
+            or direct_parent_date_prompt_key(use, manifest)
             or two_parent_links_text_prompt_key(use, manifest)
             or three_parent_links_text_prompt_key(use, manifest)):
         return False

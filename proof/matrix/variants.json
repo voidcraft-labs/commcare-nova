@@ -40316,13 +40316,7 @@
 	{
 		"id": "hq-search/date-field-named-by-a-parent-path",
 		"base": "hq-search",
-		"entry": "case-search/prompt-key-outside-nova-s-name-grammar",
-		"standing": "not-yet",
-		"place": {
-			"kind": "search",
-			"menu": 0,
-			"name": "Clients"
-		},
+		"entry": "case-search/prompt-key-matching-a-direct-parent-date",
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/0/search_config/properties/1",
@@ -40347,6 +40341,50 @@
 				"is_group": false,
 				"doc_type": "CaseSearchProperty",
 				"input_": "date"
+			}
+		},
+		"holds": [
+			{
+				"key": ["module", { "$menu": 0 }],
+				"pointer": "/caseListConfig/searchInputs/1/name",
+				"value": "parent_village"
+			},
+			{
+				"key": ["module", { "$menu": 0 }],
+				"pointer": "/caseListConfig/searchInputs/1/type",
+				"value": "date"
+			},
+			{
+				"key": ["module", { "$menu": 0 }],
+				"pointer": "/caseListConfig/searchInputs/1/property",
+				"value": "village"
+			},
+			{
+				"key": ["module", { "$menu": 0 }],
+				"pointer": "/caseListConfig/searchInputs/1/matching",
+				"value": "project-space"
+			},
+			{
+				"key": ["module", { "$menu": 0 }],
+				"pointer": "/caseListConfig/searchInputs/1/via",
+				"value": { "kind": "ancestor", "via": [{ "identifier": "parent" }] }
+			}
+		]
+	},
+	{
+		"id": "hq-search/nested-date-field-named-by-a-parent-path",
+		"base": "hq-search",
+		"entry": "case-search/prompt-key-outside-nova-s-name-grammar",
+		"standing": "not-yet",
+		"place": { "kind": "search", "menu": 0, "name": "Clients" },
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/0/search_config/properties/1",
+			"value": {
+				"name": "parent/parent/village",
+				"label": { "en": "Village" },
+				"input_": "date",
+				"doc_type": "CaseSearchProperty"
 			}
 		}
 	},

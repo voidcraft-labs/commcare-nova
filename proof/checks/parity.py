@@ -72,6 +72,7 @@ from proof.checks.manifest_value_classes import (
     basic_accented_update_names,
     HQ_CASE_RESERVED_WORDS,
     case_itemset_survey_readiness,
+    direct_parent_date_prompt_key,
     direct_parent_text_prompt_key,
     extended_open_index_to_first_choice,
     itemset_literal_row_index,
@@ -103,6 +104,7 @@ HELD_REPEATED_WORKER_UPDATE = "questions/a-savetocase-update-of-commcare-user-un
 TWO_PARENT_LINKS_PROMPT = "case-search/prompt-key-matching-two-parent-links"
 PARENT_PROMPT_SHAPES = {
     DIRECT_PARENT_PROMPT: direct_parent_text_prompt_key,
+    "case-search/prompt-key-matching-a-direct-parent-date": direct_parent_date_prompt_key,
     TWO_PARENT_LINKS_PROMPT: two_parent_links_text_prompt_key,
     "case-search/prompt-key-matching-three-parent-links": three_parent_links_text_prompt_key,
 }

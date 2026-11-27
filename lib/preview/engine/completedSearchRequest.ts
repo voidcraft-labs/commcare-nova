@@ -25,6 +25,7 @@ import {
 	splitMultiSelectSearchAnswer,
 	takesMultipleSearchChoices,
 } from "@/lib/domain";
+import { isValidCalendarDate } from "@/lib/domain/calendarDate";
 import {
 	effectiveFilterForEmission,
 	substituteUnansweredSearchInputs,
@@ -141,6 +142,16 @@ export function completedSearchRequest(
 		if ((answer === undefined || answer === "") && blank.length === 0) continue;
 		const parentKey = parentPathSearchRequestKey(input);
 		const key = parentKey ?? input.name;
+		if (
+			parentKey !== undefined &&
+			input.type === "date" &&
+			answer &&
+			!isValidCalendarDate(answer)
+		)
+			throw new CaseSearchUnavailableError({
+				kind: "query-value-invalid",
+				field: input.label,
+			});
 		const target = readSearchFilterTarget(key);
 		if (target === undefined || target.kind === "include-related-records")
 			throw new CaseSearchUnavailableError({
@@ -151,7 +162,7 @@ export function completedSearchRequest(
 			...blank,
 			...(answer === undefined || answer === ""
 				? []
-				: parentKey !== undefined
+				: parentKey !== undefined && input.type === "text"
 					? nativeTextSearchValues(answer)
 					: takesMultipleSearchChoices(input.type)
 						? splitMultiSelectSearchAnswer(answer)

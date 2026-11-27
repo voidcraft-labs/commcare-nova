@@ -211,6 +211,9 @@ export const PLATFORM_CELLS: Readonly<
 		structural("several-cases"),
 	"case-search/is-group-group-key@android": model("search-headings-android"),
 	"case-search/input-date@android": structural("search-field-single-date"),
+	"case-search/prompt-key-matching-a-direct-parent-date@android": structural(
+		"search-field-single-date",
+	),
 	/* Web Apps can't go on from a list that chose its one record before a
 	 * confirmation screen, so the gate keeps that list off Web Apps. */
 	"menus-and-case-lists/auto-select-case-on-an-advanced-module@web-apps":

@@ -110,6 +110,10 @@ export const PROMPT_CLAIMS = defineClaims("search.prompts", {
 		`${S}prompt-key-matching-a-direct-parent-property`,
 		"schema:CaseSearchProperty.name",
 	),
+	parentDateName: take(
+		`${S}prompt-key-matching-a-direct-parent-date`,
+		"schema:CaseSearchProperty.name",
+	),
 	nestedParentName: take(
 		`${S}prompt-key-matching-two-parent-links`,
 		"schema:CaseSearchProperty.name",
@@ -908,14 +912,22 @@ function parentPathPromptBinding(prompt: JsonCursor):
 			readonly key: string;
 			readonly property: string;
 			readonly via: Extract<RelationPath, { kind: "ancestor" }>;
-			readonly nameClaim: (typeof PARENT_PROMPT_CLAIMS)[number];
+			readonly nameClaim:
+				| (typeof PARENT_PROMPT_CLAIMS)[number]
+				| typeof P.parentDateName;
 	  }
 	| undefined {
 	const key = prompt.peek("name");
 	if (typeof key !== "string") return undefined;
 	const parts = key.split("/");
 	const property = parts.pop();
-	const nameClaim = PARENT_PROMPT_CLAIMS[parts.length - 1];
+	const widget = prompt.peek("input_");
+	const nameClaim =
+		widget === "date" && parts.length === 1
+			? P.parentDateName
+			: !widget
+				? PARENT_PROMPT_CLAIMS[parts.length - 1]
+				: undefined;
 	if (
 		!property ||
 		parts.length > MAX_PARENT_PATH_SEARCH_LINKS ||
@@ -938,7 +950,6 @@ function parentPathPromptBinding(prompt: JsonCursor):
 		prompt.peek("exclude") !== true &&
 		prompt.peek("allow_blank_value") !== true &&
 		!prompt.peek("group_key") &&
-		!prompt.peek("input_") &&
 		!prompt.peek("appearance") &&
 		!prompt.peek("receiver_expression") &&
 		!prompt.peek("default_value") &&

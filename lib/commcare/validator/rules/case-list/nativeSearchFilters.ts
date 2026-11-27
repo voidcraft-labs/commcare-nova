@@ -236,7 +236,7 @@ export function nativeSearchFilters(
 					validationError(
 						"CASE_SEARCH_FILTER_INVALID",
 						"module",
-						`Search field "${input.name}" needs a label and a plain text entry to match a parent property.`,
+						`Search field "${input.name}" needs a label and no starting value, checks or address filling to match a parent property.`,
 						{ moduleUuid, moduleName: mod.name },
 						{
 							inputUuid: input.uuid,

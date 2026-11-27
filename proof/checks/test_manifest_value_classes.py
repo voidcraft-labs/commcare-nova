@@ -7938,7 +7938,11 @@ def _held_new():
         ),
         "case-search/prompt-key-outside-nova-s-name-grammar": (
             refused("app", search(name="parent/dob"), "schema:CaseSearchProperty.name", f"{prompts}/name"),
+            refused("app", search(name="parent/parent/village", label={"en": "Village"}, input_="date"),
+                    "schema:CaseSearchProperty.name", f"{prompts}/name"),
             refused("app", search(name="_x"), "schema:CaseSearchProperty.name", f"{prompts}/name"),
+            accepted("app", search(name="parent/village", label={"en": "Village"}, input_="date"),
+                     "schema:CaseSearchProperty.name", f"{prompts}/name"),
             accepted("app", search(name="dob"), "schema:CaseSearchProperty.name", f"{prompts}/name"),
             # Excluded from the search, the prompt names no case property.
             accepted("app", search(name="_x", exclude=True), "schema:CaseSearchProperty.name", f"{prompts}/name"),
@@ -9109,10 +9113,10 @@ def test_a_reader_places_each_shape_of_its_class(entry_id, manifest):
     ("parent/parent/parent/village", "date", None),
     ("host/parent/village", None, None),
     ("parent/location_id", None, None),
-    ("parent/village", "date", None),
+    ("parent/village", "date", "case-search/prompt-key-matching-a-direct-parent-date"),
     ("parent/parent/village", "date", None),
 ])
-def test_retained_search_matches_only_proven_parent_text_paths(manifest, name, widget, held_entry):
+def test_retained_search_matches_only_proven_parent_prompt_paths(manifest, name, widget, held_entry):
     from proof.checks import parity
 
     assert parity.PARENT_PROMPT_SHAPES.keys().isdisjoint(manifest.readers)

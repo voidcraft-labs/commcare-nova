@@ -77,6 +77,30 @@ describe("completedSearchRequest", () => {
 		expect(sent([parent], { parent_village: "#,#" })).toEqual([]);
 	});
 
+	it("keeps a direct parent date as one calendar day on the native path", () => {
+		const parent: SearchInputDef = {
+			uuid: testUuid("parent-village-date"),
+			name: "parent_village",
+			label: "Parent date",
+			kind: "simple",
+			type: "date",
+			property: "village",
+			matching: "project-space",
+			via: { kind: "ancestor", via: [{ identifier: "parent" }] },
+		};
+		expect(sent([parent], { parent_village: "2024-03-10" })).toEqual([
+			["parent/village", ["2024-03-10"]],
+		]);
+		expect(sent([parent], { parent_village: "" })).toEqual([]);
+		expect(() =>
+			sent([parent], { parent_village: "2024-03-10#,#2024-03-11" }),
+		).toThrow(
+			expect.objectContaining({
+				reason: { kind: "query-value-invalid", field: "Parent date" },
+			}),
+		);
+	});
+
 	it("sends the blank before the answer where the box is ticked", () => {
 		expect(
 			sent([village], { village: "Kibera", "village:blank": "true" }),
